@@ -18,7 +18,13 @@ rather than guessing. On the machine that will run it:
   own. Log in once, out of band, before anything else.
 - **Linux or Apple Silicon macOS** for the packaged relay. Intel Macs have
   no published build; on Windows, run the relay inside WSL2. The *client* is
-  a separate matter and ships for Windows, macOS and Linux.
+  a separate matter and ships for Windows, macOS and Linux — its Linux
+  builds need **glibc 2.35 or newer** (Ubuntu 22.04+, Debian 12+), because
+  the app is a compiled binary and glibc is not forward compatible. Below
+  that floor the package installs without complaining and the app then
+  refuses to start, saying `version GLIBC_2.xx not found` only when it is
+  launched from a terminal. The relay has no such floor: its one native
+  module needs nothing newer than glibc 2.34.
 - **`tmux`**, if you want the integrated terminal panel.
 
 ## Installing the relay
