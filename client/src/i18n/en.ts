@@ -330,6 +330,8 @@ export const en: Dictionary = {
       badgeLocal: "local",
       badgeRemote: "remote",
       badgeRevoked: "revoked",
+      badgeUnverified: "unverified",
+      finishSetup: "finish setting up {label}",
       add: {
         title: "Add profile",
         description: "Make sure your Claude session is logged in on the machine hosting the service.",

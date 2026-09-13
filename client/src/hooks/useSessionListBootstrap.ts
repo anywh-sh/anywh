@@ -3,6 +3,7 @@ import { fetchSessions } from "@/lib/relayClient";
 import { resolveConnection } from "@/lib/connectionResolver";
 import { getCachedSessions, setCachedSessions } from "@/lib/sessionListCache";
 import { useProfiles } from "@/hooks/useProfiles";
+import { markProfileVerified } from "@/lib/profiles";
 
 /**
  * Fills in the session list of profiles this device has never synced, once
@@ -47,6 +48,9 @@ export function useSessionListBootstrap(activeProfileId: string): void {
         .then(({ host, port, token }) => fetchSessions(host, port, token))
         .then((sessions) => {
           setCachedSessions(profile.id, sessions);
+          // A whole list came back: the profile is reachable, whatever an
+          // interrupted setup left it marked as.
+          markProfileVerified(profile.id);
         })
         .catch((error: unknown) => {
           // Deliberately quiet beyond the log: a profile that can't be

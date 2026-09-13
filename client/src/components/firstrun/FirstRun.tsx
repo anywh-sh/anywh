@@ -9,6 +9,7 @@ import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { Button } from "@/components/ui/button";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
+import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
 import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/firstRun";
 import { isMacOS } from "@/lib/platform";
@@ -17,6 +18,7 @@ import { addProfile, removeProfile, type Profile } from "@/lib/profiles";
 import {
   completeProfileSetup,
   dismissProfileSetup,
+  resumeProfileSetup,
   retryProfileSetup,
   type SetupState,
 } from "@/lib/profileSetup";
@@ -58,6 +60,7 @@ export function FirstRun() {
   // it just had the reader install is on loopback.
   const [connectHost, setConnectHost] = useState("");
   const setup = useProfileSetup();
+  const profiles = useProfiles();
 
   // Every render, not once: `beginFirstRun` is idempotent, and re-asserting
   // it is what keeps the gate closed if anything ever flips the flag while
@@ -65,6 +68,17 @@ export function FirstRun() {
   useEffect(() => {
     beginFirstRun();
   });
+
+  // The run after one that died between the claim and the verification:
+  // the device's only profile is saved but was never reached, so pick its
+  // setup up where it stopped — the dialog opens on "connecting" with no
+  // click. A no-op inside `resumeProfileSetup` while a request is already
+  // in flight, which is also what makes this safe against the normal flow
+  // (the list becomes [unverified] mid-pipeline too) and against StrictMode.
+  const soleUnverified = profiles.length === 1 && profiles[0].unverified ? profiles[0] : null;
+  useEffect(() => {
+    if (soleUnverified) resumeProfileSetup(soleUnverified);
+  }, [soleUnverified]);
 
   function pick(next: FirstRunScreen): void {
     setConnectHost("");
