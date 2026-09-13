@@ -483,10 +483,6 @@ export const ptBr: Dictionary = {
         reset: "restaurar",
       },
     },
-    language: {
-      title: "Idioma",
-      description: "Vale para o app inteiro, só neste dispositivo.",
-    },
     profile: {
       sections: {
         general: "geral",

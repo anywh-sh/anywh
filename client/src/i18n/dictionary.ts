@@ -111,10 +111,6 @@ export interface Dictionary {
         reset: string;
       };
     };
-    language: {
-      title: string;
-      description: string;
-    };
     profile: {
       sections: {
         general: string;

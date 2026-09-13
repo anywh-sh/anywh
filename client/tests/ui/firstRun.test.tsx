@@ -215,8 +215,8 @@ describe("first run", () => {
     renderApp();
     await screen.findByText(en.firstRun.home.title);
 
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await within(document.body).findByRole("option", { name: "Português (Brasil)" }));
+    await user.click(screen.getByRole("button", { name: "en" }));
+    await user.click(await within(document.body).findByRole("menuitemradio", { name: "Português (Brasil)" }));
 
     await screen.findByText(ptBr.firstRun.home.title);
     expect(screen.queryByText(en.firstRun.home.title)).not.toBeInTheDocument();

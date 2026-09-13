@@ -483,10 +483,6 @@ export const en: Dictionary = {
         reset: "restore",
       },
     },
-    language: {
-      title: "Language",
-      description: "Applies to the whole app, on this device only.",
-    },
     profile: {
       sections: {
         general: "general",

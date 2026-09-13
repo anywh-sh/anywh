@@ -3,8 +3,8 @@ import { ConnectExistingMachine } from "@/components/firstrun/ConnectExistingMac
 import { FirstRunHome } from "@/components/firstrun/FirstRunHome";
 import { ManualInstructions } from "@/components/firstrun/ManualInstructions";
 import { PairByCode } from "@/components/firstrun/PairByCode";
-import { LanguageControl } from "@/components/settings/LanguageControl";
 import { AnywhLogo } from "@/components/shell/AnywhLogo";
+import { LanguageControl } from "@/components/shell/LanguageControl";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { Button } from "@/components/ui/button";
@@ -161,7 +161,7 @@ export function FirstRun() {
       <footer className="flex h-[34px] shrink-0 items-center gap-3 border-t border-border bg-bg-chrome pr-1.5 pl-3.5 font-mono text-[10.5px] text-text-faint">
         <span>{copy.footer.nothingInstalled}</span>
         <div className="flex-1" />
-        <LanguageControl className="w-auto border-transparent text-[10.5px] text-text-faint hover:border-border" />
+        <LanguageControl />
       </footer>
 
       <ProfileSetupDialog
