@@ -46,6 +46,27 @@ curl -fsSL https://anywh.sh/install | sh -s -- --version v0.1.1
 The leading `v` is optional, and the pinned download is checksum-verified
 against that release's own `SHA256SUMS` exactly like the latest one.
 
+To go from a bare machine to a listening relay in one run, let the script
+create the first profile too:
+
+```bash
+curl -fsSL https://anywh.sh/install | sh -s -- --profile-id default --relay-host auto
+```
+
+`--relay-host` is the address other devices reach this machine on; `auto`
+picks the tailnet address if there is one, otherwise the single private LAN
+address, and refuses to guess when there are several. `--profile-label`,
+`--profile-home` and `--mode dev` (touch no systemd, print the run command)
+round it out; `--porcelain` adds machine-readable `ANYWH ...` progress lines
+for a program driving the script — the desktop app's own setup uses it.
+Re-running with the same flags is a no-op for the profile and never
+restarts a running relay.
+
+On macOS the script installs the tree and stops there: it has no launchd
+unit to offer, so the service comes from the Homebrew formula instead
+(`brew install anywh-sh/tap/anywh-relay`), and a profile requested on macOS
+is provisioned in dev mode.
+
 ### From source
 
 Useful when you're changing the relay, not just running it.
