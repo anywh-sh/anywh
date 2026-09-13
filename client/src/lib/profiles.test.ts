@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getProfiles, isBrokeredProfile, isTailnetProfile, removeProfile, setProfiles, syncProfilesForHost, type Profile } from "./profiles";
+import { getProfiles, isBrokeredProfile, isTailnetProfile, markProfileVerified, removeProfile, setProfiles, syncProfilesForHost, type Profile } from "./profiles";
 import type { RemoteProfile } from "@/lib/relay-types";
 
 function remote(overrides: Partial<RemoteProfile> & Pick<RemoteProfile, "id" | "host">): RemoteProfile {
@@ -329,5 +329,37 @@ describe("seeded-ghost migration", () => {
     store([ghost]);
     const fresh = await freshProfilesModule();
     expect(fresh.getProfiles()).toEqual([ghost]);
+  });
+});
+
+describe("unverified", () => {
+  it("survives a host sync that reports the same id — the field-by-field merge would otherwise erase it", () => {
+    // The sync runs every 30 s in the background; a mark it doesn't carry
+    // over is a mark that never gets to trigger anything.
+    const saved: Profile = { id: "paired", label: "Paired", host: "1.2.3.4", relayPort: 8443, unverified: true };
+    setProfiles([saved]);
+
+    syncProfilesForHost("1.2.3.4", [remote({ id: "paired", host: "1.2.3.4", label: "Paired", port: 8443 })]);
+
+    expect(getProfiles().find((p) => p.id === "paired")?.unverified).toBe(true);
+  });
+
+  it("markProfileVerified clears the mark and persists it", () => {
+    setProfiles([{ id: "paired", label: "Paired", host: "1.2.3.4", relayPort: 8443, unverified: true }]);
+
+    markProfileVerified("paired");
+
+    expect(getProfiles()[0].unverified).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem("anywh:profiles") ?? "[]")[0].unverified).toBeUndefined();
+  });
+
+  it("markProfileVerified is a no-op on an already verified profile — the session sync calls it constantly", () => {
+    setProfiles([{ id: "paired", label: "Paired", host: "1.2.3.4", relayPort: 8443 }]);
+    const before = getProfiles();
+
+    markProfileVerified("paired");
+    markProfileVerified("nobody");
+
+    expect(getProfiles()).toBe(before);
   });
 });

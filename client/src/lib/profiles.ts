@@ -67,6 +67,15 @@ export interface Profile {
    * import; absent for a manually configured tailnet profile, which has no
    * control plane to report to. */
   tailnetReportUrl?: string;
+  /** Saved but never proven reachable. Set by `claimAndSaveProfile` — a
+   * profile is written before it is verified — and cleared the first time
+   * a whole `/sessions` list comes back for it: the setup pipeline's own
+   * verification, or the shell's session sync later (`markProfileVerified`).
+   * Survives the host sync's field-by-field merge on purpose
+   * (`syncProfilesForHost`), which would otherwise erase it within 30 s.
+   * Read by `App`'s gate (a sole unverified profile resumes its setup on
+   * launch) and by the badge. */
+  unverified?: boolean;
 }
 
 /** A profile is in tailnet mode iff it can join the tailnet
@@ -216,6 +225,18 @@ export function addProfile(profile: Profile): void {
  * nothing here refuses; the surfaces that offer removal say what removing
  * the only profile means instead (`RevokedProfileBanner`, `DangerZone`).
  * Returns whether anything was actually removed. */
+/** The profile answered: a whole session list came back for it. Clears
+ * `unverified`, persisting the change; a no-op (same array, same objects)
+ * when the flag isn't set, so the hot path — every session sync — never
+ * writes. */
+export function markProfileVerified(id: string): void {
+  const profile = profiles.find((p) => p.id === id);
+  if (!profile?.unverified) return;
+  const verified: Profile = { ...profile };
+  delete verified.unverified;
+  setProfiles(profiles.map((p) => (p.id === id ? verified : p)));
+}
+
 export function removeProfile(id: string): boolean {
   if (!profiles.some((p) => p.id === id)) return false;
   setProfiles(profiles.filter((p) => p.id !== id));
@@ -236,7 +257,8 @@ function profileFieldsEqual(a: Profile, b: Profile): boolean {
     a.tailnetTarget === b.tailnetTarget &&
     a.brokerUrl === b.brokerUrl &&
     a.brokerNodeId === b.brokerNodeId &&
-    a.tailnetReportUrl === b.tailnetReportUrl
+    a.tailnetReportUrl === b.tailnetReportUrl &&
+    a.unverified === b.unverified
   );
 }
 
@@ -306,6 +328,10 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
         brokerUrl: existing?.brokerUrl,
         brokerNodeId: existing?.brokerNodeId,
         tailnetReportUrl: existing?.tailnetReportUrl,
+        // Inherited, not cleared: this response came through *another*
+        // profile's connection and says nothing about whether this one
+        // answers. Only a fetch against the profile itself clears it.
+        unverified: existing?.unverified,
       };
     }),
   ];

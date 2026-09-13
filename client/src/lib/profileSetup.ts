@@ -4,7 +4,7 @@ import { resolveConnection } from "@/lib/connectionResolver";
 import { resolveTailnetTarget } from "@/lib/tailnetBroker";
 import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/tailnetSidecar";
 import { fetchControlProfiles, fetchSessions } from "@/lib/relayClient";
-import type { Profile } from "@/lib/profiles";
+import { findProfile, isTailnetProfile, markProfileVerified, type Profile } from "@/lib/profiles";
 
 /**
  * Drives a new profile from "a join code or code just arrived" to "ready to
@@ -54,6 +54,9 @@ export interface ProfileSetupSnapshot {
   /** Requests waiting behind whichever one `state` describes — the footer's
    * "+N" count. Excludes the one currently running. */
   queuedCount: number;
+  /** `holdProfileSetup` is in effect: whatever is queued waits for the
+   * release, and the UI says so instead of looking stuck. */
+  held: boolean;
 }
 
 /**
@@ -83,38 +86,78 @@ interface QueueItem {
   request: SetupRequest;
 }
 
-// Dedup guard — reserved at enqueue time, before any network call, so the
-// two mounts of a React 18 StrictMode replay (or `getCurrent()` and
-// `onOpenUrl` independently delivering the same cold-launch URL) can never
-// both start redeeming the same single-use join code. Persisted to
-// `localStorage`, not just held in memory: `getCurrent()` (Tauri's
-// deep-link plugin) can hand back the *same* launch URL again on a later
-// cold start of the app, not only within one run (observed live — the
-// setup dialog replayed on a plain app restart for a link that had already
-// redeemed successfully) — an in-memory-only Set would forget that and
-// redeem the same single-use code a second time. Released only when a
-// request ends in `failed/claim` and the user dismisses it (see
-// `dismissProfileSetup`) — every other outcome means the code is already
-// spent and the profile already exists, so the key stays reserved for
-// good; there is nothing useful a second attempt at the same key could do.
-const REDEEMED_KEYS_STORAGE_KEY = "anywh:profileSetup:redeemedKeys";
+/**
+ * Dedup guard, in two stages.
+ *
+ * `reserved` — taken at enqueue time, before any network call, and held in
+ * memory only. It exists so the two mounts of a React 18 StrictMode replay
+ * (or `getCurrent()` and `onOpenUrl` independently delivering the same
+ * cold-launch URL) can never both start redeeming the same single-use join
+ * code. Released when its request settles, whatever the outcome.
+ * Deliberately not persisted: a reservation is by construction pre-network,
+ * so one left over from a run that died before the claim describes nothing
+ * that happened — persisting it (the previous design) turned every link the
+ * app was killed on into a link that could never be redeemed again, with
+ * no error to say so.
+ *
+ * `spent` — set immediately before `claimAndSaveProfile` for a request
+ * about to consume its code, and persisted: `getCurrent()` (Tauri's
+ * deep-link plugin) can hand back the *same* launch URL again on a later
+ * cold start (observed live — the setup dialog replayed on a plain restart
+ * for a link that had already redeemed), and an in-memory set would forget
+ * that and redeem the same code a second time. Marked before the call, not
+ * after: a death in between would otherwise leave a redeemed code looking
+ * fresh. Never before `resolveRequestParams` — discovering a typed code's
+ * endpoints consumes nothing. Direct-mode requests never spend anything
+ * (reaching a host:port consumes nothing) and are only ever reserved. A
+ * claim that fails and is dismissed unspends its key: whether the server
+ * consumed the code is the server's call, made on the next attempt, not
+ * this device's guess.
+ *
+ * Written in two formats for one release: the new `{version, spent}` object
+ * under `SETUP_KEYS_STORAGE_KEY`, and the old flat array under
+ * `LEGACY_REDEEMED_KEYS_STORAGE_KEY`, which a downgraded build still reads —
+ * its `Array.isArray` check would otherwise fail on the new shape and forget
+ * every spent code, exactly the condition the guard exists for.
+ */
+const SETUP_KEYS_STORAGE_KEY = "anywh:profileSetup:keys";
+const LEGACY_REDEEMED_KEYS_STORAGE_KEY = "anywh:profileSetup:redeemedKeys";
 
-function loadReservedKeys(): Set<string> {
-  const raw = localStorage.getItem(REDEEMED_KEYS_STORAGE_KEY);
-  if (!raw) return new Set();
+function stringsOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+function loadSpentKeys(): Set<string> {
+  const raw = localStorage.getItem(SETUP_KEYS_STORAGE_KEY);
+  if (raw) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null) return new Set(stringsOf((parsed as { spent?: unknown }).spent));
+    } catch {
+      // Unreadable — fall through to the legacy key rather than to nothing.
+    }
+  }
+  // Upgrading from the flat array: every key there was held "for good",
+  // which is what spent means now. The pre-network reservations it also
+  // carried can't be told apart and stay spent — the one-time cost of the
+  // migration, paid only by links that had already died silently.
+  const legacy = localStorage.getItem(LEGACY_REDEEMED_KEYS_STORAGE_KEY);
+  if (!legacy) return new Set();
   try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? new Set(parsed.filter((v): v is string => typeof v === "string")) : new Set();
+    return new Set(stringsOf(JSON.parse(legacy)));
   } catch {
     return new Set();
   }
 }
 
-function persistReservedKeys(): void {
-  localStorage.setItem(REDEEMED_KEYS_STORAGE_KEY, JSON.stringify([...reservedKeys]));
+function persistSpentKeys(): void {
+  const list = [...spentKeys];
+  localStorage.setItem(SETUP_KEYS_STORAGE_KEY, JSON.stringify({ version: 2, spent: list }));
+  localStorage.setItem(LEGACY_REDEEMED_KEYS_STORAGE_KEY, JSON.stringify(list));
 }
 
-const reservedKeys = loadReservedKeys();
+const spentKeys = loadSpentKeys();
+const reservedKeys = new Set<string>();
 
 const queue: QueueItem[] = [];
 let current: SetupState | null = null;
@@ -131,12 +174,14 @@ let activeDuplicates: Profile[] = [];
  * `resolveTailnetTarget` spends a single-use connect grant per call). */
 let heldSidecarProfileId: string | undefined;
 let running = false;
+/** See `holdProfileSetup`. */
+let held = false;
 
 const listeners = new Set<() => void>();
-let cachedSnapshot: ProfileSetupSnapshot = { state: null, queuedCount: 0 };
+let cachedSnapshot: ProfileSetupSnapshot = { state: null, queuedCount: 0, held: false };
 
 function publish(): void {
-  cachedSnapshot = { state: current, queuedCount: queue.length };
+  cachedSnapshot = { state: current, queuedCount: queue.length, held };
   for (const listener of listeners) listener();
 }
 
@@ -224,7 +269,10 @@ async function runFromConnect(mode: SetupMode, profile: Profile): Promise<void> 
   setCurrent({ status: "verifying", mode, profile });
   try {
     const info = await verifyStep(profile);
-    setCurrent({ status: "ready", mode, profile, info, duplicates: activeDuplicates });
+    // The store's copy is the one with `unverified` cleared — the dialog
+    // and whoever adopts the profile from `ready` should see that one.
+    markProfileVerified(profile.id);
+    setCurrent({ status: "ready", mode, profile: findProfile(profile.id) ?? profile, info, duplicates: activeDuplicates });
   } catch (err) {
     console.error("[anywh] profile setup: failed to verify", err);
     setCurrent({ status: "failed", mode, stage: "verify", profile });
@@ -240,6 +288,10 @@ async function runItem(item: QueueItem): Promise<void> {
   let profile: Profile;
   try {
     const params = await resolveRequestParams(item.request);
+    if (mode === "tailnet") {
+      spentKeys.add(item.key);
+      persistSpentKeys();
+    }
     const result = await claimAndSaveProfile(params);
     profile = result.profile;
     activeDuplicates = result.duplicates;
@@ -254,7 +306,7 @@ async function runItem(item: QueueItem): Promise<void> {
 }
 
 function pump(): void {
-  if (running || current !== null) return;
+  if (running || current !== null || held) return;
   const item = queue.shift();
   if (!item) return;
   running = true;
@@ -268,9 +320,8 @@ function pump(): void {
  * immediately (it queues behind whatever's already in flight). */
 export function enqueueProfileSetup(request: SetupRequest): boolean {
   const key = computeKey(request);
-  if (key === null || reservedKeys.has(key)) return false;
+  if (key === null || reservedKeys.has(key) || spentKeys.has(key)) return false;
   reservedKeys.add(key);
-  persistReservedKeys();
   queue.push({ key, request });
   publish();
   pump();
@@ -291,19 +342,56 @@ export function retryProfileSetup(): void {
   void runFromConnect(mode, profile);
 }
 
+/** Re-enters the pipeline at `connectStep` for a profile an earlier run
+ * saved but never brought to `ready` — the app was closed between the claim
+ * and the verification, or the verification failed and was left for later
+ * — which is what `Profile.unverified` marks. The sibling of
+ * `retryProfileSetup`, with the same structural guarantee: there is no path
+ * from here back into `claimAndSaveProfile`. A no-op while another request
+ * is in flight (the caller reads the same snapshot and can see that). */
+export function resumeProfileSetup(profile: Profile): void {
+  if (running || current !== null) return;
+  currentKey = undefined;
+  activeDuplicates = [];
+  running = true;
+  void runFromConnect(isTailnetProfile(profile) ? "tailnet" : "direct", profile);
+}
+
+/**
+ * Keeps the queue from starting its next request. A link that arrives
+ * while something else owns the screen (a local relay install mid-flight)
+ * is still enqueued and still reserved — it just waits, visibly (`held`
+ * on the snapshot), until the caller lets go. Holding never interrupts a
+ * request already in flight. Returns the release, which the caller must
+ * invoke from a `finally`: a hold that is never released is the most
+ * likely new way for a link to die silently. Idempotent to release twice.
+ */
+export function holdProfileSetup(): () => void {
+  held = true;
+  publish();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    held = false;
+    publish();
+    pump();
+  };
+}
+
+/** Throws away everything *waiting* in the queue — never the request in
+ * flight — and frees their reservations, so the same links can be enqueued
+ * again later. The "discard" on a link shown as waiting. */
+export function dropQueuedProfileSetup(): void {
+  for (const item of queue) reservedKeys.delete(item.key);
+  queue.length = 0;
+  publish();
+}
+
 function finishCurrent(): void {
-  // A direct-mode request never spends anything single-use — its key only
-  // ever guarded against a doubled delivery of the same link saving the
-  // same profile twice while the first copy was still in flight. Keeping it
-  // reserved past the end made "remove the profile, add the same machine
-  // again" a silent no-op for the rest of this device's life (the key is
-  // persisted), which the first-run screen turns from an edge case into a
-  // path someone will actually walk. A tailnet key stays reserved for good:
-  // that code *was* spent, and a second attempt at it can do nothing useful.
-  if (current?.mode === "direct" && currentKey !== undefined) {
-    reservedKeys.delete(currentKey);
-    persistReservedKeys();
-  }
+  // The reservation's job is done either way; what outlives the request is
+  // the `spent` mark, if this one earned it.
+  if (currentKey !== undefined) reservedKeys.delete(currentKey);
   current = null;
   currentKey = undefined;
   activeDuplicates = [];
@@ -329,13 +417,14 @@ export function completeProfileSetup(): void {
  * existente" — every way of leaving the dialog without switching to the
  * profile it just set up. Releases any held tailnet join immediately (no
  * handover is coming for a profile nobody is about to make active) and, only
- * for a terminal `failed/claim`, frees the dedup key — every other outcome
- * already spent the join code, so the key stays reserved for good. */
+ * for a terminal `failed/claim`, unspends the key — whether the server
+ * consumed the code is its call on the next attempt. Every other outcome
+ * did redeem it, and the mark stays. */
 export function dismissProfileSetup(): void {
   if (current === null) return;
   if (current.status === "failed" && current.stage === "claim" && currentKey !== undefined) {
-    reservedKeys.delete(currentKey);
-    persistReservedKeys();
+    spentKeys.delete(currentKey);
+    persistSpentKeys();
   }
   if (heldSidecarProfileId !== undefined) {
     releaseTailnetSidecar(heldSidecarProfileId, 0);
@@ -347,11 +436,13 @@ export function dismissProfileSetup(): void {
 export function __resetProfileSetupForTests(): void {
   queue.length = 0;
   reservedKeys.clear();
-  persistReservedKeys();
+  spentKeys.clear();
+  persistSpentKeys();
   current = null;
   currentKey = undefined;
   activeDuplicates = [];
   heldSidecarProfileId = undefined;
   running = false;
-  cachedSnapshot = { state: null, queuedCount: 0 };
+  held = false;
+  cachedSnapshot = { state: null, queuedCount: 0, held: false };
 }

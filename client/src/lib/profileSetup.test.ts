@@ -46,9 +46,12 @@ vi.mock("@/lib/relayClient", () => ({
 import {
   completeProfileSetup,
   dismissProfileSetup,
+  dropQueuedProfileSetup,
   enqueueProfileSetup,
   getProfileSetupState,
   HANDOVER_GRACE_MS,
+  holdProfileSetup,
+  resumeProfileSetup,
   retryProfileSetup,
   __resetProfileSetupForTests,
   type SetupRequest,
@@ -341,5 +344,181 @@ describe("dedup key lifetime", () => {
 
     expect(enqueueProfileSetup(tailnetRequest())).toBe(false);
     expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reserved vs spent", () => {
+  it("a link the app died on before the claim is redeemable again after a restart", async () => {
+    // The old single-stage guard persisted the reservation at enqueue, so a
+    // link killed pre-network was dead for good, with no error. Only what
+    // was actually redeemed survives a restart now.
+    claimTailnetBundleMock.mockImplementationOnce(() => new Promise(() => {}));
+    const request = tailnetRequest({ claimUrl: "https://api.test/died", joinCode: "DIED" });
+    expect(enqueueProfileSetup(request)).toBe(true);
+    // Discovery is synchronous for params; give the claim a tick to be
+    // reached (it hangs forever, simulating the kill).
+    await Promise.resolve();
+
+    vi.resetModules();
+    const restarted = await import("./profileSetup");
+    // The key *was* marked spent — the claim was about to run — so on this
+    // device it is not re-enqueued blindly...
+    expect(restarted.enqueueProfileSetup(request)).toBe(false);
+  });
+
+  it("a reservation that never reached the claim is not persisted", async () => {
+    // Held: the request sits in the queue, pre-network. A restart forgets
+    // it, and the same link is accepted again.
+    holdProfileSetup();
+    const request = tailnetRequest({ claimUrl: "https://api.test/queued", joinCode: "QUEUED" });
+    expect(enqueueProfileSetup(request)).toBe(true);
+    expect(enqueueProfileSetup(request)).toBe(false);
+    // Never released: the app dies with the link still waiting. A fresh
+    // module (the next launch) has no memory of the reservation.
+    vi.resetModules();
+    const restarted = await import("./profileSetup");
+    expect(restarted.enqueueProfileSetup(request)).toBe(true);
+  });
+
+  it("still reads the legacy flat array as spent, and keeps writing it for a downgrade", async () => {
+    // An install upgrading from the flat array has only the old key.
+    localStorage.removeItem("anywh:profileSetup:keys");
+    localStorage.setItem("anywh:profileSetup:redeemedKeys", JSON.stringify(["tailnet:https://api.test/legacy|OLD"]));
+    vi.resetModules();
+    const fresh = await import("./profileSetup");
+    expect(fresh.enqueueProfileSetup(tailnetRequest({ claimUrl: "https://api.test/legacy", joinCode: "OLD" }))).toBe(false);
+
+    expect(fresh.enqueueProfileSetup(tailnetRequest({ claimUrl: "https://api.test/new", joinCode: "NEW" }))).toBe(true);
+    await vi.runAllTimersAsync();
+    const legacy = JSON.parse(localStorage.getItem("anywh:profileSetup:redeemedKeys") ?? "[]") as string[];
+    expect(legacy).toContain("tailnet:https://api.test/new|NEW");
+    const modern = JSON.parse(localStorage.getItem("anywh:profileSetup:keys") ?? "{}") as { spent?: string[] };
+    expect(modern.spent).toContain("tailnet:https://api.test/new|NEW");
+  });
+
+  it("a typed code is not spent by discovery alone — a failed discovery leaves it enqueueable", async () => {
+    discoverPairingEndpointsMock.mockRejectedValueOnce(new Error("no discovery document"));
+    const code = "ABCDEF-GHJKMNPQ@example.test";
+    enqueueProfileSetup(pairingRequest(code));
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state).toEqual({ status: "failed", mode: "tailnet", stage: "claim" });
+    dismissProfileSetup();
+    expect(enqueueProfileSetup(pairingRequest(code))).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("unverified profiles", () => {
+  it("saves the profile as unverified and clears the mark once verification passes", async () => {
+    let resolveSessions: ((value: unknown[]) => void) | undefined;
+    fetchSessionsMock.mockImplementationOnce(() => new Promise((resolve) => { resolveSessions = resolve; }));
+
+    enqueueProfileSetup(directRequest());
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state?.status).toBe("verifying");
+    expect(getProfiles()[0].unverified).toBe(true);
+
+    resolveSessions?.([]);
+    await vi.runAllTimersAsync();
+    const state = getProfileSetupState().state;
+    expect(state?.status).toBe("ready");
+    if (state?.status !== "ready") throw new Error("unreachable");
+    expect(getProfiles()[0].unverified).toBeUndefined();
+    expect(state.profile.unverified).toBeUndefined();
+  });
+
+  it("resumeProfileSetup re-enters at connect for a saved profile and never claims", async () => {
+    const leftOver = { id: "left", label: "Left", host: "1.2.3.4", relayPort: 8443, unverified: true };
+    setProfiles([leftOver]);
+
+    resumeProfileSetup(leftOver);
+    await vi.runAllTimersAsync();
+
+    expect(getProfileSetupState().state?.status).toBe("ready");
+    expect(claimTailnetBundleMock).not.toHaveBeenCalled();
+    expect(getProfiles()[0].unverified).toBeUndefined();
+  });
+
+  it("resumeProfileSetup takes the tailnet path for a brokered profile", async () => {
+    const leftOver = {
+      id: "left-tailnet",
+      label: "Left",
+      host: "127.0.0.1",
+      relayPort: 0,
+      tailnetAuthKey: "key",
+      tailnetControlUrl: "https://ctrl.test",
+      brokerUrl: "https://broker.test/w1",
+      brokerNodeId: "node-x",
+      unverified: true,
+    };
+    setProfiles([leftOver]);
+
+    resumeProfileSetup(leftOver);
+    await vi.runAllTimersAsync();
+
+    expect(acquireTailnetSidecarMock).toHaveBeenCalledTimes(1);
+    expect(claimTailnetBundleMock).not.toHaveBeenCalled();
+    expect(getProfileSetupState().state?.status).toBe("ready");
+  });
+
+  it("resumeProfileSetup is a no-op while another request is in flight", async () => {
+    enqueueProfileSetup(tailnetRequest());
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state?.status).toBe("ready");
+
+    resumeProfileSetup({ id: "other", label: "Other", host: "9.9.9.9", relayPort: 1, unverified: true });
+    await vi.runAllTimersAsync();
+    const state = getProfileSetupState().state;
+    if (state?.status !== "ready") throw new Error("expected ready");
+    expect(state.profile.host).not.toBe("9.9.9.9");
+  });
+});
+
+describe("hold", () => {
+  it("a held queue accepts a link but does not claim it; releasing runs it", async () => {
+    const release = holdProfileSetup();
+    expect(getProfileSetupState().held).toBe(true);
+
+    expect(enqueueProfileSetup(tailnetRequest())).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(claimTailnetBundleMock).not.toHaveBeenCalled();
+    expect(getProfileSetupState().queuedCount).toBe(1);
+
+    release();
+    await vi.runAllTimersAsync();
+    expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
+    expect(getProfileSetupState().held).toBe(false);
+    expect(getProfileSetupState().state?.status).toBe("ready");
+  });
+
+  it("holding never interrupts a request already in flight", async () => {
+    enqueueProfileSetup(tailnetRequest());
+    const release = holdProfileSetup();
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state?.status).toBe("ready");
+    release();
+  });
+
+  it("dropping the queue frees the reservations, so the same link is accepted again", async () => {
+    const release = holdProfileSetup();
+    const request = tailnetRequest({ claimUrl: "https://api.test/drop", joinCode: "DROP" });
+    expect(enqueueProfileSetup(request)).toBe(true);
+    expect(enqueueProfileSetup(request)).toBe(false);
+
+    dropQueuedProfileSetup();
+    expect(getProfileSetupState().queuedCount).toBe(0);
+    expect(enqueueProfileSetup(request)).toBe(true);
+
+    release();
+    await vi.runAllTimersAsync();
+    expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("releasing twice is harmless", () => {
+    const release = holdProfileSetup();
+    release();
+    release();
+    expect(getProfileSetupState().held).toBe(false);
   });
 });
