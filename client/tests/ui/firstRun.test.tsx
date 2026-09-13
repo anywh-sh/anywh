@@ -221,6 +221,37 @@ describe("first run", () => {
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
   });
 
+  it("retrying the same address after dismissing mid-verify works once the orphaned attempt actually finishes", async () => {
+    const user = userEvent.setup();
+    let resolveFetch!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => (resolveFetch = resolve)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), "127.0.0.1");
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.verifying);
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+    await screen.findByText(en.firstRun.connect.title);
+
+    // The orphaned verify is still running — the same address is still
+    // reserved, same as before this fix, and that part is correct: it's
+    // one in-flight attempt, not two racing each other.
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+    await screen.findByText(en.firstRun.connect.alreadyQueued);
+
+    resolveFetch(fakeJsonResponse({ sessions: [] }));
+    await vi.waitFor(() => expect(getProfiles()[0]?.unverified).toBeUndefined());
+
+    // Now that it has actually finished, the address is free again — this
+    // used to stay stuck on "already being set up" forever, because
+    // nothing ever released the reservation for a dismissed-mid-flight
+    // request once it settled.
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+  });
+
   it("dismissing a failed verify leaves the profile unverified on the wizard, instead of handing over a broken shell", async () => {
     const user = userEvent.setup();
     renderApp();

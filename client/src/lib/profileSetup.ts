@@ -165,10 +165,11 @@ let currentKey: string | undefined;
 /**
  * Bumped by `dismissProfileSetup` whenever it interrupts a request that is
  * still running (`claiming`/`connecting`/`verifying`). Every run captures
- * the value in effect when it started and compares before each `setCurrent`
- * — a mismatch means dismissed-out-from-under-it, and the update is
- * dropped instead of publishing the dialog back onto the screen once the
- * orphaned promise chain finally settles.
+ * the value in effect when it started; an intermediate `setCurrent`
+ * ("connecting", "verifying") is simply skipped on a mismatch, and a
+ * terminal one (`settleTerminal`) releases the run's bookkeeping instead of
+ * publishing the dialog back onto the screen — see that function's doc for
+ * why the release can't happen any earlier than this.
  *
  * This is the only thing "cancel" buys here: the pipeline itself (network
  * calls, `claimAndSaveProfile`'s single-use bookkeeping, the tailnet
@@ -208,6 +209,37 @@ function publish(): void {
 function setCurrent(next: SetupState): void {
   current = next;
   publish();
+}
+
+/**
+ * The end of a run, reached whether or not anyone dismissed it along the
+ * way. If `gen` still matches `generation`, nobody did — show the outcome
+ * normally. Otherwise `dismissProfileSetup` hid the dialog for this run
+ * already and deliberately left `running`, `currentKey`'s reservation, and
+ * `activeDuplicates` untouched so the run itself could release them here,
+ * at its own true end, instead of the moment it was dismissed — freeing
+ * them early would have let a second request for the same key (a retyped
+ * host:port, a re-delivered deep link) start racing this orphaned one over
+ * the same module state (`heldSidecarProfileId` in particular). Skipping
+ * this — i.e. only ever hiding the dialog on dismiss and never reaching
+ * back to release the reservation — is exactly what left "that machine is
+ * already being set up" stuck forever the first time this shipped.
+ */
+function settleTerminal(gen: number, state: SetupState): void {
+  running = false;
+  if (gen === generation) {
+    setCurrent(state);
+    return;
+  }
+  // Mirrors the terminal branch of `dismissProfileSetup`: a claim that
+  // turns out to have failed only after the dialog for it was already
+  // dismissed still gets its key unspent, the same as one that failed
+  // while someone was watching.
+  if (state.status === "failed" && state.stage === "claim" && currentKey !== undefined) {
+    spentKeys.delete(currentKey);
+    persistSpentKeys();
+  }
+  finishCurrent();
 }
 
 export function getProfileSetupState(): ProfileSetupSnapshot {
@@ -276,31 +308,26 @@ async function verifyStep(profile: Profile): Promise<VerifiedInfo> {
 }
 
 async function runFromConnect(mode: SetupMode, profile: Profile, gen: number): Promise<void> {
-  const publishIfCurrent = (state: SetupState) => {
-    if (gen === generation) setCurrent(state);
-  };
-  publishIfCurrent({ status: "connecting", mode, profile });
+  if (gen === generation) setCurrent({ status: "connecting", mode, profile });
   try {
     await connectStep(profile, mode);
   } catch (err) {
     console.error("[anywh] profile setup: failed to connect", err);
-    publishIfCurrent({ status: "failed", mode, stage: "connect", profile });
-    running = false;
+    settleTerminal(gen, { status: "failed", mode, stage: "connect", profile });
     return;
   }
 
-  publishIfCurrent({ status: "verifying", mode, profile });
+  if (gen === generation) setCurrent({ status: "verifying", mode, profile });
   try {
     const info = await verifyStep(profile);
     // The store's copy is the one with `unverified` cleared — the dialog
     // and whoever adopts the profile from `ready` should see that one.
     markProfileVerified(profile.id);
-    publishIfCurrent({ status: "ready", mode, profile: findProfile(profile.id) ?? profile, info, duplicates: activeDuplicates });
+    settleTerminal(gen, { status: "ready", mode, profile: findProfile(profile.id) ?? profile, info, duplicates: activeDuplicates });
   } catch (err) {
     console.error("[anywh] profile setup: failed to verify", err);
-    publishIfCurrent({ status: "failed", mode, stage: "verify", profile });
+    settleTerminal(gen, { status: "failed", mode, stage: "verify", profile });
   }
-  running = false;
 }
 
 async function runItem(item: QueueItem): Promise<void> {
@@ -321,8 +348,7 @@ async function runItem(item: QueueItem): Promise<void> {
     activeDuplicates = result.duplicates;
   } catch (err) {
     console.error("[anywh] profile setup: failed to claim", err);
-    if (gen === generation) setCurrent({ status: "failed", mode, stage: "claim" });
-    running = false;
+    settleTerminal(gen, { status: "failed", mode, stage: "claim" });
     return;
   }
 
