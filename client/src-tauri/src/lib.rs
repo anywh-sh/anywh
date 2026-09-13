@@ -15,6 +15,10 @@ mod editors;
 // can't do at all — same exclusion as voice/editors above.
 #[cfg(not(target_os = "ios"))]
 mod tailnet_sidecar;
+// In-app relay install: spawns `install.sh` as a child process and reads
+// the machine's filesystem — desktop only, same exclusion as the rest.
+#[cfg(not(target_os = "ios"))]
+mod relay_setup;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -104,6 +108,7 @@ pub fn run() {
     let builder = builder
         .manage(voice::VoiceState::default())
         .manage(tailnet_sidecar::TailnetSidecars::default())
+        .manage(relay_setup::RelaySetup::default())
         .invoke_handler(tauri::generate_handler![
             greet,
             notifications::notify_turn_complete,
@@ -115,7 +120,14 @@ pub fn run() {
             tailnet_sidecar::tailnet_sidecar_identity,
             tailnet_sidecar::tailnet_sidecar_sign,
             tailnet_sidecar::tailnet_sidecar_start,
-            tailnet_sidecar::tailnet_sidecar_stop
+            tailnet_sidecar::tailnet_sidecar_stop,
+            relay_setup::relay_setup_probe,
+            relay_setup::relay_setup_prerequisites,
+            relay_setup::relay_setup_suggest_address,
+            relay_setup::relay_setup_start,
+            relay_setup::relay_setup_cancel,
+            relay_setup::relay_setup_status,
+            relay_setup::relay_setup_confirm_close
         ]);
 
     #[cfg(target_os = "ios")]
@@ -146,6 +158,27 @@ pub fn run() {
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let _ = app.deep_link().register_all();
+            }
+
+            // Closing the window with a relay install in flight: the child
+            // is meant to survive us (see relay_setup.rs), but the person
+            // should get to say so. The close is held and the UI shows its
+            // own three-way dialog — `window.confirm` isn't reliable across
+            // Tauri's webviews — which answers through
+            // `relay_setup_confirm_close`. Deliberately *not* mirrored by a
+            // `kill_all` on `RunEvent::Exit`: a sidecar without an app is
+            // garbage, an install without an app is an install.
+            #[cfg(not(target_os = "ios"))]
+            if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        if relay_setup::hold_close(&handle) {
+                            api.prevent_close();
+                            relay_setup::emit_close_requested(&handle);
+                        }
+                    }
+                });
             }
 
             #[cfg(windows)]

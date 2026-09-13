@@ -44,10 +44,12 @@ tauri-plugin-wdio = { version = "1", optional = true }
 tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Only `sync::Mutex` (tailnet_sidecar.rs) — the async runtime itself is
-# already pulled in transitively by tauri/tauri-plugin-shell, this just
-# makes the crate a direct dependency so `tokio::sync::Mutex` can be named.
-tokio = { version = "1", features = ["sync"] }
+# `sync::Mutex` (tailnet_sidecar.rs, relay_setup.rs), plus `process`/`time`
+# for relay_setup.rs's installer child and its polling tailer — the async
+# runtime itself is already pulled in transitively by tauri/tauri-plugin-
+# shell, this just makes the crate a direct dependency so those modules can
+# be named.
+tokio = { version = "1", features = ["sync", "process", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7"
@@ -74,6 +76,9 @@ tauri-plugin-macos-permissions = "2"
 # puxam símbolos de CoreAudio/Accelerate que não linkam no target iOS sem
 # trabalho adicional. Desktop (Windows/macOS/Linux) continua com voz normal.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
+# relay_setup.rs's address suggestion enumerates the machine's interfaces —
+# the one thing std has no API for.
+if-addrs = "0.15"
 cpal = "0.15"
 whisper-rs = "0.16"
 rubato = "0.15"
