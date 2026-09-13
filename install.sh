@@ -101,7 +101,8 @@ Usage: install.sh [--version <tag>] [--porcelain] [--mode dev|prod]
                          systemd at all and prints the run command instead.
 
   Any of the following provisions the first profile once the relay is in:
-  --profile-id <id>      Profile id (default: "default").
+  --profile-id <id>      Profile id (default: derived from --profile-label,
+                         else "default").
   --profile-label <text> Display label (default: the id).
   --relay-host <ip>      Address other devices reach this machine on — or
                          "auto" to pick the tailnet address, else the one
@@ -161,7 +162,16 @@ if [ "$NO_PROFILE" -eq 1 ]; then
   [ "$PROVISION" -eq 0 ] || err bad_flag "--no-profile can't be combined with profile flags"
 fi
 
+# The id is the installer's to make, never a caller's re-implementation of
+# the relay's own slug rule: lowercase, anything outside [a-z0-9] collapsed
+# to one hyphen, trimmed. The same label yields the same id every run, which
+# is what lets a re-run resume instead of creating a sibling.
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//'
+}
+
 if [ "$PROVISION" -eq 1 ]; then
+  if [ -z "$PROFILE_ID" ] && [ -n "$PROFILE_LABEL" ]; then PROFILE_ID="$(slugify "$PROFILE_LABEL")"; fi
   if [ -z "$PROFILE_ID" ]; then PROFILE_ID="default"; fi
   # Same rule add-profile.sh enforces, checked here so it fails before the
   # download rather than after it.

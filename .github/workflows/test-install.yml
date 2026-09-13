@@ -196,6 +196,12 @@ jobs:
           [ "$(ls "$HOME/.config/anywh/env"/partial*.env | wc -l)" -eq 1 ]
           systemctl --user is-active --quiet anywh-relay@partial
 
+      - name: The id is derived from the label when none is given
+        run: |
+          ./install.sh --porcelain --profile-label "Ana's Studio Box" --relay-host 127.0.0.1 --mode dev | tee slug.log
+          grep -q '^ANYWH profile id=ana-s-studio-box port=[0-9]* host=127.0.0.1 mode=dev' slug.log
+          [ -f "$HOME/.config/anywh/env/ana-s-studio-box.env" ]
+
       - name: --relay-host auto never lands on loopback
         run: |
           "$HOME/.local/share/anywh/infra/systemd/add-profile.sh" --help > /dev/null
