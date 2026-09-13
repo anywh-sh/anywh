@@ -227,6 +227,7 @@ export function FirstRun() {
         onUseExisting={handleUseExisting}
         onRetry={retryProfileSetup}
         onDismiss={handleDismiss}
+        hideLaterWhenReady
       />
     </div>
   );

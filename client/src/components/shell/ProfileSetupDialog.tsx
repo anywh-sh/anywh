@@ -22,6 +22,13 @@ interface ProfileSetupDialogProps {
   onUseExisting: (existingProfileId: string) => void;
   onRetry: () => void;
   onDismiss: () => void;
+  /** First run only: once verified there is no shell to fall back into, so
+   * "Leave it for later" and "Continue" do the exact same thing — showing
+   * both for one outcome only invites clicking the wrong-looking one. The
+   * shell's own use (adding another profile once one already exists) keeps
+   * both, since dismissing there deliberately leaves the active profile
+   * untouched instead of switching to the new one. */
+  hideLaterWhenReady?: boolean;
 }
 
 function isInFlight(state: SetupState): boolean {
@@ -75,7 +82,15 @@ function descriptionFor(state: SetupState, copy: Dictionary["shell"]["profiles"]
  * way out at any stage, dismissed requests just don't reopen the dialog on
  * their own (`profileSetup.ts`'s `generation` guard).
  */
-export function ProfileSetupDialog({ state, queuedCount, onContinue, onUseExisting, onRetry, onDismiss }: ProfileSetupDialogProps) {
+export function ProfileSetupDialog({
+  state,
+  queuedCount,
+  onContinue,
+  onUseExisting,
+  onRetry,
+  onDismiss,
+  hideLaterWhenReady,
+}: ProfileSetupDialogProps) {
   const dict = useDict();
   const copy = dict.shell.profiles.setup;
   const inFlight = state !== null && isInFlight(state);
@@ -133,9 +148,11 @@ export function ProfileSetupDialog({ state, queuedCount, onContinue, onUseExisti
               </span>
             )}
             <div className="flex flex-col-reverse gap-2 sm:flex-row">
-              <Button type="button" size="sm" variant="outline" onClick={onDismiss}>
-                {copy.later}
-              </Button>
+              {!(hideLaterWhenReady && state.status === "ready") && (
+                <Button type="button" size="sm" variant="outline" onClick={onDismiss}>
+                  {copy.later}
+                </Button>
+              )}
               {state.status === "failed" && state.stage !== "claim" && (
                 <Button type="button" size="sm" onClick={onRetry}>
                   {dict.common.retry}

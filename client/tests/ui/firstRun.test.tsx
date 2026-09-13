@@ -168,6 +168,10 @@ describe("first run", () => {
     await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
     await screen.findByText(en.shell.profiles.setup.connectedTitle);
 
+    // Nothing left for it to do that "Continue" doesn't already do — the
+    // button that would suggest otherwise isn't shown at all here.
+    expect(screen.queryByRole("button", { name: en.shell.profiles.setup.later })).not.toBeInTheDocument();
+
     await user.keyboard("{Escape}");
 
     await expectShellWithOneProfile(MACHINE.host);

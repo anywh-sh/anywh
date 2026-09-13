@@ -168,6 +168,27 @@ describe("ProfileSetupDialog", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it("hides 'Deixar para depois' on ready when hideLaterWhenReady is set, unlike the shell's default", () => {
+    const state: SetupState = { status: "ready", mode: "tailnet", profile, info: { sessionCount: 0 }, duplicates: [] };
+    const { rerender } = render(
+      <ProfileSetupDialog state={state} queuedCount={0} onContinue={noop} onUseExisting={noop} onRetry={noop} onDismiss={noop} />,
+    );
+    expect(screen.getByRole("button", { name: en.shell.profiles.setup.later })).toBeInTheDocument();
+
+    rerender(
+      <ProfileSetupDialog
+        state={state}
+        queuedCount={0}
+        onContinue={noop}
+        onUseExisting={noop}
+        onRetry={noop}
+        onDismiss={noop}
+        hideLaterWhenReady
+      />,
+    );
+    expect(screen.queryByRole("button", { name: en.shell.profiles.setup.later })).not.toBeInTheDocument();
+  });
+
   it("shows the queued count in the footer", () => {
     const state: SetupState = { status: "claiming", mode: "tailnet" };
     render(
