@@ -1,17 +1,6 @@
-import { useState } from "react";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { Columns2, Pencil, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogBody,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { useDict } from "@/i18n";
 import { ContextMenuAnchor, type ContextMenuState } from "@/hooks/useContextMenu";
 
@@ -31,68 +20,61 @@ interface SessionDeleteMenuProps {
  * SessionList (left panel) and TabGroupStrip (tab), the two places where a
  * right-click opens this menu.
  *
- * The confirmation uses a design-system AlertDialog instead of
- * `window.confirm` — the WebView's native dialog isn't reliable across all
- * platforms (same class of problem documented in the backlog for
- * alert/confirm on macOS), so deletion would silently not happen. */
+ * The confirmation uses `@tauri-apps/plugin-dialog`'s `confirm` — a real
+ * native OS dialog via Rust, not `window.confirm` (the WebView's own JS
+ * dialog, unreliable across platforms per the project's known pitfalls). */
 export function SessionDeleteMenu({ menu, title, onDelete, onRename, onMoveToNewGroup }: SessionDeleteMenuProps) {
   const dict = useDict();
   const strings = dict.shell.sidebar.sessionMenu;
-  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  async function confirmDelete(): Promise<void> {
+    const confirmed = await confirmDialog(strings.deleteBody.replace("{title}", title), {
+      title: strings.deleteTitle,
+      kind: "warning",
+      okLabel: dict.common.delete,
+      cancelLabel: dict.common.cancel,
+    });
+    if (confirmed) onDelete();
+  }
 
   return (
-    <>
-      <DropdownMenu open={menu.open} onOpenChange={menu.setOpen}>
-        <ContextMenuAnchor position={menu.position} />
-        <DropdownMenuContent align="start">
+    <DropdownMenu open={menu.open} onOpenChange={menu.setOpen}>
+      <ContextMenuAnchor position={menu.position} />
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            menu.setOpen(false);
+            onRename();
+          }}
+        >
+          <Pencil />
+          {strings.rename}
+        </DropdownMenuItem>
+        {onMoveToNewGroup && (
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
               menu.setOpen(false);
-              onRename();
+              onMoveToNewGroup();
             }}
           >
-            <Pencil />
-            {strings.rename}
+            <Columns2 />
+            {strings.moveToNewGroup}
           </DropdownMenuItem>
-          {onMoveToNewGroup && (
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                menu.setOpen(false);
-                onMoveToNewGroup();
-              }}
-            >
-              <Columns2 />
-              {strings.moveToNewGroup}
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setConfirmOpen(true);
-            }}
-          >
-            <Trash2 />
-            {strings.delete}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{strings.deleteTitle}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogBody>
-            <AlertDialogDescription>{strings.deleteBody.replace("{title}", title)}</AlertDialogDescription>
-          </AlertDialogBody>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{dict.common.cancel}</AlertDialogCancel>
-            <AlertDialogAction onClick={onDelete}>{dict.common.delete}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+        )}
+        <DropdownMenuItem
+          variant="destructive"
+          onSelect={(event) => {
+            event.preventDefault();
+            menu.setOpen(false);
+            void confirmDelete();
+          }}
+        >
+          <Trash2 />
+          {strings.delete}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

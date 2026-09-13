@@ -24,11 +24,15 @@ vi.mock("@/lib/editors", () => ({
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
 }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  confirm: vi.fn(),
+}));
 
 import { createFile, deleteFile, getHostInfo, listFiles, renameFile } from "@/lib/filesClient";
 import { downloadFile, downloadFolder } from "@/lib/fileDownload";
 import { detectEditors } from "@/lib/editors";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { confirm } from "@tauri-apps/plugin-dialog";
 
 const profile: Profile = { id: "p1", label: "Perfil", host: "localhost", relayPort: 4317 };
 const root = "/home/user/project";
@@ -129,13 +133,18 @@ describe("FileTree context menu", () => {
     renderTree({ onFileDeleted });
     const row = await screen.findByText("notas.txt");
 
+    // The native OS confirm dialog isn't real DOM here — gate the outcome
+    // through the mock instead of an in-page `alertdialog` role.
+    vi.mocked(confirm).mockResolvedValue(false);
     await user.pointer({ keys: "[MouseRight]", target: row });
     await user.click(await screen.findByText(en.panels.files.tree.delete));
 
-    // The confirmation dialog, not the delete call, should gate the action.
-    const dialog = await screen.findByRole("alertdialog");
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(en.panels.files.tree.deleteFile.description.replace("{name}", "notas.txt"), expect.objectContaining({ title: en.panels.files.tree.deleteFile.title })));
     expect(deleteFile).not.toHaveBeenCalled();
-    await user.click(within(dialog).getByRole("button", { name: en.common.delete }));
+
+    vi.mocked(confirm).mockResolvedValue(true);
+    await user.pointer({ keys: "[MouseRight]", target: row });
+    await user.click(await screen.findByText(en.panels.files.tree.delete));
 
     await waitFor(() => expect(deleteFile).toHaveBeenCalledWith(profile, "session-1", `${root}/notas.txt`));
     expect(onFileDeleted).toHaveBeenCalledWith(`${root}/notas.txt`);
@@ -240,6 +249,7 @@ describe("FileTree multi-select (SHIFT range)", () => {
   it("SHIFT-clicking a file extends the selection to the range and offers batch actions for it", async () => {
     vi.mocked(listFiles).mockResolvedValue(multiListing());
     vi.mocked(deleteFile).mockResolvedValue(undefined);
+    vi.mocked(confirm).mockResolvedValue(true);
     const onFileDeleted = vi.fn();
     const user = userEvent.setup();
     render(<ControlledFileTree onFileDeleted={onFileDeleted} />);
@@ -254,8 +264,6 @@ describe("FileTree multi-select (SHIFT range)", () => {
     const deleteItem = await screen.findByText(en.panels.files.tree.deleteMany.replace("{count}", "3"));
 
     await user.click(deleteItem);
-    const dialog = await screen.findByRole("alertdialog");
-    await user.click(within(dialog).getByRole("button", { name: en.common.delete }));
 
     await waitFor(() => expect(deleteFile).toHaveBeenCalledTimes(3));
     expect(onFileDeleted).toHaveBeenCalledWith(`${root}/a.txt`);

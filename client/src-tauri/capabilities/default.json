@@ -11,6 +11,7 @@
     "core:window:allow-is-focused",
     "dialog:allow-save",
     "dialog:allow-open",
+    "dialog:allow-confirm",
     "fs:allow-write-file",
     "fs:allow-mkdir",
     {
