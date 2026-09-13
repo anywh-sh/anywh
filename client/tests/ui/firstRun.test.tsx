@@ -173,6 +173,50 @@ describe("first run", () => {
     await expectShellWithOneProfile(MACHINE.host);
   });
 
+  it("won't let Escape close the dialog while a request is still connecting", async () => {
+    const user = userEvent.setup();
+    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
+    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
+    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.connectingTitle);
+    await user.keyboard("{Escape}");
+    // Still up — a stray Escape can't lose the reader's place mid-flight.
+    expect(screen.getByText(en.shell.profiles.setup.connectingTitle)).toBeInTheDocument();
+
+    resolveAcquire(SIDECAR_ENDPOINT);
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+  });
+
+  it("'Leave it for later' while connecting doesn't reopen the dialog once the connection settles", async () => {
+    const user = userEvent.setup();
+    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
+    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
+    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.connectingTitle);
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+
+    await screen.findByText(en.firstRun.code.title);
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+
+    // The connect step the reader walked away from finishes on its own —
+    // the dialog must not pop back open to announce it.
+    resolveAcquire(SIDECAR_ENDPOINT);
+    await vi.waitFor(() => expect(getProfiles()[0].unverified).toBeUndefined());
+    expect(screen.queryByText(en.shell.profiles.setup.connectedTitle)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+  });
+
   it("dismissing a failed verify leaves the profile unverified on the wizard, instead of handing over a broken shell", async () => {
     const user = userEvent.setup();
     renderApp();

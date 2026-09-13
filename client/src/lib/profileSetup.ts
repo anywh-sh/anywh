@@ -162,6 +162,26 @@ const reservedKeys = new Set<string>();
 const queue: QueueItem[] = [];
 let current: SetupState | null = null;
 let currentKey: string | undefined;
+/**
+ * Bumped by `dismissProfileSetup` whenever it interrupts a request that is
+ * still running (`claiming`/`connecting`/`verifying`). Every run captures
+ * the value in effect when it started and compares before each `setCurrent`
+ * — a mismatch means dismissed-out-from-under-it, and the update is
+ * dropped instead of publishing the dialog back onto the screen once the
+ * orphaned promise chain finally settles.
+ *
+ * This is the only thing "cancel" buys here: the pipeline itself (network
+ * calls, `claimAndSaveProfile`'s single-use bookkeeping, the tailnet
+ * acquisition held in `heldSidecarProfileId`) keeps running to whatever
+ * outcome it was already headed for. Actually aborting it would either risk
+ * burning a single-use join code mid-redeem or tear down a sidecar
+ * acquisition another call is still awaiting — both worse than a request
+ * nobody's watching finishing quietly. The profile it was working on
+ * converges to `verified` or stays `unverified` on disk either way, and the
+ * `soleUnverified`/badge-in-the-switcher paths already know what to do with
+ * that.
+ */
+let generation = 0;
 /** Duplicates computed once, at claim time, from the profile list as it
  * stood right before this request's `addProfile` — held here (not on
  * `SetupState`'s `failed` variants) so `retryProfileSetup` can still reach
@@ -255,33 +275,37 @@ async function verifyStep(profile: Profile): Promise<VerifiedInfo> {
   return { sessionCount: sessions.length };
 }
 
-async function runFromConnect(mode: SetupMode, profile: Profile): Promise<void> {
-  setCurrent({ status: "connecting", mode, profile });
+async function runFromConnect(mode: SetupMode, profile: Profile, gen: number): Promise<void> {
+  const publishIfCurrent = (state: SetupState) => {
+    if (gen === generation) setCurrent(state);
+  };
+  publishIfCurrent({ status: "connecting", mode, profile });
   try {
     await connectStep(profile, mode);
   } catch (err) {
     console.error("[anywh] profile setup: failed to connect", err);
-    setCurrent({ status: "failed", mode, stage: "connect", profile });
+    publishIfCurrent({ status: "failed", mode, stage: "connect", profile });
     running = false;
     return;
   }
 
-  setCurrent({ status: "verifying", mode, profile });
+  publishIfCurrent({ status: "verifying", mode, profile });
   try {
     const info = await verifyStep(profile);
     // The store's copy is the one with `unverified` cleared — the dialog
     // and whoever adopts the profile from `ready` should see that one.
     markProfileVerified(profile.id);
-    setCurrent({ status: "ready", mode, profile: findProfile(profile.id) ?? profile, info, duplicates: activeDuplicates });
+    publishIfCurrent({ status: "ready", mode, profile: findProfile(profile.id) ?? profile, info, duplicates: activeDuplicates });
   } catch (err) {
     console.error("[anywh] profile setup: failed to verify", err);
-    setCurrent({ status: "failed", mode, stage: "verify", profile });
+    publishIfCurrent({ status: "failed", mode, stage: "verify", profile });
   }
   running = false;
 }
 
 async function runItem(item: QueueItem): Promise<void> {
   currentKey = item.key;
+  const gen = generation;
   const mode = modeOfRequest(item.request);
   setCurrent({ status: "claiming", mode });
 
@@ -297,12 +321,12 @@ async function runItem(item: QueueItem): Promise<void> {
     activeDuplicates = result.duplicates;
   } catch (err) {
     console.error("[anywh] profile setup: failed to claim", err);
-    setCurrent({ status: "failed", mode, stage: "claim" });
+    if (gen === generation) setCurrent({ status: "failed", mode, stage: "claim" });
     running = false;
     return;
   }
 
-  await runFromConnect(mode, profile);
+  await runFromConnect(mode, profile, gen);
 }
 
 function pump(): void {
@@ -339,7 +363,7 @@ export function retryProfileSetup(): void {
   if (current === null || current.status !== "failed" || current.stage === "claim") return;
   const { mode, profile } = current;
   running = true;
-  void runFromConnect(mode, profile);
+  void runFromConnect(mode, profile, generation);
 }
 
 /** Re-enters the pipeline at `connectStep` for a profile an earlier run
@@ -354,7 +378,7 @@ export function resumeProfileSetup(profile: Profile): void {
   currentKey = undefined;
   activeDuplicates = [];
   running = true;
-  void runFromConnect(isTailnetProfile(profile) ? "tailnet" : "direct", profile);
+  void runFromConnect(isTailnetProfile(profile) ? "tailnet" : "direct", profile, generation);
 }
 
 /**
@@ -403,6 +427,10 @@ function finishCurrent(): void {
   setTimeout(pump, 0);
 }
 
+function isInFlight(state: SetupState): boolean {
+  return state.status === "claiming" || state.status === "connecting" || state.status === "verifying";
+}
+
 /** "Continuar para novo perfil" — hands the tailnet join (if any) to the
  * real new owner instead of tearing it down, then advances the queue. */
 export function completeProfileSetup(): void {
@@ -419,7 +447,17 @@ export function completeProfileSetup(): void {
  * handover is coming for a profile nobody is about to make active) and, only
  * for a terminal `failed/claim`, unspends the key — whether the server
  * consumed the code is its call on the next attempt. Every other outcome
- * did redeem it, and the mark stays. */
+ * did redeem it, and the mark stays.
+ *
+ * A request still running (`claiming`/`connecting`/`verifying`) only has its
+ * dialog hidden, not its bookkeeping torn down: `running` (and, for a claim,
+ * the reservation) stay exactly as they are, so `pump`/`resumeProfileSetup`
+ * keep treating one as in flight until the orphaned continuation reaches its
+ * own natural end and clears them itself — freeing them here instead would
+ * let a second request for the same profile start racing the first one
+ * over shared module state (`heldSidecarProfileId` in particular). Bumping
+ * `generation` is what keeps that continuation from reopening the dialog
+ * when it eventually does settle — see its doc comment. */
 export function dismissProfileSetup(): void {
   if (current === null) return;
   if (current.status === "failed" && current.stage === "claim" && currentKey !== undefined) {
@@ -429,6 +467,12 @@ export function dismissProfileSetup(): void {
   if (heldSidecarProfileId !== undefined) {
     releaseTailnetSidecar(heldSidecarProfileId, 0);
     heldSidecarProfileId = undefined;
+  }
+  if (isInFlight(current)) {
+    generation++;
+    current = null;
+    publish();
+    return;
   }
   finishCurrent();
 }
@@ -444,5 +488,6 @@ export function __resetProfileSetupForTests(): void {
   heldSidecarProfileId = undefined;
   running = false;
   held = false;
+  generation = 0;
   cachedSnapshot = { state: null, queuedCount: 0, held: false };
 }
