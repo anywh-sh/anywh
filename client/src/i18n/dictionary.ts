@@ -159,6 +159,8 @@ export interface Dictionary {
       remove: string;
       confirmPrompt: string;
       deleting: string;
+      /** Shown when the profile being removed is the only one: removal
+       * isn't refused, it puts the first-run screen back. */
       lastProfile: string;
     };
   };
@@ -713,6 +715,8 @@ export interface Dictionary {
       /** `{profile}` — the profile's label. */
       confirmTitle: string;
       confirmBody: string;
+      /** Same note as `settings.danger.lastProfile`, in the banner's own
+       * confirmation. */
       lastProfile: string;
     };
     /** The folder a conversation runs in. Lives in the title bar since the

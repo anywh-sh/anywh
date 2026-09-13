@@ -162,9 +162,11 @@ export function forgetCachedProfile(profileId: string): void {
  * setup), and a persisted cache that only stays correct if every future
  * removal path remembers to clean up is a bug waiting to be written.
  *
- * An empty `knownIds` is ignored on purpose — `profiles.ts` refuses to empty
- * its own list, so seeing none means something is mid-initialisation, not
- * that the user deleted everything.
+ * An empty `knownIds` is ignored on purpose. The shell is the only caller
+ * and it never mounts without a profile, so seeing none here means
+ * something is mid-initialisation, not that the user deleted everything —
+ * and when they do delete the last one, the shell unmounts before this
+ * would run; the rows are pruned the next time a profile exists.
  */
 export function pruneCachedProfiles(knownIds: ReadonlySet<string>): void {
   if (knownIds.size === 0) return;

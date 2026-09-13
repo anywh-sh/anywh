@@ -100,9 +100,9 @@ browser without Tauri APIs, which is enough for pure UI work.
 
 ## Pointing the client at your relay
 
-A fresh client assumes the relay is on the same machine
-(`127.0.0.1:8765`). Three ways to change that, in descending order of how
-often you'll want them.
+A fresh client opens on a first-run screen with two ways in: connect to a
+machine that already runs the relay, by address and port, or paste a pairing
+code. Both are also available later, once a profile exists.
 
 **Pairing code or deep link.** The right answer when the relay isn't
 directly addressable — behind NAT, or on a tailnet. In the profile switcher,
@@ -110,18 +110,6 @@ directly addressable — behind NAT, or on a tailnet. In the profile switcher,
 `anywh://import-profile` deep link does the same with nothing typed. Both
 require the relay side to implement the two endpoints in the
 [pairing protocol](./pairing.md). The client hardcodes no server.
-
-**Build-time environment variables.** Works everywhere, including iOS, and
-is the only option on iOS.
-
-```bash
-cd client
-cp .env.example .env   # set VITE_ANYWH_HOST / VITE_ANYWH_PORT
-npm run tauri dev
-```
-
-Vite reads these at build time — editing `.env` needs a rebuild, it will not
-hot-reload.
 
 **`localStorage` override.** Desktop only, since it needs DevTools, but it
 needs no rebuild. In the console:
@@ -175,10 +163,9 @@ npm run ios:device                  # Simulator, or prompts for a connected devi
 npm run ios:device -- "My iPhone"   # a specific physical device
 ```
 
-iOS has no DevTools, so the build-time environment variables above are the
-only way to point an iOS build at a relay short of pairing. If you always
-target the same device, drop a gitignored `*.local.sh` wrapper in `client/`
-instead of retyping the name.
+iOS has no DevTools, so the first-run screen (or pairing) is the way to
+point an iOS build at a relay. If you always target the same device, drop a
+gitignored `*.local.sh` wrapper in `client/` instead of retyping the name.
 
 ## Next
 

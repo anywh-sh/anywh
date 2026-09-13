@@ -390,7 +390,7 @@ export const en: Dictionary = {
       confirmTitle: "Remove the profile \"{profile}\"?",
       confirmBody:
         "This device was already disconnected from the account on the dashboard — removing it here only clears the local entry, with no effect on the server side.",
-      lastProfile: "The only profile left can't be removed — add another one first.",
+      lastProfile: "It's the only profile on this device — removing it takes the app back to the first-run screen.",
     },
     workingDirectory: {
       chooseFolder: "Choose folder",
@@ -529,7 +529,7 @@ export const en: Dictionary = {
       remove: "remove profile",
       confirmPrompt: "Type {name} to confirm.",
       deleting: "Deleting…",
-      lastProfile: "The only profile left can't be removed — add another one first.",
+      lastProfile: "It's the only profile on this device — removing it takes the app back to the first-run screen.",
     },
   },
   firstRun: {

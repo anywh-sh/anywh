@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { getProfiles, setProfiles } from "@/lib/profiles";
+import { getProfiles, setProfiles, type Profile } from "@/lib/profiles";
+import { clearProfileRevoked, markProfileRevoked } from "@/lib/profileRevocation";
 import { __resetProfileSetupForTests } from "@/lib/profileSetup";
 import { __resetFirstRunForTests } from "@/lib/firstRun";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
@@ -96,6 +97,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   relay.uninstall();
+  clearProfileRevoked("only");
 });
 
 async function expectShellWithOneProfile(label: string): Promise<void> {
@@ -184,6 +186,26 @@ describe("first run", () => {
     await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
 
     await screen.findByText(en.firstRun.code.title);
+    expect(getProfiles()).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+  });
+
+  it("removing the last profile is allowed, and puts the first run back on the window", async () => {
+    // Used to be refused with "add another one first" — with an empty list
+    // legitimate, the banner's remove goes through and the gate flips.
+    const only: Profile = { id: "only", label: "Only", host: MACHINE.host, relayPort: MACHINE.port };
+    setProfiles([only]);
+    markProfileRevoked(only.id);
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole("button", { name: en.shell.profiles.activeProfile });
+
+    await user.click(screen.getByRole("button", { name: en.shell.revoked.removeProfile }));
+    // The confirmation says what removing the only profile means.
+    await within(document.body).findByText(en.shell.revoked.lastProfile);
+    await user.click(within(document.body).getByRole("button", { name: en.common.remove }));
+
+    await screen.findByRole("heading", { name: en.firstRun.home.title });
     expect(getProfiles()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
   });

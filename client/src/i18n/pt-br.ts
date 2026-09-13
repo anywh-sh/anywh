@@ -390,7 +390,7 @@ export const ptBr: Dictionary = {
       confirmTitle: "Remover o perfil \"{profile}\"?",
       confirmBody:
         "Esse dispositivo já foi desconectado da conta pelo painel — removê-lo aqui só limpa a entrada local, sem efeito nenhum do lado do servidor.",
-      lastProfile: "Não dá pra remover o único perfil que sobrou — adicione outro antes.",
+      lastProfile: "É o único perfil neste device — removê-lo leva o app de volta à tela de primeiro uso.",
     },
     workingDirectory: {
       chooseFolder: "Escolher pasta",
@@ -529,7 +529,7 @@ export const ptBr: Dictionary = {
       remove: "remover perfil",
       confirmPrompt: "Digite {name} para confirmar.",
       deleting: "Excluindo…",
-      lastProfile: "Não dá pra remover o único perfil que sobrou — adicione outro antes.",
+      lastProfile: "É o único perfil neste device — removê-lo leva o app de volta à tela de primeiro uso.",
     },
   },
   firstRun: {

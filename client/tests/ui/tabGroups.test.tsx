@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import * as ChatPanelModule from "@/components/chat/ChatPanel";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { seedShellProfile } from "./helpers/seedProfile";
 import { en } from "@/i18n/en";
 
 // ChatPanel registers a Tauri drag-drop listener unconditionally on mount
@@ -33,6 +34,7 @@ let relay: FakeRelay;
 
 beforeEach(() => {
   localStorage.clear();
+  seedShellProfile();
   chatPanelRenderCount = 0;
   relay = installFakeRelay("fake reply");
 });

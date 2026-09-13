@@ -65,21 +65,32 @@ describe("RevokedProfileBanner", () => {
     expect(screen.queryByText(copy.eyebrow)).not.toBeInTheDocument();
   });
 
-  it("keeps the banner and shows an error if this is the only profile left", async () => {
-    removeProfileMock.mockReturnValue(false);
+  it("says what removing the only profile means, then removes it anyway", async () => {
+    // Removing the last profile isn't refused anymore — it puts the
+    // first-run screen back on the window. That has to be said before the
+    // click, in the confirmation, not discovered after it.
+    setProfiles([profile]);
     markProfileRevoked(profile.id);
     render(<RevokedProfileBanner profile={profile} />);
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: copy.removeProfile }));
-    const confirmButton = await within(document.body).findByRole("button", { name: en.common.remove });
-    await user.click(confirmButton);
-
     expect(await within(document.body).findByText(copy.lastProfile)).toBeInTheDocument();
-    // The banner itself is still mounted (background content behind an open
-    // AlertDialog gets `aria-hidden`, so `getByRole` won't see it — a plain
-    // text query still does).
-    expect(screen.getByText(copy.removeProfile)).toBeInTheDocument();
+
+    await user.click(within(document.body).getByRole("button", { name: en.common.remove }));
+    expect(removeProfileMock).toHaveBeenCalledWith("p1");
+  });
+
+  it("leaves that sentence out while other profiles remain", async () => {
+    setProfiles([profile, otherProfile]);
+    markProfileRevoked(profile.id);
+    render(<RevokedProfileBanner profile={profile} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: copy.removeProfile }));
+    await within(document.body).findByRole("button", { name: en.common.remove });
+
+    expect(within(document.body).queryByText(copy.lastProfile)).not.toBeInTheDocument();
   });
 });
 

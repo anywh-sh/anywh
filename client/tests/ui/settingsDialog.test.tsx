@@ -3,6 +3,7 @@ import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { seedShellProfile } from "./helpers/seedProfile";
 import { en } from "@/i18n/en";
 
 // Same Tauri-API stubs sendMessage.test.tsx needs for ChatPanel to mount at
@@ -18,6 +19,7 @@ let patchCalls: { url: string; body: unknown }[];
 
 beforeEach(() => {
   localStorage.clear();
+  seedShellProfile();
   relay = installFakeRelay();
   patchCalls = [];
 

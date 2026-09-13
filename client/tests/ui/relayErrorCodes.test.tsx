@@ -5,6 +5,7 @@ import { en } from "@/i18n/en";
 import { LOCALE_STORAGE_KEY } from "@/i18n";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { seedShellProfile } from "./helpers/seedProfile";
 
 /**
  * The relay reports these failures as codes; the wording belongs to the
@@ -34,6 +35,7 @@ let originalAlert: typeof window.alert;
 
 beforeEach(() => {
   localStorage.clear();
+  seedShellProfile();
   // Pinned rather than inherited from the environment: the provider resolves
   // the initial locale from `navigator.languages`, which differs between a
   // developer's machine and CI, and these assertions read from `en`.

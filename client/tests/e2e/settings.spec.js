@@ -1,8 +1,8 @@
 // The redesigned settings dialog in the real Tauri window: its rail, the two
 // kinds of page it can show, and the fact that it closes. All of it is
-// client-only state — the profile list falls back to the built-in "Default"
-// entry and the theme catalog to the two built-in themes when no relay
-// answers, which is exactly the case in this tier.
+// client-only state — the profile list is the one profile wdio.conf.js seeds
+// (labelled "Default") and the theme catalog falls back to the two built-in
+// themes when no relay answers, which is exactly the case in this tier.
 //
 // What this is actually here to catch is the portal/focus-trap class of
 // WebKitGTK/WKWebView breakage: the dialog portals into `document.body`, and

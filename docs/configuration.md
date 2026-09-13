@@ -70,16 +70,9 @@ tailnet-IP peer can still be this same physical box.
 
 ## Client
 
-Read by Vite at build time, so changing them requires a rebuild — they do
-not hot-reload. Both optional; with neither set the client looks for a relay
-at `127.0.0.1:8765`.
-
-| Variable | Default | What it does |
-|---|---|---|
-| `VITE_ANYWH_HOST` | `127.0.0.1` | Host or IP of the relay machine. |
-| `VITE_ANYWH_PORT` | `8765` | Port the relay listens on — match the relay's `RELAY_PORT`. |
-
-On desktop you can override the profile list at runtime from DevTools
-instead of rebuilding; see
-[Self-hosting](./self-hosting.md#pointing-the-client-at-your-relay). iOS has
-no DevTools, so on iOS these are the only build-time route.
+The client has no build-time configuration. Which relay it talks to is a
+*profile* — created on the first-run screen (connect to a machine by address
+and port, or paste a pairing code), or added later from the profile switcher
+— and stored on the device. On desktop the stored list can also be edited
+from DevTools; see
+[Self-hosting](./self-hosting.md#pointing-the-client-at-your-relay).

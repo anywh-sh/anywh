@@ -3,6 +3,7 @@ import { cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { seedShellProfile } from "./helpers/seedProfile";
 import { en } from "@/i18n/en";
 
 // Same mocks as sendMessage.test.tsx — see the comment there for why these
@@ -16,6 +17,7 @@ let relay: FakeRelay;
 
 beforeEach(() => {
   localStorage.clear();
+  seedShellProfile();
   relay = installFakeRelay("fake relay reply");
 });
 

@@ -86,10 +86,7 @@ export function DangerZone({
     // the local entry (same action `RevokedProfileBanner` offers once a
     // profile is already revoked — this is the same thing, offered
     // proactively instead of waiting for that to happen).
-    if (!removeProfile(scopedProfile.id)) {
-      setError(copy.lastProfile);
-      return;
-    }
+    removeProfile(scopedProfile.id);
     clearProfileRevoked(scopedProfile.id);
     onProfileRemoved(scopedProfile.id);
     setConfirmOpen(false);
@@ -109,6 +106,11 @@ export function DangerZone({
           <span className="text-xs leading-relaxed text-pretty text-muted-foreground">
             {tailnet ? copy.removeBody : executor ? copy.deleteBody : copy.noExecutorBody}
           </span>
+          {/* Removing the only profile is allowed and lands on the first-run
+              screen — worth knowing before the button, not after. */}
+          {allProfiles.length === 1 && (
+            <span className="text-xs leading-relaxed text-pretty text-muted-foreground">{copy.lastProfile}</span>
+          )}
           {/* Only while the dialog that produced it is closed — otherwise
               the same sentence would be on screen twice. */}
           {error && !confirmOpen && <span className="pt-1 text-xs text-destructive">{error}</span>}

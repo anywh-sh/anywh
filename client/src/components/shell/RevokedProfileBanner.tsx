@@ -43,9 +43,9 @@ function splitAroundProfile(template: string, label: string) {
  */
 export function RevokedProfileBanner({ profile }: { profile: Profile }) {
   const revoked = useProfileRevoked(profile.id);
+  const profiles = useProfiles();
   const dict = useDict();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!revoked) return null;
 
@@ -85,20 +85,17 @@ export function RevokedProfileBanner({ profile }: { profile: Profile }) {
           </AlertDialogHeader>
           <AlertDialogBody>
             <AlertDialogDescription>{dict.shell.revoked.confirmBody}</AlertDialogDescription>
+            {/* Removing the only profile is allowed, and lands on the
+                first-run screen — said here, before the click, rather than
+                discovered after it. */}
+            {profiles.length === 1 && <p className="text-sm text-muted-foreground">{dict.shell.revoked.lastProfile}</p>}
           </AlertDialogBody>
-          {error && <p className="text-sm text-destructive">{error}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel>{dict.common.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                // `removeProfile` refuses to empty the list (profiles.ts) —
-                // the only way this fails is being the sole profile left,
-                // which needs a different profile added first, not a retry.
-                if (!removeProfile(profile.id)) {
-                  setError(dict.shell.revoked.lastProfile);
-                  return;
-                }
+                removeProfile(profile.id);
                 clearProfileRevoked(profile.id);
                 setConfirmOpen(false);
               }}
