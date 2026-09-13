@@ -1,10 +1,8 @@
-import { Check, X } from "lucide-react";
+import { StepList, type StepStatus } from "@/components/shell/StepList";
 import { useDict } from "@/i18n";
-import { cn } from "@/lib/utils";
 import type { SetupMode, SetupState } from "@/lib/profileSetup";
 
 type StepKey = "claim" | "connect" | "verify";
-type StepStatus = "pending" | "running" | "done" | "failed";
 
 const TAILNET_STEPS: StepKey[] = ["claim", "connect", "verify"];
 const STEP_INDEX: Record<StepKey, number> = { claim: 0, connect: 1, verify: 2 };
@@ -35,36 +33,11 @@ function statusFor(step: StepKey, state: SetupState): StepStatus {
   return stepIndex === currentIndex ? "running" : "pending";
 }
 
-function StepIndicator({ status }: { status: StepStatus }) {
-  if (status === "done") return <Check className="size-4 shrink-0 text-primary" aria-hidden="true" />;
-  if (status === "failed") return <X className="size-4 shrink-0 text-destructive" aria-hidden="true" />;
-  return (
-    <span
-      aria-hidden="true"
-      className={cn("size-2.5 shrink-0 rounded-full", status === "running" ? "animate-pulse bg-primary" : "bg-border")}
-    />
-  );
-}
-
 /** Renders as many rows as `state.mode` actually has steps for — the list
  * itself is derived, not fixed, so a direct-mode profile never shows a
  * "claim" or "connect" row it never meaningfully passes through. */
 export function ProfileSetupStepList({ state }: { state: SetupState }) {
   const copy = useDict().shell.profiles.setup;
-
-  return (
-    <div className="flex flex-col gap-2" role="status" aria-live="polite" aria-label={copy.progress}>
-      {stepsForMode(state.mode).map((step) => {
-        const status = statusFor(step, state);
-        return (
-          <div key={step} className="flex items-center gap-2.5 text-sm">
-            <StepIndicator status={status} />
-            <span className={cn(status === "pending" && "text-muted-foreground", status === "failed" && "text-destructive")}>
-              {copy.steps[step]}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
+  const steps = stepsForMode(state.mode).map((step) => ({ key: step, label: copy.steps[step], status: statusFor(step, state) }));
+  return <StepList steps={steps} label={copy.progress} />;
 }
