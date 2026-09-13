@@ -1,6 +1,6 @@
 name: Test install.sh
 
-# Exercises the full curl | sh path on a disposable Linux runner instead of a real
+# Exercises the full curl | sh path on disposable runners instead of a real
 # machine — same reasoning as anywh-sh/homebrew-tap's test.yml.
 # install.sh's --apply step registers a real systemd user service and
 # runs `loginctl enable-linger` — exactly what this repo's own CLAUDE.md
@@ -8,60 +8,268 @@ name: Test install.sh
 # session reading this file might be a child process of one of those
 # services already). A GitHub-hosted runner has no such history to break,
 # and is destroyed after the job either way.
+#
+# Two ways in. After a Release, against the assets that release actually
+# published — the end-to-end proof that `curl | sh` works for a stranger.
+# On a pull request that touches the installer, against a tarball built
+# from the checkout and served from localhost (ANYWH_RELEASE_BASE_URL): a
+# change to install.sh or infra/ used to reach a tag with no test having
+# run against it, because this workflow only ever fired after the tag.
 on:
   workflow_run:
     workflows: ["Release"]
     types: [completed]
+  pull_request:
+    paths:
+      - install.sh
+      - infra/**
+      - .github/workflows/test-install.yml
   workflow_dispatch:
 
 jobs:
-  test:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+  released:
+    name: released assets (Linux)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
-
-      # install.sh only checks that `claude` exists on PATH, never runs
-      # it — a stub is enough to test everything downstream. The real CLI
-      # needs an interactive login this runner can't do, and isn't what
-      # this test validates anyway.
-      - name: Stub the claude CLI prerequisite
+      - name: Stub a logged-in agent CLI
         run: |
-          sudo tee /usr/local/bin/claude > /dev/null <<'EOF'
+          sudo tee /usr/local/bin/claude > /dev/null <<'STUB'
           #!/bin/sh
+          [ "$1" = "auth" ] && echo '{"loggedIn":true,"email":"stub@example.test"}'
           exit 0
-          EOF
+          STUB
           sudo chmod +x /usr/local/bin/claude
-
-      - run: ./install.sh
-
-      # --mode prod (the default) is the real path — enables the systemd
-      # instance directly, same as decision 5's Linux/WSL2 story.
-      - name: Create the "default" profile and enable the systemd instance
+      - name: Install from the published release and provision "default" in one run
         run: |
-          install_dir="$HOME/.local/share/anywh"
-          "$install_dir/infra/systemd/add-profile.sh" default --relay-host 127.0.0.1
-
+          ./install.sh --porcelain --profile-id default --relay-host 127.0.0.1 | tee install.log
+          grep -q '^ANYWH done ok ' install.log
       - name: Confirm the relay is running and listening
         run: |
           port="$(grep '^RELAY_PORT=' "$HOME/.config/anywh/env/default.env" | cut -d= -f2)"
-          echo "waiting on port $port"
-          for _ in $(seq 1 15); do
-            nc -z localhost "$port" && break
-            sleep 1
-          done
+          for _ in $(seq 1 15); do nc -z localhost "$port" && break; sleep 1; done
           if ! nc -z localhost "$port"; then
             echo "::error::relay never opened port $port"
             systemctl --user status anywh-relay@default --no-pager || true
             journalctl --user -u anywh-relay@default --no-pager || true
             exit 1
           fi
-          echo "relay is listening on port $port"
-
       - name: Stop the service
         if: always()
         run: systemctl --user stop anywh-relay@default || true
+
+  checkout-linux:
+    name: checkout tarball (Linux, real systemd)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8765
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+
+      # Same staging release.yml's build-relay job does, minus the upload:
+      # the tarball under test carries *this* checkout's infra/, which is
+      # the whole point of running on a pull request.
+      - name: Build the relay tarball from the checkout
+        run: |
+          (cd relay && npm ci && npm run build && npm prune --omit=dev)
+          mkdir -p stage/relay serve
+          cp -a relay/dist relay/node_modules relay/package.json stage/relay/
+          cp -a infra stage/infra
+          tar czf serve/anywh-relay-linux-x64.tar.gz -C stage relay infra
+          # An archive that is valid gzip/tar but has no relay in it — what a
+          # truncated or wrong-asset download looks like once it passes the
+          # checksum. Named as a pinned version so a run can pick it.
+          mkdir -p broken/relay
+          echo "not a relay" > broken/relay/README
+          tar czf serve/anywh-relay-0.0.0-broken-linux-x64.tar.gz -C broken relay
+          (cd serve && sha256sum -- * > SHA256SUMS)
+          (cd serve && python3 -m http.server 8765 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/SHA256SUMS > /dev/null && break; sleep 0.5; done
+
+      - name: Stub a logged-in agent CLI
+        run: |
+          sudo tee /usr/local/bin/claude > /dev/null <<'STUB'
+          #!/bin/sh
+          [ "$1" = "auth" ] && echo "${FAKE_AUTH_JSON:-{\"loggedIn\":true,\"email\":\"stub@example.test\"}}"
+          exit 0
+          STUB
+          sudo chmod +x /usr/local/bin/claude
+
+      - name: A logged-out agent fails before anything is written
+        run: |
+          set +e
+          FAKE_AUTH_JSON='{"loggedIn":false}' ANYWH_INSTALL_DIR="$RUNNER_TEMP/never" ./install.sh --porcelain > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          [ "$status" -ne 0 ]
+          grep -q '^ANYWH fail prereqs agent_not_logged_in ' out.log
+          [ ! -e "$RUNNER_TEMP/never" ]
+
+      - name: Flags are validated before any network
+        run: |
+          set +e
+          ANYWH_RELEASE_BASE_URL=http://127.0.0.1:1 ./install.sh --porcelain --profile-id 'Bad Id' --relay-host 10.0.0.1 > out.log 2>&1
+          status=$?
+          set -e
+          [ "$status" -ne 0 ]
+          grep -q '^ANYWH fail flags bad_flag ' out.log
+          set +e
+          ANYWH_RELEASE_BASE_URL=http://127.0.0.1:1 ./install.sh --porcelain --profile-id ok > out.log 2>&1
+          status=$?
+          set -e
+          [ "$status" -ne 0 ]
+          grep -q '^ANYWH fail flags bad_flag --relay-host is required' out.log
+
+      - name: Install and provision "default" in one run
+        run: |
+          ./install.sh --porcelain --profile-id default --profile-label "Default" --relay-host 127.0.0.1 | tee install.log
+          grep -q '^ANYWH done ok service=systemd' install.log
+          grep -q '^ANYWH profile id=default port=[0-9]* host=127.0.0.1 mode=prod' install.log
+          [ -f "$HOME/.local/share/anywh/relay/dist/server.js" ]
+          ls -d "$HOME/.local/share/anywh"/.staging.* "$HOME/.local/share/anywh"/*.old.* 2>/dev/null && exit 1 || true
+
+      - name: Confirm the relay is running and listening
+        run: |
+          port="$(grep '^RELAY_PORT=' "$HOME/.config/anywh/env/default.env" | cut -d= -f2)"
+          for _ in $(seq 1 15); do nc -z localhost "$port" && break; sleep 1; done
+          if ! nc -z localhost "$port"; then
+            echo "::error::relay never opened port $port"
+            systemctl --user status anywh-relay@default --no-pager || true
+            journalctl --user -u anywh-relay@default --no-pager || true
+            exit 1
+          fi
+
+      - name: Re-running is idempotent — no duplicate entry, no restart
+        run: |
+          before="$(systemctl --user show -p ActiveEnterTimestampMonotonic --value anywh-relay@default)"
+          ./install.sh --porcelain --profile-id default --profile-label "Default" --relay-host 127.0.0.1 | tee rerun.log
+          grep -q '^ANYWH done ok ' rerun.log
+          after="$(systemctl --user show -p ActiveEnterTimestampMonotonic --value anywh-relay@default)"
+          [ "$before" = "$after" ] || { echo "::error::the re-run restarted the unit"; exit 1; }
+          [ "$(ls "$HOME/.config/anywh/env"/*.env | wc -l)" -eq 1 ]
+          [ "$(node -p 'require(process.argv[1]).profiles.filter(p => p.id === "default").length' "$HOME/.config/anywh/profiles.json")" -eq 1 ]
+
+      - name: A different --relay-host for an existing profile is refused, with the difference named
+        run: |
+          set +e
+          "$HOME/.local/share/anywh/infra/systemd/add-profile.sh" default --relay-host 10.9.9.9 --resume --porcelain > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          [ "$status" -ne 0 ]
+          grep -q '^ANYWH fail profile resume_mismatch ' out.log
+          grep -q 'RELAY_HOST: have 127.0.0.1, want 10.9.9.9' out.log
+
+      - name: A profile left half-provisioned resumes with a single .env
+        run: |
+          add="$HOME/.local/share/anywh/infra/systemd/add-profile.sh"
+          # Masking the instance makes `enable --now` fail *after* the .env
+          # and profiles.json are written — the state a death at the last
+          # step leaves behind.
+          systemctl --user mask anywh-relay@partial
+          set +e
+          "$add" partial --relay-host 127.0.0.1 > out.log 2>&1
+          status=$?
+          set -e
+          [ "$status" -ne 0 ]
+          [ -f "$HOME/.config/anywh/env/partial.env" ]
+          systemctl --user unmask anywh-relay@partial
+          set +e
+          "$add" partial --relay-host 127.0.0.1 > out.log 2>&1
+          set -e
+          grep -q "already exists" out.log
+          "$add" partial --relay-host 127.0.0.1 --resume --porcelain | tee resume.log
+          grep -q '^ANYWH profile id=partial ' resume.log
+          [ "$(ls "$HOME/.config/anywh/env"/partial*.env | wc -l)" -eq 1 ]
+          systemctl --user is-active --quiet anywh-relay@partial
+
+      - name: --relay-host auto never lands on loopback
+        run: |
+          "$HOME/.local/share/anywh/infra/systemd/add-profile.sh" --help > /dev/null
+          ./install.sh --porcelain --profile-id auto-picked --relay-host auto --mode dev | tee auto.log
+          host="$(sed -n 's/^ANYWH done relay_host host=//p' auto.log)"
+          echo "picked $host"
+          [ -n "$host" ]
+          case "$host" in 127.*) echo "::error::auto picked loopback"; exit 1 ;; esac
+          grep -q "^RELAY_HOST=$host\$" "$HOME/.config/anywh/env/auto-picked.env"
+
+      - name: A broken tarball never replaces a working install
+        run: |
+          echo sentinel > "$HOME/.local/share/anywh/relay/SENTINEL"
+          set +e
+          ./install.sh --porcelain --version 0.0.0-broken > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          [ "$status" -ne 0 ]
+          grep -q '^ANYWH fail install tarball_incomplete ' out.log
+          [ -f "$HOME/.local/share/anywh/relay/SENTINEL" ]
+          [ -f "$HOME/.local/share/anywh/relay/dist/server.js" ]
+          ls -d "$HOME/.local/share/anywh"/.staging.* 2>/dev/null && exit 1 || true
+          systemctl --user is-active --quiet anywh-relay@default
+
+      - name: Stop the services
+        if: always()
+        run: |
+          systemctl --user stop anywh-relay@default || true
+          systemctl --user stop anywh-relay@partial || true
+
+  checkout-macos:
+    name: checkout tarball (macOS, no service manager)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    timeout-minutes: 20
+    env:
+      ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8765
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - name: Build the relay tarball from the checkout
+        run: |
+          (cd relay && npm ci && npm run build && npm prune --omit=dev)
+          mkdir -p stage/relay serve
+          cp -a relay/dist relay/node_modules relay/package.json stage/relay/
+          cp -a infra stage/infra
+          tar czf serve/anywh-relay-darwin-arm64.tar.gz -C stage relay infra
+          (cd serve && shasum -a 256 -- * > SHA256SUMS)
+          (cd serve && python3 -m http.server 8765 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/SHA256SUMS > /dev/null && break; sleep 0.5; done
+      - name: Stub a logged-in agent CLI
+        run: |
+          sudo tee /usr/local/bin/claude > /dev/null <<'STUB'
+          #!/bin/sh
+          [ "$1" = "auth" ] && echo '{"loggedIn":true}'
+          exit 0
+          STUB
+          sudo chmod +x /usr/local/bin/claude
+      # Regression for the darwin leg that used to die inside the systemd
+      # step *after* extracting: exits 0, whole tree, no service, and the
+      # profile lands in dev mode since there is nothing to enable it in.
+      - name: Installs the tree, skips the service, exits 0
+        run: |
+          ./install.sh --porcelain --profile-id default --relay-host 10.0.0.5 | tee install.log
+          grep -q '^ANYWH done service manager=none' install.log
+          grep -q '^ANYWH profile id=default port=[0-9]* host=10.0.0.5 mode=dev' install.log
+          grep -q '^ANYWH done ok service=none' install.log
+          grep -q 'brew install anywh-sh/tap/anywh-relay' install.log
+          [ -f "$HOME/.local/share/anywh/relay/dist/server.js" ]
+          [ -f "$HOME/.local/share/anywh/infra/systemd/add-profile.sh" ]
+          ls -d "$HOME/.local/share/anywh"/.staging.* 2>/dev/null && exit 1 || true
+          grep -q '^RELAY_HOST=10.0.0.5$' "$HOME/.config/anywh/env/default.env"
