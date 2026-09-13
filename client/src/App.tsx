@@ -30,6 +30,7 @@ import { useTerminalTabs } from "@/hooks/useTerminalTabs";
 import { useFileTabs } from "@/hooks/useFileTabs";
 import { useWindowFocus } from "@/hooks/useWindowFocus";
 import { useNotificationClick } from "@/hooks/useNotificationClick";
+import { useContextMenuGuard } from "@/hooks/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/useProfileImport";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
 import { useActiveTheme, useThemeSync } from "@/hooks/useThemes";
@@ -85,6 +86,7 @@ export default function App() {
   const fileTabs = useFileTabs();
   const nav = useNavigationHistory();
   const windowFocused = useWindowFocus();
+  useContextMenuGuard();
   // Both registry mirrors live here, at the one place that is mounted for
   // the whole life of the app in both layouts. The profile sync used to sit
   // inside ProfileSwitcher, which the collapsible sidebar unmounts and iOS

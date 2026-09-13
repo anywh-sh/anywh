@@ -1,20 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, ChevronRight, Code2, Download, FilePlus, Pencil, SquareTerminal, Trash2 } from "lucide-react";
 import type { ChangeSignal } from "@/components/files/FilesPanel";
 import { CreateFileDialog } from "@/components/files/CreateFileDialog";
 import { RenameFileDialog } from "@/components/files/RenameFileDialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogBody,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -542,8 +532,6 @@ function FileTreeNode({
   // sense for a folder.
   const menu = useContextMenu();
   const [renameOpen, setRenameOpen] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
 
   async function handleDownload(): Promise<void> {
     try {
@@ -573,6 +561,26 @@ function FileTreeNode({
       console.error("[anywh] failed to delete file:", error);
       window.alert(copy.errors.delete);
     }
+  }
+
+  async function confirmDelete(): Promise<void> {
+    const confirmed = await confirmDialog(copy.deleteFile.description.replace("{name}", entry.name), {
+      title: copy.deleteFile.title,
+      kind: "warning",
+      okLabel: dict.common.delete,
+      cancelLabel: dict.common.cancel,
+    });
+    if (confirmed) await handleDelete();
+  }
+
+  async function confirmBulkDelete(): Promise<void> {
+    const confirmed = await confirmDialog(copy.deleteFiles.description.replace("{count}", String(selectedPaths.size)), {
+      title: copy.deleteFiles.title,
+      kind: "warning",
+      okLabel: dict.common.delete,
+      cancelLabel: dict.common.cancel,
+    });
+    if (confirmed) onBulkDelete(Array.from(selectedPaths));
   }
 
   async function handleDownloadFolder(): Promise<void> {
@@ -686,7 +694,7 @@ function FileTreeNode({
                     onSelect={(event) => {
                       event.preventDefault();
                       menu.setOpen(false);
-                      setBulkDeleteConfirmOpen(true);
+                      void confirmBulkDelete();
                     }}
                   >
                     <Trash2 />
@@ -738,7 +746,7 @@ function FileTreeNode({
                     onSelect={(event) => {
                       event.preventDefault();
                       menu.setOpen(false);
-                      setDeleteConfirmOpen(true);
+                      void confirmDelete();
                     }}
                   >
                     <Trash2 />
@@ -787,46 +795,7 @@ function FileTreeNode({
         )}
       </div>
       {!isDir && (
-        <>
-          <RenameFileDialog open={renameOpen} onOpenChange={setRenameOpen} initialName={entry.name} onSave={(name) => void handleRename(name)} />
-          <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{copy.deleteFile.title}</AlertDialogTitle>
-              </AlertDialogHeader>
-              <AlertDialogBody>
-                <AlertDialogDescription>{copy.deleteFile.description.replace("{name}", entry.name)}</AlertDialogDescription>
-              </AlertDialogBody>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{dict.common.cancel}</AlertDialogCancel>
-                <AlertDialogAction onClick={() => void handleDelete()}>{dict.common.delete}</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-          <AlertDialog open={bulkDeleteConfirmOpen} onOpenChange={setBulkDeleteConfirmOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{copy.deleteFiles.title}</AlertDialogTitle>
-              </AlertDialogHeader>
-              <AlertDialogBody>
-                <AlertDialogDescription>
-                  {copy.deleteFiles.description.replace("{count}", String(selectedPaths.size))}
-                </AlertDialogDescription>
-              </AlertDialogBody>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{dict.common.cancel}</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => {
-                    onBulkDelete(Array.from(selectedPaths));
-                    setBulkDeleteConfirmOpen(false);
-                  }}
-                >
-                  {dict.common.delete}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </>
+        <RenameFileDialog open={renameOpen} onOpenChange={setRenameOpen} initialName={entry.name} onSave={(name) => void handleRename(name)} />
       )}
       {isDir && isExpanded && (
         <FileTreeChildren
