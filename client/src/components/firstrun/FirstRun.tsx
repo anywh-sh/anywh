@@ -127,7 +127,11 @@ export function FirstRun() {
       </div>
 
       <div className="scrollbar-thin flex min-h-0 flex-1 justify-center overflow-y-auto">
-        <main className="flex w-full max-w-[660px] flex-col gap-7 px-7 pt-12 pb-12">
+        {/* `my-auto` rather than `items-center` on the scroll container:
+         * auto margins collapse to zero instead of clipping the top of the
+         * content once it's taller than the window, which is what centering
+         * via `align-items` would do here. */}
+        <main className="my-auto flex w-full max-w-[660px] flex-col gap-7 px-7 py-12">
           <div className="flex items-center gap-3">
             <AnywhLogo className="size-[22px] shrink-0" />
             <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
