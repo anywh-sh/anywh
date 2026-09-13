@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronsUpDown, Plus, Link2 } from "lucide-react";
+import { ChevronsUpDown, Plus, Link2, RotateCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,6 +15,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useRevokedProfiles } from "@/hooks/useProfileRevoked";
 import { useDict } from "@/i18n";
 import { profileBadge } from "@/lib/profileBadge";
+import { resumeProfileSetup } from "@/lib/profileSetup";
 import { AddProfileDialog } from "@/components/shell/AddProfileDialog";
 import { AddRemoteMachineDialog } from "@/components/shell/AddRemoteMachineDialog";
 
@@ -77,6 +78,19 @@ export function ProfileSwitcher({ activeProfile, supported, onChange }: ProfileS
             );
           })}
           <DropdownMenuSeparator />
+          {/* One per profile that was saved but never reached (the app
+              closed mid-setup, or the verification failed and was left for
+              later): re-enters the setup pipeline at "connect" — never at
+              the claim, whose code is already spent — and the same
+              `ProfileSetupDialog` the shell mounts shows the outcome. */}
+          {profiles
+            .filter((profile) => profile.unverified)
+            .map((profile) => (
+              <DropdownMenuItem key={`finish-${profile.id}`} onSelect={() => resumeProfileSetup(profile)}>
+                <RotateCw className="size-3.5" />
+                {dict.shell.profiles.finishSetup.replace("{label}", profile.label)}
+              </DropdownMenuItem>
+            ))}
           {/* Ungated on `supported`, unlike "add profile" below: that one
               asks the active host to create an account and needs a working
               connection to it, while this one is how you get a connection in

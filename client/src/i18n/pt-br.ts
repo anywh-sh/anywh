@@ -330,6 +330,8 @@ export const ptBr: Dictionary = {
       badgeLocal: "local",
       badgeRemote: "remoto",
       badgeRevoked: "revogado",
+      badgeUnverified: "não verificado",
+      finishSetup: "concluir a configuração de {label}",
       add: {
         title: "Adicionar perfil",
         description: "Garanta que sua sessão do Claude está logada na máquina que hospeda o serviço.",

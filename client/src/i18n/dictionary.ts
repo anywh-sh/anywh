@@ -644,6 +644,10 @@ export interface Dictionary {
       badgeLocal: string;
       badgeRemote: string;
       badgeRevoked: string;
+      /** Saved but never reached — an interrupted setup (`Profile.unverified`). */
+      badgeUnverified: string;
+      /** `{label}` — the switcher item that resumes that profile's setup. */
+      finishSetup: string;
       /** Creating a profile on the connected host, and pairing a machine
        * that isn't reachable yet — the two ways a profile comes into
        * existence. */

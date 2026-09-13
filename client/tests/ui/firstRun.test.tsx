@@ -210,6 +210,47 @@ describe("first run", () => {
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
   });
 
+  it("a sole unverified profile resumes its verification on launch and hands over once it passes", async () => {
+    // The run after one that died between the claim and the verification:
+    // the profile is saved, the list isn't empty, and the shell would open
+    // on a machine that was never reached.
+    setProfiles([{ id: "left", label: "Left over", host: MACHINE.host, relayPort: MACHINE.port, unverified: true }]);
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
+
+    await expectShellWithOneProfile("Left over");
+    expect(getProfiles()[0].unverified).toBeUndefined();
+  });
+
+  it("with other profiles around, an unverified one is badged in the shell and finishes from the switcher — no dialog on boot", async () => {
+    setProfiles([
+      { id: "home", label: "Home", host: "127.0.0.1", relayPort: 8765 },
+      { id: "left", label: "Left over", host: MACHINE.host, relayPort: MACHINE.port, unverified: true },
+    ]);
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("button", { name: en.shell.profiles.activeProfile });
+    expect(screen.queryByText(en.shell.profiles.setup.connectingTitle)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+    expect(await within(document.body).findByText(en.shell.profiles.badgeUnverified)).toBeInTheDocument();
+    await user.click(
+      within(document.body).getByRole("menuitem", { name: en.shell.profiles.finishSetup.replace("{label}", "Left over") }),
+    );
+
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
+
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent("Left over"));
+    expect(getProfiles().find((p) => p.id === "left")?.unverified).toBeUndefined();
+  });
+
   it("switches language from inside the first run", async () => {
     const user = userEvent.setup();
     renderApp();
