@@ -581,7 +581,6 @@ export const ptBr: Dictionary = {
       start: "iniciar o serviço",
       relayHostPlaceholder: "o endereço em que os outros devices alcançam esta máquina",
       done: "pronto — conectar nela",
-      back: "voltar aos caminhos",
     },
     copy: {
       copy: "copiar",

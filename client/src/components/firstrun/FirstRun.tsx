@@ -149,7 +149,6 @@ export function FirstRun() {
                 setConnectHost("127.0.0.1");
                 setScreen("connect");
               }}
-              onBack={() => pick("home")}
             />
           )}
         </main>

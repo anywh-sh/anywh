@@ -581,7 +581,6 @@ export const en: Dictionary = {
       start: "start the service",
       relayHostPlaceholder: "the address other devices reach this machine on",
       done: "done — connect to it",
-      back: "back to the paths",
     },
     copy: {
       copy: "copy",
