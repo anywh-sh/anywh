@@ -6,6 +6,7 @@ import * as SessionListModule from "@/components/shell/SessionList";
 import * as TitleBarModule from "@/components/shell/TitleBar";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
+import { seedShellProfile } from "./helpers/seedProfile";
 import { upsertCachedSession } from "@/lib/sessionListCache";
 import { en } from "@/i18n/en";
 
@@ -44,6 +45,7 @@ let relay: FakeRelay;
 
 beforeEach(() => {
   localStorage.clear();
+  seedShellProfile();
   listRenderCount = 0;
   appRenderCount = 0;
   relay = installFakeRelay("fake reply");

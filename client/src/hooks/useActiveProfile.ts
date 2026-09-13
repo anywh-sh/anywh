@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { findProfile, getProfiles, type Profile } from "@/lib/profiles";
+import { findProfile, getProfiles, LAST_PROFILE_STORAGE_KEY, type Profile } from "@/lib/profiles";
 import { useProfiles } from "@/hooks/useProfiles";
 
-const STORAGE_KEY = "anywh:last-profile";
-
+/** `getProfiles()[0]` is safe here only because `App` never mounts the shell
+ * (and so never this hook) with an empty list — the first-run screen owns
+ * the window until there is a profile to land on. */
 function readInitialProfileId(override: string | null): string {
   if (override && findProfile(override)) return override;
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = localStorage.getItem(LAST_PROFILE_STORAGE_KEY);
   if (saved && findProfile(saved)) return saved;
   return getProfiles()[0].id;
 }
@@ -17,7 +18,7 @@ export function useActiveProfile(queryOverride: string | null): [Profile, (id: s
 
   const setActiveProfileId = useCallback((id: string) => {
     setProfileId(id);
-    localStorage.setItem(STORAGE_KEY, id);
+    localStorage.setItem(LAST_PROFILE_STORAGE_KEY, id);
   }, []);
 
   // The active profile can disappear without any click here — deleted from

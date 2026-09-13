@@ -11,6 +11,7 @@
  */
 import type { EditMessageErrorCode, PermissionMode, SetCwdErrorCode } from "@/lib/relay-types";
 import type { ThemeValidationCode } from "@/lib/theme";
+import type { FirstRunScreen } from "@/lib/firstRun";
 
 export interface Dictionary {
   common: {
@@ -158,7 +159,82 @@ export interface Dictionary {
       remove: string;
       confirmPrompt: string;
       deleting: string;
+      /** Shown when the profile being removed is the only one: removal
+       * isn't refused, it puts the first-run screen back. */
       lastProfile: string;
+    };
+  };
+  /**
+   * What the window shows instead of the shell while this device has no
+   * profile: the choice of paths, the two forms, and the terminal fallback.
+   * Its own surface rather than a corner of `shell` — nothing here is
+   * rendered once a profile exists, and none of the shell's copy is
+   * rendered before one does.
+   */
+  firstRun: {
+    /** Drawn in the window's own title bar, which the shell's `TitleBar`
+     * isn't there to provide yet. */
+    windowTitle: string;
+    back: string;
+    /** Eyebrow beside the mark, naming where in the flow the reader is.
+     * Keyed on the screen union so a new screen is a compile error until
+     * it has a crumb. */
+    crumbs: Record<FirstRunScreen, string>;
+    home: {
+      title: string;
+      body: string;
+      connectTitle: string;
+      connectHint: string;
+      codeTitle: string;
+      codeHint: string;
+      /** The line under the paths, for whoever has no relay anywhere yet. */
+      terminalPrompt: string;
+      terminalLink: string;
+    };
+    connect: {
+      title: string;
+      body: string;
+      hostLabel: string;
+      hostPlaceholder: string;
+      portLabel: string;
+      nameLabel: string;
+      namePlaceholder: string;
+      submit: string;
+      /** The queue refused it — the same address is already mid-flight. */
+      alreadyQueued: string;
+    };
+    code: {
+      title: string;
+      body: string;
+      nameLabel: string;
+      namePlaceholder: string;
+      codeLabel: string;
+      submit: string;
+      alreadyQueued: string;
+    };
+    /** The terminal alternative. One body per platform because the
+     * commands differ: Homebrew on macOS, WSL2 on Windows. */
+    manual: {
+      title: string;
+      body: string;
+      bodyMac: string;
+      bodyWindows: string;
+      install: string;
+      profile: string;
+      start: string;
+      /** Stands in for the one value the reader has to fill in themselves,
+       * printed inside angle brackets in the command. */
+      relayHostPlaceholder: string;
+      done: string;
+      back: string;
+    };
+    copy: {
+      copy: string;
+      copied: string;
+      failed: string;
+    };
+    footer: {
+      nothingInstalled: string;
     };
   };
   /**
@@ -639,6 +715,8 @@ export interface Dictionary {
       /** `{profile}` — the profile's label. */
       confirmTitle: string;
       confirmBody: string;
+      /** Same note as `settings.danger.lastProfile`, in the banner's own
+       * confirmation. */
       lastProfile: string;
     };
     /** The folder a conversation runs in. Lives in the title bar since the

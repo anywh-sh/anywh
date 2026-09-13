@@ -1,4 +1,4 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LanguageControl } from "@/components/settings/LanguageControl";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { ThemeSection } from "@/components/settings/ThemeSection";
 import {
@@ -8,7 +8,7 @@ import {
   MIN_FONT_SIZE,
   useFontSize,
 } from "@/hooks/useFontSize";
-import { locales, localeNames, useDict, useLocale, type Locale } from "@/i18n";
+import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles";
 
 /**
@@ -50,30 +50,6 @@ function FontSizeControl() {
         )}
       </div>
     </div>
-  );
-}
-
-/**
- * Language is device-local like the two settings above it. Each option is
- * written in its own language on purpose — someone looking for Portuguese
- * scans for "Português", not for whatever the current language calls it.
- */
-function LanguageControl() {
-  const { locale, setLocale } = useLocale();
-
-  return (
-    <Select value={locale} onValueChange={(value) => setLocale(value as Locale)}>
-      <SelectTrigger size="sm" className="w-52">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {locales.map((option) => (
-          <SelectItem key={option} value={option}>
-            {localeNames[option]}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   );
 }
 

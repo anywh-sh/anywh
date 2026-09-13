@@ -101,10 +101,14 @@ describe("DangerZone", () => {
     expect(screen.getByRole("button", { name: en.settings.danger.delete })).toBeDisabled();
   });
 
-  it("reports an error instead of removing the sole remaining tailnet profile", async () => {
-    removeProfileMock.mockReturnValue(false);
+  it("says what removing the only profile means, and removes it anyway", async () => {
+    // Removing the last profile used to be refused with "add another one
+    // first". An empty list is legitimate now — it puts the first-run
+    // screen back — so the zone says so up front and the removal goes
+    // through.
     const scoped = tailnetProfile("only-one");
     render(<DangerZone scopedProfile={scoped} allProfiles={[scoped]} onProfileRemoved={() => {}} />);
+    expect(screen.getByText(en.settings.danger.lastProfile)).toBeInTheDocument();
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: en.settings.danger.remove }));
@@ -112,6 +116,14 @@ describe("DangerZone", () => {
     await user.type(dialog.getByRole("textbox"), "only-one");
     await user.click(dialog.getByRole("button", { name: en.settings.danger.remove }));
 
-    expect(await screen.findByText(en.settings.danger.lastProfile)).toBeInTheDocument();
+    expect(removeProfileMock).toHaveBeenCalledWith("only-one");
+  });
+
+  it("leaves that sentence out while other profiles remain", () => {
+    const scoped = tailnetProfile("sandbox-a");
+    const other = directProfile("b", "192.168.0.10");
+    render(<DangerZone scopedProfile={scoped} allProfiles={[scoped, other]} onProfileRemoved={() => {}} />);
+
+    expect(screen.queryByText(en.settings.danger.lastProfile)).not.toBeInTheDocument();
   });
 });

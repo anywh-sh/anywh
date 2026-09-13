@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { getProfiles, isBrokeredProfile, isTailnetProfile, setProfiles, syncProfilesForHost, type Profile } from "./profiles";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getProfiles, isBrokeredProfile, isTailnetProfile, removeProfile, setProfiles, syncProfilesForHost, type Profile } from "./profiles";
 import type { RemoteProfile } from "@/lib/relay-types";
 
 function remote(overrides: Partial<RemoteProfile> & Pick<RemoteProfile, "id" | "host">): RemoteProfile {
@@ -227,5 +227,107 @@ describe("isBrokeredProfile", () => {
     expect(
       isBrokeredProfile({ ...base, brokerUrl: "https://api.example/v1/connect/workspace-1", brokerNodeId: "node-1" }),
     ).toBe(true);
+  });
+});
+
+/** The reader and the migration run once, at import — so each case gets a
+ * fresh module against the storage it just seeded. The static import at the
+ * top of this file keeps pointing at the original instance, which is fine:
+ * these cases only ever read through the fresh one. */
+async function freshProfilesModule(): Promise<typeof import("./profiles")> {
+  vi.resetModules();
+  return import("./profiles");
+}
+
+describe("stored list", () => {
+  it("reads an absent key as no profiles at all — nothing is seeded", async () => {
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([]);
+  });
+
+  it("reads an empty array as empty rather than falling back to a seed", async () => {
+    localStorage.setItem("anywh:profiles", "[]");
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([]);
+  });
+
+  it("reads unreadable storage as empty without overwriting the key", async () => {
+    // Whatever is in there may still be recoverable by hand; the first
+    // real write (a profile added from the first run) replaces it anyway.
+    localStorage.setItem("anywh:profiles", "{not json");
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([]);
+    expect(localStorage.getItem("anywh:profiles")).toBe("{not json");
+  });
+
+  it("lets removeProfile empty the list — an empty list is what shows the first run", () => {
+    const only: Profile = { id: "only", label: "Only", host: "100.64.0.1", relayPort: 8765 };
+    setProfiles([only]);
+
+    expect(removeProfile("only")).toBe(true);
+
+    expect(getProfiles()).toEqual([]);
+    expect(localStorage.getItem("anywh:profiles")).toBe("[]");
+  });
+
+  it("removeProfile reports false for an id it doesn't know", () => {
+    setProfiles([{ id: "a", label: "A", host: "100.64.0.1", relayPort: 8765 }]);
+    expect(removeProfile("nope")).toBe(false);
+  });
+});
+
+describe("seeded-ghost migration", () => {
+  const ghost: Profile = { id: "default", label: "Default", host: "127.0.0.1", relayPort: 8765 };
+  const MIGRATION_KEY = "anywh:migrations:drop-loopback-default";
+
+  function store(list: Profile[]): void {
+    localStorage.setItem("anywh:profiles", JSON.stringify(list));
+  }
+
+  it("drops the old seed when it is the only entry, on loopback, and never synced", async () => {
+    // The pre-first-run install: `DEFAULT_PROFILES` planted this on every
+    // device whether or not a relay listened there. Left in place, it
+    // would keep the first-run screen from ever showing after the upgrade.
+    store([ghost]);
+    const fresh = await freshProfilesModule();
+
+    expect(fresh.getProfiles()).toEqual([]);
+    expect(localStorage.getItem("anywh:profiles")).toBe("[]");
+    expect(localStorage.getItem(MIGRATION_KEY)).not.toBeNull();
+  });
+
+  it("keeps a loopback 'default' this device has actually synced sessions for — that's a real relay", async () => {
+    store([ghost]);
+    localStorage.setItem("anywh:session-list-cache", JSON.stringify({ default: { sessions: [], syncedAt: 1_700_000_000_000 } }));
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([ghost]);
+  });
+
+  it("keeps it when a second profile exists — that device has been through pairing", async () => {
+    const other: Profile = { id: "trabalho", label: "Trabalho", host: "100.64.0.2", relayPort: 8765 };
+    store([ghost, other]);
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([ghost, other]);
+  });
+
+  it("keeps a sole 'default' on a real (non-loopback) host", async () => {
+    const real: Profile = { ...ghost, host: "192.168.0.10" };
+    store([real]);
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([real]);
+  });
+
+  it("keeps a sole loopback profile under any other id", async () => {
+    const renamed: Profile = { ...ghost, id: "home" };
+    store([renamed]);
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([renamed]);
+  });
+
+  it("runs once: a loopback 'default' created after the migration survives", async () => {
+    localStorage.setItem(MIGRATION_KEY, "1");
+    store([ghost]);
+    const fresh = await freshProfilesModule();
+    expect(fresh.getProfiles()).toEqual([ghost]);
   });
 });

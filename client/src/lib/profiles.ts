@@ -1,4 +1,5 @@
 import type { RemoteProfile } from "@/lib/relay-types";
+import { getCachedSessions } from "@/lib/sessionListCache";
 
 export interface Profile {
   /** Immutable slug — the key of every per-profile storage (tabs, recent
@@ -89,20 +90,11 @@ export function isBrokeredProfile(profile: Profile): boolean {
 
 const STORAGE_KEY = "anywh:profiles";
 
-// Seed data, built from build-time env vars (see client/.env.example) so a
-// distributed binary doesn't hardcode any one deployment's address. A future
-// pairing flow (or a settings UI) can call `setProfiles` to replace/extend
-// this list at runtime; every consumer already reads through
-// `getProfiles`/`useProfiles`, so none of them need to change again when
-// that flow shows up.
-const DEFAULT_PROFILES: Profile[] = [
-  {
-    id: "default",
-    label: "Default",
-    host: import.meta.env.VITE_ANYWH_HOST ?? "127.0.0.1",
-    relayPort: Number(import.meta.env.VITE_ANYWH_PORT ?? 8765),
-  },
-];
+/** Where `useActiveProfile` remembers which profile was in front last. Not
+ * private to that hook because the first-run flow has to write it before
+ * the shell ever mounts (`finishFirstRun`) — the hook's initial read is the
+ * only moment the value is consulted, and by then it has to be there. */
+export const LAST_PROFILE_STORAGE_KEY = "anywh:last-profile";
 
 function isProfile(value: unknown): value is Profile {
   if (typeof value !== "object" || value === null) return false;
@@ -115,18 +107,76 @@ function isProfile(value: unknown): value is Profile {
   );
 }
 
+/**
+ * What is on disk, or `[]`. No seed: a device with nothing stored has no
+ * profile, and the app shows its first-run screen instead of pretending a
+ * relay is listening on loopback. Unreadable storage (a half-written or
+ * hand-edited entry) also reads as empty — but the key is left exactly as
+ * it was, never overwritten with `[]`: whatever is in there may still be
+ * recoverable by hand, and the first write that does happen (a profile
+ * added from the first-run screen) replaces it anyway.
+ */
 function readStoredProfiles(): Profile[] {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return DEFAULT_PROFILES;
+  if (!raw) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 && parsed.every(isProfile) ? parsed : DEFAULT_PROFILES;
+    return Array.isArray(parsed) && parsed.every(isProfile) ? parsed : [];
   } catch {
-    return DEFAULT_PROFILES;
+    return [];
   }
 }
 
-let profiles: Profile[] = readStoredProfiles();
+// A profile can only ever legitimately report one of these as its own
+// `RELAY_HOST` if the device syncing it is on the very same machine —
+// loopback is unreachable from anywhere else. `ensureSelfRegistered`
+// (relay/src/profileRegistry.ts) falls back to `127.0.0.1` for exactly this
+// reason when it self-registers a `"default"` profile, so any locally
+// stored entry still carrying one of these hosts is either that ghost or
+// equally unreachable junk — safe to drop the moment a sync against a real
+// (non-loopback) host succeeds, even if the id no longer shows up in that
+// sync's response at all (the id-based cleanup below only catches a ghost
+// that's still being re-registered under a *different* port each time; one
+// that stopped existing entirely — e.g. its `.env` got deleted — needs this
+// instead). A tailnet profile is the one exception — its loopback host is
+// the `importProfile` placeholder, swapped for the
+// sidecar's real local address by `useRelayClient` before anything is
+// dialed, so it looks identical to a ghost while actually being a live
+// profile whose auth key/broker config exists nowhere else (no host's
+// `/control/profiles` can hand it back).
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+const GHOST_MIGRATION_KEY = "anywh:migrations:drop-loopback-default";
+
+/**
+ * One-shot cleanup of the seed this module used to plant. Every install
+ * before the first-run screen existed started with a `"default"` profile
+ * pointing at `127.0.0.1:8765`, whether or not anything listened there; on
+ * a device that never had a relay, that ghost is what would stand between
+ * the upgrade and the first-run screen. Dropped only when all four hold: it
+ * is the *only* entry, it has the seed's id, its host is loopback, and this
+ * device never once synced a session list for it (`syncedAt === null`).
+ * Each condition guards a real person — someone who runs a relay on
+ * loopback for real has synced it, someone who renamed the seed has a
+ * different id, someone with a second profile has already been through
+ * pairing. Flagged so it runs once per device: a loopback profile called
+ * "default" created later, on purpose, is never touched.
+ */
+function dropSeededGhost(list: Profile[]): Profile[] {
+  if (localStorage.getItem(GHOST_MIGRATION_KEY) !== null) return list;
+  localStorage.setItem(GHOST_MIGRATION_KEY, "1");
+  const [only] = list;
+  const isGhost =
+    list.length === 1 &&
+    only.id === "default" &&
+    LOOPBACK_HOSTS.has(only.host) &&
+    getCachedSessions("default").syncedAt === null;
+  if (!isGhost) return list;
+  localStorage.setItem(STORAGE_KEY, "[]");
+  return [];
+}
+
+let profiles: Profile[] = dropSeededGhost(readStoredProfiles());
 const listeners = new Set<() => void>();
 
 /** Synchronous read of the current list — for call sites that aren't React
@@ -137,10 +187,9 @@ export function getProfiles(): Profile[] {
   return profiles;
 }
 
-/** Replaces the whole list and persists it — the write side of the dynamic
- * profiles store. Nothing calls this yet (still seeded from
- * `DEFAULT_PROFILES` only), but it exists now so the pairing/settings flow
- * that will call it doesn't need every consumer touched again. */
+/** Replaces the whole list and persists it — the write side of the store;
+ * `addProfile`, `removeProfile` and `syncProfilesForHost` all go through
+ * here. An empty `next` is allowed: see `removeProfile`. */
 export function setProfiles(next: Profile[]): void {
   profiles = next;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -162,33 +211,16 @@ export function addProfile(profile: Profile): void {
   setProfiles([...profiles.filter((p) => p.id !== profile.id), profile]);
 }
 
-/** Refuses to empty the list: `readStoredProfiles` falls back to
- * `DEFAULT_PROFILES` on an empty array, so removing the last profile would
- * silently resurrect the seeded one instead of leaving the app profileless. */
+/** Removes a profile — the last one included. An empty list is a
+ * legitimate state (it is what puts the first-run screen on the window), so
+ * nothing here refuses; the surfaces that offer removal say what removing
+ * the only profile means instead (`RevokedProfileBanner`, `DangerZone`).
+ * Returns whether anything was actually removed. */
 export function removeProfile(id: string): boolean {
-  if (profiles.length <= 1) return false;
+  if (!profiles.some((p) => p.id === id)) return false;
   setProfiles(profiles.filter((p) => p.id !== id));
   return true;
 }
-
-// A profile can only ever legitimately report one of these as its own
-// `RELAY_HOST` if the device syncing it is on the very same machine —
-// loopback is unreachable from anywhere else. `ensureSelfRegistered`
-// (relay/src/profileRegistry.ts) falls back to `127.0.0.1` for exactly this
-// reason when it self-registers a `"default"` profile, so any locally
-// stored entry still carrying one of these hosts is either that ghost or
-// equally unreachable junk — safe to drop the moment a sync against a real
-// (non-loopback) host succeeds, even if the id no longer shows up in that
-// sync's response at all (the id-based cleanup below only catches a ghost
-// that's still being re-registered under a *different* port each time; one
-// that stopped existing entirely — e.g. its `.env` got deleted — needs this
-// instead). A tailnet profile is the one exception — its loopback host is
-// the `importProfile` placeholder, swapped for the
-// sidecar's real local address by `useRelayClient` before anything is
-// dialed, so it looks identical to a ghost while actually being a live
-// profile whose auth key/broker config exists nowhere else (no host's
-// `/control/profiles` can hand it back).
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function profileFieldsEqual(a: Profile, b: Profile): boolean {
   return (
@@ -237,9 +269,10 @@ function profileListsEqual(a: Profile[], b: Profile[]): boolean {
  * succeeds, even one whose id disappeared from the registry entirely (see
  * `LOOPBACK_HOSTS`). A device can still know profiles from more than one
  * real host at once (`DangerZone`'s executor lookup already assumes this).
- * Guards against ever emptying the list (same reasoning as `removeProfile`
- * above) — a transient empty response shouldn't wipe out every profile this
- * device knows about. */
+ * Guards against ever emptying the list — unlike `removeProfile`, which
+ * may: an empty list by local decision is legitimate, an empty list handed
+ * back by a host is data loss (a transient empty response shouldn't wipe
+ * out every profile this device knows about). */
 export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void {
   const remoteIds = new Set(remote.map((entry) => entry.id));
   const keepForHost = LOOPBACK_HOSTS.has(host)

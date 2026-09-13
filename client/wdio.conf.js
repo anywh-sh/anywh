@@ -39,4 +39,32 @@ export const config = {
     ui: "bdd",
     timeout: 60000,
   },
+
+  // The app under test boots against whatever its real app-data dir holds.
+  // On a fresh runner that is nothing — and with no profile the app shows
+  // its first-run screen, not the shell every spec here drives (no spec can
+  // type its way through that screen: this driver can't fill an input, see
+  // .anywh/skills/tests/SKILL.md). So seed one profile and reload once. The
+  // id is deliberately not the retired `default` seed's, so the one-shot
+  // ghost migration in profiles.ts never mistakes it for the ghost. A dir
+  // that already holds profiles is left exactly as it is.
+  before: async () => {
+    const seeded = await browser.execute(() => {
+      const raw = localStorage.getItem("anywh:profiles");
+      try {
+        if (raw && JSON.parse(raw).length > 0) return false;
+      } catch {
+        // Unreadable — the app reads that as empty too; reseed.
+      }
+      localStorage.setItem(
+        "anywh:profiles",
+        JSON.stringify([{ id: "e2e", label: "Default", host: "127.0.0.1", relayPort: 8765 }]),
+      );
+      return true;
+    });
+    if (seeded) {
+      await browser.execute(() => window.location.reload());
+      await $('[aria-label="New conversation"]').waitForExist({ timeout: 15000 });
+    }
+  },
 };

@@ -14,6 +14,7 @@ import { StatusBar } from "@/components/shell/StatusBar";
 import { MobileShell } from "@/components/shell/MobileShell";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
+import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
 import { useDict } from "@/i18n";
 import { useActiveProfile } from "@/hooks/useActiveProfile";
@@ -33,6 +34,7 @@ import { useNotificationClick } from "@/hooks/useNotificationClick";
 import { useContextMenuGuard } from "@/hooks/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/useProfileImport";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
+import { useFirstRunActive } from "@/hooks/useFirstRun";
 import { useActiveTheme, useThemeSync } from "@/hooks/useThemes";
 import { useProfileSync } from "@/hooks/useProfileSync";
 import { useTailnetSidecarOwner } from "@/hooks/useTailnetSidecarOwner";
@@ -59,7 +61,45 @@ function readQueryOverride(): { profile: string | null; session: string | null }
   return { profile: params.get("profile"), session: params.get("session") };
 }
 
+/**
+ * The gate. The shell below assumes at least one profile exists — every
+ * hook that takes `activeProfile` gets a non-nullable `Profile`, and some
+ * thirty call sites lean on that — so rather than teach all of them about
+ * `null`, nothing under `AppShell` ever mounts without one. Until then the
+ * window belongs to the first-run screen.
+ *
+ * Two halves to the predicate, both needed. The list can be empty while the
+ * first run is *not* what should be showing (never, today — but the flag
+ * is what makes that a decision rather than an accident), and the first run
+ * has to stay up while the list is *not* empty: a profile is saved before
+ * it is verified (`claimAndSaveProfile` runs first in profileSetup.ts), so
+ * the list stops being empty halfway through the flow, and the wizard would
+ * vanish mid-step if the list alone decided. `finishFirstRun` is what ends
+ * it.
+ *
+ * Lives here and not in `main.tsx` because `tests/ui/helpers/renderApp.tsx`
+ * mounts `<App />` directly — a gate above it would sit outside the only
+ * tier that can drive this flow by click and keystroke.
+ */
 export default function App() {
+  // Deep-link profile import (`anywh://import-profile`) — see
+  // useProfileImport.ts. Only feeds the profileSetup.ts queue; nothing
+  // switches profile until the user acts on ProfileSetupDialog, wherever
+  // that dialog is mounted (the shell or the first run). Listened for here,
+  // above the gate, because a link is most likely to arrive precisely when
+  // there is no profile yet — the pairing flow's whole point — and a
+  // listener inside the shell would be unmounted at that exact moment.
+  useProfileImport();
+  const profiles = useProfiles();
+  const firstRunActive = useFirstRunActive();
+
+  if (profiles.length === 0 || firstRunActive) return <FirstRun />;
+  return <AppShell />;
+}
+
+/** Everything the app is once a profile exists. Never mounted without one —
+ * see `App` above. */
+function AppShell() {
   const dict = useDict();
   const queryOverride = useMemo(readQueryOverride, []);
   const [activeProfile, setActiveProfileId] = useActiveProfile(queryOverride.profile);
@@ -332,11 +372,9 @@ export default function App() {
     focusSession(profileId, sessionId);
   });
 
-  // Deep-link profile import (`anywh://import-profile`) — see
-  // useProfileImport.ts. Only feeds the profileSetup.ts queue now; nothing
-  // switches profile until the user clicks "Continuar" on ProfileSetupDialog
-  // below (decision 1 — the old silent auto-switch is gone).
-  useProfileImport();
+  // Read side of the deep-link/pairing queue `App` (the gate) feeds — nothing
+  // switches profile until the user clicks "Continue" on ProfileSetupDialog
+  // below (the old silent auto-switch is gone).
   const setupSnapshot = useProfileSetup();
 
   /** Explicit `profileId` (not always `activeProfile`) for the same reason as

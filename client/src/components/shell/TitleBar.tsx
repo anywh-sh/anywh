@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Copy, Menu, Minus, PanelLeft, Search, Settings, Square, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu, PanelLeft, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -8,39 +7,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
-import { useWindowControls } from "@/hooks/useWindowControls";
+import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { useDict } from "@/i18n";
 import { isMacOS, shortcutLabel } from "@/lib/platform";
 import { setTitleBarSlot } from "@/lib/titleBarSlot";
 import { cn } from "@/lib/utils";
-
-/** No tooltip on purpose — these are the 3 native window controls (Windows
- * Fluent convention), universally recognizable without a label. */
-function WindowControlButton({
-  label,
-  onClick,
-  variant = "default",
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  variant?: "default" | "close";
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      className={cn(
-        "flex h-full w-[46px] cursor-pointer items-center justify-center text-muted-foreground transition-colors",
-        variant === "close" ? "hover:bg-destructive hover:text-foreground" : "hover:bg-surface-hover hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 export function TitleBar({
   canGoBack,
@@ -71,15 +42,10 @@ export function TitleBar({
   connected: boolean;
 }) {
   const dict = useDict();
-  // macOS keeps the native traffic lights (Tauri's overlay mode),
-  // so we don't draw minimize/maximize/close there, we just reserve their
-  // space on the left so nothing ends up underneath them.
-  const mac = isMacOS();
-  const { isMaximized, minimize, toggleMaximize, close } = useWindowControls();
   const sidebarLabel = sidebarCollapsed ? dict.shell.titleBar.expandSidebar : dict.shell.titleBar.collapseSidebar;
 
   return (
-    <div className={cn("flex h-10 shrink-0 select-none border-b border-border bg-bg-chrome", mac && "pl-[78px]")}>
+    <div className={cn("flex h-10 shrink-0 select-none border-b border-border bg-bg-chrome", isMacOS() && MAC_TRAFFIC_LIGHTS_INSET)}>
       <div className="flex h-full shrink-0 items-center gap-0.5 px-1.5">
         <DropdownMenu>
           <Tooltip>
@@ -177,22 +143,7 @@ export function TitleBar({
         )}
       </div>
 
-      {!mac && (
-        <div className="flex h-full shrink-0">
-          <WindowControlButton label={dict.shell.titleBar.minimize} onClick={minimize}>
-            <Minus className="size-3" strokeWidth={1.5} />
-          </WindowControlButton>
-          <WindowControlButton
-            label={isMaximized ? dict.shell.titleBar.restore : dict.shell.titleBar.maximize}
-            onClick={toggleMaximize}
-          >
-            {isMaximized ? <Copy className="size-3 -scale-x-100" strokeWidth={1.5} /> : <Square className="size-3" strokeWidth={1.5} />}
-          </WindowControlButton>
-          <WindowControlButton label={dict.shell.titleBar.close} onClick={close} variant="close">
-            <X className="size-3.5" strokeWidth={1.5} />
-          </WindowControlButton>
-        </div>
-      )}
+      <WindowControls />
     </div>
   );
 }
