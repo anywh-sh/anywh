@@ -537,8 +537,8 @@ export const ptBr: Dictionary = {
     back: "voltar",
     crumbs: {
       home: "primeiro perfil",
-      connect: "caminho 01 · máquina existente",
-      code: "caminho 02 · pareamento",
+      connect: "máquina existente",
+      code: "pareamento",
       manual: "terminal",
     },
     home: {

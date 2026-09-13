@@ -537,8 +537,8 @@ export const en: Dictionary = {
     back: "back",
     crumbs: {
       home: "first profile",
-      connect: "path 01 · existing machine",
-      code: "path 02 · pairing",
+      connect: "existing machine",
+      code: "pairing",
       manual: "terminal",
     },
     home: {
