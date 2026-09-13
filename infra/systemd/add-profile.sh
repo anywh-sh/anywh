@@ -25,6 +25,11 @@ Usage: $(basename "$0") <id> [options]
                         (default: read from an existing profile's .env)
   --mode dev|prod      dev prints the run command; prod enables the
                         systemd instance (default: prod)
+  --resume             Accept an existing <id>.env if it matches what this
+                        invocation would write (or is incomplete), and
+                        finish whatever was left undone — instead of
+                        refusing because the file exists
+  --porcelain          Print a machine-readable "ANYWH profile ..." line
 EOF
   # $1: exit code — 0 for an explicit --help, 1 for a usage error, so
   # scripting against this doesn't see "help was shown" as a failure.
@@ -42,6 +47,8 @@ PROFILE_HOME=""
 PORT=""
 RELAY_HOST_ARG=""
 MODE="prod"
+RESUME=0
+PORCELAIN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,9 +57,28 @@ while [[ $# -gt 0 ]]; do
     --port) PORT="$2"; shift 2 ;;
     --relay-host) RELAY_HOST_ARG="$2"; shift 2 ;;
     --mode) MODE="$2"; shift 2 ;;
+    --resume) RESUME=1; shift ;;
+    --porcelain) PORCELAIN=1; shift ;;
     *) echo "error: unknown argument '$1'" >&2; usage ;;
   esac
 done
+
+# Same vocabulary as the top-level install.sh's --porcelain: one `ANYWH`
+# line the caller can parse. Only ever printed when asked, so the human
+# output is unchanged.
+porcelain() {
+  if [[ "$PORCELAIN" -eq 1 ]]; then echo "ANYWH $*"; fi
+}
+
+# fail <code> <message...> — one line on stderr for the human, one
+# `ANYWH fail profile <code>` for the program, then exit 1.
+fail() {
+  local code="$1"
+  shift
+  echo "error: $*" >&2
+  porcelain "fail profile $code $*"
+  exit 1
+}
 
 if [[ ! "$ID" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
   echo "error: invalid profile id '$ID' (expected ^[a-z0-9][a-z0-9-]*\$)" >&2
@@ -64,9 +90,32 @@ if [[ "$MODE" != "dev" && "$MODE" != "prod" ]]; then
 fi
 
 ENV_FILE="$ANYWH_ENV_DIR/$ID.env"
+# What a previous run left behind, if anything. Without --resume an existing
+# file is a hard stop, as it always was — the control API's own
+# `POST /control/profiles` relies on that to never clobber a profile. With
+# it, the file is read and compared against what this run would write:
+# a match (or a file missing keys, i.e. a write that died halfway) is
+# resumed, a real difference is listed and refused.
+# Plain variables, not an associative array: macOS ships bash 3.2, which
+# has no associative arrays, and this script runs there too (dev mode).
+EXISTING_FILE=0
+EXISTING_PORT=""
+EXISTING_HOST=""
+EXISTING_HOME=""
 if [[ -e "$ENV_FILE" ]]; then
-  echo "error: profile '$ID' already exists ($ENV_FILE)" >&2
-  exit 1
+  if [[ "$RESUME" -eq 0 ]]; then
+    fail exists "profile '$ID' already exists ($ENV_FILE)"
+  fi
+  EXISTING_FILE=1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+    case "${line%%=*}" in
+      RELAY_PORT) EXISTING_PORT="${line#*=}" ;;
+      RELAY_HOST) EXISTING_HOST="${line#*=}" ;;
+      RELAY_HOME_OVERRIDE) EXISTING_HOME="${line#*=}" ;;
+    esac
+  done < "$ENV_FILE"
 fi
 
 LABEL="${LABEL:-$ID}"
@@ -76,14 +125,29 @@ LABEL="${LABEL:-$ID}"
 # the relay to loopback (server.ts's own fallback), unreachable from
 # another device even though it's running fine — the most confusing failure
 # mode confirmed in practice, because nothing looks wrong
-# locally.
+# locally. Two things this fallback refuses to do: inherit a loopback
+# address (a stray `npm run dev` self-registers a `default.env` with
+# `RELAY_HOST=127.0.0.1`, and that used to become the host of every profile
+# created after it), and pick between profiles that disagree — glob order
+# is not a decision.
 RELAY_HOST="$RELAY_HOST_ARG"
-if [[ -z "$RELAY_HOST" ]]; then
-  RELAY_HOST="$(grep -h '^RELAY_HOST=' "$ANYWH_ENV_DIR"/*.env 2>/dev/null | head -1 | cut -d= -f2- || true)"
+if [[ -z "$RELAY_HOST" && -n "$EXISTING_HOST" ]]; then
+  RELAY_HOST="$EXISTING_HOST"
 fi
 if [[ -z "$RELAY_HOST" ]]; then
-  echo "error: --relay-host is required (no existing profile to read a default from)" >&2
-  exit 1
+  candidates="$(
+    for f in "$ANYWH_ENV_DIR"/*.env; do
+      [[ -e "$f" && "$f" != "$ENV_FILE" ]] || continue
+      grep -h '^RELAY_HOST=' "$f" 2>/dev/null | cut -d= -f2- || true
+    done | grep -vE '^(127\.[0-9.]+|localhost|::1)$' | sort -u
+  )"
+  if [[ "$(wc -l <<<"$candidates")" -gt 1 && -n "$candidates" ]]; then
+    fail relay_host_ambiguous "--relay-host is required: the existing profiles disagree on theirs ($(tr '\n' ' ' <<<"$candidates"| sed 's/ $//'))"
+  fi
+  RELAY_HOST="$candidates"
+fi
+if [[ -z "$RELAY_HOST" ]]; then
+  fail relay_host_required "--relay-host is required (no existing profile to read a default from)"
 fi
 
 # Bash's own /dev/tcp, not a bind test: good enough for a script an operator
@@ -112,6 +176,11 @@ allocate_port() {
   return 1
 }
 
+# A resumed profile keeps the port it already has: the unit may already be
+# enabled on it, and a device that verified it once dials that number.
+if [[ -z "$PORT" && -n "$EXISTING_PORT" ]]; then
+  PORT="$EXISTING_PORT"
+fi
 if [[ -z "$PORT" ]]; then
   PORT="$(allocate_port)"
 fi
@@ -127,9 +196,36 @@ if [[ -n "$PROFILE_HOME" ]]; then
   PROFILE_HOME="$(cd "$PROFILE_HOME" && pwd)"
 fi
 
+# The comparison --resume promises. Only keys that are present in the file
+# and differ count as divergence — an absent key is a write that died
+# before reaching it, which is what resuming is for. Listed all at once so
+# the human sees the whole disagreement, not the first line of it.
+if [[ "$EXISTING_FILE" -eq 1 ]]; then
+  want_home=""
+  if [[ -n "$PROFILE_HOME" && "$PROFILE_HOME" != "$HOME" ]]; then want_home="$PROFILE_HOME"; fi
+  mismatches=()
+  [[ -z "$EXISTING_PORT" || "$EXISTING_PORT" == "$PORT" ]] || mismatches+=("RELAY_PORT: have $EXISTING_PORT, want $PORT")
+  [[ -z "$EXISTING_HOST" || "$EXISTING_HOST" == "$RELAY_HOST" ]] || mismatches+=("RELAY_HOST: have $EXISTING_HOST, want $RELAY_HOST")
+  [[ -z "$EXISTING_HOME" || "$EXISTING_HOME" == "$want_home" ]] || mismatches+=("RELAY_HOME_OVERRIDE: have $EXISTING_HOME, want ${want_home:-<none>}")
+  if [[ "${#mismatches[@]}" -gt 0 ]]; then
+    printf 'error: %s differs from what this run would write:\n' "$ENV_FILE" >&2
+    printf '  %s\n' "${mismatches[@]}" >&2
+    porcelain "fail profile resume_mismatch $ENV_FILE differs: ${mismatches[*]}"
+    exit 1
+  fi
+  echo "Resuming $ENV_FILE"
+fi
+
 mkdir -p "$ANYWH_ENV_DIR"
 mkdir -p "$HOME/.anywh-sessions"
 
+# Written to a sibling and renamed into place: `{ ... } > "$ENV_FILE"`
+# truncated the file first and filled it line by line, so a death in the
+# middle left a real-looking .env without RELAY_PORT — which the relay's
+# parseEnvFile reads as a profile with no port, and which this script
+# refused to touch again because "it exists".
+ENV_TMP="$ENV_FILE.tmp.$$"
+trap 'rm -f "$ENV_TMP"' EXIT
 {
   echo "RELAY_PORT=$PORT"
   echo "RELAY_HOST=$RELAY_HOST"
@@ -152,7 +248,8 @@ mkdir -p "$HOME/.anywh-sessions"
   # completely separate mechanism, so this default has no
   # effect on that path.
   echo "ANYWH_EDITOR_LOCAL=1"
-} > "$ENV_FILE"
+} > "$ENV_TMP"
+mv "$ENV_TMP" "$ENV_FILE"
 
 # `profiles.json` read-modify-write done in Node (already a hard
 # requirement for the relay itself) rather than hand-rolled in bash —
@@ -202,7 +299,14 @@ if [[ "$MODE" == "dev" ]]; then
 Run it in dev mode with:
   cd "$RELAY_DIR" && ANYWH_PROFILE=$ID npm run dev:profile
 EOF
+elif systemctl --user is-active --quiet "anywh-relay@$ID"; then
+  # Already up from an earlier run — `enable --now` on a running instance is
+  # harmless to systemd but a re-run of the installer must not be the thing
+  # that restarts a relay with a conversation in flight.
+  echo "anywh-relay@$ID is already running; left as is"
 else
   systemctl --user enable --now "anywh-relay@$ID"
   echo "Enabled anywh-relay@$ID (check: systemctl --user status anywh-relay@$ID)"
 fi
+
+porcelain "profile id=$ID port=$PORT host=$RELAY_HOST mode=$MODE env=$ENV_FILE"
