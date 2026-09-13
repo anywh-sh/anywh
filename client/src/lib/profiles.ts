@@ -76,6 +76,13 @@ export interface Profile {
    * Read by `App`'s gate (a sole unverified profile resumes its setup on
    * launch) and by the badge. */
   unverified?: boolean;
+  /** Created by the in-app install on this very machine, so its `host` is
+   * whatever address the installer bound — often loopback, sometimes a LAN
+   * or tailnet address that only makes sense from here. Exempt from
+   * `syncProfilesForHost`'s loopback cleanup, which would otherwise drop it
+   * the first time a sync against a *remote* host succeeds, and inherited
+   * across that sync's merge like the other local-only fields. */
+  localRelay?: boolean;
 }
 
 /** A profile is in tailnet mode iff it can join the tailnet
@@ -258,7 +265,8 @@ function profileFieldsEqual(a: Profile, b: Profile): boolean {
     a.brokerUrl === b.brokerUrl &&
     a.brokerNodeId === b.brokerNodeId &&
     a.tailnetReportUrl === b.tailnetReportUrl &&
-    a.unverified === b.unverified
+    a.unverified === b.unverified &&
+    a.localRelay === b.localRelay
   );
 }
 
@@ -303,7 +311,10 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
   // A tailnet profile is never dropped by any of the host-based reasoning
   // above: its `host` is the sidecar placeholder, not a relay it was synced
   // from, so no registry response either replaces it or proves it stale.
-  const dropStale = (p: Profile) => (isTailnetProfile(p) ? !remoteIds.has(p.id) : keepForHost(p));
+  // A profile the in-app install created on this machine is kept the same
+  // way: its loopback host is legitimate here, and no other host's registry
+  // can vouch for it.
+  const dropStale = (p: Profile) => (isTailnetProfile(p) || p.localRelay ? !remoteIds.has(p.id) : keepForHost(p));
   // `connectToken`/tailnet fields have no host-side counterpart (the control
   // API response never carries them), so a synced entry has to inherit
   // whatever this device already had for that id — otherwise a profile
@@ -332,6 +343,7 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
         // profile's connection and says nothing about whether this one
         // answers. Only a fetch against the profile itself clears it.
         unverified: existing?.unverified,
+        localRelay: existing?.localRelay,
       };
     }),
   ];
