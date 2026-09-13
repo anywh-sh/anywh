@@ -112,6 +112,11 @@ export function FirstRun() {
   return (
     <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
       <div className={cn("flex h-10 shrink-0 select-none border-b border-border bg-bg-chrome", isMacOS() && MAC_TRAFFIC_LIGHTS_INSET)}>
+        {/* Mirrors `WindowControls`' width on the other side so the title
+         * centers on the bar itself, not on whatever's left after it. */}
+        <div className="invisible" aria-hidden="true">
+          <WindowControls />
+        </div>
         {/* `data-tauri-drag-region` applies to this element only, never to
          * children — the caption gets `pointer-events-none` so a drag that
          * starts on the text still moves the window. */}

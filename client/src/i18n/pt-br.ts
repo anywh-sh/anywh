@@ -533,7 +533,7 @@ export const ptBr: Dictionary = {
     },
   },
   firstRun: {
-    windowTitle: "anywh.sh — primeiro uso",
+    windowTitle: "anywh.sh — onboarding",
     back: "voltar",
     crumbs: {
       home: "primeiro perfil",

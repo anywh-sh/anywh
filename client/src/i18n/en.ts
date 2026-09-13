@@ -533,7 +533,7 @@ export const en: Dictionary = {
     },
   },
   firstRun: {
-    windowTitle: "anywh.sh — first run",
+    windowTitle: "anywh.sh — onboarding",
     back: "back",
     crumbs: {
       home: "first profile",
