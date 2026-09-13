@@ -61,7 +61,21 @@ jobs:
           # TARGETS map — the same script npm run build:sidecar already uses
           # locally, just pointed at the target this runner (or, for the
           # macOS Intel leg, this runner cross-compiling) needs to produce.
-          - platform: ubuntu-latest
+          # Pinned, not `ubuntu-latest`: glibc is backward but not forward
+          # compatible, so the oldest runner we build on sets the oldest
+          # distro the .deb/AppImage can run on. `ubuntu-latest` (24.04,
+          # glibc 2.39) produced a binary that dies on Debian 12 (2.36) and
+          # Ubuntu 22.04 (2.35) with a bare `version GLIBC_2.39 not found`
+          # — the two LTS releases a self-hosted user is most likely to be
+          # on. 22.04 puts the floor at glibc 2.35 and covers both.
+          #
+          # This trades one expiry for another: runner images are retired
+          # (20.04 already was), so when 22.04 goes the floor silently rises
+          # again. The durable fix is building this leg in a container with
+          # a pinned old base, which doesn't depend on a runner image at
+          # all — validated locally against debian:12, not adopted here
+          # because it is a larger change than the bug warrants today.
+          - platform: ubuntu-22.04
             sidecarTarget: linux-x64
           - platform: windows-latest
             sidecarTarget: win32-x64
