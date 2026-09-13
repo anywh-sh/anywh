@@ -68,6 +68,20 @@ tailnet-IP peer can still be this same physical box.
 | `ANYWH_EDITOR_LOCAL` | Set to `1` when clients connect to this relay *from this same machine*. Opens paths with a local deep link (`zed://file…`, `vscode://file…`). Honored only when the request's peer address really is this machine. |
 | `ANYWH_EDITOR_SSH` | Set to an SSH target when clients connect *from a different machine* — the client dials it from its own end using the editor's SSH-remote deep link. Anything `ssh` accepts works, including a `~/.ssh/config` alias, which is usually the least friction. `user@host` or `user@host:2222`. |
 
+## Installer
+
+Read by `install.sh` (and by the app's own *Set up on this machine*, which
+runs the same script). None is needed for a normal install.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ANYWH_INSTALL_DIR` | `~/.local/share/anywh` | Where the relay tree is unpacked. |
+| `ANYWH_ENV_DIR` | `~/.config/anywh/env` | Where per-profile `.env` files go — mirrors the relay's own `ANYWH_ENV_DIR`. |
+| `AGENT_BIN` / `CLAUDE_BIN` | `claude` | The agent CLI whose presence and login are checked — the same resolution the relay uses. |
+| `ANYWH_SKIP_AGENT_LOGIN_CHECK` | — | Set to `1` to skip running `auth status --json` — for a box where the login happens later, or a CLI without that command. |
+| `ANYWH_RELEASE_BASE_URL` | GitHub's release downloads | Where the tarball and `SHA256SUMS` are fetched from — a mirror, or a locally served build. |
+| `ANYWH_INSTALL_SCRIPT` | the embedded script | App only: a path to run instead of the `install.sh` embedded in the binary. For development and the e2e stub. |
+
 ## Client
 
 The client has no build-time configuration. Which relay it talks to is a
