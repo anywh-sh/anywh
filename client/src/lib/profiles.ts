@@ -89,6 +89,12 @@ export function isBrokeredProfile(profile: Profile): boolean {
 
 const STORAGE_KEY = "anywh:profiles";
 
+/** Where `useActiveProfile` remembers which profile was in front last. Not
+ * private to that hook because the first-run flow has to write it before
+ * the shell ever mounts (`finishFirstRun`) — the hook's initial read is the
+ * only moment the value is consulted, and by then it has to be there. */
+export const LAST_PROFILE_STORAGE_KEY = "anywh:last-profile";
+
 // Seed data, built from build-time env vars (see client/.env.example) so a
 // distributed binary doesn't hardcode any one deployment's address. A future
 // pairing flow (or a settings UI) can call `setProfiles` to replace/extend

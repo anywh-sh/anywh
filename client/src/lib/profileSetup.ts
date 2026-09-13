@@ -292,6 +292,18 @@ export function retryProfileSetup(): void {
 }
 
 function finishCurrent(): void {
+  // A direct-mode request never spends anything single-use — its key only
+  // ever guarded against a doubled delivery of the same link saving the
+  // same profile twice while the first copy was still in flight. Keeping it
+  // reserved past the end made "remove the profile, add the same machine
+  // again" a silent no-op for the rest of this device's life (the key is
+  // persisted), which the first-run screen turns from an edge case into a
+  // path someone will actually walk. A tailnet key stays reserved for good:
+  // that code *was* spent, and a second attempt at it can do nothing useful.
+  if (current?.mode === "direct" && currentKey !== undefined) {
+    reservedKeys.delete(currentKey);
+    persistReservedKeys();
+  }
   current = null;
   currentKey = undefined;
   activeDuplicates = [];

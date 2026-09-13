@@ -315,3 +315,31 @@ describe("profileSetup", () => {
     expect(state.duplicates.map((p) => p.id)).toEqual(["existing"]);
   });
 });
+
+describe("dedup key lifetime", () => {
+  it("frees a direct-mode key once the request settles, so the same machine can be added again after its profile is removed", async () => {
+    // Nothing single-use is spent reaching a host:port directly, so the
+    // reservation only has to outlive the request itself. Before this, the
+    // persisted key made a second enqueue for the same address a silent
+    // no-op forever — reachable from the first-run screen by removing the
+    // only profile and connecting to the same machine again.
+    expect(enqueueProfileSetup(directRequest())).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state?.status).toBe("ready");
+    completeProfileSetup();
+    await vi.runAllTimersAsync();
+
+    expect(enqueueProfileSetup(directRequest())).toBe(true);
+  });
+
+  it("keeps a tailnet key reserved after completion — that code was spent", async () => {
+    expect(enqueueProfileSetup(tailnetRequest())).toBe(true);
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state?.status).toBe("ready");
+    completeProfileSetup();
+    await vi.runAllTimersAsync();
+
+    expect(enqueueProfileSetup(tailnetRequest())).toBe(false);
+    expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
+  });
+});
