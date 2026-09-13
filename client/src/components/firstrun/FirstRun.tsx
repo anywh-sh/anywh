@@ -20,30 +20,9 @@ import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/loca
 import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
 import { isMacOS } from "@/lib/platform";
 import { clearProfileRevoked, isProfileRevoked } from "@/lib/profileRevocation";
-import { addProfile, removeProfile, type Profile } from "@/lib/profiles";
-import {
-  completeProfileSetup,
-  dismissProfileSetup,
-  resumeProfileSetup,
-  retryProfileSetup,
-  type SetupState,
-} from "@/lib/profileSetup";
+import { addProfile, removeProfile } from "@/lib/profiles";
+import { completeProfileSetup, dismissProfileSetup, resumeProfileSetup, retryProfileSetup } from "@/lib/profileSetup";
 import { cn } from "@/lib/utils";
-
-/** The profile a setup request has already written to the list, if any —
- * everything past the claim has one, and a claim that never landed has
- * nothing to hand over. */
-function savedProfileOf(state: SetupState | null): Profile | null {
-  if (state === null) return null;
-  switch (state.status) {
-    case "claiming":
-      return null;
-    case "failed":
-      return state.stage === "claim" ? null : state.profile;
-    default:
-      return state.profile;
-  }
-}
 
 /**
  * What the window shows instead of the shell while this device has no
@@ -171,17 +150,20 @@ export function FirstRun() {
     finishFirstRun(existingId);
   }
 
-  /** Esc, click-outside, "leave it for later". There is no "later" before
-   * the shell exists: once a profile has been saved, dismissing means the
-   * same as continuing — the shell is the only place left to go, and it
-   * takes the profile as it is (verified or not; the shell's own reconnect
-   * loops report the latter). Only a claim that never landed leaves the
-   * reader here, with the paths, and nothing saved. */
+  /** Esc, click-outside, "leave it for later". Only a verified profile hands
+   * over to the shell — there is no shell to fall back into for anything
+   * short of that, `ready` is the only stage the reconnect loops downstream
+   * don't also have to cover from scratch. Every other stage (still running,
+   * or failed at connect/verify) just closes the dialog: the profile this
+   * request already saved stays on disk as `unverified`, and the
+   * `soleUnverified` effect above picks its setup back up next mount — the
+   * same path a claim that died mid-setup between app launches already
+   * takes. A claim that never landed saved nothing, so this is a no-op for
+   * it either way. */
   function handleDismiss(): void {
-    const saved = savedProfileOf(setup.state);
-    if (saved) {
+    if (setup.state?.status === "ready") {
       completeProfileSetup();
-      finishFirstRun(saved.id);
+      finishFirstRun(setup.state.profile.id);
       return;
     }
     dismissProfileSetup();

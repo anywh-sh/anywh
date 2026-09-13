@@ -173,6 +173,28 @@ describe("first run", () => {
     await expectShellWithOneProfile(MACHINE.host);
   });
 
+  it("dismissing a failed verify leaves the profile unverified on the wizard, instead of handing over a broken shell", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), "10.0.0.99");
+    vi.mocked(fetch).mockImplementationOnce(() => Promise.reject(new Error("connection refused")));
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.verifyFailedTitle);
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+
+    await screen.findByText(en.firstRun.connect.title);
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+    expect(localStorage.getItem("anywh:last-profile")).toBeNull();
+  });
+
   it("stays on the first run when a claim never lands, with nothing saved", async () => {
     claimTailnetBundleMock.mockRejectedValueOnce(new Error("code already used"));
     const user = userEvent.setup();
