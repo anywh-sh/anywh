@@ -287,11 +287,6 @@ export interface Dictionary {
         nameLabel: string;
         namePlaceholder: string;
         nameHint: string;
-        /** Shown instead of `nameHint` on macOS, where the id is always
-         * "default" (the Homebrew service has no per-profile template) —
-         * `nameHint`'s "the internal id is made from this" would be wrong
-         * there. */
-        nameHintMac: string;
         body: string;
         recommended: string;
         hints: Record<"tailnet" | "lan" | "public" | "loopback", string>;

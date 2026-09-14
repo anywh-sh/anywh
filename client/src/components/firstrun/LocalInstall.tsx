@@ -230,9 +230,7 @@ function AddressForm({ candidates, copy }: { candidates: AddressCandidate[]; cop
           disabled={currentPlatform() === "macos"}
           className="px-3 py-2.5 text-[13px]"
         />
-        <span className="text-xs leading-[1.6] text-pretty text-text-faint">
-          {currentPlatform() === "macos" ? copy.address.nameHintMac : copy.address.nameHint}
-        </span>
+        {currentPlatform() !== "macos" && <span className="text-xs leading-[1.6] text-pretty text-text-faint">{copy.address.nameHint}</span>}
       </Field>
       <div className="h-px bg-border-soft" />
       <p className="max-w-[56ch] text-[13.5px] leading-[1.7] text-pretty text-muted-foreground">{copy.address.body}</p>
