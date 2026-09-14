@@ -18,7 +18,7 @@ describe("anywh first run", () => {
       window.location.reload();
     });
 
-    const caption = await $('//*[contains(text(), "anywh.sh — first run")]');
+    const caption = await $('//*[contains(text(), "anywh.sh — onboarding")]');
     await caption.waitForExist({ timeout: 15000 });
     await expect(caption).toBeExisting();
     await expect(await $('[aria-label="New conversation"]')).not.toBeExisting();
