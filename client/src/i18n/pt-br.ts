@@ -640,7 +640,7 @@ export const ptBr: Dictionary = {
         nameLabel: "nome do perfil",
         namePlaceholder: "default",
         nameHint: "O identificador interno nasce daqui e nunca muda — renomear depois troca só o rótulo. Em branco usa \"default\".",
-        nameHintMac: "Só um rótulo — o serviço Homebrew deste Mac roda um único relay, e o identificador dele é sempre \"default\".",
+        nameHintMac: "Bloqueado — o serviço Homebrew deste Mac roda um único relay, sempre chamado \"default\".",
         body: "O endereço é a escolha mais consequente do processo. Preso em endereço local, o relay sobe e funciona perfeitamente aqui — e fica inalcançável de qualquer outro device, sem nenhum sintoma de erro.",
         recommended: "recomendado",
         hints: {

@@ -224,6 +224,10 @@ function AddressForm({ candidates, copy }: { candidates: AddressCandidate[]; cop
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           placeholder={copy.address.namePlaceholder}
+          // Locked on macOS: the Homebrew launchd service has no
+          // per-profile template, so nothing downstream would change if
+          // this were edited — the id and the label both stay "default".
+          disabled={currentPlatform() === "macos"}
           className="px-3 py-2.5 text-[13px]"
         />
         <span className="text-xs leading-[1.6] text-pretty text-text-faint">

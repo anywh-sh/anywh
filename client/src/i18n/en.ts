@@ -640,7 +640,7 @@ export const en: Dictionary = {
         nameLabel: "profile name",
         namePlaceholder: "default",
         nameHint: "The internal id is made from this and never changes — renaming later only changes the label. Blank uses \"default\".",
-        nameHintMac: "Just a label — this Mac's Homebrew service only ever runs one relay, and its id is always \"default\".",
+        nameHintMac: "Locked — this Mac's Homebrew service only ever runs one relay, always named \"default\".",
         body: "The address is the most consequential choice here. Bound to a local address, the relay comes up and works perfectly on this machine — and is unreachable from every other device, with no error to show for it.",
         recommended: "recommended",
         hints: {
