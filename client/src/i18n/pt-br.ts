@@ -485,10 +485,6 @@ export const ptBr: Dictionary = {
         reset: "restaurar",
       },
     },
-    language: {
-      title: "Idioma",
-      description: "Vale para o app inteiro, só neste dispositivo.",
-    },
     profile: {
       sections: {
         general: "geral",
@@ -535,15 +531,15 @@ export const ptBr: Dictionary = {
     },
   },
   firstRun: {
-    windowTitle: "anywh.sh — primeiro uso",
+    windowTitle: "anywh.sh — onboarding",
     back: "voltar",
     crumbs: {
       detect: "reconhecimento",
       home: "primeiro perfil",
       adopt: "relay encontrado",
-      local: "caminho 01 · nesta máquina",
-      connect: "caminho 02 · máquina existente",
-      code: "caminho 03 · pareamento",
+      local: "nesta máquina",
+      connect: "máquina existente",
+      code: "pareamento",
       manual: "terminal",
     },
     home: {
@@ -590,7 +586,6 @@ export const ptBr: Dictionary = {
       start: "iniciar o serviço",
       relayHostPlaceholder: "o endereço em que os outros devices alcançam esta máquina",
       done: "pronto — conectar nela",
-      back: "voltar aos caminhos",
     },
     copy: {
       copy: "copiar",

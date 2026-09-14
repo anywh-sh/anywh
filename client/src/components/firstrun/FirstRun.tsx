@@ -7,8 +7,8 @@ import { FirstRunHome, type LocalPathAvailability } from "@/components/firstrun/
 import { LocalInstall } from "@/components/firstrun/LocalInstall";
 import { ManualInstructions } from "@/components/firstrun/ManualInstructions";
 import { PairByCode } from "@/components/firstrun/PairByCode";
-import { LanguageControl } from "@/components/settings/LanguageControl";
 import { AnywhLogo } from "@/components/shell/AnywhLogo";
+import { LanguageControl } from "@/components/shell/LanguageControl";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { Button } from "@/components/ui/button";
@@ -174,6 +174,11 @@ export function FirstRun() {
   return (
     <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
       <div className={cn("flex h-10 shrink-0 select-none border-b border-border bg-bg-chrome", isMacOS() && MAC_TRAFFIC_LIGHTS_INSET)}>
+        {/* Mirrors `WindowControls`' width on the other side so the title
+         * centers on the bar itself, not on whatever's left after it. */}
+        <div className="invisible" aria-hidden="true">
+          <WindowControls />
+        </div>
         {/* `data-tauri-drag-region` applies to this element only, never to
          * children — the caption gets `pointer-events-none` so a drag that
          * starts on the text still moves the window. */}
@@ -184,7 +189,11 @@ export function FirstRun() {
       </div>
 
       <div className="scrollbar-thin flex min-h-0 flex-1 justify-center overflow-y-auto">
-        <main className="flex w-full max-w-[660px] flex-col gap-7 px-7 pt-12 pb-12">
+        {/* `my-auto` rather than `items-center` on the scroll container:
+         * auto margins collapse to zero instead of clipping the top of the
+         * content once it's taller than the window, which is what centering
+         * via `align-items` would do here. */}
+        <main className="my-auto flex w-full max-w-[660px] flex-col gap-7 px-7 py-12">
           <div className="flex items-center gap-3">
             <AnywhLogo className="size-[22px] shrink-0" />
             <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
@@ -209,7 +218,6 @@ export function FirstRun() {
                 setConnectHost("127.0.0.1");
                 setScreen("connect");
               }}
-              onBack={() => pick("home")}
             />
           )}
         </main>
@@ -218,7 +226,7 @@ export function FirstRun() {
       <footer className="flex h-[34px] shrink-0 items-center gap-3 border-t border-border bg-bg-chrome pr-1.5 pl-3.5 font-mono text-[10.5px] text-text-faint">
         <span>{copy.footer.nothingInstalled}</span>
         <div className="flex-1" />
-        <LanguageControl className="w-auto border-transparent text-[10.5px] text-text-faint hover:border-border" />
+        <LanguageControl />
       </footer>
 
       <CloseDuringInstallDialog />

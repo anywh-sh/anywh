@@ -485,10 +485,6 @@ export const en: Dictionary = {
         reset: "restore",
       },
     },
-    language: {
-      title: "Language",
-      description: "Applies to the whole app, on this device only.",
-    },
     profile: {
       sections: {
         general: "general",
@@ -535,15 +531,15 @@ export const en: Dictionary = {
     },
   },
   firstRun: {
-    windowTitle: "anywh.sh — first run",
+    windowTitle: "anywh.sh — onboarding",
     back: "back",
     crumbs: {
       detect: "recognition",
       home: "first profile",
       adopt: "relay found",
-      local: "path 01 · this machine",
-      connect: "path 02 · existing machine",
-      code: "path 03 · pairing",
+      local: "this machine",
+      connect: "existing machine",
+      code: "pairing",
       manual: "terminal",
     },
     home: {
@@ -590,7 +586,6 @@ export const en: Dictionary = {
       start: "start the service",
       relayHostPlaceholder: "the address other devices reach this machine on",
       done: "done — connect to it",
-      back: "back to the paths",
     },
     copy: {
       copy: "copy",

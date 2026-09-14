@@ -1,4 +1,3 @@
-import { LanguageControl } from "@/components/settings/LanguageControl";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { ThemeSection } from "@/components/settings/ThemeSection";
 import {
@@ -87,10 +86,6 @@ export function AppearanceSettings({ activeProfile }: { activeProfile: Profile }
         }
       >
         <FontSizeControl />
-      </SettingsRow>
-
-      <SettingsRow title={dict.settings.language.title} description={dict.settings.language.description}>
-        <LanguageControl />
       </SettingsRow>
     </div>
   );

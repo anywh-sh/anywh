@@ -112,10 +112,6 @@ export interface Dictionary {
         reset: string;
       };
     };
-    language: {
-      title: string;
-      description: string;
-    };
     profile: {
       sections: {
         general: string;
@@ -236,7 +232,6 @@ export interface Dictionary {
        * printed inside angle brackets in the command. */
       relayHostPlaceholder: string;
       done: string;
-      back: string;
     };
     copy: {
       copy: string;
