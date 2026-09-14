@@ -39,10 +39,16 @@ function PathCard({
 }
 
 /** Whether the "set up on this machine" card is offered: not at all on a
- * platform without the in-app install (macOS, Windows, the browser), or
+ * platform without either path (Windows, the browser), the full in-app
+ * install on Linux, guided terminal steps on macOS (no in-app install
+ * there, but a real Homebrew path — see `localGuidedInstallPossible`), or
  * shown-but-disabled with the reason inside a sandbox that can't reach the
  * host's service manager. */
-export type LocalPathAvailability = { kind: "hidden" } | { kind: "available" } | { kind: "unavailable"; reason: string };
+export type LocalPathAvailability =
+  | { kind: "hidden" }
+  | { kind: "available" }
+  | { kind: "guided" }
+  | { kind: "unavailable"; reason: string };
 
 /**
  * The choice of paths: install a relay here (Linux), reach one that already
@@ -63,10 +69,10 @@ export function FirstRunHome({ onPick, local }: { onPick: (screen: FirstRunScree
           <PathCard
             number="01"
             title={copy.localTitle}
-            hint={copy.localHint}
+            hint={local.kind === "guided" ? copy.localHintGuided : copy.localHint}
             tag={local.kind === "unavailable" ? local.reason : undefined}
             disabled={local.kind === "unavailable"}
-            onClick={() => onPick("local")}
+            onClick={() => onPick(local.kind === "guided" ? "manual" : "local")}
           />
         )}
         <PathCard number={number(1)} title={copy.connectTitle} hint={copy.connectHint} onClick={() => onPick("connect")} />

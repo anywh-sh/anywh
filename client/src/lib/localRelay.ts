@@ -140,6 +140,14 @@ export function localInstallPossible(): boolean {
   return inTauri() && currentPlatform() === "linux";
 }
 
+/** macOS has no in-app install — `anywh-sh/homebrew-tap`'s launchd service
+ * is the Homebrew formula's job, not this app's — but it does have a real,
+ * documented path. Path 01 offers it here as guided terminal steps
+ * (`ManualInstructions`) instead of hiding the card outright. */
+export function localGuidedInstallPossible(): boolean {
+  return inTauri() && currentPlatform() === "macos";
+}
+
 const NOT_IN_TAURI = "the in-app relay install needs the desktop app";
 
 export async function probeLocalRelay(): Promise<LocalRelayProbe | null> {

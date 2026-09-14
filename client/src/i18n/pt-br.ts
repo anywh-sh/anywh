@@ -551,6 +551,7 @@ export const ptBr: Dictionary = {
       body: "Um perfil é o login do agente que um relay atende. Basta um para o app sair do vazio — escolha por onde começar.",
       localTitle: "Configurar nesta máquina",
       localHint: "O app instala o relay e cria o primeiro perfil. Nenhuma senha de administrador, em nenhum momento.",
+      localHintGuided: "Alguns comandos de terminal via Homebrew, depois é só conectar a ele aqui.",
       localUnavailable: "indisponível em {container}",
       connectTitle: "Conectar numa máquina que já roda o relay",
       connectHint: "Você diz onde ele está — servidor de casa, outro computador, ou este é o seu segundo device.",

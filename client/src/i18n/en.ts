@@ -551,6 +551,7 @@ export const en: Dictionary = {
       body: "A profile is the agent login a relay serves. One is enough to get the app going — pick where to start.",
       localTitle: "Set up on this machine",
       localHint: "The app installs the relay and creates the first profile. No administrator password, at any point.",
+      localHintGuided: "A few terminal commands via Homebrew, then connect to it right here.",
       localUnavailable: "unavailable in {container}",
       connectTitle: "Connect to a machine that already runs the relay",
       connectHint: "You say where it is — a home server, another computer, or this is your second device.",

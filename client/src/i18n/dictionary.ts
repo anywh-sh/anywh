@@ -184,9 +184,12 @@ export interface Dictionary {
     home: {
       title: string;
       body: string;
-      /** Path 01, Linux only: the app installs the relay here. */
+      /** Path 01: on Linux the app installs the relay itself; on macOS
+       * (`localHintGuided`) it walks the reader through the same
+       * Homebrew steps `ManualInstructions` shows on the terminal path. */
       localTitle: string;
       localHint: string;
+      localHintGuided: string;
       /** `{container}` — the card is shown but disabled inside a Flatpak or
        * Snap, which can't reach the host's `systemd --user`. */
       localUnavailable: string;
