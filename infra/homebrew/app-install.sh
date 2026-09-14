@@ -65,6 +65,51 @@ Usage: app-install.sh --relay-host <ip> [--profile-label <text>] [--porcelain]
 USAGE
 }
 
+# Mirror of ANYWH_ENV_DIR in infra/lib.sh (and of ENV_DIR in
+# relay/src/profileRegistry.ts) — keep all three in sync.
+ANYWH_ENV_DIR="${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}"
+
+# Blocks until something accepts a connection on host:port, or gives up.
+#
+# `brew services start` returns once launchd has accepted the job, which is
+# a beat before the relay has bound anything — ~100ms measured on an Apple
+# Silicon Mac, more on a cold first install, and the app dials the relay
+# the instant this script exits. That gap is exactly long enough for the
+# first-run wizard to show "couldn't verify the connection" for an install
+# that succeeded.
+#
+# A copy of infra/lib.sh's function rather than a `source` of it, for the
+# same reason the porcelain helpers above are copies of install.sh's: this
+# file is embedded in the app (relay_setup.rs include_str!s it) and written
+# out alone to a temp dir, so the only infra/lib.sh it could reach is the
+# one inside the keg `brew install` just laid down — which is whatever
+# version the tap currently points at, not this script's own. Sourcing it
+# made the fix silently inert (`wait_for_relay: command not found`, then
+# the original race) for every app newer than the tap. Verified against a
+# real 0.1.3 keg before this was a copy.
+#
+# Counted attempts, not a deadline off bash's SECONDS: that is whole
+# seconds since the shell started, so it can tick over a millisecond after
+# this runs and wait none at all. Five per second of the budget, the first
+# before any sleep so an already-listening relay costs nothing.
+ANYWH_RELAY_READY_TIMEOUT="${ANYWH_RELAY_READY_TIMEOUT:-30}"
+
+wait_for_relay() {
+  local host="$1" port="$2"
+  local attempts=$((ANYWH_RELAY_READY_TIMEOUT * 5))
+  ((attempts > 0)) || attempts=1
+  while ((attempts-- > 0)); do
+    # Bash's own TCP redirection rather than nc/curl: neither is guaranteed
+    # present, and this needs no parsing. The subshell is what closes the
+    # descriptor.
+    if (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --porcelain) PORCELAIN=1; shift ;;
@@ -134,12 +179,6 @@ begin_step install
 brew install anywh-sh/tap/anywh-relay ||
   err brew_install_failed "brew install anywh-sh/tap/anywh-relay failed — see the output above"
 RELAY_PREFIX="$(brew --prefix anywh-relay)"
-# Sourced from the keg, not from next to this script: this file is embedded
-# in the app (relay_setup.rs include_str!s it) and written out alone to a
-# temp dir, so the only copy of infra/lib.sh it can reach is the one the
-# formula just installed. Nothing above this line may depend on it.
-# shellcheck source=../lib.sh
-source "$RELAY_PREFIX/libexec/infra/lib.sh"
 end_step "install dir=$RELAY_PREFIX/libexec"
 
 # --- 4. profile --------------------------------------------------------------
@@ -165,10 +204,6 @@ if brew services info anywh-relay --json 2>/dev/null | grep -q '"status":"starte
 else
   brew services start anywh-relay ||
     err service_failed "brew services start anywh-relay failed — see the output above"
-  # `brew services start` returns once launchd has accepted the job, which
-  # is a beat before the relay has bound anything — and the app dials it the
-  # instant this script exits. See wait_for_relay (infra/lib.sh).
-  #
   # The port is read back from the profile add-profile.sh just wrote rather
   # than assumed: it allocates the first free one, which is 8765 on a clean
   # machine and something else on one that already had it taken.
