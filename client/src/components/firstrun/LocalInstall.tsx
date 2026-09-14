@@ -198,7 +198,11 @@ function prereqRows(state: LocalInstallState, copy: Copy): StepRow[] {
 // ---------------------------------------------------------------------------
 
 function AddressForm({ candidates, copy }: { candidates: AddressCandidate[]; copy: Copy }) {
-  const [label, setLabel] = useState("");
+  // The id is always "default" on macOS regardless of what's typed here
+  // (the Homebrew launchd service has no per-profile template) — starting
+  // the field on that value instead of blank matches what will actually
+  // happen instead of inviting a name that only changes the label.
+  const [label, setLabel] = useState(currentPlatform() === "macos" ? "default" : "");
   const recommended = candidates.find((c) => c.recommended)?.address ?? candidates[0]?.address ?? "";
   const [choice, setChoice] = useState<string>(recommended || "custom");
   const [custom, setCustom] = useState("");
