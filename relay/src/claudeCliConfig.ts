@@ -1,3 +1,6 @@
+import { accessSync, constants } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import { resolveShipped } from "./paths.js";
 
 // Shared by every module that spawns the agent CLI (the real turn in
@@ -17,7 +20,62 @@ import { resolveShipped } from "./paths.js";
 // deployment's .env keeps working across an upgrade without being edited.
 // It is deprecated: `AGENT_BIN` is the documented name, and the fallback
 // chain below is the only place that should ever mention the old one.
-export const AGENT_BIN = process.env.AGENT_BIN ?? process.env.CLAUDE_BIN ?? "claude";
+const CONFIGURED_AGENT_BIN = process.env.AGENT_BIN ?? process.env.CLAUDE_BIN ?? "claude";
+
+// Where a CLI installed for one user lands when the relay's own PATH
+// doesn't have it. Not a guess at one product's installer: these are the
+// per-user and package-manager bin directories a CLI installs into, and
+// what is looked for in them is whatever AGENT_BIN names — an agent that
+// isn't this one, installed the same way, is found the same way.
+const WELL_KNOWN_BIN_DIRS = [join(homedir(), ".local", "bin"), join(homedir(), ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin"];
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The agent CLI as something `spawn` can actually find.
+ *
+ * A bare name is only spawnable if it's on the PATH the relay runs with,
+ * and a relay started by a service manager doesn't run with the user's:
+ * launchd hands it `/usr/bin:/bin:/usr/sbin:/sbin`, and a systemd user
+ * manager's default is barely wider — neither includes `~/.local/bin`,
+ * where the agent CLI installs by default, and neither sources the shell
+ * profile that would have added it. That is a relay that comes up
+ * perfectly, serves the UI, and fails every turn with `spawn claude
+ * ENOENT` for a binary sitting right there.
+ *
+ * Resolved at the point of use rather than pinned at install time on
+ * purpose: the agent CLI may be installed after the relay (nothing in the
+ * install requires it up front), and this way it is simply found the next
+ * time a turn runs, with no re-provisioning.
+ *
+ * A name with a separator in it is returned untouched — the operator said
+ * exactly which binary. A name already on PATH is returned as the bare
+ * name it was, so the overwhelmingly common case (a relay started from a
+ * shell) behaves exactly as it did.
+ */
+export function resolveAgentBin(name: string, env: NodeJS.ProcessEnv = process.env, dirs: readonly string[] = WELL_KNOWN_BIN_DIRS): string {
+  if (isAbsolute(name) || name.includes(sep)) return name;
+  for (const dir of (env.PATH ?? "").split(delimiter)) {
+    if (dir && isExecutable(join(dir, name))) return name;
+  }
+  for (const dir of dirs) {
+    const candidate = join(dir, name);
+    if (isExecutable(candidate)) return candidate;
+  }
+  // Nothing found. Deliberately not an error: the relay's job is to be up
+  // and serving whether or not an agent CLI exists yet, and the honest
+  // place to report that it doesn't is the turn that tried to spawn it.
+  return name;
+}
+
+export const AGENT_BIN = resolveAgentBin(CONFIGURED_AGENT_BIN);
 
 // Credentials that make a spawned agent bill per token instead of drawing on
 // the subscription its CLI is already logged into. Removed from the
@@ -55,4 +113,10 @@ const SCRIPTS_DIR = resolveShipped(import.meta.url, "../scripts", "scripts");
 // colon-separated, for any tool the child invokes that isn't already on the
 // relay process's own PATH (e.g. a Node version manager's shim dir under
 // systemd).
-export const EXTRA_PATH_DIRS = [...configuredExtraPathDirs, SCRIPTS_DIR];
+// The agent CLI's own directory rides along when AGENT_BIN resolved to a
+// path: a CLI found outside the relay's PATH can still re-invoke itself,
+// or a sibling tool it ships with, by bare name — and the child's PATH is
+// the relay's, which by construction is the one that didn't have it.
+const agentBinDir = AGENT_BIN.includes(sep) ? dirname(AGENT_BIN) : "";
+
+export const EXTRA_PATH_DIRS = [...configuredExtraPathDirs, ...(agentBinDir ? [agentBinDir] : []), SCRIPTS_DIR];

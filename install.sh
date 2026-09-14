@@ -245,22 +245,35 @@ fi
 # literal `claude` used to be checked here even when the relay was going to
 # run something else.
 AGENT_BIN="${AGENT_BIN:-${CLAUDE_BIN:-claude}}"
-command -v "$AGENT_BIN" >/dev/null 2>&1 ||
-  err agent_missing "the '$AGENT_BIN' CLI was not found on PATH — install and log in to your agent first (https://docs.claude.com/en/docs/claude-code), then re-run this script"
 
-# Presence isn't enough: the relay refuses to create a profile whose agent
-# isn't logged in, and that used to surface only after the install, as a
-# 409 from the control API. Same command the relay runs, with the same two
+# Reported, never fatal. Nothing about installing a relay needs an agent
+# CLI to exist yet: the relay installs, starts and serves without one, and
+# it resolves the binary when a turn actually spawns it (resolveAgentBin,
+# relay/src/claudeCliConfig.ts) rather than at install time — so a CLI
+# installed or logged into after this script ran simply works, with
+# nothing to re-run here. Refusing to install until one is present only
+# strands the user on an error whose instruction is to go do something
+# else first, and it bakes in the assumption that there is exactly one
+# agent CLI worth checking for, which is not where this is heading.
+#
+# The login check runs the same command the relay does, with the same two
 # variables stripped — with an API key in the environment the CLI reports
 # `loggedIn: true` through the key, which is precisely the false positive
-# this check exists to catch (billing would land on the key, not the
-# subscription). ANYWH_SKIP_AGENT_LOGIN_CHECK=1 is the opt-out for a box
-# where the login is done later, or for a CLI that has no `auth status`.
-if [ "${ANYWH_SKIP_AGENT_LOGIN_CHECK:-0}" != "1" ]; then
+# this exists to catch (billing would land on the key, not the
+# subscription). ANYWH_SKIP_AGENT_LOGIN_CHECK=1 skips it outright, for a
+# CLI that has no `auth status` at all.
+agent_ready=1
+if ! command -v "$AGENT_BIN" >/dev/null 2>&1; then
+  agent_ready=0
+  echo "warning: the '$AGENT_BIN' CLI was not found on PATH — install and log in to your agent before your first conversation (https://docs.claude.com/en/docs/claude-code)" >&2
+elif [ "${ANYWH_SKIP_AGENT_LOGIN_CHECK:-0}" != "1" ]; then
   auth_json="$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN "$AGENT_BIN" auth status --json 2>/dev/null || true)"
   case "$(printf '%s' "$auth_json" | tr -d ' \n\r\t')" in
     *'"loggedIn":true'*) ;;
-    *) err agent_not_logged_in "'$AGENT_BIN' isn't logged in — run '$AGENT_BIN login' on this machine (as the user who will run the relay), then re-run this script. Set ANYWH_SKIP_AGENT_LOGIN_CHECK=1 to skip this check." ;;
+    *)
+      agent_ready=0
+      echo "warning: '$AGENT_BIN' isn't logged in — run '$AGENT_BIN login' on this machine (as the user who will run the relay) before your first conversation. Set ANYWH_SKIP_AGENT_LOGIN_CHECK=1 to skip this check." >&2
+      ;;
   esac
 fi
 
@@ -272,7 +285,7 @@ if [ "$service" = "systemd" ]; then
   systemctl --user show-environment >/dev/null 2>&1 ||
     err no_user_systemd "systemd --user isn't reachable in this session (no XDG_RUNTIME_DIR / user D-Bus) — log in as the user (a real login session, or 'loginctl enable-linger' + 'machinectl shell user@'), or re-run with --mode dev to run the relay without a service"
 fi
-end_step "prereqs node=$node_version agent=$AGENT_BIN"
+end_step "prereqs node=$node_version agent=$AGENT_BIN agent_ready=$agent_ready"
 
 # --- 2b. relay host ---------------------------------------------------------
 # Resolved before the download, not after: an undetectable address is a

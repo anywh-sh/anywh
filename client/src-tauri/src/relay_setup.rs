@@ -1402,6 +1402,45 @@ mod tests {
         assert!(!pid_is_installer(0, "/x/install.sh"));
     }
 
+    /// `wait_for_relay` (infra/lib.sh) is the whole of the fix for an
+    /// install that reported success a beat before the relay could answer:
+    /// neither `systemctl --user enable --now` nor `brew services start`
+    /// waits for the process to bind, and the wizard dials the relay the
+    /// instant the installer exits. Run against a real socket rather than
+    /// grepped for as a string — "it blocks until something accepts a
+    /// connection, and gives up instead of hanging" is a behaviour, and
+    /// the shell function is the only place it exists.
+    #[test]
+    #[cfg(unix)]
+    fn wait_for_relay_blocks_until_the_port_accepts_connections() {
+        let dir = std::env::temp_dir().join(format!("anywh-lib-sh-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create the scratch dir");
+        let lib = dir.join("lib.sh");
+        std::fs::write(&lib, include_str!("../../../infra/lib.sh")).expect("write lib.sh");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a stand-in relay");
+        let port = listener.local_addr().unwrap().port();
+        let run = |timeout: &str| {
+            std::process::Command::new("bash")
+                .arg("-c")
+                .arg(format!("source {}; wait_for_relay 127.0.0.1 {port}", lib.display()))
+                .env("ANYWH_RELAY_READY_TIMEOUT", timeout)
+                .status()
+                .expect("run wait_for_relay")
+        };
+
+        assert!(run("5").success(), "wait_for_relay didn't see a port that was listening");
+
+        // Nothing listening: it has to come back with a status the caller
+        // can branch on, not hang and not take the installer down with it.
+        drop(listener);
+        let started = std::time::Instant::now();
+        assert!(!run("1").success(), "wait_for_relay called a closed port ready");
+        assert!(started.elapsed() >= Duration::from_millis(900), "it gave up before the timeout it was given");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// The exact primitive `relay_setup_cancel` relies on: spawn a script
     /// with `process_group(0)`, then signal `-pid` instead of `pid`. Without
     /// both halves, a script's own child (`brew install`, `add-profile.sh`

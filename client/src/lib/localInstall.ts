@@ -99,7 +99,15 @@ export interface LocalInstallState {
   /** `dev` touches no systemd (the failure action for a session without
    * `systemd --user`); `prod` is the default. */
   mode: "prod" | "dev";
-  prereqs: { status: PhaseStatus; result: Prerequisites | null; failure: LocalFailure | null };
+  prereqs: {
+    status: PhaseStatus;
+    result: Prerequisites | null;
+    failure: LocalFailure | null;
+    /** Seen, not blocking — the agent CLI wasn't there (or wasn't logged
+     * in) when this was checked. Kept on the state for the whole wizard,
+     * not just the step that found it, since the step collapses. */
+    warning: LocalFailure | null;
+  };
   candidates: AddressCandidate[];
   install: {
     runId: string | null;
@@ -193,7 +201,7 @@ function initialState(): LocalInstallState {
     step: "prereqs",
     note: "none",
     mode: "prod",
-    prereqs: { status: "idle", result: null, failure: null },
+    prereqs: { status: "idle", result: null, failure: null, warning: null },
     candidates: [],
     install: { runId: null, lines: [], status: "idle", failure: null, profile: null, params: null },
   };
@@ -245,7 +253,7 @@ export function beginLocalInstall(note: LocalNote = "none"): void {
  * actually going to be registered. */
 export async function runPrereqs(): Promise<void> {
   const generation = ++prereqsGeneration;
-  publish({ ...state, step: "prereqs", prereqs: { status: "running", result: null, failure: null } });
+  publish({ ...state, step: "prereqs", prereqs: { status: "running", result: null, failure: null, warning: null } });
   let result: Prerequisites;
   try {
     result = await checkPrerequisites();
@@ -253,22 +261,23 @@ export async function runPrereqs(): Promise<void> {
     if (generation !== prereqsGeneration) return;
     publish({
       ...state,
-      prereqs: { status: "failed", result: null, failure: { code: "unexpected", detail: err instanceof Error ? err.message : String(err) } },
+      prereqs: { status: "failed", result: null, failure: { code: "unexpected", detail: err instanceof Error ? err.message : String(err) }, warning: null },
     });
     return;
   }
   if (generation !== prereqsGeneration) return;
 
+  const warning = evaluateAgentReadiness(result);
   const failure = evaluatePrerequisites(result, state.mode);
   if (failure) {
-    publish({ ...state, prereqs: { status: "failed", result, failure } });
+    publish({ ...state, prereqs: { status: "failed", result, failure, warning } });
     return;
   }
   // Best effort: the address step still works with an empty list (the
   // human can type one), it just has nothing to recommend.
   const candidates = await suggestAddresses().catch(() => [] as AddressCandidate[]);
   if (generation !== prereqsGeneration) return;
-  publish({ ...state, step: "address", prereqs: { status: "ok", result, failure: null }, candidates });
+  publish({ ...state, step: "address", prereqs: { status: "ok", result, failure: null, warning }, candidates });
 }
 
 /**
@@ -282,20 +291,41 @@ export async function runPrereqs(): Promise<void> {
 export function evaluatePrerequisites(result: Prerequisites, mode: "prod" | "dev", platform: string | null = currentPlatform()): LocalFailure | null {
   if (platform === "macos") {
     if (!result.brewPath) return { code: "brew_missing", detail: "" };
-    if (!result.agentPath) return { code: "agent_missing", detail: result.agentBin };
-    if (result.agentLoggedIn !== true) {
-      return { code: "agent_not_logged_in", detail: result.agentError ?? "", command: `${result.agentBin} login` };
-    }
     return null;
   }
   if (!result.nodePath) return { code: "node_missing", detail: "" };
   if (!result.nodeOk) return { code: "node_old", detail: result.nodeVersion ?? "" };
+  if (result.activeUnits.length > 0) return { code: "relay_running", detail: result.activeUnits.join(", ") };
+  if (mode === "prod" && !result.systemdUser) return { code: "no_user_systemd", detail: "" };
+  return null;
+}
+
+/**
+ * The agent CLI, as a remark rather than a gate — the one prerequisite
+ * this wizard deliberately does not block on.
+ *
+ * Nothing about installing a relay needs an agent CLI to exist yet: the
+ * relay installs, starts, and serves without one, and it looks the binary
+ * up when a turn actually spawns it (`resolveAgentBin`, relay side), not
+ * when it was installed. So a CLI installed or logged into ten minutes
+ * from now simply works, with nothing to re-run here — while refusing to
+ * install until one is present strands a user on a screen whose only
+ * instruction is to go do something else first.
+ *
+ * It also stops making sense the moment there is more than one agent CLI
+ * worth driving: "the agent is missing" is a claim about one specific
+ * binary that happened to be checked, and the relay's own AGENT_BIN is
+ * what decides which.
+ *
+ * Still surfaced, because a relay whose first conversation is going to
+ * fail is worth saying out loud while there's a terminal open and the
+ * command is right there to copy.
+ */
+export function evaluateAgentReadiness(result: Prerequisites): LocalFailure | null {
   if (!result.agentPath) return { code: "agent_missing", detail: result.agentBin };
   if (result.agentLoggedIn !== true) {
     return { code: "agent_not_logged_in", detail: result.agentError ?? "", command: `${result.agentBin} login` };
   }
-  if (result.activeUnits.length > 0) return { code: "relay_running", detail: result.activeUnits.join(", ") };
-  if (mode === "prod" && !result.systemdUser) return { code: "no_user_systemd", detail: "" };
   return null;
 }
 
@@ -449,7 +479,7 @@ export async function attachPreviousRun(status: InstallRunStatus): Promise<void>
     step: "install",
     note: status.alive ? "reattached" : "interrupted",
     mode: status.params.mode === "dev" ? "dev" : "prod",
-    prereqs: { status: "ok", result: null, failure: null },
+    prereqs: { status: "ok", result: null, failure: null, warning: null },
     install: { runId: status.runId, lines: status.lines, status: "running", failure: null, profile: null, params },
   };
   publish(base);

@@ -623,9 +623,13 @@ export const ptBr: Dictionary = {
       },
       prereqs: {
         node: "Node.js 20.12 ou mais novo",
-        agent: "CLI do agente, autenticada",
+        agent: "CLI do agente",
         systemd: "gerenciador de serviços do usuário",
         brew: "Homebrew",
+        agentMeta: {
+          missing: "não encontrado",
+          loggedOut: "sem login",
+        },
         checking: "verificando…",
         nodeMeta: "{version}",
         loggedIn: "autenticada",
@@ -668,6 +672,11 @@ export const ptBr: Dictionary = {
       },
       verify: {
         body: "Conectando no perfil novo…",
+      },
+      agentNotice: {
+        missing:
+          "Nenhum CLI de agente no PATH do shell de login. A instalação segue — o relay roda sem um e encontra o CLI sozinho assim que ele for instalado. Quem vai precisar dele é a sua primeira conversa.",
+        loggedOut: "O CLI do agente está aqui, mas sem login. A instalação segue — faça o login antes da primeira conversa.",
       },
       failures: {
         node_missing: "O Node.js não está no PATH desta máquina. Instale o Node.js 20.12 ou mais novo e verifique de novo.",

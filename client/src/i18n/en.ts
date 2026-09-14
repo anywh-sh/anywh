@@ -623,9 +623,13 @@ export const en: Dictionary = {
       },
       prereqs: {
         node: "Node.js 20.12 or newer",
-        agent: "agent CLI, logged in",
+        agent: "agent CLI",
         systemd: "user service manager",
         brew: "Homebrew",
+        agentMeta: {
+          missing: "not found",
+          loggedOut: "not logged in",
+        },
         checking: "checking…",
         nodeMeta: "{version}",
         loggedIn: "logged in",
@@ -668,6 +672,11 @@ export const en: Dictionary = {
       },
       verify: {
         body: "Connecting to the new profile…",
+      },
+      agentNotice: {
+        missing:
+          "No agent CLI on the login shell's PATH. The install carries on — the relay runs without one and finds the CLI by itself once it's installed. Your first conversation is what will need it.",
+        loggedOut: "The agent CLI is here but not logged in. The install carries on — log in before your first conversation.",
       },
       failures: {
         node_missing: "Node.js isn't on this machine's PATH. Install Node.js 20.12 or newer, then check again.",

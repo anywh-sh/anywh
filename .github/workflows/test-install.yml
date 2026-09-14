@@ -120,16 +120,32 @@ jobs:
           STUB
           sudo chmod +x /usr/local/bin/claude
 
-      - name: A logged-out agent fails before anything is written
+      # Deliberately not fatal, and this is the step that says so. A relay
+      # installs, starts and serves with no usable agent CLI, and resolves
+      # the binary when a turn spawns it — so one installed or logged into
+      # after this ran needs nothing re-run. No profile flags and --mode
+      # dev on both: they assert on the prerequisites step, and provisioning
+      # anything would land in the shared ~/.config/anywh/env that the
+      # idempotency step below counts.
+      - name: A logged-out agent is reported, not fatal
         run: |
-          set +e
-          FAKE_AUTH_JSON='{"loggedIn":false}' ANYWH_INSTALL_DIR="$RUNNER_TEMP/never" ./install.sh --porcelain > out.log 2>&1
-          status=$?
-          set -e
+          FAKE_AUTH_JSON='{"loggedIn":false}' ANYWH_INSTALL_DIR="$RUNNER_TEMP/logged-out" \
+            ./install.sh --porcelain --mode dev > out.log 2>&1
           cat out.log
-          [ "$status" -ne 0 ]
-          grep -q '^ANYWH fail prereqs agent_not_logged_in ' out.log
-          [ ! -e "$RUNNER_TEMP/never" ]
+          grep -q "^ANYWH done prereqs .*agent_ready=0" out.log
+          grep -q "warning: 'claude' isn't logged in" out.log
+          grep -q '^ANYWH done ok ' out.log
+          [ -f "$RUNNER_TEMP/logged-out/relay/dist/server.js" ]
+
+      - name: No agent CLI on the machine at all is reported, not fatal
+        run: |
+          AGENT_BIN=no-such-agent-cli ANYWH_INSTALL_DIR="$RUNNER_TEMP/no-agent" \
+            ./install.sh --porcelain --mode dev > out.log 2>&1
+          cat out.log
+          grep -q "^ANYWH done prereqs .*agent=no-such-agent-cli agent_ready=0" out.log
+          grep -q "warning: the 'no-such-agent-cli' CLI was not found on PATH" out.log
+          grep -q '^ANYWH done ok ' out.log
+          [ -f "$RUNNER_TEMP/no-agent/relay/dist/server.js" ]
 
       - name: Flags are validated before any network
         run: |
