@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
+import { APP_VERSION } from "@/lib/appVersion";
 import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/firstRun";
 import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/localInstall";
 import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
@@ -224,6 +225,7 @@ export function FirstRun() {
       <footer className="flex h-[34px] shrink-0 items-center gap-3 border-t border-border bg-bg-chrome pr-1.5 pl-3.5 font-mono text-[10.5px] text-text-faint">
         <span>{copy.footer.nothingInstalled}</span>
         <div className="flex-1" />
+        <span title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>v{APP_VERSION}</span>
         <LanguageControl />
       </footer>
 
