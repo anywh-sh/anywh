@@ -551,7 +551,6 @@ export const en: Dictionary = {
       body: "A profile is the agent login a relay serves. One is enough to get the app going — pick where to start.",
       localTitle: "Set up on this machine",
       localHint: "The app installs the relay and creates the first profile. No administrator password, at any point.",
-      localHintGuided: "A few terminal commands via Homebrew, then connect to it right here.",
       localUnavailable: "unavailable in {container}",
       connectTitle: "Connect to a machine that already runs the relay",
       connectHint: "You say where it is — a home server, another computer, or this is your second device.",
@@ -631,6 +630,7 @@ export const en: Dictionary = {
         node: "Node.js 20.12 or newer",
         agent: "agent CLI, logged in",
         systemd: "user service manager",
+        brew: "Homebrew",
         checking: "checking…",
         nodeMeta: "{version}",
         loggedIn: "logged in",
@@ -640,6 +640,7 @@ export const en: Dictionary = {
         nameLabel: "profile name",
         namePlaceholder: "default",
         nameHint: "The internal id is made from this and never changes — renaming later only changes the label. Blank uses \"default\".",
+        nameHintMac: "Just a label — this Mac's Homebrew service only ever runs one relay, and its id is always \"default\".",
         body: "The address is the most consequential choice here. Bound to a local address, the relay comes up and works perfectly on this machine — and is unreachable from every other device, with no error to show for it.",
         recommended: "recommended",
         hints: {
@@ -694,6 +695,9 @@ export const en: Dictionary = {
         interrupted: "The last install stopped before it finished. Whatever it wrote is still in place.",
         start_failed: "The installer couldn't be started.",
         unexpected: "The install stopped unexpectedly. The raw output has the detail.",
+        brew_missing: "Homebrew isn't installed. Install it from https://brew.sh, then check again.",
+        brew_install_failed: "brew install couldn't fetch the relay. Check the connection and try again.",
+        unsupported_arch: "anywh's relay only ships for Apple Silicon Macs today — Intel isn't supported yet.",
       },
       actions: {
         recheck: "check again",

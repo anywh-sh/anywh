@@ -17,7 +17,7 @@ import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
 import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/firstRun";
 import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/localInstall";
-import { localGuidedInstallPossible, localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
+import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
 import { isMacOS } from "@/lib/platform";
 import { clearProfileRevoked, isProfileRevoked } from "@/lib/profileRevocation";
 import { addProfile, removeProfile } from "@/lib/profiles";
@@ -91,13 +91,11 @@ export function FirstRun() {
     };
   }, []);
 
-  const localPath: LocalPathAvailability = localInstallPossible()
-    ? probe?.containerized
+  const localPath: LocalPathAvailability = !localInstallPossible()
+    ? { kind: "hidden" }
+    : probe?.containerized
       ? { kind: "unavailable", reason: copy.home.localUnavailable.replace("{container}", probe.containerized) }
-      : { kind: "available" }
-    : localGuidedInstallPossible()
-      ? { kind: "guided" }
-      : { kind: "hidden" };
+      : { kind: "available" };
 
   // Every render, not once: `beginFirstRun` is idempotent, and re-asserting
   // it is what keeps the gate closed if anything ever flips the flag while

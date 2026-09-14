@@ -184,12 +184,10 @@ export interface Dictionary {
     home: {
       title: string;
       body: string;
-      /** Path 01: on Linux the app installs the relay itself; on macOS
-       * (`localHintGuided`) it walks the reader through the same
-       * Homebrew steps `ManualInstructions` shows on the terminal path. */
+      /** Path 01: the app installs the relay itself, on Linux (systemd) and
+       * macOS (Homebrew) alike. */
       localTitle: string;
       localHint: string;
-      localHintGuided: string;
       /** `{container}` — the card is shown but disabled inside a Flatpak or
        * Snap, which can't reach the host's `systemd --user`. */
       localUnavailable: string;
@@ -276,6 +274,9 @@ export interface Dictionary {
         node: string;
         agent: string;
         systemd: string;
+        /** macOS's equivalent of `node` — checked instead of it, never
+         * alongside. */
+        brew: string;
         checking: string;
         /** `{version}` */
         nodeMeta: string;
@@ -286,6 +287,11 @@ export interface Dictionary {
         nameLabel: string;
         namePlaceholder: string;
         nameHint: string;
+        /** Shown instead of `nameHint` on macOS, where the id is always
+         * "default" (the Homebrew service has no per-profile template) —
+         * `nameHint`'s "the internal id is made from this" would be wrong
+         * there. */
+        nameHintMac: string;
         body: string;
         recommended: string;
         hints: Record<"tailnet" | "lan" | "public" | "loopback", string>;

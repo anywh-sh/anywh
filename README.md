@@ -48,8 +48,8 @@ Self-hosted and used daily by its author: chat, voice, image upload, multi-sessi
 
 **2. Get a relay.** The app opens on a first-run screen and looks at the machine it is on before asking anything.
 
-- **On Linux, with the agent on this same machine:** pick *Set up on this machine*. The app checks Node.js 20.12+ and that your agent CLI is logged in, asks which address other devices should reach you on, installs the relay as a systemd user service and creates the first profile — no administrator password at any point. A relay already installed here is recognised and its profiles adopted.
-- **Anywhere else** (the agent lives on another box, or you are on macOS or Windows): install the relay on the machine your agent runs on.
+- **On Linux or Apple Silicon macOS, with the agent on this same machine:** pick *Set up on this machine*. The app checks the prerequisites (Node.js 20.12+ and Homebrew, respectively) and that your agent CLI is logged in, asks which address other devices should reach you on, installs the relay as a background service (a systemd user unit on Linux, Homebrew's launchd service on macOS) and creates the first profile — no administrator password at any point. A relay already installed here is recognised and its profiles adopted.
+- **Anywhere else** (the agent lives on another box, or you are on Windows): install the relay on the machine your agent runs on.
 
   **Linux** (on Windows, run this inside WSL2):
 

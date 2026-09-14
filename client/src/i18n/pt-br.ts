@@ -551,7 +551,6 @@ export const ptBr: Dictionary = {
       body: "Um perfil é o login do agente que um relay atende. Basta um para o app sair do vazio — escolha por onde começar.",
       localTitle: "Configurar nesta máquina",
       localHint: "O app instala o relay e cria o primeiro perfil. Nenhuma senha de administrador, em nenhum momento.",
-      localHintGuided: "Alguns comandos de terminal via Homebrew, depois é só conectar a ele aqui.",
       localUnavailable: "indisponível em {container}",
       connectTitle: "Conectar numa máquina que já roda o relay",
       connectHint: "Você diz onde ele está — servidor de casa, outro computador, ou este é o seu segundo device.",
@@ -631,6 +630,7 @@ export const ptBr: Dictionary = {
         node: "Node.js 20.12 ou mais novo",
         agent: "CLI do agente, autenticada",
         systemd: "gerenciador de serviços do usuário",
+        brew: "Homebrew",
         checking: "verificando…",
         nodeMeta: "{version}",
         loggedIn: "autenticada",
@@ -640,6 +640,7 @@ export const ptBr: Dictionary = {
         nameLabel: "nome do perfil",
         namePlaceholder: "default",
         nameHint: "O identificador interno nasce daqui e nunca muda — renomear depois troca só o rótulo. Em branco usa \"default\".",
+        nameHintMac: "Só um rótulo — o serviço Homebrew deste Mac roda um único relay, e o identificador dele é sempre \"default\".",
         body: "O endereço é a escolha mais consequente do processo. Preso em endereço local, o relay sobe e funciona perfeitamente aqui — e fica inalcançável de qualquer outro device, sem nenhum sintoma de erro.",
         recommended: "recomendado",
         hints: {
@@ -694,6 +695,9 @@ export const ptBr: Dictionary = {
         interrupted: "A última instalação parou antes de terminar. O que ela escreveu continua no lugar.",
         start_failed: "Não foi possível iniciar o instalador.",
         unexpected: "A instalação parou de forma inesperada. A saída bruta tem o detalhe.",
+        brew_missing: "O Homebrew não está instalado. Instale em https://brew.sh e verifique de novo.",
+        brew_install_failed: "O brew install não conseguiu baixar o relay. Verifique a conexão e tente de novo.",
+        unsupported_arch: "O relay do anywh hoje só existe para Mac com Apple Silicon — Intel ainda não é suportado.",
       },
       actions: {
         recheck: "verificar de novo",

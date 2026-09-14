@@ -14,6 +14,7 @@ import {
   type InstallRunStatus,
   type Prerequisites,
 } from "@/lib/localRelay";
+import { currentPlatform } from "@/lib/platform";
 import { addProfile, type Profile } from "@/lib/profiles";
 import { holdProfileSetup, resumeProfileSetup } from "@/lib/profileSetup";
 
@@ -63,7 +64,10 @@ export type LocalFailureCode =
   | "cancelled"
   | "interrupted"
   | "start_failed"
-  | "unexpected";
+  | "unexpected"
+  | "brew_missing"
+  | "brew_install_failed"
+  | "unsupported_arch";
 
 /** What a failure box can offer. Which ones, per code, is `failureActions`. */
 export type LocalFailureAction = "recheck" | "copyCommand" | "terminal" | "useDevMode" | "retry" | "resume" | "reinstall" | "back";
@@ -82,6 +86,10 @@ export interface LocalFailure {
  * `relay_host` are too quick and too internal to earn one. */
 export type InstallRowKey = "prereqs" | "download" | "install" | "service" | "profile";
 export const INSTALL_ROWS: InstallRowKey[] = ["prereqs", "download", "install", "service", "profile"];
+/** macOS drives Homebrew instead of install.sh — no separate download step
+ * to show (`brew install` does its own fetching), and the rest map to the
+ * same steps app-install.sh's porcelain reports. */
+export const MACOS_INSTALL_ROWS: InstallRowKey[] = ["prereqs", "install", "profile", "service"];
 
 export type PhaseStatus = "idle" | "running" | "ok" | "failed";
 
@@ -123,6 +131,9 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<LocalFailureCode>([
   "interrupted",
   "start_failed",
   "unexpected",
+  "brew_missing",
+  "brew_install_failed",
+  "unsupported_arch",
 ]);
 
 export function toFailureCode(code: string): LocalFailureCode {
@@ -167,6 +178,13 @@ export function failureActions(code: LocalFailureCode): LocalFailureAction[] {
       return ["retry", "back"];
     case "interrupted":
       return ["resume", "reinstall"];
+    case "brew_missing":
+      return ["recheck", "terminal"];
+    case "brew_install_failed":
+      return ["retry", "terminal"];
+    // Nothing to retry: the formula itself only ships arm64 today.
+    case "unsupported_arch":
+      return ["back"];
   }
 }
 
@@ -253,7 +271,23 @@ export async function runPrereqs(): Promise<void> {
   publish({ ...state, step: "address", prereqs: { status: "ok", result, failure: null }, candidates });
 }
 
-export function evaluatePrerequisites(result: Prerequisites, mode: "prod" | "dev"): LocalFailure | null {
+/**
+ * `platform` defaults to `currentPlatform()` so call sites outside Tauri
+ * (tests) get the Linux checklist without saying so. macOS drives Homebrew
+ * instead of a preinstalled Node — it checks `brewPath` where the Linux
+ * branch checks `nodePath`/`nodeOk`, and never asks about `systemd --user`
+ * or `activeUnits`, both meaningless off that platform (relay_setup.rs
+ * only ever populates them on Linux).
+ */
+export function evaluatePrerequisites(result: Prerequisites, mode: "prod" | "dev", platform: string | null = currentPlatform()): LocalFailure | null {
+  if (platform === "macos") {
+    if (!result.brewPath) return { code: "brew_missing", detail: "" };
+    if (!result.agentPath) return { code: "agent_missing", detail: result.agentBin };
+    if (result.agentLoggedIn !== true) {
+      return { code: "agent_not_logged_in", detail: result.agentError ?? "", command: `${result.agentBin} login` };
+    }
+    return null;
+  }
   if (!result.nodePath) return { code: "node_missing", detail: "" };
   if (!result.nodeOk) return { code: "node_old", detail: result.nodeVersion ?? "" };
   if (!result.agentPath) return { code: "agent_missing", detail: result.agentBin };

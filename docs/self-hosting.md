@@ -121,9 +121,9 @@ browser without Tauri APIs, which is enough for pure UI work.
 
 ## Pointing the client at your relay
 
-A fresh client opens on a first-run screen. On Linux it first looks at the
-machine it is on: a relay already installed here is recognised and its
-profiles adopted, and *Set up on this machine* installs one if there is
+A fresh client opens on a first-run screen. On Linux or macOS it first looks
+at the machine it is on: a relay already installed here is recognised and
+its profiles adopted, and *Set up on this machine* installs one if there is
 none. Everywhere, two more ways in: connect to a machine that already runs
 the relay, by address and port, or paste a pairing code. Both are also
 available later, once a profile exists.
@@ -153,22 +153,23 @@ there is anything to talk to.
 
 ### In the app
 
-With nothing set up yet, the client opens on a first-run screen. On Linux
-it looks at the machine first — no network, no install — and opens one of
-three doors:
+With nothing set up yet, the client opens on a first-run screen. On Linux or
+macOS it looks at the machine first — no network, no install — and opens one
+of three doors:
 
 - A relay with profiles is already here: they are listed and adopted in one
   click. Nothing is installed or created.
 - A relay is installed but has no profile: you land on the wizard's address
   step and only the profile is created.
-- Nothing here: *Set up on this machine* runs the same `install.sh` a
-  terminal user would, from inside the app, in four steps — prerequisites
-  (Node.js 20.12+, your agent CLI logged in, a user service manager), the
-  profile's name and the address other devices reach this machine on (your
-  tailnet address is recommended when there is one; loopback is allowed and
-  warned about), the install itself with its log, and a verification that
-  the new profile answers. Closing the window mid-install asks whether to
-  let it finish in the background; the next launch picks it up where it is.
+- Nothing here: *Set up on this machine* drives the same install a terminal
+  user would, from inside the app, in four steps — prerequisites (an agent
+  CLI logged in, plus Node.js 20.12+ and a user service manager on Linux, or
+  Homebrew on macOS), the profile's name and the address other devices reach
+  this machine on (your tailnet address is recommended when there is one;
+  loopback is allowed and warned about), the install itself with its log,
+  and a verification that the new profile answers. Closing the window
+  mid-install asks whether to let it finish in the background; the next
+  launch picks it up where it is.
 
 The other two paths — connect to a machine that already runs the relay, or
 paste a pairing code — are how a second device joins. Later profiles are
