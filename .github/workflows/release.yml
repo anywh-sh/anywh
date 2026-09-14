@@ -9,6 +9,40 @@ permissions:
   contents: write
 
 jobs:
+  # Gates the release on both workspaces having no known high/critical
+  # vulnerability at tag time — deliberately not in pr.yml: a dependency can
+  # grow a new CVE with zero code change here, which would fail PRs for
+  # something unrelated to their diff. Scoping the check to release time
+  # instead means it can only ever block a release (nothing ships with a
+  # known-vulnerable dependency), never unrelated day-to-day work. Runs
+  # before create-release so a failure here means no draft release — and no
+  # spent build-matrix minutes — for a tag that shouldn't ship yet.
+  audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace: [client, relay]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+          cache: npm
+          cache-dependency-path: ${{ matrix.workspace }}/package-lock.json
+      - run: npm ci
+        working-directory: ${{ matrix.workspace }}
+      # --omit=dev on purpose: this gate is about what ships to end users,
+      # not about the tooling that only ever runs in CI/local dev. Without
+      # it this would never go green — client's e2e stack (@wdio/tauri-service,
+      # devDependency only) currently pulls extract-zip through
+      # @puppeteer/browsers, and every extract-zip release ever published is
+      # listed as vulnerable (GHSA-jmr9-qjv8-65gv / GHSA-7pqw-9j4j-h8q3),
+      # so there is no version bump that clears it.
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: ${{ matrix.workspace }}
+
   # A draft release is created once, up front, instead of letting each
   # platform job in the matrix below get-or-create it by tag: tauri-action
   # supports the latter, but four jobs starting within seconds of each other
@@ -18,6 +52,7 @@ jobs:
   # Staying draft is temporary, not the end state: the checksums job below
   # publishes it once every platform's assets are in.
   create-release:
+    needs: audit
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create-release.outputs.result }}
