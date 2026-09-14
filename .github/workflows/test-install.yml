@@ -78,6 +78,19 @@ jobs:
           cache: npm
           cache-dependency-path: relay/package-lock.json
 
+      # Every other step here runs `./install.sh`, which respects the
+      # shebang and always executes under bash — the documented one-liner
+      # (`curl | sh`) doesn't: piped to `sh`, the shebang is just a comment,
+      # and the script runs under whatever /bin/sh actually is, dash on this
+      # exact runner image. Regression for a `set -euo pipefail` that dash
+      # rejected outright before the script did anything (`pipefail` is a
+      # bash/ksh extension), caught only by hand against a real Debian box
+      # because nothing here had ever run the script this way.
+      - name: Runs under the documented "curl | sh" invocation (dash, not bash)
+        run: |
+          readlink -f /bin/sh | grep -q dash
+          sh ./install.sh --help > /dev/null
+
       # Same staging release.yml's build-relay job does, minus the upload:
       # the tarball under test carries *this* checkout's infra/, which is
       # the whole point of running on a pull request.
@@ -195,6 +208,12 @@ jobs:
           grep -q '^ANYWH profile id=partial ' resume.log
           [ "$(ls "$HOME/.config/anywh/env"/partial*.env | wc -l)" -eq 1 ]
           systemctl --user is-active --quiet anywh-relay@partial
+
+      - name: The id is derived from the label when none is given
+        run: |
+          ./install.sh --porcelain --profile-label "Ana's Studio Box" --relay-host 127.0.0.1 --mode dev | tee slug.log
+          grep -q '^ANYWH profile id=ana-s-studio-box port=[0-9]* host=127.0.0.1 mode=dev' slug.log
+          [ -f "$HOME/.config/anywh/env/ana-s-studio-box.env" ]
 
       - name: --relay-host auto never lands on loopback
         run: |

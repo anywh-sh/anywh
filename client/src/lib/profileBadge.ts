@@ -23,6 +23,9 @@ export function profileBadge(
   dict: Dictionary,
 ): ProfileBadge {
   if (revoked.has(profile.id)) return { label: dict.shell.profiles.badgeRevoked, variant: "destructive" };
+  // Saved but never reached — outranks the transport word, since a profile
+  // that has never answered is neither usefully "local" nor "remote" yet.
+  if (profile.unverified) return { label: dict.shell.profiles.badgeUnverified, variant: "outline" };
   if (isTailnetProfile(profile)) return { label: dict.shell.profiles.badgeRemote, variant: "secondary" };
   return { label: dict.shell.profiles.badgeLocal, variant: "outline" };
 }

@@ -1,9 +1,8 @@
 import { useSyncExternalStore } from "react";
-import { isFirstRunActive, subscribeFirstRun } from "@/lib/firstRun";
+import { getFirstRunSnapshot, subscribeFirstRun, type FirstRunSnapshot } from "@/lib/firstRun";
 
-/** Reactive read of `firstRun.ts`'s flag — the second half of `App`'s gate
- * predicate, same "read outside React, subscribe from a hook" shape as
- * `useProfiles`. */
-export function useFirstRunActive(): boolean {
-  return useSyncExternalStore(subscribeFirstRun, isFirstRunActive);
+/** Reactive read of `firstRun.ts`'s flags — what `App`'s gate decides on,
+ * same "read outside React, subscribe from a hook" shape as `useProfiles`. */
+export function useFirstRun(): FirstRunSnapshot {
+  return useSyncExternalStore(subscribeFirstRun, getFirstRunSnapshot);
 }

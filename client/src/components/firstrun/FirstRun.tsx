@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
+import { AdoptScreen } from "@/components/firstrun/AdoptScreen";
+import { CloseDuringInstallDialog } from "@/components/firstrun/CloseDuringInstallDialog";
 import { ConnectExistingMachine } from "@/components/firstrun/ConnectExistingMachine";
-import { FirstRunHome } from "@/components/firstrun/FirstRunHome";
+import { DetectScreen } from "@/components/firstrun/DetectScreen";
+import { FirstRunHome, type LocalPathAvailability } from "@/components/firstrun/FirstRunHome";
+import { LocalInstall } from "@/components/firstrun/LocalInstall";
 import { ManualInstructions } from "@/components/firstrun/ManualInstructions";
 import { PairByCode } from "@/components/firstrun/PairByCode";
 import { AnywhLogo } from "@/components/shell/AnywhLogo";
@@ -9,33 +13,16 @@ import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { Button } from "@/components/ui/button";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
+import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
 import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/firstRun";
+import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/localInstall";
+import { localGuidedInstallPossible, localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
 import { isMacOS } from "@/lib/platform";
 import { clearProfileRevoked, isProfileRevoked } from "@/lib/profileRevocation";
-import { addProfile, removeProfile, type Profile } from "@/lib/profiles";
-import {
-  completeProfileSetup,
-  dismissProfileSetup,
-  retryProfileSetup,
-  type SetupState,
-} from "@/lib/profileSetup";
+import { addProfile, removeProfile } from "@/lib/profiles";
+import { completeProfileSetup, dismissProfileSetup, resumeProfileSetup, retryProfileSetup } from "@/lib/profileSetup";
 import { cn } from "@/lib/utils";
-
-/** The profile a setup request has already written to the list, if any —
- * everything past the claim has one, and a claim that never landed has
- * nothing to hand over. */
-function savedProfileOf(state: SetupState | null): Profile | null {
-  if (state === null) return null;
-  switch (state.status) {
-    case "claiming":
-      return null;
-    case "failed":
-      return state.stage === "claim" ? null : state.profile;
-    default:
-      return state.profile;
-  }
-}
 
 /**
  * What the window shows instead of the shell while this device has no
@@ -53,11 +40,64 @@ function savedProfileOf(state: SetupState | null): Profile | null {
 export function FirstRun() {
   const dict = useDict();
   const copy = dict.firstRun;
-  const [screen, setScreen] = useState<FirstRunScreen>("home");
-  // The terminal path ends by pointing path 01 at this machine — the relay
-  // it just had the reader install is on loopback.
+  // Where the in-app install exists, the first thing on screen is a look
+  // at the machine (`recognition`); everywhere else the paths come straight
+  // up, since there is nothing local to find.
+  const [screen, setScreen] = useState<FirstRunScreen>(() => (localInstallPossible() ? "detect" : "home"));
+  const [probe, setProbe] = useState<LocalRelayProbe | null>(null);
+  // The terminal path ends by pointing the connect form at this machine —
+  // the relay it just had the reader install is on loopback.
   const [connectHost, setConnectHost] = useState("");
   const setup = useProfileSetup();
+  const profiles = useProfiles();
+
+  // Recognition: no network, no install — a read of this machine's disk,
+  // and one of three doors. A relay with registered profiles is adopted; a
+  // relay with none goes to the wizard past the install; a run from an
+  // earlier launch, still alive or interrupted, is picked up where it is.
+  useEffect(() => {
+    if (!localInstallPossible()) return;
+    let cancelled = false;
+    probeLocalRelay()
+      .then((result) => {
+        if (cancelled) return;
+        setProbe(result);
+        if (!result) {
+          setScreen("home");
+          return;
+        }
+        const previous = result.previousRun;
+        if (previous && (previous.alive || (!previous.ok && previous.exitCode === null))) {
+          void attachPreviousRun(previous);
+          setScreen("local");
+          return;
+        }
+        if (result.profiles.some((p) => p.registered)) {
+          setScreen("adopt");
+          return;
+        }
+        if (result.installed && result.supported) {
+          beginLocalInstall("alreadyInstalled");
+          setScreen("local");
+          return;
+        }
+        setScreen("home");
+      })
+      .catch(() => {
+        if (!cancelled) setScreen("home");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const localPath: LocalPathAvailability = localInstallPossible()
+    ? probe?.containerized
+      ? { kind: "unavailable", reason: copy.home.localUnavailable.replace("{container}", probe.containerized) }
+      : { kind: "available" }
+    : localGuidedInstallPossible()
+      ? { kind: "guided" }
+      : { kind: "hidden" };
 
   // Every render, not once: `beginFirstRun` is idempotent, and re-asserting
   // it is what keeps the gate closed if anything ever flips the flag while
@@ -66,9 +106,28 @@ export function FirstRun() {
     beginFirstRun();
   });
 
+  // The run after one that died between the claim and the verification:
+  // the device's only profile is saved but was never reached, so pick its
+  // setup up where it stopped — the dialog opens on "connecting" with no
+  // click. A no-op inside `resumeProfileSetup` while a request is already
+  // in flight, which is also what makes this safe against the normal flow
+  // (the list becomes [unverified] mid-pipeline too) and against StrictMode.
+  const soleUnverified = profiles.length === 1 && profiles[0].unverified ? profiles[0] : null;
+  useEffect(() => {
+    if (soleUnverified) resumeProfileSetup(soleUnverified);
+  }, [soleUnverified]);
+
   function pick(next: FirstRunScreen): void {
     setConnectHost("");
+    if (next === "local") beginLocalInstall(localNote());
     setScreen(next);
+  }
+
+  /** What the wizard should say under its title when entered from a card
+   * or from "create another profile": a relay already here means only the
+   * profile is missing. */
+  function localNote(): LocalNote {
+    return probe?.installed ? "alreadyInstalled" : "none";
   }
 
   /** "Continue to new profile" — the flow's natural end. */
@@ -93,17 +152,20 @@ export function FirstRun() {
     finishFirstRun(existingId);
   }
 
-  /** Esc, click-outside, "leave it for later". There is no "later" before
-   * the shell exists: once a profile has been saved, dismissing means the
-   * same as continuing — the shell is the only place left to go, and it
-   * takes the profile as it is (verified or not; the shell's own reconnect
-   * loops report the latter). Only a claim that never landed leaves the
-   * reader here, with the paths, and nothing saved. */
+  /** Esc, click-outside, "leave it for later". Only a verified profile hands
+   * over to the shell — there is no shell to fall back into for anything
+   * short of that, `ready` is the only stage the reconnect loops downstream
+   * don't also have to cover from scratch. Every other stage (still running,
+   * or failed at connect/verify) just closes the dialog: the profile this
+   * request already saved stays on disk as `unverified`, and the
+   * `soleUnverified` effect above picks its setup back up next mount — the
+   * same path a claim that died mid-setup between app launches already
+   * takes. A claim that never landed saved nothing, so this is a no-op for
+   * it either way. */
   function handleDismiss(): void {
-    const saved = savedProfileOf(setup.state);
-    if (saved) {
+    if (setup.state?.status === "ready") {
       completeProfileSetup();
-      finishFirstRun(saved.id);
+      finishFirstRun(setup.state.profile.id);
       return;
     }
     dismissProfileSetup();
@@ -137,14 +199,17 @@ export function FirstRun() {
             <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
               {copy.crumbs[screen]}
             </span>
-            {screen !== "home" && (
+            {screen !== "home" && screen !== "detect" && (
               <Button type="button" variant="outline" size="xs" onClick={() => pick("home")}>
                 {copy.back}
               </Button>
             )}
           </div>
 
-          {screen === "home" && <FirstRunHome onPick={pick} />}
+          {screen === "detect" && <DetectScreen />}
+          {screen === "home" && <FirstRunHome onPick={pick} local={localPath} />}
+          {screen === "adopt" && probe && <AdoptScreen probe={probe} onCreateAnother={() => pick("local")} />}
+          {screen === "local" && <LocalInstall onTerminal={() => setScreen("manual")} onBack={() => pick("home")} />}
           {screen === "connect" && <ConnectExistingMachine key={connectHost} initialHost={connectHost} />}
           {screen === "code" && <PairByCode />}
           {screen === "manual" && (
@@ -164,6 +229,7 @@ export function FirstRun() {
         <LanguageControl />
       </footer>
 
+      <CloseDuringInstallDialog />
       <ProfileSetupDialog
         state={setup.state}
         queuedCount={setup.queuedCount}
@@ -171,6 +237,7 @@ export function FirstRun() {
         onUseExisting={handleUseExisting}
         onRetry={retryProfileSetup}
         onDismiss={handleDismiss}
+        hideLaterWhenReady
       />
     </div>
   );

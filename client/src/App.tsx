@@ -34,7 +34,7 @@ import { useNotificationClick } from "@/hooks/useNotificationClick";
 import { useContextMenuGuard } from "@/hooks/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/useProfileImport";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
-import { useFirstRunActive } from "@/hooks/useFirstRun";
+import { useFirstRun } from "@/hooks/useFirstRun";
 import { useActiveTheme, useThemeSync } from "@/hooks/useThemes";
 import { useProfileSync } from "@/hooks/useProfileSync";
 import { useTailnetSidecarOwner } from "@/hooks/useTailnetSidecarOwner";
@@ -77,6 +77,13 @@ function readQueryOverride(): { profile: string | null; session: string | null }
  * vanish mid-step if the list alone decided. `finishFirstRun` is what ends
  * it.
  *
+ * A third clause for the run *after* one that died mid-setup: a device
+ * whose only profile is still `unverified` (saved, never reached) opens on
+ * the first run again, which resumes that profile's verification, instead
+ * of on a shell that can't talk to anything. Only for a sole profile — with
+ * others around, the shell works and the unverified one is badged there —
+ * and only until the user chooses the shell anyway (`shellChosen`).
+ *
  * Lives here and not in `main.tsx` because `tests/ui/helpers/renderApp.tsx`
  * mounts `<App />` directly — a gate above it would sit outside the only
  * tier that can drive this flow by click and keystroke.
@@ -91,9 +98,10 @@ export default function App() {
   // listener inside the shell would be unmounted at that exact moment.
   useProfileImport();
   const profiles = useProfiles();
-  const firstRunActive = useFirstRunActive();
+  const firstRun = useFirstRun();
+  const soleUnverified = profiles.length === 1 && profiles[0].unverified === true;
 
-  if (profiles.length === 0 || firstRunActive) return <FirstRun />;
+  if (profiles.length === 0 || firstRun.active || (soleUnverified && !firstRun.shellChosen)) return <FirstRun />;
   return <AppShell />;
 }
 
@@ -227,7 +235,10 @@ function AppShell() {
   }, []);
 
   const activeTabId = tabsState.activeTabId;
-  const activeConnected = activeTabId ? (connectedByTab[activeTabId] ?? false) : false;
+  // No active tab means no conversation is trying to connect at all — showing
+  // "Reconnecting…" on the idle screen would be reporting a disconnect that
+  // doesn't exist, since `false` here used to mean "no tab" as much as "really down".
+  const activeConnected = activeTabId ? (connectedByTab[activeTabId] ?? false) : true;
 
   // Clears the "turn complete" badge of the tab that's visible now.
   useEffect(() => {

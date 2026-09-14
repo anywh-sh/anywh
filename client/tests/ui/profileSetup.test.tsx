@@ -140,6 +140,31 @@ describe("profile setup", () => {
     expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent("Home");
   });
 
+  it("won't let Escape close the dialog while still connecting, and 'Deixar para depois' doesn't reopen it once the connection settles", async () => {
+    setProfiles([{ id: "home", label: "Home", host: "127.0.0.1", relayPort: 8765 }]);
+    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
+    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
+    const user = userEvent.setup();
+    renderApp();
+
+    await pairByCode(user);
+
+    await screen.findByText(en.shell.profiles.setup.connectingTitle);
+    await user.keyboard("{Escape}");
+    expect(screen.getByText(en.shell.profiles.setup.connectingTitle)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+    expect(screen.queryByText(en.shell.profiles.setup.connectingTitle)).not.toBeInTheDocument();
+    // Untouched throughout — this mirrors the "Esc on the ready screen" case
+    // above, just interrupted a stage earlier.
+    expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent("Home");
+
+    resolveAcquire(SIDECAR_ENDPOINT);
+    await vi.waitFor(() => expect(screen.queryByText(en.shell.profiles.setup.connectingTitle)).not.toBeInTheDocument());
+    expect(screen.queryByText(en.shell.profiles.setup.connectedTitle)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent("Home");
+  });
+
   it("a deep-link import failing at connect shows a recoverable error instead of vanishing silently", async () => {
     setProfiles([{ id: "home", label: "Home", host: "127.0.0.1", relayPort: 8765 }]);
     acquireTailnetSidecarMock.mockRejectedValueOnce(new Error("join failed"));

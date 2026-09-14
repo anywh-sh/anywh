@@ -4,6 +4,7 @@ import { resolveConnection } from "@/lib/connectionResolver";
 import { BrokerRevokedError } from "@/lib/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profileRevocation";
 import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/lib/sessionListCache";
+import { markProfileVerified } from "@/lib/profiles";
 import type { Profile } from "@/lib/profiles";
 
 interface SyncState {
@@ -68,6 +69,9 @@ export function useSessionNames(profile: Profile): {
         // the loading/error flags are guarded, since those describe the
         // profile currently being shown.
         setCachedSessions(profileId, list);
+        // A whole list came back: the profile is reachable, whatever an
+        // interrupted setup left it marked as.
+        markProfileVerified(profileId);
         if (cancelled) return;
         setState((prev) => (prev.profileId === profileId ? { ...prev, loading: false, error: false } : prev));
       })

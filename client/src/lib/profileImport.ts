@@ -122,6 +122,9 @@ export async function claimAndSaveProfile(params: ImportedProfileParams): Promis
       brokerUrl,
       brokerNodeId: bundle.nodeId,
       tailnetReportUrl: bundle.reportUrl,
+      // Saved before it is reached — the pipeline's verify step (or the
+      // shell's first session sync) is what clears this.
+      unverified: true,
     };
     addProfile(profile);
     return { profile, duplicates };
@@ -133,6 +136,7 @@ export async function claimAndSaveProfile(params: ImportedProfileParams): Promis
     host: params.host!,
     relayPort: params.port!,
     connectToken: params.connectToken,
+    unverified: true,
   };
   addProfile(profile);
   return { profile, duplicates };

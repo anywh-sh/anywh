@@ -18,14 +18,35 @@ import { LAST_PROFILE_STORAGE_KEY } from "@/lib/profiles";
  * progress.
  */
 let active = false;
+/**
+ * The user has crossed into the shell this run — set by `finishFirstRun`.
+ * Read by the gate's third clause: a device whose only profile is still
+ * `unverified` reopens on the first run, resuming that profile's setup,
+ * but once the user has dismissed that and chosen the shell, the gate must
+ * not bounce them straight back. In memory only: the next launch tries
+ * again, which is the point.
+ */
+let shellChosen = false;
 const listeners = new Set<() => void>();
 
+export interface FirstRunSnapshot {
+  active: boolean;
+  shellChosen: boolean;
+}
+
+let snapshot: FirstRunSnapshot = { active, shellChosen };
+
 function publish(): void {
+  snapshot = { active, shellChosen };
   for (const listener of listeners) listener();
 }
 
 export function isFirstRunActive(): boolean {
   return active;
+}
+
+export function getFirstRunSnapshot(): FirstRunSnapshot {
+  return snapshot;
 }
 
 export function subscribeFirstRun(listener: () => void): () => void {
@@ -51,14 +72,17 @@ export function beginFirstRun(): void {
 export function finishFirstRun(profileId: string): void {
   localStorage.setItem(LAST_PROFILE_STORAGE_KEY, profileId);
   active = false;
+  shellChosen = true;
   publish();
 }
 
 /** Which of the first-run screens is showing. Lives here rather than in the
  * component so the dictionary can key its eyebrow copy on it — a screen
  * added without a crumb is then a compile error, not a blank label. */
-export type FirstRunScreen = "home" | "connect" | "code" | "manual";
+export type FirstRunScreen = "detect" | "home" | "adopt" | "local" | "connect" | "code" | "manual";
 
 export function __resetFirstRunForTests(): void {
   active = false;
+  shellChosen = false;
+  snapshot = { active, shellChosen };
 }

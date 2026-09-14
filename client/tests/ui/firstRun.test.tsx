@@ -168,9 +168,110 @@ describe("first run", () => {
     await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
     await screen.findByText(en.shell.profiles.setup.connectedTitle);
 
+    // Nothing left for it to do that "Continue" doesn't already do — the
+    // button that would suggest otherwise isn't shown at all here.
+    expect(screen.queryByRole("button", { name: en.shell.profiles.setup.later })).not.toBeInTheDocument();
+
     await user.keyboard("{Escape}");
 
     await expectShellWithOneProfile(MACHINE.host);
+  });
+
+  it("won't let Escape close the dialog while a request is still connecting", async () => {
+    const user = userEvent.setup();
+    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
+    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
+    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.connectingTitle);
+    await user.keyboard("{Escape}");
+    // Still up — a stray Escape can't lose the reader's place mid-flight.
+    expect(screen.getByText(en.shell.profiles.setup.connectingTitle)).toBeInTheDocument();
+
+    resolveAcquire(SIDECAR_ENDPOINT);
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+  });
+
+  it("'Leave it for later' while connecting doesn't reopen the dialog once the connection settles", async () => {
+    const user = userEvent.setup();
+    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
+    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
+    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.connectingTitle);
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+
+    await screen.findByText(en.firstRun.code.title);
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+
+    // The connect step the reader walked away from finishes on its own —
+    // the dialog must not pop back open to announce it.
+    resolveAcquire(SIDECAR_ENDPOINT);
+    await vi.waitFor(() => expect(getProfiles()[0].unverified).toBeUndefined());
+    expect(screen.queryByText(en.shell.profiles.setup.connectedTitle)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+  });
+
+  it("retrying the same address after dismissing mid-verify works once the orphaned attempt actually finishes", async () => {
+    const user = userEvent.setup();
+    let resolveFetch!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => (resolveFetch = resolve)));
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), "127.0.0.1");
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.verifying);
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+    await screen.findByText(en.firstRun.connect.title);
+
+    // The orphaned verify is still running — the same address is still
+    // reserved, same as before this fix, and that part is correct: it's
+    // one in-flight attempt, not two racing each other.
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+    await screen.findByText(en.firstRun.connect.alreadyQueued);
+
+    resolveFetch(fakeJsonResponse({ sessions: [] }));
+    await vi.waitFor(() => expect(getProfiles()[0]?.unverified).toBeUndefined());
+
+    // Now that it has actually finished, the address is free again — this
+    // used to stay stuck on "already being set up" forever, because
+    // nothing ever released the reservation for a dismissed-mid-flight
+    // request once it settled.
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+  });
+
+  it("dismissing a failed verify leaves the profile unverified on the wizard, instead of handing over a broken shell", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
+    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), "10.0.0.99");
+    vi.mocked(fetch).mockImplementationOnce(() => Promise.reject(new Error("connection refused")));
+    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
+
+    await screen.findByText(en.shell.profiles.setup.verifyFailedTitle);
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+
+    await screen.findByText(en.firstRun.connect.title);
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+    expect(localStorage.getItem("anywh:last-profile")).toBeNull();
   });
 
   it("stays on the first run when a claim never lands, with nothing saved", async () => {
@@ -208,6 +309,47 @@ describe("first run", () => {
     await screen.findByRole("heading", { name: en.firstRun.home.title });
     expect(getProfiles()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+  });
+
+  it("a sole unverified profile resumes its verification on launch and hands over once it passes", async () => {
+    // The run after one that died between the claim and the verification:
+    // the profile is saved, the list isn't empty, and the shell would open
+    // on a machine that was never reached.
+    setProfiles([{ id: "left", label: "Left over", host: MACHINE.host, relayPort: MACHINE.port, unverified: true }]);
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
+
+    await expectShellWithOneProfile("Left over");
+    expect(getProfiles()[0].unverified).toBeUndefined();
+  });
+
+  it("with other profiles around, an unverified one is badged in the shell and finishes from the switcher — no dialog on boot", async () => {
+    setProfiles([
+      { id: "home", label: "Home", host: "127.0.0.1", relayPort: 8765 },
+      { id: "left", label: "Left over", host: MACHINE.host, relayPort: MACHINE.port, unverified: true },
+    ]);
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("button", { name: en.shell.profiles.activeProfile });
+    expect(screen.queryByText(en.shell.profiles.setup.connectingTitle)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+    expect(await within(document.body).findByText(en.shell.profiles.badgeUnverified)).toBeInTheDocument();
+    await user.click(
+      within(document.body).getByRole("menuitem", { name: en.shell.profiles.finishSetup.replace("{label}", "Left over") }),
+    );
+
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
+
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent("Left over"));
+    expect(getProfiles().find((p) => p.id === "left")?.unverified).toBeUndefined();
   });
 
   it("switches language from inside the first run", async () => {

@@ -67,6 +67,22 @@ export interface Profile {
    * import; absent for a manually configured tailnet profile, which has no
    * control plane to report to. */
   tailnetReportUrl?: string;
+  /** Saved but never proven reachable. Set by `claimAndSaveProfile` — a
+   * profile is written before it is verified — and cleared the first time
+   * a whole `/sessions` list comes back for it: the setup pipeline's own
+   * verification, or the shell's session sync later (`markProfileVerified`).
+   * Survives the host sync's field-by-field merge on purpose
+   * (`syncProfilesForHost`), which would otherwise erase it within 30 s.
+   * Read by `App`'s gate (a sole unverified profile resumes its setup on
+   * launch) and by the badge. */
+  unverified?: boolean;
+  /** Created by the in-app install on this very machine, so its `host` is
+   * whatever address the installer bound — often loopback, sometimes a LAN
+   * or tailnet address that only makes sense from here. Exempt from
+   * `syncProfilesForHost`'s loopback cleanup, which would otherwise drop it
+   * the first time a sync against a *remote* host succeeds, and inherited
+   * across that sync's merge like the other local-only fields. */
+  localRelay?: boolean;
 }
 
 /** A profile is in tailnet mode iff it can join the tailnet
@@ -216,6 +232,18 @@ export function addProfile(profile: Profile): void {
  * nothing here refuses; the surfaces that offer removal say what removing
  * the only profile means instead (`RevokedProfileBanner`, `DangerZone`).
  * Returns whether anything was actually removed. */
+/** The profile answered: a whole session list came back for it. Clears
+ * `unverified`, persisting the change; a no-op (same array, same objects)
+ * when the flag isn't set, so the hot path — every session sync — never
+ * writes. */
+export function markProfileVerified(id: string): void {
+  const profile = profiles.find((p) => p.id === id);
+  if (!profile?.unverified) return;
+  const verified: Profile = { ...profile };
+  delete verified.unverified;
+  setProfiles(profiles.map((p) => (p.id === id ? verified : p)));
+}
+
 export function removeProfile(id: string): boolean {
   if (!profiles.some((p) => p.id === id)) return false;
   setProfiles(profiles.filter((p) => p.id !== id));
@@ -236,7 +264,9 @@ function profileFieldsEqual(a: Profile, b: Profile): boolean {
     a.tailnetTarget === b.tailnetTarget &&
     a.brokerUrl === b.brokerUrl &&
     a.brokerNodeId === b.brokerNodeId &&
-    a.tailnetReportUrl === b.tailnetReportUrl
+    a.tailnetReportUrl === b.tailnetReportUrl &&
+    a.unverified === b.unverified &&
+    a.localRelay === b.localRelay
   );
 }
 
@@ -281,7 +311,10 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
   // A tailnet profile is never dropped by any of the host-based reasoning
   // above: its `host` is the sidecar placeholder, not a relay it was synced
   // from, so no registry response either replaces it or proves it stale.
-  const dropStale = (p: Profile) => (isTailnetProfile(p) ? !remoteIds.has(p.id) : keepForHost(p));
+  // A profile the in-app install created on this machine is kept the same
+  // way: its loopback host is legitimate here, and no other host's registry
+  // can vouch for it.
+  const dropStale = (p: Profile) => (isTailnetProfile(p) || p.localRelay ? !remoteIds.has(p.id) : keepForHost(p));
   // `connectToken`/tailnet fields have no host-side counterpart (the control
   // API response never carries them), so a synced entry has to inherit
   // whatever this device already had for that id — otherwise a profile
@@ -306,6 +339,11 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
         brokerUrl: existing?.brokerUrl,
         brokerNodeId: existing?.brokerNodeId,
         tailnetReportUrl: existing?.tailnetReportUrl,
+        // Inherited, not cleared: this response came through *another*
+        // profile's connection and says nothing about whether this one
+        // answers. Only a fetch against the profile itself clears it.
+        unverified: existing?.unverified,
+        localRelay: existing?.localRelay,
       };
     }),
   ];

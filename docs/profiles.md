@@ -44,8 +44,8 @@ Everything stays on the relay machine:
 
 | Path | What |
 |---|---|
-| `~/.config/anywh/profiles.json` | The registry: labels and hosts |
-| `~/.config/anywh/env/<profile>.env` | Per-profile settings — `RELAY_PORT`, `RELAY_HOME_OVERRIDE`, and the rest of [Configuration](./configuration.md) |
+| `~/.config/anywh/profiles.json` | The registry: ids, labels and colours |
+| `~/.config/anywh/env/<profile>.env` | Per-profile settings — `RELAY_HOST`, `RELAY_PORT`, `RELAY_HOME_OVERRIDE`, and the rest of [Configuration](./configuration.md). The address a profile advertises lives here, not in the registry. |
 | `~/.config/anywh/themes/*.json` | Custom themes, host-wide — see [Themes](./themes.md) |
 
 Creating or syncing a profile never sends anything to a third party. Each

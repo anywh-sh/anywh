@@ -121,9 +121,12 @@ browser without Tauri APIs, which is enough for pure UI work.
 
 ## Pointing the client at your relay
 
-A fresh client opens on a first-run screen with two ways in: connect to a
-machine that already runs the relay, by address and port, or paste a pairing
-code. Both are also available later, once a profile exists.
+A fresh client opens on a first-run screen. On Linux it first looks at the
+machine it is on: a relay already installed here is recognised and its
+profiles adopted, and *Set up on this machine* installs one if there is
+none. Everywhere, two more ways in: connect to a machine that already runs
+the relay, by address and port, or paste a pairing code. Both are also
+available later, once a profile exists.
 
 **Pairing code or deep link.** The right answer when the relay isn't
 directly addressable — behind NAT, or on a tailnet. In the profile switcher,
@@ -150,16 +153,40 @@ there is anything to talk to.
 
 ### In the app
 
-With nothing set up yet, the client opens on a first-run screen that walks
-you through it: reach the relay, confirm the agent login it found, name the
-profile. This is the path to take. Later profiles are added the same way,
-from the profile switcher.
+With nothing set up yet, the client opens on a first-run screen. On Linux
+it looks at the machine first — no network, no install — and opens one of
+three doors:
+
+- A relay with profiles is already here: they are listed and adopted in one
+  click. Nothing is installed or created.
+- A relay is installed but has no profile: you land on the wizard's address
+  step and only the profile is created.
+- Nothing here: *Set up on this machine* runs the same `install.sh` a
+  terminal user would, from inside the app, in four steps — prerequisites
+  (Node.js 20.12+, your agent CLI logged in, a user service manager), the
+  profile's name and the address other devices reach this machine on (your
+  tailnet address is recommended when there is one; loopback is allowed and
+  warned about), the install itself with its log, and a verification that
+  the new profile answers. Closing the window mid-install asks whether to
+  let it finish in the background; the next launch picks it up where it is.
+
+The other two paths — connect to a machine that already runs the relay, or
+paste a pairing code — are how a second device joins. Later profiles are
+added from the profile switcher.
 
 ### From the command line
 
 The same provisioning the app performs, if you would rather do it on the
 machine itself — or if you are setting the relay up headless, before any
-client has ever connected to it.
+client has ever connected to it. The installer does both steps in one run:
+
+```bash
+curl -fsSL https://anywh.sh/install | sh -s -- --profile-id default \
+  --relay-host <the address other devices will reach this machine on>
+```
+
+With the relay already installed, `add-profile.sh` creates a profile on its
+own (`--resume` finishes one a previous run left half-done):
 
 ```bash
 ~/.local/share/anywh/infra/systemd/add-profile.sh default \
@@ -167,7 +194,8 @@ client has ever connected to it.
 ```
 
 `--relay-host` is required for the very first profile, because there is no
-existing profile to copy a default from. Use the machine's LAN IP, or its address on
+existing profile to copy a default from — `auto` picks the tailnet address,
+else the single LAN address, and refuses to guess. Use the machine's LAN IP, or its address on
 your private network if you will connect from outside the house — see
 [Remote access](./remote-access.md).
 

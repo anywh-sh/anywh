@@ -155,6 +155,11 @@ jobs:
         working-directory: client
       - run: npm run build:e2e
         working-directory: client
+      # The Rust unit tests (relay_setup.rs, tailnet_sidecar.rs) — here
+      # rather than in client-unit because this is the job that already has
+      # the toolchain, the system libraries and a warm target dir.
+      - run: npm run test:rust
+        working-directory: client
       - run: xvfb-run -a npm run test:e2e
         working-directory: client
 

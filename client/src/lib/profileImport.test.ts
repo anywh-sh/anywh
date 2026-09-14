@@ -83,7 +83,9 @@ describe("importProfile", () => {
     const id = await importProfile({ host: "1.2.3.4", port: 8443, label: "Paired device", connectToken: "s3cr3t" });
 
     const added = getProfiles().find((p) => p.id === id);
-    expect(added).toEqual({ id, label: "Paired device", host: "1.2.3.4", relayPort: 8443, connectToken: "s3cr3t" });
+    // Saved before it is reached: `unverified` is what the setup pipeline
+    // (or the shell's first session sync) clears once the machine answers.
+    expect(added).toEqual({ id, label: "Paired device", host: "1.2.3.4", relayPort: 8443, connectToken: "s3cr3t", unverified: true });
     expect(getProfiles()).toHaveLength(2);
   });
 

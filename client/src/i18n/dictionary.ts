@@ -12,6 +12,7 @@
 import type { EditMessageErrorCode, PermissionMode, SetCwdErrorCode } from "@/lib/relay-types";
 import type { ThemeValidationCode } from "@/lib/theme";
 import type { FirstRunScreen } from "@/lib/firstRun";
+import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/localInstall";
 
 export interface Dictionary {
   common: {
@@ -179,6 +180,15 @@ export interface Dictionary {
     home: {
       title: string;
       body: string;
+      /** Path 01: on Linux the app installs the relay itself; on macOS
+       * (`localHintGuided`) it walks the reader through the same
+       * Homebrew steps `ManualInstructions` shows on the terminal path. */
+      localTitle: string;
+      localHint: string;
+      localHintGuided: string;
+      /** `{container}` — the card is shown but disabled inside a Flatpak or
+       * Snap, which can't reach the host's `systemd --user`. */
+      localUnavailable: string;
       connectTitle: string;
       connectHint: string;
       codeTitle: string;
@@ -230,6 +240,84 @@ export interface Dictionary {
     };
     footer: {
       nothingInstalled: string;
+    };
+    /** The recognition step: a look at this machine before asking anything. */
+    detect: {
+      title: string;
+      body: string;
+    };
+    /** A relay with profiles was found on this machine: adopt them. */
+    adopt: {
+      title: string;
+      /** `{count}` — registered profiles found. */
+      body: string;
+      /** Meta line of a profile row — `{host}`, `{port}`. */
+      rowMeta: string;
+      /** The `default.env` a stray relay run leaves behind. */
+      orphanNote: string;
+      /** `{count}` */
+      adopt: string;
+      adoptOne: string;
+      createAnother: string;
+    };
+    /** Path 01: the in-app install, four steps. */
+    local: {
+      title: string;
+      /** `{n}` of 4. */
+      stepOf: string;
+      notes: Record<Exclude<LocalNote, "none">, string>;
+      steps: Record<LocalStep, string>;
+      prereqs: {
+        node: string;
+        agent: string;
+        systemd: string;
+        checking: string;
+        /** `{version}` */
+        nodeMeta: string;
+        loggedIn: string;
+        devMode: string;
+      };
+      address: {
+        nameLabel: string;
+        namePlaceholder: string;
+        nameHint: string;
+        body: string;
+        recommended: string;
+        hints: Record<"tailnet" | "lan" | "public" | "loopback", string>;
+        customLabel: string;
+        customPlaceholder: string;
+        loopbackWarning: string;
+        submit: string;
+      };
+      install: {
+        rows: Record<InstallRowKey, string>;
+        running: string;
+        failed: string;
+        showRaw: string;
+        hideRaw: string;
+        terminal: string;
+        cancel: string;
+        pendingLink: string;
+        /** `{count}` */
+        pendingLinks: string;
+        discard: string;
+      };
+      verify: {
+        body: string;
+      };
+      /** One sentence per way the wizard can stop — keyed on the code so a
+       * new one is a compile error until it has copy, never a raw enum on
+       * screen. The installer's own detail line is shown under it. */
+      failures: Record<LocalFailureCode, string>;
+      actions: Record<LocalFailureAction, string>;
+      /** The window is being closed with an install running. */
+      close: {
+        title: string;
+        body: string;
+        background: string;
+        cancel: string;
+        keep: string;
+      };
     };
   };
   /**
@@ -639,6 +727,10 @@ export interface Dictionary {
       badgeLocal: string;
       badgeRemote: string;
       badgeRevoked: string;
+      /** Saved but never reached — an interrupted setup (`Profile.unverified`). */
+      badgeUnverified: string;
+      /** `{label}` — the switcher item that resumes that profile's setup. */
+      finishSetup: string;
       /** Creating a profile on the connected host, and pairing a machine
        * that isn't reachable yet — the two ways a profile comes into
        * existence. */
