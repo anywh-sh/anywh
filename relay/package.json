@@ -10,6 +10,7 @@
     "dev": "tsx --env-file-if-exists=.env src/server.ts",
     "dev:profile": "tsx --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env src/server.ts",
     "build": "tsc",
+    "build:sea": "node sea-build/build.mjs",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "start:profile": "node --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env dist/server.js",
     "test": "tsx --test --test-timeout=30000 src/*.test.ts",
@@ -23,6 +24,8 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.2",
+    "postject": "1.0.0-alpha.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
