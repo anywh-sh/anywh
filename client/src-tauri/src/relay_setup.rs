@@ -1065,6 +1065,14 @@ pub async fn relay_setup_start(
         .stdout(std::process::Stdio::from(log))
         .stderr(std::process::Stdio::from(log_for_stderr))
         .kill_on_drop(false);
+    // Its own process group, not the app's: `relay_setup_cancel` signals this
+    // whole group, and the script forks further children of its own
+    // (`brew install`, `add-profile.sh`, the `node` call inside it) that a
+    // signal to just this PID would never reach — they'd run on as orphans
+    // after the shell died, racing a retry that starts a second, unrelated
+    // provisioning run against the same profile files.
+    #[cfg(unix)]
+    command.process_group(0);
     let child = command.spawn().map_err(|e| format!("couldn't start the installer: {e}"))?;
 
     run.pid = child.id().unwrap_or(0);
@@ -1076,7 +1084,12 @@ pub async fn relay_setup_start(
 
 /// Asks the installer to stop. SIGTERM, not SIGKILL: the script's EXIT trap
 /// is what sweeps a half-extracted staging tree, and it only runs if the
-/// shell gets to run it.
+/// shell gets to run it. Sent to the whole process group (`-pid`, matching
+/// the `process_group(0)` set at spawn), not just the shell's own PID: the
+/// shell forks children of its own for the heavy lifting (`brew install`,
+/// `add-profile.sh`), and a signal to only the parent would leave those
+/// running as orphans that finish the provisioning a "cancelled" run was
+/// supposed to stop — and then collide with whatever a retry starts next.
 #[tauri::command]
 pub async fn relay_setup_cancel(app: tauri::AppHandle, state: tauri::State<'_, RelaySetup>) -> Result<(), String> {
     let _inner = state.0.lock().await;
@@ -1087,7 +1100,11 @@ pub async fn relay_setup_cancel(app: tauri::AppHandle, state: tauri::State<'_, R
     if run.exit_code.is_none() && pid_is_installer(run.pid, &run.script_path) {
         #[cfg(unix)]
         {
-            let _ = std::process::Command::new("kill").args(["-TERM", &run.pid.to_string()]).status();
+            // `--` before the negative pid: procps-ng's `kill` misparses a
+            // bare `-TERM -1234` (it exits 1 as if `-1234` were a second,
+            // invalid signal spec) even though it still signals the group —
+            // `--` ends option parsing so there's nothing left to misread.
+            let _ = std::process::Command::new("kill").args(["-TERM", "--", &format!("-{}", run.pid)]).status();
         }
     }
     run.cancelled = true;
@@ -1383,5 +1400,54 @@ mod tests {
     #[test]
     fn pid_zero_is_never_alive() {
         assert!(!pid_is_installer(0, "/x/install.sh"));
+    }
+
+    /// The exact primitive `relay_setup_cancel` relies on: spawn a script
+    /// with `process_group(0)`, then signal `-pid` instead of `pid`. Without
+    /// both halves, a script's own child (`brew install`, `add-profile.sh`
+    /// and the `node` call inside it, in the real installer) is left running
+    /// as an orphan after "cancel" — the bug a retry right after cancelling
+    /// used to hit, since that orphan kept writing the profile the new run
+    /// was also trying to write.
+    #[test]
+    #[cfg(unix)]
+    fn cancel_signal_reaches_a_child_the_script_forked() {
+        use std::io::BufRead;
+        use std::os::unix::process::CommandExt;
+
+        let mut parent = std::process::Command::new("bash")
+            .arg("-c")
+            // Stands in for install.sh spawning `add-profile.sh`/`brew
+            // install` in the foreground: a child of its own, printed so the
+            // test can check on it independently, then waited on.
+            .arg("sleep 30 & echo $!; wait")
+            .process_group(0)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn the stand-in installer");
+        let pid = parent.id();
+
+        let mut line = String::new();
+        std::io::BufReader::new(parent.stdout.take().expect("piped stdout"))
+            .read_line(&mut line)
+            .expect("read the forked child's pid");
+        let child_pid: i32 = line.trim().parse().expect("a pid on the first line");
+
+        // Same call relay_setup_cancel makes: SIGTERM to the group, not just
+        // the shell's own pid.
+        let status = std::process::Command::new("kill").args(["-TERM", "--", &format!("-{pid}")]).status().expect("run kill");
+        assert!(status.success());
+        parent.wait().expect("the shell exits once signalled");
+
+        // `kill -0` on an already-gone pid prints "No such process" to
+        // stderr, which is the expected outcome here — silenced so a
+        // passing run doesn't look like it logged an error.
+        let child_alive = std::process::Command::new("kill")
+            .args(["-0", &child_pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        assert!(!child_alive, "the script's own child survived a cancel that only reached the shell");
     }
 }
