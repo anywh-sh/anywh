@@ -79,7 +79,7 @@ export function finishFirstRun(profileId: string): void {
 /** Which of the first-run screens is showing. Lives here rather than in the
  * component so the dictionary can key its eyebrow copy on it — a screen
  * added without a crumb is then a compile error, not a blank label. */
-export type FirstRunScreen = "home" | "connect" | "code" | "manual";
+export type FirstRunScreen = "detect" | "home" | "adopt" | "local" | "connect" | "code" | "manual";
 
 export function __resetFirstRunForTests(): void {
   active = false;

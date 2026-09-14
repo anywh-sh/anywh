@@ -547,7 +547,10 @@ pub fn relay_setup_suggest_address() -> Result<Vec<AddressCandidate>, String> {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StartParams {
-    pub profile_id: String,
+    /// Optional on purpose: with only a label, `install.sh` derives the id
+    /// with the relay's own slug rule and reports it back on the
+    /// `ANYWH profile id=` line — the client never re-implements that rule.
+    pub profile_id: Option<String>,
     pub profile_label: Option<String>,
     pub relay_host: String,
     pub profile_home: Option<String>,
@@ -970,6 +973,9 @@ pub async fn relay_setup_start(
     if params.relay_host.trim().is_empty() {
         return Err("relayHost is required".to_string());
     }
+    if params.profile_id.is_none() && params.profile_label.as_deref().is_none_or(|l| l.trim().is_empty()) {
+        return Err("profileId or profileLabel is required".to_string());
+    }
 
     let script_path = write_script(&dir)?;
     let run_id = format!("{}-{}", now_secs(), std::process::id());
@@ -996,7 +1002,10 @@ pub async fn relay_setup_start(
     command
         .arg(&script_path)
         .args(["--porcelain", "--version", &version, "--mode", &mode])
-        .args(["--profile-id", &params.profile_id, "--relay-host", &params.relay_host]);
+        .args(["--relay-host", &params.relay_host]);
+    if let Some(id) = &params.profile_id {
+        command.args(["--profile-id", id]);
+    }
     if let Some(label) = &params.profile_label {
         command.args(["--profile-label", label]);
     }
@@ -1287,7 +1296,7 @@ mod tests {
             log_path: "/l".into(),
             script_path: "/s".into(),
             started_at: 1,
-            params: StartParams { profile_id: "home".into(), profile_label: None, relay_host: "10.0.0.1".into(), profile_home: None, mode: None },
+            params: StartParams { profile_id: Some("home".into()), profile_label: None, relay_host: "10.0.0.1".into(), profile_home: None, mode: None },
             cancelled: false,
             exit_code: None,
             finished_at: None,

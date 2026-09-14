@@ -363,3 +363,27 @@ describe("unverified", () => {
     expect(getProfiles()).toBe(before);
   });
 });
+
+describe("localRelay", () => {
+  it("keeps a loopback profile the in-app install created here across a sync against a remote host", () => {
+    // Without the flag this is exactly the `ensureSelfRegistered` ghost the
+    // loopback cleanup exists to drop — the mark is what tells the two apart.
+    const local: Profile = { id: "studio", label: "Studio", host: "127.0.0.1", relayPort: 8766, localRelay: true };
+    setProfiles([local]);
+
+    syncProfilesForHost("100.64.0.1", [remote({ id: "pessoal", host: "100.64.0.1" })]);
+
+    expect(getProfiles().map((p) => p.id).sort()).toEqual(["pessoal", "studio"]);
+    expect(getProfiles().find((p) => p.id === "studio")?.localRelay).toBe(true);
+  });
+
+  it("is inherited when the local relay's own registry reports the profile back", () => {
+    const local: Profile = { id: "studio", label: "Studio", host: "127.0.0.1", relayPort: 8766, localRelay: true };
+    setProfiles([local]);
+
+    syncProfilesForHost("127.0.0.1", [remote({ id: "studio", host: "127.0.0.1", label: "Studio", port: 8766 })]);
+
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].localRelay).toBe(true);
+  });
+});

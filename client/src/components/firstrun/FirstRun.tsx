@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
+import { AdoptScreen } from "@/components/firstrun/AdoptScreen";
+import { CloseDuringInstallDialog } from "@/components/firstrun/CloseDuringInstallDialog";
 import { ConnectExistingMachine } from "@/components/firstrun/ConnectExistingMachine";
-import { FirstRunHome } from "@/components/firstrun/FirstRunHome";
+import { DetectScreen } from "@/components/firstrun/DetectScreen";
+import { FirstRunHome, type LocalPathAvailability } from "@/components/firstrun/FirstRunHome";
+import { LocalInstall } from "@/components/firstrun/LocalInstall";
 import { ManualInstructions } from "@/components/firstrun/ManualInstructions";
 import { PairByCode } from "@/components/firstrun/PairByCode";
 import { LanguageControl } from "@/components/settings/LanguageControl";
@@ -12,6 +16,8 @@ import { useProfileSetup } from "@/hooks/useProfileSetup";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
 import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/firstRun";
+import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/localInstall";
+import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
 import { isMacOS } from "@/lib/platform";
 import { clearProfileRevoked, isProfileRevoked } from "@/lib/profileRevocation";
 import { addProfile, removeProfile, type Profile } from "@/lib/profiles";
@@ -55,12 +61,62 @@ function savedProfileOf(state: SetupState | null): Profile | null {
 export function FirstRun() {
   const dict = useDict();
   const copy = dict.firstRun;
-  const [screen, setScreen] = useState<FirstRunScreen>("home");
-  // The terminal path ends by pointing path 01 at this machine — the relay
-  // it just had the reader install is on loopback.
+  // Where the in-app install exists, the first thing on screen is a look
+  // at the machine (`recognition`); everywhere else the paths come straight
+  // up, since there is nothing local to find.
+  const [screen, setScreen] = useState<FirstRunScreen>(() => (localInstallPossible() ? "detect" : "home"));
+  const [probe, setProbe] = useState<LocalRelayProbe | null>(null);
+  // The terminal path ends by pointing the connect form at this machine —
+  // the relay it just had the reader install is on loopback.
   const [connectHost, setConnectHost] = useState("");
   const setup = useProfileSetup();
   const profiles = useProfiles();
+
+  // Recognition: no network, no install — a read of this machine's disk,
+  // and one of three doors. A relay with registered profiles is adopted; a
+  // relay with none goes to the wizard past the install; a run from an
+  // earlier launch, still alive or interrupted, is picked up where it is.
+  useEffect(() => {
+    if (!localInstallPossible()) return;
+    let cancelled = false;
+    probeLocalRelay()
+      .then((result) => {
+        if (cancelled) return;
+        setProbe(result);
+        if (!result) {
+          setScreen("home");
+          return;
+        }
+        const previous = result.previousRun;
+        if (previous && (previous.alive || (!previous.ok && previous.exitCode === null))) {
+          void attachPreviousRun(previous);
+          setScreen("local");
+          return;
+        }
+        if (result.profiles.some((p) => p.registered)) {
+          setScreen("adopt");
+          return;
+        }
+        if (result.installed && result.supported) {
+          beginLocalInstall("alreadyInstalled");
+          setScreen("local");
+          return;
+        }
+        setScreen("home");
+      })
+      .catch(() => {
+        if (!cancelled) setScreen("home");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const localPath: LocalPathAvailability = !localInstallPossible()
+    ? { kind: "hidden" }
+    : probe?.containerized
+      ? { kind: "unavailable", reason: copy.home.localUnavailable.replace("{container}", probe.containerized) }
+      : { kind: "available" };
 
   // Every render, not once: `beginFirstRun` is idempotent, and re-asserting
   // it is what keeps the gate closed if anything ever flips the flag while
@@ -82,7 +138,15 @@ export function FirstRun() {
 
   function pick(next: FirstRunScreen): void {
     setConnectHost("");
+    if (next === "local") beginLocalInstall(localNote());
     setScreen(next);
+  }
+
+  /** What the wizard should say under its title when entered from a card
+   * or from "create another profile": a relay already here means only the
+   * profile is missing. */
+  function localNote(): LocalNote {
+    return probe?.installed ? "alreadyInstalled" : "none";
   }
 
   /** "Continue to new profile" — the flow's natural end. */
@@ -142,14 +206,17 @@ export function FirstRun() {
             <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
               {copy.crumbs[screen]}
             </span>
-            {screen !== "home" && (
+            {screen !== "home" && screen !== "detect" && (
               <Button type="button" variant="outline" size="xs" onClick={() => pick("home")}>
                 {copy.back}
               </Button>
             )}
           </div>
 
-          {screen === "home" && <FirstRunHome onPick={pick} />}
+          {screen === "detect" && <DetectScreen />}
+          {screen === "home" && <FirstRunHome onPick={pick} local={localPath} />}
+          {screen === "adopt" && probe && <AdoptScreen probe={probe} onCreateAnother={() => pick("local")} />}
+          {screen === "local" && <LocalInstall onTerminal={() => setScreen("manual")} onBack={() => pick("home")} />}
           {screen === "connect" && <ConnectExistingMachine key={connectHost} initialHost={connectHost} />}
           {screen === "code" && <PairByCode />}
           {screen === "manual" && (
@@ -170,6 +237,7 @@ export function FirstRun() {
         <LanguageControl className="w-auto border-transparent text-[10.5px] text-text-faint hover:border-border" />
       </footer>
 
+      <CloseDuringInstallDialog />
       <ProfileSetupDialog
         state={setup.state}
         queuedCount={setup.queuedCount}
