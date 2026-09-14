@@ -235,7 +235,10 @@ function AppShell() {
   }, []);
 
   const activeTabId = tabsState.activeTabId;
-  const activeConnected = activeTabId ? (connectedByTab[activeTabId] ?? false) : false;
+  // No active tab means no conversation is trying to connect at all — showing
+  // "Reconnecting…" on the idle screen would be reporting a disconnect that
+  // doesn't exist, since `false` here used to mean "no tab" as much as "really down".
+  const activeConnected = activeTabId ? (connectedByTab[activeTabId] ?? false) : true;
 
   // Clears the "turn complete" badge of the tab that's visible now.
   useEffect(() => {
