@@ -126,7 +126,34 @@ describe("ProfileSetupDialog", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("dismisses on Escape — blocking but closeable", async () => {
+  it("dismisses on Escape once there's an outcome to leave", async () => {
+    const onDismiss = vi.fn();
+    const state: SetupState = { status: "failed", mode: "direct", stage: "claim" };
+    render(
+      <ProfileSetupDialog state={state} queuedCount={0} onContinue={noop} onUseExisting={noop} onRetry={noop} onDismiss={onDismiss} />,
+    );
+
+    const user = userEvent.setup();
+    await user.keyboard("{Escape}");
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { status: "claiming", mode: "direct" },
+    { status: "connecting", mode: "direct", profile },
+    { status: "verifying", mode: "direct", profile },
+  ] satisfies SetupState[])("blocks Escape and the header's close button while $status, so an accidental one can't lose the reader's place", (state) => {
+    const onDismiss = vi.fn();
+    render(
+      <ProfileSetupDialog state={state} queuedCount={0} onContinue={noop} onUseExisting={noop} onRetry={noop} onDismiss={onDismiss} />,
+    );
+
+    // The header's close (X) button isn't rendered at all mid-flight — the
+    // dedicated "Deixar para depois" button is the only way out.
+    expect(screen.queryByRole("button", { name: en.common.close })).not.toBeInTheDocument();
+  });
+
+  it("won't dismiss on Escape while still claiming, but the dedicated button still works", async () => {
     const onDismiss = vi.fn();
     const state: SetupState = { status: "claiming", mode: "direct" };
     render(
@@ -135,7 +162,31 @@ describe("ProfileSetupDialog", () => {
 
     const user = userEvent.setup();
     await user.keyboard("{Escape}");
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides 'Deixar para depois' on ready when hideLaterWhenReady is set, unlike the shell's default", () => {
+    const state: SetupState = { status: "ready", mode: "tailnet", profile, info: { sessionCount: 0 }, duplicates: [] };
+    const { rerender } = render(
+      <ProfileSetupDialog state={state} queuedCount={0} onContinue={noop} onUseExisting={noop} onRetry={noop} onDismiss={noop} />,
+    );
+    expect(screen.getByRole("button", { name: en.shell.profiles.setup.later })).toBeInTheDocument();
+
+    rerender(
+      <ProfileSetupDialog
+        state={state}
+        queuedCount={0}
+        onContinue={noop}
+        onUseExisting={noop}
+        onRetry={noop}
+        onDismiss={noop}
+        hideLaterWhenReady
+      />,
+    );
+    expect(screen.queryByRole("button", { name: en.shell.profiles.setup.later })).not.toBeInTheDocument();
   });
 
   it("shows the queued count in the footer", () => {

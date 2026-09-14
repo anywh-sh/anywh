@@ -16,8 +16,14 @@
 # added to, never rewritten unless it matches.
 #
 # Written for POSIX sh, not bash: `curl | sh` runs it under whatever /bin/sh
-# is (dash on Debian), so no arrays, no [[ ]], no `trap ERR`.
-set -euo pipefail
+# is (dash on Debian), so no arrays, no [[ ]], no `trap ERR` — and no
+# `pipefail` either, a bash/ksh extension dash doesn't have: it used to be
+# on this line, and dash rejected it outright (`set: Illegal option -o
+# pipefail`) before the script did anything at all, on the exact platform
+# the line above calls out by name. None of this script's pipes need it —
+# each one's exit status that matters is its last stage's, already covered
+# by plain `-e`.
+set -eu
 
 REPO="anywh-sh/anywh"
 INSTALL_DIR="${ANYWH_INSTALL_DIR:-$HOME/.local/share/anywh}"
