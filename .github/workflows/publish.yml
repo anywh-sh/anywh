@@ -80,6 +80,19 @@ jobs:
       # macOS only, and only Apple Silicon — release.yml's build-relay job
       # doesn't publish a darwin-x64 leg, so an Intel Mac
       # has no asset to point at yet.
+      #
+      # No `depends_on "node"`: the tarball this points at is a Node Single
+      # Executable Application (relay/sea-build/build.mjs) with its own
+      # runtime bundled in, not a script that needs one installed. A shared
+      # "node" dependency has a sharp edge: `brew uninstall anywh-relay`
+      # autoremoves Node along with it whenever Node was only ever pulled in
+      # as this formula's dependency (not installed on request by the user
+      # directly) — even if the user has since started relying on that same
+      # Node for unrelated work. This template (and the formula it writes)
+      # drifted out of sync with that once already: a release right after
+      # the SEA switch landed still had this step writing the old
+      # `depends_on "node"` / `relay/dist/server.js` shape, silently
+      # overwriting a hand-edited formula that had already moved off it.
       - name: Write the formula
         env:
           VERSION: ${{ steps.sha.outputs.version }}
@@ -96,25 +109,37 @@ jobs:
             license "Apache-2.0"
 
             depends_on arch: :arm64
-            depends_on "node"
 
             def install
               libexec.install Dir["*"]
             end
 
-            # No systemd EnvironmentFile= here to load the profile's .env —
-            # Homebrew's service DSL has no equivalent, so the "default"
-            # profile's config has to come in via Node's own
-            # --env-file-if-exists instead (same mechanism relay/package.json's
-            # start:profile script uses, just spelled out here since there's
-            # no npm script wrapper in the installed tarball).
+            # No \`depends_on "node"\`: this ships a Node Single Executable
+            # Application (built by relay/sea-build/build.mjs) with the
+            # runtime bundled in, not a script that needs one installed. A
+            # shared "node" dependency has a sharp edge: \`brew uninstall
+            # anywh-relay\` autoremoves Node along with it whenever Node was
+            # only ever pulled in as this formula's dependency (not
+            # installed on request by the user directly) — even if the user
+            # has since started relying on that same Node for unrelated
+            # work. Bundling the runtime instead means this formula's
+            # presence has zero bearing on whether Node exists on the
+            # machine at all.
+            #
+            # No systemd EnvironmentFile= equivalent here either — Homebrew's
+            # service DSL has no such thing — so the "default" profile's
+            # config comes in via RELAY_ENV_FILE, a plain environment
+            # variable the SEA binary's own entrypoint
+            # (relay/sea-build/sea-entry.cjs) applies itself. That
+            # indirection exists because Node SEA doesn't process runtime
+            # CLI flags the way a plain \`node\` invocation does: the
+            # previous approach here, passing
+            # \`--env-file-if-exists=...\` on the command line, is silently
+            # ignored by a SEA binary.
             service do
-              run [
-                formula_opt_bin("node")/"node",
-                "--env-file-if-exists=#{Dir.home}/.config/anywh/env/default.env",
-                opt_libexec/"relay/dist/server.js",
-              ]
-              working_dir opt_libexec/"relay"
+              run [opt_libexec/"anywh-relay"]
+              environment_variables RELAY_ENV_FILE: "#{Dir.home}/.config/anywh/env/default.env"
+              working_dir opt_libexec
               keep_alive true
               log_path var/"log/anywh-relay.log"
               error_log_path var/"log/anywh-relay.error.log"
@@ -131,7 +156,7 @@ jobs:
             end
 
             test do
-              assert_path_exists libexec/"relay/dist/server.js"
+              assert_path_exists libexec/"anywh-relay"
             end
           end
           RUBY

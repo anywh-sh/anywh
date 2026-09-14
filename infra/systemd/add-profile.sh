@@ -291,14 +291,24 @@ fs.writeFileSync(path, JSON.stringify(data, null, 2));
 
 echo "Provisioned $ENV_FILE"
 
-RELAY_DIR="$(cd "$SCRIPT_DIR/../../relay" && pwd)"
-
-if [[ "$MODE" == "dev" ]]; then
+# Only a source checkout has this: the Linux tarball ships relay/ next to
+# infra/ (install.sh's own layout), but the macOS Homebrew build ships a
+# single SEA binary instead (relay/sea-build/build.mjs) with no relay/
+# directory at all. app-install.sh still passes --mode dev here — it has
+# no launchd unit for this script to enable, same reason a Linux box
+# without a user systemd session does — so this branch runs on both, and
+# unconditionally `cd`-ing into a relay/ that doesn't exist used to take
+# `set -e` down with it, right after the profile had already been written.
+if [[ "$MODE" == "dev" && -d "$SCRIPT_DIR/../../relay" ]]; then
+  RELAY_DIR="$(cd "$SCRIPT_DIR/../../relay" && pwd)"
   cat <<EOF
 
 Run it in dev mode with:
   cd "$RELAY_DIR" && ANYWH_PROFILE=$ID npm run dev:profile
 EOF
+elif [[ "$MODE" == "dev" ]]; then
+  : # macOS: brew services start anywh-relay is the actual next step,
+    # already covered by the formula's own caveats.
 elif systemctl --user is-active --quiet "anywh-relay@$ID"; then
   # Already up from an earlier run — `enable --now` on a running instance is
   # harmless to systemd but a re-run of the installer must not be the thing
