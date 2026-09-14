@@ -2,8 +2,6 @@ import { spawn } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
-import { dirname, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import { buildChildEnv } from "./claudeSession.js";
 import { AGENT_BIN } from "./claudeCliConfig.js";
@@ -24,7 +22,7 @@ import {
 } from "./fsFiles.js";
 import { FilesWatchSession } from "./fsWatch.js";
 import { readGitStatus } from "./gitStatus.js";
-import { defaultCwd } from "./paths.js";
+import { defaultCwd, resolveShipped } from "./paths.js";
 import {
   deleteProfileFiles,
   ensureSelfRegistered,
@@ -45,10 +43,10 @@ import { killAllTerminalsForSession, killTerminal, scrollTerminal, spawnTerminal
 import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "./uploads.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
-// SCRIPTS_DIR in claudeCliConfig.ts — works whether running from `src/`
-// (tsx) or `dist/` (tsc build), since both mirror the same layout one
-// level below `relay/`.
-const ADD_PROFILE_SCRIPT = resolvePath(dirname(fileURLToPath(import.meta.url)), "../../infra/systemd/add-profile.sh");
+// SCRIPTS_DIR in claudeCliConfig.ts — works running from `src/` (tsx),
+// `dist/` (tsc build, two levels below the repo root) or the macOS SEA
+// binary (`infra/` shipped flat next to it) alike.
+const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../infra/systemd/add-profile.sh", "infra/systemd/add-profile.sh");
 
 // Same seam as `AGENT_BIN` (claudeCliConfig.ts) — defaults to the bare
 // command name (works wherever `systemctl --user` is genuinely available),

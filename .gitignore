@@ -22,6 +22,12 @@ client/src-tauri/gen/
 # Go source that is.
 client/src-tauri/binaries/
 
+# relay's SEA build scratch — the pinned Node tarballs build.mjs downloads
+# per target/host, and the intermediate bundle/blob it produces from them.
+# `sea-build/dist/` (the actual output) is already covered by `dist/` above.
+relay/sea-build/.node-cache/
+relay/sea-build/.out/
+
 # personal convenience scripts (see client/README.md) — machine-specific,
 # e.g. a physical iOS device name, never meant to be shared
 client/*.local.sh

@@ -1,5 +1,4 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolveShipped } from "./paths.js";
 
 // Shared by every module that spawns the agent CLI (the real turn in
 // claudeSession.ts, plus the one-shot probes in defaultModel.ts,
@@ -46,10 +45,11 @@ const configuredExtraPathDirs = (process.env.EXTRA_PATH_DIRS ?? "")
 
 // `relay/scripts` (not `dist/` nor `src/`) — the helper is a standalone bash
 // script, doesn't need a build, and stays on PATH so a turn finds
-// `anywh-bg` by name alone. Resolved relative to this file
-// (not hardcoded) so it works whether running from `src/` (tsx) or `dist/`
-// (tsc build) — both mirror the same layout one level below `relay/`.
-const SCRIPTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../scripts");
+// `anywh-bg` by name alone. Resolved relative to this file, not hardcoded,
+// so it works running from `src/` (tsx), `dist/` (tsc build, one level
+// below `relay/`) or the macOS SEA binary (`scripts/` shipped flat next to
+// it) alike — see `resolveShipped` in paths.ts.
+const SCRIPTS_DIR = resolveShipped(import.meta.url, "../scripts", "scripts");
 
 // Prepended to every spawned child's PATH. `EXTRA_PATH_DIRS` env var is
 // colon-separated, for any tool the child invokes that isn't already on the
