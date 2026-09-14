@@ -23,7 +23,7 @@ describe("anywh first run", () => {
     await expect(caption).toBeExisting();
     await expect(await $('[aria-label="New conversation"]')).not.toBeExisting();
 
-    const language = await $('[role="combobox"]');
+    const language = await $('//button[normalize-space()="en"]');
     await language.waitForExist({ timeout: 5000 });
     await expect(language).toBeExisting();
   });
