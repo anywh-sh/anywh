@@ -120,6 +120,12 @@ begin_step install
 brew install anywh-sh/tap/anywh-relay ||
   err brew_install_failed "brew install anywh-sh/tap/anywh-relay failed — see the output above"
 RELAY_PREFIX="$(brew --prefix anywh-relay)"
+# Sourced from the keg, not from next to this script: this file is embedded
+# in the app (relay_setup.rs include_str!s it) and written out alone to a
+# temp dir, so the only copy of infra/lib.sh it can reach is the one the
+# formula just installed. Nothing above this line may depend on it.
+# shellcheck source=../lib.sh
+source "$RELAY_PREFIX/libexec/infra/lib.sh"
 end_step "install dir=$RELAY_PREFIX/libexec"
 
 # --- 4. profile --------------------------------------------------------------
@@ -141,10 +147,31 @@ begin_step service
 # conversation in flight.
 if brew services info anywh-relay --json 2>/dev/null | grep -q '"status":"started"'; then
   echo "anywh-relay is already running; left as is"
+  ready=1
 else
   brew services start anywh-relay ||
     err service_failed "brew services start anywh-relay failed — see the output above"
+  # `brew services start` returns once launchd has accepted the job, which
+  # is a beat before the relay has bound anything — and the app dials it the
+  # instant this script exits. See wait_for_relay (infra/lib.sh).
+  #
+  # The port is read back from the profile add-profile.sh just wrote rather
+  # than assumed: it allocates the first free one, which is 8765 on a clean
+  # machine and something else on one that already had it taken.
+  ready=0
+  relay_env="$ANYWH_ENV_DIR/default.env"
+  # `|| true` on both: under `set -e` a failed substitution (no env file,
+  # unreadable) would take the whole script down at the very last step,
+  # after everything it exists to do already succeeded.
+  relay_port="$(sed -n 's/^RELAY_PORT=//p' "$relay_env" 2>/dev/null | tail -n1 || true)"
+  relay_bind="$(sed -n 's/^RELAY_HOST=//p' "$relay_env" 2>/dev/null | tail -n1 || true)"
+  if [[ -n "$relay_port" ]] && wait_for_relay "${relay_bind:-$RELAY_HOST}" "$relay_port"; then
+    ready=1
+    echo "anywh-relay is answering on ${relay_bind:-$RELAY_HOST}:$relay_port"
+  else
+    echo "warning: anywh-relay didn't answer yet — check 'brew services info anywh-relay'" >&2
+  fi
 fi
-end_step "service manager=launchd"
+end_step "service manager=launchd ready=$ready"
 
 porcelain "done ok service=launchd install_dir=$RELAY_PREFIX/libexec"

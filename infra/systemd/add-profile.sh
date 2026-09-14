@@ -317,6 +317,14 @@ elif systemctl --user is-active --quiet "anywh-relay@$ID"; then
 else
   systemctl --user enable --now "anywh-relay@$ID"
   echo "Enabled anywh-relay@$ID (check: systemctl --user status anywh-relay@$ID)"
+  # `enable --now` returns once systemd has forked the unit, not once the
+  # relay has bound its port — see wait_for_relay (infra/lib.sh) for why
+  # that difference is the whole point of waiting here.
+  if wait_for_relay "$RELAY_HOST" "$PORT"; then
+    echo "anywh-relay@$ID is answering on $RELAY_HOST:$PORT"
+  else
+    echo "warning: anywh-relay@$ID didn't answer on $RELAY_HOST:$PORT yet — check 'systemctl --user status anywh-relay@$ID'" >&2
+  fi
 fi
 
 porcelain "profile id=$ID port=$PORT host=$RELAY_HOST mode=$MODE env=$ENV_FILE"
