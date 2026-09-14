@@ -20,11 +20,11 @@ describe("anywh status bar", () => {
 
   it("says nothing about git when no relay answers for the session", async () => {
     // The left half is absent, not empty and not an error: a folder nobody
-    // can describe produces no segment at all (StatusBar.tsx).
-    const bar = await $('//span[starts-with(@title, "anywh ")]/..');
-    const segments = await bar.$$("span");
-    if (segments.length !== 1) {
-      throw new Error(`expected the version to be the only segment, found ${segments.length}`);
+    // can describe produces no branch/changes segment at all (StatusBar.tsx)
+    // — the right half (version, locale control) still renders regardless.
+    const branch = await $('//span[contains(text(), "·")]');
+    if (await branch.isExisting()) {
+      throw new Error("expected no branch/changes segment with no relay to answer");
     }
   });
 });
