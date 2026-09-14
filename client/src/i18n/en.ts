@@ -606,6 +606,7 @@ export const en: Dictionary = {
       adopt: "adopt the {count} profiles",
       adoptOne: "adopt the profile",
       createAnother: "create another profile",
+      macNote: 'On macOS, this app manages one relay per machine — to add another Claude account here, use "Add profile" from the profile switcher once connected.',
     },
     local: {
       title: "Set up on this machine",
