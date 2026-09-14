@@ -606,6 +606,7 @@ export const ptBr: Dictionary = {
       adopt: "adotar os {count} perfis",
       adoptOne: "adotar o perfil",
       createAnother: "criar outro perfil",
+      macNote: 'No macOS, o app cuida de um único relay por máquina — para adicionar outra conta Claude aqui, use "Adicionar perfil" no seletor de perfis depois de conectar.',
     },
     local: {
       title: "Configurar nesta máquina",

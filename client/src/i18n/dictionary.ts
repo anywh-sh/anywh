@@ -257,6 +257,10 @@ export interface Dictionary {
       adopt: string;
       adoptOne: string;
       createAnother: string;
+      /** Replaces `createAnother` on macOS, where the in-app installer can
+       * only ever provision one relay ("default") — points at the
+       * already-connected profile switcher's "add profile" instead. */
+      macNote: string;
     };
     /** Path 01: the in-app install, four steps. */
     local: {

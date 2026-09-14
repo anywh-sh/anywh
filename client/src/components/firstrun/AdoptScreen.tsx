@@ -2,6 +2,7 @@ import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import type { LocalRelayProbe } from "@/lib/localRelay";
+import { currentPlatform } from "@/lib/platform";
 import { addProfile, profileColorClassForIndex, type Profile } from "@/lib/profiles";
 import { resumeProfileSetup } from "@/lib/profileSetup";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,12 @@ export function AdoptScreen({ probe, onCreateAnother }: { probe: LocalRelayProbe
   const copy = useDict().firstRun.adopt;
   const registered = probe.profiles.filter((p) => p.registered);
   const orphan = probe.profiles.find((p) => p.id === "default" && !p.registered);
+  // The in-app installer's macOS path (app-install.sh) always provisions the
+  // id "default" — there's no second relay to create here, unlike Linux's
+  // systemd template. Offering the button anyway just walks the user into
+  // add-profile.sh's --resume rejecting a host that doesn't match the one
+  // already on disk.
+  const canCreateAnother = currentPlatform() !== "macos";
 
   function adopt(): void {
     const profiles: Profile[] = registered.map((p) => ({
@@ -61,10 +68,13 @@ export function AdoptScreen({ probe, onCreateAnother }: { probe: LocalRelayProbe
         <Button type="button" onClick={adopt} disabled={registered.length === 0}>
           {registered.length === 1 ? copy.adoptOne : copy.adopt.replace("{count}", String(registered.length))}
         </Button>
-        <Button type="button" variant="outline" onClick={onCreateAnother}>
-          {copy.createAnother}
-        </Button>
+        {canCreateAnother && (
+          <Button type="button" variant="outline" onClick={onCreateAnother}>
+            {copy.createAnother}
+          </Button>
+        )}
       </div>
+      {!canCreateAnother && <p className="text-[12.5px] text-text-faint">{copy.macNote}</p>}
     </>
   );
 }
