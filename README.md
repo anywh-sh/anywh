@@ -13,7 +13,7 @@
 [![Downloads](https://img.shields.io/github/downloads/anywh-sh/anywh/total?style=flat)](https://github.com/anywh-sh/anywh/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat)](LICENSE)
 
-[Website](https://anywh.sh) • [Getting started](#getting-started-self-host) • [Issues](https://github.com/anywh-sh/anywh/issues)
+[Website](https://anywh.sh) • [Getting started](#quick-start) • [Issues](https://github.com/anywh-sh/anywh/issues)
 
 </div>
 
@@ -49,13 +49,25 @@ Self-hosted and used daily by its author: chat, voice, image upload, multi-sessi
 **2. Get a relay.** The app opens on a first-run screen and looks at the machine it is on before asking anything.
 
 - **On Linux, with the agent on this same machine:** pick *Set up on this machine*. The app checks Node.js 20.12+ and that your agent CLI is logged in, asks which address other devices should reach you on, installs the relay as a systemd user service and creates the first profile — no administrator password at any point. A relay already installed here is recognised and its profiles adopted.
-- **Anywhere else** (the agent lives on another box, or you are on macOS or Windows): install the relay on the machine your agent runs on —
+- **Anywhere else** (the agent lives on another box, or you are on macOS or Windows): install the relay on the machine your agent runs on.
+
+  **Linux** (on Windows, run this inside WSL2):
 
   ```bash
   curl -fsSL https://anywh.sh/install | sh -s -- --profile-id default --relay-host auto
   ```
 
-  Linux and Apple Silicon macOS; on Windows, run it inside WSL2. The script downloads the latest release, verifies its checksum, registers a systemd user service that comes back after a reboot, and creates the first profile (`auto` picks your tailnet address, else the one LAN address). It installs nothing on your behalf: Node.js 20.12+ and an agent CLI you are already logged into have to be there first, and it stops with a clear message before downloading anything if either is missing. Then, in the app, *Connect to a machine that already runs the relay* with that address.
+  The script downloads the latest release, verifies its checksum, registers a systemd user service that comes back after a reboot, and creates the first profile (`auto` picks your tailnet address, else the one LAN address). It installs nothing on your behalf: Node.js 20.12+ and an agent CLI you are already logged into have to be there first, and it stops with a clear message before downloading anything if either is missing.
+
+  **macOS** (Apple Silicon only): `install.sh` has no launchd unit to offer, so use the Homebrew formula instead — it installs the relay, creates the first profile, and keeps it running across logins:
+
+  ```bash
+  brew install anywh-sh/tap/anywh-relay
+  "$(brew --prefix anywh-relay)/libexec/infra/systemd/add-profile.sh" default --mode dev --relay-host <this-machine's-tailscale-or-lan-ip>
+  brew services start anywh-relay
+  ```
+
+  Then, in the app, *Connect to a machine that already runs the relay* with that address.
 
 **3. That's the first profile** — the agent login the relay serves. You need at least one; most people never need a second.
 
