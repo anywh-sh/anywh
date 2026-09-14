@@ -206,10 +206,17 @@ jobs:
       - run: npm run build
         working-directory: relay
 
-      # devDependencies (typescript, tsx, @types/*) compiled dist/ already —
-      # the shipped tarball doesn't need the compiler that produced it.
-      # node-pty survives: it's a dependency, not a devDependency.
-      - run: npm prune --omit=dev
+      # Linux ships dist/ + node_modules and leans on a Node the user
+      # already has (install.sh's own prereq check requires it ahead of
+      # time) — see the SEA step below for why macOS doesn't do the same.
+      #
+      # devDependencies (typescript, tsx, esbuild, postject, @types/*)
+      # compiled dist/ already — the shipped tarball doesn't need the
+      # compiler that produced it. node-pty survives: it's a dependency,
+      # not a devDependency.
+      - name: Prune devDependencies (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: npm prune --omit=dev
         working-directory: relay
 
       # Staged into relay/ + infra/ subdirs (not flattened) so the tarball's
@@ -218,11 +225,35 @@ jobs:
       # add-profile.sh sources `../lib.sh`; shipping infra/ alongside relay/
       # in the same relative positions means both scripts work unmodified
       # straight out of the extracted tarball (install.sh, Fase 3).
-      - name: Stage the relay + infra tree
+      - name: Stage the relay + infra tree (Linux)
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           mkdir -p stage/relay
           cp -a relay/dist relay/node_modules relay/package.json stage/relay/
           cp -a infra stage/infra
+
+      # macOS ships a Node Single Executable Application instead of dist/ +
+      # node_modules + a shared Node — see relay/sea-build/build.mjs's own
+      # comment for why: a Homebrew `depends_on "node"` autoremoves Node on
+      # `brew uninstall anywh-relay` whenever it was only ever pulled in as
+      # this formula's dependency, even if the user has started relying on
+      # it for unrelated work since. Bundling the runtime removes that
+      # coupling entirely. Runs on a real macOS arm64 runner (this job's own
+      # `macos-14` leg), so build.mjs's blob generation, injection and
+      # ad-hoc codesign all happen on the actual target platform, not
+      # cross-built.
+      - name: Build the SEA binary (macOS)
+        if: matrix.target == 'darwin-arm64'
+        run: node sea-build/build.mjs --target ${{ matrix.target }}
+        working-directory: relay
+
+      # Already the flat, self-contained tree build.mjs assembles (binary +
+      # scripts/ + infra/ + node_modules/node-pty) — nothing left to stage.
+      - name: Stage the relay + infra tree (macOS)
+        if: matrix.target == 'darwin-arm64'
+        run: |
+          mkdir -p stage
+          cp -a relay/sea-build/dist/${{ matrix.target }}/. stage/
 
       # Two names, same content: the versioned one is what a Homebrew
       # formula pins url+sha256 to (formulas need a stable, reproducible
@@ -238,7 +269,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           versioned="anywh-relay-${version}-${{ matrix.target }}.tar.gz"
           latest="anywh-relay-${{ matrix.target }}.tar.gz"
-          tar czf "$versioned" -C stage relay infra
+          tar czf "$versioned" -C stage $(ls stage)
           cp "$versioned" "$latest"
           gh release upload "${GITHUB_REF_NAME}" "$versioned" "$latest" \
             --repo "${{ github.repository }}" --clobber
