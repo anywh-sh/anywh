@@ -36,3 +36,4 @@ client/*.local.sh
 .DS_Store
 Screenshot*.png
 .playwright-mcp/
+prototypes/
