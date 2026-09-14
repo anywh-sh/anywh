@@ -26,9 +26,11 @@
 //!   UI hydrates the whole log on mount, then subscribes; every event carries
 //!   a monotonic `seq`, and a gap tells it to hydrate again.
 //!
-//! Only Linux can start a run (the relay's service story is systemd); the
-//! probe, the prerequisites and the address suggestion answer everywhere so
-//! the first-run screen can explain *why* not.
+//! Linux and macOS can start a run — the embedded script differs (systemd
+//! via `install.sh`, Homebrew via `MACOS_INSTALL_SCRIPT`), the porcelain
+//! protocol and everything downstream of it does not. Everywhere else, the
+//! probe, the prerequisites and the address suggestion still answer, so the
+//! first-run screen can explain *why* not.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -49,6 +51,12 @@ use tokio::sync::Mutex;
 /// ties the versions together: a run passes `--version v<app version>`, so
 /// the app never provisions a relay whose control API it doesn't know.
 pub const INSTALL_SCRIPT: &str = include_str!("../../../install.sh");
+
+/// The Homebrew orchestration this app runs on macOS instead — install.sh
+/// downloads a tree there too, but never a service (see its own "No
+/// launchd here" comment), so there is nothing in it for `relay_setup_start`
+/// to drive on that platform.
+pub const MACOS_INSTALL_SCRIPT: &str = include_str!("../../../infra/homebrew/app-install.sh");
 
 /// Dev and e2e escape hatch: a path to run instead of the embedded script.
 const INSTALL_SCRIPT_OVERRIDE_ENV: &str = "ANYWH_INSTALL_SCRIPT";
@@ -133,9 +141,9 @@ pub struct ProbeProfile {
 #[serde(rename_all = "camelCase")]
 pub struct Probe {
     pub platform: &'static str,
-    /// The in-app install can run here: Linux, and not inside a Flatpak or
-    /// Snap sandbox (neither sees the host's `systemd --user`, so the
-    /// install would die at its last step).
+    /// The in-app install can run here: Linux or macOS, and — on Linux —
+    /// not inside a Flatpak or Snap sandbox (neither sees the host's
+    /// `systemd --user`, so the install would die at its last step).
     pub supported: bool,
     pub containerized: Option<&'static str>,
     pub install_dir: String,
@@ -281,7 +289,7 @@ pub async fn relay_setup_probe(app: tauri::AppHandle, state: tauri::State<'_, Re
     let previous_run = status_inner(&app, &state).await?;
     Ok(Probe {
         platform: PLATFORM,
-        supported: PLATFORM == "linux" && containerized.is_none(),
+        supported: (PLATFORM == "linux" || PLATFORM == "macos") && containerized.is_none(),
         containerized,
         install_dir: install_dir.to_string_lossy().into_owned(),
         installed,
@@ -306,6 +314,11 @@ pub struct Prerequisites {
     pub node_path: Option<String>,
     pub node_version: Option<String>,
     pub node_ok: bool,
+    /// Only meaningful on macOS, where the in-app install drives Homebrew
+    /// instead of a preinstalled Node — the formula pulls its own via
+    /// `depends_on "node"`, so `node_path`/`node_ok` above answer a
+    /// question that platform doesn't ask.
+    pub brew_path: Option<String>,
     pub agent_bin: String,
     pub agent_path: Option<String>,
     /// `None` when the CLI couldn't be asked at all (missing, timed out,
@@ -427,6 +440,7 @@ pub async fn relay_setup_prerequisites() -> Prerequisites {
         None => None,
     };
     let node_ok = node_version.as_deref().is_some_and(node_version_ok);
+    let brew_path = login_shell_line("command -v brew", short).await;
 
     // Same resolution order as relay/src/claudeCliConfig.ts and install.sh.
     let agent_bin = std::env::var("AGENT_BIN")
@@ -445,6 +459,7 @@ pub async fn relay_setup_prerequisites() -> Prerequisites {
         node_path,
         node_version,
         node_ok,
+        brew_path,
         agent_bin,
         agent_path,
         agent_logged_in,
@@ -705,11 +720,10 @@ fn write_state(dir: &Path, state: &RunState) -> Result<(), String> {
     std::fs::rename(&tmp, state_path(dir)).map_err(|e| e.to_string())
 }
 
-/// Is `pid` still the installer? `/proc/<pid>` alone is not enough — pids
-/// are reused, and a stale `state.json` pointing at whatever process
-/// inherited the number would make a finished install look alive forever.
-/// The cmdline has to still name the script. Linux only: nowhere else can
-/// have started a run.
+/// Is `pid` still the installer? Reused pids alone are not enough — a
+/// stale `state.json` pointing at whatever process inherited the number
+/// would make a finished install look alive forever. The command line has
+/// to still name a script this module could have started.
 pub fn pid_is_installer(pid: u32, script_path: &str) -> bool {
     if pid == 0 {
         return false;
@@ -722,7 +736,21 @@ pub fn pid_is_installer(pid: u32, script_path: &str) -> bool {
         let cmdline = String::from_utf8_lossy(&cmdline);
         return cmdline.contains(script_path) || cmdline.contains("install.sh");
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        // No /proc here — `ps` is the closest equivalent, and `-o command=`
+        // (no header) gives back the same argv join `/proc/<pid>/cmdline`
+        // would, spaces and all, which is enough to recognize either script.
+        let Ok(output) = std::process::Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output() else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let cmdline = String::from_utf8_lossy(&output.stdout);
+        return cmdline.contains(script_path) || cmdline.contains("install.sh") || cmdline.contains("app-install.sh");
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = script_path;
         false
@@ -914,7 +942,11 @@ pub async fn relay_setup_status(app: tauri::AppHandle, state: tauri::State<'_, R
     status_inner(&app, &state).await
 }
 
-fn write_script(dir: &Path) -> Result<PathBuf, String> {
+/// `filename`/`contents` pick which embedded script this run writes out —
+/// `install.sh` on Linux, `app-install.sh` (the Homebrew orchestration) on
+/// macOS. The override env, when set, wins on either platform: a test can
+/// point either flow at a fixture script.
+fn write_script(dir: &Path, filename: &str, contents: &'static str) -> Result<PathBuf, String> {
     if let Some(override_path) = std::env::var_os(INSTALL_SCRIPT_OVERRIDE_ENV) {
         let path = PathBuf::from(override_path);
         if !path.is_file() {
@@ -922,8 +954,8 @@ fn write_script(dir: &Path) -> Result<PathBuf, String> {
         }
         return Ok(path);
     }
-    let path = dir.join("install.sh");
-    std::fs::write(&path, INSTALL_SCRIPT).map_err(|e| e.to_string())?;
+    let path = dir.join(filename);
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -953,8 +985,8 @@ pub async fn relay_setup_start(
     state: tauri::State<'_, RelaySetup>,
     params: StartParams,
 ) -> Result<RunInfo, String> {
-    if !cfg!(target_os = "linux") {
-        return Err("the in-app relay install is only available on Linux".to_string());
+    if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
+        return Err("the in-app relay install is only available on Linux and macOS".to_string());
     }
     let mut inner = state.0.lock().await;
     let dir = setup_dir(&app)?;
@@ -977,7 +1009,12 @@ pub async fn relay_setup_start(
         return Err("profileId or profileLabel is required".to_string());
     }
 
-    let script_path = write_script(&dir)?;
+    let is_macos = cfg!(target_os = "macos");
+    let script_path = if is_macos {
+        write_script(&dir, "app-install.sh", MACOS_INSTALL_SCRIPT)?
+    } else {
+        write_script(&dir, "install.sh", INSTALL_SCRIPT)?
+    };
     let run_id = format!("{}-{}", now_secs(), std::process::id());
     let log_path = dir.join(format!("{run_id}.log"));
     let log = create_log(&log_path)?;
@@ -996,21 +1033,30 @@ pub async fn relay_setup_start(
     };
     write_state(&dir, &run)?;
 
-    let version = format!("v{}", app.package_info().version);
-    let mode = params.mode.clone().unwrap_or_else(|| "prod".to_string());
     let mut command = tokio::process::Command::new("bash");
-    command
-        .arg(&script_path)
-        .args(["--porcelain", "--version", &version, "--mode", &mode])
-        .args(["--relay-host", &params.relay_host]);
-    if let Some(id) = &params.profile_id {
-        command.args(["--profile-id", id]);
-    }
-    if let Some(label) = &params.profile_label {
-        command.args(["--profile-label", label]);
-    }
-    if let Some(home) = &params.profile_home {
-        command.args(["--profile-home", home]);
+    command.arg(&script_path).args(["--porcelain", "--relay-host", &params.relay_host]);
+    if is_macos {
+        // The Homebrew launchd service is wired to the "default" profile
+        // only (app-install.sh's own comment) — the id is never the
+        // caller's to choose here, only the label is, and there is no
+        // --version to pass: the tap's formula tracks the latest release
+        // on its own, not whatever this app build was.
+        if let Some(label) = &params.profile_label {
+            command.args(["--profile-label", label]);
+        }
+    } else {
+        let version = format!("v{}", app.package_info().version);
+        let mode = params.mode.clone().unwrap_or_else(|| "prod".to_string());
+        command.args(["--version", &version, "--mode", &mode]);
+        if let Some(id) = &params.profile_id {
+            command.args(["--profile-id", id]);
+        }
+        if let Some(label) = &params.profile_label {
+            command.args(["--profile-label", label]);
+        }
+        if let Some(home) = &params.profile_home {
+            command.args(["--profile-home", home]);
+        }
     }
     // The child is meant to outlive this process (see the module doc), so
     // nothing here ties its lifetime to ours.
@@ -1318,6 +1364,20 @@ mod tests {
             assert!(INSTALL_SCRIPT.contains(flag), "install.sh lacks {flag}");
         }
         assert!(INSTALL_SCRIPT.contains("ANYWH done ok"));
+    }
+
+    #[test]
+    fn embedded_macos_installer_runs_the_documented_brew_command() {
+        // The landing page and homebrew-tap/README.md both show
+        // "brew install anywh-sh/tap/anywh-relay" as *the* command — this
+        // guards against the in-app installer ever drifting from it.
+        assert!(MACOS_INSTALL_SCRIPT.starts_with("#!/usr/bin/env bash"));
+        assert!(MACOS_INSTALL_SCRIPT.contains("brew install anywh-sh/tap/anywh-relay"));
+        assert!(MACOS_INSTALL_SCRIPT.contains("brew services start anywh-relay"));
+        for flag in ["--porcelain", "--relay-host", "--profile-label"] {
+            assert!(MACOS_INSTALL_SCRIPT.contains(flag), "app-install.sh lacks {flag}");
+        }
+        assert!(MACOS_INSTALL_SCRIPT.contains("ANYWH done ok"));
     }
 
     #[test]

@@ -16,7 +16,7 @@ describe("FirstRunHome", () => {
     expect(screen.queryByText(copy.localTitle)).not.toBeInTheDocument();
   });
 
-  it("routes path 01 to the in-app install when it's fully available", async () => {
+  it("routes path 01 to the in-app install when it's fully available (Linux or macOS)", async () => {
     const onPick = vi.fn();
     render(<FirstRunHome onPick={onPick} local={{ kind: "available" }} />);
     const user = userEvent.setup();
@@ -27,14 +27,9 @@ describe("FirstRunHome", () => {
     expect(screen.getByText(copy.localHint)).toBeInTheDocument();
   });
 
-  it("offers guided terminal steps instead of the in-app install where there is no such install (macOS)", async () => {
-    const onPick = vi.fn();
-    render(<FirstRunHome onPick={onPick} local={{ kind: "guided" }} />);
-    const user = userEvent.setup();
-
-    expect(screen.getByText(copy.localHintGuided)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: new RegExp(copy.localTitle) }));
-
-    expect(onPick).toHaveBeenCalledWith("manual");
+  it("shows the card disabled with a reason inside a sandbox that can't reach the host's service manager", () => {
+    render(<FirstRunHome onPick={vi.fn()} local={{ kind: "unavailable", reason: "flatpak" }} />);
+    expect(screen.getByText("flatpak")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: new RegExp(copy.localTitle) })).toBeDisabled();
   });
 });

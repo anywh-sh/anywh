@@ -39,6 +39,10 @@ export interface Prerequisites {
   nodePath: string | null;
   nodeVersion: string | null;
   nodeOk: boolean;
+  /** Only meaningful on macOS — the Homebrew formula pulls its own Node via
+   * `depends_on "node"`, so `nodePath`/`nodeOk` answer a question that
+   * platform doesn't ask. */
+  brewPath: string | null;
   agentBin: string;
   agentPath: string | null;
   agentLoggedIn: boolean | null;
@@ -133,19 +137,13 @@ export interface InstallRunInfo {
 
 export type CloseAction = "background" | "cancel" | "keep";
 
-/** The in-app install exists on Linux only (the relay's service story is
- * systemd); the probe says whether *this* Linux can (not a Flatpak/Snap).
- * Outside Tauri there is no machine to install on at all. */
+/** The in-app install exists on Linux (systemd) and macOS (Homebrew); the
+ * probe says whether *this* machine can (not a Flatpak/Snap sandbox on
+ * Linux). Outside Tauri, or on Windows, there is no in-app path at all —
+ * `ManualInstructions` is the fallback everywhere else. */
 export function localInstallPossible(): boolean {
-  return inTauri() && currentPlatform() === "linux";
-}
-
-/** macOS has no in-app install — `anywh-sh/homebrew-tap`'s launchd service
- * is the Homebrew formula's job, not this app's — but it does have a real,
- * documented path. Path 01 offers it here as guided terminal steps
- * (`ManualInstructions`) instead of hiding the card outright. */
-export function localGuidedInstallPossible(): boolean {
-  return inTauri() && currentPlatform() === "macos";
+  const platform = currentPlatform();
+  return inTauri() && (platform === "linux" || platform === "macos");
 }
 
 const NOT_IN_TAURI = "the in-app relay install needs the desktop app";

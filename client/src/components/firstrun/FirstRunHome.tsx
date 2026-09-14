@@ -39,22 +39,16 @@ function PathCard({
 }
 
 /** Whether the "set up on this machine" card is offered: not at all on a
- * platform without either path (Windows, the browser), the full in-app
- * install on Linux, guided terminal steps on macOS (no in-app install
- * there, but a real Homebrew path — see `localGuidedInstallPossible`), or
+ * platform without the in-app install (Windows, the browser), or
  * shown-but-disabled with the reason inside a sandbox that can't reach the
  * host's service manager. */
-export type LocalPathAvailability =
-  | { kind: "hidden" }
-  | { kind: "available" }
-  | { kind: "guided" }
-  | { kind: "unavailable"; reason: string };
+export type LocalPathAvailability = { kind: "hidden" } | { kind: "available" } | { kind: "unavailable"; reason: string };
 
 /**
- * The choice of paths: install a relay here (Linux), reach one that already
- * exists by address or by pairing code, or the terminal for whoever wants
- * the same steps typed. The numbers are data, not copy — they shift when
- * the first card isn't there.
+ * The choice of paths: install a relay here (Linux or macOS), reach one that
+ * already exists by address or by pairing code, or the terminal for whoever
+ * wants the same steps typed. The numbers are data, not copy — they shift
+ * when the first card isn't there.
  */
 export function FirstRunHome({ onPick, local }: { onPick: (screen: FirstRunScreen) => void; local: LocalPathAvailability }) {
   const copy = useDict().firstRun.home;
@@ -69,10 +63,10 @@ export function FirstRunHome({ onPick, local }: { onPick: (screen: FirstRunScree
           <PathCard
             number="01"
             title={copy.localTitle}
-            hint={local.kind === "guided" ? copy.localHintGuided : copy.localHint}
+            hint={copy.localHint}
             tag={local.kind === "unavailable" ? local.reason : undefined}
             disabled={local.kind === "unavailable"}
-            onClick={() => onPick(local.kind === "guided" ? "manual" : "local")}
+            onClick={() => onPick("local")}
           />
         )}
         <PathCard number={number(1)} title={copy.connectTitle} hint={copy.connectHint} onClick={() => onPick("connect")} />

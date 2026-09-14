@@ -8,6 +8,7 @@ import { useProfileSetup } from "@/hooks/useProfileSetup";
 import { useDict, type Dictionary } from "@/i18n";
 import {
   INSTALL_ROWS,
+  MACOS_INSTALL_ROWS,
   cancelInstall,
   confirmAddress,
   failureActions,
@@ -22,6 +23,7 @@ import {
   type LocalStep,
 } from "@/lib/localInstall";
 import type { AddressCandidate, AddressKind, InstallLogLine } from "@/lib/localRelay";
+import { currentPlatform } from "@/lib/platform";
 import { dropQueuedProfileSetup } from "@/lib/profileSetup";
 import { cn } from "@/lib/utils";
 
@@ -148,13 +150,15 @@ function FailureBox({
 // Step 1 — prerequisites
 // ---------------------------------------------------------------------------
 
-type PrereqRow = "node" | "agent" | "systemd";
+type PrereqRow = "node" | "agent" | "systemd" | "brew";
 
 function rowForCode(code: LocalFailure["code"]): PrereqRow | null {
   switch (code) {
     case "node_missing":
     case "node_old":
       return "node";
+    case "brew_missing":
+      return "brew";
     case "agent_missing":
     case "agent_not_logged_in":
       return "agent";
@@ -166,8 +170,10 @@ function rowForCode(code: LocalFailure["code"]): PrereqRow | null {
   }
 }
 
+/** macOS checks Homebrew where Linux checks Node, and never a service
+ * manager — `evaluatePrerequisites` never returns `no_user_systemd` there. */
 function prereqRows(state: LocalInstallState, copy: Copy): StepRow[] {
-  const rows: PrereqRow[] = ["node", "agent", "systemd"];
+  const rows: PrereqRow[] = currentPlatform() === "macos" ? ["brew", "agent"] : ["node", "agent", "systemd"];
   const { status, result, failure } = state.prereqs;
   const failedRow = failure ? rowForCode(failure.code) : null;
   const failedIndex = failedRow ? rows.indexOf(failedRow) : -1;
@@ -192,7 +198,11 @@ function prereqRows(state: LocalInstallState, copy: Copy): StepRow[] {
 // ---------------------------------------------------------------------------
 
 function AddressForm({ candidates, copy }: { candidates: AddressCandidate[]; copy: Copy }) {
-  const [label, setLabel] = useState("");
+  // The id is always "default" on macOS regardless of what's typed here
+  // (the Homebrew launchd service has no per-profile template) — starting
+  // the field on that value instead of blank matches what will actually
+  // happen instead of inviting a name that only changes the label.
+  const [label, setLabel] = useState(currentPlatform() === "macos" ? "default" : "");
   const recommended = candidates.find((c) => c.recommended)?.address ?? candidates[0]?.address ?? "";
   const [choice, setChoice] = useState<string>(recommended || "custom");
   const [custom, setCustom] = useState("");
@@ -214,9 +224,13 @@ function AddressForm({ candidates, copy }: { candidates: AddressCandidate[]; cop
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           placeholder={copy.address.namePlaceholder}
+          // Locked on macOS: the Homebrew launchd service has no
+          // per-profile template, so nothing downstream would change if
+          // this were edited — the id and the label both stay "default".
+          disabled={currentPlatform() === "macos"}
           className="px-3 py-2.5 text-[13px]"
         />
-        <span className="text-xs leading-[1.6] text-pretty text-text-faint">{copy.address.nameHint}</span>
+        {currentPlatform() !== "macos" && <span className="text-xs leading-[1.6] text-pretty text-text-faint">{copy.address.nameHint}</span>}
       </Field>
       <div className="h-px bg-border-soft" />
       <p className="max-w-[56ch] text-[13.5px] leading-[1.7] text-pretty text-muted-foreground">{copy.address.body}</p>
@@ -310,7 +324,8 @@ function installRows(lines: InstallLogLine[], failed: boolean, copy: Copy): Step
     }
     if (event.kind === "fail") seen.set(event.step, { status: "failed", meta: copy.install.failed });
   }
-  return INSTALL_ROWS.map((key: InstallRowKey) => {
+  const rows = currentPlatform() === "macos" ? MACOS_INSTALL_ROWS : INSTALL_ROWS;
+  return rows.map((key: InstallRowKey) => {
     const entry = seen.get(key);
     // A run that died on its own leaves whichever step it was in "running";
     // the failure box below says so, and the row should agree.
