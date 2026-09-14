@@ -1,7 +1,9 @@
-import { Check, X } from "lucide-react";
+import { Check, TriangleAlert, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type StepStatus = "pending" | "running" | "done" | "failed";
+/** `warning` is a step that finished without stopping anything — what it
+ * checked isn't there, and the process carries on regardless. */
+export type StepStatus = "pending" | "running" | "done" | "failed" | "warning";
 
 export interface StepRow {
   key: string;
@@ -15,6 +17,7 @@ export interface StepRow {
 function StepIndicator({ status }: { status: StepStatus }) {
   if (status === "done") return <Check className="size-4 shrink-0 text-primary" aria-hidden="true" />;
   if (status === "failed") return <X className="size-4 shrink-0 text-destructive" aria-hidden="true" />;
+  if (status === "warning") return <TriangleAlert className="size-4 shrink-0 text-context-ring-warn" aria-hidden="true" />;
   return (
     <span
       aria-hidden="true"

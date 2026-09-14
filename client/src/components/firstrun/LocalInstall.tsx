@@ -82,6 +82,39 @@ function StepBlock({
 // Failure box
 // ---------------------------------------------------------------------------
 
+/** The "copy the command" affordance, shared by the failure box and the
+ * agent notice — both offer the same one-line command to paste. */
+function useCopyCommand(command: string | undefined) {
+  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  async function copyCommand(): Promise<void> {
+    if (!command) return;
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied("copied");
+    } catch {
+      setCopied("failed");
+    }
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied("idle"), 1500);
+  }
+
+  return { copied, copyCommand };
+}
+
+function CommandBox({ command }: { command: string }) {
+  return (
+    <div className="flex items-start gap-2.5 border border-border-soft bg-bg-chrome px-3 py-2">
+      <span className="shrink-0 font-mono text-[11px] text-primary" aria-hidden="true">
+        $
+      </span>
+      <code className="selectable-content min-w-0 flex-1 font-mono text-xs leading-[1.6] break-words text-foreground">{command}</code>
+    </div>
+  );
+}
+
 function FailureBox({
   failure,
   copy,
@@ -92,21 +125,7 @@ function FailureBox({
   onAction: (action: LocalFailureAction) => void;
 }) {
   const copyCopy = useDict().firstRun.copy;
-  const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  async function copyCommand(): Promise<void> {
-    if (!failure.command) return;
-    try {
-      await navigator.clipboard.writeText(failure.command);
-      setCopied("copied");
-    } catch {
-      setCopied("failed");
-    }
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied("idle"), 1500);
-  }
+  const { copied, copyCommand } = useCopyCommand(failure.command);
 
   const actions = failureActions(failure.code);
   return (
@@ -116,16 +135,7 @@ function FailureBox({
     >
       <p className="text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">{copy.failures[failure.code]}</p>
       {failure.detail && <p className="font-mono text-[11.5px] leading-relaxed break-words text-text-faint">{failure.detail}</p>}
-      {failure.command && (
-        <div className="flex items-start gap-2.5 border border-border-soft bg-bg-chrome px-3 py-2">
-          <span className="shrink-0 font-mono text-[11px] text-primary" aria-hidden="true">
-            $
-          </span>
-          <code className="selectable-content min-w-0 flex-1 font-mono text-xs leading-[1.6] break-words text-foreground">
-            {failure.command}
-          </code>
-        </div>
-      )}
+      {failure.command && <CommandBox command={failure.command} />}
       <div className="flex flex-wrap gap-2">
         {actions.map((action, index) => (
           <Button
@@ -159,9 +169,6 @@ function rowForCode(code: LocalFailure["code"]): PrereqRow | null {
       return "node";
     case "brew_missing":
       return "brew";
-    case "agent_missing":
-    case "agent_not_logged_in":
-      return "agent";
     case "no_user_systemd":
     case "relay_running":
       return "systemd";
@@ -174,7 +181,7 @@ function rowForCode(code: LocalFailure["code"]): PrereqRow | null {
  * manager — `evaluatePrerequisites` never returns `no_user_systemd` there. */
 function prereqRows(state: LocalInstallState, copy: Copy): StepRow[] {
   const rows: PrereqRow[] = currentPlatform() === "macos" ? ["brew", "agent"] : ["node", "agent", "systemd"];
-  const { status, result, failure } = state.prereqs;
+  const { status, result, failure, warning } = state.prereqs;
   const failedRow = failure ? rowForCode(failure.code) : null;
   const failedIndex = failedRow ? rows.indexOf(failedRow) : -1;
   return rows.map((row, index) => {
@@ -182,15 +189,51 @@ function prereqRows(state: LocalInstallState, copy: Copy): StepRow[] {
     if (status === "running") rowStatus = "running";
     else if (status === "ok") rowStatus = "done";
     else if (status === "failed") rowStatus = failedIndex === -1 ? "failed" : index < failedIndex ? "done" : index === failedIndex ? "failed" : "pending";
+    // The agent row is the one that never blocks (`evaluateAgentReadiness`):
+    // once the check has run it is either fine or a remark, whatever else
+    // failed around it — so it never inherits another row's failure, and
+    // never sits at "pending" behind one.
+    if (row === "agent" && result) rowStatus = warning ? "warning" : "done";
     let meta: string | undefined;
     if (rowStatus === "done" && result) {
       if (row === "node" && result.nodeVersion) meta = copy.prereqs.nodeMeta.replace("{version}", result.nodeVersion);
       if (row === "agent") meta = copy.prereqs.loggedIn;
       if (row === "systemd" && state.mode === "dev") meta = copy.prereqs.devMode;
     }
+    if (rowStatus === "warning" && warning) meta = copy.prereqs.agentMeta[warning.code === "agent_missing" ? "missing" : "loggedOut"];
     if (rowStatus === "running") meta = copy.prereqs.checking;
     return { key: row, label: copy.prereqs[row], status: rowStatus, meta };
   });
+}
+
+/**
+ * The agent CLI's absence, said once and left visible for the rest of the
+ * wizard — the prerequisites step collapses as soon as the install moves
+ * past it, and this is the one thing found there that outlives it: the
+ * install completes either way, and the first conversation is what will
+ * run into it.
+ */
+function AgentNotice({ warning, copy }: { warning: LocalFailure; copy: Copy }) {
+  const copyCopy = useDict().firstRun.copy;
+  const { copied, copyCommand } = useCopyCommand(warning.command);
+  return (
+    <div
+      role="status"
+      className="flex flex-col gap-2.5 border border-border-soft px-4 py-3 shadow-[inset_2px_0_0_var(--context-ring-warn)]"
+    >
+      <p className="text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">
+        {copy.agentNotice[warning.code === "agent_missing" ? "missing" : "loggedOut"]}
+      </p>
+      {warning.command && (
+        <>
+          <CommandBox command={warning.command} />
+          <Button type="button" size="sm" variant="outline" className="self-start" onClick={() => void copyCommand()}>
+            {copied === "idle" ? copy.actions.copyCommand : copied === "copied" ? copyCopy.copied : copyCopy.failed}
+          </Button>
+        </>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +502,8 @@ export function LocalInstall({ onTerminal, onBack }: { onTerminal: () => void; o
         </div>
         {state.note !== "none" && <p className="font-mono text-xs text-text-faint">{copy.notes[state.note]}</p>}
       </section>
+
+      {state.prereqs.warning && <AgentNotice warning={state.prereqs.warning} copy={copy} />}
 
       <div className="flex flex-col gap-2">
         {ORDER.map((step, index) => {

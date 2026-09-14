@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluatePrerequisites, failureActions, toFailureCode, type LocalFailureCode } from "./localInstall";
+import { evaluateAgentReadiness, evaluatePrerequisites, failureActions, toFailureCode, type LocalFailureCode } from "./localInstall";
 import type { Prerequisites } from "./localRelay";
 
 const healthy: Prerequisites = {
@@ -24,15 +24,18 @@ describe("evaluatePrerequisites", () => {
   it("names the first thing to fix, in the order a person would fix them", () => {
     expect(evaluatePrerequisites({ ...healthy, nodePath: null, nodeOk: false, agentPath: null }, "prod", "linux")?.code).toBe("node_missing");
     expect(evaluatePrerequisites({ ...healthy, nodeOk: false, nodeVersion: "18.20.4" }, "prod", "linux")).toEqual({ code: "node_old", detail: "18.20.4" });
-    expect(evaluatePrerequisites({ ...healthy, agentPath: null }, "prod", "linux")?.code).toBe("agent_missing");
   });
 
-  it("a logged-out agent comes with the command to copy, built from the configured binary", () => {
-    const failure = evaluatePrerequisites({ ...healthy, agentBin: "/opt/agent/bin/claude", agentLoggedIn: false }, "prod", "linux");
-    expect(failure?.code).toBe("agent_not_logged_in");
-    expect(failure?.command).toBe("/opt/agent/bin/claude login");
-    // `null` (the CLI couldn't be asked) is not a yes either.
-    expect(evaluatePrerequisites({ ...healthy, agentLoggedIn: null, agentError: "timed out" }, "prod", "linux")).toMatchObject({ code: "agent_not_logged_in", detail: "timed out" });
+  it("never blocks on the agent CLI, on either platform", () => {
+    // The relay installs, starts and serves without one, and resolves the
+    // binary when a turn spawns it — so an agent installed after this
+    // point works with nothing to re-run. Blocking here would strand the
+    // user on an error telling them to go elsewhere first.
+    const macHealthy: Prerequisites = { ...healthy, nodePath: null, nodeOk: false, brewPath: "/opt/homebrew/bin/brew" };
+    for (const missing of [{ agentPath: null }, { agentLoggedIn: false }, { agentLoggedIn: null }] as const) {
+      expect(evaluatePrerequisites({ ...healthy, ...missing }, "prod", "linux")).toBeNull();
+      expect(evaluatePrerequisites({ ...macHealthy, ...missing }, "prod", "macos")).toBeNull();
+    }
   });
 
   it("refuses to install under a running relay", () => {
@@ -54,12 +57,33 @@ describe("evaluatePrerequisites", () => {
     const macHealthy: Prerequisites = { ...healthy, nodePath: null, nodeOk: false, brewPath: "/opt/homebrew/bin/brew" };
     expect(evaluatePrerequisites(macHealthy, "prod", "macos")).toBeNull();
     expect(evaluatePrerequisites({ ...macHealthy, brewPath: null }, "prod", "macos")?.code).toBe("brew_missing");
-    expect(evaluatePrerequisites({ ...macHealthy, agentPath: null }, "prod", "macos")?.code).toBe("agent_missing");
-    expect(evaluatePrerequisites({ ...macHealthy, agentLoggedIn: false }, "prod", "macos")?.code).toBe("agent_not_logged_in");
     // Neither field means anything on macOS — relay_setup.rs never
     // populates them there, and a stale/mocked `true`/non-empty value must
     // not block an otherwise healthy machine.
     expect(evaluatePrerequisites({ ...macHealthy, systemdUser: false, activeUnits: ["anywh-relay@home.service"] }, "prod", "macos")).toBeNull();
+  });
+});
+
+describe("evaluateAgentReadiness", () => {
+  it("says nothing about a CLI that is there and logged in", () => {
+    expect(evaluateAgentReadiness(healthy)).toBeNull();
+  });
+
+  it("reports a missing CLI as a remark, naming the binary it looked for", () => {
+    expect(evaluateAgentReadiness({ ...healthy, agentPath: null })).toEqual({ code: "agent_missing", detail: "claude" });
+  });
+
+  it("a logged-out agent comes with the command to copy, built from the configured binary", () => {
+    const warning = evaluateAgentReadiness({ ...healthy, agentBin: "/opt/agent/bin/claude", agentLoggedIn: false });
+    expect(warning?.code).toBe("agent_not_logged_in");
+    expect(warning?.command).toBe("/opt/agent/bin/claude login");
+  });
+
+  it("treats 'couldn't be asked' as not logged in, not as a yes", () => {
+    expect(evaluateAgentReadiness({ ...healthy, agentLoggedIn: null, agentError: "timed out" })).toMatchObject({
+      code: "agent_not_logged_in",
+      detail: "timed out",
+    });
   });
 });
 

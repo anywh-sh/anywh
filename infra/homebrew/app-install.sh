@@ -97,20 +97,34 @@ command -v brew >/dev/null 2>&1 ||
   err brew_missing "Homebrew isn't installed — install it from https://brew.sh, then re-run this"
 
 AGENT_BIN="${AGENT_BIN:-${CLAUDE_BIN:-claude}}"
-command -v "$AGENT_BIN" >/dev/null 2>&1 ||
-  err agent_missing "the '$AGENT_BIN' CLI was not found on PATH — install and log in to your agent first (https://docs.claude.com/en/docs/claude-code), then re-run this"
 
-# Same check install.sh runs, same two variables stripped for the same
-# reason: an API key in the environment would report `loggedIn: true`
-# through the key, which is the false positive this exists to catch.
-if [[ "${ANYWH_SKIP_AGENT_LOGIN_CHECK:-0}" != "1" ]]; then
+# Same check install.sh runs, and — like there — reported rather than
+# fatal: the relay installs, starts and serves with no agent CLI present,
+# and resolves the binary at spawn time, so one installed after this ran
+# needs nothing re-run here. See install.sh's own comment for the full
+# reasoning and for why the two stripped variables matter.
+#
+# It matters more on this path than on that one: this script runs with the
+# environment of the desktop app that spawned it, and a GUI app on macOS
+# is launched by launchd with PATH=/usr/bin:/bin:/usr/sbin:/sbin — none of
+# the places an agent CLI installs into. A `command -v` miss here is at
+# least as likely to be that as a CLI that genuinely isn't installed,
+# which is a terrible thing to refuse to install over.
+agent_ready=1
+if ! command -v "$AGENT_BIN" >/dev/null 2>&1; then
+  agent_ready=0
+  echo "warning: the '$AGENT_BIN' CLI was not found on PATH — install and log in to your agent before your first conversation (https://docs.claude.com/en/docs/claude-code)" >&2
+elif [[ "${ANYWH_SKIP_AGENT_LOGIN_CHECK:-0}" != "1" ]]; then
   auth_json="$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN "$AGENT_BIN" auth status --json 2>/dev/null || true)"
   case "$(printf '%s' "$auth_json" | tr -d ' \n\r\t')" in
     *'"loggedIn":true'*) ;;
-    *) err agent_not_logged_in "'$AGENT_BIN' isn't logged in — run '$AGENT_BIN login' on this machine, then re-run this. Set ANYWH_SKIP_AGENT_LOGIN_CHECK=1 to skip this check." ;;
+    *)
+      agent_ready=0
+      echo "warning: '$AGENT_BIN' isn't logged in — run '$AGENT_BIN login' on this machine before your first conversation. Set ANYWH_SKIP_AGENT_LOGIN_CHECK=1 to skip this check." >&2
+      ;;
   esac
 fi
-end_step "prereqs agent=$AGENT_BIN"
+end_step "prereqs agent=$AGENT_BIN agent_ready=$agent_ready"
 
 # --- 3. install --------------------------------------------------------------
 # The exact command the landing page and homebrew-tap/README.md show — brew

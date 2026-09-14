@@ -277,6 +277,10 @@ export interface Dictionary {
         nodeMeta: string;
         loggedIn: string;
         devMode: string;
+        /** The agent row's right-hand detail when the check found no CLI,
+         * or one that isn't logged in — neither of which stops the
+         * install. */
+        agentMeta: { missing: string; loggedOut: string };
       };
       address: {
         nameLabel: string;
@@ -309,6 +313,10 @@ export interface Dictionary {
       /** One sentence per way the wizard can stop — keyed on the code so a
        * new one is a compile error until it has copy, never a raw enum on
        * screen. The installer's own detail line is shown under it. */
+      /** Shown for the whole wizard, not just the step that found it: the
+       * install completes without an agent CLI, and the first conversation
+       * is what runs into its absence. */
+      agentNotice: { missing: string; loggedOut: string };
       failures: Record<LocalFailureCode, string>;
       actions: Record<LocalFailureAction, string>;
       /** The window is being closed with an install running. */

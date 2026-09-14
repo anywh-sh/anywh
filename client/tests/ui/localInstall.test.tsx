@@ -310,19 +310,42 @@ describe("path 01 — install on this machine", () => {
     expect(localStorage.getItem("anywh:last-profile")).toBe("studio");
   });
 
-  it("a logged-out agent stops at step 01 with the login command to copy, and 'check again' moves on once it passes", async () => {
+  it("carries on past step 01 with a logged-out agent, and says so for the rest of the wizard", async () => {
     native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, agentLoggedIn: false });
     const user = userEvent.setup();
     renderApp();
     await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.localTitle) }));
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(local.failures.agent_not_logged_in);
-    expect(alert).toHaveTextContent("claude login");
-    expect(screen.queryByLabelText(local.address.nameLabel)).not.toBeInTheDocument();
-
-    await user.click(within(alert).getByRole("button", { name: local.actions.recheck }));
+    // Reaching step 02 is the point: a relay installs, starts and serves
+    // with no usable agent CLI, and resolves the binary when a turn
+    // spawns it — so one logged into later needs nothing re-run here.
     await screen.findByLabelText(local.address.nameLabel);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Step 01 has collapsed by now; the notice outlives it, because what
+    // runs into this is the first conversation, not the install.
+    expect(screen.getByText(local.agentNotice.loggedOut)).toBeInTheDocument();
+    expect(screen.getByText("claude login")).toBeInTheDocument();
+  });
+
+  it("carries on past step 01 with no agent CLI on the machine at all", async () => {
+    native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, agentPath: null, agentLoggedIn: null });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.localTitle) }));
+
+    await screen.findByLabelText(local.address.nameLabel);
+    expect(screen.getByText(local.agentNotice.missing)).toBeInTheDocument();
+  });
+
+  it("still stops at step 01 for a prerequisite the relay genuinely can't run without", async () => {
+    native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, nodePath: null, nodeOk: false });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.localTitle) }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(local.failures.node_missing);
+    expect(screen.queryByLabelText(local.address.nameLabel)).not.toBeInTheDocument();
   });
 
   it("a checksum mismatch fails step 03 without a blind retry, and the earlier steps stay done", async () => {
