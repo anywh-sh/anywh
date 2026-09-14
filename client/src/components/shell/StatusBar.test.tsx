@@ -3,10 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBar } from "@/components/shell/StatusBar";
 import { APP_VERSION } from "@/lib/appVersion";
+import { defaultLocale } from "@/i18n/config";
 import { en } from "@/i18n/en";
 import type { Profile } from "@/lib/profiles";
 
 const copy = en.shell.statusBar;
+// The status bar's default locale context (no LocaleProvider in these
+// tests) is `defaultLocale`, and the locale control prints its tag inline.
+const versionAndLocale = `v${APP_VERSION}${defaultLocale}`;
 const profile: Profile = { id: "p1", label: "Pessoal", host: "127.0.0.1", relayPort: 8765 };
 
 function jsonResponse(body: unknown): Response {
@@ -65,14 +69,14 @@ describe("StatusBar", () => {
     expect(slot).toHaveAttribute("title", copy.detachedHead);
   });
 
-  it("shows nothing but the version when the folder is not a repository", async () => {
+  it("shows nothing but the version and locale control when the folder is not a repository", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ repo: false }));
     const { container } = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused />);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    expect(container.textContent?.trim()).toBe(`v${APP_VERSION}`);
+    expect(container.textContent?.trim()).toBe(versionAndLocale);
   });
 
   it("stays quiet when the relay can't be reached at all", async () => {
@@ -84,7 +88,7 @@ describe("StatusBar", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    expect(container.textContent?.trim()).toBe(`v${APP_VERSION}`);
+    expect(container.textContent?.trim()).toBe(versionAndLocale);
   });
 
   it("asks again when the turn ends and when the window comes back", async () => {

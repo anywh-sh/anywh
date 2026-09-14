@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { LanguageControl } from "@/components/shell/LanguageControl";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/appVersion";
 import { getGitStatus } from "@/lib/gitClient";
@@ -108,6 +109,7 @@ export function StatusBar({ profile, sessionId, isRunning, windowFocused }: Stat
       <span className="ml-auto shrink-0" title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>
         v{APP_VERSION}
       </span>
+      <LanguageControl />
     </div>
   );
 }
