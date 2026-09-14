@@ -118,7 +118,7 @@ jobs:
       # cpal (voice) needs ALSA headers and whisper-rs's bindgen needs
       # libclang, neither of which ships on the bare ubuntu-latest image.
       - name: Install Tauri Linux + audio/whisper build dependencies
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
