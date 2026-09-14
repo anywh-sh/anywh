@@ -53,9 +53,11 @@ function CommandRow({ step }: { step: Step }) {
  * generated — `curl | sh` for Linux (and WSL2 on Windows), the Homebrew
  * formula on macOS, where `install.sh` has no service manager to drive.
  * `onDone` hands over to path 01 pointed at loopback, since a relay
- * installed by following this screen is on this very machine.
+ * installed by following this screen is on this very machine. Getting back
+ * to the paths without finishing is the header's "back" — the one already
+ * on screen for every non-home screen — so this doesn't repeat it.
  */
-export function ManualInstructions({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+export function ManualInstructions({ onDone }: { onDone: () => void }) {
   const copy = useDict().firstRun.manual;
   const platform = currentPlatform();
   const relayHost = `<${copy.relayHostPlaceholder}>`;
@@ -88,9 +90,6 @@ export function ManualInstructions({ onDone, onBack }: { onDone: () => void; onB
       <div className="flex flex-wrap gap-2.5">
         <Button type="button" onClick={onDone}>
           {copy.done}
-        </Button>
-        <Button type="button" variant="outline" onClick={onBack}>
-          {copy.back}
         </Button>
       </div>
     </>

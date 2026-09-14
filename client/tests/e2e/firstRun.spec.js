@@ -18,12 +18,12 @@ describe("anywh first run", () => {
       window.location.reload();
     });
 
-    const caption = await $('//*[contains(text(), "anywh.sh — first run")]');
+    const caption = await $('//*[contains(text(), "anywh.sh — onboarding")]');
     await caption.waitForExist({ timeout: 15000 });
     await expect(caption).toBeExisting();
     await expect(await $('[aria-label="New conversation"]')).not.toBeExisting();
 
-    const language = await $('[role="combobox"]');
+    const language = await $('//button[normalize-space()="en"]');
     await language.waitForExist({ timeout: 5000 });
     await expect(language).toBeExisting();
   });
