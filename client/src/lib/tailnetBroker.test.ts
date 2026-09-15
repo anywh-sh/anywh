@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@/lib/tauri", () => ({ inTauri: () => true }));
 
-import { fetchConnectGrant, reportTailnetKey, resolveTailnetTarget } from "@/lib/tailnetBroker";
+import { BrokerThrottledError, fetchConnectGrant, reportTailnetKey, resolveTailnetTarget } from "@/lib/tailnetBroker";
 
 const profile: Profile = {
   id: "p1",
@@ -77,6 +77,31 @@ describe("fetchConnectGrant", () => {
 
     const grant = fetchConnectGrant(profile);
     const assertion = expect(grant).rejects.toThrow(/resum/i);
+    await vi.runAllTimersAsync();
+    await assertion;
+  });
+
+  it("surfaces a 429 as its own error instead of a generic refusal, so callers can slow down", async () => {
+    // The outer reconnect loops (relayClient, useSessionNames) treat any
+    // thrown error as transient and retry within seconds — against an
+    // account that is out of quota, that is an endless hot loop against the
+    // one endpoint already saying "stop".
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "allowance_exhausted" }), { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const grant = fetchConnectGrant(profile);
+    const assertion = expect(grant).rejects.toBeInstanceOf(BrokerThrottledError);
+    await vi.runAllTimersAsync();
+    await assertion;
+    // Refused, never retried inside the call — a 429 is not a 409.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries the broker's own retry hint when it offers one", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ retry_after_ms: 90_000 }), { status: 429 })));
+
+    const grant = fetchConnectGrant(profile);
+    const assertion = expect(grant).rejects.toMatchObject({ retryAfterMs: 90_000 });
     await vi.runAllTimersAsync();
     await assertion;
   });

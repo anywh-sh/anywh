@@ -11,7 +11,9 @@ export interface ConnectGrant {
  * A 410 from the broker means this device's own identity was deliberately
  * revoked (the account owner disconnected it) and will never work again —
  * distinct from every other broker failure (network unreachable, 401/403/
- * 409/429/5xx), all of which are potentially transient and worth retrying.
+ * 5xx), which are transient and worth retrying at the usual pace, and from
+ * a 429 (`BrokerThrottledError` below), which is transient but specifically
+ * made worse by retrying at that pace.
  * Still fully generic: any self-hosted broker implementing the same "410
  * means gone for good" HTTP semantic gets the same treatment, no anywh-
  * specific string ever crosses this boundary.
@@ -20,6 +22,27 @@ export class BrokerRevokedError extends Error {
   constructor() {
     super("the broker rejected this device's connection permanently (revoked)");
     this.name = "BrokerRevokedError";
+  }
+}
+
+/**
+ * A 429 means the broker is refusing *this account's* new connections right
+ * now — it is throttling the caller, or the account has no compute quota
+ * left. Unlike a network blip or a relay that's down, the one thing that
+ * cannot help is asking again immediately: the caller is the problem, and
+ * the outer reconnect loops treat "the broker threw" as transient and retry
+ * within seconds. Generic on purpose, like `BrokerRevokedError` above: any
+ * broker answering the standard HTTP semantic for "too many requests" gets
+ * the same treatment, with no anywh-specific string crossing this boundary.
+ */
+export class BrokerThrottledError extends Error {
+  /** From the body's `retry_after_ms`, when the broker offers one. */
+  readonly retryAfterMs?: number;
+
+  constructor(retryAfterMs?: number) {
+    super("the broker is refusing new connections for this account right now (throttled or out of quota)");
+    this.name = "BrokerThrottledError";
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -99,6 +122,10 @@ export async function fetchConnectGrant(profile: Profile): Promise<ConnectGrant>
     }
     if (!response.ok) {
       if (response.status === 410) throw new BrokerRevokedError();
+      if (response.status === 429) {
+        const hint = (await response.json().catch(() => ({}))) as { retry_after_ms?: number };
+        throw new BrokerThrottledError(hint.retry_after_ms);
+      }
       throw new Error(`broker refused the connection request (${String(response.status)})`);
     }
     const body = (await response.json()) as Partial<ConnectGrant>;

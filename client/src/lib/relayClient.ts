@@ -20,7 +20,7 @@ import type {
 import type { Theme, ThemeValidationError } from "@/lib/theme";
 import { recordAvailableModels } from "@/lib/modelCatalog";
 import { authHeaders } from "@/lib/connectionResolver";
-import { BrokerRevokedError } from "@/lib/tailnetBroker";
+import { BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 
 export type {
   BackgroundJobSummary,
@@ -349,6 +349,12 @@ export interface RelayClientCallbacks {
 
 const RECONNECT_BASE_DELAY_MS = 500;
 const RECONNECT_MAX_DELAY_MS = 30_000;
+// Floor for the one refusal that retrying quickly actively makes worse: the
+// broker told us it is throttling this account (429). The normal backoff
+// starts at half a second, which is the wrong answer to "you are asking too
+// often" — and to "this account is out of compute", where nothing changes
+// until the user does something about it somewhere else entirely.
+const THROTTLED_RECONNECT_DELAY_MS = 60_000;
 
 export class RelayClient {
   private socket?: WebSocket;
@@ -416,6 +422,11 @@ export class RelayClient {
           console.error("connection token permanently rejected:", err);
           this.shouldReconnect = false;
           this.callbacks.onRevoked?.();
+          return;
+        }
+        if (err instanceof BrokerThrottledError) {
+          console.error("connection token refused, backing off:", err);
+          this.scheduleReconnect(Math.max(err.retryAfterMs ?? 0, THROTTLED_RECONNECT_DELAY_MS));
           return;
         }
         // Same treatment as a socket that failed to open: the broker being
@@ -631,9 +642,9 @@ export class RelayClient {
     this.connect();
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(delayOverrideMs?: number): void {
     if (!this.shouldReconnect) return;
-    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempt, RECONNECT_MAX_DELAY_MS);
+    const delay = delayOverrideMs ?? Math.min(RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempt, RECONNECT_MAX_DELAY_MS);
     this.reconnectAttempt += 1;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
