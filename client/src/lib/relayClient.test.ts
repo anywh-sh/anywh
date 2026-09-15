@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RelayClient, type RelayClientCallbacks } from "@/lib/relayClient";
-import { BrokerRevokedError } from "@/lib/tailnetBroker";
+import { BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 
 /** Minimal stand-in for the browser `WebSocket` — records the URL it was
  * opened with and lets a test drive `open`/`close` by hand. */
@@ -107,6 +107,38 @@ describe("RelayClient connect token", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(resolve).toHaveBeenCalledTimes(1);
     expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
+  it("backs off for a minute when the broker says it is throttling this account (429)", async () => {
+    const resolve = vi.fn(() => Promise.reject(new BrokerThrottledError()));
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", noopCallbacks, resolve);
+
+    client.connect();
+    // Just enough to settle the rejected promise, never enough to fire a
+    // timer — runAllTimersAsync would fire the very backoff under test.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    // Well past the normal backoff's first steps, which would have retried
+    // several times by now against an endpoint already saying "stop".
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    // Still transient, unlike a 410: it does come back, just far later.
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it("honors a longer retry hint from the broker over its own floor", async () => {
+    const resolve = vi.fn(() => Promise.reject(new BrokerThrottledError(180_000)));
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", noopCallbacks, resolve);
+
+    client.connect();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(resolve).toHaveBeenCalledTimes(2);
   });
 
   it("keeps retrying for any other token-resolution failure (transient, not revoked)", async () => {

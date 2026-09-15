@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchSessions } from "@/lib/relayClient";
 import { resolveConnection } from "@/lib/connectionResolver";
-import { BrokerRevokedError } from "@/lib/tailnetBroker";
+import { BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profileRevocation";
 import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/lib/sessionListCache";
 import { markProfileVerified } from "@/lib/profiles";
 import type { Profile } from "@/lib/profiles";
+
+// A broker that answered 429 is telling this account to stop asking — the
+// watch loop's usual 2s retry is the one thing that makes that worse, and
+// an account out of compute quota won't recover from anything this hook can
+// do anyway.
+const WATCH_THROTTLED_RETRY_MS = 60_000;
 
 interface SyncState {
   /** Which profile `loading`/`error` actually describe — read against
@@ -164,7 +170,10 @@ export function useSessionNames(profile: Profile): {
             markProfileRevoked(profile.id);
             return;
           }
-          reconnectTimer = window.setTimeout(connect, 2000);
+          // Throttled or out of quota: the 2s loop below is exactly what the
+          // broker is asking us to stop doing, and nothing here can fix it.
+          const retryDelayMs = error instanceof BrokerThrottledError ? WATCH_THROTTLED_RETRY_MS : 2000;
+          reconnectTimer = window.setTimeout(connect, retryDelayMs);
         });
     }
     connect();
