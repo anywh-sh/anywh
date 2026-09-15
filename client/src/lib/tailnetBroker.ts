@@ -7,6 +7,21 @@ export interface ConnectGrant {
   token: string;
 }
 
+export interface GrantOptions {
+  /**
+   * Whether this call is allowed to bring a sleeping machine up. Defaults to
+   * true — every call a person's action produced (opening the app, focusing
+   * the window, opening a session) should wake it, because that is what they
+   * asked for by acting.
+   *
+   * `false` is for the calls nobody asked for: a socket that dropped and
+   * reconnects on a timer. Without it, a machine that went to sleep *because*
+   * nobody was using it gets woken by the very disconnect its sleep caused,
+   * in a loop that lasts as long as the window stays open.
+   */
+  wake?: boolean;
+}
+
 /**
  * A 410 from the broker means this device's own identity was deliberately
  * revoked (the account owner disconnected it) and will never work again —
@@ -43,6 +58,21 @@ export class BrokerThrottledError extends Error {
     super("the broker is refusing new connections for this account right now (throttled or out of quota)");
     this.name = "BrokerThrottledError";
     this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * The broker answered "that target is asleep, and you asked me not to wake
+ * it" — the 409 sibling of the resuming one, distinguished by carrying no
+ * retry hint, because nothing is in flight to wait for. Only ever reachable
+ * for a caller that passed `{ wake: false }`, i.e. a background reconnect.
+ * Transient like a 429, terminal like nothing: what changes it is the user
+ * coming back to the app, not time passing.
+ */
+export class BrokerAsleepError extends Error {
+  constructor() {
+    super("the broker says this profile's compute is asleep, and this call asked not to wake it");
+    this.name = "BrokerAsleepError";
   }
 }
 
@@ -85,11 +115,15 @@ function delay(ms: number): Promise<void> {
  * `retry_after_ms`" is a contract a self-hoster's own broker can implement
  * without knowing anything about anywh.
  */
-export async function fetchConnectGrant(profile: Profile): Promise<ConnectGrant> {
+export async function fetchConnectGrant(profile: Profile, options?: GrantOptions): Promise<ConnectGrant> {
   if (!isBrokeredProfile(profile)) throw new Error("profile has no broker configured");
   if (!inTauri()) throw new Error("the broker call needs the Tauri sidecar to sign it, not available in a plain browser");
 
   const url = new URL(profile.brokerUrl!);
+  // Only ever sent to say "no": a broker that doesn't know the parameter
+  // ignores an unknown query param and behaves exactly as before, which is
+  // what keeps this safe to send at a self-hosted broker too.
+  if (options?.wake === false) url.searchParams.set("wake", "false");
   const deadline = Date.now() + RESUME_DEADLINE_MS;
   for (;;) {
     // Signed inside the loop, once per attempt: the signature carries its
@@ -113,7 +147,10 @@ export async function fetchConnectGrant(profile: Profile): Promise<ConnectGrant>
     });
 
     if (response.status === 409) {
-      const hint = (await response.json().catch(() => ({}))) as { retry_after_ms?: number };
+      const hint = (await response.json().catch(() => ({}))) as { state?: string; retry_after_ms?: number };
+      // "Asleep" is not "coming up": waiting the resume out would burn the
+      // whole deadline on something that was never scheduled to happen.
+      if (hint.state === "suspended") throw new BrokerAsleepError();
       if (Date.now() >= deadline) {
         throw new Error("broker is still resuming the compute after waiting for it");
       }

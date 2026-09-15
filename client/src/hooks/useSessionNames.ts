@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchSessions } from "@/lib/relayClient";
 import { resolveConnection } from "@/lib/connectionResolver";
-import { BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
+import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profileRevocation";
 import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/lib/sessionListCache";
 import { markProfileVerified } from "@/lib/profiles";
@@ -10,8 +10,11 @@ import type { Profile } from "@/lib/profiles";
 // A broker that answered 429 is telling this account to stop asking — the
 // watch loop's usual 2s retry is the one thing that makes that worse, and
 // an account out of compute quota won't recover from anything this hook can
-// do anyway.
-const WATCH_THROTTLED_RETRY_MS = 60_000;
+// do anyway. The same slow pace serves a machine that is simply asleep:
+// cheap enough to keep asking (a `wake: false` call never resumes anything)
+// so the sidebar reattaches on its own the moment something else brings the
+// machine up, and slow enough not to be a loop anyone would notice.
+const WATCH_SLOW_RETRY_MS = 60_000;
 
 interface SyncState {
   /** Which profile `loading`/`error` actually describe — read against
@@ -128,9 +131,16 @@ export function useSessionNames(profile: Profile): {
     // every new TCP connection — a reconnect
     // after `close` is a brand-new one, so this resolves again on every
     // call instead of reusing whatever `connect()` used the first time.
-    function connect(): void {
+    // `wake` is the difference between the first connection and every
+    // reconnection after it: mounting this hook is something the user did
+    // (they opened the app, or picked this profile), so it is allowed to
+    // bring a sleeping machine up. A socket that dropped on its own is not
+    // — and the most common reason it dropped is the machine going to sleep
+    // precisely because nobody was using it. Waking it there is a loop that
+    // outlives the reason for it.
+    function connect(options: { wake: boolean }): void {
       if (cancelled) return;
-      resolveConnection(profile)
+      resolveConnection(profile, { wake: options.wake })
         .then(({ host, port, token }) => {
           if (cancelled) return;
           const query = token ? `?token=${encodeURIComponent(token)}` : "";
@@ -157,7 +167,7 @@ export function useSessionNames(profile: Profile): {
           });
           ws.addEventListener("close", () => {
             if (socket !== ws || cancelled) return;
-            reconnectTimer = window.setTimeout(connect, 2000);
+            reconnectTimer = window.setTimeout(() => connect({ wake: false }), 2000);
           });
         })
         .catch((error: unknown) => {
@@ -170,13 +180,20 @@ export function useSessionNames(profile: Profile): {
             markProfileRevoked(profile.id);
             return;
           }
-          // Throttled or out of quota: the 2s loop below is exactly what the
-          // broker is asking us to stop doing, and nothing here can fix it.
-          const retryDelayMs = error instanceof BrokerThrottledError ? WATCH_THROTTLED_RETRY_MS : 2000;
-          reconnectTimer = window.setTimeout(connect, retryDelayMs);
+          // Two refusals that the 2s loop makes worse rather than better:
+          // being throttled (it is the asking itself the broker objects to)
+          // and the machine being asleep (nothing changes until the user
+          // comes back, which is its own trigger).
+          const slowDown = error instanceof BrokerThrottledError || error instanceof BrokerAsleepError;
+          // Retrying a *failed* attempt keeps that attempt's own intent: a
+          // first connection that lost a network race is still the user
+          // having opened the app, and demoting its retry to `wake: false`
+          // would leave them looking at a stale sidebar until they thought
+          // to click away and back.
+          reconnectTimer = window.setTimeout(() => connect({ wake: options.wake }), slowDown ? WATCH_SLOW_RETRY_MS : 2000);
         });
     }
-    connect();
+    connect({ wake: true });
 
     return () => {
       cancelled = true;

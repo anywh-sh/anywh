@@ -7,7 +7,7 @@ const { invokeMock } = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@/lib/tauri", () => ({ inTauri: () => true }));
 
-import { BrokerThrottledError, fetchConnectGrant, reportTailnetKey, resolveTailnetTarget } from "@/lib/tailnetBroker";
+import { BrokerAsleepError, BrokerThrottledError, fetchConnectGrant, reportTailnetKey, resolveTailnetTarget } from "@/lib/tailnetBroker";
 
 const profile: Profile = {
   id: "p1",
@@ -79,6 +79,34 @@ describe("fetchConnectGrant", () => {
     const assertion = expect(grant).rejects.toThrow(/resum/i);
     await vi.runAllTimersAsync();
     await assertion;
+  });
+
+  it("sends wake=false only when asked, and stops waiting on the 'suspended' 409 it gets back", async () => {
+    // Without this, the resuming-409 loop above would spend its full two
+    // minute deadline waiting for a resume that was never scheduled — the
+    // caller explicitly asked for none.
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ state: "suspended" }), { status: 409 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const grant = fetchConnectGrant(profile, { wake: false });
+    const assertion = expect(grant).rejects.toBeInstanceOf(BrokerAsleepError);
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("wake=false");
+  });
+
+  it("never sends the parameter at all by default", async () => {
+    // A broker that doesn't know it would ignore it anyway, but not sending
+    // it keeps the default request byte-identical to what every existing
+    // self-hosted broker already answers.
+    const fetchMock = vi.fn().mockResolvedValue(granted());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchConnectGrant(profile);
+
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("wake");
   });
 
   it("surfaces a 429 as its own error instead of a generic refusal, so callers can slow down", async () => {

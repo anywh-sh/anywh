@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RelayClient, type RelayClientCallbacks } from "@/lib/relayClient";
-import { BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
+import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 
 /** Minimal stand-in for the browser `WebSocket` — records the URL it was
  * opened with and lets a test drive `open`/`close` by hand. */
@@ -138,6 +138,43 @@ describe("RelayClient connect token", () => {
     expect(resolve).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(61_000);
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it("only asks to wake the machine for connections a person caused", async () => {
+    // The first connection is the user opening the tab; every reconnect this
+    // client schedules on its own is not, and the likeliest reason it's
+    // reconnecting is the machine having gone to sleep because nobody was
+    // using it. Waking it there is a loop with nobody in it.
+    const resolve = vi.fn(() => Promise.reject(new Error("network unreachable")));
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", noopCallbacks, resolve);
+
+    client.connect();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolve).toHaveBeenLastCalledWith({ wake: true });
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(resolve).toHaveBeenLastCalledWith({ wake: false });
+
+    // Coming back to the app is a person's doing again — and it's what makes
+    // the background silence above safe.
+    client.forceReconnect();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolve).toHaveBeenLastCalledWith({ wake: true });
+  });
+
+  it("backs off instead of spinning when the broker says the machine is asleep", async () => {
+    const resolve = vi.fn(() => Promise.reject(new BrokerAsleepError()));
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", noopCallbacks, resolve);
+
+    client.connect();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(resolve).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(31_000);
     expect(resolve).toHaveBeenCalledTimes(2);
   });
 
