@@ -1,4 +1,4 @@
-import { fetchConnectGrant, resolveTailnetTarget } from "@/lib/tailnetBroker";
+import { fetchConnectGrant, resolveTailnetTarget, type GrantOptions } from "@/lib/tailnetBroker";
 import { acquireTailnetSidecar, peekTailnetSidecar, releaseTailnetSidecar } from "@/lib/tailnetSidecar";
 import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profiles";
 
@@ -31,14 +31,14 @@ export interface ResolvedConnection {
  *   the TCP connection it authorizes, so
  *   every new connection through the tunnel needs its own unspent one.
  */
-export async function resolveConnection(profile: Profile): Promise<ResolvedConnection> {
+export async function resolveConnection(profile: Profile, options?: GrantOptions): Promise<ResolvedConnection> {
   if (!isTailnetProfile(profile)) {
     return { host: profile.host, port: profile.relayPort, token: profile.connectToken };
   }
 
   const peeked = peekTailnetSidecar(profile.id);
   if (peeked) {
-    const [endpoint, token] = await Promise.all([peeked, resolveFreshToken(profile)]);
+    const [endpoint, token] = await Promise.all([peeked, resolveFreshToken(profile, options)]);
     return { host: endpoint.host, port: endpoint.port, token };
   }
 
@@ -51,9 +51,9 @@ export async function resolveConnection(profile: Profile): Promise<ResolvedConne
   }
 }
 
-async function resolveFreshToken(profile: Profile): Promise<string | undefined> {
+async function resolveFreshToken(profile: Profile, options?: GrantOptions): Promise<string | undefined> {
   if (!isBrokeredProfile(profile)) return profile.connectToken;
-  return (await fetchConnectGrant(profile)).token;
+  return (await fetchConnectGrant(profile, options)).token;
 }
 
 /** `fetch` headers carrying a connect token, when there is one — a direct

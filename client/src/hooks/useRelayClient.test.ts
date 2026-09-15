@@ -36,6 +36,7 @@ vi.mock("@/lib/relayClient", () => ({
   },
 }));
 
+import { fetchConnectGrant } from "@/lib/tailnetBroker";
 import { useRelayClient } from "@/hooks/useRelayClient";
 
 // A brokered tailnet profile — `host`/`relayPort` are the placeholder
@@ -96,6 +97,25 @@ describe("useRelayClient tailnet mode", () => {
     const [host, port, , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
     expect({ host, port }).toEqual({ host: "127.0.0.1", port: 12345 });
     expect(typeof token).toBe("function");
-    await expect((token as () => Promise<string>)()).resolves.toBe("grant-token");
+    const resolve = token as (options: { wake: boolean }) => Promise<string>;
+    await expect(resolve({ wake: true })).resolves.toBe("grant-token");
+  });
+
+  it("passes the caller's wake intent straight through to the broker call", async () => {
+    // RelayClient decides this, not the hook: false for a reconnect its own
+    // timer scheduled, true for one the user caused. Forwarding it is the
+    // whole point — a background reconnect that still woke the machine is
+    // the loop this exists to break.
+    renderHook(() => useRelayClient(tailnetProfile, "session-a"));
+    await vi.runAllTimersAsync();
+
+    const [, , , , token] = constructedMock.mock.calls[0] as [string, number, unknown, unknown, unknown];
+    const resolve = token as (options: { wake: boolean }) => Promise<string>;
+    // The first call hands back the grant the hook already opened with, so
+    // it never reaches the broker — the second is the one that does.
+    await resolve({ wake: true });
+    await resolve({ wake: false });
+
+    expect(vi.mocked(fetchConnectGrant)).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
   });
 });

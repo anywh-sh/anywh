@@ -260,7 +260,7 @@ export function useRelayClient(
     async function start(): Promise<void> {
       let host = profile.host;
       let port = profile.relayPort;
-      let wsToken: string | (() => Promise<string>) | undefined = profile.connectToken;
+      let wsToken: string | ((options: { wake: boolean }) => Promise<string>) | undefined = profile.connectToken;
       if (tailnetMode) {
         try {
           // A brokered profile resolves the target and a
@@ -279,13 +279,15 @@ export function useRelayClient(
             // resending this one loops on "reconnecting" forever) resolves
             // its own.
             let firstToken: string | undefined = grant.token;
-            wsToken = async () => {
+            wsToken = async ({ wake }) => {
               if (firstToken !== undefined) {
                 const token = firstToken;
                 firstToken = undefined;
                 return token;
               }
-              return (await fetchConnectGrant(profile)).token;
+              // `wake` comes from RelayClient: true when the user drove this
+              // attempt, false for a reconnect a timer scheduled.
+              return (await fetchConnectGrant(profile, { wake })).token;
             };
           }
           if (!target) throw new Error("tailnet profile has no target to dial (no tailnetTarget and no broker)");

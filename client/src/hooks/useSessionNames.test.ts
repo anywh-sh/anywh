@@ -3,7 +3,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Profile } from "@/lib/profiles";
 import type { SessionSummary } from "@/lib/relay-types";
-import { BrokerRevokedError } from "@/lib/tailnetBroker";
+import { BrokerAsleepError, BrokerRevokedError } from "@/lib/tailnetBroker";
 import { getCachedSessions } from "@/lib/sessionListCache";
 
 const { fetchSessionsMock, resolveConnectionMock } = vi.hoisted(() => ({
@@ -107,6 +107,51 @@ describe("useSessionNames", () => {
     // reusing the first one would be rejected as a replay by the proxy.
     expect(secondSocket.url).not.toBe(firstSocket.url);
     expect(secondSocket.url).toContain("grant-token-3");
+  });
+
+  it("asks to wake on mount, and never on the reconnect its own socket closing caused", async () => {
+    // The loop this closes: the sandbox suspends because nobody was using
+    // it, that kills the watch socket, and the reconnect two seconds later
+    // resumes the very sandbox the idle timeout just put to sleep — once per
+    // idle cycle, for as long as the window stays open.
+    await act(async () => {
+      renderHook(() => useSessionNames(tailnetProfile));
+      await vi.runAllTimersAsync();
+    });
+    expect(resolveConnectionMock).toHaveBeenCalledWith(tailnetProfile, { wake: true });
+
+    await act(async () => {
+      FakeWebSocket.instances[0].close();
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(resolveConnectionMock).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
+  });
+
+  it("slows the watch retry to a minute when the broker says the machine is asleep", async () => {
+    resolveConnectionMock.mockReset().mockRejectedValue(new BrokerAsleepError());
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await act(async () => {
+      renderHook(() => useSessionNames(tailnetProfile));
+      await vi.runAllTimersAsync();
+    });
+    const afterFirst = resolveConnectionMock.mock.calls.length;
+
+    // The old 2s pace would have fired several times in this window. It
+    // still retries eventually — cheap, since a wake:false call never
+    // resumes anything — so the sidebar reattaches on its own once
+    // something else brings the machine up.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(resolveConnectionMock.mock.calls.length).toBe(afterFirst);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(resolveConnectionMock.mock.calls.length).toBeGreaterThan(afterFirst);
+    consoleErrorSpy.mockRestore();
   });
 
   it("stops retrying the sessions/watch socket once the device's connection was permanently revoked", async () => {

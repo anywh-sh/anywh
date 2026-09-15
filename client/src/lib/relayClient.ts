@@ -20,7 +20,7 @@ import type {
 import type { Theme, ThemeValidationError } from "@/lib/theme";
 import { recordAvailableModels } from "@/lib/modelCatalog";
 import { authHeaders } from "@/lib/connectionResolver";
-import { BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
+import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 
 export type {
   BackgroundJobSummary,
@@ -355,6 +355,10 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
 // often" — and to "this account is out of compute", where nothing changes
 // until the user does something about it somewhere else entirely.
 const THROTTLED_RECONNECT_DELAY_MS = 60_000;
+// Same pace for a machine that is simply asleep, and for the same reason:
+// what brings it back is the user returning (which arrives as
+// `forceReconnect`, jumping this timer), not the next tick.
+const ASLEEP_RECONNECT_DELAY_MS = 60_000;
 
 export class RelayClient {
   private socket?: WebSocket;
@@ -393,8 +397,15 @@ export class RelayClient {
      * resolver for a brokered profile, whose token authorizes exactly one
      * handshake and so has to be re-fetched for every
      * attempt, reconnections included. */
-    private readonly connectToken?: string | (() => Promise<string>),
+    private readonly connectToken?: string | ((options: { wake: boolean }) => Promise<string>),
   ) {}
+
+  /** Whether the *next* `connect()` may wake a sleeping machine. True for
+   * anything a person did — the first connection, and `forceReconnect` when
+   * they come back to the app — false for a reconnect a timer scheduled,
+   * whose most likely cause is the machine having gone to sleep because
+   * nobody was using it. Waking it there is a loop with no one in it. */
+  private nextConnectWakes = true;
 
   connect(): void {
     this.connectCount += 1;
@@ -406,7 +417,9 @@ export class RelayClient {
       return;
     }
     const generation = this.connectGeneration;
-    void this.connectToken().then(
+    const wake = this.nextConnectWakes;
+    this.nextConnectWakes = true;
+    void this.connectToken({ wake }).then(
       (token) => {
         // A newer attempt started (or `disconnect` ran) while this token was
         // being fetched — the token is simply dropped, unspent.
@@ -427,6 +440,13 @@ export class RelayClient {
         if (err instanceof BrokerThrottledError) {
           console.error("connection token refused, backing off:", err);
           this.scheduleReconnect(Math.max(err.retryAfterMs ?? 0, THROTTLED_RECONNECT_DELAY_MS));
+          return;
+        }
+        if (err instanceof BrokerAsleepError) {
+          // Expected, not a failure: this attempt deliberately declined to
+          // wake the machine. Keep a slow retry so the tab reattaches by
+          // itself if something else brings it up.
+          this.scheduleReconnect(ASLEEP_RECONNECT_DELAY_MS);
           return;
         }
         // Same treatment as a socket that failed to open: the broker being
@@ -639,11 +659,17 @@ export class RelayClient {
     const state = this.socket?.readyState;
     if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) return;
     this.clearReconnectTimer();
+    // The user is back in front of the app — the one reconnect that is
+    // allowed to bring a sleeping machine up, and the reason the background
+    // ones don't have to.
+    this.nextConnectWakes = true;
     this.connect();
   }
 
   private scheduleReconnect(delayOverrideMs?: number): void {
     if (!this.shouldReconnect) return;
+    // Every reconnect this schedules is by definition not a person's doing.
+    this.nextConnectWakes = false;
     const delay = delayOverrideMs ?? Math.min(RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempt, RECONNECT_MAX_DELAY_MS);
     this.reconnectAttempt += 1;
     this.reconnectTimer = window.setTimeout(() => {
