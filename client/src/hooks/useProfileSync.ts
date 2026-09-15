@@ -74,7 +74,11 @@ export function useProfileSync(profile: Profile): ProfileSyncResult {
     profile.brokerNodeId,
   ]);
 
-  useForegroundSync(sync);
+  // Direct/LAN profiles keep the 30s poll — reaching them is free and
+  // instant. A tailnet/brokered profile can resume a suspended machine, so
+  // nothing paces that on a timer while the window just sits open; mount,
+  // visibilitychange and focus still cover it.
+  useForegroundSync(sync, { poll: !isTailnetProfile(profile) });
 
   return { supported };
 }
