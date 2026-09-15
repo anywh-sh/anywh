@@ -35,7 +35,7 @@ import { useContextMenuGuard } from "@/hooks/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/useProfileImport";
 import { useProfileSetup } from "@/hooks/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
-import { useActiveTheme, useThemeSync } from "@/hooks/useThemes";
+import { useActiveTheme } from "@/hooks/useThemes";
 import { useProfileSync } from "@/hooks/useProfileSync";
 import { useTailnetSidecarOwner } from "@/hooks/useTailnetSidecarOwner";
 import { addProfile, findProfile, getProfiles, removeProfile, type Profile } from "@/lib/profiles";
@@ -150,7 +150,11 @@ function AppShell() {
   // profile: the catalog the settings dialog offers comes from whichever
   // host this device is connected to, and what gets painted is what the
   // person picked, whatever profile they're reading right now.
-  useThemeSync(activeProfile);
+  //
+  // Mirroring a host's custom themes only matters while the settings dialog
+  // can show them, so `useThemeSync` runs there instead (`ThemeSection.tsx`)
+  // — keeping it mounted here doubled the keepalive traffic to every host
+  // this device talks to, for a catalog nothing was reading between visits.
   useActiveTheme();
 
   // A profile added (pairing, setup) joins the view; one removed leaves it,
