@@ -74,6 +74,26 @@ exists: a spawn-per-turn CLI and a long-lived daemon CLI keep continuity in
 different places, and neither should route through the relay reassembling
 state it doesn't need to own.
 
+## Enforced: the wire vocabulary is versioned, and the two copies of the version stay in sync
+
+**Enforced** — `protocolVersionParity.test.ts` (client) fails the build if
+`relay/src/protocol/version.ts` and `client/src/lib/protocolVersion.ts`
+diverge, same mechanism as `themeValidatorParity.test.ts` for `theme.ts`.
+
+`WS_PROTOCOL_VERSION` is an integer, not semver, because relay and client
+ship from the same repo and the same release — there is no compatibility
+range to express, only "same" or "different". The relay announces it as the
+first message on every WebSocket connection
+(`{ type: "protocol_version", version }`), ahead of history replay or
+anything else; a client that finds a mismatch stops there instead of
+processing messages it can't be sure it understands correctly, and tells
+the user to update instead of quietly misrendering or going blank.
+
+Bump the constant (both copies) whenever a change to the wire vocabulary
+would make an *older* client misinterpret a message rather than just not
+know about it yet — a new discriminated variant that reuses an existing
+`type` differently, not one that simply adds a new one.
+
 ## Directional: killing a turn never destroys the session
 
 **Not yet enforced as a test — enforced today as the only behavior that

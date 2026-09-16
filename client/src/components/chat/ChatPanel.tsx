@@ -310,6 +310,7 @@ export function ChatPanel({
     model,
     defaultModel,
     contextUsage,
+    protocolMismatch,
     compactBoundary,
     suggestion,
     dismissSuggestion,
@@ -536,6 +537,17 @@ export function ChatPanel({
 
   return (
     <div ref={containerRef} className="relative flex h-full flex-col">
+      {protocolMismatch !== null && (
+        // Full takeover, not a dismissible toast: past this point nothing
+        // the relay sends is guaranteed to render correctly (see
+        // relayClient.ts's handling of `protocol_version`), so there's no
+        // partial-functionality state to fall back to underneath it.
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-background/95 p-6 text-center">
+          <p className="text-sm font-medium">{dict.chat.protocolMismatch.title}</p>
+          <p className="max-w-sm text-sm text-muted-foreground">{dict.chat.protocolMismatch.message}</p>
+        </div>
+      )}
+
       {isDraggingOver && (
         <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center gap-2 border-2 border-dashed border-primary bg-background/90 text-sm text-primary">
           <ImagePlus className="size-4" />

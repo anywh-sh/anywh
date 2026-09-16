@@ -12,6 +12,7 @@ import { handleProfileRoutes } from "./routes/profiles.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
+import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -249,6 +250,11 @@ wss.on("connection", (socket: WebSocket, request) => {
   const sessionId = url.searchParams.get("session")?.trim() || DEFAULT_SESSION;
 
   console.log(`[relay] client connected (session: ${sessionId})`);
+  // First thing sent on every connection, ahead of history replay or any
+  // other message — a client that finds a mismatch here can refuse to
+  // process what follows instead of misinterpreting a vocabulary it
+  // doesn't recognize (see protocol/version.ts).
+  socket.send(JSON.stringify({ type: "protocol_version", version: WS_PROTOCOL_VERSION }));
   const session = sessionManager.getOrCreate(sessionId);
   session.addClient(socket);
 
