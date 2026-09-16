@@ -295,6 +295,39 @@ case "$os" in
   *) err "the anywh app doesn't ship for $os — on Windows, download the installer from https://github.com/${REPO}/releases/latest" ;;
 esac
 
+# Which release "latest" actually resolved to, recorded below for the
+# install-source marker. A pinned --version already names it; otherwise the
+# unversioned URL 302s straight to the versioned one before the second hop
+# hands off to a signed, tag-free CDN blob URL, so a single un-followed HEAD
+# is enough to read it — no API call, no rate limit.
+resolved_version="${VERSION#v}"
+if [ -z "$resolved_version" ]; then
+  redirect_location="$(curl -fsSI "$base_url/$app_asset" 2>/dev/null | tr -d '\r' | grep -i '^location:' | head -1)"
+  resolved_version="$(printf '%s\n' "$redirect_location" | sed -n 's#.*/releases/download/v\([^/]*\)/.*#\1#p')"
+fi
+
+# Written by this script only, after the atomic rename into place has
+# succeeded — never staged, never written on failure. The app treats a
+# missing or malformed marker as "unknown, not updatable", which is already
+# the common case for the installs that predate this file, so a half-written
+# one costs nothing beyond what "no marker" already costs.
+write_install_marker() {
+  channel="$1"
+  exec_path="$2"
+  marker_dir="$INSTALL_DIR/app"
+  mkdir -p "$marker_dir"
+  cat > "$marker_dir/install-source.json" <<MARKER
+{
+  "version": 1,
+  "method": "install.sh",
+  "channel": "$channel",
+  "path": "$exec_path",
+  "installedVersion": "$resolved_version",
+  "installedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+MARKER
+}
+
 # Never replace a bundle while it is running, and never quietly kill an app
 # somebody is using. On macOS the two would collide: the running process
 # reads from the bundle being swapped under it. On Linux a rename leaves the
@@ -343,6 +376,8 @@ if [ "$os" = "Darwin" ]; then
   # arrives some other way. The app is not signed yet; this path is the one
   # that doesn't make the user notice.
   xattr -dr com.apple.quarantine "$installed" 2>/dev/null || true
+
+  write_install_marker "app-bundle" "$installed/Contents/MacOS/anywh"
 
   launch_target="$installed"
   echo "Installed to $installed"
@@ -442,6 +477,12 @@ DESKTOP
   # rescans, and the anywh:// handler registers on the next login. Neither is
   # worth failing an otherwise complete install over.
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+
+  if [ "$has_fuse" -eq 1 ]; then
+    write_install_marker "appimage" "$exec_target"
+  else
+    write_install_marker "appdir" "$exec_target"
+  fi
 
   launch_target="$exec_target"
   echo "Installed to $app_dir"
