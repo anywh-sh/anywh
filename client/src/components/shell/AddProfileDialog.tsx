@@ -49,7 +49,6 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
     setValidation(null);
     setError(null);
     setCollidesWith(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // A field the user already validated changing again means "Criar" needs

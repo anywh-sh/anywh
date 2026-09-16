@@ -2,11 +2,11 @@
 // The relay's one sanctioned mock boundary (see .anywh/skills/tests/SKILL.md
 // — "The one sanctioned mock boundary: the `claude` process"). Stands in for
 // the real `claude` binary in integration tests via the `AGENT_BIN` env var
-// (relay/src/claudeCliConfig.ts already reads it, no source change needed).
+// (relay/src/runtimes/executables.ts already reads it, no source change needed).
 //
 // Understands the two invocation shapes the relay actually spawns:
 //   - `-p <text> --output-format stream-json ...`  -> a real turn
-//     (claudeSession.ts sendTurn)
+//     (runtimes/defs/claude/session.ts sendTurn)
 //   - `-p /model --output-format json ...`          -> the default-model
 //     probe (defaultModel.ts detectDefaultModel)
 // Everything else (`auth status --json`) gets a canned success reply so
@@ -21,7 +21,7 @@
 //   FAKE_CLAUDE_HANG   - if set, emits the `system`/`init` event and then
 //                        waits (no `assistant`/`result`) until it receives
 //                        SIGINT, mirroring the real binary's tested behavior
-//                        (claudeSession.ts's `stop()` comment: `claude -p`
+//                        (runtimes/defs/claude/session.ts's `stop()` comment: `claude -p`
 //                        catches SIGINT and exits 0 with a valid `result`,
 //                        `session_id` included, instead of dying raw) — lets
 //                        a test drive the relay's "Stop" path
@@ -121,7 +121,7 @@ if (args[0] === "auth" && args[1] === "status") {
   const model = "claude-fake-5";
 
   // Gated on `--output-format stream-json` specifically (real turns only,
-  // claudeSession.ts's `sendTurn`), not just "any -p invocation": title
+  // runtimes/defs/claude/session.ts's `sendTurn`), not just "any -p invocation": title
   // generation and next-message suggestion (titleGenerator.ts/
   // suggestionGenerator.ts) both fire their OWN `-p` calls in parallel with a
   // real turn (SharedSession.runTurn's `onFirstPrompt`) using the identical
@@ -132,7 +132,7 @@ if (args[0] === "auth" && args[1] === "status") {
 
   // Registered BEFORE the `system` event goes out, not alongside the
   // keep-alive below. `system` is the exact signal the relay waits for
-  // before it is allowed to interrupt (claudeSession.ts's `stop()`), so
+  // before it is allowed to interrupt (runtimes/defs/claude/session.ts's `stop()`), so
   // announcing readiness first and only then installing the handler leaves a
   // window where SIGINT lands on Node's default action and kills this
   // process outright — no `result`, no `session_id`, and a turn that looks
@@ -147,7 +147,7 @@ if (args[0] === "auth" && args[1] === "status") {
     // tested interrupt behavior.
     process.once("SIGINT", () => {
       // `is_error: true` on a clean exit(0) is what the real binary reports
-      // for an interrupted turn (confirmed against it, see claudeSession.ts's
+      // for an interrupted turn (confirmed against it, see runtimes/defs/claude/session.ts's
       // `stop()` doc comment) — `sendTurn` only classifies a turn as
       // `stopped: true` via the `lastErrorResult` branch, not the exit-code
       // one, so an `is_error: false` reply here (as a genuinely successful

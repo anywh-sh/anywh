@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { SessionStore } from "../src/sessionStore.js";
+import { SessionStore } from "../src/session/sessionStore.js";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSession, sendUserMessage } from "./helpers/wsClient.js";
 
@@ -28,7 +28,7 @@ test("a turn streams claude_event(s) ending in a successful result, then turn_co
     (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
   );
   assert.ok(resultEvent, `expected a claude_event carrying a result, got: ${JSON.stringify(messages)}`);
-  assert.equal((resultEvent!.event as { is_error?: boolean }).is_error, false);
+  assert.equal((resultEvent.event as { is_error?: boolean }).is_error, false);
 
   const turnComplete = messages.at(-1);
   assert.deepEqual(turnComplete, { type: "turn_complete", stopped: false });

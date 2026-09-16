@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { createLowlight, common } from "lowlight";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
-import type { ElementContent, Root, RootContent } from "hast";
+import type { ElementContent, RootContent } from "hast";
 
 // Same engine (lowlight/hast, on top of highlight.js) that `AssistantText`
 // already uses via `rehype-highlight` for markdown code blocks — reuses the
@@ -60,7 +60,7 @@ function splitByLine(nodes: RootContent[]): ElementContent[][] {
 export function highlightLines(language: string, lines: string[]): ReactNode[] {
   const lang = lowlight.registered(language) ? language : "plaintext";
   try {
-    const tree = lowlight.highlight(lang, lines.join("\n")) as Root;
+    const tree = lowlight.highlight(lang, lines.join("\n"));
     const splitLines = splitByLine(tree.children);
     return lines.map((_, index) => {
       const children = splitLines[index] ?? [];

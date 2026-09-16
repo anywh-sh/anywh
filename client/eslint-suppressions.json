@@ -1,0 +1,232 @@
+{
+  "src/components/chat/MarkdownContent.test.tsx": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/components/chat/MarkdownContent.tsx": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    }
+  },
+  "src/components/chat/MessageLog.tsx": {
+    "@typescript-eslint/switch-exhaustiveness-check": {
+      "count": 1
+    }
+  },
+  "src/components/files/FileTree.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/components/files/FileViewer.test.tsx": {
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    }
+  },
+  "src/components/firstrun/LocalInstall.tsx": {
+    "@typescript-eslint/switch-exhaustiveness-check": {
+      "count": 1
+    }
+  },
+  "src/components/settings/ProfileSettings.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
+  "src/components/settings/ThemeImportDialog.tsx": {
+    "@typescript-eslint/switch-exhaustiveness-check": {
+      "count": 1
+    }
+  },
+  "src/components/settings/UpdatesSettings.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/components/shell/UpdateBanner.test.tsx": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/hooks/useProfileImport.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/hooks/useProfileSync.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
+  "src/hooks/useRelayClient.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/hooks/useSessionNames.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/hooks/useTailnetSidecarOwner.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/hooks/useThemeSync.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/lib/appUpdate.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 7
+    }
+  },
+  "src/lib/fsBrowse.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/lib/highlightCode.tsx": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "src/lib/profiles.test.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/lib/slashCommands.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/lib/tailnetBroker.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/lib/tailnetSidecar.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/lib/themes.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "tests/perf/interactions.perf.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/composerLinkBoundary.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/composerLinkProtocol.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/connectToken.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/firstRun.test.tsx": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
+  "tests/ui/localInstall.test.tsx": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 4
+    },
+    "@typescript-eslint/require-await": {
+      "count": 10
+    },
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "tests/ui/pendingChoice.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/profileSetup.test.tsx": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
+  "tests/ui/relayErrorCodes.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    },
+    "@typescript-eslint/unbound-method": {
+      "count": 1
+    }
+  },
+  "tests/ui/revokedBackgroundProfile.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 5
+    }
+  },
+  "tests/ui/sendMessage.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/sessionListStates.test.tsx": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
+  "tests/ui/settingsDialog.test.tsx": {
+    "@typescript-eslint/no-base-to-string": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
+      "count": 3
+    }
+  },
+  "tests/ui/sidebarRenderCost.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/slashCommandTypo.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "tests/ui/tabGroups.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  }
+}

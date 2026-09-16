@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSession, connectSessionAndCollectUntil, sendUserMessage } from "./helpers/wsClient.js";
-import { CHOICE_DEFERRED_RESPONSE_TEXT } from "../src/mcpBridge.js";
+import { CHOICE_DEFERRED_RESPONSE_TEXT } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md) for the
 // deferred-lifecycle rework: `present_choice` used to hold the MCP
@@ -116,7 +116,7 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
   socket.send(
     JSON.stringify({
       type: "choice_answer",
-      promptId: choicePrompt!.promptId,
+      promptId: choicePrompt.promptId,
       answers: [{ question: "Which approach?", selected: ["Rewrite from scratch"] }],
     }),
   );
@@ -126,7 +126,7 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
   const resolved = secondTurnMessages.find((message) => message.type === "choice_resolved") as
     | { type: string; promptId: string }
     | undefined;
-  assert.deepEqual(resolved, { type: "choice_resolved", promptId: choicePrompt!.promptId });
+  assert.deepEqual(resolved, { type: "choice_resolved", promptId: choicePrompt.promptId });
 
   const syntheticPrompt = secondTurnMessages.find(
     (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "user_prompt",

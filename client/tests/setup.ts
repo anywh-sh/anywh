@@ -21,7 +21,7 @@ Element.prototype.getBoundingClientRect = () =>
     toJSON() {
       return this;
     },
-  }) as DOMRect;
+  });
 
 // getBoundingClientRect alone wasn't enough: react-virtual's own size
 // tracking is driven by ResizeObserver, and happy-dom's implementation never

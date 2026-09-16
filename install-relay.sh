@@ -250,7 +250,7 @@ if [ "$node_major" -lt 20 ] || { [ "$node_major" -eq 20 ] && [ "$node_minor" -lt
   err node_old "Node.js >=20.12 is required, found $node_version"
 fi
 
-# The same binary the relay will spawn (relay/src/claudeCliConfig.ts reads
+# The same binary the relay will spawn (relay/src/runtimes/executables.ts reads
 # AGENT_BIN, then the older CLAUDE_BIN, then falls back to `claude`) — the
 # literal `claude` used to be checked here even when the relay was going to
 # run something else.
@@ -259,7 +259,7 @@ AGENT_BIN="${AGENT_BIN:-${CLAUDE_BIN:-claude}}"
 # Reported, never fatal. Nothing about installing a relay needs an agent
 # CLI to exist yet: the relay installs, starts and serves without one, and
 # it resolves the binary when a turn actually spawns it (resolveAgentBin,
-# relay/src/claudeCliConfig.ts) rather than at install time — so a CLI
+# relay/src/runtimes/executables.ts) rather than at install time — so a CLI
 # installed or logged into after this script ran simply works, with
 # nothing to re-run here. Refusing to install until one is present only
 # strands the user on an error whose instruction is to go do something

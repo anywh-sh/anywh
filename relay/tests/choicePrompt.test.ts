@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSession, sendUserMessage } from "./helpers/wsClient.js";
-import type { ChoiceQuestion } from "../src/mcpBridge.js";
+import type { ChoiceQuestion } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): exercises the
 // present_choice/permission-bridge flow end to end over the real WebSocket

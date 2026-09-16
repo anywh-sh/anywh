@@ -66,7 +66,7 @@ USAGE
 }
 
 # Mirror of ANYWH_ENV_DIR in infra/lib.sh (and of ENV_DIR in
-# relay/src/profileRegistry.ts) — keep all three in sync.
+# relay/src/host/profileRegistry.ts) — keep all three in sync.
 ANYWH_ENV_DIR="${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}"
 
 # Blocks until something accepts a connection on host:port, or gives up.

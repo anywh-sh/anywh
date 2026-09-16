@@ -66,7 +66,7 @@ export type StreamEventEnvelope =
  * Claude Code compacts the conversation (automatically when nearing the
  * window limit, or via manual `/compact`). The relay doesn't treat this
  * event specially: it already passes through the generic `onEvent` like any
- * other (`claudeSession.ts` doesn't filter by type), it just needed a type
+ * other (`runtimes/defs/claude/session.ts` doesn't filter by type), it just needed a type
  * here so the client can recognize it without needing `as`. */
 export interface CompactBoundaryMetadata {
   trigger: "auto" | "manual";

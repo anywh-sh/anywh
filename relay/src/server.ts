@@ -3,12 +3,13 @@ import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
-import { buildChildEnv } from "./claudeSession.js";
-import { AGENT_BIN } from "./claudeCliConfig.js";
-import { detectDefaultModel, type DefaultModelInfo } from "./defaultModel.js";
-import { listDirectories } from "./fsBrowse.js";
-import type { EditMessageError } from "./sharedSession.js";
-import { resolveEditorDescriptor } from "./editorHostInfo.js";
+import { CLAUDE_AGENT_ENV_OVERRIDES } from "./runtimes/defs/claude/index.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./runtimes/executables.js";
+import { buildChildEnv } from "./host/childEnv.js";
+import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
+import { listDirectories } from "./fs/fsBrowse.js";
+import type { EditMessageError } from "./session/sharedSession.js";
+import { resolveEditorDescriptor } from "./host/editorHostInfo.js";
 import {
   createFile,
   deleteFile,
@@ -19,10 +20,10 @@ import {
   resolveRawFile,
   resolveWithinRoot,
   type FilesError,
-} from "./fsFiles.js";
-import { FilesWatchSession } from "./fsWatch.js";
-import { readGitStatus } from "./gitStatus.js";
-import { defaultCwd, resolveShipped } from "./paths.js";
+} from "./fs/fsFiles.js";
+import { FilesWatchSession } from "./fs/fsWatch.js";
+import { readGitStatus } from "./host/gitStatus.js";
+import { defaultCwd, resolveShipped } from "./host/paths.js";
 import {
   deleteProfileFiles,
   ensureSelfRegistered,
@@ -32,18 +33,43 @@ import {
   listProfiles,
   slugify,
   updateProfileMeta,
-} from "./profileRegistry.js";
-import { deleteTheme, listThemes, saveTheme, ThemeValidationFailure } from "./themeRegistry.js";
-import { isValidThemeId } from "./theme.js";
-import { McpChoiceBridge, type ChoiceAnswer } from "./mcpBridge.js";
-import { McpPermissionBridge } from "./permissionBridge.js";
-import { SessionManager } from "./sessionManager.js";
-import { SessionStore, type ModelChoice, type PermissionMode } from "./sessionStore.js";
-import { killAllTerminalsForSession, killTerminal, scrollTerminal, spawnTerminal } from "./terminalSession.js";
-import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "./uploads.js";
+} from "./host/profileRegistry.js";
+import { deleteTheme, listThemes, saveTheme, ThemeValidationFailure } from "./host/themeRegistry.js";
+import { isValidThemeId } from "./host/theme.js";
+import { McpChoiceBridge } from "./bridges/mcpBridge.js";
+import { McpPermissionBridge } from "./bridges/permissionBridge.js";
+import { SessionManager } from "./session/sessionManager.js";
+import { SessionStore } from "./session/sessionStore.js";
+import { killAllTerminalsForSession, killTerminal, scrollTerminal, spawnTerminal } from "./host/terminalSession.js";
+import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "./fs/uploads.js";
+import {
+  isUserMessage,
+  isStopTurnMessage,
+  isEditMessageMessage,
+  isClearConversationMessage,
+  isSetCwdMessage,
+  isSetPermissionModeMessage,
+  isSetModelMessage,
+  isSetDraftMessage,
+  isRenameBody,
+  isIdBody,
+  isCreateProfileBody,
+  isPatchProfileBody,
+  isFilesCreateBody,
+  isFilesDeleteBody,
+  isFilesRenameBody,
+  isTerminalCloseBody,
+  isTerminalInputMessage,
+  isLoadOlderHistoryMessage,
+  isCancelBackgroundJobMessage,
+  isChoiceAnswerMessage,
+  isTerminalResizeMessage,
+  isWatchMessage,
+  isTerminalScrollMessage,
+} from "./protocol/guards.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
-// SCRIPTS_DIR in claudeCliConfig.ts — works running from `src/` (tsx),
+// SCRIPTS_DIR in runtimes/executables.ts — works running from `src/` (tsx),
 // `dist/` (tsc build, two levels below the repo root) or the macOS SEA
 // binary (`infra/` shipped flat next to it) alike.
 const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../infra/systemd/add-profile.sh", "infra/systemd/add-profile.sh");
@@ -57,7 +83,7 @@ const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../infra/systemd/
 const PACKAGE_JSON_PATH = resolveShipped(import.meta.url, "../package.json", "package.json");
 const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { version: string }).version;
 
-// Same seam as `AGENT_BIN` (claudeCliConfig.ts) — defaults to the bare
+// Same seam as `AGENT_BIN` (runtimes/executables.ts) — defaults to the bare
 // command name (works wherever `systemctl --user` is genuinely available),
 // overridable so a test never has to shell out to the REAL systemd user
 // session, which has no notion of "this is just a test": a real incident
@@ -86,193 +112,6 @@ const SESSIONS_FILE = process.env.RELAY_SESSIONS_FILE ?? "./sessions.local.json"
 // watched `anywh-bg` jobs (survives a relay restart).
 const BACKGROUND_JOBS_FILE = process.env.RELAY_BACKGROUND_JOBS_FILE ?? "./background-jobs.local.json";
 
-interface UserMessage {
-  type: "user_message";
-  text: string;
-}
-
-function isUserMessage(value: unknown): value is UserMessage {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "user_message" &&
-    typeof (value as { text?: unknown }).text === "string"
-  );
-}
-
-function isStopTurnMessage(value: unknown): value is { type: "stop_turn" } {
-  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "stop_turn";
-}
-
-/** Message edit — `fromEnd` counts from the end (`1` = the
- * user's last message). */
-function isEditMessageMessage(value: unknown): value is { type: "edit_message"; fromEnd: number; text: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "edit_message" &&
-    typeof (value as { fromEnd?: unknown }).fromEnd === "number" &&
-    typeof (value as { text?: unknown }).text === "string"
-  );
-}
-
-function isClearConversationMessage(value: unknown): value is { type: "clear_conversation" } {
-  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "clear_conversation";
-}
-
-function isSetCwdMessage(value: unknown): value is { type: "set_cwd"; path: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "set_cwd" &&
-    typeof (value as { path?: unknown }).path === "string"
-  );
-}
-
-const PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
-
-function isSetPermissionModeMessage(value: unknown): value is { type: "set_permission_mode"; mode: PermissionMode } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "set_permission_mode" &&
-    PERMISSION_MODES.includes((value as { mode?: unknown }).mode as PermissionMode)
-  );
-}
-
-// No fixed enum here on purpose — the model catalog is now whatever the
-// CLI's own `/model` probe reports (defaultModel.ts), which can grow without
-// a relay change. A garbage value just makes the CLI itself reject the turn
-// with its own error, same reasoning as the composer's `/model` parsing
-// (client/src/lib/slashCommands.ts).
-function isSetModelMessage(value: unknown): value is { type: "set_model"; model: ModelChoice } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "set_model" &&
-    typeof (value as { model?: unknown }).model === "string" &&
-    (value as { model: string }).model.length > 0
-  );
-}
-
-function isSetDraftMessage(value: unknown): value is { type: "set_draft"; draft: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "set_draft" &&
-    typeof (value as { draft?: unknown }).draft === "string"
-  );
-}
-
-function isRenameBody(value: unknown): value is { id: string; title: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { id?: unknown }).id === "string" &&
-    typeof (value as { title?: unknown }).title === "string"
-  );
-}
-
-function isIdBody(value: unknown): value is { id: string } {
-  return typeof value === "object" && value !== null && typeof (value as { id?: unknown }).id === "string";
-}
-
-function isCreateProfileBody(value: unknown): value is { label: string; home?: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { label?: unknown; home?: unknown };
-  return (
-    typeof candidate.label === "string" &&
-    candidate.label.trim().length > 0 &&
-    (candidate.home === undefined || typeof candidate.home === "string")
-  );
-}
-
-/** `themeId: null` is a meaningful value here (clear the selection, back to
- * the built-in theme), so it can't be folded into "field absent". */
-function isPatchProfileBody(value: unknown): value is { label?: string; colorIndex?: number; themeId?: string | null } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { label?: unknown; colorIndex?: unknown; themeId?: unknown };
-  if (candidate.label !== undefined && typeof candidate.label !== "string") return false;
-  if (candidate.colorIndex !== undefined && typeof candidate.colorIndex !== "number") return false;
-  if (candidate.themeId !== undefined && candidate.themeId !== null && typeof candidate.themeId !== "string") return false;
-  return candidate.label !== undefined || candidate.colorIndex !== undefined || candidate.themeId !== undefined;
-}
-
-function isFilesCreateBody(value: unknown): value is { session?: string; dir?: string | null; name: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { name?: unknown; dir?: unknown };
-  return typeof candidate.name === "string" && (candidate.dir === undefined || candidate.dir === null || typeof candidate.dir === "string");
-}
-
-function isFilesDeleteBody(value: unknown): value is { session?: string; path: string } {
-  return typeof value === "object" && value !== null && typeof (value as { path?: unknown }).path === "string";
-}
-
-function isFilesRenameBody(value: unknown): value is { session?: string; path: string; newName: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { path?: unknown }).path === "string" &&
-    typeof (value as { newName?: unknown }).newName === "string"
-  );
-}
-
-function isTerminalCloseBody(value: unknown): value is { session: string; term: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { session?: unknown }).session === "string" &&
-    typeof (value as { term?: unknown }).term === "string"
-  );
-}
-
-function isTerminalInputMessage(value: unknown): value is { type: "input"; data: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "input" &&
-    typeof (value as { data?: unknown }).data === "string"
-  );
-}
-
-/** Paginated history — request for turns older than the
- * initial tail, triggered by the user scrolling up in the UI. */
-function isLoadOlderHistoryMessage(value: unknown): value is { type: "load_older_history"; beforeCursor: number } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "load_older_history" &&
-    typeof (value as { beforeCursor?: unknown }).beforeCursor === "number"
-  );
-}
-
-/** Cancellation of an `anywh-bg` job requested by the UI. */
-function isCancelBackgroundJobMessage(value: unknown): value is { type: "cancel_background_job"; id: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "cancel_background_job" &&
-    typeof (value as { id?: unknown }).id === "string"
-  );
-}
-
-function isChoiceAnswerMessage(value: unknown): value is { type: "choice_answer"; promptId: string; answers: ChoiceAnswer[] } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "choice_answer" &&
-    typeof (value as { promptId?: unknown }).promptId === "string" &&
-    Array.isArray((value as { answers?: unknown }).answers)
-  );
-}
-
-function isTerminalResizeMessage(value: unknown): value is { type: "resize"; cols: number; rows: number } {
-  if (typeof value !== "object" || value === null || (value as { type?: unknown }).type !== "resize") return false;
-  const cols = (value as { cols?: unknown }).cols;
-  const rows = (value as { rows?: unknown }).rows;
-  return typeof cols === "number" && cols > 0 && typeof rows === "number" && rows > 0;
-}
-
 /** Mouse wheel over the embedded terminal — see `scrollTerminal` in
  * terminalSession.ts for why this drives tmux's `copy-mode` directly instead
  * of just being handled by xterm.js locally. `lines` is signed: positive
@@ -282,25 +121,6 @@ function statusForFilesError(error: FilesError | "invalid_name" | "already_exist
   if (error === "not_found") return 404;
   if (error === "already_exists") return 409;
   return 400; // invalid_path, outside_root, invalid_name
-}
-
-/** Work dir file panel's watch — always the client's full
- * current set of visible dirs/files, never an incremental add/remove (see
- * `FilesWatchSession`). */
-function isWatchMessage(value: unknown): value is { type: "watch"; dirs: string[]; files: string[] } {
-  if (typeof value !== "object" || value === null || (value as { type?: unknown }).type !== "watch") return false;
-  const dirs = (value as { dirs?: unknown }).dirs;
-  const files = (value as { files?: unknown }).files;
-  return Array.isArray(dirs) && dirs.every((d) => typeof d === "string") && Array.isArray(files) && files.every((f) => typeof f === "string");
-}
-
-function isTerminalScrollMessage(value: unknown): value is { type: "scroll"; lines: number } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "scroll" &&
-    typeof (value as { lines?: unknown }).lines === "number"
-  );
 }
 
 /** Every JSON route here took a body of a handful of fields, so a cap never
@@ -364,7 +184,9 @@ interface ClaudeAuthStatus {
  * exists to prevent. */
 function runClaudeAuthStatus(homeOverride: string | undefined): Promise<ClaudeAuthStatus> {
   return new Promise((resolveStatus, rejectStatus) => {
-    const child = spawn(AGENT_BIN, ["auth", "status", "--json"], { env: buildChildEnv(homeOverride) });
+    const child = spawn(AGENT_BIN, ["auth", "status", "--json"], {
+      env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
+    });
     let stdout = "";
     const timeout = setTimeout(() => {
       child.kill();
@@ -1236,7 +1058,7 @@ function handleTerminalConnection(socket: WebSocket, url: URL): void {
   const resolvedCwd = rawCwd ? resolveWithinRoot(sessionCwd, rawCwd) : null;
   const cwd = resolvedCwd?.ok ? resolvedCwd.path : sessionCwd;
   const term = spawnTerminal({
-    homeOverride: HOME_OVERRIDE,
+    env: buildChildEnv(HOME_OVERRIDE, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
     relayPort: PORT,
     chatSessionId,
     terminalId,

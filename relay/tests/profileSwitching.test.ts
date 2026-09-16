@@ -56,7 +56,7 @@ test("GET /control/profiles reports a second profile's running state from a real
   };
   const trabalho = listedRunning.profiles.find((profile) => profile.id === "trabalho");
   assert.ok(trabalho, "the planted profile should show up in the list");
-  assert.equal(trabalho!.running, true, "a profile whose port is genuinely open should report running: true");
+  assert.equal(trabalho.running, true, "a profile whose port is genuinely open should report running: true");
 
   // Same profile, port now closed — `running` must flip to false. This is
   // the real invariant behind "profile switching": the client's picker
@@ -89,4 +89,30 @@ test("GET /control/profiles reports a second profile's running state from a real
     profiles: { id: string }[];
   };
   assert.ok(!listedAfterDelete.profiles.some((profile) => profile.id === "trabalho"));
+});
+
+test("POST /control/profiles/validate checks the real fake-claude auth status, and flags a homeOverride already claimed by another profile", async () => {
+  const noBody = await fetch(httpUrl("/control/profiles/validate"), { method: "POST" });
+  assert.equal(noBody.status, 200, "the whole body is optional");
+  const noBodyResult = (await noBody.json()) as { loggedIn: boolean; email?: string; collidesWith?: string };
+  assert.equal(noBodyResult.loggedIn, true, "fake-claude.mjs's canned 'auth status --json' reply");
+  assert.equal(noBodyResult.email, "fake@anywh.test");
+  assert.equal(noBodyResult.collidesWith, undefined, "no other profile registered yet");
+
+  writeFileSync(join(server.envDir, "existing.env"), "RELAY_PORT=9999\nRELAY_HOME_OVERRIDE=/home/shared\n");
+
+  const collision = await fetch(httpUrl("/control/profiles/validate"), {
+    method: "POST",
+    body: JSON.stringify({ homeOverride: "/home/shared" }),
+  });
+  assert.equal(collision.status, 200);
+  const collisionResult = (await collision.json()) as { collidesWith?: string };
+  assert.equal(collisionResult.collidesWith, "existing", "same normalized homeOverride as the planted profile");
+
+  const noCollision = await fetch(httpUrl("/control/profiles/validate"), {
+    method: "POST",
+    body: JSON.stringify({ homeOverride: "/home/different" }),
+  });
+  const noCollisionResult = (await noCollision.json()) as { collidesWith?: string };
+  assert.equal(noCollisionResult.collidesWith, undefined);
 });

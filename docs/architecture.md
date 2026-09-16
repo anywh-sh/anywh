@@ -1,0 +1,101 @@
+# Architecture
+
+What lives where, and why — the folder-level map. [`CONTRIBUTING.md`](../CONTRIBUTING.md)
+covers `relay/` vs `client/` vs `infra/systemd/` at the top level; this
+document is about what's inside `relay/src/`, since that's the one that
+used to be 50 flat files with no folder to tell a reader what depended on
+what.
+
+## The two axes: `who` and `where`
+
+Two folders answer two different questions, and the split exists because
+the codebase used to answer both with "the Claude Code CLI" and that
+stopped being true the moment a second agent CLI became a real target.
+
+- **`runtimes/`** answers **who** — which agent CLI, and how it's driven.
+  Note the deliberate naming fight: in the devcontainer/Coder world
+  "runtime" usually means *where* code executes. This repo needs the word
+  for *who* instead (which agent), so `host/` below carries the *where*
+  meaning that "runtime" would otherwise have claimed.
+- **`host/`** answers **where** — the machine the relay itself runs on:
+  paths, the embedded terminal, systemd profile files, git status. Code
+  here has no idea which agent CLI exists, and doesn't need to.
+- **`session/`** is orchestration — turn lifecycle, broadcast to connected
+  clients, the approval/choice state machine, history paging. It knows
+  *that* an agent ran, and reads a def's public surface to drive one, but
+  doesn't know a def's internals.
+
+## The tree
+
+```
+relay/src/
+  server.ts              composition root — see below, it does not move
+  runtimes/
+    executables.ts        agent-CLI-binary resolution, PATH, credential strip
+    probes/                title/suggestion/default-model generation —
+                           agnostic in purpose, Claude-only in today's
+                           implementation
+    defs/claude/           Claude's own knowledge: process spawn, stream
+                           parsing, on-disk transcript format
+      index.ts              the ONLY file anything outside this folder may
+                           import from — see "the index.ts rule" below
+  session/                turn orchestration, broadcast, approval/choice
+                           state machine, history paging
+  bridges/                 MCP servers the relay runs for a turn to call
+                           back into (present_choice, permission prompts,
+                           plan-mode's text-marker fallback)
+  fs/                      the file panel's own read/write/browse of a
+                           session's working directory
+  host/                    machine-local concerns: paths, the embedded
+                           terminal, profile registry, theme validation,
+                           git status, background-job tracking
+```
+
+`protocol/` (type guards, the wire message shapes) doesn't exist yet — it
+arrives with the first extraction out of `server.ts` that needs it, not as
+an empty placeholder folder committed ahead of time.
+
+## `server.ts` doesn't move
+
+It's the composition root: config from env, the singletons, the ordered
+list of route/message handlers, the two HTTP listeners (the public one and
+the loopback-only one the MCP bridges use). Composition roots live outside
+what they compose — putting it inside `runtimes/`, `session/`, or any
+other folder it wires together would be structurally dishonest about what
+the file is. It's also what the integration tests import for its side
+effects (`relay/tests/helpers/testServer.ts`), so keeping it in place kept
+those 13 tests untouched by the folder split.
+
+## The `index.ts` rule
+
+Nothing outside `runtimes/defs/claude/` may import a file from inside it
+other than `index.ts`. This is the clause that keeps a second agent's
+private format — its own transcript shape, its own process-spawning
+detail — from leaking into `session/` or `server.ts` the way Claude's did
+before this existed. `import-x/no-restricted-paths` enforces it; a def
+that grows a second internal file re-exports through the barrel, it
+doesn't get imported around it.
+
+Three imports predate this split and reach across a boundary the rule
+would otherwise catch. They're declared inline (`eslint-disable-next-line`
+with a comment) rather than hidden, and each names the phase of the
+current multi-agent-CLI plan that removes it — see the comments
+themselves, in `runtimes/defs/claude/transcriptReader.ts`,
+`host/backgroundJobs.ts`, and `runtimes/defs/claude/session.ts`.
+
+## `client/`
+
+Still flat under `src/lib/` and `src/hooks/` as of this document — the
+same kind of split this file describes for the relay is planned there too
+(grouping into `lib/relay/`, `lib/profiles/`, `lib/theme/`, and so on) but
+hasn't happened yet. When it does, this section grows to describe it
+instead of pointing at a future phase.
+
+## Further reading
+
+- [`invariants.md`](./invariants.md) — the rules this structure exists to
+  make enforceable, several of which aren't fully true yet (the def-purity
+  one, in particular) and say so.
+- [`extract-test-refactor.md`](./extract-test-refactor.md) — the commit
+  workflow used to get an existing file to a new location or a new shape
+  without changing its behavior along the way.
