@@ -58,9 +58,6 @@ export interface AppSettings {
   updateMode?: UpdateMode;
   lastCheckedAt?: number;
   lastSeenVersion?: string;
-  /** A version stays dismissed only for itself — dismissing 0.1.7 must not
-   * suppress the banner once 0.1.8 ships. */
-  dismissedVersion?: string;
   /** GitHub's ETag on the last successful check, round-tripped as
    * `If-None-Match` so a daily check against an unchanged release costs
    * nothing against the anonymous rate limit. */
@@ -76,7 +73,6 @@ function isAppSettings(value: unknown): value is AppSettings {
   if (candidate.updateMode !== undefined && !VALID_UPDATE_MODES.includes(candidate.updateMode as UpdateMode)) return false;
   if (candidate.lastCheckedAt !== undefined && typeof candidate.lastCheckedAt !== "number") return false;
   if (candidate.lastSeenVersion !== undefined && typeof candidate.lastSeenVersion !== "string") return false;
-  if (candidate.dismissedVersion !== undefined && typeof candidate.dismissedVersion !== "string") return false;
   if (candidate.etag !== undefined && typeof candidate.etag !== "string") return false;
   if (candidate.nextCheckAllowedAt !== undefined && typeof candidate.nextCheckAllowedAt !== "number") return false;
   return true;

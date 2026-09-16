@@ -3,17 +3,17 @@ import { createServer } from "node:http";
 import { updateE2EFixtures } from "../../wdio.conf.js";
 
 // The in-app updater's Fase A (notify-only — Trello r63WoWD7): a GitHub
-// release check plus a banner, never an auto-restart. Every other tier
+// release check plus a modal, never an auto-restart. Every other tier
 // covers this feature in isolation — appUpdate.test.ts drives the
-// check/dismiss/scheduling policy with fake deps, UpdateBanner.test.tsx and
-// UpdatesSettings.test.tsx render the components standalone. None of them
-// proves the whole wire fires inside the real Tauri IPC and webview: a
-// genuine "Check now" click reaching the Rust command
-// (`app_check_latest_release`), the banner that command's answer produces,
-// and — the one thing no other tier can catch a typo in — that the
-// `opener:allow-open-url` capability actually permits `https://github.com/*`
-// (src-tauri/capabilities/default.json). A typo there is invisible
-// everywhere else and only shows up as a silently rejected `openUrl`.
+// check/scheduling policy with fake deps, UpdateModal.test.tsx renders the
+// component standalone. None of them proves the whole wire fires inside the
+// real Tauri IPC and webview: a genuine "Check for updates" click reaching
+// the Rust command (`app_check_latest_release`), the modal that command's
+// answer produces, and — the one thing no other tier can catch a typo in —
+// that the `opener:allow-open-url` capability actually permits
+// `https://github.com/*` (src-tauri/capabilities/default.json). A typo
+// there is invisible everywhere else and only shows up as a silently
+// rejected `openUrl`.
 //
 // No network: the Rust command reads `ANYWH_UPDATE_ENDPOINT` instead of the
 // real GitHub API when set (updater.rs's own escape hatch, built for this
@@ -32,17 +32,16 @@ describe("anywh in-app updater", () => {
   before(async () => {
     // The embedded WebKitGTK webview persists localStorage on real disk
     // across separate wdio invocations (unlike a fresh browser profile per
-    // run) — a prior run of this very spec leaves `dismissedVersion:
-    // "99.0.0"` behind, which then silently suppresses the banner on the
-    // next run and makes every assertion below flaky depending on what ran
-    // last. Clearing the updater's own settings slice up front is what
-    // makes this spec repeatable regardless of history — and it has to be
-    // followed by a reload: settings.ts loads the whole store into a
-    // module-level variable exactly once at import time and every read
-    // after that (`readSettings()`) returns that in-memory copy rather than
-    // re-parsing localStorage, so editing localStorage alone leaves the
-    // already-running app holding the stale value and re-persisting it on
-    // its own next write (e.g. this spec's own mode-control clicks).
+    // run) — a prior run of this very spec can leave `updateMode: "off"`
+    // behind, which then silently suppresses the check on the next run and
+    // makes every assertion below flaky depending on what ran last.
+    // Clearing the updater's own settings slice up front is what makes this
+    // spec repeatable regardless of history — and it has to be followed by
+    // a reload: settings.ts loads the whole store into a module-level
+    // variable exactly once at import time and every read after that
+    // (`readSettings()`) returns that in-memory copy rather than re-parsing
+    // localStorage, so editing localStorage alone leaves the already-running
+    // app holding the stale value and re-persisting it on its own next write.
     await browser.execute(() => {
       const raw = localStorage.getItem("anywh:settings");
       if (!raw) return;
@@ -71,82 +70,45 @@ describe("anywh in-app updater", () => {
     await new Promise((resolveClosed) => server.close(() => resolveClosed()));
   });
 
-  async function openUpdatesPage() {
+  async function openMenu() {
     const menu = await $('[aria-label="Menu"]');
     await menu.waitForExist({ timeout: 15000 });
     // Keyboard, not a click: a WebDriver click never delivers the
     // `pointerdown` a Radix trigger opens on (see shell.spec.js).
     await menu.click();
     await browser.keys("Enter");
+  }
 
-    const settingsItem = await $('[role="menuitem"]');
-    await settingsItem.waitForExist({ timeout: 5000 });
+  async function clickCheckForUpdates() {
+    await openMenu();
+
+    const item = await $('//*[@role="menuitem" and contains(., "Check for updates")]');
+    await item.waitForExist({ timeout: 5000 });
+    // Keyboard again, same reasoning as opening the trigger: this driver
+    // delivers no `pointerdown`, and Radix menu items select on pointer-up —
+    // a `click()` looks like it lands (the item highlights) but never fires
+    // `onSelect`. "Check for updates" is the second item, after "Settings",
+    // so one step down from the first item the menu opens focused on.
+    await browser.keys("ArrowDown");
     await browser.keys("Enter");
 
     const dialog = await $('[role="dialog"]');
-    await dialog.waitForExist({ timeout: 5000 });
-
-    // Plain `<button>` in the nav rail, not a portal-based trigger, so a
-    // driver click reaches it fine (see settings.spec.js's Appearance case).
-    const nav = await $('//nav//button[contains(., "Updates")]');
-    await nav.waitForExist({ timeout: 5000 });
-    await nav.click();
-
-    const heading = await $('//h2[contains(text(), "Updates")]');
-    await heading.waitForExist({ timeout: 5000 });
+    await dialog.waitForExist({ timeout: 10000 });
     return dialog;
   }
 
-  async function lastCheckedAt() {
-    return browser.execute(() => {
-      try {
-        return JSON.parse(localStorage.getItem("anywh:settings")).app?.lastCheckedAt ?? null;
-      } catch {
-        return null;
-      }
-    });
-  }
+  it("Check for updates reaches the real Rust command and opens the modal with the release", async () => {
+    const dialog = await clickCheckForUpdates();
 
-  async function clickCheckNow() {
-    const before = await lastCheckedAt();
-    const checkNow = await $('//button[contains(., "Check now")]');
-    await checkNow.waitForExist({ timeout: 5000 });
-    await checkNow.click();
-    // The store write in appUpdate.ts's runCheck() is the concrete signal a
-    // check actually completed — waiting for it beats an arbitrary sleep
-    // (.anywh/skills/tests/SKILL.md's determinism rule) and is the only way
-    // to synchronize on "nothing happened" in the dismissal case below.
-    await browser.waitUntil(async () => (await lastCheckedAt()) !== before, {
-      timeout: 10000,
-      timeoutMsg: "Check now never updated lastCheckedAt — the request to the fixture endpoint didn't complete",
-    });
-  }
-
-  it("renders the three-state mode control, operable via real clicks", async () => {
-    await openUpdatesPage();
-
-    const radiogroup = await $('[role="radiogroup"]');
-    await expect(radiogroup).toBeExisting();
-
-    const off = await $('//button[@role="radio" and text()="Off"]');
-    await off.waitForExist({ timeout: 5000 });
-    await off.click();
-    await expect(await off.getAttribute("aria-checked")).toBe("true");
-
-    const notify = await $('//button[@role="radio" and text()="Notify"]');
-    await notify.click();
-    await expect(await notify.getAttribute("aria-checked")).toBe("true");
-    await expect(await off.getAttribute("aria-checked")).toBe("false");
+    // Tag-agnostic, relative XPath, not `*=text` — that bare partial-text
+    // selector silently resolves to nothing under this driver (it's
+    // WebdriverIO's "partial link text" strategy, which only matches an
+    // `<a>`), and the version here renders in a plain `<p>`.
+    const version = await dialog.$(`.//*[contains(text(), "${FAKE_VERSION}")]`);
+    await version.waitForExist({ timeout: 5000 });
   });
 
-  it("Check now reaches the real Rust command and surfaces a banner", async () => {
-    await clickCheckNow();
-
-    const banner = await $(`//*[contains(text(), "${FAKE_VERSION}")]`);
-    await banner.waitForExist({ timeout: 5000 });
-  });
-
-  it("the banner's action opens the release through the real opener capability", async () => {
+  it("the modal's action opens the release through the real opener capability", async () => {
     const viewRelease = await $('//button[contains(., "View the release")]');
     await viewRelease.waitForExist({ timeout: 5000 });
     await viewRelease.click();
@@ -164,22 +126,46 @@ describe("anywh in-app updater", () => {
     );
   });
 
-  it("dismissing the banner suppresses it for that version, even across another check", async () => {
-    const dismiss = await $('[aria-label="Dismiss update notice"]');
-    await dismiss.waitForExist({ timeout: 5000 });
-    await dismiss.click();
+  it("closing the modal leaves the footer indicator, which reopens it", async () => {
+    const dialog = () => $('[role="dialog"]');
+    // Scoped to the dialog, not a bare `$('[aria-label="Close"]')` — the
+    // window's own close button (WindowControls.tsx) carries the identical
+    // aria-label, "Close", and sits earlier in the DOM than the dialog's
+    // portal content. An unscoped query matches that one first and quits
+    // the whole app instead of the modal — confirmed the hard way (this
+    // exact mistake killed the embedded WebDriver mid-run).
+    const closeButton = await dialog().$('[aria-label="Close"]');
+    await closeButton.waitForExist({ timeout: 5000 });
+    await closeButton.click();
 
-    const banner = () => $(`//*[contains(text(), "${FAKE_VERSION}")]`);
-    await browser.waitUntil(async () => !(await banner().isExisting()), {
+    await browser.waitUntil(async () => !(await dialog().isExisting()), {
       timeout: 5000,
-      timeoutMsg: "the banner stayed after being dismissed",
+      timeoutMsg: "the modal stayed open after its close button was clicked",
     });
 
-    await clickCheckNow();
+    // Only a `button` matches here — the dialog's own body also names the
+    // version, but as plain text, and it is gone with the dialog closed.
+    const indicator = await $(`//button[contains(., "${FAKE_VERSION}")]`);
+    await indicator.waitForExist({ timeout: 5000 });
+    await indicator.click();
 
-    // Same tag as before, already dismissed — appUpdate.ts's runCheck()
-    // compares the new version against `dismissedVersion` and must not
-    // re-open the banner it was just told to stop showing.
-    await expect(await banner().isExisting()).toBe(false);
+    await dialog().waitForExist({ timeout: 5000 });
+    const version = await dialog().$(`.//*[contains(text(), "${FAKE_VERSION}")]`);
+    await expect(version).toBeExisting();
+  });
+
+  it("the automatic-check toggle inside the modal is operable via real clicks", async () => {
+    const radiogroup = await $('[role="radiogroup"]');
+    await expect(radiogroup).toBeExisting();
+
+    const off = await $('//button[@role="radio" and text()="Off"]');
+    await off.waitForExist({ timeout: 5000 });
+    await off.click();
+    await expect(await off.getAttribute("aria-checked")).toBe("true");
+
+    const on = await $('//button[@role="radio" and text()="On"]');
+    await on.click();
+    await expect(await on.getAttribute("aria-checked")).toBe("true");
+    await expect(await off.getAttribute("aria-checked")).toBe("false");
   });
 });

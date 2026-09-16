@@ -5,10 +5,10 @@ import { type AppSettings, type UpdateMode, readSettings, writeSettings } from "
 import { inTauri } from "@/lib/tauri";
 
 /**
- * Fase A2 of the in-app updater plan: the store a banner (Fase A3) will read
- * from, plus the scheduling policy and the Rust bindings that feed it.
- * Same shape as `profileRevocation.ts` — a module-level value, a listener
- * set, `useSyncExternalStore` on the consuming side — because this needs the
+ * Fase A2 of the in-app updater plan: the store `UpdateModal` reads from,
+ * plus the scheduling policy and the Rust bindings that feed it. Same shape
+ * as `profileRevocation.ts` — a module-level value, a listener set,
+ * `useSyncExternalStore` on the consuming side — because this needs the
  * same "read outside React, subscribe from a hook" access.
  */
 
@@ -27,15 +27,6 @@ function notify(): void {
 
 export function markUpdateAvailable(info: UpdateAvailableInfo): void {
   current = info;
-  notify();
-}
-
-/** Dismissal is by version, persisted so it survives a restart — dismissing
- * 0.1.7 must not suppress the banner once 0.1.8 ships. */
-export function dismissUpdate(version: string): void {
-  if (current?.version === version) current = null;
-  const settings = readSettings();
-  writeSettings({ ...settings, app: { ...settings.app, dismissedVersion: version } });
   notify();
 }
 
@@ -149,7 +140,7 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   if (result.etag) nextApp.etag = result.etag;
   writeSettings({ ...settings, app: nextApp });
 
-  if (version !== app?.dismissedVersion && isNewerVersion(version, APP_VERSION)) {
+  if (isNewerVersion(version, APP_VERSION)) {
     markUpdateAvailable({ version, htmlUrl: result.htmlUrl });
   }
 }
@@ -166,7 +157,7 @@ export async function performUpdateCheck(now: number = Date.now(), deps: CheckDe
   await runCheck(now, deps);
 }
 
-/** The Settings page's "check now" button — same check, deliberately
+/** The title bar's "Check for updates" item — same check, deliberately
  * bypassing `isCheckDue`: a user pressing the button is the due condition. */
 export async function forceUpdateCheck(deps: CheckDeps = REAL_DEPS): Promise<void> {
   await runCheck(Date.now(), deps);
