@@ -396,6 +396,16 @@ export const ptBr: Dictionary = {
         "Esse dispositivo já foi desconectado da conta pelo painel — removê-lo aqui só limpa a entrada local, sem efeito nenhum do lado do servidor.",
       lastProfile: "É o único perfil neste device — removê-lo leva o app de volta à tela de primeiro uso.",
     },
+    update: {
+      eyebrow: "atualização disponível",
+      body: "O anywh {version} está disponível.",
+      viewRelease: "Ver o release",
+      copyCommand: "Copiar o comando de atualização",
+      copied: "Copiado",
+      copyFailed: "Não foi possível copiar",
+      restartHint: "Feche e abra de novo para usar essa versão.",
+      dismiss: "Dispensar aviso de atualização",
+    },
     workingDirectory: {
       chooseFolder: "Escolher pasta",
       connecting: "Conectando…",
@@ -430,6 +440,7 @@ export const ptBr: Dictionary = {
       app: "app",
       profiles: "perfis",
       appearance: "Aparência",
+      updates: "Atualizações",
     },
     appearance: {
       title: "Aparência",
@@ -485,6 +496,27 @@ export const ptBr: Dictionary = {
         description: "Vale para as mensagens e o campo de escrita. O padrão é 15.",
         sample: "O socket do relay não reconecta quando o app volta do background.",
         reset: "restaurar",
+      },
+    },
+    updates: {
+      title: "Atualizações",
+      scope: "vale para o app inteiro",
+      mode: {
+        title: "Atualizações automáticas",
+        description: "Como o anywh confere se há uma versão nova no GitHub, uma vez por dia.",
+        notify: "Avisar",
+        autoDownload: "Baixar automaticamente",
+        off: "Desligado",
+      },
+      notUpdatable: "Esta instalação não consegue aplicar uma atualização sozinha — baixar automaticamente está desligado.",
+      checkNow: {
+        label: "Checar agora",
+        checking: "Checando…",
+      },
+      currentVersion: "Versão atual",
+      lastChecked: {
+        label: "Última checagem",
+        never: "Nunca",
       },
     },
     profile: {

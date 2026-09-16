@@ -396,6 +396,16 @@ export const en: Dictionary = {
         "This device was already disconnected from the account on the dashboard — removing it here only clears the local entry, with no effect on the server side.",
       lastProfile: "It's the only profile on this device — removing it takes the app back to the first-run screen.",
     },
+    update: {
+      eyebrow: "update available",
+      body: "anywh {version} is available.",
+      viewRelease: "View the release",
+      copyCommand: "Copy the update command",
+      copied: "Copied",
+      copyFailed: "Couldn't copy",
+      restartHint: "Quit and reopen it to pick up this version.",
+      dismiss: "Dismiss update notice",
+    },
     workingDirectory: {
       chooseFolder: "Choose folder",
       connecting: "Connecting…",
@@ -430,6 +440,7 @@ export const en: Dictionary = {
       app: "app",
       profiles: "profiles",
       appearance: "Appearance",
+      updates: "Updates",
     },
     appearance: {
       title: "Appearance",
@@ -485,6 +496,27 @@ export const en: Dictionary = {
         description: "Applies to messages and the composer. The default is 15.",
         sample: "The relay's socket doesn't reconnect when the app returns from the background.",
         reset: "restore",
+      },
+    },
+    updates: {
+      title: "Updates",
+      scope: "applies to the whole app",
+      mode: {
+        title: "Automatic updates",
+        description: "How anywh checks GitHub for a newer release, once a day.",
+        notify: "Notify",
+        autoDownload: "Download automatically",
+        off: "Off",
+      },
+      notUpdatable: "This install can't apply an update on its own — download automatically is turned off.",
+      checkNow: {
+        label: "Check now",
+        checking: "Checking…",
+      },
+      currentVersion: "Current version",
+      lastChecked: {
+        label: "Last checked",
+        never: "Never",
       },
     },
     profile: {

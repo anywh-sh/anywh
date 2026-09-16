@@ -52,6 +52,7 @@ export interface Dictionary {
       app: string;
       profiles: string;
       appearance: string;
+      updates: string;
     };
     appearance: {
       title: string;
@@ -110,6 +111,31 @@ export interface Dictionary {
          * something before it is committed to. */
         sample: string;
         reset: string;
+      };
+    };
+    updates: {
+      title: string;
+      scope: string;
+      mode: {
+        title: string;
+        description: string;
+        notify: string;
+        autoDownload: string;
+        off: string;
+      };
+      /** Shown under the mode control when this install can't apply an
+       * update on its own — disables the auto-download option rather than
+       * hiding it, so the reason stays visible instead of the option just
+       * vanishing. */
+      notUpdatable: string;
+      checkNow: {
+        label: string;
+        checking: string;
+      };
+      currentVersion: string;
+      lastChecked: {
+        label: string;
+        never: string;
       };
     };
     profile: {
@@ -825,6 +851,25 @@ export interface Dictionary {
       /** Same note as `settings.danger.lastProfile`, in the banner's own
        * confirmation. */
       lastProfile: string;
+    };
+    /** The single, app-wide banner a newer GitHub release triggers — unlike
+     * `revoked` above, this is never plural: a revoked connection is
+     * per-profile, but there is only one running app to be behind on. */
+    update: {
+      eyebrow: string;
+      /** `{version}` */
+      body: string;
+      viewRelease: string;
+      copyCommand: string;
+      copied: string;
+      /** The clipboard can refuse (no permission, no secure context) — said
+       * on the button itself, same reasoning as `firstRun.copy.failed`. */
+      copyFailed: string;
+      /** Shown alongside `copyCommand`'s action — the process already
+       * running keeps its old inode either way, so this is the one honest
+       * thing to say about what happens next. */
+      restartHint: string;
+      dismiss: string;
     };
     /** The folder a conversation runs in. Lives in the title bar since the
      * shell redesign, but it is still per-conversation state. */

@@ -13,6 +13,7 @@ import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { MobileShell } from "@/components/shell/MobileShell";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
+import { UpdateBanner } from "@/components/shell/UpdateBanner";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
@@ -952,6 +953,7 @@ function AppShell() {
          * stop working. The session list keeps working — its rows are cached
          * locally and still readable — so covering it would claim otherwise. */}
         <div className="relative flex min-w-0 flex-1 flex-col">
+          <UpdateBanner />
           <RevokedProfileBanners />
           {isCompact && (
             <div className="flex items-center gap-2 p-2">
