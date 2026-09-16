@@ -11,7 +11,7 @@
 // `process.env` reads, and everything it imports, only run once this line
 // actually executes.
 const { readFileSync } = require("node:fs");
-const { applyEnvFileContent } = require("../dist/envFile.js");
+const { applyEnvFileContent } = require("../dist/host/envFile.js");
 
 const envFilePath = process.env.RELAY_ENV_FILE;
 if (envFilePath) {
