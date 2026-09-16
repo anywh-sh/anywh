@@ -79,6 +79,12 @@ tauri-plugin-macos-permissions = "2"
 # relay_setup.rs's address suggestion enumerates the machine's interfaces —
 # the one thing std has no API for.
 if-addrs = "0.15"
+# updater.rs's release check. `rustls-tls` instead of the default
+# (OpenSSL-backed) TLS backend: OpenSSL is the one dependency that turns
+# into a cross-compile trap on the macOS-x64 and ubuntu-22.04-arm release
+# legs, and this only ever talks to api.github.com, nothing that needs a
+# platform-native trust store.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 cpal = "0.15"
 whisper-rs = "0.16"
 rubato = "0.15"

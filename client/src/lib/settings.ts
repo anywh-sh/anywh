@@ -47,12 +47,54 @@ function isProfileSettings(value: unknown): value is ProfileSettings {
   return true;
 }
 
+export type UpdateMode = "notify" | "auto-download" | "off";
+
+const VALID_UPDATE_MODES: UpdateMode[] = ["notify", "auto-download", "off"];
+
+/** App-wide, never per-profile — there is one running binary, not one per
+ * profile, so this lives beside `global`/`byProfile` rather than inside
+ * either of them. */
+export interface AppSettings {
+  updateMode?: UpdateMode;
+  lastCheckedAt?: number;
+  lastSeenVersion?: string;
+  /** A version stays dismissed only for itself — dismissing 0.1.7 must not
+   * suppress the banner once 0.1.8 ships. */
+  dismissedVersion?: string;
+  /** GitHub's ETag on the last successful check, round-tripped as
+   * `If-None-Match` so a daily check against an unchanged release costs
+   * nothing against the anonymous rate limit. */
+  etag?: string;
+  /** Set from a 403's `x-ratelimit-reset` — back off instead of retrying
+   * into the same limit every launch. */
+  nextCheckAllowedAt?: number;
+}
+
+function isAppSettings(value: unknown): value is AppSettings {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.updateMode !== undefined && !VALID_UPDATE_MODES.includes(candidate.updateMode as UpdateMode)) return false;
+  if (candidate.lastCheckedAt !== undefined && typeof candidate.lastCheckedAt !== "number") return false;
+  if (candidate.lastSeenVersion !== undefined && typeof candidate.lastSeenVersion !== "string") return false;
+  if (candidate.dismissedVersion !== undefined && typeof candidate.dismissedVersion !== "string") return false;
+  if (candidate.etag !== undefined && typeof candidate.etag !== "string") return false;
+  if (candidate.nextCheckAllowedAt !== undefined && typeof candidate.nextCheckAllowedAt !== "number") return false;
+  return true;
+}
+
 interface SettingsStore {
   version: 1;
   /** Applies to every profile that doesn't override it. */
   global: ProfileSettings;
   /** Per-profile overrides, keyed by `Profile.id`. */
   byProfile: Record<string, ProfileSettings>;
+  /** Optional on purpose, same reasoning as every field of `ProfileSettings`
+   * — absence is a valid, meaningful state (no bump to `version` needed: a
+   * store from before this field existed already validates without it). A
+   * corrupted `app` is handled by `loadStore`, not by `isSettingsStore` —
+   * it falls back to `undefined` on its own rather than failing the whole
+   * store and taking `byProfile` down with it. */
+  app?: AppSettings;
 }
 
 const STORAGE_KEY = "anywh:settings";
@@ -61,6 +103,10 @@ const OLD_MODEL_PREFERENCE_KEY = "anywh:model-preference";
 
 const EMPTY_STORE: SettingsStore = { version: 1, global: {}, byProfile: {} };
 
+/** Deliberately doesn't look at `candidate.app` at all — a store that is
+ * otherwise well-formed must validate regardless of what `app` holds,
+ * malformed or absent alike. `loadStore` below is what decides `app`'s own
+ * fate, in isolation from this check. */
 function isSettingsStore(value: unknown): value is SettingsStore {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -113,7 +159,11 @@ function loadStore(): SettingsStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    return migrateLegacyKeys(isSettingsStore(parsed) ? parsed : EMPTY_STORE);
+    if (!isSettingsStore(parsed)) return migrateLegacyKeys(EMPTY_STORE);
+    // A corrupted `app` falls back to `undefined` on its own — it never
+    // takes `global`/`byProfile` down with it.
+    const app = isAppSettings(parsed.app) ? parsed.app : undefined;
+    return migrateLegacyKeys({ ...parsed, app });
   } catch {
     return migrateLegacyKeys(EMPTY_STORE);
   }
