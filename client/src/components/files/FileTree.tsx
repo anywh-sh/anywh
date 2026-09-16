@@ -335,7 +335,6 @@ export function FileTree({
       delete next[changedDir.path];
       return next;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changedDir]);
 
   return (

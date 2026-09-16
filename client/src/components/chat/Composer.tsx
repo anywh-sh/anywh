@@ -398,7 +398,7 @@ function createSlashCommandExtension(
                 editor: props.editor,
                 props: { items: currentItems, selectedIndex, onHover: applySelection, onPick: currentCommand },
               });
-              unmount = props.mount(component.element as HTMLElement);
+              unmount = props.mount(component.element);
             },
             onUpdate: (props) => {
               currentItems = props.items;

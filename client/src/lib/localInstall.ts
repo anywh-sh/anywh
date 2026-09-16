@@ -332,8 +332,13 @@ export function evaluateAgentReadiness(result: Prerequisites): LocalFailure | nu
 /** The "use dev mode" action: no service gets registered, the relay is
  * started by hand — the sandbox a developer's own machine, which already
  * runs real profiles, should stay in. Re-checks, since the service-manager
- * condition no longer applies. */
-export function useDevMode(): void {
+ * condition no longer applies.
+ *
+ * Named `enableDevMode`, not `useDevMode` — a plain function whose name
+ * starts with `use` reads as a React Hook to both eslint's rules-of-hooks
+ * (name-based, no way to know it isn't one) and to anyone skimming a call
+ * site inside a plain event handler. */
+export function enableDevMode(): void {
   publish({ ...state, mode: "dev" });
   void runPrereqs();
 }

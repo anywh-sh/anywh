@@ -37,7 +37,7 @@ describe("relayClient HTTP helpers, connect token", () => {
   // the whole app down with it.
   it("fetchSessions normalizes a missing lastActiveAt to null", async () => {
     const body = JSON.stringify({ sessions: [{ id: "s-1", title: "Old relay" }] });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)) as unknown as typeof fetch);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)) as unknown);
 
     await expect(fetchSessions("127.0.0.1", 8765)).resolves.toEqual([
       { id: "s-1", title: "Old relay", lastActiveAt: null },
@@ -46,7 +46,7 @@ describe("relayClient HTTP helpers, connect token", () => {
 
   it("fetchSessions keeps a lastActiveAt the relay did send", async () => {
     const body = JSON.stringify({ sessions: [{ id: "s-1", title: "New relay", lastActiveAt: 1_700_000_000_000 }] });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)) as unknown as typeof fetch);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body)) as unknown);
 
     await expect(fetchSessions("127.0.0.1", 8765)).resolves.toEqual([
       { id: "s-1", title: "New relay", lastActiveAt: 1_700_000_000_000 },
