@@ -150,16 +150,22 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
 
   if (collapsed) {
     return (
-      // Narrower than the card it replaces and centered — a tab sitting on
-      // top of the composer, not a full-width bar the same size as either.
-      <div className={cn("flex justify-center", isIOS() ? "shrink-0" : "mx-3 mt-3")}>
+      // Narrower than the card it replaces and centered — a tab welded onto
+      // the composer below rather than a second floating box the same size
+      // as either. No bottom border, and a negative margin overlapping the
+      // composer's own top border by 1px (`z-10` keeps this tab painted over
+      // that border despite Composer following it in the DOM) — the
+      // negative amount is the composer's own spacing toward it canceled
+      // out plus that 1px: desktop's is `my-3` on Composer's own box
+      // (Composer.tsx), iOS's is the parent stack's `gap-2` (ChatPanel.tsx).
+      <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0 -mb-[9px]" : "mx-3 mt-3 -mb-[13px]")}>
         <button
           type="button"
           onClick={() => setCollapsed(false)}
           aria-label={dict.chat.choice.reopen}
-          className="flex w-[72%] items-center gap-2 border border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-hover"
+          className="flex w-[72%] items-center gap-2 border-t border-x border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-hover"
         >
-          <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+          <span className="size-1.5 shrink-0 animate-pulse bg-primary" />
           <span className="font-medium">{dict.chat.choice.pending}</span>
           {questions.length > 1 && (
             <span className="font-mono text-[11px] text-muted-foreground">
