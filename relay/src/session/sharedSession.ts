@@ -1,20 +1,13 @@
 import type { WebSocket } from "ws";
 import { ClaudeSession, type ClaudeEvent, readHistoryFromTranscript, transcriptPath, forkTruncatedTranscript } from "../runtimes/defs/claude/index.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
-import {
-  CHOICE_ALLOWED_TOOL,
-  CHOICE_MCP_SERVER_NAME,
-  CHOICE_USAGE_HINT,
-  type ChoiceAnswer,
-  type ChoiceQuestion,
-  type McpChoiceBridge,
-} from "../bridges/mcpBridge.js";
-import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
+import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
+import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
 import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
-import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
+import { buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig } from "./turnMessages.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
@@ -736,89 +729,17 @@ export class SharedSession {
             checkPermission: (toolName, input, toolUseId) => this.checkPermission(toolName, input, toolUseId),
           })
         : undefined;
-    // `permissionRegistration`'s server (`anywh-permission`) still waits on
-    // a real human (an approve/deny decision) with no bytes sent back until
-    // that happens — from the CLI's point of view that's indistinguishable
-    // from a hung connection. Real finding (2026-09-09): the CLI's own
-    // default idle timeout for `"http"` MCP servers is 5 minutes
-    // (undocumented in `--help`, confirmed against the CLI's own docs), well
-    // inside how long a human can plausibly take to notice a prompt and
-    // answer it — the panel was observed disappearing out from under the
-    // human mid-decision. `timeout` here is meant to override that per
-    // server (also acts as a floor under the idle timeout, per the same
-    // docs).
-    //
-    // UPDATE (2026-09-09): this override does NOT
-    // actually work — confirmed live, a call that never resolves still
-    // errors out with "The operation timed out" at ~6 minutes with this
-    // field set to 24h, matching a known upstream regression (per-server
-    // `timeout` silently ignored for HTTP transport since CLI v2.1.113). Two
-    // more mitigations were tried and also failed live at the same
-    // ~6-minute mark: `requestTimeout = 0` on both of this relay's own HTTP
-    // servers (server.ts, ruling out our own server as the culprit) and
-    // `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` as an env var on the child
-    // (host/childEnv.ts's `buildChildEnv`, a separate code path from this
-    // JSON field, confirmed reaching the child's env and still not
-    // preventing the timeout). All three are kept anyway — they cost nothing
-    // and may start working if Anthropic fixes the underlying CLI bug(s) —
-    // but treat this as an OPEN, unfixed limitation of the CLI itself, not a
-    // solved problem: permission-approval will still degrade to an
-    // auto-deny after ~6 minutes of no human answer (`sendTurn` surfaces
-    // that as a normal tool error, same as any other `claude` failure — the
-    // turn doesn't hang, it just can't get the approval it asked for).
-    //
-    // `choiceRegistration`'s server (`anywh-choice`) no longer needs any of
-    // this: `presentChoice` (mcpBridge.ts's `ChoiceHost`) replies to
-    // `present_choice` immediately now (the deferred lifecycle this feature
-    // introduced), so there's nothing left for the CLI's idle/wall-clock
-    // timeout to ever catch — the call is already done well within the
-    // default before either limit could apply. No `timeout` override is set
-    // for it below; the field only matters for `permissionRegistration`.
-    //
-    // `alwaysLoad` is a separate, CONFIRMED-working fix for a different bug
-    // in the same area, unrelated to timeouts, still needed by BOTH servers:
-    // the CLI's MCP tool search can leave `present_choice` listed by name
-    // only, schema deferred, and a follow-up system-prompt reminder telling
-    // the model to `ToolSearch` for it before calling it was observed live
-    // to still get skipped — the model had that exact
-    // instruction in context and didn't reach for it anyway, a
-    // prompt-adherence gap no wording reliably closes. `alwaysLoad: true`
-    // sidesteps the model's choice entirely: the CLI docs confirm it keeps
-    // a server's tools out of deferral regardless of `ENABLE_TOOL_SEARCH`,
-    // so both tools arrive with full schema already loaded, same as a
-    // built-in tool — nothing to discover, nothing to forget to search for.
-    // Both servers qualify for the doc's own stated use case ("a small
-    // number of tools that Claude needs on every turn").
-    const HUMAN_RESPONSE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
-    const mcpServers: Record<string, { type: "http"; url: string; timeout?: number; alwaysLoad: true }> = {};
-    if (choiceRegistration) {
-      mcpServers[CHOICE_MCP_SERVER_NAME] = {
-        type: "http",
-        url: `${this.options.mcpBridgeBaseUrl}/${choiceRegistration.token}`,
-        alwaysLoad: true,
-      };
-    }
-    if (permissionRegistration) {
-      mcpServers[PERMISSION_MCP_SERVER_NAME] = {
-        type: "http",
-        url: `${this.options.mcpPermissionBridgeBaseUrl}/${permissionRegistration.token}`,
-        timeout: HUMAN_RESPONSE_TIMEOUT_MS,
-        alwaysLoad: true,
-      };
-    }
-    const mcp =
-      choiceRegistration || permissionRegistration
-        ? {
-            configJson: JSON.stringify({ mcpServers }),
-            allowedTools: choiceRegistration ? CHOICE_ALLOWED_TOOL : undefined,
-            permissionPromptTool: permissionRegistration ? PERMISSION_PROMPT_TOOL : undefined,
-            // Force the model onto our `present_choice` instead of the CLI's
-            // own native `AskUserQuestion` — see the field's doc comment on
-            // `McpSpawnConfig` for why the native one silently fails here.
-            disallowedTools: choiceRegistration ? "AskUserQuestion" : undefined,
-            extraSystemPrompt: choiceRegistration ? CHOICE_USAGE_HINT : undefined,
-          }
-        : undefined;
+    // The actual CLI-arg assembly (which servers, which flags, the known-
+    // ineffective idle-timeout override, the alwaysLoad fix) is pure and
+    // lives in `buildMcpSpawnConfig` (turnMessages.ts) — see its doc comment
+    // for the full reasoning. This is only the "which mode gets which
+    // bridge" decision, which needs `this.permissionMode` and stays here.
+    const mcp = buildMcpSpawnConfig({
+      choiceToken: choiceRegistration?.token,
+      permissionToken: permissionRegistration?.token,
+      mcpBridgeBaseUrl: this.options.mcpBridgeBaseUrl,
+      mcpPermissionBridgeBaseUrl: this.options.mcpPermissionBridgeBaseUrl,
+    });
 
     // Hoisted out of the `try` below so the plan-mode marker check after it
     // can see the turn's outcome — needs to run AFTER the `finally` block,
