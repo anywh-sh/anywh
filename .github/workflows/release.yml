@@ -178,6 +178,16 @@ jobs:
       # Same packages pr.yml's client-e2e job installs, for the same reason:
       # cpal (voice) needs ALSA headers and whisper-rs's bindgen needs
       # libclang, neither of which ships on the bare ubuntu-latest image.
+      #
+      # xdg-utils is here for the arm64 leg specifically. The hosted arm64
+      # images are leaner than their x64 counterparts, and the one thing
+      # they turned out to be missing is the `xdg-mime` this package
+      # provides — which Tauri's Linux bundler shells out to at the very
+      # end, so the leg compiled the whole app for seven minutes and then
+      # died on `xdg-mime binary not found /usr/bin/xdg-mime` with every
+      # bundle unwritten. Installed on both legs rather than conditionally:
+      # x64 already has it, apt is a no-op there, and a package list that
+      # differs per architecture is a trap for whoever edits it next.
       - name: Install Tauri Linux + audio/whisper build dependencies
         if: startsWith(matrix.platform, 'ubuntu')
         run: |
@@ -188,7 +198,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libasound2-dev \
-            libclang-dev
+            libclang-dev \
+            xdg-utils
 
       # whisper-rs's bindgen needs libclang too, and windows-latest doesn't
       # ship one either — unvalidated until this job runs for real (same
