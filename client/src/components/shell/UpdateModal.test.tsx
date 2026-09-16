@@ -11,6 +11,13 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   },
 }));
 
+const relaunch = vi.fn();
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: (...args: unknown[]) => {
+    relaunch(...args);
+  },
+}));
+
 const UNKNOWN_ORIGIN: InstallOrigin = { channel: "unknown", updatable: false, execPath: "", marker: null };
 
 const { getInstallOriginMock } = vi.hoisted(() => ({
@@ -24,17 +31,29 @@ vi.mock("@/lib/appUpdate", async (importOriginal) => {
 });
 
 import { UpdateModal } from "@/components/shell/UpdateModal";
-import { clearUpdate, markUpdateAvailable } from "@/lib/appUpdate";
+import { clearDownloadedUpdate, clearUpdate, markUpdateAvailable, performUpdateCheck } from "@/lib/appUpdate";
 import { APP_VERSION } from "@/lib/appVersion";
-import { readSettings } from "@/lib/settings";
+import { readSettings, writeSettings } from "@/lib/settings";
+import type { Update } from "@/lib/updaterPlugin";
 
 const copy = en.shell.updateModal;
+
+/** Same reasoning as appUpdate.test.ts's own `fakeUpdate` — `Update` is a
+ * real Tauri plugin class, this only fakes the members the modal and
+ * `installAndRestart` actually touch. */
+function fakeUpdate(version: string, install: () => Promise<void> = vi.fn()): Update {
+  return { version, install, close: vi.fn() } as unknown as Update;
+}
+
+const UPDATABLE_ORIGIN: InstallOrigin = { channel: "appimage", updatable: true, execPath: "/x", marker: null };
 
 afterEach(() => {
   cleanup();
   clearUpdate();
+  clearDownloadedUpdate();
   localStorage.clear();
   openUrl.mockClear();
+  relaunch.mockClear();
   getInstallOriginMock.mockClear();
   getInstallOriginMock.mockResolvedValue(UNKNOWN_ORIGIN);
 });
@@ -104,5 +123,47 @@ describe("UpdateModal", () => {
 
     expect(screen.getByRole("radio", { name: copy.checkAutomaticallyOff })).toHaveAttribute("aria-checked", "true");
     expect(readSettings().app?.updateMode).toBe("off");
+  });
+
+  it("doesn't offer auto-download on an origin that can't apply one", () => {
+    render(<UpdateModal open onOpenChange={() => {}} />);
+    expect(screen.queryByRole("radio", { name: copy.checkAutomaticallyAutoDownload })).not.toBeInTheDocument();
+  });
+
+  it("offers and persists auto-download once the origin says it's updatable", async () => {
+    getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+    render(<UpdateModal open onOpenChange={() => {}} />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("radio", { name: copy.checkAutomaticallyAutoDownload }));
+
+    expect(readSettings().app?.updateMode).toBe("auto-download");
+  });
+
+  it("shows the ready-to-restart state once auto-download has fetched an update, and installs+relaunches on click", async () => {
+    getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+    writeSettings({ ...readSettings(), app: { updateMode: "auto-download" } });
+
+    const install = vi.fn().mockResolvedValue(undefined);
+    await performUpdateCheck(Date.now(), {
+      getInstallOrigin: () => Promise.resolve(UPDATABLE_ORIGIN),
+      checkLatestRelease: () =>
+        Promise.resolve({ kind: "available", tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
+      downloadUpdate: () => Promise.resolve(fakeUpdate("999.0.0", install)),
+    });
+
+    render(<UpdateModal open onOpenChange={() => {}} />);
+
+    expect(screen.getByText(copy.readyTitle)).toBeInTheDocument();
+    expect(screen.getByText(copy.readyBody.replace("{version}", "999.0.0"))).toBeInTheDocument();
+    // The plain "available" action never renders once a download is ready —
+    // there's nothing left to view a release page or copy a command for.
+    expect(screen.queryByRole("button", { name: copy.viewRelease })).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: copy.restartNow }));
+
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(relaunch).toHaveBeenCalledTimes(1);
   });
 });

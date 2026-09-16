@@ -2,10 +2,19 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBar } from "@/components/shell/StatusBar";
+import { clearDownloadedUpdate, clearUpdate, performUpdateCheck } from "@/lib/appUpdate";
 import { APP_VERSION } from "@/lib/appVersion";
 import { defaultLocale } from "@/i18n/config";
 import { en } from "@/i18n/en";
 import type { Profile } from "@/lib/profiles";
+import { readSettings, writeSettings } from "@/lib/settings";
+import type { Update } from "@/lib/updaterPlugin";
+
+/** Same reasoning as appUpdate.test.ts's own `fakeUpdate` — `Update` is a
+ * real Tauri plugin class, this only fakes the field the footer reads. */
+function fakeUpdate(version: string): Update {
+  return { version, close: vi.fn() } as unknown as Update;
+}
 
 const copy = en.shell.statusBar;
 // The status bar's default locale context (no LocaleProvider in these
@@ -27,6 +36,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  clearUpdate();
+  clearDownloadedUpdate();
+  localStorage.clear();
 });
 
 describe("StatusBar", () => {
@@ -128,6 +140,24 @@ describe("StatusBar", () => {
     view.rerender(<StatusBar profile={{ ...profile }} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
     await Promise.resolve();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows 'restart into' instead of 'update to' once a download is ready", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ repo: false }));
+    writeSettings({ ...readSettings(), app: { updateMode: "auto-download" } });
+    await performUpdateCheck(Date.now(), {
+      getInstallOrigin: () => Promise.resolve({ channel: "appimage", updatable: true, execPath: "/x", marker: null }),
+      checkLatestRelease: () =>
+        Promise.resolve({ kind: "available", tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
+      downloadUpdate: () => Promise.resolve(fakeUpdate("999.0.0")),
+    });
+
+    const onOpenUpdateModal = vi.fn();
+    render(<StatusBar profile={null} sessionId={null} isRunning={false} windowFocused onOpenUpdateModal={onOpenUpdateModal} />);
+
+    const button = screen.getByRole("button", { name: copy.updateReady.replace("{version}", "999.0.0") });
+    expect(button).toBeInTheDocument();
+    expect(screen.queryByText(copy.updateAvailable.replace("{version}", "999.0.0"))).not.toBeInTheDocument();
   });
 
   it("drops the answer to a session the user already navigated away from", async () => {

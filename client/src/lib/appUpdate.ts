@@ -3,6 +3,7 @@ import { APP_VERSION } from "@/lib/appVersion";
 import { isNewerVersion } from "@/lib/semver";
 import { type AppSettings, type UpdateMode, readSettings, writeSettings } from "@/lib/settings";
 import { inTauri } from "@/lib/tauri";
+import { downloadRealUpdate, type Update } from "@/lib/updaterPlugin";
 
 /**
  * Fase A2 of the in-app updater plan: the store `UpdateModal` reads from,
@@ -43,6 +44,48 @@ export function getAvailableUpdate(): UpdateAvailableInfo | null {
 export function subscribeAppUpdate(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
+// The downloaded-and-ready-to-install update — phase B3. Separate store from
+// `current` above: that one is driven by the cheap GitHub check and can be
+// dismissed per-version, this one holds a live `Update` resource (a handle
+// into the Rust plugin, not plain data) and is only ever cleared by actually
+// installing it or by a newer download replacing it.
+// ---------------------------------------------------------------------------
+
+let downloaded: Update | null = null;
+const downloadListeners = new Set<() => void>();
+
+function notifyDownload(): void {
+  for (const listener of downloadListeners) listener();
+}
+
+/** Closes the previous `Update` resource (if any) before replacing it — an
+ * `Update` extends Tauri's `Resource`, so an unclosed one leaks its Rust-side
+ * handle for the rest of the app's run. */
+function markDownloaded(update: Update): void {
+  if (downloaded && downloaded !== update) void downloaded.close();
+  downloaded = update;
+  notifyDownload();
+}
+
+/** Called once the user actually installs it (see `updaterPlugin.ts`'s
+ * `installAndRestart`) — the app is about to relaunch, so there's nothing
+ * left to hold a reference to, but clearing it keeps the store honest if the
+ * relaunch is ever slow enough for a re-render to observe it in between. */
+export function clearDownloadedUpdate(): void {
+  downloaded = null;
+  notifyDownload();
+}
+
+export function getDownloadedUpdate(): Update | null {
+  return downloaded;
+}
+
+export function subscribeDownloadedUpdate(listener: () => void): () => void {
+  downloadListeners.add(listener);
+  return () => downloadListeners.delete(listener);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,9 +153,10 @@ export function normalizeUpdateMode(mode: UpdateMode, updatable: boolean): Updat
 interface CheckDeps {
   getInstallOrigin: () => Promise<InstallOrigin>;
   checkLatestRelease: (etag: string | undefined) => Promise<LatestReleaseCheck>;
+  downloadUpdate: () => Promise<Update | null>;
 }
 
-const REAL_DEPS: CheckDeps = { getInstallOrigin, checkLatestRelease };
+const REAL_DEPS: CheckDeps = { getInstallOrigin, checkLatestRelease, downloadUpdate: downloadRealUpdate };
 
 async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   const settings = readSettings();
@@ -142,6 +186,20 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
 
   if (isNewerVersion(version, APP_VERSION)) {
     markUpdateAvailable({ version, htmlUrl: result.htmlUrl });
+
+    // Real download only in auto-download mode, and only once per version —
+    // the plugin's own check() keeps returning the same update every day
+    // until the user actually restarts into it, since the running version
+    // hasn't changed yet.
+    if (nextApp.updateMode === "auto-download" && getDownloadedUpdate()?.version !== version) {
+      try {
+        const update = await deps.downloadUpdate();
+        if (update) markDownloaded(update);
+      } catch {
+        // Best-effort — a network hiccup here is no different from one in
+        // checkLatestRelease above, and the next scheduled check retries.
+      }
+    }
   }
 }
 

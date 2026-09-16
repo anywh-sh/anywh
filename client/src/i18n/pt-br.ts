@@ -293,6 +293,7 @@ export const ptBr: Dictionary = {
       detachedHead: "Nenhum branch ativo — mostrando o commit atual",
       appVersion: "anywh {version}",
       updateAvailable: "Atualizar para {version}",
+      updateReady: "Reiniciar na {version}",
     },
     sidebar: {
       label: "Barra lateral",
@@ -415,6 +416,10 @@ export const ptBr: Dictionary = {
       checkAutomatically: "Checar atualizações automaticamente",
       checkAutomaticallyOn: "Ligado",
       checkAutomaticallyOff: "Desligado",
+      checkAutomaticallyAutoDownload: "Baixar automaticamente",
+      readyTitle: "Atualização pronta",
+      readyBody: "O anywh {version} foi baixado e verificado. Reinicie para aplicar.",
+      restartNow: "Reiniciar agora",
     },
     workingDirectory: {
       chooseFolder: "Escolher pasta",

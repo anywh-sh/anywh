@@ -1,12 +1,29 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getAvailableUpdate, getInstallOrigin, subscribeAppUpdate, type InstallOrigin, type UpdateAvailableInfo } from "@/lib/appUpdate";
+import {
+  getAvailableUpdate,
+  getDownloadedUpdate,
+  getInstallOrigin,
+  subscribeAppUpdate,
+  subscribeDownloadedUpdate,
+  type InstallOrigin,
+  type UpdateAvailableInfo,
+} from "@/lib/appUpdate";
 import { type AppSettings, type UpdateMode, readSettings, subscribeSettings, writeSettings } from "@/lib/settings";
+import type { Update } from "@/lib/updaterPlugin";
 
 /** Reactive read of the update the last scheduled check found, if any —
  * `null` while none is available or it was dismissed. The check itself runs
  * on a timer in `App.tsx`, never from here, so this hook only ever reads. */
 export function useAppUpdate(): UpdateAvailableInfo | null {
   return useSyncExternalStore(subscribeAppUpdate, getAvailableUpdate);
+}
+
+/** Reactive read of an update that auto-download mode has already fetched
+ * and verified — non-`null` means there's nothing left to do but install
+ * and restart (`installAndRestart` in `updaterPlugin.ts`), never another
+ * download. */
+export function useDownloadedUpdate(): Update | null {
+  return useSyncExternalStore(subscribeDownloadedUpdate, getDownloadedUpdate);
 }
 
 /** Reactive read/write of the app-wide update settings — same read/write

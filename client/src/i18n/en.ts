@@ -293,6 +293,7 @@ export const en: Dictionary = {
       detachedHead: "No branch checked out — showing the current commit",
       appVersion: "anywh {version}",
       updateAvailable: "Update to {version}",
+      updateReady: "Restart into {version}",
     },
     sidebar: {
       label: "Sidebar",
@@ -415,6 +416,10 @@ export const en: Dictionary = {
       checkAutomatically: "Check for updates automatically",
       checkAutomaticallyOn: "On",
       checkAutomaticallyOff: "Off",
+      checkAutomaticallyAutoDownload: "Auto-download",
+      readyTitle: "Update ready",
+      readyBody: "anywh {version} has been downloaded and verified. Restart to apply it.",
+      restartNow: "Restart now",
     },
     workingDirectory: {
       chooseFolder: "Choose folder",
