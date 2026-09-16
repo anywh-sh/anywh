@@ -150,25 +150,26 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
 
   if (collapsed) {
     return (
-      <button
-        type="button"
-        onClick={() => setCollapsed(false)}
-        aria-label={dict.chat.choice.reopen}
-        className={cn(
-          "flex items-center gap-2 border border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-hover",
-          isIOS() ? "shrink-0" : "mx-3 mt-3",
-        )}
-      >
-        <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
-        <span className="font-medium">{dict.chat.choice.pending}</span>
-        {questions.length > 1 && (
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {dict.chat.choice.questionPosition.replace("{index}", String(index + 1)).replace("{total}", String(questions.length))}
-          </span>
-        )}
-        <span className="flex-1" />
-        <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
-      </button>
+      // Narrower than the card it replaces and centered — a tab sitting on
+      // top of the composer, not a full-width bar the same size as either.
+      <div className={cn("flex justify-center", isIOS() ? "shrink-0" : "mx-3 mt-3")}>
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label={dict.chat.choice.reopen}
+          className="flex w-[72%] items-center gap-2 border border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-hover"
+        >
+          <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+          <span className="font-medium">{dict.chat.choice.pending}</span>
+          {questions.length > 1 && (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {dict.chat.choice.questionPosition.replace("{index}", String(index + 1)).replace("{total}", String(questions.length))}
+            </span>
+          )}
+          <span className="flex-1" />
+          <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </div>
     );
   }
 
