@@ -719,6 +719,10 @@ export interface Dictionary {
        * release exists, so there is one thing there rather than a number
        * plus a separate badge competing for the same sliver of width. */
       updateAvailable: string;
+      /** `{version}` — replaces `updateAvailable` once auto-download has
+       * already fetched and verified the update; nothing left to do but
+       * restart into it. */
+      updateReady: string;
     };
     sidebar: {
       label: string;
@@ -881,6 +885,16 @@ export interface Dictionary {
       checkAutomatically: string;
       checkAutomaticallyOn: string;
       checkAutomaticallyOff: string;
+      /** Third option of the same control — only rendered when
+       * `InstallOrigin.updatable` is true, since it's a setting that would
+       * otherwise silently do nothing. */
+      checkAutomaticallyAutoDownload: string;
+      /** Shown instead of `title` once auto-download has already fetched and
+       * verified the update. */
+      readyTitle: string;
+      /** `{version}` — shown instead of `body` in the same state. */
+      readyBody: string;
+      restartNow: string;
     };
     /** The folder a conversation runs in. Lives in the title bar since the
      * shell redesign, but it is still per-conversation state. */

@@ -69,11 +69,6 @@
       "count": 2
     }
   },
-  "src/lib/appUpdate.test.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 5
-    }
-  },
   "src/lib/fsBrowse.ts": {
     "@typescript-eslint/no-unsafe-return": {
       "count": 1

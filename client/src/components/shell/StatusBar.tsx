@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpCircle } from "lucide-react";
 
 import { LanguageControl } from "@/components/shell/LanguageControl";
-import { useAppUpdate } from "@/hooks/useAppUpdate";
+import { useAppUpdate, useDownloadedUpdate } from "@/hooks/useAppUpdate";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/appVersion";
 import { getGitStatus } from "@/lib/gitClient";
@@ -55,6 +55,7 @@ function sameRepo(a: RepoState, b: RepoState): boolean {
 export function StatusBar({ profile, sessionId, isRunning, windowFocused, onOpenUpdateModal }: StatusBarProps) {
   const dict = useDict();
   const update = useAppUpdate();
+  const downloaded = useDownloadedUpdate();
   const profileId = profile?.id ?? null;
   const key = profileId && sessionId ? `${profileId}:${sessionId}` : null;
 
@@ -112,7 +113,17 @@ export function StatusBar({ profile, sessionId, isRunning, windowFocused, onOpen
           {repo.branch} · {changes}
         </span>
       )}
-      {update ? (
+      {downloaded ? (
+        <button
+          type="button"
+          onClick={onOpenUpdateModal}
+          className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          title={dict.shell.statusBar.updateReady.replace("{version}", downloaded.version)}
+        >
+          <ArrowUpCircle className="size-3" strokeWidth={1.5} />
+          {dict.shell.statusBar.updateReady.replace("{version}", downloaded.version)}
+        </button>
+      ) : update ? (
         <button
           type="button"
           onClick={onOpenUpdateModal}
