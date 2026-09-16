@@ -21,6 +21,7 @@ import type { Theme, ThemeValidationError } from "@/lib/theme";
 import { recordAvailableModels } from "@/lib/modelCatalog";
 import { authHeaders } from "@/lib/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
+import { WS_PROTOCOL_VERSION } from "@/lib/protocolVersion";
 
 export type {
   BackgroundJobSummary,
@@ -312,6 +313,13 @@ export interface RelayClientCallbacks {
    * whoever consumes this should stop showing "reconnecting" and offer to
    * remove the profile instead. */
   onRevoked?: () => void;
+  /** The relay just announced a `WS_PROTOCOL_VERSION` this build doesn't
+   * match — also terminal, same treatment as `onRevoked`: no automatic
+   * reconnect follows (retrying would just hit the same mismatch again),
+   * and whoever consumes this should tell the user to update the app
+   * instead of showing "reconnecting". `relayVersion` is whatever the relay
+   * announced, for a message that can name the actual gap. */
+  onProtocolMismatch?: (relayVersion: number) => void;
   /** Recent tail of this session's history — sent once per connection,
    * right before `onCaughtUp`. Optional only during the
    * migration: whoever doesn't yet hydrate the log in bulk simply
@@ -495,7 +503,14 @@ export class RelayClient {
       const parsed: unknown = JSON.parse(event.data as string);
       if (!isRelayMessage(parsed)) return;
 
-      if (parsed.type === "claude_event") {
+      if (parsed.type === "protocol_version") {
+        if (parsed.version !== WS_PROTOCOL_VERSION) {
+          console.error(`relay speaks protocol v${String(parsed.version)}, this build speaks v${String(WS_PROTOCOL_VERSION)}`);
+          this.shouldReconnect = false;
+          this.callbacks.onProtocolMismatch?.(parsed.version);
+          socket.close();
+        }
+      } else if (parsed.type === "claude_event") {
         this.callbacks.onEvent(parsed.event);
       } else if (parsed.type === "turn_complete") {
         this.callbacks.onTurnComplete(parsed.stopped === true);

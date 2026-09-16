@@ -96,6 +96,11 @@ export interface UseRelayClientResult {
    * new session with no completed turn yet (see sharedSession.ts), and
    * goes back to `null` after a `/clear`. */
   contextUsage: ContextUsage | null;
+  /** The relay announced a `WS_PROTOCOL_VERSION` this build doesn't match —
+   * terminal, same shape as `useProfileRevoked`: no reconnect is coming, the
+   * only way out is updating the app. `null` in the overwhelmingly common
+   * case (matching versions, or not resolved yet). */
+  protocolMismatch: number | null;
   /** Last `compact_boundary` seen, if any — meant for a transient toast
    * in the UI, not persistent state (see `CompactBoundaryEvent`). */
   compactBoundary: CompactBoundaryEvent | null;
@@ -164,6 +169,7 @@ export function useRelayClient(
   const [model, setModelState] = useState<ModelChoice | null>(null);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [protocolMismatch, setProtocolMismatch] = useState<number | null>(null);
   const [compactBoundary, setCompactBoundary] = useState<CompactBoundaryEvent | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJobSummary[]>([]);
@@ -186,6 +192,7 @@ export function useRelayClient(
     setModelState(null);
     setDefaultModel(null);
     setContextUsage(null);
+    setProtocolMismatch(null);
     setCompactBoundary(null);
     setSuggestion(null);
     setBackgroundJobs([]);
@@ -233,6 +240,7 @@ export function useRelayClient(
       onConnectionChange: setConnected,
       onReconnecting: () => optionsRef.current.onReconnecting?.(),
       onRevoked: () => markProfileRevoked(profile.id),
+      onProtocolMismatch: setProtocolMismatch,
       onConversationReset: () => optionsRef.current.onConversationReset?.(),
       onHistoryPage: (page) => optionsRef.current.onHistoryPage?.(page),
       onOlderHistory: (page) => optionsRef.current.onOlderHistory?.(page),
@@ -423,6 +431,7 @@ export function useRelayClient(
     model,
     defaultModel,
     contextUsage,
+    protocolMismatch,
     compactBoundary,
     suggestion,
     dismissSuggestion,

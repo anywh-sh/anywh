@@ -196,6 +196,10 @@ export const en: Dictionary = {
         modelGeneric: "Uses {model}",
       },
     },
+    protocolMismatch: {
+      title: "Update required",
+      message: "This relay and this app no longer speak the same protocol version. Update the app to keep using this session.",
+    },
   },
   panels: {
     openFiles: "Open files",
