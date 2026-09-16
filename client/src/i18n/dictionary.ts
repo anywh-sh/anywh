@@ -166,6 +166,26 @@ export interface Dictionary {
         description: string;
         swatch: string;
       };
+      /** Only ever rendered for the profile whose relay runs on this same
+       * machine, and only once it's strictly older than the app — see
+       * relayDrift.ts. A relay ahead of the app (a self-hosted upgrade
+       * that ran first) says nothing here on purpose. */
+      relay: {
+        title: string;
+        /** `{relayVersion}`, `{appVersion}` */
+        description: string;
+        update: string;
+        updating: string;
+        /** The installer never restarts a service it finds already
+         * running — re-running it must not be what drops an in-flight
+         * conversation — so this is the one honest thing to say about
+         * what a successful run just did. */
+        updated: string;
+        /** Homebrew owns the relay on macOS (relay_setup.rs refuses to
+         * pass --version there for the same reason) — shown above the
+         * literal command instead of a button that can't do anything. */
+        brewHint: string;
+      };
     };
     danger: {
       heading: string;

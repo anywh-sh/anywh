@@ -547,6 +547,14 @@ export const en: Dictionary = {
         description: "Marks the tabs and the sessions that belong to this profile.",
         swatch: "Colour {number}",
       },
+      relay: {
+        title: "Relay version",
+        description: "This machine's relay is on {relayVersion} — anywh itself is on {appVersion}.",
+        update: "Update the relay",
+        updating: "Updating…",
+        updated: "Downloaded — takes effect the next time the relay restarts.",
+        brewHint: "Homebrew owns this relay on macOS:",
+      },
     },
     danger: {
       heading: "danger zone",
