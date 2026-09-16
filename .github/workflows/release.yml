@@ -112,6 +112,16 @@ jobs:
           # because it is a larger change than the bug warrants today.
           - platform: ubuntu-22.04
             sidecarTarget: linux-x64
+          # The arm64 counterpart of the leg above, on a hosted arm64 runner
+          # (free for public repos, same as the ones build-relay already
+          # uses) rather than cross-compiled: Tauri's Linux bundlers shell
+          # out to the host's own dpkg/appimagetool, which have no
+          # cross-arch mode worth the trouble. Pinned to 22.04 for the exact
+          # reason the x64 leg is — the oldest runner we build on sets the
+          # oldest distro the bundle can run on, and 24.04's glibc 2.39
+          # would put the floor above Debian 12 and Ubuntu 22.04.
+          - platform: ubuntu-22.04-arm
+            sidecarTarget: linux-arm64
           - platform: windows-latest
             sidecarTarget: win32-x64
           - platform: macos-14
@@ -153,7 +163,7 @@ jobs:
       # cpal (voice) needs ALSA headers and whisper-rs's bindgen needs
       # libclang, neither of which ships on the bare ubuntu-latest image.
       - name: Install Tauri Linux + audio/whisper build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
