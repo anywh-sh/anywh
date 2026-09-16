@@ -29,8 +29,26 @@
       "count": 1
     }
   },
+  "src/components/settings/ProfileSettings.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 4
+    }
+  },
   "src/components/settings/ThemeImportDialog.tsx": {
     "@typescript-eslint/switch-exhaustiveness-check": {
+      "count": 1
+    }
+  },
+  "src/components/settings/UpdatesSettings.test.tsx": {
+    "@typescript-eslint/require-await": {
+      "count": 1
+    }
+  },
+  "src/components/shell/UpdateBanner.test.tsx": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    },
+    "@typescript-eslint/require-await": {
       "count": 1
     }
   },
