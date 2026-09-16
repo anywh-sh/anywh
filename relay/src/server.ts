@@ -3,8 +3,9 @@ import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
-import { buildChildEnv } from "./runtimes/defs/claude/session.js";
-import { AGENT_BIN } from "./runtimes/executables.js";
+import { CLAUDE_AGENT_ENV_OVERRIDES } from "./runtimes/defs/claude/index.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./runtimes/executables.js";
+import { buildChildEnv } from "./host/childEnv.js";
 import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
 import { listDirectories } from "./fs/fsBrowse.js";
 import type { EditMessageError } from "./session/sharedSession.js";
@@ -355,7 +356,9 @@ interface ClaudeAuthStatus {
  * exists to prevent. */
 function runClaudeAuthStatus(homeOverride: string | undefined): Promise<ClaudeAuthStatus> {
   return new Promise((resolveStatus, rejectStatus) => {
-    const child = spawn(AGENT_BIN, ["auth", "status", "--json"], { env: buildChildEnv(homeOverride) });
+    const child = spawn(AGENT_BIN, ["auth", "status", "--json"], {
+      env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
+    });
     let stdout = "";
     const timeout = setTimeout(() => {
       child.kill();
@@ -1222,7 +1225,7 @@ function handleTerminalConnection(socket: WebSocket, url: URL): void {
   const resolvedCwd = rawCwd ? resolveWithinRoot(sessionCwd, rawCwd) : null;
   const cwd = resolvedCwd?.ok ? resolvedCwd.path : sessionCwd;
   const term = spawnTerminal({
-    homeOverride: HOME_OVERRIDE,
+    env: buildChildEnv(HOME_OVERRIDE, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
     relayPort: PORT,
     chatSessionId,
     terminalId,

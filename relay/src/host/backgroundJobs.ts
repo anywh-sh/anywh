@@ -2,7 +2,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, sta
 import { dirname } from "node:path";
 // Known reverse-direction dependency: a host/ file reaching into
 // runtimes/defs/ for a type. Dies once background-job detection parses the
-// normalized wire event instead of this Claude-shaped one.
+// normalized wire event instead of this Claude-shaped one (Phase 7).
+// eslint-disable-next-line import-x/no-restricted-paths
 import type { ClaudeEvent } from "../runtimes/defs/claude/session.js";
 
 // Tracks jobs started via `anywh-bg` (relay/scripts)

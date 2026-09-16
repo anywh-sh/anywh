@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
-import { ClaudeSession, type ClaudeEvent } from "../runtimes/defs/claude/session.js";
+import { ClaudeSession, type ClaudeEvent, readHistoryFromTranscript, transcriptPath, forkTruncatedTranscript } from "../runtimes/defs/claude/index.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import {
   CHOICE_ALLOWED_TOOL,
@@ -14,8 +14,6 @@ import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type McpPermissionB
 import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
-import { readHistoryFromTranscript, transcriptPath } from "../runtimes/defs/claude/transcriptReader.js";
-import { forkTruncatedTranscript } from "../runtimes/defs/claude/transcriptFork.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
@@ -1028,7 +1026,7 @@ export class SharedSession {
     // ~6-minute mark: `requestTimeout = 0` on both of this relay's own HTTP
     // servers (server.ts, ruling out our own server as the culprit) and
     // `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` as an env var on the child
-    // (runtimes/defs/claude/session.ts's `buildChildEnv`, a separate code path from this
+    // (host/childEnv.ts's `buildChildEnv`, a separate code path from this
     // JSON field, confirmed reaching the child's env and still not
     // preventing the timeout). All three are kept anyway — they cost nothing
     // and may start working if Anthropic fixes the underlying CLI bug(s) —
