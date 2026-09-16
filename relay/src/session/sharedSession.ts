@@ -18,17 +18,36 @@ import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type Edi
 import { buildApprovalQuestion, buildBackgroundJobFollowupPrompt, isApproved } from "./turnMessages.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
+import {
+  type BroadcastMessage,
+  broadcast,
+  broadcastBackgroundJobs,
+  broadcastChoicePrompt,
+  broadcastChoiceResolved,
+  broadcastContextUsage,
+  broadcastContextUsageReset,
+  broadcastConversationReset,
+  broadcastCwdState,
+  broadcastDraftState,
+  broadcastExcept,
+  broadcastModelState,
+  broadcastPermissionMode,
+  broadcastSuggestion,
+  broadcastTitle,
+  broadcastTurnState,
+  sendBackgroundJobs,
+  sendChoicePrompt,
+  sendContextUsage,
+  sendCwdState,
+  sendDraftState,
+  sendModelState,
+  sendPermissionMode,
+  sendSuggestion,
+  sendTitle,
+  sendTurnState,
+} from "./broadcast.js";
 
-export type BroadcastMessage =
-  | { type: "claude_event"; event: ClaudeEvent }
-  | { type: "turn_complete"; stopped?: boolean }
-  | { type: "turn_error"; message: string };
-
-// `suggestion` (and other "current" states: cwd_state, permission_mode_state
-// etc.) deliberately doesn't enter `BroadcastMessage`/`history` — they're
-// sent directly via socket.send instead of `this.broadcast`, and a
-// reconnection picks up the current value via `addClient`, not a replay of
-// past changes.
+export type { BroadcastMessage } from "./broadcast.js";
 
 export interface SharedSessionOptions {
   /** session_id already persisted for this session, if any. */
@@ -1092,136 +1111,88 @@ export class SharedSession {
     }
   }
 
-  /** Always sends, even an empty list — same as `sendCwdState`/`sendTurnState`,
-   * there's no "hasn't arrived yet" ambiguity here to justify a guard (a
-   * session with no jobs and one that never had one look the same to the
-   * client: neither shows the indicator). */
   private sendBackgroundJobs(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "background_job_state", jobs: this.backgroundJobs }));
+    sendBackgroundJobs(target, this.backgroundJobs);
   }
 
   private broadcastBackgroundJobs(): void {
-    for (const client of this.clients) this.sendBackgroundJobs(client);
+    broadcastBackgroundJobs(this.clients, this.backgroundJobs);
   }
 
-  /** Same "current state" pattern as `sendCwdState`/`sendTurnState`:
-   * a device that reconnects (or connects for the first time) mid-wait needs
-   * to see the pending question immediately, not just devices that were
-   * already there when it was asked. */
   private sendChoicePrompt(target: WebSocket, prompt: { promptId: string; questions: ChoiceQuestion[] }, kind: "approval" | "choice"): void {
-    target.send(JSON.stringify({ type: "choice_prompt", promptId: prompt.promptId, questions: prompt.questions, kind }));
+    sendChoicePrompt(target, prompt, kind);
   }
 
-  /** Takes the prompt explicitly (rather than reading `this.pendingChoice`/
-   * `this.pendingApproval` itself) since both `presentChoice` and
-   * `presentApprovalChoice` call this right after setting their own
-   * respective field — passing it in keeps this function agnostic to which
-   * of the two slots it's broadcasting for. `kind` is passed alongside for
-   * the same reason and tells the client which close behavior applies —
-   * see the `choice_prompt` doc comment in relay-types.ts. */
   private broadcastChoicePrompt(prompt: { promptId: string; questions: ChoiceQuestion[] }, kind: "approval" | "choice"): void {
-    for (const client of this.clients) this.sendChoicePrompt(client, prompt, kind);
+    broadcastChoicePrompt(this.clients, prompt, kind);
   }
 
-  /** Tells every connected device the prompt is gone — including whichever
-   * one(s) didn't answer, so a stale picker doesn't linger once another
-   * device already resolved it. */
   private broadcastChoiceResolved(promptId: string): void {
-    for (const client of this.clients) client.send(JSON.stringify({ type: "choice_resolved", promptId }));
+    broadcastChoiceResolved(this.clients, promptId);
   }
 
   private sendTurnState(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "turn_state", active: this.turnStartedAt !== null, startedAt: this.turnStartedAt ?? undefined }));
+    sendTurnState(target, this.turnStartedAt);
   }
 
   private broadcastTurnState(): void {
-    for (const client of this.clients) this.sendTurnState(client);
+    broadcastTurnState(this.clients, this.turnStartedAt);
   }
 
   private sendCwdState(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "cwd_state", cwd: this.cwd, locked: this.locked }));
+    sendCwdState(target, this.cwd, this.locked);
   }
 
   private broadcastCwdState(): void {
-    for (const client of this.clients) this.sendCwdState(client);
+    broadcastCwdState(this.clients, this.cwd, this.locked);
   }
 
   private sendPermissionMode(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "permission_mode_state", mode: this.permissionMode }));
+    sendPermissionMode(target, this.permissionMode);
   }
 
   private broadcastPermissionMode(): void {
-    for (const client of this.clients) this.sendPermissionMode(client);
+    broadcastPermissionMode(this.clients, this.permissionMode);
   }
 
-  /** Unlike `sendContextUsage`, always sends — an undefined `model` is a
-   * valid, final state ("never chosen, uses the CLI's default"), not a
-   * transient "hasn't arrived yet", so there's no ambiguity in notifying
-   * the client right at connection. */
   private sendModelState(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "model_state", model: this.model ?? null }));
+    sendModelState(target, this.model);
   }
 
   private broadcastModelState(): void {
-    for (const client of this.clients) this.sendModelState(client);
+    broadcastModelState(this.clients, this.model);
   }
 
   private sendDraftState(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "draft_state", draft: this.draft }));
+    sendDraftState(target, this.draft);
   }
 
-  /** Same reasoning as `broadcastCwdState`/`broadcastPermissionMode`: "current"
-   * state, not a `history` event — a reconnection picks up the current
-   * value via `addClient` (`sendDraftState`), not a replay of changes. */
   private broadcastDraftState(): void {
-    for (const client of this.clients) this.sendDraftState(client);
+    broadcastDraftState(this.clients, this.draft);
   }
 
   private sendContextUsage(target: WebSocket): void {
-    if (!this.contextUsage) return;
-    target.send(JSON.stringify({ type: "context_usage_state", usage: this.contextUsage }));
+    sendContextUsage(target, this.contextUsage);
   }
 
-  /** Same reasoning as `broadcastCwdState`/`broadcastTitle`: "current"
-   * state, not a `history` event — a reconnection picks up the current
-   * value via `addClient` (`sendContextUsage`), not a replay of changes. */
   private broadcastContextUsage(): void {
-    for (const client of this.clients) this.sendContextUsage(client);
+    broadcastContextUsage(this.clients, this.contextUsage);
   }
 
-  /** Only used when a `/clear` (or equivalent) resets the conversation —
-   * unlike `sendContextUsage`, sends even without a value (`null`), because
-   * the goal here is to tell whoever is already connected that the
-   * previous value no longer applies (`sendContextUsage`'s guard exists to
-   * avoid confusing "new session, never had a turn" with "had one and was
-   * reset"). */
   private broadcastContextUsageReset(): void {
-    for (const client of this.clients) {
-      client.send(JSON.stringify({ type: "context_usage_state", usage: null }));
-    }
+    broadcastContextUsageReset(this.clients);
   }
 
-  /** Only for already-connected clients (same reasoning as
-   * `broadcastContextUsageReset`) — whoever connects after the clear
-   * already sees the empty `history` naturally via `addClient`, no signal
-   * needed. */
   private broadcastConversationReset(): void {
-    for (const client of this.clients) {
-      client.send(JSON.stringify({ type: "conversation_reset" }));
-    }
+    broadcastConversationReset(this.clients);
   }
 
-  /** Unlike `sendContextUsage`, always sends (even `null`) — there's no
-   * "hasn't arrived yet" ambiguity to tell apart here: a session with no
-   * suggestion yet and one whose suggestion was cleared look the same to
-   * the client (neither shows any placeholder), so it doesn't need the
-   * guard `sendContextUsage` has. */
   private sendSuggestion(target: WebSocket): void {
-    target.send(JSON.stringify({ type: "suggestion", text: this.suggestion }));
+    sendSuggestion(target, this.suggestion);
   }
 
   private broadcastSuggestion(): void {
-    for (const client of this.clients) this.sendSuggestion(client);
+    broadcastSuggestion(this.clients, this.suggestion);
   }
 
   private clearSuggestion(): void {
@@ -1231,36 +1202,19 @@ export class SharedSession {
     this.broadcastSuggestion();
   }
 
-
   private sendTitle(target: WebSocket, title: string): void {
-    target.send(JSON.stringify({ type: "session_title", title }));
+    sendTitle(target, title);
   }
 
-  /** Doesn't enter `history` for the same reason as cwd: it's "current"
-   * state, not a conversation event — a client reconnecting picks up the
-   * current value via `addClient`, not a replay of past changes. */
   private broadcastTitle(): void {
-    if (this.title === null) return;
-    for (const client of this.clients) this.sendTitle(client, this.title);
+    broadcastTitle(this.clients, this.title);
   }
 
   private broadcast(message: BroadcastMessage): void {
-    this.history.push(message);
-    const payload = JSON.stringify(message);
-    for (const client of this.clients) {
-      client.send(payload);
-    }
+    broadcast(this.clients, this.history, message);
   }
 
-  /** Same as `broadcast` (enters `history`, a third device connecting later
-   * sees it in the replay), just skips one socket — used by the synthetic
-   * `user_prompt` in `runTurn`, which shouldn't go back to whoever already
-   * has the bubble locally. */
   private broadcastExcept(message: BroadcastMessage, exclude: WebSocket): void {
-    this.history.push(message);
-    const payload = JSON.stringify(message);
-    for (const client of this.clients) {
-      if (client !== exclude) client.send(payload);
-    }
+    broadcastExcept(this.clients, this.history, message, exclude);
   }
 }
