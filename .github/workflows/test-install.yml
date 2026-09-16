@@ -438,6 +438,25 @@ jobs:
           grep -q "^Icon=$HOME/.local/share/icons/" "$HOME/.local/share/applications/sh.anywh.client.desktop"
           [ "$(readlink "$HOME/.local/bin/anywh")" = "$HOME/.local/share/anywh/app/anywh.AppImage" ]
 
+      # The marker is what the in-app updater (Fase A2) trusts to decide
+      # whether it's even allowed to offer a self-update — a fixture server
+      # with no redirect never resolves `installedVersion`, so this only
+      # pins the two fields that matter here: it exists, parses, and the
+      # writer picked the channel this branch actually took (mounted
+      # AppImage, since libfuse2 is installed on this runner).
+      - name: Writes an install-source marker for the mounted AppImage
+        run: |
+          marker="$HOME/.local/share/anywh/app/install-source.json"
+          [ -f "$marker" ]
+          python3 -c "
+          import json
+          d = json.load(open('$marker'))
+          assert d['version'] == 1, d
+          assert d['method'] == 'install.sh', d
+          assert d['channel'] == 'appimage', d
+          assert d['path'] == '$HOME/.local/share/anywh/app/anywh.AppImage', d
+          "
+
       # Ubuntu runners still ship libfuse2, so the branch most users on a
       # current desktop will take would never run here without being asked
       # for by name.
@@ -449,6 +468,14 @@ jobs:
           [ -x "$HOME/.local/share/anywh/app/anywh.AppDir/AppRun" ]
           grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppDir/AppRun %U\$" "$HOME/.local/share/applications/sh.anywh.client.desktop"
           [ "$(readlink "$HOME/.local/bin/anywh")" = "$HOME/.local/share/anywh/app/anywh.AppDir/AppRun" ]
+          marker="$HOME/.local/share/anywh/app/install-source.json"
+          [ -f "$marker" ]
+          python3 -c "
+          import json
+          d = json.load(open('$marker'))
+          assert d['channel'] == 'appdir', d
+          assert d['path'] == '$HOME/.local/share/anywh/app/anywh.AppDir/AppRun', d
+          "
 
       # The whole point of the change: the command ends with the app
       # running, not with instructions. This proves the installer starts
@@ -517,6 +544,16 @@ jobs:
           cat out.log
           [ -x "/Applications/anywh.app/Contents/MacOS/anywh" ]
           grep -q 'Installed to /Applications/anywh.app' out.log
+          marker="$HOME/.local/share/anywh/app/install-source.json"
+          [ -f "$marker" ]
+          python3 -c "
+          import json
+          d = json.load(open('$marker'))
+          assert d['version'] == 1, d
+          assert d['method'] == 'install.sh', d
+          assert d['channel'] == 'app-bundle', d
+          assert d['path'] == '/Applications/anywh.app/Contents/MacOS/anywh', d
+          "
 
       - name: Refuses to replace a bundle that is running
         run: |
