@@ -44,4 +44,16 @@ export default tseslint.config(
     files: ["eslint.config.js", "wdio.conf.js", "vite.config.ts", "vitest.config.ts", "vitest.perf.config.ts"],
     extends: [tseslint.configs.disableTypeChecked],
   },
+  {
+    // wdio.conf.js runs partly as a Node config module (`process`) and
+    // partly as WebdriverIO's own runtime, which injects `browser`/`$` as
+    // globals into that same file — plus `window`/`localStorage` inside its
+    // `browser.execute(() => ...)` callbacks, which actually run in the
+    // Tauri webview, not Node. `no-undef` can't tell scopes like that apart,
+    // so all five are declared file-wide.
+    files: ["wdio.conf.js"],
+    languageOptions: {
+      globals: { process: "readonly", browser: "readonly", $: "readonly", window: "readonly", localStorage: "readonly" },
+    },
+  },
 );

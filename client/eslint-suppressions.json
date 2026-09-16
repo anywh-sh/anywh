@@ -228,10 +228,5 @@
     "@typescript-eslint/require-await": {
       "count": 2
     }
-  },
-  "wdio.conf.js": {
-    "no-undef": {
-      "count": 6
-    }
   }
 }
