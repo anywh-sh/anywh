@@ -13,8 +13,20 @@ const SYSTEM_PROMPT =
 // pasted code snippet) just to infer a plausible follow-up.
 const MAX_TEXT_CHARS = 2000;
 
-function truncate(text: string): string {
+export function truncate(text: string): string {
   return text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : text;
+}
+
+/** Strips the surrounding quotes a model sometimes adds despite the system
+ * prompt asking for none, and discards the two "there is nothing to
+ * suggest" shapes: an empty reply, and the literal word `NONE` the prompt
+ * asks for explicitly when there's no obvious next message. A non-zero
+ * exit is the same "no suggestion" outcome as either of those — this probe
+ * has no fallback, by design (see `generateSuggestion`'s own comment). */
+export function normalizeSuggestion(rawStdout: string, exitCode: number | null): string | undefined {
+  const suggestion = rawStdout.trim().replace(/^["']|["']$/g, "");
+  if (exitCode !== 0 || !suggestion || suggestion.toUpperCase() === "NONE") return undefined;
+  return suggestion;
 }
 
 /**
@@ -77,7 +89,5 @@ export async function generateSuggestion(
     child.on("close", resolve);
   });
 
-  const suggestion = stdout.trim().replace(/^["']|["']$/g, "");
-  if (exitCode !== 0 || !suggestion || suggestion.toUpperCase() === "NONE") return undefined;
-  return suggestion;
+  return normalizeSuggestion(stdout, exitCode);
 }

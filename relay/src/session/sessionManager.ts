@@ -120,7 +120,7 @@ export class SessionManager {
    * years-old session under "today" the moment someone renames it. Falls
    * back to now only for an id the store somehow doesn't know, which can't
    * happen on either of the two call sites below. */
-  private lastActiveAtOf(id: string): number {
+  lastActiveAtOf(id: string): number {
     return this.sessionStore.getLastActiveAt(id) ?? Date.now();
   }
 
