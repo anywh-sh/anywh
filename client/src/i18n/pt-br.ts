@@ -196,6 +196,10 @@ export const ptBr: Dictionary = {
         modelGeneric: "Usa o {model}",
       },
     },
+    protocolMismatch: {
+      title: "Atualização necessária",
+      message: "Este relay e este app não falam mais a mesma versão de protocolo. Atualize o app para continuar usando esta sessão.",
+    },
   },
   panels: {
     openFiles: "Abrir arquivos",

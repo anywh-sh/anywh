@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RelayClient, type RelayClientCallbacks } from "@/lib/relayClient";
+import { WS_PROTOCOL_VERSION } from "@/lib/protocolVersion";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/tailnetBroker";
 
 /** Minimal stand-in for the browser `WebSocket` — records the URL it was
@@ -187,5 +188,43 @@ describe("RelayClient connect token", () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(resolve.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe("RelayClient protocol version", () => {
+  function receive(socket: FakeWebSocket, message: unknown): void {
+    socket.emit("message", { data: JSON.stringify(message) });
+  }
+
+  it("stops retrying and fires onProtocolMismatch when the relay announces a different version", async () => {
+    const onProtocolMismatch = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onProtocolMismatch });
+
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    receive(socket, { type: "protocol_version", version: WS_PROTOCOL_VERSION + 1 });
+
+    expect(onProtocolMismatch).toHaveBeenCalledTimes(1);
+    expect(onProtocolMismatch).toHaveBeenCalledWith(WS_PROTOCOL_VERSION + 1);
+
+    // The mismatch also closes the socket, and closing normally schedules a
+    // reconnect — a generous window well past any exponential backoff (same
+    // margin as the onRevoked test above) confirms `shouldReconnect` was
+    // flipped off first, so this doesn't just loop back into the same
+    // mismatch.
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("does nothing when the relay announces the version this build already expects", () => {
+    const onProtocolMismatch = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onProtocolMismatch });
+
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    receive(socket, { type: "protocol_version", version: WS_PROTOCOL_VERSION });
+
+    expect(onProtocolMismatch).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
   });
 });

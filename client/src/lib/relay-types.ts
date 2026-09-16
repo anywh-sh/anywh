@@ -149,6 +149,9 @@ export type SetCwdErrorCode = "not_found" | "permission_denied" | "not_a_directo
 export type EditMessageErrorCode = "not_found" | "truncate_failed" | "relay_restarting";
 
 export type RelayMessage =
+  /** First message sent on every connection, ahead of anything else —
+   * see protocolVersion.ts and relayClient.ts's handling of it. */
+  | { type: "protocol_version"; version: number }
   | { type: "claude_event"; event: ClaudeEvent }
   | { type: "turn_complete"; stopped?: boolean }
   | { type: "turn_error"; message: string }

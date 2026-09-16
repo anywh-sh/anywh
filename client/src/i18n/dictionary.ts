@@ -579,6 +579,14 @@ export interface Dictionary {
         modelGeneric: string;
       };
     };
+    /** The relay this session is connected to speaks a WebSocket protocol
+     * version this build doesn't match — a full takeover of the panel, not a
+     * dismissible toast, since nothing sent past this point is guaranteed to
+     * render correctly. */
+    protocolMismatch: {
+      title: string;
+      message: string;
+    };
   };
   /**
    * The right-side dock: the file panel, the code viewer and the terminal.
