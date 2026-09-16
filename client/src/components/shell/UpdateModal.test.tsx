@@ -6,13 +6,17 @@ import type { InstallOrigin } from "@/lib/appUpdate";
 
 const openUrl = vi.fn();
 vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: (...args: unknown[]) => openUrl(...args),
+  openUrl: (...args: unknown[]) => {
+    openUrl(...args);
+  },
 }));
 
 const UNKNOWN_ORIGIN: InstallOrigin = { channel: "unknown", updatable: false, execPath: "", marker: null };
 
 const { getInstallOriginMock } = vi.hoisted(() => ({
-  getInstallOriginMock: vi.fn(async (): Promise<InstallOrigin> => ({ channel: "unknown", updatable: false, execPath: "", marker: null })),
+  getInstallOriginMock: vi.fn(
+    (): Promise<InstallOrigin> => Promise.resolve({ channel: "unknown", updatable: false, execPath: "", marker: null }),
+  ),
 }));
 vi.mock("@/lib/appUpdate", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/appUpdate")>();
