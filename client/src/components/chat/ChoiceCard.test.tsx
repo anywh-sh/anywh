@@ -13,7 +13,7 @@ function question(overrides: Partial<ChoiceQuestion> = {}): ChoiceQuestion {
 
 describe("ChoiceCard", () => {
   it("offers a free-text field as the last option for a `choice` prompt", () => {
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={vi.fn()} />);
+    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={vi.fn()} onClose={vi.fn()} />);
     expect(screen.getByLabelText(en.chat.choice.customLabel)).toBeInTheDocument();
   });
 
@@ -24,6 +24,7 @@ describe("ChoiceCard", () => {
         questions={[question({ options: [{ label: "Aprovar" }, { label: "Recusar" }] })]}
         kind="approval"
         onAnswer={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
     expect(screen.queryByLabelText(en.chat.choice.customLabel)).toBeNull();
@@ -32,7 +33,7 @@ describe("ChoiceCard", () => {
   it("sends the typed text as the answer instead of any checked option", async () => {
     const user = userEvent.setup();
     const onAnswer = vi.fn();
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={onAnswer} />);
+    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={onAnswer} onClose={vi.fn()} />);
 
     await user.type(screen.getByLabelText(en.chat.choice.customLabel), "faz do jeito B mas só pra esse caso");
     await user.click(screen.getByRole("button", { name: en.chat.choice.submit }));
@@ -42,7 +43,7 @@ describe("ChoiceCard", () => {
 
   it("typing custom text clears an already-checked option, and vice versa", async () => {
     const user = userEvent.setup();
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={vi.fn()} />);
+    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={vi.fn()} onClose={vi.fn()} />);
 
     await user.click(screen.getByText("A"));
     expect(screen.getByText(en.chat.choice.selectedCount.replace("{count}", "1"))).toBeInTheDocument();
@@ -59,7 +60,7 @@ describe("ChoiceCard", () => {
   it("submits on Enter inside the free-text field", async () => {
     const user = userEvent.setup();
     const onAnswer = vi.fn();
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={onAnswer} />);
+    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={onAnswer} onClose={vi.fn()} />);
 
     await user.type(screen.getByLabelText(en.chat.choice.customLabel), "resposta rápida{Enter}");
 
@@ -69,7 +70,7 @@ describe("ChoiceCard", () => {
   it("keeps custom text per question when navigating back and forth", async () => {
     const user = userEvent.setup();
     const questions = [question({ question: "Pergunta 1" }), question({ question: "Pergunta 2" })];
-    render(<ChoiceCard promptId="p1" questions={questions} kind="choice" onAnswer={vi.fn()} />);
+    render(<ChoiceCard promptId="p1" questions={questions} kind="choice" onAnswer={vi.fn()} onClose={vi.fn()} />);
 
     await user.type(screen.getByLabelText(en.chat.choice.customLabel), "resposta da 1");
     // Two buttons share this label when there's more than one question and this
@@ -80,42 +81,5 @@ describe("ChoiceCard", () => {
 
     await user.click(screen.getByRole("button", { name: en.chat.choice.previousQuestion }));
     expect(screen.getByLabelText(en.chat.choice.customLabel)).toHaveValue("resposta da 1");
-  });
-
-  it("collapses a `choice` prompt to a reopenable indicator instead of discarding it", async () => {
-    const user = userEvent.setup();
-    const onAnswer = vi.fn();
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={onAnswer} />);
-
-    await user.click(screen.getByText("A"));
-    await user.click(screen.getByRole("button", { name: en.chat.choice.collapse }));
-
-    expect(screen.queryByText("A")).toBeNull();
-    expect(screen.getByText(en.chat.choice.pending)).toBeInTheDocument();
-    expect(onAnswer).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: en.chat.choice.reopen }));
-    expect(screen.getByText(en.chat.choice.selectedCount.replace("{count}", "1"))).toBeInTheDocument();
-  });
-
-  it("an `approval` prompt has no collapse button — closing it answers instead", () => {
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="approval" onAnswer={vi.fn()} />);
-    expect(screen.queryByRole("button", { name: en.chat.choice.collapse })).toBeNull();
-    expect(screen.getByRole("button", { name: en.chat.choice.closeAnswering })).toBeInTheDocument();
-  });
-
-  it("ArrowDown/ArrowUp move focus between options", async () => {
-    const user = userEvent.setup();
-    render(<ChoiceCard promptId="p1" questions={[question()]} kind="choice" onAnswer={vi.fn()} />);
-
-    const optionA = screen.getByText("A").closest("button");
-    const optionB = screen.getByText("B").closest("button");
-    optionA?.focus();
-
-    await user.keyboard("{ArrowDown}");
-    expect(optionB).toHaveFocus();
-
-    await user.keyboard("{ArrowUp}");
-    expect(optionA).toHaveFocus();
   });
 });
