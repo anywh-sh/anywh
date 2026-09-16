@@ -168,6 +168,10 @@ if (hostPlatform() === "darwin") {
 // binary standing in for dist/ + node_modules.
 cpSync(join(relayDir, "scripts"), join(outDir, "scripts"), { recursive: true });
 cpSync(join(repoRoot, "infra"), join(outDir, "infra"), { recursive: true });
+// `GET /host-info`'s `version` field (server.ts) reads this the same way
+// ADD_PROFILE_SCRIPT reads infra/ above — one more file this build has to
+// remember to ship flat, or the field silently goes missing on macOS only.
+cpSync(join(relayDir, "package.json"), join(outDir, "package.json"));
 
 const ptySrc = join(relayDir, "node_modules", "node-pty");
 const ptyDest = join(outDir, "node_modules", "node-pty");

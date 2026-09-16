@@ -7,6 +7,7 @@ import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { useDefaultPaths } from "@/hooks/useDefaultPaths";
+import { useLocalRelayProbe } from "@/hooks/useLocalRelayProbe";
 import { useRevokedProfiles } from "@/hooks/useProfileRevoked";
 import {
   DEFAULT_MODEL_PREFERENCE,
@@ -15,7 +16,10 @@ import {
   type ModelPreferenceMode,
 } from "@/hooks/useModelPreference";
 import { useDict } from "@/i18n";
+import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/appVersion";
+import { onInstallDone, startLocalInstall } from "@/lib/localRelay";
 import { getKnownModels, labelForModel } from "@/lib/modelCatalog";
+import { currentPlatform } from "@/lib/platform";
 import { profileBadge } from "@/lib/profileBadge";
 import {
   addProfile,
@@ -26,6 +30,7 @@ import {
   type Profile,
 } from "@/lib/profiles";
 import { resolveConnection } from "@/lib/connectionResolver";
+import { evaluateRelayDrift } from "@/lib/relayDrift";
 import { updateProfileMeta } from "@/lib/relayClient";
 import { cn } from "@/lib/utils";
 
@@ -229,6 +234,79 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
 }
 
 /**
+ * The quiet per-profile affordance for a stale *local* relay (Fase A4 of the
+ * updater plan) — never a banner, and only for the one profile whose relay
+ * actually runs on this machine (a loopback host). `evaluateRelayDrift`
+ * (relayDrift.ts) is what decides severity/action; this only renders it.
+ */
+function RelayDriftRow({ profile }: { profile: Profile }) {
+  const dict = useDict().settings.profile.relay;
+  const probe = useLocalRelayProbe();
+  const platform = currentPlatform();
+  const [status, setStatus] = useState<"idle" | "running" | "done" | "failed">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  if (profile.host !== "127.0.0.1" || !probe?.installedVersion) return null;
+
+  const drift = evaluateRelayDrift(probe.installedVersion, APP_VERSION, MIN_RELAY_VERSION, platform);
+  if (drift.severity === "none") return null;
+
+  async function handleUpdate(): Promise<void> {
+    setStatus("running");
+    setError(null);
+    try {
+      // The existing `.env`'s own host/port/home win the installer's resume
+      // check (add-profile.sh) as long as they match what's already on
+      // file, which this profile's own fields always do — so this is a
+      // plain re-run, not a reprovision. It refreshes the relay tree on
+      // disk and deliberately leaves the running service alone (same
+      // reasoning as add-profile.sh's own "must not be the thing that
+      // restarts a relay with a conversation in flight").
+      const registered = probe?.profiles.find((p) => p.id === profile.id);
+      await startLocalInstall({
+        profileId: profile.id,
+        relayHost: profile.host,
+        profileHome: registered?.homeOverride ?? undefined,
+        mode: "prod",
+      });
+      const unlisten = await onInstallDone((event) => {
+        setStatus(event.ok ? "done" : "failed");
+        if (!event.ok) setError(event.failure?.message ?? null);
+        unlisten();
+      });
+    } catch (err) {
+      setStatus("failed");
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <SettingsRow
+      title={dict.title}
+      description={dict.description.replace("{relayVersion}", probe.installedVersion).replace("{appVersion}", APP_VERSION)}
+    >
+      {drift.action === "brew-upgrade" ? (
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-xs text-muted-foreground">{dict.brewHint}</span>
+          <code className="border border-border bg-bg-chrome px-2.5 py-1 font-mono text-[11.5px] text-foreground">
+            brew upgrade anywh-relay
+          </code>
+        </div>
+      ) : status === "done" ? (
+        <span className="text-xs text-muted-foreground">{dict.updated}</span>
+      ) : (
+        <div className="flex flex-col items-end gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => void handleUpdate()} disabled={status === "running"}>
+            {status === "running" ? dict.updating : dict.update}
+          </Button>
+          {error && <span className="text-xs text-destructive">{error}</span>}
+        </div>
+      )}
+    </SettingsRow>
+  );
+}
+
+/**
  * Everything that belongs to one profile, on one page: where its
  * conversations start, which model they open with, how it is named and
  * coloured everywhere else in the app, and how to get rid of it.
@@ -280,6 +358,8 @@ export function ProfileSettings({
           onChange={(preference) => setPreference(profile.id, preference)}
         />
       </SettingsRow>
+
+      <RelayDriftRow profile={profile} />
 
       <SettingsSectionHeading>{dict.settings.profile.sections.personalization}</SettingsSectionHeading>
 

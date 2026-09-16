@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { SettingsNav, type SettingsSection } from "@/components/settings/SettingsNav";
+import { UpdatesSettings } from "@/components/settings/UpdatesSettings";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles";
@@ -53,6 +54,30 @@ export function SettingsDialog({ open, onOpenChange, activeProfile, profilesSupp
     });
   }
 
+  // `selectedProfile` wins regardless of `section.kind` on purpose: it's
+  // only ever set when `section.kind === "profile"` names one that still
+  // exists, and a profile removed from another device has to fall
+  // somewhere — back to "appearance", never to a blank pane.
+  function renderSection() {
+    if (selectedProfile) {
+      return (
+        <ProfileSettings
+          profile={selectedProfile}
+          allProfiles={profiles}
+          effectiveColorIndex={effectiveColorIndex}
+          onProfileRemoved={handleProfileRemoved}
+        />
+      );
+    }
+    switch (section.kind) {
+      case "updates":
+        return <UpdatesSettings />;
+      case "appearance":
+      case "profile":
+        return <AppearanceSettings activeProfile={activeProfile} />;
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[min(39rem,100%)] sm:max-w-4xl">
@@ -69,21 +94,7 @@ export function SettingsDialog({ open, onOpenChange, activeProfile, profilesSupp
             supported={profilesSupported}
           />
 
-          <div className="min-w-0 flex-1 overflow-y-auto px-6 pb-8">
-            {/* A profile removed from another device leaves its page with
-                nothing to render — the rail is still right, so fall back to
-                the page that always exists rather than to a blank pane. */}
-            {selectedProfile ? (
-              <ProfileSettings
-                profile={selectedProfile}
-                allProfiles={profiles}
-                effectiveColorIndex={effectiveColorIndex}
-                onProfileRemoved={handleProfileRemoved}
-              />
-            ) : (
-              <AppearanceSettings activeProfile={activeProfile} />
-            )}
-          </div>
+          <div className="min-w-0 flex-1 overflow-y-auto px-6 pb-8">{renderSection()}</div>
         </div>
       </DialogContent>
     </Dialog>

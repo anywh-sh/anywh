@@ -40,10 +40,15 @@ test("GET /host-info: both env vars absent hides the feature", async () => {
     hostname: string;
     platform: string;
     editor: unknown;
+    version: unknown;
   };
   assert.equal(body.hostname, hostname());
   assert.equal(body.platform, process.platform);
   assert.equal(body.editor, null);
+  // MAJOR.MINOR.PATCH straight from package.json — not asserted against a
+  // literal here, which would just be this same file duplicated and one
+  // more place to forget on the next version bump.
+  assert.match(body.version as string, /^\d+\.\d+\.\d+$/);
 });
 
 test("GET /host-info: ANYWH_EDITOR_LOCAL=1 resolves to local for a real loopback peer", async () => {

@@ -123,17 +123,9 @@ interface CheckDeps {
 
 const REAL_DEPS: CheckDeps = { getInstallOrigin, checkLatestRelease };
 
-/**
- * The scheduled entry point (called from a 24h interval in `App.tsx`, never
- * from the banner — see that component for why). `deps` defaults to the real
- * Rust bindings; tests inject fakes here instead of mocking Tauri's IPC,
- * the same kind of seam the relay's tests use at the `claude` process
- * boundary.
- */
-export async function performUpdateCheck(now: number = Date.now(), deps: CheckDeps = REAL_DEPS): Promise<void> {
+async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   const settings = readSettings();
   const app = settings.app;
-  if (!isCheckDue(app, now)) return;
 
   const origin = await deps.getInstallOrigin();
   const result = await deps.checkLatestRelease(app?.etag);
@@ -160,4 +152,22 @@ export async function performUpdateCheck(now: number = Date.now(), deps: CheckDe
   if (version !== app?.dismissedVersion && isNewerVersion(version, APP_VERSION)) {
     markUpdateAvailable({ version, htmlUrl: result.htmlUrl });
   }
+}
+
+/**
+ * The scheduled entry point (called from a 24h interval in `App.tsx`, never
+ * from the banner — see that component for why). `deps` defaults to the real
+ * Rust bindings; tests inject fakes here instead of mocking Tauri's IPC,
+ * the same kind of seam the relay's tests use at the `claude` process
+ * boundary.
+ */
+export async function performUpdateCheck(now: number = Date.now(), deps: CheckDeps = REAL_DEPS): Promise<void> {
+  if (!isCheckDue(readSettings().app, now)) return;
+  await runCheck(now, deps);
+}
+
+/** The Settings page's "check now" button — same check, deliberately
+ * bypassing `isCheckDue`: a user pressing the button is the due condition. */
+export async function forceUpdateCheck(deps: CheckDeps = REAL_DEPS): Promise<void> {
+  await runCheck(Date.now(), deps);
 }
