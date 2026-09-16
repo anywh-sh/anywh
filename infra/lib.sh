@@ -3,7 +3,7 @@
 # root install.sh and install-relay.sh are POSIX sh (they run under
 # `curl | sh`) and deliberately don't source this.
 #
-# Mirror of ENV_DIR in relay/src/profileRegistry.ts — keep both in sync.
+# Mirror of ENV_DIR in relay/src/host/profileRegistry.ts — keep both in sync.
 # Duplicated instead of shared across the language boundary because
 # systemd's EnvironmentFile can't source a shell variable, and the relay
 # needs the value with no shell involved at all.

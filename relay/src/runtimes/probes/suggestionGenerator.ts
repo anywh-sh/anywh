@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./claudeCliConfig.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executables.js";
 
 const SYSTEM_PROMPT =
   "You suggest the next message the user would likely send in a conversation with a code " +

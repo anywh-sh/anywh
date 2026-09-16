@@ -1,14 +1,14 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./claudeCliConfig.js";
-import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "./planChoiceMarker.js";
-import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
+import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
+import type { ContextUsage, ModelChoice, PermissionMode } from "../../../session/sessionStore.js";
 
 // A turn = a `claude -p` process. Continuity across turns comes from
 // `--resume <session_id>`, not from keeping a process alive.
 //
 // A billed credential is always removed from the child process's environment
-// (`BILLED_CREDENTIAL_VARS`, claudeCliConfig.ts): it's the project's golden
+// (`BILLED_CREDENTIAL_VARS`, runtimes/executables.ts): it's the project's golden
 // rule — if one leaks, the agent starts billing per token via API instead of
 // drawing on the plan its CLI is logged into.
 

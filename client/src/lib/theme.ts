@@ -1,5 +1,5 @@
 // Theme file format and its validator. Duplicated verbatim from
-// relay/src/theme.ts — the two sides need the exact same answer about
+// relay/src/host/theme.ts — the two sides need the exact same answer about
 // whether a theme file is broken, and there's no shared package in this repo
 // (same call as planChoiceMarker.ts, which is duplicated for the same
 // reason). Keep them in sync; this copy carries no extra logic.

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
-import { buildChildEnv } from "./claudeSession.js";
+import { buildChildEnv } from "../runtimes/defs/claude/session.js";
 
 // Embedded terminal — reuses the same ttyd+tmux pair already
 // validated in this project, just without ttyd: the relay is

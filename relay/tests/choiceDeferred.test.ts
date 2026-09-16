@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSession, connectSessionAndCollectUntil, sendUserMessage } from "./helpers/wsClient.js";
-import { CHOICE_DEFERRED_RESPONSE_TEXT } from "../src/mcpBridge.js";
+import { CHOICE_DEFERRED_RESPONSE_TEXT } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md) for the
 // deferred-lifecycle rework: `present_choice` used to hold the MCP

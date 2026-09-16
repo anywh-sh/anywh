@@ -1,9 +1,9 @@
-import { generateTitle } from "./titleGenerator.js";
+import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { SharedSession } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
-import { BackgroundJobTracker, type FinishedBackgroundJob } from "./backgroundJobs.js";
-import type { McpChoiceBridge } from "./mcpBridge.js";
-import type { McpPermissionBridge } from "./permissionBridge.js";
+import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
+import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
+import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
 
 /** A change to the sidebar's session list (title assigned/changed, or
  * session removed) — distinct from `SharedSession`'s own `session_title`/

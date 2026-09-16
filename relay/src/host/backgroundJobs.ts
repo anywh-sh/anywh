@@ -1,6 +1,9 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ClaudeEvent } from "./claudeSession.js";
+// Known reverse-direction dependency: a host/ file reaching into
+// runtimes/defs/ for a type. Dies once background-job detection parses the
+// normalized wire event instead of this Claude-shaped one.
+import type { ClaudeEvent } from "../runtimes/defs/claude/session.js";
 
 // Tracks jobs started via `anywh-bg` (relay/scripts)
 // outside the turn's process, since the CLI's internal record for

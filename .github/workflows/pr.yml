@@ -35,12 +35,12 @@ jobs:
               - 'relay/**'
             client:
               - 'client/**'
-              # The client tier also guards that relay/src/theme.ts is still
-              # byte-identical to its copy under client/src/lib/ (there's no
-              # shared package for them to live in). Without this line, a
-              # change to the relay's copy alone would skip the only job that
-              # can notice the two drifting apart.
-              - 'relay/src/theme.ts'
+              # The client tier also guards that relay/src/host/theme.ts is
+              # still byte-identical to its copy under client/src/lib/
+              # (there's no shared package for them to live in). Without this
+              # line, a change to the relay's copy alone would skip the only
+              # job that can notice the two drifting apart.
+              - 'relay/src/**/theme.ts'
               # The installers are compile-time inputs to the client crate,
               # not loose scripts: relay_setup.rs `include_str!`s
               # install-relay.sh and infra/homebrew/app-install.sh, and its

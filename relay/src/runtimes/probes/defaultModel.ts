@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./claudeCliConfig.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executables.js";
 
 // Extracts just the model family — "Current model: `Sonnet 5 (default)`" ->
 // "Sonnet", "Current model: `Opus 5 (1M context) (default)`" -> "Opus". The

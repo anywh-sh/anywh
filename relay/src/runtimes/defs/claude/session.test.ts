@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractContextUsage, isMainThreadEvent, isSessionInvalidError, type ClaudeEvent } from "./claudeSession.js";
+import { extractContextUsage, isMainThreadEvent, isSessionInvalidError, type ClaudeEvent } from "./session.js";
 
 // Real shapes, captured by actually running `claude -p` (see the context
 // window indicator plan) — used as the basis for the tests below so the
@@ -114,7 +114,7 @@ test("isMainThreadEvent: true when parent_tool_use_id is null or absent", () => 
 
 test("isSessionInvalidError: true for the CLI's real 'no conversation found' messages (--resume genuinely broken)", () => {
   // Exact strings captured by running the real binary against a bogus
-  // session id (see claudeSession.ts comment) and documented for the
+  // session id (see runtimes/defs/claude/session.ts comment) and documented for the
   // "history not found" case.
   assert.equal(isSessionInvalidError("No conversation found with session ID: 00000000-0000-0000-0000-000000000000"), true);
   assert.equal(isSessionInvalidError("No conversation found to continue"), true);

@@ -3,12 +3,12 @@ import { createReadStream, existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
-import { buildChildEnv } from "./claudeSession.js";
-import { AGENT_BIN } from "./claudeCliConfig.js";
-import { detectDefaultModel, type DefaultModelInfo } from "./defaultModel.js";
-import { listDirectories } from "./fsBrowse.js";
-import type { EditMessageError } from "./sharedSession.js";
-import { resolveEditorDescriptor } from "./editorHostInfo.js";
+import { buildChildEnv } from "./runtimes/defs/claude/session.js";
+import { AGENT_BIN } from "./runtimes/executables.js";
+import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
+import { listDirectories } from "./fs/fsBrowse.js";
+import type { EditMessageError } from "./session/sharedSession.js";
+import { resolveEditorDescriptor } from "./host/editorHostInfo.js";
 import {
   createFile,
   deleteFile,
@@ -19,10 +19,10 @@ import {
   resolveRawFile,
   resolveWithinRoot,
   type FilesError,
-} from "./fsFiles.js";
-import { FilesWatchSession } from "./fsWatch.js";
-import { readGitStatus } from "./gitStatus.js";
-import { defaultCwd, resolveShipped } from "./paths.js";
+} from "./fs/fsFiles.js";
+import { FilesWatchSession } from "./fs/fsWatch.js";
+import { readGitStatus } from "./host/gitStatus.js";
+import { defaultCwd, resolveShipped } from "./host/paths.js";
 import {
   deleteProfileFiles,
   ensureSelfRegistered,
@@ -32,23 +32,23 @@ import {
   listProfiles,
   slugify,
   updateProfileMeta,
-} from "./profileRegistry.js";
-import { deleteTheme, listThemes, saveTheme, ThemeValidationFailure } from "./themeRegistry.js";
-import { isValidThemeId } from "./theme.js";
-import { McpChoiceBridge, type ChoiceAnswer } from "./mcpBridge.js";
-import { McpPermissionBridge } from "./permissionBridge.js";
-import { SessionManager } from "./sessionManager.js";
-import { SessionStore, type ModelChoice, type PermissionMode } from "./sessionStore.js";
-import { killAllTerminalsForSession, killTerminal, scrollTerminal, spawnTerminal } from "./terminalSession.js";
-import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "./uploads.js";
+} from "./host/profileRegistry.js";
+import { deleteTheme, listThemes, saveTheme, ThemeValidationFailure } from "./host/themeRegistry.js";
+import { isValidThemeId } from "./host/theme.js";
+import { McpChoiceBridge, type ChoiceAnswer } from "./bridges/mcpBridge.js";
+import { McpPermissionBridge } from "./bridges/permissionBridge.js";
+import { SessionManager } from "./session/sessionManager.js";
+import { SessionStore, type ModelChoice, type PermissionMode } from "./session/sessionStore.js";
+import { killAllTerminalsForSession, killTerminal, scrollTerminal, spawnTerminal } from "./host/terminalSession.js";
+import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "./fs/uploads.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
-// SCRIPTS_DIR in claudeCliConfig.ts — works running from `src/` (tsx),
+// SCRIPTS_DIR in runtimes/executables.ts — works running from `src/` (tsx),
 // `dist/` (tsc build, two levels below the repo root) or the macOS SEA
 // binary (`infra/` shipped flat next to it) alike.
 const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../infra/systemd/add-profile.sh", "infra/systemd/add-profile.sh");
 
-// Same seam as `AGENT_BIN` (claudeCliConfig.ts) — defaults to the bare
+// Same seam as `AGENT_BIN` (runtimes/executables.ts) — defaults to the bare
 // command name (works wherever `systemctl --user` is genuinely available),
 // overridable so a test never has to shell out to the REAL systemd user
 // session, which has no notion of "this is just a test": a real incident

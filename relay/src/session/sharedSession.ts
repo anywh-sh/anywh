@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
-import { ClaudeSession, type ClaudeEvent } from "./claudeSession.js";
-import { checkDirectory, type FsError } from "./fsBrowse.js";
+import { ClaudeSession, type ClaudeEvent } from "../runtimes/defs/claude/session.js";
+import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import {
   CHOICE_ALLOWED_TOOL,
   CHOICE_MCP_SERVER_NAME,
@@ -9,16 +9,16 @@ import {
   type ChoiceAnswer,
   type ChoiceQuestion,
   type McpChoiceBridge,
-} from "./mcpBridge.js";
-import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type McpPermissionBridge, type PermissionDecision } from "./permissionBridge.js";
-import { defaultCwd } from "./paths.js";
-import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "./planChoiceMarker.js";
-import { generateSuggestion } from "./suggestionGenerator.js";
-import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
-import { forkTruncatedTranscript } from "./transcriptFork.js";
+} from "../bridges/mcpBridge.js";
+import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
+import { defaultCwd } from "../host/paths.js";
+import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
+import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
+import { readHistoryFromTranscript, transcriptPath } from "../runtimes/defs/claude/transcriptReader.js";
+import { forkTruncatedTranscript } from "../runtimes/defs/claude/transcriptFork.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
-import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "./backgroundJobs.js";
+import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 
 /** Text of the synthetic turn fired when an `anywh-bg`
  * job finishes. Explicit instruction to only report (not start new work nor
@@ -233,7 +233,7 @@ export interface SharedSessionOptions {
    * `claude` child process — always `127.0.0.1`, never the Tailscale address
    * clients use to reach the relay remotely (the child is always local to
    * the relay's machine, `spawn()` never crosses a network, see
-   * `claudeSession.ts`). `undefined` alongside `mcpChoiceBridge` in tests. */
+   * `runtimes/defs/claude/session.ts`). `undefined` alongside `mcpChoiceBridge` in tests. */
   mcpBridgeBaseUrl?: string;
   /** Same lifecycle/sharing as `mcpChoiceBridge`, just for
    * `--permission-prompt-tool` instead of `present_choice`. `undefined` in
@@ -1028,7 +1028,7 @@ export class SharedSession {
     // ~6-minute mark: `requestTimeout = 0` on both of this relay's own HTTP
     // servers (server.ts, ruling out our own server as the culprit) and
     // `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` as an env var on the child
-    // (claudeSession.ts's `buildChildEnv`, a separate code path from this
+    // (runtimes/defs/claude/session.ts's `buildChildEnv`, a separate code path from this
     // JSON field, confirmed reaching the child's env and still not
     // preventing the timeout). All three are kept anyway — they cost nothing
     // and may start working if Anthropic fixes the underlying CLI bug(s) —

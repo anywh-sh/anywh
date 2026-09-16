@@ -16,5 +16,5 @@ test("resolveShipped resolves relative to the calling file outside a SEA build",
   // inside the macOS SEA binary this module also supports, which nothing
   // in this test suite runs as.
   const here = import.meta.url;
-  assert.equal(resolveShipped(here, "../scripts", "scripts"), resolve(dirname(fileURLToPath(here)), "../scripts"));
+  assert.equal(resolveShipped(here, "../../scripts", "scripts"), resolve(dirname(fileURLToPath(here)), "../../scripts"));
 });

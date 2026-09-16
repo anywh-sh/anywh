@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 // `--permission-prompt-tool` lets an MCP tool of ours
 // decide every permission-prompt approval for a `claude -p` turn, instead of
 // the relay's normal headless default (auto-deny, see the comment on
-// `--permission-mode` in claudeSession.ts). Confirmed against the real
+// `--permission-mode` in runtimes/defs/claude/session.ts). Confirmed against the real
 // binary that this is what re-enables `ExitPlanMode`
 // in headless: it's not categorically removed, it only disappears when
 // nobody is configured to answer approval.
