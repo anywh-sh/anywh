@@ -25,6 +25,7 @@ jobs:
     outputs:
       relay: ${{ steps.filter.outputs.relay }}
       client: ${{ steps.filter.outputs.client }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -33,6 +34,8 @@ jobs:
           filters: |
             relay:
               - 'relay/**'
+            scripts:
+              - 'scripts/**'
             client:
               - 'client/**'
               # The client tier also guards that relay/src/host/theme.ts is
@@ -87,6 +90,19 @@ jobs:
         working-directory: relay
       - run: npm run test:all
         working-directory: relay
+
+  scripts:
+    name: scripts (release tooling)
+    needs: changes
+    if: needs.changes.outputs.scripts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+      - run: node --test scripts/
 
   client-unit:
     name: client (unit + UI integration)
@@ -182,7 +198,7 @@ jobs:
   # purpose — that's paths-filter correctly deciding a tier had nothing to do.
   ci:
     name: ci
-    needs: [changes, relay, client-unit, client-e2e]
+    needs: [changes, relay, scripts, client-unit, client-e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -192,6 +208,7 @@ jobs:
         run: |
           echo "changes=${{ needs.changes.result }}"
           echo "relay=${{ needs.relay.result }}"
+          echo "scripts=${{ needs.scripts.result }}"
           echo "client-unit=${{ needs.client-unit.result }}"
           echo "client-e2e=${{ needs.client-e2e.result }}"
           exit 1
