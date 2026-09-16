@@ -65,6 +65,26 @@ Tudo que não for texto de UI precisa estar em inglês, mesmo quando a conversa 
 - **Texto do commit (título + corpo) sempre em inglês**, mesmo com o resto da conversa em português — ver seção "Idioma" acima.
 - Ao terminar um trabalho (bug corrigido, feature implementada, o que foi pedido na sessão), o passo de conclusão inclui commitar (nos moldes acima) e dar `git push` pro repo remoto — isso faz parte de "terminar a tarefa", não é uma ação extra que precisa ser pedida à parte toda vez.
 
+## Release
+
+- **Tag é imutável neste repo, e isso muda como se conserta uma release
+  quebrada.** Um ruleset do GitHub bloqueia deleção de tag: `git push
+  origin :refs/tags/vX.Y.Z` volta com `push declined due to repository rule
+  violations`, e o `--cleanup-tag` do `gh release delete` falha
+  silenciosamente pelo mesmo motivo (apaga a release, deixa a tag). Então
+  **uma release que falhou no meio se conserta com bump de versão, nunca
+  com retag** — corrige o defeito, mergeia, e corta a tag seguinte. A regra
+  está certa: uma tag que existiu deve continuar apontando pro que apontava.
+  Aconteceu de verdade em 2026-09-16 com a `v0.1.6`, que ficou na lista sem
+  release atrás dela; a correção saiu como `v0.1.7`.
+- **Uma leg da matriz que falha não produz release parcial.** A job
+  `checksums` do `release.yml` depende da matriz inteira, e é ela que
+  publica os aliases sem versão, escreve o `SHA256SUMS` e tira a release de
+  draft. Com qualquer leg vermelha nada disso roda: a release fica em draft,
+  com assets pela metade, e nada chega a usuário nenhum — inclusive o
+  `anywh.sh/install`, que resolve por `releases/latest/download/` e continua
+  servindo a release anterior.
+
 ## Testes
 
 Doutrina completa (o quê testar, onde cada tipo de teste mora, a única exceção sancionada a "sem mock" — o processo `claude`) está em `.anywh/skills/tests/SKILL.md`, symlinkado em `.claude/skills/tests` pra ficar auto-descoberto pelo Claude Code. Canônico fica em `.anywh/` de propósito (não `.claude/`) porque o roadmap já prevê suporte a múltiplos coding agents além do Claude Code — mesmo raciocínio por trás deste arquivo: `AGENTS.md` é o canônico, `CLAUDE.md` é symlink pra ele (não duplicar conteúdo entre convenções de nome de cada provider).
