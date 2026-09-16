@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
-import { buildChildEnv } from "./claudeSession.js";
 
 // Embedded terminal — reuses the same ttyd+tmux pair already
 // validated in this project, just without ttyd: the relay is
@@ -40,7 +39,10 @@ function tmuxSessionName(chatSessionId: string, terminalId: string): string {
 }
 
 export interface SpawnTerminalOptions {
-  homeOverride?: string;
+  /** Built by the caller (server.ts) via `host/childEnv.ts`'s
+   * `buildChildEnv` — this file takes it as plain data instead of importing
+   * from `runtimes/` to build it itself. */
+  env: NodeJS.ProcessEnv;
   relayPort: number;
   chatSessionId: string;
   terminalId: string;
@@ -108,7 +110,7 @@ export function spawnTerminal(options: SpawnTerminalOptions): IPty {
       cols: options.cols,
       rows: options.rows,
       cwd: options.cwd,
-      env: buildChildEnv(options.homeOverride) as Record<string, string>,
+      env: options.env as Record<string, string>,
     },
   );
 }

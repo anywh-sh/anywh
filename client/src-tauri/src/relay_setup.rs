@@ -445,7 +445,7 @@ pub async fn relay_setup_prerequisites() -> Prerequisites {
     let node_ok = node_version.as_deref().is_some_and(node_version_ok);
     let brew_path = login_shell_line("command -v brew", short).await;
 
-    // Same resolution order as relay/src/claudeCliConfig.ts and install-relay.sh.
+    // Same resolution order as relay/src/runtimes/executables.ts and install-relay.sh.
     let agent_bin = std::env::var("AGENT_BIN")
         .or_else(|_| std::env::var("CLAUDE_BIN"))
         .unwrap_or_else(|_| "claude".to_string());

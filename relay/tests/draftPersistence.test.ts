@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { SessionStore } from "../src/sessionStore.js";
+import { SessionStore } from "../src/session/sessionStore.js";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSession, connectSessionAndCollectUntil, sendUserMessage } from "./helpers/wsClient.js";
 

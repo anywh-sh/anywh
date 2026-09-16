@@ -9,11 +9,11 @@
   "scripts": {
     "dev": "tsx --env-file-if-exists=.env src/server.ts",
     "dev:profile": "tsx --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env src/server.ts",
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "build:sea": "node sea-build/build.mjs",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "start:profile": "node --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env dist/server.js",
-    "test": "tsx --test --test-timeout=30000 src/*.test.ts",
+    "test": "bash -O globstar -c 'tsx --test --test-timeout=30000 src/**/*.test.ts'",
     "test:integration": "tsx --test --test-timeout=30000 tests/*.test.ts",
     "test:all": "npm run test && npm run test:integration"
   },

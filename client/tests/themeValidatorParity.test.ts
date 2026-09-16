@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * `client/src/lib/theme.ts` and `relay/src/theme.ts` are the same validator,
+ * `client/src/lib/theme.ts` and `relay/src/host/theme.ts` are the same validator,
  * duplicated because there's no shared package in this repo. Both sides have
  * to give the exact same answer about whether a theme file is broken: the
  * client validates to show a specific error without a round trip, and the
@@ -29,14 +29,14 @@ function body(path: string): string {
 
 describe("the theme validator", () => {
   it("is identical on both sides", () => {
-    expect(body("src/lib/theme.ts")).toBe(body("../relay/src/theme.ts"));
+    expect(body("src/lib/theme.ts")).toBe(body("../relay/src/host/theme.ts"));
   });
 
   it("has each copy point at the other", () => {
     // The header is the one part allowed to differ, and it's the only place
     // the duplication is explained — a copy that lost it reads like a file
     // that can be edited on its own.
-    expect(readFileSync(resolve(process.cwd(), "src/lib/theme.ts"), "utf8")).toContain("relay/src/theme.ts");
-    expect(readFileSync(resolve(process.cwd(), "../relay/src/theme.ts"), "utf8")).toContain("client/src/lib/theme.ts");
+    expect(readFileSync(resolve(process.cwd(), "src/lib/theme.ts"), "utf8")).toContain("relay/src/host/theme.ts");
+    expect(readFileSync(resolve(process.cwd(), "../relay/src/host/theme.ts"), "utf8")).toContain("client/src/lib/theme.ts");
   });
 });

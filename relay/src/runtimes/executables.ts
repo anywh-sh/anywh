@@ -1,10 +1,10 @@
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
-import { resolveShipped } from "./paths.js";
+import { resolveShipped } from "../host/paths.js";
 
 // Shared by every module that spawns the agent CLI (the real turn in
-// claudeSession.ts, plus the one-shot probes in defaultModel.ts,
+// runtimes/defs/claude/session.ts, plus the one-shot probes in defaultModel.ts,
 // titleGenerator.ts, suggestionGenerator.ts) — same binary, same PATH
 // problem for all of them.
 //
@@ -107,7 +107,7 @@ const configuredExtraPathDirs = (process.env.EXTRA_PATH_DIRS ?? "")
 // so it works running from `src/` (tsx), `dist/` (tsc build, one level
 // below `relay/`) or the macOS SEA binary (`scripts/` shipped flat next to
 // it) alike — see `resolveShipped` in paths.ts.
-const SCRIPTS_DIR = resolveShipped(import.meta.url, "../scripts", "scripts");
+export const SCRIPTS_DIR = resolveShipped(import.meta.url, "../../scripts", "scripts");
 
 // Prepended to every spawned child's PATH. `EXTRA_PATH_DIRS` env var is
 // colon-separated, for any tool the child invokes that isn't already on the

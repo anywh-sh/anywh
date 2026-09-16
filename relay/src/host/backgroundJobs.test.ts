@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import type { ClaudeEvent } from "./claudeSession.js";
+// eslint-disable-next-line import-x/no-restricted-paths -- exercising the known reverse-direction dependency (see backgroundJobs.ts)
+import type { ClaudeEvent } from "../runtimes/defs/claude/session.js";
 import {
   BackgroundJobTracker,
   extractStartedJobFromEvent,

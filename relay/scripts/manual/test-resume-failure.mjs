@@ -1,7 +1,7 @@
 // Testa o caso real que quebrou pro usuário: um --resume de session_id
 // inválido deve virar um erro claro (não silêncio) E resetar o sessionId
 // interno pra próxima tentativa começar do zero em vez de repetir o erro.
-import { ClaudeSession } from "../../dist/claudeSession.js";
+import { ClaudeSession } from "../../dist/runtimes/defs/claude/session.js";
 
 const session = new ClaudeSession();
 // Força um session_id inválido, simulando o que aconteceu de verdade

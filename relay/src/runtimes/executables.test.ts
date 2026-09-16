@@ -1,9 +1,17 @@
 import { strict as assert } from "node:assert";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it } from "node:test";
-import { resolveAgentBin } from "./claudeCliConfig.js";
+import { after, before, describe, it, test } from "node:test";
+import { resolveAgentBin, SCRIPTS_DIR } from "./executables.js";
+
+// `../../scripts` from this file's own new location is exactly the segment
+// that a directory move under `src/` silently breaks: it keeps resolving to
+// *some* path and only fails at spawn time, in a turn, when `anywh-bg` isn't
+// on PATH. Pinning it here turns that failure mode into a red unit test.
+test("SCRIPTS_DIR resolves to the real relay/scripts, with anywh-bg present and executable", () => {
+  assert.doesNotThrow(() => accessSync(join(SCRIPTS_DIR, "anywh-bg"), constants.X_OK));
+});
 
 // Real files with real permission bits, not a mocked `fs`: what this
 // function decides is whether something on disk is executable, and a stub

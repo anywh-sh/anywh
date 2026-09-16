@@ -56,7 +56,7 @@ test("stop_turn interrupts an in-flight turn (stopped: true) without losing sess
     (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
   );
   const sessionId = (resultEvent!.event as { session_id?: string }).session_id;
-  assert.ok(sessionId, "an interrupted turn should still report a session_id (claudeSession.ts's stop() contract)");
+  assert.ok(sessionId, "an interrupted turn should still report a session_id (runtimes/defs/claude/session.ts's stop() contract)");
 
   // A second, normal turn on the same session proves the interrupted one
   // didn't erase continuity — same invariant sessionLifecycle.test.ts checks

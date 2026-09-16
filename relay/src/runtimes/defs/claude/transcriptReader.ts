@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { isToolResultOnly, type ClaudeEvent } from "./claudeSession.js";
-import type { BroadcastMessage } from "./sharedSession.js";
+import { isToolResultOnly, type ClaudeEvent } from "./session.js";
+// Known reverse-direction dependency: a runtimes/defs/** file reaching into
+// session/ for a type. Dies once the normalized wire event replaces this
+// Claude-shaped type across the relay (Phase 7).
+// eslint-disable-next-line import-x/no-restricted-paths
+import type { BroadcastMessage } from "../../../session/sharedSession.js";
 
 /**
  * A line of the `.jsonl` that Claude Code writes on its own at

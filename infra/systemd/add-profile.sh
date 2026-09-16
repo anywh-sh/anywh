@@ -231,7 +231,7 @@ trap 'rm -f "$ENV_TMP"' EXIT
   echo "RELAY_HOST=$RELAY_HOST"
   # Omitted entirely for the real $HOME: EnvironmentFile has no way to
   # express "unset a variable", and an empty value would still be truthy in
-  # buildChildEnv's `if (homeOverride)` check (claudeSession.ts).
+  # buildChildEnv's `if (homeOverride)` check (runtimes/defs/claude/session.ts).
   if [[ -n "$PROFILE_HOME" && "$PROFILE_HOME" != "$HOME" ]]; then
     echo "RELAY_HOME_OVERRIDE=$PROFILE_HOME"
   fi

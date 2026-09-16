@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./claudeCliConfig.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executables.js";
 
 const SYSTEM_PROMPT =
   "You are a short title generator for a chat session list, like a browser tab title. The user's " +
@@ -79,7 +79,7 @@ export async function generateTitle(
     // `--system-prompt` overriding the persona. Real finding: asking for a
     // title for a session in `~/mode/storefront` returned "anywh wrapper
     // Claude multiplataforma" — the wrong cwd is the reason. Same cwd that
-    // the real turn uses (claudeSession.ts).
+    // the real turn uses (runtimes/defs/claude/session.ts).
     { env, cwd },
   );
 

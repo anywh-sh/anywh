@@ -1,14 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "./claudeCliConfig.js";
-import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "./planChoiceMarker.js";
-import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
+import { buildChildEnv } from "../../../host/childEnv.js";
+import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
+import type { ContextUsage, ModelChoice, PermissionMode } from "../../../session/sessionStore.js";
 
 // A turn = a `claude -p` process. Continuity across turns comes from
 // `--resume <session_id>`, not from keeping a process alive.
 //
 // A billed credential is always removed from the child process's environment
-// (`BILLED_CREDENTIAL_VARS`, claudeCliConfig.ts): it's the project's golden
+// (`BILLED_CREDENTIAL_VARS`, runtimes/executables.ts): it's the project's golden
 // rule — if one leaks, the agent starts billing per token via API instead of
 // drawing on the plan its CLI is logged into.
 
@@ -52,44 +53,32 @@ const APPEND_SYSTEM_PROMPT =
   "will automatically get a new turn reporting the result, which the user is notified about. You " +
   "can tell them that.";
 
-/** Env for every relay child process (the `claude -p` turn here, interactive
- * shell in terminalSession.ts) — extracted to one place because the golden
- * rule (never let a billed credential leak to the child process)
- * must hold equally for both: a terminal opened by the user is just as
- * capable of running `claude` manually as the turn's own spawn. */
-export function buildChildEnv(homeOverride: string | undefined): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  stripBilledCredentials(env);
-  if (homeOverride) {
-    env.HOME = homeOverride;
-  }
-  env.PATH = [...EXTRA_PATH_DIRS, env.PATH ?? ""].join(":");
-  // Real-session finding (2026-09-09): the per-server `timeout` field in
-  // `--mcp-config` (sharedSession.ts, mcpServers) is a documented, confirmed
-  // regression in this CLI generation — silently ignored for `"http"`-type
-  // servers, which is exactly `anywh-permission`'s transport
-  // (permissionBridge.ts; `anywh-choice`, mcpBridge.ts, no longer needs it
-  // at all — its `tools/call` replies immediately now, see the "deferred
-  // lifecycle" comment on `SharedSession.presentChoice`). Verified live: a
-  // never-resolving `checkPermission` call still errored with "The
-  // operation timed out" at ~6 minutes with that field set to 24h.
-  // `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` isn't documented as broken the same
-  // way, so set to `0` here too (disables the check entirely, not just
-  // raises it) as an env var instead — a separate code path in the CLI from
-  // the JSON field, and confirmed via a debug log to actually reach the
-  // child's env this time. It STILL didn't help: same live test, same ~6
-  // minute failure. Kept anyway (harmless, forward-compatible if the
-  // underlying CLI bug ever gets fixed) but this is an open, unresolved
-  // upstream limitation for the permission-approval path specifically, not
-  // something this env var actually fixes today. Applies to every child this function builds
-  // env for (this turn's `claude -p`, and the interactive terminal in
-  // terminalSession.ts) — it's not scoped to a single MCP server (it can't
-  // be, it's a process-wide env var), but it's harmless outside a
-  // `checkPermission` call actually waiting on a human, so no reason to
-  // scope it tighter.
-  env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT = "0";
-  return env;
-}
+// Real-session finding (2026-09-09): the per-server `timeout` field in
+// `--mcp-config` (sharedSession.ts, mcpServers) is a documented, confirmed
+// regression in this CLI generation — silently ignored for `"http"`-type
+// servers, which is exactly `anywh-permission`'s transport
+// (permissionBridge.ts; `anywh-choice`, mcpBridge.ts, no longer needs it
+// at all — its `tools/call` replies immediately now, see the "deferred
+// lifecycle" comment on `SharedSession.presentChoice`). Verified live: a
+// never-resolving `checkPermission` call still errored with "The
+// operation timed out" at ~6 minutes with that field set to 24h.
+// `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` isn't documented as broken the same
+// way, so set to `0` here too (disables the check entirely, not just
+// raises it) as an env var instead — a separate code path in the CLI from
+// the JSON field, and confirmed via a debug log to actually reach the
+// child's env this time. It STILL didn't help: same live test, same ~6
+// minute failure. Kept anyway (harmless, forward-compatible if the
+// underlying CLI bug ever gets fixed) but this is an open, unresolved
+// upstream limitation for the permission-approval path specifically, not
+// something this env var actually fixes today. Applies to every child built
+// with this def's env (this turn's `claude -p`, and the interactive
+// terminal in terminalSession.ts) — it's not scoped to a single MCP server
+// (it can't be, it's a process-wide env var), but it's harmless outside a
+// `checkPermission` call actually waiting on a human, so no reason to scope
+// it tighter.
+export const CLAUDE_AGENT_ENV_OVERRIDES: Readonly<Record<string, string>> = {
+  CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "0",
+};
 
 export interface ClaudeEvent {
   type: string;
@@ -402,7 +391,7 @@ export class ClaudeSession {
     }
 
     const child = spawn(AGENT_BIN, args, {
-      env: buildChildEnv(this.options.homeOverride),
+      env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
       cwd,
     });
     this.currentChild = child;

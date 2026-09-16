@@ -17,7 +17,7 @@ export interface SessionCwdState {
 
 /** Mirrors the values accepted by `claude --permission-mode` that we expose
  * in the UI — `bypassPermissions` is the only one that still uses
- * the historical `--dangerously-skip-permissions` flag (claudeSession.ts),
+ * the historical `--dangerously-skip-permissions` flag (runtimes/defs/claude/session.ts),
  * the other three go straight through `--permission-mode <value>`.
  * `auto`/`dontAsk` were left out on purpose: `auto` depends on plan/model
  * eligibility and runs its own classifier behind the scenes (its own
