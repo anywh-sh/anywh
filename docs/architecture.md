@@ -30,7 +30,16 @@ stopped being true the moment a second agent CLI became a real target.
 ```
 relay/src/
   server.ts              composition root — see below, it does not move
+  protocol/               type guards for every WS message and HTTP body
+                           (guards.ts) — the wire message shapes themselves
+                           still don't exist as a named type; that lands
+                           when Fase 7 normalizes the wire
   runtimes/
+    types.ts               the agent runtime contract — what a `def`
+                           is, independent of any one agent CLI. See
+                           runtimes/README.md for the full rationale.
+    registry.ts             assertCoherent() plus the fail-isolated
+                           registry builder that runs it
     executables.ts        agent-CLI-binary resolution, PATH, credential strip
     probes/                title/suggestion/default-model generation —
                            agnostic in purpose, Claude-only in today's
@@ -39,6 +48,9 @@ relay/src/
                            parsing, on-disk transcript format
       index.ts              the ONLY file anything outside this folder may
                            import from — see "the index.ts rule" below
+    defs/codex.ts, defs/acp.ts   design-validation drafts, not registered
+                           defs — they prove the contract survives a second
+                           and third agent shape before any engine consumes it
   session/                turn orchestration, broadcast, approval/choice
                            state machine, history paging
   bridges/                 MCP servers the relay runs for a turn to call
@@ -50,10 +62,6 @@ relay/src/
                            terminal, profile registry, theme validation,
                            git status, background-job tracking
 ```
-
-`protocol/` (type guards, the wire message shapes) doesn't exist yet — it
-arrives with the first extraction out of `server.ts` that needs it, not as
-an empty placeholder folder committed ahead of time.
 
 ## `server.ts` doesn't move
 
@@ -93,6 +101,9 @@ instead of pointing at a future phase.
 
 ## Further reading
 
+- [`runtimes/README.md`](../relay/src/runtimes/README.md) — the agent
+  runtime contract itself: what a `def` is, the four invariants, and why
+  each field in `runtimes/types.ts` is shaped the way it is.
 - [`invariants.md`](./invariants.md) — the rules this structure exists to
   make enforceable, several of which aren't fully true yet (the def-purity
   one, in particular) and say so.
