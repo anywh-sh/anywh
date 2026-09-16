@@ -44,22 +44,52 @@ Self-hosted and used daily by its author: chat, voice, image upload, multi-sessi
 
 ## Quick start
 
-**1. Install the client** on the device you actually use. [Download the latest release](https://github.com/anywh-sh/anywh/releases/latest) for Windows, macOS or Linux.
+**1. Install anywh.** One line, on the device you actually use:
 
-**2. Get a relay.** The app opens on a first-run screen and looks at the machine it is on before asking anything.
+```bash
+curl -fsSL https://anywh.sh/install | sh
+```
 
-- **On Linux or Apple Silicon macOS, with the agent on this same machine:** pick *Set up on this machine*. The app checks the prerequisites (Node.js 20.12+ and Homebrew, respectively) and that your agent CLI is logged in, asks which address other devices should reach you on, installs the relay as a background service (a systemd user unit on Linux, Homebrew's launchd service on macOS) and creates the first profile — no administrator password at any point. A relay already installed here is recognised and its profiles adopted.
-- **Anywhere else** (the agent lives on another box, or you are on Windows): install the relay on the machine your agent runs on.
+It installs the desktop app and opens it. On a machine with no graphical
+session — a server you reached over ssh — it installs the relay instead, and
+says so. Either half can be forced with `--app` or `--relay-only`. If you'd
+rather not pipe a script, [download the latest
+release](https://github.com/anywh-sh/anywh/releases/latest) for Windows,
+macOS or Linux; on Windows that download is the only way in today, since the
+script needs a POSIX shell.
 
-  **Linux** (on Windows, run this inside WSL2):
+**2. Tell the app where your agent runs.** It opens on a first-run screen
+and looks at the machine it is on before asking anything.
+
+- **On this same machine** (Linux or Apple Silicon macOS): pick *Set up on
+  this machine*. The app checks the prerequisites (Node.js 20.12+ and
+  Homebrew, respectively) and that your agent CLI is logged in, asks which
+  address other devices should reach you on, installs the relay as a
+  background service (a systemd user unit on Linux, Homebrew's launchd
+  service on macOS) and creates the first profile — no administrator
+  password at any point. A relay already installed here is recognised and
+  its profiles adopted.
+- **On another machine** (the box with your repos, or a Windows machine's
+  WSL2): install the relay there, then come back and *Connect to a machine
+  that already runs the relay*.
+
+  **Linux:**
 
   ```bash
   curl -fsSL https://anywh.sh/install | sh -s -- --profile-id default --relay-host auto
   ```
 
-  The script downloads the latest release, verifies its checksum, registers a systemd user service that comes back after a reboot, and creates the first profile (`auto` picks your tailnet address, else the one LAN address). It installs nothing on your behalf: Node.js 20.12+ and an agent CLI you are already logged into have to be there first, and it stops with a clear message before downloading anything if either is missing.
+  Any profile flag implies `--relay-only`, so this installs the relay even on
+  a desktop. The script downloads the latest release, verifies its checksum,
+  registers a systemd user service that comes back after a reboot, and
+  creates the first profile (`auto` picks your tailnet address, else the one
+  LAN address). It installs nothing on your behalf: Node.js 20.12+ and an
+  agent CLI you are already logged into have to be there first, and it stops
+  with a clear message before downloading anything if either is missing.
 
-  **macOS** (Apple Silicon only): the relay installer has no launchd unit to offer, so use the Homebrew formula instead — it installs the relay, creates the first profile, and keeps it running across logins:
+  **macOS** (Apple Silicon only): the relay installer has no launchd unit to
+  offer, so use the Homebrew formula instead — it installs the relay, creates
+  the first profile, and keeps it running across logins:
 
   ```bash
   brew install anywh-sh/tap/anywh-relay
@@ -67,9 +97,8 @@ Self-hosted and used daily by its author: chat, voice, image upload, multi-sessi
   brew services start anywh-relay
   ```
 
-  Then, in the app, *Connect to a machine that already runs the relay* with that address.
-
-**3. That's the first profile** — the agent login the relay serves. You need at least one; most people never need a second.
+**3. That's the first profile** — the agent login the relay serves. You need
+at least one; most people never need a second.
 
 Building from source, iOS builds, the pairing code, creating profiles from the command line, and everything in between: [Self-hosting](./docs/self-hosting.md).
 

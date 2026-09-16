@@ -63,7 +63,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Same vocabulary as the top-level install.sh's --porcelain: one `ANYWH`
+# Same vocabulary as the top-level install-relay.sh's --porcelain: one `ANYWH`
 # line the caller can parse. Only ever printed when asked, so the human
 # output is unchanged.
 porcelain() {
@@ -292,7 +292,7 @@ fs.writeFileSync(path, JSON.stringify(data, null, 2));
 echo "Provisioned $ENV_FILE"
 
 # Only a source checkout has this: the Linux tarball ships relay/ next to
-# infra/ (install.sh's own layout), but the macOS Homebrew build ships a
+# infra/ (install-relay.sh's own layout), but the macOS Homebrew build ships a
 # single SEA binary instead (relay/sea-build/build.mjs) with no relay/
 # directory at all. app-install.sh still passes --mode dev here — it has
 # no launchd unit for this script to enable, same reason a Linux box
