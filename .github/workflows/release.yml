@@ -86,6 +86,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${GITHUB_REF_NAME}" install.sh --repo "${{ github.repository }}" --clobber
 
+      # The one file a Linux install needs that lives in neither the AppImage
+      # nor the relay tarball: the icon a desktop entry points `Icon=` at.
+      # Reading it out of the AppImage would mean mounting or extracting a
+      # squashfs on the user's machine to get a 12 KB png — shipping it as
+      # its own asset is one more `curl` on a path that is already
+      # downloading one. Sourced from the same 256x256 the bundler uses, so
+      # the menu entry and the window icon can never drift apart.
+      - name: Upload the desktop-entry icon
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp client/src-tauri/icons/128x128@2x.png anywh-icon.png
+          gh release upload "${GITHUB_REF_NAME}" anywh-icon.png --repo "${{ github.repository }}" --clobber
+
   build:
     needs: create-release
     strategy:
@@ -112,6 +126,16 @@ jobs:
           # because it is a larger change than the bug warrants today.
           - platform: ubuntu-22.04
             sidecarTarget: linux-x64
+          # The arm64 counterpart of the leg above, on a hosted arm64 runner
+          # (free for public repos, same as the ones build-relay already
+          # uses) rather than cross-compiled: Tauri's Linux bundlers shell
+          # out to the host's own dpkg/appimagetool, which have no
+          # cross-arch mode worth the trouble. Pinned to 22.04 for the exact
+          # reason the x64 leg is — the oldest runner we build on sets the
+          # oldest distro the bundle can run on, and 24.04's glibc 2.39
+          # would put the floor above Debian 12 and Ubuntu 22.04.
+          - platform: ubuntu-22.04-arm
+            sidecarTarget: linux-arm64
           - platform: windows-latest
             sidecarTarget: win32-x64
           - platform: macos-14
@@ -153,7 +177,7 @@ jobs:
       # cpal (voice) needs ALSA headers and whisper-rs's bindgen needs
       # libclang, neither of which ships on the bare ubuntu-latest image.
       - name: Install Tauri Linux + audio/whisper build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -322,14 +346,68 @@ jobs:
     needs: [create-release, build, build-relay]
     runs-on: ubuntu-latest
     steps:
-      - name: Download release assets and publish SHA256SUMS
+      - name: Download every asset this release published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --dir dist --skip-existing
+
+      # A second name for the same bytes, exactly as build-relay already does
+      # for the relay tarball and for the same reason: only a filename that
+      # carries no version can be addressed through GitHub's
+      # `releases/latest/download/<name>` redirect, which is what lets both
+      # install.sh and the landing page link to "the current build" without
+      # an API call, a jq dependency, or a bump-per-release. The Tauri
+      # bundler names every artifact after the version, so none of them was
+      # linkable that way before this.
+      #
+      # Two audiences, one mechanism: the `.AppImage`/`.app.tar.gz` aliases
+      # are what install.sh downloads, the `.dmg`/`.exe` ones are what the
+      # download buttons on anywh.sh point at (a browser user expects a dmg,
+      # not the updater's tarball). Names follow install.sh's own target
+      # vocabulary (linux-x64, darwin-arm64), not the bundler's mixed
+      # amd64/x64/aarch64 spelling.
+      #
+      # Missing source = hard failure. A silently skipped alias is a 404 on
+      # a download button, discovered by a user rather than by CI.
+      - name: Publish unversioned aliases for the app bundles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          gh release download "$tag" --repo "${{ github.repository }}" --dir dist --skip-existing
+          version="${GITHUB_REF_NAME#v}"
+          alias_asset() {
+            if [ ! -f "dist/$1" ]; then
+              echo "::error::release asset '$1' is missing, so the alias '$2' can't be published"
+              echo "assets this release actually has:"
+              ls -1 dist
+              exit 1
+            fi
+            cp "dist/$1" "dist/$2"
+          }
+          alias_asset "anywh_${version}_amd64.AppImage"   "anywh-linux-x64.AppImage"
+          alias_asset "anywh_${version}_aarch64.AppImage" "anywh-linux-arm64.AppImage"
+          alias_asset "anywh_aarch64.app.tar.gz"          "anywh-darwin-arm64.app.tar.gz"
+          alias_asset "anywh_x64.app.tar.gz"              "anywh-darwin-x64.app.tar.gz"
+          alias_asset "anywh_${version}_aarch64.dmg"      "anywh-darwin-arm64.dmg"
+          alias_asset "anywh_${version}_x64.dmg"          "anywh-darwin-x64.dmg"
+          alias_asset "anywh_${version}_x64-setup.exe"    "anywh-windows-x64-setup.exe"
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/anywh-linux-x64.AppImage \
+            dist/anywh-linux-arm64.AppImage \
+            dist/anywh-darwin-arm64.app.tar.gz \
+            dist/anywh-darwin-x64.app.tar.gz \
+            dist/anywh-darwin-arm64.dmg \
+            dist/anywh-darwin-x64.dmg \
+            dist/anywh-windows-x64-setup.exe \
+            --repo "${{ github.repository }}" --clobber
+
+      # Runs last on purpose: dist/ now holds the aliases too, so every name
+      # a downloader can address is in the file they verify against.
+      - name: Publish SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           (cd dist && sha256sum -- * > SHA256SUMS)
-          gh release upload "$tag" dist/SHA256SUMS --repo "${{ github.repository }}" --clobber
+          gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --repo "${{ github.repository }}" --clobber
 
       - name: Publish the release
         env:
