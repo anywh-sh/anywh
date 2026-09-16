@@ -37,3 +37,6 @@ client/*.local.sh
 Screenshot*.png
 .playwright-mcp/
 prototypes/
+
+# scratch screenshots — see AGENTS.md's "Screenshots" section
+/screenshots/
