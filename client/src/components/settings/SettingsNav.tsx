@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 /** Which page the dialog is showing: one of the two app-wide pages, or one
  * profile. A profile is addressed by id rather than by index so removing
  * one doesn't silently select its neighbour. */
-export type SettingsSection = { kind: "appearance" } | { kind: "updates" } | { kind: "profile"; profileId: string };
+export type SettingsSection = { kind: "appearance" } | { kind: "profile"; profileId: string };
 
 function NavEyebrow({ children, count }: { children: string; count?: number }) {
   return (
@@ -91,9 +91,6 @@ export function SettingsNav({
       <NavEyebrow>{dict.settings.nav.app}</NavEyebrow>
       <NavButton active={section.kind === "appearance"} onClick={() => onSelect({ kind: "appearance" })}>
         <span className="min-w-0 flex-1 truncate">{dict.settings.nav.appearance}</span>
-      </NavButton>
-      <NavButton active={section.kind === "updates"} onClick={() => onSelect({ kind: "updates" })}>
-        <span className="min-w-0 flex-1 truncate">{dict.settings.nav.updates}</span>
       </NavButton>
 
       <NavEyebrow count={profiles.length}>{dict.settings.nav.profiles}</NavEyebrow>

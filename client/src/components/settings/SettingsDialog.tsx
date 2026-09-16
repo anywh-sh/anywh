@@ -3,7 +3,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { SettingsNav, type SettingsSection } from "@/components/settings/SettingsNav";
-import { UpdatesSettings } from "@/components/settings/UpdatesSettings";
 import { useProfiles } from "@/hooks/useProfiles";
 import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles";
@@ -70,8 +69,6 @@ export function SettingsDialog({ open, onOpenChange, activeProfile, profilesSupp
       );
     }
     switch (section.kind) {
-      case "updates":
-        return <UpdatesSettings />;
       case "appearance":
       case "profile":
         return <AppearanceSettings activeProfile={activeProfile} />;

@@ -84,34 +84,6 @@ describe("performUpdateCheck", () => {
     expect(appUpdate.getAvailableUpdate()).toEqual({ version: "999.0.0", htmlUrl: "https://example.test/r" });
   });
 
-  it("does not mark an update for a version that was already dismissed", async () => {
-    const appUpdate = await freshModule();
-    const settings = await freshSettings();
-    const now = Date.now();
-    settings.writeSettings({ ...settings.readSettings(), app: { dismissedVersion: "999.0.0" } });
-
-    await appUpdate.performUpdateCheck(now, {
-      getInstallOrigin: fakeOrigin(true),
-      checkLatestRelease: async () => ({ kind: "available", tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
-    });
-
-    expect(appUpdate.getAvailableUpdate()).toBeNull();
-  });
-
-  it("dismissing one version does not suppress a later one", async () => {
-    const appUpdate = await freshModule();
-    const settings = await freshSettings();
-    const now = Date.now();
-    settings.writeSettings({ ...settings.readSettings(), app: { dismissedVersion: "999.0.0" } });
-
-    await appUpdate.performUpdateCheck(now, {
-      getInstallOrigin: fakeOrigin(true),
-      checkLatestRelease: async () => ({ kind: "available", tagName: "v999.0.1", htmlUrl: "https://example.test/r", etag: null }),
-    });
-
-    expect(appUpdate.getAvailableUpdate()).toEqual({ version: "999.0.1", htmlUrl: "https://example.test/r" });
-  });
-
   it("never marks an update for a release that isn't actually newer", async () => {
     const appUpdate = await freshModule();
     await appUpdate.performUpdateCheck(Date.now(), {
@@ -152,18 +124,7 @@ describe("performUpdateCheck", () => {
   });
 });
 
-describe("dismissUpdate / clearUpdate", () => {
-  it("clears the current banner and persists the dismissed version", async () => {
-    const appUpdate = await freshModule();
-    const settings = await freshSettings();
-    appUpdate.markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
-
-    appUpdate.dismissUpdate("999.0.0");
-
-    expect(appUpdate.getAvailableUpdate()).toBeNull();
-    expect(settings.readSettings().app?.dismissedVersion).toBe("999.0.0");
-  });
-
+describe("clearUpdate", () => {
   it("notifies subscribers on every mutation", async () => {
     const appUpdate = await freshModule();
     const listener = vi.fn();

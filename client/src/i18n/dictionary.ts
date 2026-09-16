@@ -52,7 +52,6 @@ export interface Dictionary {
       app: string;
       profiles: string;
       appearance: string;
-      updates: string;
     };
     appearance: {
       title: string;
@@ -111,31 +110,6 @@ export interface Dictionary {
          * something before it is committed to. */
         sample: string;
         reset: string;
-      };
-    };
-    updates: {
-      title: string;
-      scope: string;
-      mode: {
-        title: string;
-        description: string;
-        notify: string;
-        autoDownload: string;
-        off: string;
-      };
-      /** Shown under the mode control when this install can't apply an
-       * update on its own — disables the auto-download option rather than
-       * hiding it, so the reason stays visible instead of the option just
-       * vanishing. */
-      notUpdatable: string;
-      checkNow: {
-        label: string;
-        checking: string;
-      };
-      currentVersion: string;
-      lastChecked: {
-        label: string;
-        never: string;
       };
     };
     profile: {
@@ -715,6 +689,7 @@ export interface Dictionary {
       expandSidebar: string;
       openSidebar: string;
       searchSessions: string;
+      checkForUpdates: string;
       minimize: string;
       maximize: string;
       restore: string;
@@ -740,6 +715,10 @@ export interface Dictionary {
       /** `{version}` — title of the version slot, which has room for the
        * number but not for what the number belongs to. */
       appVersion: string;
+      /** `{version}` — replaces the version slot itself once a newer
+       * release exists, so there is one thing there rather than a number
+       * plus a separate badge competing for the same sliver of width. */
+      updateAvailable: string;
     };
     sidebar: {
       label: string;
@@ -872,13 +851,20 @@ export interface Dictionary {
        * confirmation. */
       lastProfile: string;
     };
-    /** The single, app-wide banner a newer GitHub release triggers — unlike
-     * `revoked` above, this is never plural: a revoked connection is
-     * per-profile, but there is only one running app to be behind on. */
-    update: {
-      eyebrow: string;
-      /** `{version}` */
+    /** The single, app-wide dialog a newer GitHub release triggers — opened
+     * either from the footer's update indicator (only rendered once one is
+     * available) or manually via the title bar menu's "Check for updates",
+     * which always opens it regardless of outcome. Unlike `revoked` above,
+     * this is never plural: a revoked connection is per-profile, but there
+     * is only one running app to be behind on. */
+    updateModal: {
+      title: string;
+      /** Shown when a manual check finds nothing newer than `APP_VERSION`. */
+      upToDateTitle: string;
+      /** `{version}`, `{current}` */
       body: string;
+      /** `{version}` */
+      upToDateBody: string;
       viewRelease: string;
       copyCommand: string;
       copied: string;
@@ -889,7 +875,12 @@ export interface Dictionary {
        * running keeps its old inode either way, so this is the one honest
        * thing to say about what happens next. */
       restartHint: string;
-      dismiss: string;
+      /** `aria-label` of the on/off control at the bottom of the dialog —
+       * the only place this setting lives now that Settings > Updates is
+       * gone. */
+      checkAutomatically: string;
+      checkAutomaticallyOn: string;
+      checkAutomaticallyOff: string;
     };
     /** The folder a conversation runs in. Lives in the title bar since the
      * shell redesign, but it is still per-conversation state. */

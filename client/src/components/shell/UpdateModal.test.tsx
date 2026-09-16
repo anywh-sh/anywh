@@ -19,45 +19,41 @@ vi.mock("@/lib/appUpdate", async (importOriginal) => {
   return { ...actual, getInstallOrigin: getInstallOriginMock };
 });
 
-import { UpdateBanner } from "@/components/shell/UpdateBanner";
+import { UpdateModal } from "@/components/shell/UpdateModal";
 import { clearUpdate, markUpdateAvailable } from "@/lib/appUpdate";
+import { APP_VERSION } from "@/lib/appVersion";
+import { readSettings } from "@/lib/settings";
 
-const copy = en.shell.update;
+const copy = en.shell.updateModal;
 
 afterEach(() => {
   cleanup();
   clearUpdate();
+  localStorage.clear();
   openUrl.mockClear();
   getInstallOriginMock.mockClear();
   getInstallOriginMock.mockResolvedValue(UNKNOWN_ORIGIN);
 });
 
-describe("UpdateBanner", () => {
-  it("renders nothing when no update is available", () => {
-    render(<UpdateBanner />);
-    expect(screen.queryByText(copy.eyebrow)).not.toBeInTheDocument();
+describe("UpdateModal", () => {
+  it("reports up to date when no update is available", () => {
+    render(<UpdateModal open onOpenChange={() => {}} />);
+
+    expect(screen.getByText(copy.upToDateTitle)).toBeInTheDocument();
+    expect(screen.getByText(copy.upToDateBody.replace("{version}", APP_VERSION))).toBeInTheDocument();
   });
 
   it("shows the version once an update is marked available", () => {
     markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
-    render(<UpdateBanner />);
-    expect(screen.getByText(copy.eyebrow)).toBeInTheDocument();
-    expect(screen.getByText(copy.body.replace("{version}", "999.0.0"))).toBeInTheDocument();
-  });
+    render(<UpdateModal open onOpenChange={() => {}} />);
 
-  it("dismisses and disappears without touching any timer", async () => {
-    markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
-    render(<UpdateBanner />);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: copy.dismiss }));
-
-    expect(screen.queryByText(copy.eyebrow)).not.toBeInTheDocument();
+    expect(screen.getByText(copy.title)).toBeInTheDocument();
+    expect(screen.getByText(copy.body.replace("{version}", "999.0.0").replace("{current}", APP_VERSION))).toBeInTheDocument();
   });
 
   it("opens the release page when there's no install.sh marker", async () => {
     markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
-    render(<UpdateBanner />);
+    render(<UpdateModal open onOpenChange={() => {}} />);
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: copy.viewRelease }));
@@ -80,7 +76,7 @@ describe("UpdateBanner", () => {
       },
     });
     markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
-    render(<UpdateBanner />);
+    render(<UpdateModal open onOpenChange={() => {}} />);
 
     expect(await screen.findByRole("button", { name: copy.copyCommand })).toBeInTheDocument();
     expect(screen.getByText(copy.restartHint)).toBeInTheDocument();
@@ -92,5 +88,17 @@ describe("UpdateBanner", () => {
 
     expect(writeText).toHaveBeenCalledWith("curl -fsSL https://anywh.sh/install | sh");
     expect(await screen.findByRole("button", { name: copy.copied })).toBeInTheDocument();
+  });
+
+  it("defaults to checking automatically, and persists turning it off", async () => {
+    render(<UpdateModal open onOpenChange={() => {}} />);
+    const user = userEvent.setup();
+
+    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyOn })).toHaveAttribute("aria-checked", "true");
+
+    await user.click(screen.getByRole("radio", { name: copy.checkAutomaticallyOff }));
+
+    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyOff })).toHaveAttribute("aria-checked", "true");
+    expect(readSettings().app?.updateMode).toBe("off");
   });
 });
