@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -47,6 +47,15 @@ import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "./uploads.js";
 // `dist/` (tsc build, two levels below the repo root) or the macOS SEA
 // binary (`infra/` shipped flat next to it) alike.
 const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../infra/systemd/add-profile.sh", "infra/systemd/add-profile.sh");
+
+// Same `resolveShipped` reasoning, one level up: `package.json` sits beside
+// `src/`, not inside it, in both shapes this can run as (dev `src/`, or the
+// tarball/dist layout `relay_setup.rs::installed_version()` on the client
+// side already reads the very same file from). The macOS SEA binary needs
+// its own flat copy, added to `sea-build/build.mjs`'s "ships beside the
+// binary" list for this.
+const PACKAGE_JSON_PATH = resolveShipped(import.meta.url, "../package.json", "package.json");
+const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { version: string }).version;
 
 // Same seam as `AGENT_BIN` (claudeCliConfig.ts) — defaults to the bare
 // command name (works wherever `systemctl --user` is genuinely available),
@@ -1079,7 +1088,12 @@ export const httpServer = createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
     const editor = resolveEditorDescriptor(process.env, req.socket.remoteAddress);
-    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor }));
+    // `version` is new — an older relay simply omits it, and the client's
+    // type for this field is optional for exactly that reason. Populating
+    // it now, ahead of any UI reading it, is what lets that UI eventually
+    // warn about drift: every relay already in the field today has none,
+    // and it takes an actual round of upgrades before this is useful at all.
+    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor, version: RELAY_VERSION }));
     return;
   }
 

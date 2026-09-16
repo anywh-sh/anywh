@@ -547,6 +547,14 @@ export const ptBr: Dictionary = {
         description: "Marca as abas e as sessões que pertencem a este perfil.",
         swatch: "Cor {number}",
       },
+      relay: {
+        title: "Versão do relay",
+        description: "O relay desta máquina está na {relayVersion} — o anywh em si está na {appVersion}.",
+        update: "Atualizar o relay",
+        updating: "Atualizando…",
+        updated: "Baixado — passa a valer na próxima vez que o relay reiniciar.",
+        brewHint: "O Homebrew é dono deste relay no macOS:",
+      },
     },
     danger: {
       heading: "zona de risco",
