@@ -1,0 +1,12 @@
+#!/bin/sh
+# Fake `xdg-open` for the e2e tier (update.spec.js). It sits ahead of the
+# real one on PATH (set in wdio.conf.js's env for the embedded app process)
+# so that clicking "View the release" never actually launches a browser
+# mid-CI-run — the same "sanctioned mock boundary" shape the relay tests use
+# for the `claude` and `systemctl` processes (.anywh/skills/tests/SKILL.md).
+# The Rust `open` crate (client/src-tauri, via tauri-plugin-opener) tries
+# `xdg-open <url>` first and stops as soon as it exits 0, so this alone is
+# enough to short-circuit every other opener it would otherwise fall back to
+# (gio, gnome-open, kde-open).
+printf '%s\n' "$1" >> "$ANYWH_E2E_OPENED_URLS_LOG"
+exit 0
