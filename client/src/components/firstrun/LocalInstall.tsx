@@ -15,7 +15,7 @@ import {
   reinstall,
   retryInstall,
   runPrereqs,
-  useDevMode,
+  enableDevMode,
   type InstallRowKey,
   type LocalFailure,
   type LocalFailureAction,
@@ -406,7 +406,7 @@ function InstallBody({
         void runPrereqs();
         break;
       case "useDevMode":
-        useDevMode();
+        enableDevMode();
         break;
       case "terminal":
         onTerminal();
@@ -481,7 +481,7 @@ export function LocalInstall({ onTerminal, onBack }: { onTerminal: () => void; o
 
   function handlePrereqAction(action: LocalFailureAction): void {
     if (action === "recheck") void runPrereqs();
-    else if (action === "useDevMode") useDevMode();
+    else if (action === "useDevMode") enableDevMode();
     else if (action === "terminal") onTerminal();
     else if (action === "back") onBack();
   }

@@ -56,7 +56,7 @@ test("GET /control/profiles reports a second profile's running state from a real
   };
   const trabalho = listedRunning.profiles.find((profile) => profile.id === "trabalho");
   assert.ok(trabalho, "the planted profile should show up in the list");
-  assert.equal(trabalho!.running, true, "a profile whose port is genuinely open should report running: true");
+  assert.equal(trabalho.running, true, "a profile whose port is genuinely open should report running: true");
 
   // Same profile, port now closed — `running` must flip to false. This is
   // the real invariant behind "profile switching": the client's picker

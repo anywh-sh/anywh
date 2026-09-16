@@ -158,7 +158,7 @@ function derivedTerminal(colors: ResolvedColors, declared: Theme["terminal"]): R
   for (const key of TERMINAL_COLOR_KEYS) {
     result[key] ??= DEFAULT_THEME.terminal?.[key] ?? "";
   }
-  return result as Record<TerminalColorKey, string>;
+  return result;
 }
 
 export function resolveTheme(theme: Theme): ResolvedTheme {

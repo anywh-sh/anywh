@@ -93,7 +93,7 @@ function groupCssVars(groups: TabGroup[]): CSSProperties {
     vars[`--g${index}-cum`] = String(cumulative);
     cumulative += group.size;
   });
-  return vars as CSSProperties;
+  return vars;
 }
 
 function availExpr(total: number): string {

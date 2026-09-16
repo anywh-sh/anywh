@@ -143,7 +143,7 @@ function ModelControl({
             <ChoiceButton
               key={choice}
               selected={preference.fixedModel === choice}
-              onClick={() => onChange({ ...preference, fixedModel: choice as ModelPreference["fixedModel"] })}
+              onClick={() => onChange({ ...preference, fixedModel: choice })}
             >
               {labelForModel(choice, dict.chat.composer.modelAliases)}
             </ChoiceButton>

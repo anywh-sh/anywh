@@ -78,7 +78,7 @@ export function SessionList({
   const rows = useMemo<Row[]>(
     () =>
       groups.flatMap((group) => [
-        { kind: "heading", id: group.id, count: group.sessions.length } as Row,
+        { kind: "heading", id: group.id, count: group.sessions.length },
         ...group.sessions.map((session): Row => ({ kind: "session", session })),
       ]),
     [groups],

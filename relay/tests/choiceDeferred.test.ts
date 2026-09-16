@@ -116,7 +116,7 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
   socket.send(
     JSON.stringify({
       type: "choice_answer",
-      promptId: choicePrompt!.promptId,
+      promptId: choicePrompt.promptId,
       answers: [{ question: "Which approach?", selected: ["Rewrite from scratch"] }],
     }),
   );
@@ -126,7 +126,7 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
   const resolved = secondTurnMessages.find((message) => message.type === "choice_resolved") as
     | { type: string; promptId: string }
     | undefined;
-  assert.deepEqual(resolved, { type: "choice_resolved", promptId: choicePrompt!.promptId });
+  assert.deepEqual(resolved, { type: "choice_resolved", promptId: choicePrompt.promptId });
 
   const syntheticPrompt = secondTurnMessages.find(
     (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "user_prompt",
