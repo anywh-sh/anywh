@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Controles de janela (minimizar/maximizar/fechar/arrastar) e estado de maximização — chrome de janela custom, só existe em plataformas com janela redimensionável de verdade. macOS usa overlay nativo (não desenha os 3 botões), mas ainda depende de allow-is-maximized (onResized) e allow-start-dragging (drag region) — allow-is-focused fica em default.json por ser usado fora da TitleBar (useWindowFocus, App.tsx).",
+  "description": "Controles de janela (minimizar/maximizar/fechar/arrastar) e estado de maximização — chrome de janela custom, só existe em plataformas com janela redimensionável de verdade. macOS usa overlay nativo (não desenha os 3 botões), mas ainda depende de allow-is-maximized (onResized) e allow-start-dragging (drag region) — allow-is-focused fica em default.json por ser usado fora da TitleBar (useWindowFocus, App.tsx). updater:default e process:allow-restart também vivem aqui (não em default.json) pelo mesmo motivo: nenhum dos dois tem alvo mobile.",
   "windows": ["*"],
   "platforms": ["windows", "linux", "macOS"],
   "permissions": [
@@ -10,6 +10,8 @@
     "core:window:allow-is-maximized",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "deep-link:default"
+    "deep-link:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

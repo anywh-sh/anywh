@@ -228,10 +228,19 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: client
           args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }}
           releaseId: ${{ needs.create-release.outputs.release_id }}
+          # tauri-action's own latest.json is a read-merge-write against the
+          # same release from every matrix leg, with no locking — legs that
+          # finish close together race and can drop a platform's key.
+          # scripts/build-latest-json.mjs replaces it, running once in the
+          # checksums job after every leg's assets (and .sig files, which
+          # uploadUpdaterSignatures still uploads regardless of this) are in.
+          uploadUpdaterJson: false
 
   # Ships the relay as a tarball with node_modules already compiled — separate
   # from the client's `build` matrix above because it packages a Node
@@ -359,10 +368,31 @@ jobs:
     needs: [create-release, build, build-relay]
     runs-on: ubuntu-latest
     steps:
+      # Only needed for scripts/build-latest-json.mjs below — everything
+      # else in this job is bash + the gh CLI against already-uploaded
+      # release assets, no repo checkout required.
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+
       - name: Download every asset this release published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --dir dist --skip-existing
+
+      # Runs once here instead of once per matrix leg (see the comment next
+      # to `uploadUpdaterJson: false` on the build job) — every platform's
+      # asset + .sig is already in dist/ at this point, so there's nothing
+      # left to race against. `--clobber` replaces the empty placeholder
+      # `gh release download` can't have produced in the first place (no
+      # `latest.json` is ever uploaded now that uploadUpdaterJson is off).
+      - name: Build the updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/build-latest-json.mjs dist
+          gh release upload "${GITHUB_REF_NAME}" dist/latest.json --repo "${{ github.repository }}" --clobber
 
       # A second name for the same bytes, exactly as build-relay already does
       # for the relay tarball and for the same reason: only a filename that

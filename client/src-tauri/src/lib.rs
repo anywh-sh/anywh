@@ -83,6 +83,12 @@ pub fn run() {
     #[cfg(not(target_os = "ios"))]
     let builder = builder.plugin(tauri_plugin_shell::init());
 
+    // Updater phase B: neither plugin has a mobile target.
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
     // cpal accesses CoreAudio directly (without going through AVFoundation),
     // which in practice doesn't trigger macOS's permission dialog — the app
     // captures only silence, with no error at all (whisper then
