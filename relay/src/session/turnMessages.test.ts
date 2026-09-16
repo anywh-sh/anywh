@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
-import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildBackgroundJobFollowupPrompt, describeToolCall, isApproved } from "./turnMessages.js";
+import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig, describeToolCall, isApproved } from "./turnMessages.js";
 
 // Merged into this file from the standalone approvalPrompt.test.ts — it was
 // the one test file whose name didn't match the module it tested; that
@@ -114,4 +114,57 @@ test("buildBackgroundJobFollowupPrompt: always names the job and includes the lo
 test("buildBackgroundJobFollowupPrompt: an empty log tail (only whitespace) falls back to a placeholder", () => {
   const prompt = buildBackgroundJobFollowupPrompt(job({ logTail: "   \n  " }));
   assert.match(prompt, /\(sem saída\)/);
+});
+
+interface ParsedMcpServer {
+  url: string;
+  alwaysLoad: boolean;
+  timeout?: number;
+}
+
+function parseMcpServers(configJson: string): Record<string, ParsedMcpServer> {
+  return (JSON.parse(configJson) as { mcpServers: Record<string, ParsedMcpServer> }).mcpServers;
+}
+
+test("buildMcpSpawnConfig: neither token registered means no --mcp-config at all", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  assert.equal(mcp, undefined);
+});
+
+test("buildMcpSpawnConfig: only the choice bridge registered gets its server, allowedTools, disallowedTools and the system-prompt hint — no permissionPromptTool", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  assert.ok(mcp);
+  const servers = parseMcpServers(mcp.configJson);
+  assert.deepEqual(Object.keys(servers), ["anywh-choice"]);
+  assert.equal(servers["anywh-choice"].url, "http://127.0.0.1:1/choice/tok-choice");
+  assert.equal(servers["anywh-choice"].alwaysLoad, true);
+  assert.equal(servers["anywh-choice"].timeout, undefined);
+  assert.equal(mcp.allowedTools, "mcp__anywh-choice__present_choice");
+  assert.equal(mcp.disallowedTools, "AskUserQuestion");
+  assert.ok(mcp.extraSystemPrompt);
+  assert.equal(mcp.permissionPromptTool, undefined);
+});
+
+test("buildMcpSpawnConfig: only the permission bridge registered gets its server with the 24h timeout override, and permissionPromptTool — no choice-only fields", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  assert.ok(mcp);
+  const servers = parseMcpServers(mcp.configJson);
+  assert.deepEqual(Object.keys(servers), ["anywh-permission"]);
+  assert.equal(servers["anywh-permission"].url, "http://127.0.0.1:1/perm/tok-perm");
+  assert.equal(servers["anywh-permission"].timeout, 24 * 60 * 60 * 1000);
+  assert.equal(mcp.permissionPromptTool, "mcp__anywh-permission__approve");
+  assert.equal(mcp.allowedTools, undefined);
+  assert.equal(mcp.disallowedTools, undefined);
+  assert.equal(mcp.extraSystemPrompt, undefined);
+});
+
+test("buildMcpSpawnConfig: both bridges registered at once (default/acceptEdits) get both servers and all five fields together", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  assert.ok(mcp);
+  const servers = parseMcpServers(mcp.configJson);
+  assert.deepEqual(new Set(Object.keys(servers)), new Set(["anywh-choice", "anywh-permission"]));
+  assert.ok(mcp.allowedTools);
+  assert.ok(mcp.permissionPromptTool);
+  assert.ok(mcp.disallowedTools);
+  assert.ok(mcp.extraSystemPrompt);
 });
