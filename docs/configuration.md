@@ -70,7 +70,7 @@ tailnet-IP peer can still be this same physical box.
 
 ## Installer
 
-Read by `install.sh` (and by the app's own *Set up on this machine*, which
+Read by `install-relay.sh` (and by the app's own *Set up on this machine*, which
 runs the same script). None is needed for a normal install.
 
 | Variable | Default | What it does |
@@ -80,7 +80,7 @@ runs the same script). None is needed for a normal install.
 | `AGENT_BIN` / `CLAUDE_BIN` | `claude` | The agent CLI whose presence and login are checked — the same resolution the relay uses. |
 | `ANYWH_SKIP_AGENT_LOGIN_CHECK` | — | Set to `1` to skip running `auth status --json` — for a box where the login happens later, or a CLI without that command. |
 | `ANYWH_RELEASE_BASE_URL` | GitHub's release downloads | Where the tarball and `SHA256SUMS` are fetched from — a mirror, or a locally served build. |
-| `ANYWH_INSTALL_SCRIPT` | the embedded script | App only: a path to run instead of the `install.sh` embedded in the binary. For development and the e2e stub. |
+| `ANYWH_INSTALL_SCRIPT` | the embedded script | App only: a path to run instead of the `install-relay.sh` embedded in the binary. For development and the e2e stub. |
 
 ## Client
 

@@ -41,7 +41,7 @@ export type LocalNote = "none" | "alreadyInstalled" | "interrupted" | "reattache
 
 /**
  * Everything that can stop the wizard, as stable codes. The installer's
- * own codes (`install.sh --porcelain`) pass through unchanged; the rest
+ * own codes (`install-relay.sh --porcelain`) pass through unchanged; the rest
  * are this side's. A code from a newer installer this build doesn't know
  * falls back to `unexpected` rather than a blank sentence.
  */
@@ -86,7 +86,7 @@ export interface LocalFailure {
  * `relay_host` are too quick and too internal to earn one. */
 export type InstallRowKey = "prereqs" | "download" | "install" | "service" | "profile";
 export const INSTALL_ROWS: InstallRowKey[] = ["prereqs", "download", "install", "service", "profile"];
-/** macOS drives Homebrew instead of install.sh — no separate download step
+/** macOS drives Homebrew instead of install-relay.sh — no separate download step
  * to show (`brew install` does its own fetching), and the rest map to the
  * same steps app-install.sh's porcelain reports. */
 export const MACOS_INSTALL_ROWS: InstallRowKey[] = ["prereqs", "install", "profile", "service"];

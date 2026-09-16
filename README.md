@@ -59,7 +59,7 @@ Self-hosted and used daily by its author: chat, voice, image upload, multi-sessi
 
   The script downloads the latest release, verifies its checksum, registers a systemd user service that comes back after a reboot, and creates the first profile (`auto` picks your tailnet address, else the one LAN address). It installs nothing on your behalf: Node.js 20.12+ and an agent CLI you are already logged into have to be there first, and it stops with a clear message before downloading anything if either is missing.
 
-  **macOS** (Apple Silicon only): `install.sh` has no launchd unit to offer, so use the Homebrew formula instead — it installs the relay, creates the first profile, and keeps it running across logins:
+  **macOS** (Apple Silicon only): the relay installer has no launchd unit to offer, so use the Homebrew formula instead — it installs the relay, creates the first profile, and keeps it running across logins:
 
   ```bash
   brew install anywh-sh/tap/anywh-relay

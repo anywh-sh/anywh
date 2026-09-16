@@ -22,6 +22,7 @@ on:
   pull_request:
     paths:
       - install.sh
+      - install-relay.sh
       - infra/**
       - .github/workflows/test-install.yml
   workflow_dispatch:
@@ -107,6 +108,10 @@ jobs:
           mkdir -p broken/relay
           echo "not a relay" > broken/relay/README
           tar czf serve/anywh-relay-0.0.0-broken-linux-x64.tar.gz -C broken relay
+          # The relay half of the installer is a release asset too — it is
+          # what install.sh downloads and checksums when it has no sibling
+          # copy beside it, which is every `curl | sh`.
+          cp install-relay.sh serve/
           (cd serve && sha256sum -- * > SHA256SUMS)
           (cd serve && python3 -m http.server 8765 --bind 127.0.0.1 > /dev/null 2>&1 &)
           for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8765/SHA256SUMS > /dev/null && break; sleep 0.5; done
@@ -119,6 +124,44 @@ jobs:
           exit 0
           STUB
           sudo chmod +x /usr/local/bin/claude
+
+      # What a piped `curl | sh` actually does, which no other step here
+      # covers: install.sh copied somewhere with no install-relay.sh beside
+      # it, so the only way it can do anything is to download that half and
+      # verify it. Every other step runs the dispatcher out of the checkout,
+      # where the sibling shortcut means the download path is never touched.
+      - name: The front door downloads the relay half when it stands alone
+        run: |
+          mkdir -p "$RUNNER_TEMP/alone"
+          cp install.sh "$RUNNER_TEMP/alone/"
+          ANYWH_INSTALL_DIR="$RUNNER_TEMP/alone-install" \
+            sh "$RUNNER_TEMP/alone/install.sh" --porcelain --relay-only --mode dev > out.log 2>&1
+          cat out.log
+          grep -q '^ANYWH done ok ' out.log
+          [ -f "$RUNNER_TEMP/alone-install/relay/dist/server.js" ]
+
+      # The trust boundary the split introduces: install.sh fetches a script
+      # and runs it as this user, so it verifies those bytes the same way
+      # install-relay.sh verifies the tarball. Same step proves the
+      # precedence rule the whole suite leans on — a sibling copy always
+      # wins over the network, so the checkout's own script is what runs
+      # even while the served one is poisoned.
+      - name: A tampered relay half is refused, and a sibling is preferred to it
+        run: |
+          cp serve/install-relay.sh "$RUNNER_TEMP/install-relay.sh.orig"
+          echo "# tampered" >> serve/install-relay.sh
+          set +e
+          sh "$RUNNER_TEMP/alone/install.sh" --relay-only --mode dev > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          [ "$status" -ne 0 ]
+          grep -q 'checksum mismatch for install-relay.sh' out.log
+          ANYWH_INSTALL_DIR="$RUNNER_TEMP/sibling-wins" \
+            ./install.sh --porcelain --relay-only --mode dev > sibling.log 2>&1
+          cat sibling.log
+          grep -q '^ANYWH done ok ' sibling.log
+          cp "$RUNNER_TEMP/install-relay.sh.orig" serve/install-relay.sh
 
       # Deliberately not fatal, and this is the step that says so. A relay
       # installs, starts and serves with no usable agent CLI, and resolves

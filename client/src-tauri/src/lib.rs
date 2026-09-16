@@ -15,7 +15,7 @@ mod editors;
 // can't do at all — same exclusion as voice/editors above.
 #[cfg(not(target_os = "ios"))]
 mod tailnet_sidecar;
-// In-app relay install: spawns `install.sh` as a child process and reads
+// In-app relay install: spawns `install-relay.sh` as a child process and reads
 // the machine's filesystem — desktop only, same exclusion as the rest.
 #[cfg(not(target_os = "ios"))]
 mod relay_setup;
