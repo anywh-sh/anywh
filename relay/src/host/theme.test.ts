@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isValidColorValue, parseTheme, type Theme } from "./theme.js";
+import { isValidColorValue, parseTheme } from "./theme.js";
 
 function validTheme(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -127,5 +127,5 @@ test("rejects a non-object payload", () => {
 test("carries updatedAt through when present", () => {
   const result = parseTheme(validTheme({ updatedAt: "2026-09-07T12:00:00.000Z" }));
   assert.equal(result.ok, true);
-  if (result.ok) assert.equal((result.theme as Theme).updatedAt, "2026-09-07T12:00:00.000Z");
+  if (result.ok) assert.equal((result.theme).updatedAt, "2026-09-07T12:00:00.000Z");
 });

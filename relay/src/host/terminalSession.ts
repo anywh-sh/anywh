@@ -110,7 +110,7 @@ export function spawnTerminal(options: SpawnTerminalOptions): IPty {
       cols: options.cols,
       rows: options.rows,
       cwd: options.cwd,
-      env: options.env as Record<string, string>,
+      env: options.env,
     },
   );
 }

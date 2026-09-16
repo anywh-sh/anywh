@@ -15,18 +15,25 @@
     "start:profile": "node --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env dist/server.js",
     "test": "bash -O globstar -c 'tsx --test --test-timeout=30000 src/**/*.test.ts'",
     "test:integration": "tsx --test --test-timeout=30000 tests/*.test.ts",
-    "test:all": "npm run test && npm run test:integration"
+    "test:all": "npm run test && npm run test:integration && npm run lint",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "node-pty": "^1.1.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
     "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
     "postject": "1.0.0-alpha.6",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.0"
   }
 }

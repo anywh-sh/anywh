@@ -1,0 +1,35 @@
+{
+  "src/bridges/permissionBridge.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 5
+    }
+  },
+  "src/host/backgroundJobs.ts": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 9
+    }
+  },
+  "src/host/gitStatus.ts": {
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 1
+    }
+  },
+  "src/host/profileRegistry.test.ts": {
+    "@typescript-eslint/require-await": {
+      "count": 2
+    }
+  },
+  "src/server.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    }
+  },
+  "src/session/sessionStore.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 3
+    }
+  }
+}

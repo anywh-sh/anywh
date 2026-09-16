@@ -3,6 +3,13 @@ import { createInterface } from "node:readline";
 import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
 import { buildChildEnv } from "../../../host/childEnv.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
+// Known reverse-direction dependency, surfaced by turning on the boundary
+// lint (not by this file changing): a def reaching into session/ for three
+// types it should be the one describing. `PermissionMode` in particular is
+// exactly the kind of field Fase 5's per-def PermissionPolicy<S> takes
+// over — dies then, when this def declares its own settings shape instead
+// of borrowing session/sessionStore.ts's.
+// eslint-disable-next-line import-x/no-restricted-paths
 import type { ContextUsage, ModelChoice, PermissionMode } from "../../../session/sessionStore.js";
 
 // A turn = a `claude -p` process. Continuity across turns comes from
