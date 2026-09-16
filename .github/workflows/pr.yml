@@ -102,7 +102,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
-      - run: node --test scripts/
+      # Not `node --test scripts/` — Node 20 expands a bare directory into
+      # its test files, but Node 24 (this job's `lts/*`) doesn't and just
+      # tries to require the directory as an entry script instead. Letting
+      # bash glob-expand to real filenames sidesteps the version gap
+      # entirely, and still forward-matches any *.test.mjs added later.
+      - run: node --test scripts/*.test.mjs
 
   client-unit:
     name: client (unit + UI integration)
