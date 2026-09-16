@@ -42,11 +42,13 @@ jobs:
               # can notice the two drifting apart.
               - 'relay/src/theme.ts'
               # The installers are compile-time inputs to the client crate,
-              # not loose scripts: relay_setup.rs `include_str!`s install.sh
-              # and infra/homebrew/app-install.sh, and its tests exercise
-              # infra/lib.sh directly. Editing one of them changes what the
-              # app ships, so it has to run the job that builds and tests it.
+              # not loose scripts: relay_setup.rs `include_str!`s
+              # install-relay.sh and infra/homebrew/app-install.sh, and its
+              # tests exercise infra/lib.sh directly. Editing one of them
+              # changes what the app ships, so it has to run the job that
+              # builds and tests it.
               - 'install.sh'
+              - 'install-relay.sh'
               - 'infra/**'
 
   relay:

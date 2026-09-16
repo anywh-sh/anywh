@@ -1,6 +1,6 @@
 //! Installs the relay on *this* machine from inside the app.
 //!
-//! Runs the very same `install.sh` a terminal user would — embedded in the
+//! Runs the very same `install-relay.sh` a terminal user would — embedded in the
 //! binary at build time, written to the app's data dir, executed with
 //! `--porcelain` and the profile flags — and lets the JS side watch it.
 //! Nothing here reimplements a step of the install: the script is the one
@@ -27,7 +27,7 @@
 //!   a monotonic `seq`, and a gap tells it to hydrate again.
 //!
 //! Linux and macOS can start a run — the embedded script differs (systemd
-//! via `install.sh`, Homebrew via `MACOS_INSTALL_SCRIPT`), the porcelain
+//! via `install-relay.sh`, Homebrew via `MACOS_INSTALL_SCRIPT`), the porcelain
 //! protocol and everything downstream of it does not. Everywhere else, the
 //! probe, the prerequisites and the address suggestion still answer, so the
 //! first-run screen can explain *why* not.
@@ -50,9 +50,9 @@ use tokio::sync::Mutex;
 /// is writable by anything running as the user, and we execute it. It also
 /// ties the versions together: a run passes `--version v<app version>`, so
 /// the app never provisions a relay whose control API it doesn't know.
-pub const INSTALL_SCRIPT: &str = include_str!("../../../install.sh");
+pub const INSTALL_SCRIPT: &str = include_str!("../../../install-relay.sh");
 
-/// The Homebrew orchestration this app runs on macOS instead — install.sh
+/// The Homebrew orchestration this app runs on macOS instead — install-relay.sh
 /// downloads a tree there too, but never a service (see its own "No
 /// launchd here" comment), so there is nothing in it for `relay_setup_start`
 /// to drive on that platform.
@@ -72,7 +72,7 @@ const NODE_MIN_MINOR: u32 = 12;
 // Porcelain
 // ---------------------------------------------------------------------------
 
-/// One `ANYWH ...` line from `install.sh --porcelain` (or from
+/// One `ANYWH ...` line from `install-relay.sh --porcelain` (or from
 /// `add-profile.sh --porcelain`, which the installer passes through).
 /// Anything that isn't one of these four shapes is prose for the human log.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -244,7 +244,7 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-/// Same defaults `install.sh` and `infra/lib.sh` use, same env overrides —
+/// Same defaults `install-relay.sh` and `infra/lib.sh` use, same env overrides —
 /// so what the probe reports is what a run would touch.
 fn default_install_dir() -> PathBuf {
     std::env::var_os("ANYWH_INSTALL_DIR")
@@ -442,7 +442,7 @@ pub async fn relay_setup_prerequisites() -> Prerequisites {
     let node_ok = node_version.as_deref().is_some_and(node_version_ok);
     let brew_path = login_shell_line("command -v brew", short).await;
 
-    // Same resolution order as relay/src/claudeCliConfig.ts and install.sh.
+    // Same resolution order as relay/src/claudeCliConfig.ts and install-relay.sh.
     let agent_bin = std::env::var("AGENT_BIN")
         .or_else(|_| std::env::var("CLAUDE_BIN"))
         .unwrap_or_else(|_| "claude".to_string());
@@ -512,7 +512,7 @@ pub fn classify_ipv4(ip: Ipv4Addr) -> AddressKind {
 
 /// Container and VM bridges carry a private address no other device can
 /// reach; counting them would make "exactly one LAN address" false on every
-/// box with Docker. Same list `install.sh --relay-host auto` skips.
+/// box with Docker. Same list `install-relay.sh --relay-host auto` skips.
 pub fn is_virtual_interface(name: &str) -> bool {
     ["docker", "br-", "veth", "virbr", "lxdbr", "lxcbr", "cni", "flannel", "podman"]
         .iter()
@@ -562,7 +562,7 @@ pub fn relay_setup_suggest_address() -> Result<Vec<AddressCandidate>, String> {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StartParams {
-    /// Optional on purpose: with only a label, `install.sh` derives the id
+    /// Optional on purpose: with only a label, `install-relay.sh` derives the id
     /// with the relay's own slug rule and reports it back on the
     /// `ANYWH profile id=` line — the client never re-implements that rule.
     pub profile_id: Option<String>,
@@ -724,6 +724,11 @@ fn write_state(dir: &Path, state: &RunState) -> Result<(), String> {
 /// stale `state.json` pointing at whatever process inherited the number
 /// would make a finished install look alive forever. The command line has
 /// to still name a script this module could have started.
+///
+/// `install.sh` stays in the list next to `install-relay.sh` even though
+/// this module no longer writes that name: a run started by an older build
+/// is still running under it, and an app updated mid-install has to
+/// recognize its own child rather than start a second one beside it.
 pub fn pid_is_installer(pid: u32, script_path: &str) -> bool {
     if pid == 0 {
         return false;
@@ -734,7 +739,7 @@ pub fn pid_is_installer(pid: u32, script_path: &str) -> bool {
             return false;
         };
         let cmdline = String::from_utf8_lossy(&cmdline);
-        return cmdline.contains(script_path) || cmdline.contains("install.sh");
+        return cmdline.contains(script_path) || cmdline.contains("install-relay.sh") || cmdline.contains("install.sh");
     }
     #[cfg(target_os = "macos")]
     {
@@ -748,7 +753,10 @@ pub fn pid_is_installer(pid: u32, script_path: &str) -> bool {
             return false;
         }
         let cmdline = String::from_utf8_lossy(&output.stdout);
-        return cmdline.contains(script_path) || cmdline.contains("install.sh") || cmdline.contains("app-install.sh");
+        return cmdline.contains(script_path)
+            || cmdline.contains("install-relay.sh")
+            || cmdline.contains("install.sh")
+            || cmdline.contains("app-install.sh");
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
@@ -943,7 +951,7 @@ pub async fn relay_setup_status(app: tauri::AppHandle, state: tauri::State<'_, R
 }
 
 /// `filename`/`contents` pick which embedded script this run writes out —
-/// `install.sh` on Linux, `app-install.sh` (the Homebrew orchestration) on
+/// `install-relay.sh` on Linux, `app-install.sh` (the Homebrew orchestration) on
 /// macOS. The override env, when set, wins on either platform: a test can
 /// point either flow at a fixture script.
 fn write_script(dir: &Path, filename: &str, contents: &'static str) -> Result<PathBuf, String> {
@@ -1013,7 +1021,7 @@ pub async fn relay_setup_start(
     let script_path = if is_macos {
         write_script(&dir, "app-install.sh", MACOS_INSTALL_SCRIPT)?
     } else {
-        write_script(&dir, "install.sh", INSTALL_SCRIPT)?
+        write_script(&dir, "install-relay.sh", INSTALL_SCRIPT)?
     };
     let run_id = format!("{}-{}", now_secs(), std::process::id());
     let log_path = dir.join(format!("{run_id}.log"));
@@ -1378,9 +1386,16 @@ mod tests {
         // module passes — both would show up here first.
         assert!(INSTALL_SCRIPT.starts_with("#!/usr/bin/env bash"));
         for flag in ["--porcelain", "--relay-host", "--profile-id", "--mode", "--version"] {
-            assert!(INSTALL_SCRIPT.contains(flag), "install.sh lacks {flag}");
+            assert!(INSTALL_SCRIPT.contains(flag), "install-relay.sh lacks {flag}");
         }
         assert!(INSTALL_SCRIPT.contains("ANYWH done ok"));
+        // Points at the relay installer, not at install.sh — the front door
+        // accepts the same flags and would satisfy every assertion above
+        // while doing none of this module's work itself.
+        assert!(
+            INSTALL_SCRIPT.contains("add-profile.sh"),
+            "INSTALL_SCRIPT isn't install-relay.sh — check the include_str! path"
+        );
     }
 
     #[test]
@@ -1399,7 +1414,7 @@ mod tests {
 
     #[test]
     fn pid_zero_is_never_alive() {
-        assert!(!pid_is_installer(0, "/x/install.sh"));
+        assert!(!pid_is_installer(0, "/x/install-relay.sh"));
     }
 
     /// `wait_for_relay` (infra/lib.sh) is the whole of the fix for an
@@ -1456,7 +1471,7 @@ mod tests {
 
         let mut parent = std::process::Command::new("bash")
             .arg("-c")
-            // Stands in for install.sh spawning `add-profile.sh`/`brew
+            // Stands in for install-relay.sh spawning `add-profile.sh`/`brew
             // install` in the foreground: a child of its own, printed so the
             // test can check on it independently, then waited on.
             .arg("sleep 30 & echo $!; wait")

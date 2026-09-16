@@ -1,7 +1,9 @@
 # Self-hosting
 
-The full install, in the order you actually do it: get the relay running on
-the machine your agent lives on, then point a client at it.
+The full install, in more detail than the one line on the front page. The
+relay is the piece with choices to make — where it runs, which address it
+answers on, how many profiles — so it comes first here; the app half is a
+download and a launch.
 
 If all you want is the happy path, the three steps in the
 [README](../README.md#quick-start) are the short version of this page.
@@ -27,12 +29,41 @@ rather than guessing. On the machine that will run it:
   module needs nothing newer than glibc 2.34.
 - **`tmux`**, if you want the integrated terminal panel.
 
+## One command, two halves
+
+anywh is two programs, and one command installs whichever the machine you
+run it on is for:
+
+```bash
+curl -fsSL https://anywh.sh/install | sh
+```
+
+On a machine with a graphical session that is the **desktop app**, installed
+and opened. On one without — a server you reached over ssh — it is the
+**relay**, the headless service that runs your agent. It prints which one it
+picked, and either can be asked for by name:
+
+| Flag | Installs |
+|---|---|
+| *(none)* | the app where there is a display, the relay where there isn't |
+| `--app` | the app, even with no display detected |
+| `--relay-only` | the relay |
+| any profile flag | the relay — `--profile-id`, `--relay-host` and friends imply `--relay-only`, so every command on this page works as written |
+| `--version v0.1.6` | that release instead of the latest, either half |
+| `--no-launch` | skips opening the app afterwards |
+
+The relay half lives in its own script, reachable directly at
+`https://anywh.sh/install-relay`. The front door downloads and
+checksum-verifies it when there is no copy beside it — which is every
+`curl | sh` — and runs the sibling copy instead when there is one, so a
+checkout or an unpacked release tree always runs its own.
+
 ## Installing the relay
 
 ### The install script
 
 ```bash
-curl -fsSL https://anywh.sh/install | sh
+curl -fsSL https://anywh.sh/install | sh -s -- --relay-only
 ```
 
 It downloads the release tarball for your platform, verifies it against the
@@ -46,7 +77,7 @@ isn't where you want it.
 It installs the latest release by default. To pin one:
 
 ```bash
-curl -fsSL https://anywh.sh/install | sh -s -- --version v0.1.1
+curl -fsSL https://anywh.sh/install | sh -s -- --relay-only --version v0.1.1
 ```
 
 The leading `v` is optional, and the pinned download is checksum-verified
@@ -95,11 +126,48 @@ Running it as a service instead of from a shell is covered in
 
 ## Installing the client
 
+### The install script
+
+```bash
+curl -fsSL https://anywh.sh/install | sh -s -- --app
+```
+
+`--app` is only needed where the script would otherwise pick the relay — on
+a desktop, the bare command already does this. Everything lands under your
+own home directory; nothing asks for a password.
+
+On **Linux** it takes the AppImage:
+
+| What | Where |
+|---|---|
+| the app | `~/.local/share/anywh/app/anywh.AppImage` |
+| a launcher on `PATH` | `~/.local/bin/anywh` |
+| the menu entry | `~/.local/share/applications/sh.anywh.client.desktop` |
+| its icon | `~/.local/share/icons/hicolor/256x256/apps/anywh.png` |
+
+`ANYWH_INSTALL_DIR` moves the first of those, same as for the relay. An
+AppImage needs FUSE 2 to mount itself and several current distributions no
+longer ship it; when `libfuse2` is missing the installer unpacks the image
+to `~/.local/share/anywh/app/anywh.AppDir` once and points the launcher at
+its `AppRun`, rather than leaving you a `dlopen` error on first launch.
+
+On **macOS** it takes the `.app` bundle, into `/Applications` when that is
+writable and `~/Applications` when it isn't. It refuses to replace a bundle
+that is currently running — quit the app first — and refuses to delete
+anything at that path that isn't an anywh bundle.
+
+Either way it opens the app when it's done, unless you pass `--no-launch`.
+An instance already running is left alone, with a note to restart it.
+
 ### Prebuilt
 
 [Download the latest release](https://github.com/anywh-sh/anywh/releases/latest)
 and install it like any other app: `.msi`/`.exe` on Windows, `.dmg` on
-macOS, `.AppImage`/`.deb`/`.rpm` on Linux.
+macOS, `.AppImage`/`.deb`/`.rpm` on Linux. This is the only way in on
+Windows, where there is no POSIX shell for the script to run in, and it is
+the right way if you'd rather your package manager owned the install: the
+`.deb` and `.rpm` are what the script deliberately doesn't use, since it
+would have to ask for a password to install them.
 
 ### From source
 

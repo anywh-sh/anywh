@@ -74,17 +74,19 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      # install.sh ships as a release asset, not only as a file on `main`,
-      # because https://anywh.sh/install redirects to
+      # Both halves of the installer ship as release assets, not only as
+      # files on `main`, because https://anywh.sh/install redirects to
       # releases/latest/download/install.sh. Serving the *released* script
       # rather than the branch means a bad commit on main can't reach a new
       # installer before it has been tagged, and a rollback is a re-tag
-      # instead of a hotfix push. The checksums job below sums it like any
-      # other asset, so `curl | sh` is verifiable end to end.
-      - name: Upload the install script
+      # instead of a hotfix push. The checksums job below sums them like any
+      # other asset, so `curl | sh` is verifiable end to end — and
+      # install-relay.sh has to be summed, because install.sh verifies it
+      # against SHA256SUMS before running it.
+      - name: Upload the install scripts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" install.sh --repo "${{ github.repository }}" --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" install.sh install-relay.sh --repo "${{ github.repository }}" --clobber
 
       # The one file a Linux install needs that lives in neither the AppImage
       # nor the relay tarball: the icon a desktop entry points `Icon=` at.

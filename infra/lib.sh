@@ -1,7 +1,7 @@
 # Shared by install.sh and add-profile.sh (infra/systemd/) and by
 # app-install.sh (infra/homebrew/) — sourced, not executed. Bash only: the
-# root install.sh is POSIX sh (it runs under `curl | sh`) and deliberately
-# doesn't source this.
+# root install.sh and install-relay.sh are POSIX sh (they run under
+# `curl | sh`) and deliberately don't source this.
 #
 # Mirror of ENV_DIR in relay/src/profileRegistry.ts — keep both in sync.
 # Duplicated instead of shared across the language boundary because

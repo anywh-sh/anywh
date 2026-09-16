@@ -1,463 +1,479 @@
 #!/usr/bin/env bash
-# Downloads, verifies, and installs the anywh relay as a systemd user
-# service. Linux and macOS (Apple Silicon) only — on Windows, run this
-# inside WSL2.
+# The front door: https://anywh.sh/install, and the one command the landing
+# page shows.
 #
 #   curl -fsSL https://anywh.sh/install | sh
-#   curl -fsSL https://anywh.sh/install | sh -s -- --version v0.1.1
+#   curl -fsSL https://anywh.sh/install | sh -s -- --relay-only
 #   curl -fsSL https://anywh.sh/install | sh -s -- --profile-id home --relay-host auto
 #
-# Installs the latest release unless --version pins one. With no profile
-# flags it stops after the service and prints how to create the first
-# profile by hand; with them it provisions that profile too, so a single
-# run takes a bare machine to a listening relay. Safe to re-run: the tree
-# under INSTALL_DIR is swapped in whole (never left half-extracted), and
-# profile state (~/.config/anywh/env/, tracked by infra/lib.sh) is only ever
-# added to, never rewritten unless it matches.
+# anywh is two programs, and for a long time this URL only installed one of
+# them. The **relay** is the headless service that runs your agent on the
+# machine your code lives on; the **app** is the window you talk to it from.
+# Someone who found the project on the landing page, ran the line it shows
+# and expected software to appear got a systemd user unit, no window, and
+# nothing on PATH — "I installed it and nothing happened" was an accurate
+# description of a correct run. So the default is now the app, and the relay
+# is one flag away.
 #
-# Written for POSIX sh, not bash: `curl | sh` runs it under whatever /bin/sh
-# is (dash on Debian), so no arrays, no [[ ]], no `trap ERR` — and no
-# `pipefail` either, a bash/ksh extension dash doesn't have: it used to be
-# on this line, and dash rejected it outright (`set: Illegal option -o
-# pipefail`) before the script did anything at all, on the exact platform
-# the line above calls out by name. None of this script's pipes need it —
-# each one's exit status that matters is its last stage's, already covered
-# by plain `-e`.
+# Routing, in order:
+#
+#   --app                     the app, explicitly — even with no display.
+#   --relay-only              the relay, explicitly.
+#   a relay flag              the relay, implicitly: --profile-id,
+#                             --profile-label, --relay-host, --profile-home,
+#                             --mode, --no-profile, --porcelain. Nothing that
+#                             asks for a profile, or for the relay
+#                             installer's own progress protocol, can mean
+#                             anything but the relay, and
+#                             this is what keeps every documented command
+#                             working verbatim — the README's, the landing
+#                             page's, homebrew-tap's caveats, and the one
+#                             the app's own first-run wizard runs.
+#   none of the above         the app where there is a graphical session to
+#                             show it in, the relay where there isn't. A box
+#                             reached over ssh is a relay box; a laptop is
+#                             not. Whichever it picks, it says so in one
+#                             line — silence about which half got installed
+#                             is the whole bug this script exists to fix.
+#
+# Delegation, not reimplementation: the relay install lives in
+# install-relay.sh and is not duplicated here, because the app embeds that
+# exact file (client/src-tauri/src/relay_setup.rs `include_str!`s it) and
+# drives it with --porcelain for the in-app "Set up on this machine". One
+# implementation, three callers.
+#
+# Written for POSIX sh, not bash, for the same reason install-relay.sh
+# documents at length: piped to `sh` the shebang above is just a comment,
+# and this runs under whatever /bin/sh happens to be — dash on Debian. No
+# arrays, no [[ ]], no pipefail.
 set -eu
 
 REPO="anywh-sh/anywh"
+RELAY_SCRIPT="install-relay.sh"
+
+# Shared with install-relay.sh on purpose: one machine, one anywh directory,
+# with the app beside the relay rather than in a tree of its own.
 INSTALL_DIR="${ANYWH_INSTALL_DIR:-$HOME/.local/share/anywh}"
-# Where release assets are fetched from. Only set by tests (a tarball built
-# from the checkout, served locally) and by a mirror — the default is
-# GitHub's own release download URLs, chosen below once the version is known.
+
+# Where assets are fetched from. Only set by tests (serving a checkout's own
+# files from localhost) and by a mirror; the default is GitHub's own release
+# download URLs, chosen below once the version is known.
 RELEASE_BASE_URL="${ANYWH_RELEASE_BASE_URL:-}"
 
-# --- porcelain -----------------------------------------------------------
-# Machine-readable progress for whatever drives this script as a program
-# (the desktop app's own first-run setup): one line per event, interleaved
-# with the prose a human reads. Off by default, so `curl | sh` output is
-# exactly what it was.
-#
-#   ANYWH step <id>                 a step began
-#   ANYWH done <id> [key=value ...] it finished, with what it learned
-#   ANYWH fail <id> <code> <text>   it failed; `code` is stable, `text` is not
-#
-# The last line of a successful run is `ANYWH done ok ...`. A failure always
-# ends in exactly one `fail` line — err() writes it for the errors this
-# script knows to expect, and the EXIT trap writes it for a command that
-# died on its own under `set -e`, which used to exit with no word about
-# where.
-PORCELAIN=0
-step=""
-failed=0
-
-porcelain() {
-  if [ "$PORCELAIN" -eq 1 ]; then echo "ANYWH $*"; fi
-}
-
-begin_step() {
-  step="$1"
-  porcelain "step $1"
-}
-
-end_step() {
-  porcelain "done $*"
-  step=""
-}
-
-# err <code> <message...>
 err() {
-  code="$1"
-  shift
   echo "error: $*" >&2
-  failed=1
-  porcelain "fail ${step:-setup} $code $*"
   exit 1
 }
 
-tmp=""
-staging=""
-old_suffix=""
-
-cleanup() {
-  status=$?
-  [ -n "$tmp" ] && rm -rf "$tmp"
-  # A death between extracting and swapping leaves the staging tree; one
-  # between the two mv's leaves the previous tree under `.old.` — sweep both
-  # so a retry starts clean. The live tree is never touched here.
-  [ -n "$staging" ] && rm -rf "$staging"
-  [ -n "$old_suffix" ] && rm -rf "$INSTALL_DIR/relay.old.$old_suffix" "$INSTALL_DIR/infra.old.$old_suffix"
-  if [ "$status" -ne 0 ] && [ "$failed" -eq 0 ]; then
-    porcelain "fail ${step:-setup} unexpected exited with status $status"
-  fi
-}
-trap cleanup EXIT
-
 usage() {
   cat <<USAGE
-Usage: install.sh [--version <tag>] [--porcelain] [--mode dev|prod]
-                  [--profile-id <id>] [--profile-label <text>]
-                  [--relay-host <ip>|auto] [--profile-home <path>] [--no-profile]
+Usage: install.sh [--app | --relay-only] [--version <tag>] [--no-launch]
 
+  With no flags: installs the desktop app where there is a graphical
+  session, and the relay where there isn't.
+
+  --app                  Install the desktop app and open it, even with no
+                         display detected.
+  --relay-only           Install the relay: the headless service that runs
+                         your agent on this machine. Implied by any of the
+                         profile flags below.
   --version <tag>        Install that release instead of the latest.
-                         Accepts "v0.1.1" or "0.1.1".
-  --porcelain            Emit machine-readable "ANYWH ..." progress lines.
-  --mode dev|prod        prod (default) registers the systemd user unit and
-                         enables the profile's instance; dev touches no
-                         systemd at all and prints the run command instead.
+                         Accepts "v0.1.6" or "0.1.6".
+  --no-launch            Don't open the app once it is installed.
 
-  Any of the following provisions the first profile once the relay is in:
-  --profile-id <id>      Profile id (default: derived from --profile-label,
-                         else "default").
-  --profile-label <text> Display label (default: the id).
-  --relay-host <ip>      Address other devices reach this machine on — or
-                         "auto" to pick the tailnet address, else the one
-                         private LAN address. Required when provisioning.
-  --profile-home <path>  Isolated \$HOME for this profile's agent login.
-  --no-profile           Skip provisioning even if the flags above appear.
+  Passed straight through to the relay installer, each implying
+  --relay-only: --profile-id, --profile-label, --relay-host, --profile-home,
+  --mode, --no-profile, --porcelain. See
+  https://github.com/${REPO}/blob/main/docs/self-hosting.md for what each
+  one does.
 USAGE
 }
 
-# --- 0. flags --------------------------------------------------------------
-# Parsed and validated before anything else so a typo costs nothing: no
-# target detection, no prerequisite checks, no network.
+# --- 1. flags --------------------------------------------------------------
+# Every argument that isn't one of this script's own is handed back to the
+# delegate untouched, in its original order (shift off the front, append to
+# the back — after one full pass "$@" is what it was, minus ours).
+route=auto
+launch=1
 VERSION=""
-MODE=""
-PROFILE_ID=""
-PROFILE_LABEL=""
-RELAY_HOST=""
-PROFILE_HOME=""
-PROVISION=0
-NO_PROFILE=0
+capture_version=0
 
-# need_value <flag> <argc> — the flag was given without its value.
-need_value() {
-  [ "$2" -ge 2 ] || err bad_flag "$1 needs a value"
+imply_relay() {
+  if [ "$route" = auto ]; then route=relay; fi
 }
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --version) need_value "$1" $#; VERSION="$2"; shift 2 ;;
-    --version=*) VERSION="${1#--version=}"; shift ;;
-    --porcelain) PORCELAIN=1; shift ;;
-    --mode) need_value "$1" $#; MODE="$2"; shift 2 ;;
-    --mode=*) MODE="${1#--mode=}"; shift ;;
-    --profile-id) need_value "$1" $#; PROFILE_ID="$2"; PROVISION=1; shift 2 ;;
-    --profile-id=*) PROFILE_ID="${1#--profile-id=}"; PROVISION=1; shift ;;
-    --profile-label) need_value "$1" $#; PROFILE_LABEL="$2"; PROVISION=1; shift 2 ;;
-    --profile-label=*) PROFILE_LABEL="${1#--profile-label=}"; PROVISION=1; shift ;;
-    --relay-host) need_value "$1" $#; RELAY_HOST="$2"; PROVISION=1; shift 2 ;;
-    --relay-host=*) RELAY_HOST="${1#--relay-host=}"; PROVISION=1; shift ;;
-    --profile-home) need_value "$1" $#; PROFILE_HOME="$2"; PROVISION=1; shift 2 ;;
-    --profile-home=*) PROFILE_HOME="${1#--profile-home=}"; PROVISION=1; shift ;;
-    --no-profile) NO_PROFILE=1; shift ;;
-    -h | --help) usage; exit 0 ;;
-    *) usage >&2; err bad_flag "unknown option: $1" ;;
+remaining=$#
+while [ "$remaining" -gt 0 ]; do
+  arg="$1"
+  shift
+  remaining=$((remaining - 1))
+  # Consumed, not forwarded: both halves take a version, so this script
+  # reads it and hands it back to the relay half on delegation.
+  if [ "$capture_version" -eq 1 ]; then
+    VERSION="$arg"
+    capture_version=0
+    continue
+  fi
+  case "$arg" in
+    --app)
+      route=app
+      continue
+      ;;
+    --relay-only)
+      route=relay
+      continue
+      ;;
+    --no-launch)
+      launch=0
+      continue
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    --version)
+      capture_version=1
+      continue
+      ;;
+    --version=*)
+      VERSION="${arg#--version=}"
+      continue
+      ;;
+    --profile-id | --profile-id=* | --profile-label | --profile-label=* | --relay-host | --relay-host=* | --profile-home | --profile-home=* | --mode | --mode=* | --no-profile | --porcelain)
+      imply_relay
+      ;;
   esac
+  set -- "$@" "$arg"
 done
 
-begin_step flags
+[ "$capture_version" -eq 0 ] || err "--version needs a value"
 
-if [ -z "$MODE" ]; then MODE="prod"; fi
-case "$MODE" in
-  dev | prod) ;;
-  *) err bad_flag "--mode must be 'dev' or 'prod', got '$MODE'" ;;
+# --- 2. route --------------------------------------------------------------
+# A graphical session is the whole question: DISPLAY or WAYLAND_DISPLAY is
+# what every GUI toolkit looks at, so "can this machine show a window" and
+# "will the app the script just opened appear" are the same test. A Mac is
+# never asked — a headless Mac is rare enough that the flag is the better
+# answer for it.
+os="$(uname -s)"
+if [ "$route" = auto ]; then
+  case "$os" in
+    Darwin) route=app ;;
+    Linux)
+      if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        route=app
+      else
+        route=relay
+        echo "No graphical session detected — installing the relay, not the app."
+        echo "Pass --app to install the desktop app here anyway."
+        echo
+      fi
+      ;;
+    *) route=relay ;;
+  esac
+fi
+
+# --- 3. the relay: delegate ------------------------------------------------
+# A sibling copy wins over a download, and that is not only an optimization:
+# `./install.sh` run from a git checkout or from an extracted release tree
+# has to run *that* tree's relay installer, not whatever the newest release
+# published. It is what the test suite depends on to exercise the code under
+# test, and what makes a mirrored or vendored copy self-contained.
+#
+# Piped from curl there is no path to be a sibling of — `$0` is "sh" — so the
+# download is the normal case, not the fallback.
+script_dir=""
+case "$0" in
+  */*) script_dir="${0%/*}" ;;
 esac
 
-if [ "$NO_PROFILE" -eq 1 ]; then
-  [ "$PROVISION" -eq 0 ] || err bad_flag "--no-profile can't be combined with profile flags"
-fi
+tmp=""
+cleanup() {
+  [ -n "$tmp" ] && rm -rf "$tmp"
+}
+trap cleanup EXIT
 
-# The id is the installer's to make, never a caller's re-implementation of
-# the relay's own slug rule: lowercase, anything outside [a-z0-9] collapsed
-# to one hyphen, trimmed. The same label yields the same id every run, which
-# is what lets a re-run resume instead of creating a sibling.
-slugify() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9][^a-z0-9]*/-/g' -e 's/^-//' -e 's/-$//'
+# download_verified <asset> <destination>
+# Every download in this script goes through here: fetch, then check the
+# bytes against the release's own SHA256SUMS before anything is run or
+# installed. Same guarantee install-relay.sh gives its tarball.
+download_verified() {
+  asset="$1"
+  dest="$2"
+  [ -n "$tmp" ] || tmp="$(mktemp -d)"
+  # Downloaded into a scratch subdirectory rather than straight into $tmp:
+  # one caller's destination *is* a path in $tmp, and `mv` onto itself is an
+  # error, not a no-op.
+  mkdir -p "$tmp/dl"
+
+  curl -fsSL "$base_url/$asset" -o "$tmp/dl/$asset" ||
+    err "couldn't download $asset — check that the release exists and ships that asset: $base_url"
+
+  if [ ! -f "$tmp/SHA256SUMS" ]; then
+    curl -fsSL "$base_url/SHA256SUMS" -o "$tmp/SHA256SUMS" ||
+      err "couldn't download SHA256SUMS from $base_url"
+  fi
+
+  expected="$(grep " $asset\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)"
+  [ -n "$expected" ] ||
+    err "checksum for $asset not found in SHA256SUMS — the release may still be publishing, try again shortly"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$tmp/dl/$asset" | cut -d' ' -f1)"
+  else
+    actual="$(shasum -a 256 "$tmp/dl/$asset" | cut -d' ' -f1)"
+  fi
+  [ "$expected" = "$actual" ] ||
+    err "checksum mismatch for $asset (expected $expected, got $actual)"
+
+  mv "$tmp/dl/$asset" "$dest"
 }
 
-if [ "$PROVISION" -eq 1 ]; then
-  if [ -z "$PROFILE_ID" ] && [ -n "$PROFILE_LABEL" ]; then PROFILE_ID="$(slugify "$PROFILE_LABEL")"; fi
-  if [ -z "$PROFILE_ID" ]; then PROFILE_ID="default"; fi
-  # Same rule add-profile.sh enforces, checked here so it fails before the
-  # download rather than after it.
-  case "$PROFILE_ID" in
-    "" | -* | *[!a-z0-9-]*) err bad_flag "invalid profile id '$PROFILE_ID' (lowercase letters, digits and hyphens, not starting with a hyphen)" ;;
-  esac
-  # Never defaulted, never inherited: a profile that silently lands on
-  # loopback runs fine here and is unreachable from every other device,
-  # with no symptom at all.
-  [ -n "$RELAY_HOST" ] || err bad_flag "--relay-host is required when provisioning a profile — an IP other devices reach this machine on, or 'auto'"
+# Resolved once, here, because both halves address a release the same way:
+# the unversioned asset name through GitHub's `releases/latest/download`
+# redirect (no API call, no jq on a bare box), or the same name under a
+# pinned tag. Releases published before those unversioned names existed
+# can't be pinned this way, which is a 404 with a message, not a silent
+# wrong install.
+if [ -n "$VERSION" ]; then
+  version="${VERSION#v}"
+  base_url="${RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/v${version}}"
+else
+  base_url="${RELEASE_BASE_URL:-https://github.com/${REPO}/releases/latest/download}"
 fi
 
-end_step "flags mode=$MODE provision=$PROVISION"
+if [ "$route" = relay ]; then
+  if [ -n "$VERSION" ]; then set -- --version "$VERSION" "$@"; fi
 
-# --- 1. detect target -------------------------------------------------
-# Matches the three legs release.yml's build-relay job publishes —
-# no darwin-x64 (Intel Mac) and no native Windows.
-begin_step target
-os="$(uname -s)"
+  if [ -n "$script_dir" ] && [ -f "$script_dir/$RELAY_SCRIPT" ]; then
+    if [ -x "$script_dir/$RELAY_SCRIPT" ]; then
+      exec "$script_dir/$RELAY_SCRIPT" "$@"
+    fi
+    exec sh "$script_dir/$RELAY_SCRIPT" "$@"
+  fi
+
+  tmp="$(mktemp -d)"
+  # The script is about to run as this user, so it gets the same treatment
+  # the relay tarball already gets rather than being trusted for having
+  # arrived over TLS. Always from `latest`, never from a pinned tag: --version
+  # picks which relay is installed, not which installer installs it, exactly
+  # as it did when there was one script.
+  base_url="${RELEASE_BASE_URL:-https://github.com/${REPO}/releases/latest/download}"
+  download_verified "$RELAY_SCRIPT" "$tmp/$RELAY_SCRIPT"
+
+  # Run, don't exec: the EXIT trap is what removes the temp directory, and
+  # exec would replace this shell before it could fire. The delegate's exit
+  # status is this script's own — a caller parsing --porcelain must see the
+  # same last line and the same status it saw when there was one script.
+  set +e
+  sh "$tmp/$RELAY_SCRIPT" "$@"
+  status=$?
+  set -e
+  exit "$status"
+fi
+
+# --- 4. the app ------------------------------------------------------------
+[ $# -eq 0 ] || err "unknown option: $1 (see --help)"
+
 arch="$(uname -m)"
 case "$os" in
   Linux)
     case "$arch" in
       x86_64) target="linux-x64" ;;
       aarch64 | arm64) target="linux-arm64" ;;
-      *) err unsupported_arch "unsupported Linux architecture: $arch" ;;
+      *) err "unsupported Linux architecture: $arch" ;;
     esac
-    # The one service manager this script knows how to drive.
-    service="systemd"
+    app_asset="anywh-${target}.AppImage"
     ;;
   Darwin)
     case "$arch" in
       arm64) target="darwin-arm64" ;;
-      *) err unsupported_arch "anywh relay only ships for Apple Silicon Macs today, not Intel (arch: $arch)" ;;
+      x86_64) target="darwin-x64" ;;
+      *) err "unsupported macOS architecture: $arch" ;;
     esac
-    # No launchd here: the macOS service is the Homebrew formula's job
-    # (`brew install anywh-sh/tap/anywh-relay`). This script still installs
-    # the tree, then stops short of anything it can't keep running, instead
-    # of dying inside the systemd step after a complete download.
-    service="none"
+    app_asset="anywh-${target}.app.tar.gz"
     ;;
-  *) err unsupported_os "unsupported OS: $os — on Windows, run this inside WSL2" ;;
+  *) err "the anywh app doesn't ship for $os — on Windows, download the installer from https://github.com/${REPO}/releases/latest" ;;
 esac
-# Decided here, once, so every later step agrees: the service is only ever
-# registered when there is a manager for it *and* the caller asked for one.
-if [ "$MODE" = "dev" ]; then service="none"; fi
-end_step "target os=$os arch=$arch target=$target service=$service"
 
-# --- 2. prerequisites ---------------------------------------------------
-# Detected, not installed — same reasoning as the agent CLI check below:
-# both are things the user's account/machine needs regardless of anywh,
-# not something this script should be trusted to install for them.
-begin_step prereqs
-command -v node >/dev/null 2>&1 || err node_missing "Node.js >=20.12 is required — install it first (https://nodejs.org), then re-run this script"
-
-node_version="$(node -p 'process.versions.node')"
-node_major="${node_version%%.*}"
-node_minor="$(echo "$node_version" | cut -d. -f2)"
-if [ "$node_major" -lt 20 ] || { [ "$node_major" -eq 20 ] && [ "$node_minor" -lt 12 ]; }; then
-  err node_old "Node.js >=20.12 is required, found $node_version"
-fi
-
-# The same binary the relay will spawn (relay/src/claudeCliConfig.ts reads
-# AGENT_BIN, then the older CLAUDE_BIN, then falls back to `claude`) — the
-# literal `claude` used to be checked here even when the relay was going to
-# run something else.
-AGENT_BIN="${AGENT_BIN:-${CLAUDE_BIN:-claude}}"
-
-# Reported, never fatal. Nothing about installing a relay needs an agent
-# CLI to exist yet: the relay installs, starts and serves without one, and
-# it resolves the binary when a turn actually spawns it (resolveAgentBin,
-# relay/src/claudeCliConfig.ts) rather than at install time — so a CLI
-# installed or logged into after this script ran simply works, with
-# nothing to re-run here. Refusing to install until one is present only
-# strands the user on an error whose instruction is to go do something
-# else first, and it bakes in the assumption that there is exactly one
-# agent CLI worth checking for, which is not where this is heading.
-#
-# The login check runs the same command the relay does, with the same two
-# variables stripped — with an API key in the environment the CLI reports
-# `loggedIn: true` through the key, which is precisely the false positive
-# this exists to catch (billing would land on the key, not the
-# subscription). ANYWH_SKIP_AGENT_LOGIN_CHECK=1 skips it outright, for a
-# CLI that has no `auth status` at all.
-agent_ready=1
-if ! command -v "$AGENT_BIN" >/dev/null 2>&1; then
-  agent_ready=0
-  echo "warning: the '$AGENT_BIN' CLI was not found on PATH — install and log in to your agent before your first conversation (https://docs.claude.com/en/docs/claude-code)" >&2
-elif [ "${ANYWH_SKIP_AGENT_LOGIN_CHECK:-0}" != "1" ]; then
-  auth_json="$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN "$AGENT_BIN" auth status --json 2>/dev/null || true)"
-  case "$(printf '%s' "$auth_json" | tr -d ' \n\r\t')" in
-    *'"loggedIn":true'*) ;;
-    *)
-      agent_ready=0
-      echo "warning: '$AGENT_BIN' isn't logged in — run '$AGENT_BIN login' on this machine (as the user who will run the relay) before your first conversation. Set ANYWH_SKIP_AGENT_LOGIN_CHECK=1 to skip this check." >&2
-      ;;
-  esac
-fi
-
-# A user-scope unit needs a user manager to talk to, and a session without
-# one (a bare `ssh user@box` on some setups, a container, a chroot) only
-# reveals that at the very last step — after the whole download. Asked up
-# front instead. `--mode dev` never touches systemd, so it skips this.
-if [ "$service" = "systemd" ]; then
-  systemctl --user show-environment >/dev/null 2>&1 ||
-    err no_user_systemd "systemd --user isn't reachable in this session (no XDG_RUNTIME_DIR / user D-Bus) — log in as the user (a real login session, or 'loginctl enable-linger' + 'machinectl shell user@'), or re-run with --mode dev to run the relay without a service"
-fi
-end_step "prereqs node=$node_version agent=$AGENT_BIN agent_ready=$agent_ready"
-
-# --- 2b. relay host ---------------------------------------------------------
-# Resolved before the download, not after: an undetectable address is a
-# question for the human, and asking it after 40 s of download is rude.
-#
-# `auto` prefers the tailnet address (100.64.0.0/10 — the one that stays the
-# same from anywhere) over a single private LAN address, and gives up rather
-# than guess when there are several of those. Never loopback: that is
-# exactly the silent failure --relay-host exists to prevent.
-classify_ip() {
-  IFS=. read -r o1 o2 _ _ <<ADDR
-$1
-ADDR
-  case "$o1" in
-    127) echo loopback ;;
-    100) if [ "$o2" -ge 64 ] && [ "$o2" -le 127 ]; then echo tailnet; else echo public; fi ;;
-    10) echo lan ;;
-    172) if [ "$o2" -ge 16 ] && [ "$o2" -le 31 ]; then echo lan; else echo public; fi ;;
-    192) if [ "$o2" -eq 168 ]; then echo lan; else echo public; fi ;;
-    *) echo public ;;
-  esac
+# Never replace a bundle while it is running, and never quietly kill an app
+# somebody is using. On macOS the two would collide: the running process
+# reads from the bundle being swapped under it. On Linux a rename leaves the
+# running process on its old inode, so the replace is safe and only the
+# launch has to be skipped.
+app_is_running() {
+  command -v pgrep >/dev/null 2>&1 && pgrep -x anywh >/dev/null 2>&1
 }
 
-# Container and VM bridges (docker0, br-*, veth*, virbr*, lxdbr*) carry a
-# private address no other device can reach — on a box with Docker they
-# would make "exactly one LAN address" false on every machine. Skipped by
-# interface name where the name is known (`ip`); `ifconfig`'s inet lines
-# carry no name, and macOS has none of these bridges anyway.
-local_ipv4_addresses() {
-  if command -v ip >/dev/null 2>&1; then
-    ip -o -4 addr show scope global 2>/dev/null |
-      awk '$2 !~ /^(docker[0-9]*|br-|veth|virbr|lxdbr|lxcbr|cni|flannel|podman)/ {print $4}' | cut -d/ -f1
-  elif command -v ifconfig >/dev/null 2>&1; then
-    ifconfig 2>/dev/null | awk '/inet / {print $2}' | sed 's/^addr://'
+echo "Installing the anywh app for $target..."
+
+if [ "$os" = "Darwin" ]; then
+  # /Applications when it is writable, the user's own when it isn't: a
+  # script arriving through a pipe has no business prompting for a password,
+  # and ~/Applications is a first-class location Spotlight and Launchpad
+  # both index.
+  dest_dir="/Applications"
+  [ -w "$dest_dir" ] || dest_dir="$HOME/Applications"
+  installed="$dest_dir/anywh.app"
+
+  if [ -e "$installed" ] && app_is_running; then
+    err "anywh is running from $installed — quit it and run this again (replacing a bundle underneath a running app corrupts it)"
   fi
-}
 
-detect_relay_host() {
-  tailnet=""
-  lan=""
-  lan_count=0
-  for addr in $(local_ipv4_addresses); do
-    case "$(classify_ip "$addr")" in
-      tailnet) [ -n "$tailnet" ] || tailnet="$addr" ;;
-      lan) lan_count=$((lan_count + 1)); lan="$addr" ;;
-    esac
+  tmp="${tmp:-$(mktemp -d)}"
+  staging="$tmp/stage"
+  mkdir -p "$staging" "$dest_dir"
+  download_verified "$app_asset" "$tmp/app.tar.gz"
+  tar xzf "$tmp/app.tar.gz" -C "$staging" ||
+    err "couldn't extract $app_asset (disk full, or a damaged archive)"
+  [ -d "$staging/anywh.app" ] ||
+    err "$app_asset doesn't contain anywh.app — the previous install, if any, was left untouched"
+
+  # Looked at before it is destroyed: anything at that path that isn't one
+  # of our bundles is somebody else's file, and this script does not get to
+  # delete it.
+  if [ -e "$installed" ]; then
+    [ -f "$installed/Contents/MacOS/anywh" ] ||
+      err "$installed exists but isn't an anywh bundle — move it aside and run this again"
+    rm -rf "$installed"
+  fi
+  mv "$staging/anywh.app" "$installed"
+
+  # Gatekeeper's quarantine flag is set by whatever downloaded the file, and
+  # curl doesn't set it — so this is belt and braces for the day an asset
+  # arrives some other way. The app is not signed yet; this path is the one
+  # that doesn't make the user notice.
+  xattr -dr com.apple.quarantine "$installed" 2>/dev/null || true
+
+  launch_target="$installed"
+  echo "Installed to $installed"
+else
+  app_dir="$INSTALL_DIR/app"
+  bin_dir="$HOME/.local/bin"
+  desktop_dir="$HOME/.local/share/applications"
+  icon_dir="$HOME/.local/share/icons/hicolor/256x256/apps"
+  appimage="$app_dir/anywh.AppImage"
+  mkdir -p "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir"
+
+  # Sweep what a previous run died inside, the way install-relay.sh does for
+  # its own staging trees: each run only ever cleans up directories named
+  # after its own pid, so a crash between download and rename leaves one
+  # nothing would otherwise collect.
+  for leftover in "$app_dir"/.staging.* "$app_dir"/.unpack.*; do
+    [ -e "$leftover" ] && rm -rf "$leftover"
   done
-  if [ -n "$tailnet" ]; then echo "$tailnet"; return 0; fi
-  if [ "$lan_count" -eq 1 ]; then echo "$lan"; return 0; fi
-  return 1
-}
 
-if [ "$PROVISION" -eq 1 ] && [ "$RELAY_HOST" = "auto" ]; then
-  begin_step relay_host
-  RELAY_HOST="$(detect_relay_host)" ||
-    err relay_host_undetectable "couldn't pick this machine's address on its own (no tailnet address, and not exactly one private LAN address) — pass --relay-host explicitly"
-  end_step "relay_host host=$RELAY_HOST"
+  # Staged inside the destination, not in /tmp: a rename within one
+  # filesystem is atomic, one across filesystems degrades to a copy and
+  # reopens the window where the file on disk is half an app. Same reasoning
+  # install-relay.sh spells out for the relay tree.
+  staging="$app_dir/.staging.$$"
+  rm -rf "$staging"
+  mkdir "$staging"
+  download_verified "$app_asset" "$staging/anywh.AppImage"
+  chmod +x "$staging/anywh.AppImage"
+  download_verified "anywh-icon.png" "$staging/anywh.png"
+
+  mv "$staging/anywh.png" "$icon_dir/anywh.png"
+  mv "$staging/anywh.AppImage" "$appimage"
+  rm -rf "$staging"
+
+  # An AppImage needs FUSE 2 to mount itself, and the desktops most likely
+  # to be running this (Ubuntu 24.04, Fedora) stopped shipping it years ago.
+  # The runtime's own --appimage-extract doesn't need FUSE, so the fallback
+  # is to unpack once at install time and point the launcher at AppRun. Done
+  # here rather than left for the first double-click, which would otherwise
+  # fail with a dlopen error no user can act on.
+  extracted="$app_dir/anywh.AppDir"
+  rm -rf "$extracted"
+  # ANYWH_APPIMAGE_NO_FUSE=1 forces the unpack path. The fallback is the
+  # branch most users on a current desktop will actually take, and a CI
+  # runner that happens to ship libfuse2 would never exercise it otherwise.
+  has_fuse=0
+  if [ "${ANYWH_APPIMAGE_NO_FUSE:-0}" = "1" ]; then
+    has_fuse=0
+  elif command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q "libfuse\.so\.2"; then
+    has_fuse=1
+  else
+    for libdir in /lib /usr/lib /lib64 /usr/lib64 /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+      if [ -e "$libdir/libfuse.so.2" ]; then
+        has_fuse=1
+        break
+      fi
+    done
+  fi
+
+  if [ "$has_fuse" -eq 1 ]; then
+    exec_target="$appimage"
+  else
+    echo "libfuse2 isn't installed — unpacking the AppImage instead of mounting it."
+    unpack="$app_dir/.unpack.$$"
+    rm -rf "$unpack"
+    mkdir "$unpack"
+    (cd "$unpack" && "$appimage" --appimage-extract >/dev/null 2>&1) ||
+      err "couldn't unpack the AppImage, and libfuse2 isn't available to run it as-is — install libfuse2 (Debian/Ubuntu: 'sudo apt install libfuse2') and run this again"
+    [ -x "$unpack/squashfs-root/AppRun" ] ||
+      err "the unpacked AppImage has no AppRun — the download may be damaged"
+    mv "$unpack/squashfs-root" "$extracted"
+    rm -rf "$unpack"
+    exec_target="$extracted/AppRun"
+  fi
+
+  ln -sf "$exec_target" "$bin_dir/anywh"
+
+  # Written here rather than lifted out of the AppImage: reading the one
+  # inside means mounting or unpacking a squashfs to get a dozen lines, and
+  # every field that matters (the absolute Exec and Icon, the anywh:// scheme
+  # the app registers through tauri-plugin-deep-link) has to be rewritten
+  # for this machine anyway.
+  cat > "$desktop_dir/sh.anywh.client.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=anywh
+Comment=Run your coding agent from any device
+Exec=$exec_target %U
+Icon=$icon_dir/anywh.png
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=anywh
+MimeType=x-scheme-handler/anywh;
+DESKTOP
+
+  # Both are caches: without them the entry still works from a menu that
+  # rescans, and the anywh:// handler registers on the next login. Neither is
+  # worth failing an otherwise complete install over.
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$desktop_dir" >/dev/null 2>&1 || true
+
+  launch_target="$exec_target"
+  echo "Installed to $app_dir"
+
+  case ":${PATH}:" in
+    *":$bin_dir:"*) ;;
+    *) echo "Note: $bin_dir isn't on your PATH, so the 'anywh' command won't resolve until you add it." ;;
+  esac
 fi
 
-# --- 3. download + verify ------------------------------------------------
-# Every release carries the same tarball under two names. The unversioned one
-# resolves to the newest release through GitHub's own
-# `releases/latest/download` redirect — no API call, no jq dependency on a
-# bare box. The versioned one is the only way to address an older release,
-# since that redirect only ever points at the newest.
-begin_step download
-if [ -n "$VERSION" ]; then
-  version="${VERSION#v}"
-  asset="anywh-relay-${version}-${target}.tar.gz"
-  base_url="${RELEASE_BASE_URL:-https://github.com/${REPO}/releases/download/v${version}}"
-else
-  asset="anywh-relay-${target}.tar.gz"
-  base_url="${RELEASE_BASE_URL:-https://github.com/${REPO}/releases/latest/download}"
-fi
-
-tmp="$(mktemp -d)"
-
-echo "Downloading $asset..."
-curl -fsSL "$base_url/$asset" -o "$tmp/$asset" ||
-  err download_failed "couldn't download $asset — check that the release exists and ships an asset for $target: $base_url"
-curl -fsSL "$base_url/SHA256SUMS" -o "$tmp/SHA256SUMS" ||
-  err download_failed "couldn't download SHA256SUMS from $base_url"
-
-expected="$(grep " $asset\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)"
-[ -n "$expected" ] || err checksum_missing "checksum for $asset not found in SHA256SUMS — the release may still be publishing, try again shortly"
-
-if command -v sha256sum >/dev/null 2>&1; then
-  actual="$(sha256sum "$tmp/$asset" | cut -d' ' -f1)"
-else
-  actual="$(shasum -a 256 "$tmp/$asset" | cut -d' ' -f1)"
-fi
-# Not retryable blindly: the same bytes will fail the same way. Either the
-# download was corrupted in transit (rare) or the asset was tampered with.
-[ "$expected" = "$actual" ] || err checksum_mismatch "checksum mismatch for $asset (expected $expected, got $actual)"
-echo "Checksum verified."
-end_step "download asset=$asset"
-
-# --- 4. install -----------------------------------------------------------
-# Extracted into a staging directory beside the live tree and swapped in
-# with two renames, so no moment exists in which INSTALL_DIR holds half a
-# relay: the old `rm -rf` then `tar` had exactly that window, and a service
-# under Restart=always that woke up inside it crash-looped on a missing
-# dist/server.js. Staging lives *inside* INSTALL_DIR on purpose — a rename
-# across filesystems degrades to a copy, and the window would be back.
-begin_step install
-mkdir -p "$INSTALL_DIR"
-for leftover in "$INSTALL_DIR"/.staging.* "$INSTALL_DIR"/relay.old.* "$INSTALL_DIR"/infra.old.*; do
-  [ -e "$leftover" ] && rm -rf "$leftover"
-done
-
-staging="$INSTALL_DIR/.staging.$$"
-mkdir "$staging"
-tar xzf "$tmp/$asset" -C "$staging" || err extract_failed "couldn't extract $asset into $staging (disk full, or a damaged archive)"
-# The two files everything downstream stands on. A tarball without them
-# is refused before it can replace a working install.
-[ -f "$staging/relay/dist/server.js" ] && [ -f "$staging/infra/systemd/add-profile.sh" ] ||
-  err tarball_incomplete "$asset doesn't contain a complete relay (relay/dist/server.js and infra/systemd/add-profile.sh) — the previous install, if any, was left untouched"
-
-old_suffix="$$"
-[ -e "$INSTALL_DIR/relay" ] && mv "$INSTALL_DIR/relay" "$INSTALL_DIR/relay.old.$old_suffix"
-[ -e "$INSTALL_DIR/infra" ] && mv "$INSTALL_DIR/infra" "$INSTALL_DIR/infra.old.$old_suffix"
-mv "$staging/relay" "$INSTALL_DIR/relay"
-mv "$staging/infra" "$INSTALL_DIR/infra"
-rm -rf "$staging"
-staging=""
-rm -rf "$INSTALL_DIR/relay.old.$old_suffix" "$INSTALL_DIR/infra.old.$old_suffix"
-old_suffix=""
-echo "Installed to $INSTALL_DIR"
-end_step "install dir=$INSTALL_DIR"
-
-# --- 5. service ------------------------------------------------------------
-begin_step service
-if [ "$service" = "systemd" ]; then
-  "$INSTALL_DIR/infra/systemd/install.sh" --apply || err service_failed "couldn't register the anywh-relay@ systemd user unit"
+# --- 5. open it ------------------------------------------------------------
+# The point of the whole change: the command ends with software on screen,
+# not with instructions. An instance already running is left alone — a second
+# window is not what re-running an installer should produce.
+if [ "$launch" -eq 0 ]; then
+  :
+elif app_is_running; then
+  echo "anywh is already running — quit and reopen it to pick up this version."
 elif [ "$os" = "Darwin" ]; then
-  cat <<NOTE
-
-No service was registered: this script has no launchd unit to offer. To
-keep the relay running across logins on macOS, use the Homebrew formula
-instead of (or after) this install:
-  brew install anywh-sh/tap/anywh-relay
-NOTE
-fi
-end_step "service manager=$service"
-
-# --- 6. profile ------------------------------------------------------------
-# The first profile is provisioned by the installer, not by the relay's
-# own control API: that API never passes --relay-host, and add-profile.sh
-# only inherits one from an *existing* .env — with none yet, the first
-# profile would land on loopback. From the second profile on, the API is
-# the normal path.
-if [ "$PROVISION" -eq 1 ]; then
-  begin_step profile
-  # No manager to enable an instance in: dev mode prints the run command.
-  profile_mode="$MODE"
-  if [ "$service" = "none" ]; then profile_mode="dev"; fi
-  set -- "$PROFILE_ID" --relay-host "$RELAY_HOST" --mode "$profile_mode" --resume
-  if [ -n "$PROFILE_LABEL" ]; then set -- "$@" --label "$PROFILE_LABEL"; fi
-  if [ -n "$PROFILE_HOME" ]; then set -- "$@" --home "$PROFILE_HOME"; fi
-  if [ "$PORCELAIN" -eq 1 ]; then set -- "$@" --porcelain; fi
-  "$INSTALL_DIR/infra/systemd/add-profile.sh" "$@" ||
-    err profile_failed "couldn't provision the profile '$PROFILE_ID' — see the lines above; re-running this command resumes from what was already written"
-  end_step "profile id=$PROFILE_ID host=$RELAY_HOST mode=$profile_mode"
+  open -a "$launch_target" || echo "Couldn't open the app automatically — it's in $launch_target"
+elif command -v setsid >/dev/null 2>&1; then
+  setsid "$launch_target" >/dev/null 2>&1 &
 else
-  cat <<NEXT
-
-Next: create your first profile —
-  "$INSTALL_DIR/infra/systemd/add-profile.sh" default --relay-host <this-machine's-tailscale-or-lan-ip>
-
-See https://github.com/${REPO}/blob/main/infra/systemd/README.md for what
---relay-host should be and how multi-profile setups work.
-NEXT
+  nohup "$launch_target" >/dev/null 2>&1 &
 fi
 
-porcelain "done ok service=$service install_dir=$INSTALL_DIR"
+cat <<NEXT
+
+anywh is installed. The app's first screen asks where your agent runs:
+
+  - on this machine        pick "Set up on this machine" and it installs
+                           the relay for you, no terminal needed
+  - on another machine     install the relay there with
+                           curl -fsSL https://anywh.sh/install | sh -s -- --relay-only
+NEXT

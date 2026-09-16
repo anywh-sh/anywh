@@ -3,7 +3,7 @@
 # homebrew-tap/README.md and the landing page document for a human to type
 # by hand — brew install, provision the "default" profile, start the
 # launchd service — one after another, with the same "ANYWH ..." porcelain
-# protocol install.sh emits, so the app's relay-setup wizard drives this
+# protocol install-relay.sh emits, so the app's relay-setup wizard drives this
 # the same way it drives that one.
 #
 # Homebrew's service DSL has no per-profile template like systemd's
@@ -21,11 +21,11 @@ PROFILE_LABEL=""
 step=""
 failed=0
 
-# Same three-function vocabulary as install.sh and add-profile.sh's own
+# Same three-function vocabulary as install-relay.sh and add-profile.sh's own
 # --porcelain: one "ANYWH ..." line per event, so a single Rust-side parser
 # (relay_setup.rs's parse_porcelain_line) drives every installer the app
 # can run, without knowing which one it is. The last line of a successful
-# run is "ANYWH done ok ...", same as install.sh's.
+# run is "ANYWH done ok ...", same as install-relay.sh's.
 porcelain() {
   if [[ "$PORCELAIN" -eq 1 ]]; then echo "ANYWH $*"; fi
 }
@@ -51,7 +51,7 @@ err() {
 
 # A command that dies on its own under `set -e` (not through err()) still
 # owes the porcelain stream exactly one fail line — same reasoning as
-# install.sh's own EXIT trap.
+# install-relay.sh's own EXIT trap.
 trap '
   status=$?
   if [[ $status -ne 0 && $failed -eq 0 ]]; then
@@ -79,7 +79,7 @@ ANYWH_ENV_DIR="${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}"
 # that succeeded.
 #
 # A copy of infra/lib.sh's function rather than a `source` of it, for the
-# same reason the porcelain helpers above are copies of install.sh's: this
+# same reason the porcelain helpers above are copies of install-relay.sh's: this
 # file is embedded in the app (relay_setup.rs include_str!s it) and written
 # out alone to a temp dir, so the only infra/lib.sh it could reach is the
 # one inside the keg `brew install` just laid down — which is whatever
@@ -134,7 +134,7 @@ end_step "target os=Darwin arch=arm64"
 
 # --- 2. prereqs --------------------------------------------------------------
 # Node isn't checked here: `depends_on "node"` in the formula makes brew
-# install (or already have) it, unlike install.sh's Linux path, which
+# install (or already have) it, unlike install-relay.sh's Linux path, which
 # requires the user's own Node ahead of time because it has no package
 # manager to lean on.
 begin_step prereqs
@@ -143,10 +143,10 @@ command -v brew >/dev/null 2>&1 ||
 
 AGENT_BIN="${AGENT_BIN:-${CLAUDE_BIN:-claude}}"
 
-# Same check install.sh runs, and — like there — reported rather than
+# Same check install-relay.sh runs, and — like there — reported rather than
 # fatal: the relay installs, starts and serves with no agent CLI present,
 # and resolves the binary at spawn time, so one installed after this ran
-# needs nothing re-run here. See install.sh's own comment for the full
+# needs nothing re-run here. See install-relay.sh's own comment for the full
 # reasoning and for why the two stripped variables matter.
 #
 # It matters more on this path than on that one: this script runs with the
