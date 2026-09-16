@@ -99,6 +99,10 @@ tauri-plugin-shell = "2"
 # the crate has no mobile target, and the behaviour it corrects (a second
 # process at all) doesn't exist there.
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Updater phase B: actually downloads and applies the new release. No
+# mobile target, so it stays in this desktop-only block with the rest.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # Camada de chrome nativo (SwiftUI/Liquid Glass) do port iOS — docs/23, Fase E.
 # Promovido do spike de UI nativa (docs/22, spike 2/3): manager.viewController
