@@ -13,7 +13,7 @@ import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { MobileShell } from "@/components/shell/MobileShell";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
-import { UpdateBanner } from "@/components/shell/UpdateBanner";
+import { UpdateModal } from "@/components/shell/UpdateModal";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
@@ -54,7 +54,7 @@ import { resolveConnection } from "@/lib/connectionResolver";
 import { ensureNotificationPermission, notifyTurnComplete } from "@/lib/notifications";
 import { deleteSession, renameSession } from "@/lib/relayClient";
 import { isIOS } from "@/lib/platform";
-import { performUpdateCheck } from "@/lib/appUpdate";
+import { forceUpdateCheck, performUpdateCheck } from "@/lib/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
  * a direct deep-link to a specific state in tests via Playwright. */
@@ -196,6 +196,7 @@ function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
   // Connection state per tab — used by TitleBar/MobileTopBar, which
   // live outside ChatPanel. Fed by `renderPanel`'s `onConnectedChange` below.
   // Keyed by tab id (not a single flag) because desktop's TabGroupLayout keeps
@@ -225,6 +226,15 @@ function AppShell() {
     const interval = setInterval(() => void performUpdateCheck(), 24 * 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // The title bar menu's "Check for updates" — bypasses the 24h cadence
+  // (forceUpdateCheck, same as the removed Settings page's button did) and
+  // always opens the modal afterwards, found or not, so a manual check gets
+  // an answer instead of silently doing nothing when already up to date.
+  async function handleCheckForUpdates(): Promise<void> {
+    await forceUpdateCheck();
+    setUpdateModalOpen(true);
+  }
 
   // Global search shortcut (Ctrl/Cmd+K), on any screen.
   useEffect(() => {
@@ -908,6 +918,7 @@ function AppShell() {
         onToggleSidebar={resizable.toggleCollapsed}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onCheckForUpdates={() => void handleCheckForUpdates()}
         connected={activeConnected}
       />
       {profileSetupDialog}
@@ -920,6 +931,7 @@ function AppShell() {
         activeProfile={activeProfile}
         profilesSupported={profilesSupported}
       />
+      <UpdateModal open={updateModalOpen} onOpenChange={setUpdateModalOpen} />
 
       <div className="flex min-h-0 flex-1">
         {!isCompact && (
@@ -953,7 +965,6 @@ function AppShell() {
          * stop working. The session list keeps working — its rows are cached
          * locally and still readable — so covering it would claim otherwise. */}
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <UpdateBanner />
           <RevokedProfileBanners />
           {isCompact && (
             <div className="flex items-center gap-2 p-2">
@@ -981,6 +992,7 @@ function AppShell() {
         sessionId={activeTab?.id ?? null}
         isRunning={activeTab?.isRunning ?? false}
         windowFocused={windowFocused}
+        onOpenUpdateModal={() => setUpdateModalOpen(true)}
       />
     </div>
   );

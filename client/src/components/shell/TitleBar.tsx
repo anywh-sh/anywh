@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Menu, PanelLeft, Search, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu, PanelLeft, RefreshCw, Search, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,6 +23,7 @@ export function TitleBar({
   onToggleSidebar,
   onOpenSearch,
   onOpenSettings,
+  onCheckForUpdates,
   connected,
 }: {
   canGoBack: boolean;
@@ -34,6 +35,7 @@ export function TitleBar({
   onToggleSidebar: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onCheckForUpdates: () => void;
   /** Unlike `MobileTopBar`, only rendered when `false` — desktop had no
    * connection feedback at all: a relay that's unreachable from the start
    * (wrong profile host/port, nothing running there) looked identical to
@@ -62,6 +64,10 @@ export function TitleBar({
             <DropdownMenuItem onSelect={onOpenSettings}>
               <Settings className="size-3.5" />
               {dict.shell.titleBar.settings}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onCheckForUpdates}>
+              <RefreshCw className="size-3.5" />
+              {dict.shell.titleBar.checkForUpdates}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { ArrowUpCircle } from "lucide-react";
 
 import { LanguageControl } from "@/components/shell/LanguageControl";
+import { useAppUpdate } from "@/hooks/useAppUpdate";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/appVersion";
 import { getGitStatus } from "@/lib/gitClient";
@@ -15,6 +17,9 @@ interface StatusBarProps {
    * turn is the most likely thing to have changed the folder. */
   isRunning: boolean;
   windowFocused: boolean;
+  /** Opens `UpdateModal` — only reachable from here while an update is
+   * actually available; the version slot is plain text otherwise. */
+  onOpenUpdateModal: () => void;
 }
 
 /** What the left half renders when there is anything to render. A folder
@@ -47,8 +52,9 @@ function sameRepo(a: RepoState, b: RepoState): boolean {
  * that in the background for a folder nobody is looking at is exactly the
  * kind of cost this redesign is not allowed to add.
  */
-export function StatusBar({ profile, sessionId, isRunning, windowFocused }: StatusBarProps) {
+export function StatusBar({ profile, sessionId, isRunning, windowFocused, onOpenUpdateModal }: StatusBarProps) {
   const dict = useDict();
+  const update = useAppUpdate();
   const profileId = profile?.id ?? null;
   const key = profileId && sessionId ? `${profileId}:${sessionId}` : null;
 
@@ -106,9 +112,21 @@ export function StatusBar({ profile, sessionId, isRunning, windowFocused }: Stat
           {repo.branch} · {changes}
         </span>
       )}
-      <span className="ml-auto shrink-0" title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>
-        v{APP_VERSION}
-      </span>
+      {update ? (
+        <button
+          type="button"
+          onClick={onOpenUpdateModal}
+          className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          title={dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
+        >
+          <ArrowUpCircle className="size-3" strokeWidth={1.5} />
+          {dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
+        </button>
+      ) : (
+        <span className="ml-auto shrink-0" title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>
+          v{APP_VERSION}
+        </span>
+      )}
       <LanguageControl />
     </div>
   );
