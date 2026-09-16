@@ -33,7 +33,7 @@ relay/src/
   protocol/               type guards for every WS message and HTTP body
                            (guards.ts) — the wire message shapes themselves
                            still don't exist as a named type; that lands
-                           when Fase 7 normalizes the wire
+                           when Phase 7 normalizes the wire
   runtimes/
     types.ts               the agent runtime contract — what a `def`
                            is, independent of any one agent CLI. See

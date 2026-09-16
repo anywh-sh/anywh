@@ -1,8 +1,8 @@
 // A design-validation DRAFT, same status as `./codex.ts` — not exported
 // from `registry.ts`, nothing imports this file. Its job is proving the
 // contract survives a *second* JSON-RPC daemon whose framing differs from
-// Codex's, which is exactly the case `journal/77 §6` argues matters most:
-// if the relay speaks ACP as a client, every ACP-speaking agent (Zed's
+// Codex's, which matters beyond this one draft: if the relay speaks ACP as
+// a client, every ACP-speaking agent (Zed's
 // reference agents, Gemini CLI, `coder/xum` via `xum acp`, ...) becomes a
 // def here for the cost of one engine, not one integration each.
 //

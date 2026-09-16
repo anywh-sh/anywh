@@ -156,12 +156,12 @@ necessity.
 
 A bridge (`bridges/mcpBridge.ts`, `permissionBridge.ts`,
 `planChoiceMarker.ts`) is a workaround validated against one real CLI binary,
-not a shared interface every agent must implement (decision 10,
-`journal/61 §6.6`). A def's `bridges` array names which of today's bridges it
-actually spawns; an **empty array is correct**, not a gap — it means the
-agent needs none of them, either because it has native equivalents (Codex,
-ACP) or because it has no equivalent at all (degrading honestly to `"none"`
-in `capabilities`, per §4).
+not a shared interface every agent must implement. A def's `bridges` array
+names which of today's bridges it actually spawns; an **empty array is
+correct**, not a gap — it means the agent needs none of them, either
+because it has native equivalents (Codex, ACP) or because it has no
+equivalent at all (degrading honestly to `"none"` in `capabilities`,
+per §4).
 
 Adding a bridge for a new agent: a new file in `bridges/`, named for the
 agent when it isn't shareable (`codexPermissionBridge.ts` if Codex ever

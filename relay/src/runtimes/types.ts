@@ -6,12 +6,12 @@
 // (`assertCoherent`); `architecture.test.ts` enforces it at the import
 // level (only `runtimes/**` may construct an `ExecPlan`).
 //
-// This supersedes the `AgentRuntimeDef` sketched in `journal/61 §4`. That
-// version assumed `buildTurnArgs(ctx): string[]` and `streamFormat` as
-// invariants — both true for a CLI that spawns once per turn and prints to
-// stdout, both false for Codex, which is a JSON-RPC 2.0 daemon that holds
-// one process per *session* and pushes requests back at the relay
-// mid-turn. The fix isn't a Codex-shaped field bolted on: `exec` becomes a
+// An earlier sketch of `AgentRuntimeDef` assumed `buildTurnArgs(ctx):
+// string[]` and a flat `streamFormat` enum as invariants — both true for a
+// CLI that spawns once per turn and prints to stdout, both false for
+// Codex, which is a JSON-RPC 2.0 daemon that holds one process per
+// *session* and pushes requests back at the relay mid-turn. The fix isn't
+// a Codex-shaped field bolted on: `exec` becomes a
 // discriminated union (`ExecPlan`) whose variants are the input to a
 // shared engine in `runtimes/engines/` (not written yet — this file exists
 // to prove the union's shape first, against real drafts of a second and
@@ -39,8 +39,8 @@ export interface RuntimeIdentity {
   };
   readonly install?: { readonly url: string; readonly docsUrl?: string };
   /** `CLAUDE.md`, `AGENTS.md` — whichever file this CLI reads for
-   * project-level instructions. `journal/61 §9` called the lack of this a
-   * "footnote with no action"; a plain string is the whole fix. */
+   * project-level instructions, so the UI can point a user at the right
+   * one instead of assuming Claude's. */
   readonly projectInstructionsFile: string;
 }
 
@@ -62,11 +62,10 @@ export type AgentCapability =
 
 export type Capabilities = Readonly<Record<AgentCapability, CapabilityLevel>>;
 
-/** One entry per file in `bridges/` (decision 10, `journal/61 §6.6`) — a
- * bridge is a per-agent workaround validated against a real binary, not a
- * shared contract every agent must implement. An empty `bridges` array on
- * a def is correct, not a gap: it means this agent needs none of today's
- * three. */
+/** One entry per file in `bridges/` — a bridge is a per-agent workaround
+ * validated against a real binary, not a shared contract every agent must
+ * implement. An empty `bridges` array on a def is correct, not a gap: it
+ * means this agent needs none of today's three. */
 export type BridgeId = "mcp" | "permission" | "planMarker";
 
 /** Merges the old contract's `contextOwner`/`resumeStyle` into one union —
@@ -151,8 +150,8 @@ export interface RuntimeFailure {
 }
 
 // ---------------------------------------------------------------------------
-// The turn/server boundary — the vocabulary `session/`'s eventual choice
-// machine (`journal/61`'s successor to `choiceMachine.ts`) and a
+// The turn/server boundary — the vocabulary `session/`'s eventual
+// successor to today's `choiceMachine.ts` and a
 // `JsonRpcDaemonPlan`'s `handleServerRequest` both speak, so native
 // approval (Codex's `item/commandExecution/requestApproval`) and
 // bridged approval (today's `permissionBridge.ts`) are indistinguishable
@@ -196,7 +195,7 @@ export interface TurnHost {
 //
 // `AgentEvent` below is a placeholder. The real wire vocabulary
 // (`turn_started`, `text_delta`, `tool_started`, ...) is `protocol/`'s job
-// in Fase 7, against recorded stream fixtures — this file's job today is
+// in Phase 7, against recorded stream fixtures — this file's job today is
 // proving the `ExecPlan` union's shape, not the event vocabulary it will
 // eventually emit, and nothing in this phase constructs one.
 export type AgentEvent = Readonly<Record<string, unknown>>;
