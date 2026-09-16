@@ -245,8 +245,11 @@ fn home_dir() -> PathBuf {
 }
 
 /// Same defaults `install-relay.sh` and `infra/lib.sh` use, same env overrides —
-/// so what the probe reports is what a run would touch.
-fn default_install_dir() -> PathBuf {
+/// so what the probe reports is what a run would touch. `pub(crate)` since
+/// `updater.rs` reads the same directory for `install.sh`'s marker file —
+/// one machine, one anywh directory, so there is exactly one place that gets
+/// to compute this path.
+pub(crate) fn default_install_dir() -> PathBuf {
     std::env::var_os("ANYWH_INSTALL_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home_dir().join(".local/share/anywh"))

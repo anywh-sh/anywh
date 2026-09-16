@@ -53,6 +53,7 @@ import { resolveConnection } from "@/lib/connectionResolver";
 import { ensureNotificationPermission, notifyTurnComplete } from "@/lib/notifications";
 import { deleteSession, renameSession } from "@/lib/relayClient";
 import { isIOS } from "@/lib/platform";
+import { performUpdateCheck } from "@/lib/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
  * a direct deep-link to a specific state in tests via Playwright. */
@@ -208,6 +209,20 @@ function AppShell() {
 
   useEffect(() => {
     void ensureNotificationPermission();
+  }, []);
+
+  // The app stays open for days, so "check on launch" alone would never fire
+  // for someone who never restarts — a 24h interval here, not a one-shot
+  // effect, is what makes that case checked at all. Deliberately not inside
+  // whatever eventually renders the result, so that stays a trivial,
+  // timer-free read of what this already found. No updater exists under the
+  // App Store, so this never even probes on iOS — the `app_install_source`/
+  // `app_check_latest_release` commands aren't compiled into that build.
+  useEffect(() => {
+    if (isIOS()) return;
+    void performUpdateCheck();
+    const interval = setInterval(() => void performUpdateCheck(), 24 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Global search shortcut (Ctrl/Cmd+K), on any screen.

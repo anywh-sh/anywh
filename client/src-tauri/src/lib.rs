@@ -19,6 +19,10 @@ mod tailnet_sidecar;
 // the machine's filesystem — desktop only, same exclusion as the rest.
 #[cfg(not(target_os = "ios"))]
 mod relay_setup;
+// In-app updater check: no update path exists for the iOS build (App Store
+// owns that), same exclusion as the rest of this list.
+#[cfg(not(target_os = "ios"))]
+mod updater;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -127,7 +131,9 @@ pub fn run() {
             relay_setup::relay_setup_start,
             relay_setup::relay_setup_cancel,
             relay_setup::relay_setup_status,
-            relay_setup::relay_setup_confirm_close
+            relay_setup::relay_setup_confirm_close,
+            updater::app_install_source,
+            updater::app_check_latest_release
         ]);
 
     #[cfg(target_os = "ios")]
