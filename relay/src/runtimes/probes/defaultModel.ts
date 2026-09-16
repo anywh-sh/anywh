@@ -8,14 +8,14 @@ import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executabl
 // (it always returned `undefined` until this was noticed). Same vocabulary
 // as MODEL_LABELS on the client, so the text already arrives
 // ready to display without remapping it there.
-const MODEL_NAME_RE = /^Current model:\s*`?(Sonnet|Opus|Haiku|Fable)\b/i;
+export const MODEL_NAME_RE = /^Current model:\s*`?(Sonnet|Opus|Haiku|Fable)\b/i;
 
 // Same `result` string also lists every alias the CLI accepts, e.g.
 // "Usage: /model <name>. Available: sonnet, opus, haiku, fable, best,
 // sonnet[1m], opus[1m], fable[1m], opusplan, default, or a full model ID."
 // Non-greedy up to the first period after "Available:" — confirmed by
 // testing there's no other period inside the list itself.
-const AVAILABLE_MODELS_RE = /Available:\s*(.+?)(?:\.|$)/;
+export const AVAILABLE_MODELS_RE = /Available:\s*(.+?)(?:\.|$)/;
 
 export interface DefaultModelInfo {
   label: string;
@@ -27,7 +27,7 @@ export interface DefaultModelInfo {
  * both profile accounts (Sonnet-5 default and Opus-5 default) and the list
  * came back byte-for-byte identical, so this is a CLI-version catalog, not
  * an account entitlement list. */
-function parseAvailableModels(result: string): string[] {
+export function parseAvailableModels(result: string): string[] {
   const match = AVAILABLE_MODELS_RE.exec(result);
   if (!match) return [];
   return match[1]

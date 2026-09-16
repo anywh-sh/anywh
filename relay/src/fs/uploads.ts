@@ -50,8 +50,16 @@ export function saveUpload(req: IncomingMessage, ext: string): Promise<UploadRes
   return readRawBody(req, MAX_UPLOAD_BYTES).then((buffer) => handleUploadComplete(buffer, ext));
 }
 
+/** Strips anything that isn't a plain ASCII letter/digit — the extension
+ * comes from the client's own filename, untrusted, and becomes a real path
+ * segment on disk. `|| "bin"` covers both an extension that was entirely
+ * special characters and one that was empty to begin with. */
+export function sanitizeExtension(ext: string): string {
+  return ext.replace(/[^a-zA-Z0-9]/g, "") || "bin";
+}
+
 async function handleUploadComplete(buffer: Buffer, ext: string): Promise<UploadResult> {
-  const safeExt = ext.replace(/[^a-zA-Z0-9]/g, "") || "bin";
+  const safeExt = sanitizeExtension(ext);
   const id = randomUUID();
   const filePath = join(UPLOAD_DIR, `${id}.${safeExt}`);
   writeFileSync(filePath, buffer);
@@ -101,14 +109,18 @@ async function getVideoDuration(videoPath: string): Promise<number> {
   return Number.isFinite(duration) && duration > 0 ? duration : 1;
 }
 
-// Frames taken at the midpoint of N equal slices of the duration (not at
-// t=0/t=end) — avoids landing on a black fade-in/fade-out at the edges,
-// common in screen recordings.
+/** Midpoint of the `index`-th of `frameCount` equal slices of `duration` —
+ * never `t=0` or `t=duration`, which avoids landing on a black
+ * fade-in/fade-out at the edges, common in screen recordings. */
+export function frameTimestamp(duration: number, index: number, frameCount: number): number {
+  return (duration * (index + 0.5)) / frameCount;
+}
+
 async function extractVideoFrames(videoPath: string, baseId: string): Promise<string[]> {
   const duration = await getVideoDuration(videoPath);
   const frames: string[] = [];
   for (let i = 0; i < VIDEO_FRAME_COUNT; i++) {
-    const timestamp = (duration * (i + 0.5)) / VIDEO_FRAME_COUNT;
+    const timestamp = frameTimestamp(duration, i, VIDEO_FRAME_COUNT);
     const framePath = join(UPLOAD_DIR, `${baseId}-frame${String(i + 1)}.jpg`);
     await runCommand("ffmpeg", ["-y", "-ss", timestamp.toFixed(2), "-i", videoPath, "-frames:v", "1", "-q:v", "3", framePath]);
     frames.push(framePath);

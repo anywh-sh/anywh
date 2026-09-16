@@ -90,3 +90,29 @@ test("GET /control/profiles reports a second profile's running state from a real
   };
   assert.ok(!listedAfterDelete.profiles.some((profile) => profile.id === "trabalho"));
 });
+
+test("POST /control/profiles/validate checks the real fake-claude auth status, and flags a homeOverride already claimed by another profile", async () => {
+  const noBody = await fetch(httpUrl("/control/profiles/validate"), { method: "POST" });
+  assert.equal(noBody.status, 200, "the whole body is optional");
+  const noBodyResult = (await noBody.json()) as { loggedIn: boolean; email?: string; collidesWith?: string };
+  assert.equal(noBodyResult.loggedIn, true, "fake-claude.mjs's canned 'auth status --json' reply");
+  assert.equal(noBodyResult.email, "fake@anywh.test");
+  assert.equal(noBodyResult.collidesWith, undefined, "no other profile registered yet");
+
+  writeFileSync(join(server.envDir, "existing.env"), "RELAY_PORT=9999\nRELAY_HOME_OVERRIDE=/home/shared\n");
+
+  const collision = await fetch(httpUrl("/control/profiles/validate"), {
+    method: "POST",
+    body: JSON.stringify({ homeOverride: "/home/shared" }),
+  });
+  assert.equal(collision.status, 200);
+  const collisionResult = (await collision.json()) as { collidesWith?: string };
+  assert.equal(collisionResult.collidesWith, "existing", "same normalized homeOverride as the planted profile");
+
+  const noCollision = await fetch(httpUrl("/control/profiles/validate"), {
+    method: "POST",
+    body: JSON.stringify({ homeOverride: "/home/different" }),
+  });
+  const noCollisionResult = (await noCollision.json()) as { collidesWith?: string };
+  assert.equal(noCollisionResult.collidesWith, undefined);
+});

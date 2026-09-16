@@ -21,7 +21,7 @@ const TMUX_BIN = process.env.TMUX_BIN ?? "/usr/bin/tmux";
  * two profiles (personal/work, same Unix user) would collide on tmux's
  * default socket (`/tmp/tmux-<uid>/default`), which knows nothing about a
  * `HOME` override. */
-function tmuxSocketName(relayPort: number): string {
+export function tmuxSocketName(relayPort: number): string {
   return `anywh-term-${relayPort}`;
 }
 
@@ -30,12 +30,19 @@ function tmuxSocketName(relayPort: number): string {
  * not a string for a shell to parse), but `:`/`.` have special meaning in
  * tmux's "target" syntax (session:window.pane) even outside any shell, so
  * sanitize just in case even though the IDs are UUIDs in practice. */
-function sanitizeId(id: string): string {
+export function sanitizeId(id: string): string {
   return id.replace(/[:.]/g, "_");
 }
 
-function tmuxSessionName(chatSessionId: string, terminalId: string): string {
+export function tmuxSessionName(chatSessionId: string, terminalId: string): string {
   return `${sanitizeId(chatSessionId)}__${sanitizeId(terminalId)}`;
+}
+
+/** Every tmux session name for a chat session's terminals shares this
+ * prefix (see `tmuxSessionName`) — what `killAllTerminalsForSession` below
+ * filters `list-sessions` output against. */
+export function sessionNamePrefix(chatSessionId: string): string {
+  return `${sanitizeId(chatSessionId)}__`;
 }
 
 export interface SpawnTerminalOptions {
@@ -175,7 +182,7 @@ export function scrollTerminal(relayPort: number, chatSessionId: string, termina
  * running forever with no tab controlling them. */
 export async function killAllTerminalsForSession(relayPort: number, chatSessionId: string): Promise<void> {
   const stdout = await execTmux(relayPort, ["list-sessions", "-F", "#{session_name}"]);
-  const prefix = `${sanitizeId(chatSessionId)}__`;
+  const prefix = sessionNamePrefix(chatSessionId);
   const names = stdout
     .split("\n")
     .map((line) => line.trim())
