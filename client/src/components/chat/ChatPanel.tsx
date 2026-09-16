@@ -327,7 +327,6 @@ export function ChatPanel({
     setDraft,
     choicePrompt,
     answerChoice,
-    dismissChoicePrompt,
   } = useRelayClient(profile, sessionId, {
     onEvent: (event) => logRef.current.handleEvent(event),
     onReconnecting: () => {
@@ -670,7 +669,6 @@ export function ChatPanel({
                 questions={choicePrompt.questions}
                 kind={choicePrompt.kind}
                 onAnswer={answerChoice}
-                onClose={dismissChoicePrompt}
               />
             )}
 

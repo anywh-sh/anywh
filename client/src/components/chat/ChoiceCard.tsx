@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowRight, Check, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { isIOS } from "@/lib/platform";
@@ -10,14 +10,14 @@ interface ChoiceCardProps {
   promptId: string;
   questions: ChoiceQuestion[];
   /** `"approval"` (a live blocked tool call, e.g. permission approve/deny)
-   * genuinely needs SOME answer to unblock it — the close button falls back
-   * to `onAnswer` with whatever's selected, same as before. `"choice"` (the
-   * `present_choice` MCP tool / plan-mode marker) has no live call waiting,
-   * so the close button just calls `onClose` and sends nothing — see the
+   * genuinely needs SOME answer to unblock it — the top-right button falls
+   * back to `onAnswer` with whatever's selected, same as before. `"choice"`
+   * (the `present_choice` MCP tool / plan-mode marker) has no live call
+   * waiting, so that button only collapses the card to a small indicator
+   * above the composer instead — see the `collapsed` state below and the
    * `choice_prompt` doc comment in relay-types.ts. */
   kind: "approval" | "choice";
   onAnswer: (answers: ChoiceAnswer[]) => void;
-  onClose: () => void;
 }
 
 /** Picker for a `present_choice` MCP call blocked
@@ -32,15 +32,22 @@ interface ChoiceCardProps {
  * and only calls `onAnswer` once the last one is confirmed or skipped, or
  * (for `kind: "approval"` only) the user closes the card early, filling in
  * whatever wasn't reached yet with an empty selection so the live blocked
- * tool call always genuinely unblocks. `kind: "choice"` closes with no
- * `onAnswer` call at all instead — see `ChoiceCardProps.kind`. */
-export function ChoiceCard({ promptId, questions, kind, onAnswer, onClose }: ChoiceCardProps) {
+ * tool call always genuinely unblocks. `kind: "choice"` collapses instead of
+ * answering — see `ChoiceCardProps.kind` and the `collapsed` state. */
+export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardProps) {
   const dict = useDict();
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Map<number, string[]>>(new Map());
   const [selected, setSelected] = useState<string[]>([]);
   const [customTexts, setCustomTexts] = useState<Map<number, string>>(new Map());
   const [customText, setCustomText] = useState("");
+  // Only ever set for `kind: "choice"` (the top-right button answers
+  // directly for `kind: "approval"` instead, see its `onClick` below) — the
+  // card stays mounted while collapsed, so every other piece of state above
+  // (current step, partial answers, in-progress custom text) survives a
+  // collapse/reopen round trip untouched.
+  const [collapsed, setCollapsed] = useState(false);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // A fresh prompt (new `promptId`) always starts over — same instance can
   // be reused across prompts since `ChatPanel` keys it by `choicePrompt`
@@ -51,6 +58,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, onClose }: Cho
     setSelected([]);
     setCustomTexts(new Map());
     setCustomText("");
+    setCollapsed(false);
   }, [promptId]);
 
   const question = questions[index];
@@ -128,6 +136,49 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, onClose }: Cho
     goTo(index + 1);
   }
 
+  /** Up/down moves focus between option buttons (a roving-focus listbox,
+   * clamped rather than wrapping — same edge behavior as the question
+   * chevrons above). Selecting still happens on Enter/Space, which a
+   * focused `<button>` already handles natively — this only owns where the
+   * arrow keys send focus next. */
+  function handleOptionKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, optionIndex: number): void {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const nextIndex = optionIndex + (event.key === "ArrowDown" ? 1 : -1);
+    optionRefs.current[nextIndex]?.focus();
+  }
+
+  if (collapsed) {
+    return (
+      // Narrower than the card it replaces and centered — a tab welded onto
+      // the composer below rather than a second floating box the same size
+      // as either. No bottom border, and a negative margin overlapping the
+      // composer's own top border by 1px (`z-10` keeps this tab painted over
+      // that border despite Composer following it in the DOM) — the
+      // negative amount is the composer's own spacing toward it canceled
+      // out plus that 1px: desktop's is `my-3` on Composer's own box
+      // (Composer.tsx), iOS's is the parent stack's `gap-2` (ChatPanel.tsx).
+      <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0 -mb-[9px]" : "mx-3 mt-3 -mb-[13px]")}>
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label={dict.chat.choice.reopen}
+          className="flex w-[72%] items-center gap-2 border-t border-x border-primary bg-bg-elevated px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-hover"
+        >
+          <span className="size-1.5 shrink-0 animate-pulse bg-primary" />
+          <span className="font-medium">{dict.chat.choice.pending}</span>
+          {questions.length > 1 && (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {dict.chat.choice.questionPosition.replace("{index}", String(index + 1)).replace("{total}", String(questions.length))}
+            </span>
+          )}
+          <span className="flex-1" />
+          <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -171,24 +222,28 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer, onClose }: Cho
           )}
           <button
             type="button"
-            onClick={() => (kind === "approval" ? finish(new Map(answers).set(index, effectiveSelection)) : onClose())}
-            aria-label={kind === "approval" ? dict.chat.choice.closeAnswering : dict.chat.choice.closeWithoutAnswering}
+            onClick={() => (kind === "approval" ? finish(new Map(answers).set(index, effectiveSelection)) : setCollapsed(true))}
+            aria-label={kind === "approval" ? dict.chat.choice.closeAnswering : dict.chat.choice.collapse}
             className="ml-1 cursor-pointer text-muted-foreground hover:text-foreground"
           >
-            <X className="size-4" />
+            {kind === "approval" ? <X className="size-4" /> : <ChevronDown className="size-4" />}
           </button>
         </div>
       </div>
 
       <div className={cn("flex flex-col divide-y divide-border", customText.trim() && "opacity-40")}>
-        {question.options.map((option) => {
+        {question.options.map((option, optionIndex) => {
           const value = valueOf(option);
           const isSelected = selected.includes(value);
           return (
             <button
               type="button"
               key={value}
+              ref={(el) => {
+                optionRefs.current[optionIndex] = el;
+              }}
               onClick={() => toggleOption(value)}
+              onKeyDown={(event) => handleOptionKeyDown(event, optionIndex)}
               className="flex cursor-pointer items-center gap-2.5 py-2 text-left"
             >
               <span
