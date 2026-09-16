@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 // Real end-to-end tier (.anywh/skills/tests/SKILL.md) — drives the actual
@@ -13,6 +15,21 @@ import { resolve } from "node:path";
 // `tauri dev`/`tauri build` — this is an opt-in, e2e-only binary.
 const appBinaryPath = resolve(import.meta.dirname, "src-tauri/target/debug/anywh");
 
+// update.spec.js's fixtures. The port has to be static: each spec file gets
+// its own freshly spawned app process, using the env below, before that
+// file's own `before()` hook (where update.spec.js's fixture HTTP server
+// actually starts listening) ever runs — so `ANYWH_UPDATE_ENDPOINT` has to
+// be a value known here, not discovered later from an ephemeral listener.
+// `openedUrlsLog` is where the fake `xdg-open` (tests/e2e/fixtures/bin)
+// records what it was asked to open, standing in for a real browser launch
+// — see that file and update.spec.js for why.
+export const updateE2EFixtures = {
+  port: 47862,
+  endpoint: "http://127.0.0.1:47862/repos/anywh-sh/anywh/releases/latest",
+  openedUrlsLog: resolve(tmpdir(), "anywh-e2e-opened-urls.log"),
+};
+const fakeOpenerBinDir = resolve(import.meta.dirname, "tests/e2e/fixtures/bin");
+
 export const config = {
   runner: "local",
   specs: ["./tests/e2e/*.spec.js"],
@@ -25,6 +42,14 @@ export const config = {
       "wdio:tauriServiceOptions": {
         appBinaryPath,
         driverProvider: "embedded",
+        // Prefixing PATH (never replacing it) so the fake xdg-open wins
+        // the real `open` crate's lookup without breaking anything else
+        // the app's process might need to find on PATH.
+        env: {
+          ANYWH_UPDATE_ENDPOINT: updateE2EFixtures.endpoint,
+          ANYWH_E2E_OPENED_URLS_LOG: updateE2EFixtures.openedUrlsLog,
+          PATH: `${fakeOpenerBinDir}:${process.env.PATH}`,
+        },
       },
     },
   ],
@@ -49,6 +74,8 @@ export const config = {
   // ghost migration in profiles.ts never mistakes it for the ghost. A dir
   // that already holds profiles is left exactly as it is.
   before: async () => {
+    rmSync(updateE2EFixtures.openedUrlsLog, { force: true });
+
     const seeded = await browser.execute(() => {
       const raw = localStorage.getItem("anywh:profiles");
       try {
