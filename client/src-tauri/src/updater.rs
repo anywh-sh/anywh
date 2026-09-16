@@ -202,8 +202,17 @@ struct GithubRelease {
 /// `Available`. `RateLimited` carries when it's safe to try again instead of
 /// a bare error, so the JS scheduler can back off instead of hammering a
 /// 403 every launch.
+// `rename_all` on an enum only renames the *variants* ("Available" ->
+// "available"); it does not reach into a struct variant's own fields
+// without `rename_all_fields` alongside it. Missing that left the wire
+// shape as `tag_name`/`html_url` while appUpdate.ts's `LatestReleaseCheck`
+// type (and every caller of it) has always expected `tagName`/`htmlUrl` —
+// a real bug, caught only by the e2e tier driving an actual "Check now"
+// click end to end (client/tests/e2e/update.spec.js): every other tier
+// injects an already-camelCase fake in place of this struct and never
+// serializes it for real.
 #[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
 pub enum LatestReleaseCheck {
     NotModified,
     Available { tag_name: String, html_url: String, etag: Option<String> },
