@@ -448,7 +448,14 @@ export interface Dictionary {
       nextQuestion: string;
       questionPosition: string;
       closeAnswering: string;
-      closeWithoutAnswering: string;
+      /** Aria-label for a `kind: "choice"` card's top-right button — it
+       * collapses the card to the `pending`/`reopen` indicator, never
+       * discards the question (see `ChoiceCard`'s `collapsed` state). */
+      collapse: string;
+      /** Label on the indicator that replaces a collapsed `kind: "choice"`
+       * card, sitting right above the composer. */
+      pending: string;
+      reopen: string;
       customPlaceholder: string;
       customLabel: string;
       customAnswer: string;

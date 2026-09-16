@@ -142,12 +142,6 @@ export interface UseRelayClientResult {
   /** Answers the current `choicePrompt` — a no-op if it's already `null`
    * (e.g. the turn ended and resolved it right as the user was answering). */
   answerChoice: (answers: ChoiceAnswer[]) => void;
-  /** Closes the current `choicePrompt` locally with no answer sent to the
-   * relay at all — only valid for `kind: "choice"` (a deferred prompt
-   * tolerates being left unanswered, see `SharedSession.pendingChoice`'s
-   * doc comment); `ChoiceCard` never calls this for `kind: "approval"`,
-   * which always needs a real answer to unblock the live tool call. */
-  dismissChoicePrompt: () => void;
 }
 
 /**
@@ -420,10 +414,6 @@ export function useRelayClient(
     setChoicePrompt(null);
   }, []);
 
-  const dismissChoicePrompt = useCallback(() => {
-    setChoicePrompt(null);
-  }, []);
-
   return {
     connected,
     connectingTailnet,
@@ -450,6 +440,5 @@ export function useRelayClient(
     setDraft,
     choicePrompt,
     answerChoice,
-    dismissChoicePrompt,
   };
 }
