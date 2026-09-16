@@ -93,4 +93,29 @@ describe("Settings dialog", () => {
     // app state, not just in the mocked fetch call.
     await vi.waitFor(() => expect(labelInput).toHaveValue("Perfil Renomeado"));
   });
+
+  // Regression for the ternary-to-switch rewrite (SettingsDialog.tsx):
+  // `selectedProfile ? <ProfileSettings/> : <AppearanceSettings/>` silently
+  // rendered Appearance for every non-profile section once a third one
+  // (Updates) existed — picking "Updates" would have shown Appearance
+  // instead, with nothing failing loudly.
+  it("selecting Updates in the rail renders the Updates page, not Appearance", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    await user.click(await within(document.body).findByText(en.shell.titleBar.settings));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: en.settings.nav.updates }));
+
+    expect(await within(dialog).findByText(en.settings.updates.mode.title)).toBeInTheDocument();
+    expect(within(dialog).queryByText(en.settings.appearance.fontSize.title)).not.toBeInTheDocument();
+
+    // And switching back to Appearance renders that page, not a leftover
+    // Updates one — the same switch statement covers both directions.
+    await user.click(within(dialog).getByRole("button", { name: en.settings.nav.appearance }));
+    expect(await within(dialog).findByText(en.settings.appearance.fontSize.title)).toBeInTheDocument();
+    expect(within(dialog).queryByText(en.settings.updates.mode.title)).not.toBeInTheDocument();
+  });
 });

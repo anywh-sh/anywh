@@ -20,7 +20,8 @@
         { "url": "zed://*" },
         { "url": "vscode://*" },
         { "url": "cursor://*" },
-        { "url": "windsurf://*" }
+        { "url": "windsurf://*" },
+        { "url": "https://github.com/*" }
       ]
     }
   ]
