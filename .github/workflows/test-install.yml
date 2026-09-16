@@ -351,3 +351,198 @@ jobs:
           [ -f "$HOME/.local/share/anywh/infra/systemd/add-profile.sh" ]
           ls -d "$HOME/.local/share/anywh"/.staging.* 2>/dev/null && exit 1 || true
           grep -q '^RELAY_HOST=10.0.0.5$' "$HOME/.config/anywh/env/default.env"
+
+  # The app half, against fixture bundles rather than a real build. What is
+  # under test is the installer's mechanics — resolve the asset for this
+  # platform, verify it, place it, write a launcher, open it — none of which
+  # depend on the bundle being a real Tauri app, and all of which would sit
+  # behind a ten-minute native compile if it were. The real bundle is what
+  # release.yml builds and what the client-e2e tier drives.
+  app-linux:
+    name: app install (Linux, fixture bundles)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    # Pinned rather than `ubuntu-latest` for the same reason release.yml's
+    # Linux leg is: this is the distro the AppImage is built against. It also
+    # keeps `libfuse2` installable under that name — 24.04 renamed it, and
+    # the mount branch below needs it present to be exercised at all.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8791
+    steps:
+      - uses: actions/checkout@v7
+
+      # libfuse2 is not decoration: without it every run here would take
+      # the unpack fallback and the mount branch — the one a desktop with
+      # FUSE actually takes — would never be asserted on. Installed
+      # explicitly rather than assumed from the runner image, so the branch
+      # a given run exercises is a property of this file and not of whatever
+      # GitHub last baked in.
+      - name: Install libfuse2 and desktop-file-validate
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 desktop-file-utils
+
+      - name: Serve fixture release assets
+        run: |
+          mkdir -p serve "$RUNNER_TEMP/bin"
+          # A real binary copied to the name the app runs under, so the
+          # installer's `pgrep -x anywh` check has something truthful to
+          # find — a shell script would show up as its interpreter.
+          cp /bin/sleep "$RUNNER_TEMP/bin/anywh"
+          cat > serve/anywh-linux-x64.AppImage <<FIXTURE
+          #!/bin/sh
+          if [ "\${1:-}" = "--appimage-extract" ]; then
+            mkdir -p squashfs-root
+            printf '#!/bin/sh\nexec $RUNNER_TEMP/bin/anywh 120\n' > squashfs-root/AppRun
+            chmod +x squashfs-root/AppRun
+            exit 0
+          fi
+          exec $RUNNER_TEMP/bin/anywh 120
+          FIXTURE
+          chmod +x serve/anywh-linux-x64.AppImage
+          printf 'fixture icon\n' > serve/anywh-icon.png
+          printf '#!/bin/sh\necho "relay installer ran: $*"\n' > serve/install-relay.sh
+          (cd serve && sha256sum -- * > SHA256SUMS)
+          (cd serve && python3 -m http.server 8791 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8791/SHA256SUMS > /dev/null && break; sleep 0.5; done
+          # install.sh with no sibling install-relay.sh beside it, so the
+          # relay route has to go through the download path and no real
+          # relay is needed to assert on routing.
+          mkdir -p "$RUNNER_TEMP/alone"
+          cp install.sh "$RUNNER_TEMP/alone/"
+
+      # The routing decision itself, in both directions. A GitHub runner has
+      # no display, which makes it the honest environment for the half of
+      # this that matters: a box with no graphical session must not be given
+      # an app it cannot show.
+      - name: With no display it installs the relay, and says so
+        run: |
+          [ -z "${DISPLAY:-}" ]
+          sh "$RUNNER_TEMP/alone/install.sh" > out.log 2>&1
+          cat out.log
+          grep -q 'No graphical session detected' out.log
+          grep -q 'relay installer ran:' out.log
+          [ ! -e "$HOME/.local/share/anywh/app" ]
+
+      - name: With a display it installs the app, silently about routing
+        run: |
+          DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --no-launch > out.log 2>&1
+          cat out.log
+          grep -q 'No graphical session detected' out.log && exit 1 || true
+          grep -q 'relay installer ran:' out.log && exit 1 || true
+          [ -x "$HOME/.local/share/anywh/app/anywh.AppImage" ]
+          [ -f "$HOME/.local/share/icons/hicolor/256x256/apps/anywh.png" ]
+          desktop-file-validate "$HOME/.local/share/applications/sh.anywh.client.desktop"
+          grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppImage %U\$" "$HOME/.local/share/applications/sh.anywh.client.desktop"
+          grep -q "^Icon=$HOME/.local/share/icons/" "$HOME/.local/share/applications/sh.anywh.client.desktop"
+          [ "$(readlink "$HOME/.local/bin/anywh")" = "$HOME/.local/share/anywh/app/anywh.AppImage" ]
+
+      # Ubuntu runners still ship libfuse2, so the branch most users on a
+      # current desktop will take would never run here without being asked
+      # for by name.
+      - name: Without libfuse2 it unpacks the AppImage and launches AppRun
+        run: |
+          ANYWH_APPIMAGE_NO_FUSE=1 DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app --no-launch > out.log 2>&1
+          cat out.log
+          grep -q "libfuse2 isn't installed" out.log
+          [ -x "$HOME/.local/share/anywh/app/anywh.AppDir/AppRun" ]
+          grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppDir/AppRun %U\$" "$HOME/.local/share/applications/sh.anywh.client.desktop"
+          [ "$(readlink "$HOME/.local/bin/anywh")" = "$HOME/.local/share/anywh/app/anywh.AppDir/AppRun" ]
+
+      # The whole point of the change: the command ends with the app
+      # running, not with instructions. This proves the installer starts
+      # what it installed — that the real app draws a window is the e2e
+      # tier's job, not this one's.
+      - name: It opens the app, and a re-run doesn't open a second one
+        run: |
+          DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app > out.log 2>&1
+          for _ in $(seq 1 20); do pgrep -x anywh > /dev/null && break; sleep 0.5; done
+          pgrep -x anywh > /dev/null || { echo "::error::the installer never started the app"; exit 1; }
+          DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app > rerun.log 2>&1
+          cat rerun.log
+          grep -q 'already running' rerun.log
+          [ "$(pgrep -xc anywh)" -eq 1 ]
+          pkill -x anywh || true
+
+      - name: A re-run leaves no staging directories behind
+        run: |
+          mkdir -p "$HOME/.local/share/anywh/app/.staging.99999" "$HOME/.local/share/anywh/app/.unpack.99999"
+          DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app --no-launch > /dev/null 2>&1
+          ls -d "$HOME/.local/share/anywh/app"/.staging.* "$HOME/.local/share/anywh/app"/.unpack.* 2>/dev/null && exit 1 || true
+          pkill -x anywh || true
+
+      - name: A tampered app bundle never reaches the disk
+        run: |
+          rm -rf "$HOME/.local/share/anywh/app"
+          echo "# tampered" >> serve/anywh-linux-x64.AppImage
+          set +e
+          DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app --no-launch > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          [ "$status" -ne 0 ]
+          grep -q 'checksum mismatch for anywh-linux-x64.AppImage' out.log
+          [ ! -e "$HOME/.local/share/anywh/app/anywh.AppImage" ]
+
+  app-macos:
+    name: app install (macOS, fixture bundle)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    timeout-minutes: 10
+    env:
+      ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8791
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Serve a fixture app bundle
+        run: |
+          mkdir -p serve stage/anywh.app/Contents/MacOS
+          # Same reasoning as the Linux fixture: a real binary under the
+          # real name, so the running-instance check sees what it would see
+          # in life.
+          cp /bin/sleep stage/anywh.app/Contents/MacOS/anywh
+          (cd stage && tar czf ../serve/anywh-darwin-arm64.app.tar.gz anywh.app)
+          (cd serve && shasum -a 256 -- * > SHA256SUMS)
+          (cd serve && python3 -m http.server 8791 --bind 127.0.0.1 > /dev/null 2>&1 &)
+          for _ in $(seq 1 20); do curl -fsS http://127.0.0.1:8791/SHA256SUMS > /dev/null && break; sleep 0.5; done
+
+      # No --no-launch counterpart here: `open -a` needs a bundle with a real
+      # Info.plist, which a fixture doesn't have. Placement, replacement and
+      # the two refusals are what this platform's path adds over Linux, and
+      # all four are exercised.
+      - name: Installs the bundle into /Applications
+        run: |
+          ./install.sh --app --no-launch > out.log 2>&1
+          cat out.log
+          [ -x "/Applications/anywh.app/Contents/MacOS/anywh" ]
+          grep -q 'Installed to /Applications/anywh.app' out.log
+
+      - name: Refuses to replace a bundle that is running
+        run: |
+          /Applications/anywh.app/Contents/MacOS/anywh 120 &
+          for _ in $(seq 1 20); do pgrep -x anywh > /dev/null && break; sleep 0.5; done
+          set +e
+          ./install.sh --app --no-launch > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          pkill -x anywh || true
+          [ "$status" -ne 0 ]
+          grep -q 'quit it and run this again' out.log
+          [ -x "/Applications/anywh.app/Contents/MacOS/anywh" ]
+
+      - name: Refuses to delete something that isn't an anywh bundle
+        run: |
+          rm -rf /Applications/anywh.app
+          mkdir -p /Applications/anywh.app/Contents
+          echo "somebody else's file" > /Applications/anywh.app/Contents/keep-me
+          set +e
+          ./install.sh --app --no-launch > out.log 2>&1
+          status=$?
+          set -e
+          cat out.log
+          [ "$status" -ne 0 ]
+          grep -q "isn't an anywh bundle" out.log
+          [ -f "/Applications/anywh.app/Contents/keep-me" ]
+          rm -rf /Applications/anywh.app
