@@ -51,15 +51,35 @@ relay/src/
                            only thing outside a def allowed to know that
                            def's private wire format, since it exists to
                            translate it away
+    sessionDriver.ts        the `AgentSessionDriver` interface — everything
+                           `session/` is allowed to know about "whichever
+                           agent CLI is driving this session", so it never
+                           branches on an agent's identity or its `exec.kind`
+    createSessionDriver.ts  the one place outside `registry.ts` allowed to
+                           branch on `exec.kind` — picks a concrete driver
+                           for a def (`ClaudeSessionDriver` for a
+                           `spawnPerTurn` def, `CodexSessionDriver` for a
+                           `jsonRpcDaemon` one)
     defs/claude/           Claude's own knowledge: process spawn, stream
                            parsing, on-disk transcript format
+      def.ts                 the pure `AgentRuntimeDef` — argv, env, capability
+                           declarations, no `spawn`
+      driver.ts              the effectful half: owns the actual `claude`
+                           child process, implements `AgentSessionDriver`
       index.ts              the ONLY file anything outside this folder may
                            import from — see "the index.ts rule" below
-    defs/codex.ts, defs/acp.ts   design-validation drafts, not registered
-                           defs — they prove the contract survives a second
-                           and third agent shape before any engine consumes it
+    defs/codex.ts, defs/codexDriver.ts   Codex's def and driver, the same
+                           def/driver split as Claude's — registered in
+                           `server.ts` alongside Claude's, not a draft
+    defs/acp.ts             still a design-validation draft, not a registered
+                           def — proves the contract survives a third agent
+                           shape (a daemon that speaks JSON-RPC over headers
+                           instead of Codex's newline framing) before any
+                           engine consumes it
   session/                turn orchestration, broadcast, approval/choice
-                           state machine, history paging
+                           state machine, history paging — drives whichever
+                           `AgentSessionDriver` `createSessionDriver.ts`
+                           handed it, never an agent's identity directly
   bridges/                 MCP servers the relay runs for a turn to call
                            back into (present_choice, permission prompts,
                            plan-mode's text-marker fallback)

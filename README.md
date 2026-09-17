@@ -38,9 +38,17 @@ Self-hosted and used daily by its author: chat, voice, image upload, multi-sessi
 | Agent | Status |
 |---|---|
 | [Claude Code](https://claude.ai/code) | Supported |
-| [Codex CLI](https://github.com/openai/codex) | Planned |
+| [Codex CLI](https://github.com/openai/codex) | Supported |
 | Kimi CLI | Planned |
 | Direct model API, bring your own key | Planned |
+
+Each agent is a self-contained "runtime def" behind a shared contract — the
+relay doesn't reimplement an agent's own loop, it drives whichever CLI is
+already installed and normalizes its stream. Adding one is a new file under
+`relay/src/runtimes/defs/`, not a rewrite of `session/`; see
+[`relay/src/runtimes/README.md`](./relay/src/runtimes/README.md) for the
+contract and [`docs/architecture.md`](./docs/architecture.md) for where it
+lives.
 
 ## Quick start
 
@@ -112,7 +120,8 @@ This matters more than "no authentication" alone suggests: the relay's default p
 
 - [x] Interactive file browser — browse, read, download, rename/delete, and open files in your editor (local or over SSH)
 - [x] Multi-session and multi-profile support
-- [ ] More agent CLIs — Codex CLI, Kimi CLI, and others beyond Claude Code
+- [x] A pluggable agent runtime contract, with Codex CLI as the second agent behind it — pick per session, with its own native permission modes and approval prompts
+- [ ] More agent CLIs — Kimi CLI, and any ACP-speaking agent, beyond Claude Code and Codex
 - [ ] Workspace isolation — a git worktree per session instead of a shared working directory, so several agents can work the same repo without stepping on each other
 - [ ] Direct model access (BYOK) — talk to a model API with your own key instead of going through a CLI, same UI and session model either way
 
