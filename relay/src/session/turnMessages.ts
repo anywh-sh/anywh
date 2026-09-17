@@ -181,9 +181,17 @@ export function buildMcpSpawnConfig(params: {
   permissionToken: string | undefined;
   mcpBridgeBaseUrl: string | undefined;
   mcpPermissionBridgeBaseUrl: string | undefined;
+  /** Whether the CLI's native `AskUserQuestion` must be disallowed this turn.
+   * Deliberately independent from `choiceToken`: in `plan` mode `present_choice`
+   * itself can't be registered (the CLI blocks any non-native tool there), but
+   * the native tool still needs blocking so the model is forced onto the
+   * `planChoiceMarker.ts` text convention instead of a call that silently
+   * fails in headless mode — see `McpSpawnConfig.disallowedTools`'s doc
+   * comment for the full story. */
+  blockAskUserQuestion: boolean;
 }): McpSpawnConfig | undefined {
-  const { choiceToken, permissionToken, mcpBridgeBaseUrl, mcpPermissionBridgeBaseUrl } = params;
-  if (!choiceToken && !permissionToken) return undefined;
+  const { choiceToken, permissionToken, mcpBridgeBaseUrl, mcpPermissionBridgeBaseUrl, blockAskUserQuestion } = params;
+  if (!choiceToken && !permissionToken && !blockAskUserQuestion) return undefined;
 
   const mcpServers: Record<string, { type: "http"; url: string; timeout?: number; alwaysLoad: true }> = {};
   if (choiceToken) {
@@ -201,10 +209,11 @@ export function buildMcpSpawnConfig(params: {
     configJson: JSON.stringify({ mcpServers }),
     allowedTools: choiceToken ? CHOICE_ALLOWED_TOOL : undefined,
     permissionPromptTool: permissionToken ? PERMISSION_PROMPT_TOOL : undefined,
-    // Force the model onto our `present_choice` instead of the CLI's own
+    // Force the model onto our `present_choice` (or, in plan mode, the
+    // `planChoiceMarker.ts` text convention) instead of the CLI's own
     // native `AskUserQuestion` — see `McpSpawnConfig.disallowedTools`'s doc
     // comment for why the native one silently fails here.
-    disallowedTools: choiceToken ? "AskUserQuestion" : undefined,
+    disallowedTools: blockAskUserQuestion ? "AskUserQuestion" : undefined,
     extraSystemPrompt: choiceToken ? CHOICE_USAGE_HINT : undefined,
   };
 }

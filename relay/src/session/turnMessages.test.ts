@@ -127,12 +127,12 @@ function parseMcpServers(configJson: string): Record<string, ParsedMcpServer> {
 }
 
 test("buildMcpSpawnConfig: neither token registered means no --mcp-config at all", () => {
-  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: false });
   assert.equal(mcp, undefined);
 });
 
 test("buildMcpSpawnConfig: only the choice bridge registered gets its server, allowedTools, disallowedTools and the system-prompt hint — no permissionPromptTool", () => {
-  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: true });
   assert.ok(mcp);
   const servers = parseMcpServers(mcp.configJson);
   assert.deepEqual(Object.keys(servers), ["anywh-choice"]);
@@ -145,8 +145,8 @@ test("buildMcpSpawnConfig: only the choice bridge registered gets its server, al
   assert.equal(mcp.permissionPromptTool, undefined);
 });
 
-test("buildMcpSpawnConfig: only the permission bridge registered gets its server with the 24h timeout override, and permissionPromptTool — no choice-only fields", () => {
-  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+test("buildMcpSpawnConfig: only the permission bridge registered (blockAskUserQuestion false) gets its server with the 24h timeout override, and permissionPromptTool — no choice-only fields, no disallowedTools", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: false });
   assert.ok(mcp);
   const servers = parseMcpServers(mcp.configJson);
   assert.deepEqual(Object.keys(servers), ["anywh-permission"]);
@@ -159,7 +159,7 @@ test("buildMcpSpawnConfig: only the permission bridge registered gets its server
 });
 
 test("buildMcpSpawnConfig: both bridges registered at once (default/acceptEdits) get both servers and all five fields together", () => {
-  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm" });
+  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: true });
   assert.ok(mcp);
   const servers = parseMcpServers(mcp.configJson);
   assert.deepEqual(new Set(Object.keys(servers)), new Set(["anywh-choice", "anywh-permission"]));
@@ -167,4 +167,19 @@ test("buildMcpSpawnConfig: both bridges registered at once (default/acceptEdits)
   assert.ok(mcp.permissionPromptTool);
   assert.ok(mcp.disallowedTools);
   assert.ok(mcp.extraSystemPrompt);
+});
+
+test("buildMcpSpawnConfig: plan mode's shape — permission bridge only, but blockAskUserQuestion true — still disallows AskUserQuestion without offering present_choice", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: true });
+  assert.ok(mcp);
+  assert.equal(mcp.disallowedTools, "AskUserQuestion");
+  assert.equal(mcp.allowedTools, undefined);
+  assert.equal(mcp.extraSystemPrompt, undefined);
+});
+
+test("buildMcpSpawnConfig: blockAskUserQuestion alone, no bridges at all, still returns a config with --disallowedTools instead of collapsing to undefined", () => {
+  const mcp = buildMcpSpawnConfig({ choiceToken: undefined, permissionToken: undefined, mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: true });
+  assert.ok(mcp);
+  assert.deepEqual(JSON.parse(mcp.configJson), { mcpServers: {} });
+  assert.equal(mcp.disallowedTools, "AskUserQuestion");
 });
