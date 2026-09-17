@@ -1,5 +1,14 @@
 import type { WebSocket } from "ws";
-import { ClaudeSession, readHistoryFromTranscript, transcriptPath, forkTruncatedTranscript } from "../runtimes/defs/claude/index.js";
+import {
+  ClaudeSession,
+  readHistoryFromTranscript,
+  transcriptPath,
+  forkTruncatedTranscript,
+  buildApprovalQuestion,
+  buildMcpSpawnConfig,
+  buildPermissionDecision,
+  isApproved,
+} from "../runtimes/defs/claude/index.js";
 import { mapClaudeEvent } from "../runtimes/streams/claudeStreamJson.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
@@ -9,7 +18,7 @@ import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
-import { buildApprovalQuestion, buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig, buildPermissionDecision, isApproved } from "./turnMessages.js";
+import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";

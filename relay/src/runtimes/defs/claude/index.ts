@@ -7,3 +7,12 @@ export { ClaudeSession, CLAUDE_AGENT_ENV_OVERRIDES, isMainThreadEvent, type Clau
 export { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 export { forkTruncatedTranscript } from "./transcriptFork.js";
 export { claudeRuntimeDef } from "./def.js";
+export {
+  APPROVE_OPTION_ID,
+  DENY_OPTION_ID,
+  buildApprovalQuestion,
+  buildMcpSpawnConfig,
+  buildPermissionDecision,
+  describeToolCall,
+  isApproved,
+} from "./mcpSpawnConfig.js";
