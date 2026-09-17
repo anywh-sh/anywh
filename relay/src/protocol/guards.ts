@@ -59,7 +59,7 @@ export function isSetPermissionModeMessage(value: unknown): value is { type: "se
 // CLI's own `/model` probe reports (defaultModel.ts), which can grow without
 // a relay change. A garbage value just makes the CLI itself reject the turn
 // with its own error, same reasoning as the composer's `/model` parsing
-// (client/src/lib/slashCommands.ts).
+// (client/src/lib/composer/slashCommands.ts).
 export function isSetModelMessage(value: unknown): value is { type: "set_model"; model: ModelChoice } {
   return (
     typeof value === "object" &&

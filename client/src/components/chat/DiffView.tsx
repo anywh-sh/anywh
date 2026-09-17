@@ -1,5 +1,5 @@
 import { CodeLines, type CodeLine } from "@/components/chat/CodeLines";
-import type { StructuredPatchHunk } from "@/lib/relay-types";
+import type { StructuredPatchHunk } from "@/lib/relay/relay-types";
 
 interface DiffViewProps {
   hunks: StructuredPatchHunk[];

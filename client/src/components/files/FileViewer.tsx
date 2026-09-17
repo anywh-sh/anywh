@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ChangeSignal } from "@/components/files/FilesPanel";
-import { fetchRawFile, readFile, rawFileUrl, type FileReadResult } from "@/lib/filesClient";
-import { isTailnetProfile, type Profile } from "@/lib/profiles";
+import { fetchRawFile, readFile, rawFileUrl, type FileReadResult } from "@/lib/relay/filesClient";
+import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 import { CodeFileView } from "@/components/files/CodeFileView";
 import { useDict } from "@/i18n";
 import { MarkdownFileView } from "@/components/files/MarkdownFileView";

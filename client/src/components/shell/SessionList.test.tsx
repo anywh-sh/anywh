@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { en } from "@/i18n/en";
-import type { Profile } from "@/lib/profiles";
-import type { MergedSession } from "@/lib/sessionGrouping";
+import type { Profile } from "@/lib/profiles/profiles";
+import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { SessionList } from "./SessionList";
 
 const copy = en.shell.sidebar;

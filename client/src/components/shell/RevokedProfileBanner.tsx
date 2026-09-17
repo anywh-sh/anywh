@@ -12,11 +12,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useProfileRevoked } from "@/hooks/useProfileRevoked";
-import { useProfiles } from "@/hooks/useProfiles";
+import { useProfileRevoked } from "@/hooks/profiles/useProfileRevoked";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useDict } from "@/i18n";
-import { clearProfileRevoked } from "@/lib/profileRevocation";
-import { removeProfile, type Profile } from "@/lib/profiles";
+import { clearProfileRevoked } from "@/lib/profiles/profileRevocation";
+import { removeProfile, type Profile } from "@/lib/profiles/profiles";
 
 /** The body names the profile in the middle of a sentence, and the name has
  * to be styled differently from the prose around it — which a single string

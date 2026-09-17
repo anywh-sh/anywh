@@ -10,12 +10,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { profileColorClass, type Profile } from "@/lib/profiles";
-import { useProfiles } from "@/hooks/useProfiles";
-import { useRevokedProfiles } from "@/hooks/useProfileRevoked";
+import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
+import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import { useDict } from "@/i18n";
-import { profileBadge } from "@/lib/profileBadge";
-import { resumeProfileSetup } from "@/lib/profileSetup";
+import { profileBadge } from "@/lib/profiles/profileBadge";
+import { resumeProfileSetup } from "@/lib/profiles/profileSetup";
 import { AddProfileDialog } from "@/components/shell/AddProfileDialog";
 import { AddRemoteMachineDialog } from "@/components/shell/AddRemoteMachineDialog";
 

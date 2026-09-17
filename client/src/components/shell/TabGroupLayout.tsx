@@ -10,9 +10,9 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { TabGroupStrip, groupEndDropId } from "@/components/shell/TabGroupStrip";
-import { useGroupSizeDrag } from "@/hooks/useGroupSizeDrag";
-import { MAX_GROUPS, type Tab, type TabGroup } from "@/hooks/useTabs";
-import { profileColorClass } from "@/lib/profiles";
+import { useGroupSizeDrag } from "@/hooks/tabs/useGroupSizeDrag";
+import { MAX_GROUPS, type Tab, type TabGroup } from "@/hooks/tabs/useTabs";
+import { profileColorClass } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 

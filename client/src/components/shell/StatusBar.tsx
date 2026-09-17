@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { ArrowUpCircle } from "lucide-react";
 
 import { LanguageControl } from "@/components/shell/LanguageControl";
-import { useAppUpdate, useDownloadedUpdate } from "@/hooks/useAppUpdate";
+import { useAppUpdate, useDownloadedUpdate } from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
-import { APP_VERSION } from "@/lib/appVersion";
-import { getGitStatus } from "@/lib/gitClient";
-import type { Profile } from "@/lib/profiles";
+import { APP_VERSION } from "@/lib/install/appVersion";
+import { getGitStatus } from "@/lib/relay/gitClient";
+import type { Profile } from "@/lib/profiles/profiles";
 
 interface StatusBarProps {
   /** The focused tab's profile — `null` with no tab open at all. */

@@ -5,10 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/chat/DiffView";
 import { CodeLines } from "@/components/chat/CodeLines";
-import { languageForPath } from "@/lib/codeLanguage";
-import { countDiffLines, relativeToCwd } from "@/lib/toolCallSummary";
+import { languageForPath } from "@/lib/format/codeLanguage";
+import { countDiffLines, relativeToCwd } from "@/lib/relay/toolCallSummary";
 import { useDict } from "@/i18n";
-import type { LogEntry } from "@/hooks/useMessageLog";
+import type { LogEntry } from "@/hooks/relay/useMessageLog";
 
 interface ToolCallCardProps {
   use: Extract<LogEntry, { kind: "tool-use" }>;

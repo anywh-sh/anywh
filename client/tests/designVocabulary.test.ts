@@ -148,7 +148,7 @@ describe("color and type", () => {
     // entire reason `--overlay`/`--glass-tint`/`--syntax-*` exist as tokens.
     // The themes themselves (builtinThemes.ts) are where hex belongs.
     const hex = /#[0-9a-fA-F]{3,8}\b/;
-    const themeData = new Set(["lib/builtinThemes.ts", "lib/themeApply.ts"]);
+    const themeData = new Set(["lib/theme/builtinThemes.ts", "lib/theme/themeApply.ts"]);
     expect(
       hits(
         FILES.filter((file) => !file.path.endsWith(".css")),

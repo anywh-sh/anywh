@@ -8,9 +8,9 @@ import { ProfileFilterTrigger, ProfileFilterPanel } from "@/components/shell/Pro
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
-import type { Profile } from "@/lib/profiles";
-import type { MergedSession } from "@/lib/sessionGrouping";
-import { shortcutLabel } from "@/lib/platform";
+import type { Profile } from "@/lib/profiles/profiles";
+import type { MergedSession } from "@/lib/format/sessionGrouping";
+import { shortcutLabel } from "@/lib/platform/platform";
 
 export interface SidebarProps {
   activeProfile: Profile;

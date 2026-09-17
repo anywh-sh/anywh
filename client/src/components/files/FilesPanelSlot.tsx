@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
-import type { useFileTabs } from "@/hooks/useFileTabs";
-import type { Profile } from "@/lib/profiles";
+import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
+import type { Profile } from "@/lib/profiles/profiles";
 
 // react-markdown/rehype-highlight/the code viewer's virtualizer only enter
 // the bundle if/when the user actually opens the files pane — same reason

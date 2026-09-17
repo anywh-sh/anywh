@@ -2,10 +2,10 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAppUpdate, useAppUpdateSettings, useDownloadedUpdate, useInstallOrigin } from "@/hooks/useAppUpdate";
+import { useAppUpdate, useAppUpdateSettings, useDownloadedUpdate, useInstallOrigin } from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
-import { APP_VERSION } from "@/lib/appVersion";
-import { installAndRestart } from "@/lib/updaterPlugin";
+import { APP_VERSION } from "@/lib/install/appVersion";
+import { installAndRestart } from "@/lib/install/updaterPlugin";
 import { cn } from "@/lib/utils";
 
 /** Same one-liner `install.sh` itself prints and `ManualInstructions`

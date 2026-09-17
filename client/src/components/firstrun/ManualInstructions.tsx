@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
-import { currentPlatform } from "@/lib/platform";
+import { currentPlatform } from "@/lib/platform/platform";
 
 interface Step {
   label: string;

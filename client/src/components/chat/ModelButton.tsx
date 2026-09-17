@@ -8,8 +8,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
-import type { ModelChoice } from "@/lib/relayClient";
-import { getKnownModels, labelForModel } from "@/lib/modelCatalog";
+import type { ModelChoice } from "@/lib/relay/relayClient";
+import { getKnownModels, labelForModel } from "@/lib/composer/modelCatalog";
 import { cn } from "@/lib/utils";
 
 interface ModelButtonProps {

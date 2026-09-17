@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
-import type { useTerminalTabs } from "@/hooks/useTerminalTabs";
-import type { Profile } from "@/lib/profiles";
+import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
+import type { Profile } from "@/lib/profiles/profiles";
 
 // xterm.js (+ addons) only enters the bundle if/when the user actually opens
 // a terminal — the `lazy` lives here, not in the heavy content itself nor in

@@ -28,20 +28,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDuration } from "@/lib/utils";
 import { useDict } from "@/i18n";
-import { isIOS } from "@/lib/platform";
-import { useVoiceRecording } from "@/hooks/useVoiceRecording";
-import type { PendingAttachment } from "@/hooks/useImageUpload";
+import { isIOS } from "@/lib/platform/platform";
+import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
+import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { ModelButton } from "@/components/chat/ModelButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
-import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composerLinks";
-import { filterSlashCommands, parseSlashCommand, suggestSlashCommand, type SlashCommandEntry } from "@/lib/slashCommands";
-import type { CompactBoundaryEvent } from "@/hooks/useRelayClient";
+import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/composerLinks";
+import { filterSlashCommands, parseSlashCommand, suggestSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
+import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import type { Dictionary } from "@/i18n/dictionary";
-import type { ContextUsage, ModelChoice, PermissionMode } from "@/lib/relayClient";
+import type { ContextUsage, ModelChoice, PermissionMode } from "@/lib/relay/relayClient";
 
 interface ComposerProps {
   onSend: (text: string, images: PendingAttachment[]) => void;

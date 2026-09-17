@@ -80,7 +80,7 @@ state it doesn't need to own.
 ## Enforced: the wire vocabulary is versioned, and the two copies of the version stay in sync
 
 **Enforced** — `protocolVersionParity.test.ts` (client) fails the build if
-`relay/src/protocol/version.ts` and `client/src/lib/protocolVersion.ts`
+`relay/src/protocol/version.ts` and `client/src/lib/relay/protocolVersion.ts`
 diverge, same mechanism as `themeValidatorParity.test.ts` for `theme.ts`.
 
 `WS_PROTOCOL_VERSION` is an integer, not semver, because relay and client
@@ -100,7 +100,7 @@ know about it yet — a new discriminated variant that reuses an existing
 ## Enforced: the wire speaks `AgentEvent`, never a CLI's own format
 
 **Enforced** — `agentEventParity.test.ts` (client) fails the build if
-`relay/src/protocol/agent-event.ts` and `client/src/lib/agent-event.ts`
+`relay/src/protocol/agent-event.ts` and `client/src/lib/relay/agent-event.ts`
 diverge, same mechanism as `theme.ts`/`protocolVersion.ts`.
 
 `runtimes/streams/claudeStreamJson.ts` is the one place that translates

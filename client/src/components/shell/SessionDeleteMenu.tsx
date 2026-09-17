@@ -2,7 +2,7 @@ import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { Columns2, Pencil, Trash2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useDict } from "@/i18n";
-import { ContextMenuAnchor, type ContextMenuState } from "@/hooks/useContextMenu";
+import { ContextMenuAnchor, type ContextMenuState } from "@/hooks/platform/useContextMenu";
 
 interface SessionDeleteMenuProps {
   menu: ContextMenuState;

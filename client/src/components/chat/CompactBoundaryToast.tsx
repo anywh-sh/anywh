@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useDict } from "@/i18n";
-import type { CompactBoundaryEvent } from "@/hooks/useRelayClient";
+import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 
 const VISIBLE_MS = 4000;
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setProfiles, type Profile } from "@/lib/profiles";
+import { setProfiles, type Profile } from "@/lib/profiles/profiles";
 import { renderApp } from "./helpers/renderApp";
 import { en } from "@/i18n/en";
 
@@ -32,8 +32,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: async () => [] }));
 
 let revoked: boolean;
 
-vi.mock("@/lib/tailnetBroker", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/tailnetBroker")>();
+vi.mock("@/lib/profiles/tailnetBroker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/profiles/tailnetBroker")>();
   return {
     ...actual,
     fetchConnectGrant: vi.fn(async () => {
@@ -44,7 +44,7 @@ vi.mock("@/lib/tailnetBroker", async (importOriginal) => {
     reportTailnetKey: vi.fn(async () => {}),
   };
 });
-vi.mock("@/lib/tailnetSidecar", () => ({
+vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: vi.fn(async () => ({ host: "127.0.0.1", port: 9001 })),
   releaseTailnetSidecar: vi.fn(),
   peekTailnetSidecar: vi.fn(() => Promise.resolve({ host: "127.0.0.1", port: 9001 })),

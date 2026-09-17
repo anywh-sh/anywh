@@ -1,20 +1,20 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 import { en } from "@/i18n/en";
 
 const { removeProfileMock } = vi.hoisted(() => ({
   removeProfileMock: vi.fn(() => true),
 }));
-vi.mock("@/lib/profiles", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/profiles")>();
+vi.mock("@/lib/profiles/profiles", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/profiles/profiles")>();
   return { ...actual, removeProfile: removeProfileMock };
 });
 
 import { RevokedProfileBanner, RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
-import { clearProfileRevoked, markProfileRevoked } from "@/lib/profileRevocation";
-import { setProfiles } from "@/lib/profiles";
+import { clearProfileRevoked, markProfileRevoked } from "@/lib/profiles/profileRevocation";
+import { setProfiles } from "@/lib/profiles/profiles";
 
 const copy = en.shell.revoked;
 

@@ -6,9 +6,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
 import { cn, scrollHorizontallyOnWheel, truncateWords } from "@/lib/utils";
-import type { Tab } from "@/hooks/useTabs";
-import { profileCloseHoverClass, profileColorClass, profileTabClasses } from "@/lib/profiles";
-import { useContextMenu } from "@/hooks/useContextMenu";
+import type { Tab } from "@/hooks/tabs/useTabs";
+import { profileCloseHoverClass, profileColorClass, profileTabClasses } from "@/lib/profiles/profiles";
+import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 

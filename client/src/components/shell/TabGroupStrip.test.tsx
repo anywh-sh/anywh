@@ -5,7 +5,7 @@ import { DndContext } from "@dnd-kit/core";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabGroupStrip } from "./TabGroupStrip";
 import { en } from "@/i18n/en";
-import type { Tab } from "@/hooks/useTabs";
+import type { Tab } from "@/hooks/tabs/useTabs";
 
 afterEach(() => cleanup());
 

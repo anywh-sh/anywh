@@ -9,13 +9,13 @@ import { FileViewer } from "@/components/files/FileViewer";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
-import type { useFileTabs } from "@/hooks/useFileTabs";
-import { listFiles, uploadFile } from "@/lib/filesClient";
-import { resolveConnection } from "@/lib/connectionResolver";
-import { BrokerRevokedError } from "@/lib/tailnetBroker";
-import { markProfileRevoked } from "@/lib/profileRevocation";
+import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
+import { listFiles, uploadFile } from "@/lib/relay/filesClient";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
+import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
 export interface ChangeSignal {

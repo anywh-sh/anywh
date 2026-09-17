@@ -39,52 +39,52 @@
       "count": 1
     }
   },
-  "src/hooks/useProfileImport.test.ts": {
+  "src/hooks/profiles/useProfileImport.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
     }
   },
-  "src/hooks/useProfileSync.test.ts": {
+  "src/hooks/relay/useProfileSync.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 4
     }
   },
-  "src/hooks/useRelayClient.test.ts": {
+  "src/hooks/relay/useRelayClient.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
     }
   },
-  "src/hooks/useSessionNames.test.ts": {
+  "src/hooks/relay/useSessionNames.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
     }
   },
-  "src/hooks/useTailnetSidecarOwner.test.ts": {
+  "src/hooks/profiles/useTailnetSidecarOwner.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
     }
   },
-  "src/hooks/useThemeSync.test.ts": {
+  "src/hooks/relay/useThemeSync.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
     }
   },
-  "src/lib/fsBrowse.ts": {
+  "src/lib/relay/fsBrowse.ts": {
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
     }
   },
-  "src/lib/highlightCode.tsx": {
+  "src/lib/format/highlightCode.tsx": {
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
-  "src/lib/profiles.test.ts": {
+  "src/lib/profiles/profiles.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     }
   },
-  "src/lib/slashCommands.ts": {
+  "src/lib/composer/slashCommands.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -92,17 +92,17 @@
       "count": 1
     }
   },
-  "src/lib/tailnetBroker.test.ts": {
+  "src/lib/profiles/tailnetBroker.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 1
     }
   },
-  "src/lib/tailnetSidecar.test.ts": {
+  "src/lib/profiles/tailnetSidecar.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 1
     }
   },
-  "src/lib/themes.test.ts": {
+  "src/lib/theme/themes.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     }

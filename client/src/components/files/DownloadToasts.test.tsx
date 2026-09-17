@@ -9,7 +9,7 @@ import {
   notifyFileDownloaded,
   startBatchDownload,
   tickBatchDownload,
-} from "@/lib/downloadNotifications";
+} from "@/lib/platform/downloadNotifications";
 import { en } from "@/i18n/en";
 
 const copy = en.panels.files.downloads;

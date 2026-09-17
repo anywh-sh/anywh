@@ -1,24 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Profile } from "@/lib/profiles";
-import type { Theme } from "@/lib/theme";
+import type { Profile } from "@/lib/profiles/profiles";
+import type { Theme } from "@/lib/theme/theme";
 
-vi.mock("@/lib/relayClient", () => ({
+vi.mock("@/lib/relay/relayClient", () => ({
   fetchThemes: vi.fn(),
   updateProfileMeta: vi.fn(),
   deleteTheme: vi.fn(),
   saveTheme: vi.fn(),
   ThemeSaveError: class ThemeSaveError extends Error {},
 }));
-vi.mock("@/lib/connectionResolver", () => ({
+vi.mock("@/lib/profiles/connectionResolver", () => ({
   resolveConnection: vi.fn(),
   authHeaders: () => ({}),
 }));
 
-import { fetchThemes, updateProfileMeta, deleteTheme } from "@/lib/relayClient";
-import { resolveConnection } from "@/lib/connectionResolver";
-import { getSelectedThemeId, setSelectedThemeId } from "@/lib/themes";
+import { fetchThemes, updateProfileMeta, deleteTheme } from "@/lib/relay/relayClient";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { getSelectedThemeId, setSelectedThemeId } from "@/lib/theme/themes";
 import { en } from "@/i18n/en";
 import { ThemeSection } from "./ThemeSection";
 
@@ -113,7 +113,7 @@ describe("ThemeSection", () => {
   });
 
   it("offers a theme mirrored from another host, without offering to edit a file it can't write", async () => {
-    const { setThemesForHost } = await import("@/lib/themes");
+    const { setThemesForHost } = await import("@/lib/theme/themes");
     setThemesForHost(otherProfile.id, [{ ...CUSTOM_THEME, id: "from-b", name: "From B" }]);
     const user = userEvent.setup();
 

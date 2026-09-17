@@ -1,12 +1,12 @@
 import { memo, useEffect, useReducer, useRef, useState } from "react";
 import { Check, Copy, Pencil, Video } from "lucide-react";
-import type { PendingAttachment } from "@/hooks/useImageUpload";
+import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { useLongPress } from "@/hooks/useLongPress";
-import { renderTextWithLinks } from "@/lib/composerLinks";
-import { isIOS } from "@/lib/platform";
-import { stripPlanChoiceMarkers } from "@/lib/planChoiceMarker";
-import { showNativeContextMenu } from "@/lib/nativeContextMenu";
-import { formatAbsoluteTime, formatRelativeTime } from "@/lib/relativeTime";
+import { renderTextWithLinks } from "@/lib/composer/composerLinks";
+import { isIOS } from "@/lib/platform/platform";
+import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
+import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format/relativeTime";
 import { useDict, useLocale } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

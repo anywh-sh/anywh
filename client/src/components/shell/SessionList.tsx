@@ -7,8 +7,8 @@ import { SessionListItem } from "@/components/shell/SessionListItem";
 import { SessionListSkeleton } from "@/components/shell/SessionListSkeleton";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
-import type { Profile } from "@/lib/profiles";
-import { groupSessionsByRecency, type MergedSession, type SessionGroupId } from "@/lib/sessionGrouping";
+import type { Profile } from "@/lib/profiles/profiles";
+import { groupSessionsByRecency, type MergedSession, type SessionGroupId } from "@/lib/format/sessionGrouping";
 
 /** The grouped list flattened into one row stream, which is what a
  * virtualizer can index into — headings included, so a heading scrolls with

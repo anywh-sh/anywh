@@ -3,13 +3,13 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
-import type { BackgroundJobSummary } from "@/lib/relayClient";
-import type { DockState } from "@/hooks/useSessionDock";
-import type { useFileTabs } from "@/hooks/useFileTabs";
-import type { useTerminalTabs } from "@/hooks/useTerminalTabs";
-import type { Tab } from "@/hooks/useTabs";
-import type { Profile } from "@/lib/profiles";
-import { isIOS } from "@/lib/platform";
+import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
+import type { DockState } from "@/hooks/tabs/useSessionDock";
+import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
+import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
+import type { Tab } from "@/hooks/tabs/useTabs";
+import type { Profile } from "@/lib/profiles/profiles";
+import { isIOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 
 /**

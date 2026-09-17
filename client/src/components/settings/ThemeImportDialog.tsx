@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useDict, type Dictionary } from "@/i18n";
 import { Textarea } from "@/components/ui/input";
-import type { Profile } from "@/lib/profiles";
-import { parseTheme, type Theme, type ThemeValidationError } from "@/lib/theme";
-import { saveTheme, ThemeSaveError } from "@/lib/relayClient";
-import { resolveConnection } from "@/lib/connectionResolver";
-import { setThemesForHost, customThemesForHost, themeStoreKey } from "@/lib/themes";
+import type { Profile } from "@/lib/profiles/profiles";
+import { parseTheme, type Theme, type ThemeValidationError } from "@/lib/theme/theme";
+import { saveTheme, ThemeSaveError } from "@/lib/relay/relayClient";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { setThemesForHost, customThemesForHost, themeStoreKey } from "@/lib/theme/themes";
 
 /** Mirrors the relay's own cap (MAX_JSON_BODY_BYTES) so an oversized file
  * gets a readable message here instead of a dropped connection there. */

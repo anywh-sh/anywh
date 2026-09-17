@@ -51,7 +51,7 @@ const mcpChoiceBridge = new McpChoiceBridge();
 // namespace, own route below) even though both are the same "local-only MCP
 // server the relay's own `claude` children call into" idea.
 const mcpPermissionBridge = new McpPermissionBridge();
-// Sockets connected to `/sessions/watch` (client/src/hooks/useSessionNames.ts)
+// Sockets connected to `/sessions/watch` (client/src/hooks/relay/useSessionNames.ts)
 // — one per device showing the sidebar, independent of which session tabs
 // (if any) it has open. `SessionManager` doesn't know about WebSocket at
 // all; it just reports list changes through `onListChanged` below, and this

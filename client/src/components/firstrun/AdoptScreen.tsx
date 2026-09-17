@@ -1,10 +1,10 @@
 import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
-import type { LocalRelayProbe } from "@/lib/localRelay";
-import { currentPlatform } from "@/lib/platform";
-import { addProfile, profileColorClassForIndex, type Profile } from "@/lib/profiles";
-import { resumeProfileSetup } from "@/lib/profileSetup";
+import type { LocalRelayProbe } from "@/lib/install/localRelay";
+import { currentPlatform } from "@/lib/platform/platform";
+import { addProfile, profileColorClassForIndex, type Profile } from "@/lib/profiles/profiles";
+import { resumeProfileSetup } from "@/lib/profiles/profileSetup";
 import { cn } from "@/lib/utils";
 
 /**

@@ -11,8 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
-import { addProfile, type Profile } from "@/lib/profiles";
-import { createProfile, validateProfile } from "@/lib/relayClient";
+import { addProfile, type Profile } from "@/lib/profiles/profiles";
+import { createProfile, validateProfile } from "@/lib/relay/relayClient";
 
 interface AddProfileDialogProps {
   open: boolean;

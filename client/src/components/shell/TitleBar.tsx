@@ -9,7 +9,7 @@ import {
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
 import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { useDict } from "@/i18n";
-import { isMacOS, shortcutLabel } from "@/lib/platform";
+import { isMacOS, shortcutLabel } from "@/lib/platform/platform";
 import { setTitleBarSlot } from "@/lib/titleBarSlot";
 import { cn } from "@/lib/utils";
 

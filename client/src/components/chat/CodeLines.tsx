@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { highlightLines } from "@/lib/highlightCode";
+import { highlightLines } from "@/lib/format/highlightCode";
 import { useDict } from "@/i18n";
 
 export interface CodeLine {

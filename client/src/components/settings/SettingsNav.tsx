@@ -9,10 +9,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AddProfileDialog } from "@/components/shell/AddProfileDialog";
 import { AddRemoteMachineDialog } from "@/components/shell/AddRemoteMachineDialog";
-import { useRevokedProfiles } from "@/hooks/useProfileRevoked";
+import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import { useDict } from "@/i18n";
-import { profileBadge } from "@/lib/profileBadge";
-import { profileColorClass, type Profile } from "@/lib/profiles";
+import { profileBadge } from "@/lib/profiles/profileBadge";
+import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
 /** Which page the dialog is showing: one of the two app-wide pages, or one

@@ -2,13 +2,13 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 
 const { removeProfileMock } = vi.hoisted(() => ({
   removeProfileMock: vi.fn(() => true),
 }));
-vi.mock("@/lib/profiles", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/profiles")>();
+vi.mock("@/lib/profiles/profiles", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/profiles/profiles")>();
   return { ...actual, removeProfile: removeProfileMock };
 });
 

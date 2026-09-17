@@ -1,5 +1,5 @@
 import { Menu, Plus } from "lucide-react";
-import { useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 import { cn } from "@/lib/utils";
 import { useDict } from "@/i18n";
 

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setProfiles } from "@/lib/profiles";
-import { enqueueProfileSetup, __resetProfileSetupForTests } from "@/lib/profileSetup";
+import { setProfiles } from "@/lib/profiles/profiles";
+import { enqueueProfileSetup, __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 import { en } from "@/i18n/en";
@@ -42,13 +42,13 @@ const {
   fetchConnectGrantMock: vi.fn(),
 }));
 
-vi.mock("@/lib/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
-vi.mock("@/lib/tailnetSidecar", () => ({
+vi.mock("@/lib/profiles/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
+vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: acquireTailnetSidecarMock,
   releaseTailnetSidecar: releaseTailnetSidecarMock,
   peekTailnetSidecar: peekTailnetSidecarMock,
 }));
-vi.mock("@/lib/tailnetBroker", () => ({
+vi.mock("@/lib/profiles/tailnetBroker", () => ({
   resolveTailnetTarget: resolveTailnetTargetMock,
   fetchConnectGrant: fetchConnectGrantMock,
 }));

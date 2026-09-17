@@ -1,8 +1,8 @@
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { useMergedSessions } from "@/hooks/useMergedSessions";
-import { useProfiles } from "@/hooks/useProfiles";
+import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useDict } from "@/i18n";
-import { profileColorClass } from "@/lib/profiles";
+import { profileColorClass } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 import { useMemo } from "react";
 

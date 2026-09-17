@@ -7,7 +7,7 @@ import * as TitleBarModule from "@/components/shell/TitleBar";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 import { seedShellProfile } from "./helpers/seedProfile";
-import { upsertCachedSession } from "@/lib/sessionListCache";
+import { upsertCachedSession } from "@/lib/format/sessionListCache";
 import { en } from "@/i18n/en";
 
 vi.mock("@tauri-apps/api/webview", () => ({

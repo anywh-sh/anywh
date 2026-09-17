@@ -3,8 +3,8 @@ import { Field } from "@/components/firstrun/Field";
 import { StepList, type StepRow, type StepStatus } from "@/components/shell/StepList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useLocalInstall } from "@/hooks/useLocalInstall";
-import { useProfileSetup } from "@/hooks/useProfileSetup";
+import { useLocalInstall } from "@/hooks/platform/useLocalInstall";
+import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useDict, type Dictionary } from "@/i18n";
 import {
   INSTALL_ROWS,
@@ -21,10 +21,10 @@ import {
   type LocalFailureAction,
   type LocalInstallState,
   type LocalStep,
-} from "@/lib/localInstall";
-import type { AddressCandidate, AddressKind, InstallLogLine } from "@/lib/localRelay";
-import { currentPlatform } from "@/lib/platform";
-import { dropQueuedProfileSetup } from "@/lib/profileSetup";
+} from "@/lib/install/localInstall";
+import type { AddressCandidate, AddressKind, InstallLogLine } from "@/lib/install/localRelay";
+import { currentPlatform } from "@/lib/platform/platform";
+import { dropQueuedProfileSetup } from "@/lib/profiles/profileSetup";
 import { cn } from "@/lib/utils";
 
 const ORDER: LocalStep[] = ["prereqs", "address", "install", "verify"];

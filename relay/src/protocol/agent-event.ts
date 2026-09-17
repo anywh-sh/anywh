@@ -14,7 +14,7 @@
  * boundaries in anyway, instead of keeping two parallel vocabularies for
  * "what happened" and "when did the turn end".
  *
- * Mirrored verbatim at client/src/lib/agent-event.ts — there is no shared
+ * Mirrored verbatim at client/src/lib/relay/agent-event.ts — there is no shared
  * package between the two npm projects (see docs/architecture.md) — and
  * agentEventParity.test.ts keeps the two copies from drifting apart in
  * silence, same mechanism as theme.ts/protocolVersion.ts. That test compares

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Copy, Minus, Square, X } from "lucide-react";
-import { useWindowControls } from "@/hooks/useWindowControls";
+import { useWindowControls } from "@/hooks/platform/useWindowControls";
 import { useDict } from "@/i18n";
-import { isMacOS } from "@/lib/platform";
+import { isMacOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 
 /** No tooltip on purpose — these are the 3 native window controls (Windows

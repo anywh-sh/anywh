@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n";
 import App from "./App";
 import { applyFontSize, readFontSize } from "@/lib/fontSize";
-import { applyCachedTheme } from "@/lib/themeApply";
+import { applyCachedTheme } from "@/lib/theme/themeApply";
 import "./index.css";
 
 // Before the first render, never inside a component: the profile's theme

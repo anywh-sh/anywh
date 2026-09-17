@@ -141,7 +141,7 @@ export function findHomeOverrideCollision(homeOverride: string | undefined, envD
  * way — no `add-profile.sh`, no `<id>.env` at all, just `RELAY_PORT`/
  * `RELAY_HOST` off the process env or their defaults — still shows up in its
  * own control API under id `"default"`, the same id the client always seeds
- * (client/src/lib/profiles.ts). Without this, `listEnvIds` never contains
+ * (client/src/lib/profiles/profiles.ts). Without this, `listEnvIds` never contains
  * this instance and `PATCH /control/profiles/default` 404s on every
  * fresh single-profile install.
  *

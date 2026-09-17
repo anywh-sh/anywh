@@ -2,13 +2,13 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBar } from "@/components/shell/StatusBar";
-import { clearDownloadedUpdate, clearUpdate, performUpdateCheck } from "@/lib/appUpdate";
-import { APP_VERSION } from "@/lib/appVersion";
+import { clearDownloadedUpdate, clearUpdate, performUpdateCheck } from "@/lib/install/appUpdate";
+import { APP_VERSION } from "@/lib/install/appVersion";
 import { defaultLocale } from "@/i18n/config";
 import { en } from "@/i18n/en";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 import { readSettings, writeSettings } from "@/lib/settings";
-import type { Update } from "@/lib/updaterPlugin";
+import type { Update } from "@/lib/install/updaterPlugin";
 
 /** Same reasoning as appUpdate.test.ts's own `fakeUpdate` — `Update` is a
  * real Tauri plugin class, this only fakes the field the footer reads. */

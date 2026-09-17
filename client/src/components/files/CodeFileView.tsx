@@ -1,7 +1,7 @@
 import { useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { highlightLines } from "@/lib/highlightCode";
-import { languageForPath } from "@/lib/codeLanguage";
+import { highlightLines } from "@/lib/format/highlightCode";
+import { languageForPath } from "@/lib/format/codeLanguage";
 
 interface CodeFileViewProps {
   path: string;

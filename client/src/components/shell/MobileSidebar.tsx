@@ -3,9 +3,9 @@ import { Search } from "lucide-react";
 import { SessionList } from "@/components/shell/SessionList";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { cn } from "@/lib/utils";
-import { profileColorClass, type Profile } from "@/lib/profiles";
+import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
-import type { MergedSession } from "@/lib/sessionGrouping";
+import type { MergedSession } from "@/lib/format/sessionGrouping";
 
 interface MobileSidebarProps {
   activeProfile: Profile;

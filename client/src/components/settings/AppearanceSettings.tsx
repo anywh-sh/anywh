@@ -8,7 +8,7 @@ import {
   useFontSize,
 } from "@/hooks/useFontSize";
 import { useDict } from "@/i18n";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 
 /**
  * Device-local, not scoped to any profile — unlike the profile pages, none

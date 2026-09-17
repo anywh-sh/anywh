@@ -18,43 +18,43 @@ import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
 import { useDict } from "@/i18n";
-import { useActiveProfile } from "@/hooks/useActiveProfile";
+import { useActiveProfile } from "@/hooks/profiles/useActiveProfile";
 import { useNavigationHistory } from "@/hooks/useNavigationHistory";
-import { useSessionNames } from "@/hooks/useSessionNames";
-import { useSessionListBootstrap } from "@/hooks/useSessionListBootstrap";
-import { useMergedSessions } from "@/hooks/useMergedSessions";
-import { useProfiles } from "@/hooks/useProfiles";
-import { useResizableSidebar } from "@/hooks/useResizableSidebar";
-import { useIsCompactViewport } from "@/hooks/useIsCompactViewport";
-import { useTabs, type Tab } from "@/hooks/useTabs";
-import { useSessionDock } from "@/hooks/useSessionDock";
-import { useTerminalTabs } from "@/hooks/useTerminalTabs";
-import { useFileTabs } from "@/hooks/useFileTabs";
-import { useWindowFocus } from "@/hooks/useWindowFocus";
-import { useNotificationClick } from "@/hooks/useNotificationClick";
-import { useContextMenuGuard } from "@/hooks/useContextMenuGuard";
-import { useProfileImport } from "@/hooks/useProfileImport";
-import { useProfileSetup } from "@/hooks/useProfileSetup";
+import { useSessionNames } from "@/hooks/relay/useSessionNames";
+import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
+import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
+import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
+import { useIsCompactViewport } from "@/hooks/platform/useIsCompactViewport";
+import { useTabs, type Tab } from "@/hooks/tabs/useTabs";
+import { useSessionDock } from "@/hooks/tabs/useSessionDock";
+import { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
+import { useFileTabs } from "@/hooks/tabs/useFileTabs";
+import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
+import { useNotificationClick } from "@/hooks/platform/useNotificationClick";
+import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
+import { useProfileImport } from "@/hooks/profiles/useProfileImport";
+import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
-import { useActiveTheme } from "@/hooks/useThemes";
-import { useProfileSync } from "@/hooks/useProfileSync";
-import { useTailnetSidecarOwner } from "@/hooks/useTailnetSidecarOwner";
-import { addProfile, findProfile, getProfiles, removeProfile, type Profile } from "@/lib/profiles";
-import { clearProfileRevoked, isProfileRevoked } from "@/lib/profileRevocation";
+import { useActiveTheme } from "@/hooks/relay/useThemes";
+import { useProfileSync } from "@/hooks/relay/useProfileSync";
+import { useTailnetSidecarOwner } from "@/hooks/profiles/useTailnetSidecarOwner";
+import { addProfile, findProfile, getProfiles, removeProfile, type Profile } from "@/lib/profiles/profiles";
+import { clearProfileRevoked, isProfileRevoked } from "@/lib/profiles/profileRevocation";
 import {
   pruneCachedProfiles,
   removeCachedSession,
   touchCachedSession,
   upsertCachedSession,
-} from "@/lib/sessionListCache";
-import type { MergedSession } from "@/lib/sessionGrouping";
-import { completeProfileSetup, dismissProfileSetup, retryProfileSetup } from "@/lib/profileSetup";
-import { resolveChatPath } from "@/lib/filesClient";
-import { resolveConnection } from "@/lib/connectionResolver";
-import { ensureNotificationPermission, notifyTurnComplete } from "@/lib/notifications";
-import { deleteSession, renameSession } from "@/lib/relayClient";
-import { isIOS } from "@/lib/platform";
-import { forceUpdateCheck, performUpdateCheck } from "@/lib/appUpdate";
+} from "@/lib/format/sessionListCache";
+import type { MergedSession } from "@/lib/format/sessionGrouping";
+import { completeProfileSetup, dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
+import { resolveChatPath } from "@/lib/relay/filesClient";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { ensureNotificationPermission, notifyTurnComplete } from "@/lib/platform/notifications";
+import { deleteSession, renameSession } from "@/lib/relay/relayClient";
+import { isIOS } from "@/lib/platform/platform";
+import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
  * a direct deep-link to a specific state in tests via Playwright. */

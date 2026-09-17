@@ -1,5 +1,5 @@
-import type { ContextUsage } from "@/lib/relayClient";
-import { contextUsageColor, contextUsagePercent } from "@/lib/contextUsage";
+import type { ContextUsage } from "@/lib/relay/relayClient";
+import { contextUsageColor, contextUsagePercent } from "@/lib/format/contextUsage";
 
 interface ContextUsageRingProps {
   usage: ContextUsage | null;

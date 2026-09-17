@@ -1,4 +1,4 @@
-import { useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 
 interface IdleScreenProps {
   heading: string;

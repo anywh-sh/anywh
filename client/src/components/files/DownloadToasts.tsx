@@ -1,9 +1,9 @@
 import { createPortal } from "react-dom";
 import { CheckCircle2, Loader2, X } from "lucide-react";
-import { useDownloadNotifications } from "@/hooks/useDownloadNotifications";
+import { useDownloadNotifications } from "@/hooks/media/useDownloadNotifications";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
-import { dismissDownloadNotification, type DownloadNotification } from "@/lib/downloadNotifications";
+import { dismissDownloadNotification, type DownloadNotification } from "@/lib/platform/downloadNotifications";
 
 function toastText(notification: DownloadNotification, copy: Dictionary["panels"]["files"]["downloads"]): string {
   if (notification.fileName) return copy.fileDone.replace("{name}", notification.fileName);

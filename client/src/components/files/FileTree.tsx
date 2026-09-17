@@ -15,14 +15,14 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ContextMenuAnchor, useContextMenu } from "@/hooks/useContextMenu";
-import { detectEditors, type DetectedEditor } from "@/lib/editors";
-import { buildEditorUrl, type EditorId, type EditorLocality } from "@/lib/editorLinks";
-import { finishBatchDownload, notifyFileDownloaded, startBatchDownload, tickBatchDownload } from "@/lib/downloadNotifications";
-import { downloadFile, downloadFolder, PartialFolderDownloadError } from "@/lib/fileDownload";
-import { createFile, deleteFile, getHostInfo, listFiles, renameFile, type FileEntry } from "@/lib/filesClient";
-import { isIOS } from "@/lib/platform";
-import type { Profile } from "@/lib/profiles";
+import { ContextMenuAnchor, useContextMenu } from "@/hooks/platform/useContextMenu";
+import { detectEditors, type DetectedEditor } from "@/lib/platform/editors";
+import { buildEditorUrl, type EditorId, type EditorLocality } from "@/lib/platform/editorLinks";
+import { finishBatchDownload, notifyFileDownloaded, startBatchDownload, tickBatchDownload } from "@/lib/platform/downloadNotifications";
+import { downloadFile, downloadFolder, PartialFolderDownloadError } from "@/lib/relay/fileDownload";
+import { createFile, deleteFile, getHostInfo, listFiles, renameFile, type FileEntry } from "@/lib/relay/filesClient";
+import { isIOS } from "@/lib/platform/platform";
+import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 

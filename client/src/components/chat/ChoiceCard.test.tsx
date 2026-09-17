@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChoiceCard } from "./ChoiceCard";
-import type { ChoiceQuestion } from "@/lib/relayClient";
+import type { ChoiceQuestion } from "@/lib/relay/relayClient";
 import { en } from "@/i18n/en";
 
 afterEach(() => cleanup());

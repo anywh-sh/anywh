@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { CompactBoundaryToast } from "./CompactBoundaryToast";
-import type { CompactBoundaryEvent } from "@/hooks/useRelayClient";
+import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import { en } from "@/i18n/en";
 
 function event(overrides: Partial<CompactBoundaryEvent> = {}): CompactBoundaryEvent {

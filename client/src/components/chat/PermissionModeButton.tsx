@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
-import type { PermissionMode } from "@/lib/relayClient";
+import type { PermissionMode } from "@/lib/relay/relayClient";
 import { cn } from "@/lib/utils";
 
 interface PermissionModeButtonProps {

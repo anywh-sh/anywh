@@ -1,9 +1,9 @@
 import { ListFilter } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useSessionListCache } from "@/hooks/useMergedSessions";
+import { useSessionListCache } from "@/hooks/tabs/useMergedSessions";
 import { useDict, useLocale } from "@/i18n";
-import { profileColorClass, type Profile } from "@/lib/profiles";
-import { formatRelativeTime } from "@/lib/relativeTime";
+import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
+import { formatRelativeTime } from "@/lib/format/relativeTime";
 import { cn } from "@/lib/utils";
 
 interface ProfileFilterTriggerProps {

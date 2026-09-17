@@ -1,5 +1,5 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { SlashCommandEntry } from "@/lib/slashCommands";
+import type { SlashCommandEntry } from "@/lib/composer/slashCommands";
 import { cn } from "@/lib/utils";
 
 interface SlashCommandMenuProps {

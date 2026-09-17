@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { ProfileSetupStepList } from "@/components/shell/ProfileSetupStepList";
 import { useDict, type Dictionary } from "@/i18n";
-import type { SetupState } from "@/lib/profileSetup";
+import type { SetupState } from "@/lib/profiles/profileSetup";
 
 interface ProfileSetupDialogProps {
   state: SetupState | null;

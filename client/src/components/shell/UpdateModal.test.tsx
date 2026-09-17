@@ -2,7 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
-import type { InstallOrigin } from "@/lib/appUpdate";
+import type { InstallOrigin } from "@/lib/install/appUpdate";
 
 const openUrl = vi.fn();
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -25,16 +25,16 @@ const { getInstallOriginMock } = vi.hoisted(() => ({
     (): Promise<InstallOrigin> => Promise.resolve({ channel: "unknown", updatable: false, execPath: "", marker: null }),
   ),
 }));
-vi.mock("@/lib/appUpdate", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/appUpdate")>();
+vi.mock("@/lib/install/appUpdate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/install/appUpdate")>();
   return { ...actual, getInstallOrigin: getInstallOriginMock };
 });
 
 import { UpdateModal } from "@/components/shell/UpdateModal";
-import { clearDownloadedUpdate, clearUpdate, markUpdateAvailable, performUpdateCheck } from "@/lib/appUpdate";
-import { APP_VERSION } from "@/lib/appVersion";
+import { clearDownloadedUpdate, clearUpdate, markUpdateAvailable, performUpdateCheck } from "@/lib/install/appUpdate";
+import { APP_VERSION } from "@/lib/install/appVersion";
 import { readSettings, writeSettings } from "@/lib/settings";
-import type { Update } from "@/lib/updaterPlugin";
+import type { Update } from "@/lib/install/updaterPlugin";
 
 const copy = en.shell.updateModal;
 

@@ -1,13 +1,13 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 
 const { readFileMock, fetchRawFileMock } = vi.hoisted(() => ({
   readFileMock: vi.fn(),
   fetchRawFileMock: vi.fn(),
 }));
-vi.mock("@/lib/filesClient", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/filesClient")>()),
+vi.mock("@/lib/relay/filesClient", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/relay/filesClient")>()),
   readFile: readFileMock,
   fetchRawFile: fetchRawFileMock,
 }));
