@@ -19,11 +19,61 @@ test("exec.thread.start: builds a minimal ThreadStartParams (cwd only — everyt
 
 test("exec.turn.start: threadId comes from the engine, not TurnContext; prompt becomes a UserInput text block", () => {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
-  const spec = codexRuntimeDef.exec.turn.start(turnContext({ prompt: "list the files" }), "thread-123");
+  const spec = codexRuntimeDef.exec.turn.start(turnContext({ prompt: "list the files", permissionModeId: "read-only" }), "thread-123");
   assert.deepEqual(spec, {
     method: "turn/start",
-    params: { threadId: "thread-123", input: [{ type: "text", text: "list the files", text_elements: [] }] },
+    params: {
+      threadId: "thread-123",
+      input: [{ type: "text", text: "list the files", text_elements: [] }],
+      approvalPolicy: "on-request",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+    },
   });
+});
+
+// ---- turn/start's actual application of the session's chosen mode --------
+
+test("exec.turn.start: every real mode id maps to real approvalPolicy/sandboxPolicy wire params", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const start = codexRuntimeDef.exec.turn.start;
+
+  const readOnly = start(turnContext({ permissionModeId: "read-only" }), "t1");
+  assert.deepEqual((readOnly.params as { approvalPolicy: unknown }).approvalPolicy, "on-request");
+  assert.deepEqual((readOnly.params as { sandboxPolicy: unknown }).sandboxPolicy, { type: "readOnly", networkAccess: false });
+
+  // `granular.sandbox_approval: true`, not the legacy `on-failure` — that
+  // value doesn't exist in the real wire AskForApproval union (module doc
+  // comment) and was never actually exercised before turn/start applied the
+  // mode at all.
+  const workspaceWrite = start(turnContext({ cwd: "/tmp/project", permissionModeId: "workspace-write" }), "t1");
+  assert.deepEqual((workspaceWrite.params as { approvalPolicy: unknown }).approvalPolicy, {
+    granular: { sandbox_approval: true, rules: false, skill_approval: false, request_permissions: false, mcp_elicitations: false },
+  });
+  assert.deepEqual((workspaceWrite.params as { sandboxPolicy: unknown }).sandboxPolicy, {
+    type: "workspaceWrite",
+    writableRoots: ["/tmp/project"],
+    networkAccess: false,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false,
+  });
+
+  const fullAccess = start(turnContext({ permissionModeId: "full-access" }), "t1");
+  assert.deepEqual((fullAccess.params as { approvalPolicy: unknown }).approvalPolicy, "never");
+  assert.deepEqual((fullAccess.params as { sandboxPolicy: unknown }).sandboxPolicy, { type: "dangerFullAccess" });
+});
+
+test("exec.turn.start: an id this def doesn't recognize sends no approvalPolicy/sandboxPolicy override at all", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const spec = codexRuntimeDef.exec.turn.start(turnContext({ permissionModeId: "not_a_real_mode" }), "t1");
+  assert.deepEqual(spec.params, { threadId: "t1", input: [{ type: "text", text: "hi", text_elements: [] }] });
+});
+
+test("exec.turn.start: never sends a `permissions` field — real binary rejects it alongside sandboxPolicy", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  for (const mode of ["read-only", "workspace-write", "full-access"]) {
+    const spec = codexRuntimeDef.exec.turn.start(turnContext({ permissionModeId: mode }), "t1");
+    assert.ok(!("permissions" in (spec.params as object)), `${mode} must not carry a "permissions" field`);
+  }
 });
 
 test("exec.turn.interrupt: builds turn/interrupt with both ids as params, not just a method name", () => {

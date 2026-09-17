@@ -2,6 +2,7 @@ import type { WebSocket } from "ws";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import type { PermissionModeOption } from "./permissionModes.js";
 import type { BackgroundJobSummary } from "../host/backgroundJobs.js";
 
 // A single variant — turn lifecycle used to be two separate sibling
@@ -70,12 +71,30 @@ export function broadcastCwdState(clients: Iterable<WebSocket>, cwd: string, loc
   for (const client of clients) sendCwdState(client, cwd, locked);
 }
 
-export function sendPermissionMode(target: WebSocket, mode: PermissionMode): void {
-  target.send(JSON.stringify({ type: "permission_mode_state", mode }));
+/** Which agent def is currently driving this session — sent right before
+ * `permission_mode_state`/`model_state` in the connection burst (both only
+ * make sense once the client knows which agent they belong to) and again on
+ * `SharedSession.switchAgent`. */
+export function sendAgentState(target: WebSocket, agentId: string): void {
+  target.send(JSON.stringify({ type: "agent_state", agentId }));
 }
 
-export function broadcastPermissionMode(clients: Iterable<WebSocket>, mode: PermissionMode): void {
-  for (const client of clients) sendPermissionMode(client, mode);
+export function broadcastAgentState(clients: Iterable<WebSocket>, agentId: string): void {
+  for (const client of clients) sendAgentState(client, agentId);
+}
+
+/** `available` is this session's own def's mode vocabulary for the host's
+ * platform (`session/permissionModes.ts`'s `availableModes`) — sent
+ * alongside `mode` on every burst/change so the client never has to
+ * cross-reference a separate, per-relay list (`GET /host-info`) against
+ * this session's agent to know what to render; see `SharedSession`'s
+ * `sendPermissionMode`/`broadcastPermissionMode` call sites for why. */
+export function sendPermissionMode(target: WebSocket, mode: PermissionMode, available: readonly PermissionModeOption[]): void {
+  target.send(JSON.stringify({ type: "permission_mode_state", mode, available }));
+}
+
+export function broadcastPermissionMode(clients: Iterable<WebSocket>, mode: PermissionMode, available: readonly PermissionModeOption[]): void {
+  for (const client of clients) sendPermissionMode(client, mode, available);
 }
 
 /** Unlike `sendContextUsage`, always sends — an undefined `model` is a

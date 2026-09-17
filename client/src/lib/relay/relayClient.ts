@@ -10,6 +10,7 @@ import type {
   HistoryPageMessage,
   ModelChoice,
   PermissionMode,
+  PermissionModeOption,
   ProfileMetaUpdate,
   ProfileValidation,
   RelayMessage,
@@ -36,6 +37,7 @@ export type {
   HistoryPageMessage,
   ModelChoice,
   PermissionMode,
+  PermissionModeOption,
   ProfileMetaUpdate,
   ProfileValidation,
   RemoteProfile,
@@ -270,9 +272,17 @@ export interface RelayClientCallbacks {
    * time the working directory changes or locks — see sharedSession.ts. */
   onCwdState: (cwd: string, locked: boolean) => void;
   onSetCwdError?: (code: SetCwdErrorCode) => void;
+  /** Sent right on connection (before cwd_state's siblings) and again on
+   * `switchAgent` — see sharedSession.ts. Drives `AgentPickerButton`'s
+   * current selection and the `ModelButton` gate (Composer.tsx). */
+  onAgentState: (agentId: string) => void;
   /** Sent right on connection (before the replay) and again every time the mode
-   * changes — see sharedSession.ts::setPermissionMode. */
-  onPermissionModeState: (mode: PermissionMode) => void;
+   * changes — see sharedSession.ts::setPermissionMode. `available` is this
+   * session's own agent's mode vocabulary (session/permissionModes.ts on the
+   * relay) — defaults to `[]` for a client one build behind a relay that
+   * doesn't send it yet, same "hasn't arrived" reading `PermissionModeButton`
+   * already gives an empty list. */
+  onPermissionModeState: (mode: PermissionMode, available: PermissionModeOption[]) => void;
   /** Sent right on connection and again every time the model changes — see
    * sharedSession.ts::setModel. `null` is a valid final state ("never
    * chosen via /model, uses the CLI default"), not "still loading". */
@@ -381,6 +391,9 @@ export class RelayClient {
   /** Same logic as `pendingCwd` — only the last choice before the socket
    * opens matters. */
   private pendingPermissionMode: PermissionMode | null = null;
+  /** Same logic as `pendingCwd` — a picked-before-connecting agent is sent
+   * once the socket opens. */
+  private pendingAgent: string | null = null;
   /** Same logic as `pendingCwd` — only the latest debounced value before the
    * socket opens matters, no queue of intermediate keystrokes. */
   private pendingDraft: string | null = null;
@@ -489,6 +502,11 @@ export class RelayClient {
         this.pendingPermissionMode = null;
         socket.send(JSON.stringify({ type: "set_permission_mode", mode }));
       }
+      if (this.pendingAgent !== null) {
+        const agentId = this.pendingAgent;
+        this.pendingAgent = null;
+        socket.send(JSON.stringify({ type: "set_agent", agentId }));
+      }
       if (this.pendingDraft !== null) {
         const draft = this.pendingDraft;
         this.pendingDraft = null;
@@ -526,6 +544,8 @@ export class RelayClient {
         this.callbacks.onCaughtUp();
       } else if (parsed.type === "cwd_state") {
         this.callbacks.onCwdState(parsed.cwd, parsed.locked);
+      } else if (parsed.type === "agent_state") {
+        this.callbacks.onAgentState(parsed.agentId);
       } else if (parsed.type === "set_cwd_error") {
         this.callbacks.onSetCwdError?.(parsed.code);
       } else if (parsed.type === "session_title") {
@@ -535,7 +555,7 @@ export class RelayClient {
       } else if (parsed.type === "draft_state") {
         this.callbacks.onDraftState(parsed.draft);
       } else if (parsed.type === "permission_mode_state") {
-        this.callbacks.onPermissionModeState(parsed.mode);
+        this.callbacks.onPermissionModeState(parsed.mode, parsed.available ?? []);
       } else if (parsed.type === "model_state") {
         this.callbacks.onModelState(parsed.model);
       } else if (parsed.type === "default_model_state") {
@@ -605,6 +625,14 @@ export class RelayClient {
       return;
     }
     this.socket.send(JSON.stringify({ type: "set_permission_mode", mode }));
+  }
+
+  setAgent(agentId: string): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      this.pendingAgent = agentId;
+      return;
+    }
+    this.socket.send(JSON.stringify({ type: "set_agent", agentId }));
   }
 
   setDraft(text: string): void {

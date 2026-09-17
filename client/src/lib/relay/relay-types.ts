@@ -5,9 +5,22 @@
 import type { AgentEvent } from "@/lib/relay/agent-event";
 export type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind } from "@/lib/relay/agent-event";
 
-/** Mirrors the relay's `PermissionMode` (relay/src/session/sessionStore.ts) —
- * no cross-package import here, both sides only agree by convention. */
-export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+/** Mirrors the relay's `PermissionMode` (relay/src/session/sessionStore.ts)
+ * — no cross-package import here, both sides only agree by convention.
+ * Opaque string, not a fixed union: the real vocabulary is whatever the
+ * session's own agent def declares (Claude's four, Codex's three), which
+ * arrives per-session as `PermissionModeOption[]` below, not a static list. */
+export type PermissionMode = string;
+
+/** Mirrors the relay's `PermissionModeOption` (relay/src/session/permissionModes.ts).
+ * `pausesForApproval` is the one behavioral bit a UI branches on (e.g. the
+ * "this mode never asks" accent) — everything else about a mode (label,
+ * hint) is resolved client-side from the id, not shipped over the wire (see
+ * `PermissionModeButton`'s `useModeCopy`). */
+export interface PermissionModeOption {
+  id: PermissionMode;
+  pausesForApproval: boolean;
+}
 
 /** Mirrors the relay's `ModelChoice` (relay/src/session/sessionStore.ts) —
  * same convention as `PermissionMode` above, no cross-package import. Opaque
@@ -73,10 +86,22 @@ export type RelayMessage =
    * connection flow, and only for the socket that asked. */
   | ({ type: "older_history" } & HistoryPageMessage)
   | { type: "cwd_state"; cwd: string; locked: boolean }
+  /** Which agent def is driving this session — "current state" pattern like
+   * `cwd_state`/`permission_mode_state`, sent again on every new connection
+   * and on `SharedSession.switchAgent`. Sent right before
+   * `permission_mode_state`/`model_state` in the burst, since both only make
+   * sense once the client knows which agent they belong to. */
+  | { type: "agent_state"; agentId: string }
   | { type: "set_cwd_error"; code: SetCwdErrorCode }
   | { type: "session_title"; title: string }
   | { type: "session_deleted" }
-  | { type: "permission_mode_state"; mode: PermissionMode }
+  /** `available` is optional in the wire type itself, not because the relay
+   * ever omits it (`sendPermissionMode` always sends it), but because a
+   * client one build behind a relay that added this field should still
+   * parse the message rather than choke on an unknown property —
+   * `WS_PROTOCOL_VERSION` only needs a bump for a change an older client
+   * would MISinterpret, not one it simply doesn't know about yet. */
+  | { type: "permission_mode_state"; mode: PermissionMode; available?: PermissionModeOption[] }
   | { type: "model_state"; model: ModelChoice | null }
   | { type: "context_usage_state"; usage: ContextUsage | null }
   /** Composer text not yet sent — "current" state (same reasoning as

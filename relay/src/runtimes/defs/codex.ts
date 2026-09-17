@@ -1,13 +1,13 @@
 // The real `AgentRuntimeDef` for Codex — promoted from a shape-proving
 // draft (this file's earlier form) once `thread.start`/`turn.start` had
 // real params to build and a real notification mapper
-// (`runtimes/streams/codexAppServer.ts`) to wire in. Still not driving an
-// actual turn anywhere: no engine reads `exec.kind === "jsonRpcDaemon"` yet
-// (that's `runtimes/transports/codexDaemon.ts` plus the `SharedSession`
-// integration that picks a driver per session), and `server.ts`'s
-// `SELECTABLE_AGENT_IDS` still lists only `"claude"`, so this def reaches
-// nothing a user can pick from the UI. `runtimes/README.md` §5 has the
-// three questions that decided `exec.kind` for this def.
+// (`runtimes/streams/codexAppServer.ts`) to wire in. Driven by
+// `CodexSessionDriver` (`runtimes/defs/codexDriver.ts`, via
+// `createSessionDriver`) once a session's `agentId` resolves to this def
+// (`SessionManager.createSession`/`setAgent`) — reachable from the UI's
+// agent picker since `server.ts`'s `SELECTABLE_AGENT_IDS` lists `"codex"`
+// alongside `"claude"`. `runtimes/README.md` §5 has the three questions
+// that decided `exec.kind` for this def.
 //
 // Every protocol detail below — `thread/start`, `turn/start`,
 // `turn/interrupt`'s params, every notification
@@ -20,23 +20,101 @@
 // needs checking against a real logged-in `codex app-server` session, and
 // belongs in `runtimes/transports/codexDaemon.ts`'s spawn/handshake if so,
 // not here.
+//
+// `turn/start`'s `approvalPolicy`/`sandboxPolicy` (settingsFor below) were
+// checked the same way, PLUS a live smoke test against a real, logged-in
+// `codex app-server` (a scripted `initialize` -> `thread/start` -> two
+// `turn/start`s, one command writing inside the turn's cwd, one writing to a
+// sibling directory outside it) — reading the generated types alone would
+// have shipped a bug here: this def used to send `askForApproval:
+// "on-failure"` for `workspace-write`, and that value doesn't exist in the
+// real wire `AskForApproval` union at all (confirmed two ways: the
+// generated bindings, and `codex --help` documenting only `on-request`/
+// `never` as public values today — `untrusted`/`on-failure` are legacy
+// `config.toml` vocabulary being replaced by `granular`, a set of finer
+// booleans). The smoke test confirmed `granular.sandbox_approval: true`
+// reproduces exactly the behavior `on-failure` was trying to express: the
+// in-cwd write completed with no approval request at all, the out-of-cwd
+// one triggered a real `item/commandExecution/requestApproval` with
+// `reason: "command failed; retry without sandbox?"`, and declining it left
+// the file unwritten. `granular` only works with `experimentalApi: true` in
+// `initialize`'s capabilities (see `runtimes/transports/codexDaemon.ts`) —
+// without it every `turn/start` in `workspace-write` mode was rejected
+// outright, confirmed live the same way.
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
+/** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
+ * against generated bindings (`v2/AskForApproval.ts`). The `granular` object
+ * is the modern replacement for the legacy `untrusted`/`on-failure` config
+ * values (see the module doc comment above); only `sandbox_approval` is ever
+ * set to `true` here, the other four booleans are real, independent gates
+ * this def doesn't offer a mode for yet (a per-tool-category approval UI is
+ * out of scope — v1 is "does this session's mode ever pause", not "which of
+ * five categories"). */
+type CodexApprovalPolicy =
+  | "untrusted"
+  | "on-request"
+  | "never"
+  | { readonly granular: { readonly sandbox_approval: boolean; readonly rules: boolean; readonly skill_approval: boolean; readonly request_permissions: boolean; readonly mcp_elicitations: boolean } };
+
+/** The real wire shape of `TurnStartParams.sandboxPolicy` — confirmed
+ * against generated bindings (`v2/SandboxPolicy.ts`), a `type`-tagged union,
+ * camelCase, unlike the config-file spelling (`read-only`, `danger-full-
+ * access`) this def used to send. `externalSandbox` (a fourth real variant,
+ * for a sandbox Codex doesn't own) is omitted: nothing here ever
+ * constructs it. */
+type CodexSandboxPolicy =
+  | { readonly type: "dangerFullAccess" }
+  | { readonly type: "readOnly"; readonly networkAccess: boolean }
+  | { readonly type: "workspaceWrite"; readonly writableRoots: readonly string[]; readonly networkAccess: boolean; readonly excludeTmpdirEnvVar: boolean; readonly excludeSlashTmp: boolean };
+
 /** Codex's own two-axis permission model — opaque to everything except
- * whatever engine ends up owning it. Real Codex CLI concepts, not
- * invented ones: `sandboxMode` controls what a shell command can touch,
- * `askForApproval` controls when the daemon pauses to ask. */
+ * whatever engine ends up owning it (`TSettings` in `runtimes/types.ts`).
+ * Real Codex CLI concepts, not invented ones: `sandboxPolicy` controls what
+ * a shell command can touch, `approvalPolicy` controls when the daemon
+ * pauses to ask. */
 export interface CodexPermissionSettings {
-  readonly sandboxMode: "read-only" | "workspace-write" | "danger-full-access";
-  readonly askForApproval: "untrusted" | "on-failure" | "on-request" | "never";
+  readonly approvalPolicy: CodexApprovalPolicy;
+  readonly sandboxPolicy: CodexSandboxPolicy;
+}
+
+/** Maps a mode id to the real `turn/start` wire params — the one place this
+ * mapping lives, reused by both `permissions.modesFor` (structural, `cwd`
+ * unknown that early and irrelevant there: nothing reads `.settings` off
+ * that list today, `session/permissionModes.ts` only extracts `id`/
+ * `pausesForApproval`) and `startTurn` (the real, per-turn `cwd`, actually
+ * sent on the wire). `undefined` for an id this def doesn't recognize —
+ * `startTurn` below sends no override rather than guess, which should be
+ * unreachable in practice (`SharedSession` already validated the id against
+ * this same def's `modesFor` before a turn ever starts) but costs nothing to
+ * degrade safely if it somehow isn't. */
+function settingsFor(id: string, cwd: string): CodexPermissionSettings | undefined {
+  switch (id) {
+    case "read-only":
+      return { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly", networkAccess: false } };
+    case "workspace-write":
+      return {
+        approvalPolicy: { granular: { sandbox_approval: true, rules: false, skill_approval: false, request_permissions: false, mcp_elicitations: false } },
+        sandboxPolicy: { type: "workspaceWrite", writableRoots: [cwd], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+      };
+    case "full-access":
+      return { approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } };
+    default:
+      return undefined;
+  }
 }
 
 /** `ThreadStartParams` is far richer than this in the real protocol (model
  * overrides, sandbox/approval policy, a permissions profile id, ...) — every
  * field but `cwd` is optional, and none of the rest has a `TurnContext`
  * counterpart to source from yet, so this stays minimal rather than
- * guessing at defaults the real binary already applies on its own. */
+ * guessing at defaults the real binary already applies on its own.
+ * Deliberately NOT where `approvalPolicy`/`sandboxPolicy` are set even
+ * though `ThreadStartParams` has room for them: a per-turn override
+ * (`startTurn` below) is the only source of truth, so settings on the
+ * thread itself never have a chance to drift from what the session's
+ * dropdown actually shows. */
 function startThread(ctx: TurnContext): JsonRpcRequestSpec {
   return { method: "thread/start", params: { cwd: ctx.cwd } };
 }
@@ -45,9 +123,23 @@ function startThread(ctx: TurnContext): JsonRpcRequestSpec {
  * own doc comment on why. Real `TurnStartParams.input` is a content array,
  * never a plain string — `text_elements` is a UI-only concept (spans within
  * the text for rendering/persisting special elements) that a relay-composed
- * prompt never has any of. */
+ * prompt never has any of. `approvalPolicy`/`sandboxPolicy` are the actual
+ * application of `ctx.permissionModeId` (see the module doc comment and
+ * `settingsFor` above) — omitted from `params` entirely for an unrecognized
+ * id rather than sent as `undefined`, since the real binary's error message
+ * for the two fields ("`permissions` cannot be combined with
+ * `sandboxPolicy`"/"...`sandbox`") confirms the daemon distinguishes
+ * "absent" from "present but empty". */
 function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
-  return { method: "turn/start", params: { threadId, input: [{ type: "text", text: ctx.prompt, text_elements: [] }] } };
+  const settings = settingsFor(ctx.permissionModeId, ctx.cwd);
+  return {
+    method: "turn/start",
+    params: {
+      threadId,
+      input: [{ type: "text", text: ctx.prompt, text_elements: [] }],
+      ...(settings ? { approvalPolicy: settings.approvalPolicy, sandboxPolicy: settings.sandboxPolicy } : {}),
+    },
+  };
 }
 
 /** Codex's own fixed decision vocabulary for both command and file-change
@@ -224,10 +316,12 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   permissions: {
     defaultModeId: "workspace-write",
     modesFor: (platform) => {
+      // `cwd: "."` is a structural placeholder — see `settingsFor`'s own
+      // comment for why this list's `.settings` never needs the real one.
       const modes = [
-        { id: "read-only", labelKey: "codex.mode.readOnly", settings: { sandboxMode: "read-only", askForApproval: "on-request" } as CodexPermissionSettings, pausesForApproval: true },
-        { id: "workspace-write", labelKey: "codex.mode.workspaceWrite", settings: { sandboxMode: "workspace-write", askForApproval: "on-failure" } as CodexPermissionSettings, pausesForApproval: true },
-        { id: "full-access", labelKey: "codex.mode.fullAccess", settings: { sandboxMode: "danger-full-access", askForApproval: "never" } as CodexPermissionSettings, pausesForApproval: false },
+        { id: "read-only", labelKey: "codex.mode.readOnly", settings: settingsFor("read-only", ".")!, pausesForApproval: true },
+        { id: "workspace-write", labelKey: "codex.mode.workspaceWrite", settings: settingsFor("workspace-write", ".")!, pausesForApproval: true },
+        { id: "full-access", labelKey: "codex.mode.fullAccess", settings: settingsFor("full-access", ".")!, pausesForApproval: false },
       ];
       // workspace-write's sandbox has no win32 implementation — absent,
       // not present-and-silently-weaker. The other two modes are sandbox-less

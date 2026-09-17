@@ -46,7 +46,15 @@ function Harness() {
         uploadingImage={false}
         onAddFiles={vi.fn()}
         onRemoveImage={vi.fn()}
+        agentId="claude"
+        onChangeAgent={vi.fn()}
         permissionMode="default"
+        permissionModes={[
+          { id: "default", pausesForApproval: true },
+          { id: "acceptEdits", pausesForApproval: true },
+          { id: "plan", pausesForApproval: true },
+          { id: "bypassPermissions", pausesForApproval: false },
+        ]}
         onChangePermissionMode={vi.fn()}
         model={null}
         defaultModel="Sonnet"

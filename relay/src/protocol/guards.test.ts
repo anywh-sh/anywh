@@ -6,6 +6,7 @@ import {
   isEditMessageMessage,
   isClearConversationMessage,
   isSetCwdMessage,
+  isSetAgentMessage,
   isSetPermissionModeMessage,
   isSetModelMessage,
   isSetDraftMessage,
@@ -72,12 +73,24 @@ test("isSetCwdMessage", () => {
 });
 
 test("isSetPermissionModeMessage", () => {
-  for (const mode of ["default", "acceptEdits", "plan", "bypassPermissions"]) {
+  // Claude's four AND an id this guard has never heard of (e.g. one of
+  // Codex's) both pass — the vocabulary check moved to SharedSession
+  // (session/permissionModes.ts), which has the session's own def in scope
+  // and this guard doesn't.
+  for (const mode of ["default", "acceptEdits", "plan", "bypassPermissions", "workspace-write"]) {
     assert.equal(isSetPermissionModeMessage({ type: "set_permission_mode", mode }), true, mode);
   }
   assert.equal(isSetPermissionModeMessage({ type: "set_permission_mode" }), false, "missing mode");
-  assert.equal(isSetPermissionModeMessage({ type: "set_permission_mode", mode: "not_a_mode" }), false, "unknown mode value");
+  assert.equal(isSetPermissionModeMessage({ type: "set_permission_mode", mode: "" }), false, "empty mode");
   for (const v of NON_OBJECTS) assert.equal(isSetPermissionModeMessage(v), false);
+});
+
+test("isSetAgentMessage", () => {
+  assert.equal(isSetAgentMessage({ type: "set_agent", agentId: "claude" }), true);
+  assert.equal(isSetAgentMessage({ type: "set_agent", agentId: "codex" }), true, "an id this guard has never heard of also passes — SessionManager.setAgent is the authoritative check");
+  assert.equal(isSetAgentMessage({ type: "set_agent" }), false, "missing agentId");
+  assert.equal(isSetAgentMessage({ type: "set_agent", agentId: "" }), false, "empty agentId");
+  for (const v of NON_OBJECTS) assert.equal(isSetAgentMessage(v), false);
 });
 
 test("isSetModelMessage", () => {

@@ -306,7 +306,9 @@ export function ChatPanel({
     connected,
     cwd,
     cwdLocked,
+    agentId,
     permissionMode,
+    permissionModes,
     model,
     defaultModel,
     contextUsage,
@@ -317,6 +319,7 @@ export function ChatPanel({
     sendMessage,
     stopTurn,
     setCwd,
+    setAgent,
     setPermissionMode,
     setModel,
     clearConversation,
@@ -695,7 +698,10 @@ export function ChatPanel({
               uploadingImage={images.uploading}
               onAddFiles={(files) => void images.addFiles(files)}
               onRemoveImage={images.remove}
+              agentId={agentId}
+              onChangeAgent={setAgent}
               permissionMode={permissionMode}
+              permissionModes={permissionModes}
               onChangePermissionMode={setPermissionMode}
               model={model}
               defaultModel={defaultModel}

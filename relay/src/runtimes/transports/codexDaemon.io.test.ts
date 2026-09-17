@@ -17,6 +17,11 @@ interface FixtureBehavior {
   crashAfterInitMs?: number;
   notifyAfterInit?: { method: string; params: unknown };
   pidFile?: string;
+  /** Path the fixture writes the real `initialize` request's `params` to, as
+   * JSON — the only way to assert on what `spawnCodexDaemon` actually sent,
+   * since the handshake's own response never reaches the caller (it resolves
+   * with a `CodexDaemon`, not the raw `initialize` result). */
+  initializeParamsFile?: string;
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -37,6 +42,7 @@ process.stdin.on("data", (chunk) => {
     if (!line.trim()) continue;
     const msg = JSON.parse(line);
     if (msg.method === "initialize") {
+      if (behavior.initializeParamsFile) fs.writeFileSync(behavior.initializeParamsFile, JSON.stringify(msg.params));
       if (behavior.initFails) {
         send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "init failed" } });
       } else {
@@ -138,6 +144,26 @@ test("spawnCodexDaemon: resolves once initialize succeeds, and request() forward
       daemon.kill();
     }
     assert.deepEqual(onExitCalls, ["killed"]);
+  });
+});
+
+test("spawnCodexDaemon: initialize declares experimentalApi — required for the granular approval workspace-write's turn/start sends", async () => {
+  await withTmpDir(async (dir) => {
+    const bin = writeFixture(dir, { initializeParamsFile: join(dir, "init-params.json") });
+    const onExitCalls: CodexDaemonExitReason[] = [];
+    const daemon = await spawnCodexDaemon({
+      def: fixtureDef(bin),
+      cwd: dir,
+      host: noopHost,
+      onNotification: () => {},
+      onExit: (reason) => onExitCalls.push(reason),
+    });
+    try {
+      const sent = JSON.parse(readFileSync(join(dir, "init-params.json"), "utf8")) as { capabilities: unknown };
+      assert.deepEqual(sent.capabilities, { experimentalApi: true, requestAttestation: false });
+    } finally {
+      daemon.kill();
+    }
   });
 });
 
