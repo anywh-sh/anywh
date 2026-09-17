@@ -4,26 +4,23 @@
 // (`runtimes/streams/codexAppServer.ts`) to wire in. Still not driving an
 // actual turn anywhere: no engine reads `exec.kind === "jsonRpcDaemon"` yet
 // (that's `runtimes/transports/codexDaemon.ts` plus the `SharedSession`
-// integration that picks a driver per session — a later phase), and
-// `server.ts`'s `SELECTABLE_AGENT_IDS` still lists only `"claude"`, so this
-// def reaches nothing a user can pick from the UI. `runtimes/README.md` §5
-// has the three questions that decided `exec.kind` for this def.
+// integration that picks a driver per session), and `server.ts`'s
+// `SELECTABLE_AGENT_IDS` still lists only `"claude"`, so this def reaches
+// nothing a user can pick from the UI. `runtimes/README.md` §5 has the
+// three questions that decided `exec.kind` for this def.
 //
-// Protocol details below were checked two ways, and this comment says which
-// is which: the ones checked only against a real `codex-cli 0.154.0`
-// session logged in via ChatGPT (not documentation) are
-// `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
-// as method names — load-bearing, but their *params* below
-// (`handleServerRequest`) are still illustrative placeholders, not the real
-// `CommandExecutionRequestApprovalParams`/`ToolRequestUserInputParams`
-// shapes; wiring those up for real is Phase 11's job (human-in-the-loop),
-// not this one. Everything else — `thread/start`, `turn/start`,
-// `turn/interrupt`'s params, and every notification
-// `runtimes/streams/codexAppServer.ts` maps — is checked against the real
-// generated protocol bindings (`codex app-server generate-ts
-// --experimental`, same binary), which is what makes this def's
-// turn-driving half (not the approval half) trustworthy today.
-import type { AgentRuntimeDef, JsonRpcRequestSpec, TurnContext, TurnHost } from "../types.js";
+// Every protocol detail below — `thread/start`, `turn/start`,
+// `turn/interrupt`'s params, every notification
+// `runtimes/streams/codexAppServer.ts` maps, and `handleServerRequest`'s
+// params parsing — is checked against the real generated protocol bindings
+// (`codex app-server generate-ts --experimental`, `codex-cli 0.154.0`), not
+// guessed. The one gap still open: whether `item/tool/requestUserInput`
+// actually fires under Codex's default settings, or needs an opt-in flag
+// (`--enable default_mode_request_user_input` in an earlier build) — that
+// needs checking against a real logged-in `codex app-server` session, and
+// belongs in `runtimes/transports/codexDaemon.ts`'s spawn/handshake if so,
+// not here.
+import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** Codex's own two-axis permission model — opaque to everything except
@@ -53,24 +50,147 @@ function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
   return { method: "turn/start", params: { threadId, input: [{ type: "text", text: ctx.prompt, text_elements: [] }] } };
 }
 
-// Real Codex methods; not placeholders — see this file's header comment for
-// which parts of this function still are. A daemon that pushes both of
-// these at the relay mid-turn is exactly what made `exec` a union: neither
-// has an equivalent in a spawn-per-turn, stdout-only world.
+/** Codex's own fixed decision vocabulary for both command and file-change
+ * approvals — `CommandExecutionApprovalDecision`/`FileChangeApprovalDecision`
+ * in the real generated bindings, both closed sets of string literals (plus,
+ * for commands only, two object-payload variants carrying an execpolicy/
+ * network-policy amendment — never offered here, see `toApprovalDecisions`
+ * below for why). */
+const CODEX_BASE_DECISIONS: readonly ApprovalDecision[] = [
+  { id: "accept", labelKey: "codex.decision.accept" },
+  { id: "acceptForSession", labelKey: "codex.decision.acceptForSession" },
+  { id: "decline", labelKey: "codex.decision.decline" },
+  { id: "cancel", labelKey: "codex.decision.cancel" },
+];
+
+type CommandDecisionWire =
+  | "accept"
+  | "acceptForSession"
+  | "decline"
+  | "cancel"
+  | { acceptWithExecpolicyAmendment: unknown }
+  | { applyNetworkPolicyAmendment: unknown };
+
+interface CommandActionWire {
+  readonly type: "read" | "listFiles" | "search" | "unknown";
+  readonly command: string;
+}
+
+interface CommandExecutionRequestApprovalParams {
+  readonly kind?: "command" | "writeStdin" | null;
+  readonly reason?: string | null;
+  readonly command?: string | null;
+  readonly commandActions?: readonly CommandActionWire[] | null;
+  readonly availableDecisions?: readonly CommandDecisionWire[] | null;
+}
+
+/** `availableDecisions` is nullable (treat as the base set) and can carry
+ * the two amendment-carrying object variants, which this contract has no
+ * field for yet — filtered out rather than guessed at, the same
+ * "a CLI with no concept of X simply never lists that decision" degradation
+ * `runtimes/README.md` §4 already asks of `ApprovalDecision` itself. */
+function toApprovalDecisions(wire: readonly CommandDecisionWire[] | null | undefined): readonly ApprovalDecision[] {
+  if (!wire) return CODEX_BASE_DECISIONS;
+  const byId = new Map(CODEX_BASE_DECISIONS.map((decision) => [decision.id, decision] as const));
+  return wire
+    .filter((decision): decision is "accept" | "acceptForSession" | "decline" | "cancel" => typeof decision === "string")
+    .map((id) => byId.get(id))
+    .filter((decision): decision is ApprovalDecision => decision !== undefined);
+}
+
+/** v1 folds `commandActions` into one line rather than giving them their
+ * own wire shape — friendly per-action rendering (read/listFiles/search) is
+ * later client polish, not part of getting a real answer back to Codex;
+ * nothing is lost, just less nicely formatted, same fallback philosophy
+ * `describeToolCall` (`defs/claude/mcpSpawnConfig.ts`) already uses for an
+ * unrecognized Claude tool. */
+function describeCommandActions(actions: readonly CommandActionWire[] | null | undefined): string | undefined {
+  return actions && actions.length > 0 ? actions.map((action) => action.command).join("; ") : undefined;
+}
+
+function buildCommandApprovalRequest(params: CommandExecutionRequestApprovalParams): ApprovalRequest {
+  const kind = params.kind ?? "command";
+  const text = params.command ?? describeCommandActions(params.commandActions) ?? "(no command text)";
+  const decisions = toApprovalDecisions(params.availableDecisions);
+  return {
+    id: crypto.randomUUID(),
+    summary: params.reason ? `Codex wants to run: ${text} (${params.reason})` : `Codex wants to run: ${text}`,
+    detail: { kind, text, reason: params.reason ?? undefined },
+    availableDecisions: decisions,
+    safeDecisionId: decisions.find((decision) => decision.id === "cancel")?.id ?? decisions.find((decision) => decision.id === "decline")?.id,
+  };
+}
+
+interface FileChangeRequestApprovalParams {
+  readonly reason?: string | null;
+  readonly grantRoot?: string | null;
+}
+
+/** Unlike a command approval, a file-change one has no `availableDecisions`
+ * field at all in the real protocol — its decision set is always exactly
+ * the base four, no per-request variability. */
+function buildFileChangeApprovalRequest(params: FileChangeRequestApprovalParams): ApprovalRequest {
+  const text = params.grantRoot ?? "(unspecified path)";
+  return {
+    id: crypto.randomUUID(),
+    summary: params.reason ? `Codex wants to change files under ${text} (${params.reason})` : `Codex wants to change files under ${text}`,
+    detail: { kind: "fileChange", text, reason: params.reason ?? undefined },
+    availableDecisions: CODEX_BASE_DECISIONS,
+    safeDecisionId: "cancel",
+  };
+}
+
+interface ToolRequestUserInputParams {
+  readonly questions: readonly {
+    readonly id: string;
+    readonly header: string;
+    readonly question: string;
+    readonly isSecret: boolean;
+    readonly options: readonly { readonly label: string; readonly description: string }[] | null;
+  }[];
+}
+
+function toUserInputQuestions(params: ToolRequestUserInputParams): readonly UserInputQuestion[] {
+  return params.questions.map((question) => ({
+    id: question.id,
+    header: question.header || undefined,
+    question: question.question,
+    options: question.options ?? undefined,
+    secret: question.isSecret,
+  }));
+}
+
+// A daemon that pushes any of these at the relay mid-turn is exactly what
+// made `exec` a union: none has an equivalent in a spawn-per-turn,
+// stdout-only world. `item/permissions/requestApproval` (a different,
+// session/trust-level approval, not item-level), `mcpServer/elicitation/request`
+// (Codex acting as an MCP *host* for a third-party server the user
+// configured) and `item/tool/call` (Codex asking the relay to execute a
+// tool on its behalf) are real methods in the generated bindings but
+// materially different features from item-level approval/user-input —
+// deliberately left unhandled, falling through to `undefined` like any
+// other unrecognized method.
 function handleServerRequest(method: string, params: unknown, host: TurnHost): Promise<unknown> | undefined {
   if (method === "item/commandExecution/requestApproval") {
-    const { summary, decisions } = params as { summary: string; decisions: readonly { id: string; labelKey: string }[] };
-    return host.requestApproval({ id: crypto.randomUUID(), summary, availableDecisions: decisions });
+    return host
+      .requestApproval(buildCommandApprovalRequest(params as CommandExecutionRequestApprovalParams))
+      .then((decision) => ({ decision }));
+  }
+  if (method === "item/fileChange/requestApproval") {
+    return host
+      .requestApproval(buildFileChangeApprovalRequest(params as FileChangeRequestApprovalParams))
+      .then((decision) => ({ decision }));
   }
   if (method === "item/tool/requestUserInput") {
-    // Still the same placeholder params shape this file's header comment
-    // already flags — the real `ToolRequestUserInputParams.questions[]` (an
-    // array, each with its own id) lands separately, once the params shapes
-    // themselves are wired up for real. This single-question wrapping only
-    // exists to keep the call shape-compatible with `TurnHost.requestUserInput`'s
-    // real signature.
-    const { prompt } = params as { prompt: string };
-    return host.requestUserInput([{ id: "0", question: prompt }]);
+    return host.requestUserInput(toUserInputQuestions(params as ToolRequestUserInputParams)).then((answers) => ({
+      // An empty map (rather than throwing) for the "deferred" case keeps a
+      // defensive fallback instead of crashing the daemon connection on a
+      // host that returns it anyway — `SharedSession.requestUserInput`
+      // never actually does, since Codex's stdio JSON-RPC transport blocks
+      // synchronously on this response and can't hold it open past the
+      // current turn.
+      answers: answers === "deferred" ? {} : Object.fromEntries(answers.map((answer) => [answer.questionId, { answers: answer.values }])),
+    }));
   }
   return undefined;
 }

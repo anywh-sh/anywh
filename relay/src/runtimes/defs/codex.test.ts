@@ -47,19 +47,187 @@ test("permissions.modesFor: workspace-write is absent on win32, present everywhe
   assert.deepEqual(win32Modes, ["read-only", "full-access"]);
 });
 
-test("handleServerRequest: routes a structured user-input request through the given TurnHost", async () => {
+// ---- handleServerRequest: item/commandExecution/requestApproval ----------
+
+test("handleServerRequest (command approval): a real command builds a readable summary and passes availableDecisions through", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: (request: unknown) => {
+      captured = request;
+      return Promise.resolve("accept");
+    },
+    requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
+  };
+  const result = await codexRuntimeDef.exec.handleServerRequest(
+    "item/commandExecution/requestApproval",
+    { kind: "command", command: "rm -rf build", reason: "cleanup", availableDecisions: ["accept", "decline"] },
+    host,
+  );
+  assert.deepEqual(captured, {
+    id: (captured as { id: string }).id,
+    summary: "Codex wants to run: rm -rf build (cleanup)",
+    detail: { kind: "command", text: "rm -rf build", reason: "cleanup" },
+    availableDecisions: [
+      { id: "accept", labelKey: "codex.decision.accept" },
+      { id: "decline", labelKey: "codex.decision.decline" },
+    ],
+    safeDecisionId: "decline",
+  });
+  assert.deepEqual(result, { decision: "accept" });
+});
+
+test("handleServerRequest (command approval): a null availableDecisions falls back to the base four-decision set", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: (request: unknown) => {
+      captured = request;
+      return Promise.resolve("cancel");
+    },
+    requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
+  };
+  await codexRuntimeDef.exec.handleServerRequest("item/commandExecution/requestApproval", { command: "ls" }, host);
+  assert.deepEqual((captured as { availableDecisions: { id: string }[] }).availableDecisions.map((d) => d.id), [
+    "accept",
+    "acceptForSession",
+    "decline",
+    "cancel",
+  ]);
+  assert.equal((captured as { safeDecisionId: string }).safeDecisionId, "cancel");
+});
+
+test("handleServerRequest (command approval): the two amendment-carrying decision variants are filtered out, not guessed at", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: (request: unknown) => {
+      captured = request;
+      return Promise.resolve("accept");
+    },
+    requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
+  };
+  await codexRuntimeDef.exec.handleServerRequest(
+    "item/commandExecution/requestApproval",
+    { command: "curl example.com", availableDecisions: ["accept", { applyNetworkPolicyAmendment: {} }, "decline"] },
+    host,
+  );
+  assert.deepEqual((captured as { availableDecisions: { id: string }[] }).availableDecisions.map((d) => d.id), ["accept", "decline"]);
+});
+
+test("handleServerRequest (command approval): no command text and no commandActions falls back to a readable placeholder", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: (request: unknown) => {
+      captured = request;
+      return Promise.resolve("decline");
+    },
+    requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
+  };
+  await codexRuntimeDef.exec.handleServerRequest("item/commandExecution/requestApproval", {}, host);
+  assert.equal((captured as { summary: string }).summary, "Codex wants to run: (no command text)");
+});
+
+// ---- handleServerRequest: item/fileChange/requestApproval -----------------
+
+test("handleServerRequest (file-change approval): always offers the fixed base decisions, safe default is cancel", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: (request: unknown) => {
+      captured = request;
+      return Promise.resolve("accept");
+    },
+    requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
+  };
+  const result = await codexRuntimeDef.exec.handleServerRequest(
+    "item/fileChange/requestApproval",
+    { reason: "extra write access", grantRoot: "/tmp/project/build" },
+    host,
+  );
+  assert.deepEqual(captured, {
+    id: (captured as { id: string }).id,
+    summary: "Codex wants to change files under /tmp/project/build (extra write access)",
+    detail: { kind: "fileChange", text: "/tmp/project/build", reason: "extra write access" },
+    availableDecisions: [
+      { id: "accept", labelKey: "codex.decision.accept" },
+      { id: "acceptForSession", labelKey: "codex.decision.acceptForSession" },
+      { id: "decline", labelKey: "codex.decision.decline" },
+      { id: "cancel", labelKey: "codex.decision.cancel" },
+    ],
+    safeDecisionId: "cancel",
+  });
+  assert.deepEqual(result, { decision: "accept" });
+});
+
+// ---- handleServerRequest: item/tool/requestUserInput -----------------------
+
+test("handleServerRequest (user input): a question with real options translates to a real multiple-choice UserInputQuestion", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: () => Promise.reject(new Error("not exercised in this test")),
+    requestUserInput: (questions: unknown) => {
+      captured = questions;
+      return Promise.resolve([{ questionId: "q1", values: ["staging"] }]);
+    },
+  };
+  const result = await codexRuntimeDef.exec.handleServerRequest(
+    "item/tool/requestUserInput",
+    {
+      questions: [
+        { id: "q1", header: "Environment", question: "Which environment?", isSecret: false, options: [{ label: "staging", description: "" }] },
+      ],
+    },
+    host,
+  );
+  assert.deepEqual(captured, [{ id: "q1", header: "Environment", question: "Which environment?", options: [{ label: "staging", description: "" }], secret: false }]);
+  assert.deepEqual(result, { answers: { q1: { answers: ["staging"] } } });
+});
+
+test("handleServerRequest (user input): null options translates to no options at all — free text, not an empty list forced on the client", async () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  let captured: unknown;
+  const host = {
+    requestApproval: () => Promise.reject(new Error("not exercised in this test")),
+    requestUserInput: (questions: unknown) => {
+      captured = questions;
+      return Promise.resolve([{ questionId: "q1", values: ["a secret value"] }]);
+    },
+  };
+  await codexRuntimeDef.exec.handleServerRequest(
+    "item/tool/requestUserInput",
+    { questions: [{ id: "q1", header: "", question: "What's the API key?", isSecret: true, options: null }] },
+    host,
+  );
+  assert.deepEqual(captured, [{ id: "q1", header: undefined, question: "What's the API key?", options: undefined, secret: true }]);
+});
+
+test("handleServerRequest (user input): a \"deferred\" host response becomes an empty answers map, not a throw", async () => {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   const host = {
     requestApproval: () => Promise.reject(new Error("not exercised in this test")),
-    requestUserInput: (questions: readonly { id: string; question: string }[]) =>
-      Promise.resolve([{ questionId: questions[0].id, values: [`answered: ${questions[0].question}`] }]),
+    requestUserInput: () => Promise.resolve("deferred" as const),
   };
-  const result = await codexRuntimeDef.exec.handleServerRequest("item/tool/requestUserInput", { prompt: "which one?" }, host);
-  assert.deepEqual(result, [{ questionId: "0", values: ["answered: which one?"] }]);
+  const result = await codexRuntimeDef.exec.handleServerRequest(
+    "item/tool/requestUserInput",
+    { questions: [{ id: "q1", header: "", question: "?", isSecret: false, options: null }] },
+    host,
+  );
+  assert.deepEqual(result, { answers: {} });
 });
 
 test("handleServerRequest: an unrecognized method returns undefined, so the connection answers method-not-found itself", () => {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   const host = { requestApproval: () => Promise.reject(new Error("n/a")), requestUserInput: () => Promise.reject(new Error("n/a")) };
   assert.equal(codexRuntimeDef.exec.handleServerRequest("some/futureMethod", {}, host), undefined);
+});
+
+test("handleServerRequest: item/permissions/requestApproval, mcpServer/elicitation/request and item/tool/call are real Codex methods but out of scope — also fall through to undefined", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const host = { requestApproval: () => Promise.reject(new Error("n/a")), requestUserInput: () => Promise.reject(new Error("n/a")) };
+  for (const method of ["item/permissions/requestApproval", "mcpServer/elicitation/request", "item/tool/call"]) {
+    assert.equal(codexRuntimeDef.exec.handleServerRequest(method, {}, host), undefined);
+  }
 });
