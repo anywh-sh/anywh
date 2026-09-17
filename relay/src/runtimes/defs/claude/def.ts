@@ -14,15 +14,7 @@ import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import type { AgentRuntimeDef, FailureClass, RuntimeFailure, TurnContext } from "../../types.js";
-import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, type ClaudeEvent } from "./session.js";
-// Same reverse-direction dependency session.ts already declares (see its
-// own comment on this import): PermissionMode is exactly the kind of field
-// PermissionPolicy<S> takes over, but declaring this def's own settings
-// shape independent of session/sessionStore.ts is bigger surgery than this
-// phase's job (adding the def, not moving where PermissionMode lives) — left
-// for when an engine actually needs `permissions.modesFor` at runtime.
-// eslint-disable-next-line import-x/no-restricted-paths
-import type { PermissionMode } from "../../../session/sessionStore.js";
+import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
 function buildArgs(ctx: TurnContext): string[] {
   // Known gap, not hidden: TurnContext doesn't carry MCP config or the
@@ -30,7 +22,7 @@ function buildArgs(ctx: TurnContext): string[] {
   // never a def concern) — so this never registers a bridge. A real engine
   // consuming this would need TurnContext to grow both before this could
   // replace ClaudeSession.sendTurn's own argv building.
-  const args = buildTurnArgs(ctx.prompt, ctx.permissionModeId as PermissionMode, ctx.modelId);
+  const args = buildTurnArgs(ctx.prompt, toClaudeMode(ctx.permissionModeId), ctx.modelId);
   if (ctx.resumeSessionId) args.push("--resume", ctx.resumeSessionId);
   return args;
 }
@@ -56,9 +48,9 @@ function classifyFailure(failure: RuntimeFailure): FailureClass {
   return "transient";
 }
 
-const CLAUDE_PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
+const CLAUDE_PERMISSION_MODES: readonly ClaudePermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
 
-export const claudeRuntimeDef: AgentRuntimeDef<PermissionMode> = {
+export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
   identity: {
     id: "claude",
     // Already resolved (bare "claude", an absolute WELL_KNOWN_BIN_DIRS

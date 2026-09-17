@@ -62,12 +62,10 @@ export interface ContextUsage {
  * (`runtimes/registry.ts` does), and hardcoding one here would make adding
  * a def also require an edit to session persistence. `"claude"` is used as
  * the literal default below (`DEFAULT_AGENT_ID`) instead of importing
- * `claudeRuntimeDef.identity.id` from `runtimes/defs/claude/` — the
- * boundary lint would allow that (via the def's `index.ts` barrel), but
- * `defs/claude/def.ts` already imports `PermissionMode` from THIS file
- * (see its own eslint-disable comment), so importing back would be a real
- * module cycle for three characters that never change independently of the
- * id that file declares. */
+ * `claudeRuntimeDef.identity.id` from `runtimes/defs/claude/` — session
+ * persistence stays the one describing its own default id, rather than a def
+ * (which owns its own `PermissionMode`/`ModelChoice` vocabulary, not the
+ * other way around). */
 export type AgentId = string;
 
 const DEFAULT_AGENT_ID: AgentId = "claude";
