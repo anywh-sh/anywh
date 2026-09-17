@@ -167,23 +167,57 @@ export interface ApprovalRequest {
   /** Plain text, not a `labelKey` — this describes *this* command or
    * tool call, not a static piece of UI chrome. */
   readonly summary: string;
+  /** Structured parts, mirroring `ChoiceQuestion.approval`'s Claude-shaped
+   * `{tool, detail}` — present so a client composes the localized sentence
+   * instead of reading `summary` (English, fallback-only) verbatim. Absent
+   * for a def with no structured breakdown to offer. */
+  readonly detail?: {
+    readonly kind: string;
+    readonly text: string;
+    readonly reason?: string;
+  };
   /** Degrades honestly at the level of the button: a CLI with no concept
    * of "allow for the rest of the session" simply never lists that
    * decision, instead of the UI offering it and the engine faking the
    * result. */
   readonly availableDecisions: readonly ApprovalDecision[];
+  /** The id a forced resolve (turn ends with no human answer) should treat
+   * as "the safe choice" — declared by the def itself, since only it knows
+   * which of `availableDecisions` actually means "no" for its own
+   * vocabulary. Absent means the def has no known safe id; the caller falls
+   * back to its own last resort. */
+  readonly safeDecisionId?: string;
 }
 
-/** `"deferred"` is a first-class answer, not a failure: the anywh answers
- * a structured question as the *next* turn (`present_choice`'s existing
- * behavior, commit `a964d12`), so a runtime that can hold the request open
- * and one that can't share this same return type without either one
- * lying about what happened. */
-export type UserInputAnswer = { readonly text: string } | { readonly choiceId: string };
+/** One of a native `requestUserInput` call's questions, translated from the
+ * engine's own protocol. `options` absent or empty means no structured
+ * choices were offered — the honest translation of a CLI that asks for free
+ * text, not a gap in this contract. */
+export interface UserInputQuestion {
+  readonly id: string;
+  readonly header?: string;
+  readonly question: string;
+  readonly options?: readonly { readonly label: string; readonly description?: string }[];
+  /** The UI should mask the answer — an engine-reported signal (Codex's
+   * `isSecret`), not a heuristic guessed from the question text. */
+  readonly secret?: boolean;
+}
+
+export interface UserInputAnswer {
+  readonly questionId: string;
+  readonly values: readonly string[];
+}
 
 export interface TurnHost {
   requestApproval(request: ApprovalRequest): Promise<string>;
-  requestUserInput(prompt: string): Promise<UserInputAnswer | "deferred">;
+  /** `"deferred"` is a first-class answer, not a failure: the anywh answers
+   * a structured question as the *next* turn (`present_choice`'s existing
+   * behavior, commit `a964d12`), so a runtime that can hold the request open
+   * and one that can't share this same return type without either one
+   * lying about what happened. A driver whose transport blocks synchronously
+   * on this response (Codex's stdio JSON-RPC daemon) never actually returns
+   * it. */
+  requestUserInput(questions: readonly UserInputQuestion[]): Promise<readonly UserInputAnswer[] | "deferred">;
 }
 
 // ---------------------------------------------------------------------------

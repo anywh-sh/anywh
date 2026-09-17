@@ -39,7 +39,15 @@ export interface ChoiceQuestion {
     /** What the call would do: the command for `Bash`, the path for an edit,
      * the raw input otherwise. Never translated — it's data. */
     detail: string;
+    /** Why the engine is asking, when it has a channel to report one
+     * (Claude never does — see `runtimes/README.md` §7). Absent, not an
+     * empty string, for "no reason given". */
+    reason?: string;
   };
+  /** The UI should mask the answer — an engine-reported signal (Codex's
+   * `isSecret`), not guessed from the question text. Absent on every
+   * question that isn't one. */
+  secret?: boolean;
 }
 
 export interface ChoiceAnswer {

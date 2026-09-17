@@ -63,8 +63,14 @@ function handleServerRequest(method: string, params: unknown, host: TurnHost): P
     return host.requestApproval({ id: crypto.randomUUID(), summary, availableDecisions: decisions });
   }
   if (method === "item/tool/requestUserInput") {
+    // Still the same placeholder params shape this file's header comment
+    // already flags — the real `ToolRequestUserInputParams.questions[]` (an
+    // array, each with its own id) lands separately, once the params shapes
+    // themselves are wired up for real. This single-question wrapping only
+    // exists to keep the call shape-compatible with `TurnHost.requestUserInput`'s
+    // real signature.
     const { prompt } = params as { prompt: string };
-    return host.requestUserInput(prompt);
+    return host.requestUserInput([{ id: "0", question: prompt }]);
   }
   return undefined;
 }

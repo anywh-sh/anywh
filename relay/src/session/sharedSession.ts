@@ -3,7 +3,7 @@ import { readHistoryFromTranscript, buildApprovalQuestion, buildPermissionDecisi
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
-import type { AgentRuntimeDef, ApprovalRequest, TurnContext, UserInputAnswer } from "../runtimes/types.js";
+import type { AgentRuntimeDef, ApprovalRequest, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -15,6 +15,7 @@ import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
+import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
 import {
   type BroadcastMessage,
   broadcast,
@@ -411,29 +412,28 @@ export class SharedSession implements SessionDriverHost {
    * server-initiated approval request. Nothing calls this yet: no driver
    * for a JSON-RPC-daemon-shaped def is registered with `createSessionDriver`
    * in production today, so this is unreachable, not untested-by-omission.
-   * `labelKey` resolution to real display text
-   * (rather than the key verbatim) and the "safe default" for a
-   * force-resolved request with no matching answer are both open — real
-   * i18n lookup and a designated deny-id convention are Phase 11's job
-   * (native approval), once a driver actually exercises this path. */
+   * The forced-resolve fallback (`request.safeDecisionId`) is the def's own
+   * choice, not a guess made here — `session/` has no business knowing which
+   * of another engine's decision ids means "no" (`runtimes/README.md` §0). */
   async requestApproval(request: ApprovalRequest): Promise<string> {
-    const question: ChoiceQuestion = {
-      question: request.summary,
-      options: request.availableDecisions.map((decision) => ({ id: decision.id, label: decision.labelKey })),
-    };
-    const answers = await this.choiceMachine.presentApprovalChoice([question]);
-    return answers[0]?.selected[0] ?? "";
+    const answers = await this.choiceMachine.presentApprovalChoice([buildNativeApprovalQuestion(request)]);
+    return resolveApprovalAnswer(answers, request.safeDecisionId);
   }
 
   /** `TurnHost`'s other half — same "unreachable today" status as
-   * `requestApproval` above. `"deferred"` rather than fabricating a
-   * text-input prompt: the wire has no free-text question shape yet
-   * (`ChoiceQuestion`/`ChoiceAnswer` is multiple-choice only), and
-   * `UserInputAnswer`'s own contract already treats `"deferred"` as a
-   * first-class answer, not a failure — degrading honestly here costs
-   * nothing since nothing can reach this method yet. */
-  requestUserInput(_prompt: string): Promise<UserInputAnswer | "deferred"> {
-    return Promise.resolve("deferred");
+   * `requestApproval` above. Routes through the same `presentApprovalChoice`
+   * slot (not `presentChoice`), so a native `requestUserInput` call gets the
+   * same forced-resolve-on-turn-end guarantee `checkPermission` already has
+   * — this is also why `"deferred"` should be unreachable in practice: a
+   * daemon that blocks synchronously on this response (Codex's stdio
+   * JSON-RPC transport) can't hold the request open past the current turn
+   * the way `present_choice`'s MCP tool call can. Correlating each answer to
+   * its question by array position, not by matching question text, mirrors
+   * the same convention `ChoiceCard.tsx`'s `finish()` already uses to build
+   * its answer array. */
+  async requestUserInput(questions: readonly UserInputQuestion[]): Promise<readonly UserInputAnswer[] | "deferred"> {
+    const answers = await this.choiceMachine.presentApprovalChoice(buildUserInputQuestions(questions));
+    return resolveUserInputAnswers(questions, answers);
   }
 
   /** The CLI reports its own permission-mode transitions
