@@ -6,3 +6,4 @@
 export { ClaudeSession, CLAUDE_AGENT_ENV_OVERRIDES, isMainThreadEvent, type ClaudeEvent, type McpSpawnConfig } from "./session.js";
 export { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 export { forkTruncatedTranscript } from "./transcriptFork.js";
+export { claudeRuntimeDef } from "./def.js";
