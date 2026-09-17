@@ -366,7 +366,7 @@ process.stdin.on("data", (chunk) => {
     const notifications: { method: string; params: unknown }[] = [];
     const host: TurnHost = {
       requestApproval: () => Promise.reject(new Error("not exercised in this test")),
-      requestUserInput: (prompt) => Promise.resolve({ text: `answered: ${prompt}` }),
+      requestUserInput: (questions) => Promise.resolve(questions.map((q) => ({ questionId: q.id, values: [`answered: ${q.question}`] }))),
     };
     const def = fixtureDef(path);
     const daemon = await spawnCodexDaemon({
@@ -375,7 +375,9 @@ process.stdin.on("data", (chunk) => {
         exec: {
           ...(def.exec as Extract<AgentRuntimeDef["exec"], { kind: "jsonRpcDaemon" }>),
           handleServerRequest: (method, params, turnHost) =>
-            method === "item/tool/requestUserInput" ? turnHost.requestUserInput((params as { prompt: string }).prompt) : undefined,
+            method === "item/tool/requestUserInput"
+              ? turnHost.requestUserInput([{ id: "0", question: (params as { prompt: string }).prompt }])
+              : undefined,
         },
       },
       cwd: dir,
@@ -386,7 +388,10 @@ process.stdin.on("data", (chunk) => {
     try {
       await new Promise((r) => setTimeout(r, 30));
       assert.deepEqual(notifications, [
-        { method: "test/serverRequestAnswered", params: { jsonrpc: "2.0", id: "srv-1", result: { text: "answered: ?" } } },
+        {
+          method: "test/serverRequestAnswered",
+          params: { jsonrpc: "2.0", id: "srv-1", result: [{ questionId: "0", values: ["answered: ?"] }] },
+        },
       ]);
     } finally {
       daemon.kill();

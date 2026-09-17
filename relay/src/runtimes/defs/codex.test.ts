@@ -51,10 +51,11 @@ test("handleServerRequest: routes a structured user-input request through the gi
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   const host = {
     requestApproval: () => Promise.reject(new Error("not exercised in this test")),
-    requestUserInput: (prompt: string) => Promise.resolve({ text: `answered: ${prompt}` }),
+    requestUserInput: (questions: readonly { id: string; question: string }[]) =>
+      Promise.resolve([{ questionId: questions[0].id, values: [`answered: ${questions[0].question}`] }]),
   };
   const result = await codexRuntimeDef.exec.handleServerRequest("item/tool/requestUserInput", { prompt: "which one?" }, host);
-  assert.deepEqual(result, { text: "answered: which one?" });
+  assert.deepEqual(result, [{ questionId: "0", values: ["answered: which one?"] }]);
 });
 
 test("handleServerRequest: an unrecognized method returns undefined, so the connection answers method-not-found itself", () => {
