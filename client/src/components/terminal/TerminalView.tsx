@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useResolvedTheme } from "@/hooks/relay/useThemes";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
+import { openTerminalLink } from "@/lib/terminal/terminalLinks";
 import { useDict } from "@/i18n";
 
 interface TerminalViewProps {
@@ -86,11 +88,24 @@ export function TerminalView({ profile, chatSessionId, terminalId, cwd }: Termin
       // Bonus: without `allowTransparency`, the canvases go back to not
       // needing an alpha channel, slightly cheaper to composite.
       theme: themeRef.current,
+      // OSC 8 hyperlinks (a label carrying a hidden target, emitted by plenty
+      // of modern CLIs) don't go through the web-links addon below — they
+      // arrive already parsed, and this is the only hook for them. Same
+      // handler, so both kinds of link need the same modifier and open the
+      // same way. `allowNonHttpProtocols` stays off (the default): an escape
+      // sequence printed by any command the shell runs must not be able to
+      // name an arbitrary scheme for the OS to launch.
+      linkHandler: { activate: openTerminalLink },
     });
     termRef.current = term;
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    // Makes URLs in plain output clickable at all — without this addon xterm
+    // never even looks for them. Activation is gated on Ctrl/Cmd inside
+    // `openTerminalLink`; the hover underline and pointer cursor the addon
+    // draws are not configurable, so they show up regardless of the modifier.
+    term.loadAddon(new WebLinksAddon(openTerminalLink));
     term.open(container);
     // Plain Ctrl+V: by default xterm treats Ctrl+<letter> as a control
     // character for the shell (here, 0x16 — readline/vim's "quoted insert")
