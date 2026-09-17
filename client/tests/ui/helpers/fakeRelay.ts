@@ -3,7 +3,7 @@ import { vi } from "vitest";
 /**
  * Stands in for the relay over the network edge — the client-side
  * equivalent of the relay's fake `claude` executable (see
- * .anywh/skills/tests/SKILL.md). `RelayClient` (client/src/lib/relayClient.ts)
+ * .anywh/skills/tests/SKILL.md). `RelayClient` (client/src/lib/relay/relayClient.ts)
  * is never touched directly here; everything is driven through the real
  * `WebSocket`/`fetch` calls it makes, same as it would against a real relay.
  *

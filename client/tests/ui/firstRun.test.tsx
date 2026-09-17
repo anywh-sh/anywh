@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { getProfiles, setProfiles, type Profile } from "@/lib/profiles";
-import { clearProfileRevoked, markProfileRevoked } from "@/lib/profileRevocation";
-import { __resetProfileSetupForTests } from "@/lib/profileSetup";
-import { __resetFirstRunForTests } from "@/lib/firstRun";
+import { getProfiles, setProfiles, type Profile } from "@/lib/profiles/profiles";
+import { clearProfileRevoked, markProfileRevoked } from "@/lib/profiles/profileRevocation";
+import { __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
+import { __resetFirstRunForTests } from "@/lib/profiles/firstRun";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 import { en } from "@/i18n/en";
@@ -40,13 +40,13 @@ const {
   fetchConnectGrantMock: vi.fn(),
 }));
 
-vi.mock("@/lib/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
-vi.mock("@/lib/tailnetSidecar", () => ({
+vi.mock("@/lib/profiles/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
+vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: acquireTailnetSidecarMock,
   releaseTailnetSidecar: releaseTailnetSidecarMock,
   peekTailnetSidecar: peekTailnetSidecarMock,
 }));
-vi.mock("@/lib/tailnetBroker", () => ({
+vi.mock("@/lib/profiles/tailnetBroker", () => ({
   resolveTailnetTarget: resolveTailnetTargetMock,
   fetchConnectGrant: fetchConnectGrantMock,
 }));

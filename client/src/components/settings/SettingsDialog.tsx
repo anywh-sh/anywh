@@ -3,9 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { SettingsNav, type SettingsSection } from "@/components/settings/SettingsNav";
-import { useProfiles } from "@/hooks/useProfiles";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useDict } from "@/i18n";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 
 interface SettingsDialogProps {
   open: boolean;

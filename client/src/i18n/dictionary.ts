@@ -9,10 +9,10 @@
  * translating text that is about to be deleted. `common` is the slice that
  * survives any redesign — the verbs on buttons.
  */
-import type { EditMessageErrorCode, PermissionMode, SetCwdErrorCode } from "@/lib/relay-types";
-import type { ThemeValidationCode } from "@/lib/theme";
-import type { FirstRunScreen } from "@/lib/firstRun";
-import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/localInstall";
+import type { EditMessageErrorCode, PermissionMode, SetCwdErrorCode } from "@/lib/relay/relay-types";
+import type { ThemeValidationCode } from "@/lib/theme/theme";
+import type { FirstRunScreen } from "@/lib/profiles/firstRun";
+import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/install/localInstall";
 
 export interface Dictionary {
   common: {

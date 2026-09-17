@@ -4,7 +4,7 @@ import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
-import { enqueueProfileSetup } from "@/lib/profileSetup";
+import { enqueueProfileSetup } from "@/lib/profiles/profileSetup";
 
 const MAX_PORT = 65535;
 

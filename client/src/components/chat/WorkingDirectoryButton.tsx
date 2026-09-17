@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useRecentFolders } from "@/hooks/useRecentFolders";
 import { useDict } from "@/i18n";
 import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
-import { profileColorVar, type Profile } from "@/lib/profiles";
+import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
 interface WorkingDirectoryButtonProps {

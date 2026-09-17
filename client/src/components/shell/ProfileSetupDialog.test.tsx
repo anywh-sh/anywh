@@ -1,8 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Profile } from "@/lib/profiles";
-import type { SetupState } from "@/lib/profileSetup";
+import type { Profile } from "@/lib/profiles/profiles";
+import type { SetupState } from "@/lib/profiles/profileSetup";
 import { ProfileSetupDialog } from "./ProfileSetupDialog";
 import { en } from "@/i18n/en";
 

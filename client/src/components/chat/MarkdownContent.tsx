@@ -1,8 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { handleExternalLinkClick } from "@/lib/externalLink";
-import { looksLikeExternalUrl, looksLikeFilePath } from "@/lib/filePathLinks";
+import { handleExternalLinkClick } from "@/lib/platform/externalLink";
+import { looksLikeExternalUrl, looksLikeFilePath } from "@/lib/composer/filePathLinks";
 import { MarkdownCodeBlock } from "@/components/chat/MarkdownCodeBlock";
 
 /**

@@ -12,7 +12,7 @@ import { en } from "@/i18n/en";
 // Tauri shell, so it throws before this tier's tests get anywhere near the
 // composer. Every other Tauri API call reachable during this flow is already
 // guarded behind inTauri() checks — except useVoiceRecording's mic-device
-// probe (client/src/hooks/useVoiceRecording.ts), which isn't guarded but
+// probe (client/src/hooks/media/useVoiceRecording.ts), which isn't guarded but
 // already tolerates rejection (console.error, empty device list) even in a
 // plain, non-Tauri browser tab today. Mocked here too, purely to keep test
 // output free of an expected-and-harmless error.

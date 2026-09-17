@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
-import type { Profile } from "@/lib/profiles";
+import type { Profile } from "@/lib/profiles/profiles";
 
 /**
  * Confirms a profile's removal by having its name typed back.

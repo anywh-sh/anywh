@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabGroupLayout, EDGE_START_DROP_ID, EDGE_END_DROP_ID, resolveTabDrop } from "./TabGroupLayout";
 import { groupEndDropId } from "./TabGroupStrip";
-import type { Tab, TabGroup } from "@/hooks/useTabs";
+import type { Tab, TabGroup } from "@/hooks/tabs/useTabs";
 
 afterEach(() => cleanup());
 

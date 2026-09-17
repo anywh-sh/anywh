@@ -2,8 +2,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
-import type { InstallDoneEvent, LocalRelayProbe } from "@/lib/localRelay";
-import type { Profile } from "@/lib/profiles";
+import type { InstallDoneEvent, LocalRelayProbe } from "@/lib/install/localRelay";
+import type { Profile } from "@/lib/profiles/profiles";
 
 function probe(overrides: Partial<LocalRelayProbe> = {}): LocalRelayProbe {
   return {
@@ -30,8 +30,8 @@ const { localInstallPossibleMock, probeLocalRelayMock, startLocalInstallMock, on
   currentPlatformMock: vi.fn(() => "linux"),
 }));
 
-vi.mock("@/lib/localRelay", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/localRelay")>();
+vi.mock("@/lib/install/localRelay", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/install/localRelay")>();
   return {
     ...actual,
     localInstallPossible: localInstallPossibleMock,
@@ -40,8 +40,8 @@ vi.mock("@/lib/localRelay", async (importOriginal) => {
     onInstallDone: onInstallDoneMock,
   };
 });
-vi.mock("@/lib/platform", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/platform")>();
+vi.mock("@/lib/platform/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/platform/platform")>();
   return { ...actual, currentPlatform: currentPlatformMock };
 });
 

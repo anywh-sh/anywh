@@ -1,7 +1,7 @@
 import { Fragment, useRef, type ReactNode } from "react";
-import { usePanelDrag } from "@/hooks/usePanelDrag";
-import { useSplitDrag } from "@/hooks/useSplitDrag";
-import type { DockPaneKind, DockState } from "@/hooks/useSessionDock";
+import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
+import { useSplitDrag } from "@/hooks/tabs/useSplitDrag";
+import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import { cn } from "@/lib/utils";
 
 interface SessionDockProps {

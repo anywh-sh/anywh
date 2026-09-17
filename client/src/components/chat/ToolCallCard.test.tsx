@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ToolCallCard } from "./ToolCallCard";
 import { en } from "@/i18n/en";
-import type { LogEntry } from "@/hooks/useMessageLog";
+import type { LogEntry } from "@/hooks/relay/useMessageLog";
 
 afterEach(() => cleanup());
 

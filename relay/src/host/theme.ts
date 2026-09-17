@@ -1,5 +1,5 @@
 // Theme file format and its validator. Duplicated verbatim in
-// client/src/lib/theme.ts — the two sides need the exact same answer about
+// client/src/lib/theme/theme.ts — the two sides need the exact same answer about
 // whether a theme file is broken, and there's no shared package in this repo
 // (same call as planChoiceMarker.ts, which is duplicated for the same
 // reason). Keep them in sync; the client copy carries no extra logic.
@@ -17,7 +17,7 @@ export const THEME_VERSION = 1;
 export type ThemeAppearance = "dark" | "light";
 
 /** Ids that a custom theme can never take: they're the built-in themes
- * (client/src/lib/builtinThemes.ts), which don't live on disk at all, so a
+ * (client/src/lib/theme/builtinThemes.ts), which don't live on disk at all, so a
  * custom file under one of these names would be permanently shadowed. */
 export const RESERVED_THEME_IDS = ["default", "papel"];
 
@@ -39,7 +39,7 @@ export const REQUIRED_COLOR_KEYS = [
 /**
  * Every key here maps 1:1 to the CSS custom property of the same name
  * (`background` -> `--background`), which is what makes applying a theme a
- * plain loop over the entries (client/src/lib/themeApply.ts) instead of a
+ * plain loop over the entries (client/src/lib/theme/themeApply.ts) instead of a
  * translation table. Keep in sync with the `:root` block in
  * client/src/index.css — a token that exists there but not here can't be
  * themed, and one that exists here but not there does nothing.

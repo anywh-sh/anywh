@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
-import { confirmCloseDuringInstall, onCloseRequestedDuringInstall, type CloseAction } from "@/lib/localRelay";
+import { confirmCloseDuringInstall, onCloseRequestedDuringInstall, type CloseAction } from "@/lib/install/localRelay";
 
 /**
  * Rust held the window's close because an install is alive and asks the

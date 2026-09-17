@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { isIOS } from "@/lib/platform";
+import { isIOS } from "@/lib/platform/platform";
 import { useDict } from "@/i18n";
-import type { ChoiceAnswer, ChoiceOption, ChoiceQuestion } from "@/lib/relayClient";
+import type { ChoiceAnswer, ChoiceOption, ChoiceQuestion } from "@/lib/relay/relayClient";
 
 interface ChoiceCardProps {
   promptId: string;

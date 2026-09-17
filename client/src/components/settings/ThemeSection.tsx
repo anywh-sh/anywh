@@ -18,21 +18,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ThemeImportDialog, type ThemeDialogIntent } from "@/components/settings/ThemeImportDialog";
-import { useThemeCatalog, useThemeSync } from "@/hooks/useThemes";
+import { useThemeCatalog, useThemeSync } from "@/hooks/relay/useThemes";
 import { useDict } from "@/i18n";
-import { DEFAULT_THEME, isBuiltinTheme } from "@/lib/builtinThemes";
-import { resolveConnection } from "@/lib/connectionResolver";
-import type { Profile } from "@/lib/profiles";
-import { deleteTheme } from "@/lib/relayClient";
-import type { Theme } from "@/lib/theme";
-import { resolveTheme } from "@/lib/themeApply";
+import { DEFAULT_THEME, isBuiltinTheme } from "@/lib/theme/builtinThemes";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import type { Profile } from "@/lib/profiles/profiles";
+import { deleteTheme } from "@/lib/relay/relayClient";
+import type { Theme } from "@/lib/theme/theme";
+import { resolveTheme } from "@/lib/theme/themeApply";
 import {
   customThemesForHost,
   resolveSelectedTheme,
   setSelectedThemeId,
   setThemesForHost,
   themeStoreKey,
-} from "@/lib/themes";
+} from "@/lib/theme/themes";
 import { cn } from "@/lib/utils";
 
 /**

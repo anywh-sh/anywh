@@ -4,21 +4,21 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { FileTree } from "./FileTree";
 import { en } from "@/i18n/en";
-import type { Profile } from "@/lib/profiles";
-import type { FilesListResult } from "@/lib/filesClient";
+import type { Profile } from "@/lib/profiles/profiles";
+import type { FilesListResult } from "@/lib/relay/filesClient";
 
-vi.mock("@/lib/filesClient", () => ({
+vi.mock("@/lib/relay/filesClient", () => ({
   listFiles: vi.fn(),
   createFile: vi.fn(),
   deleteFile: vi.fn(),
   renameFile: vi.fn(),
   getHostInfo: vi.fn(),
 }));
-vi.mock("@/lib/fileDownload", () => ({
+vi.mock("@/lib/relay/fileDownload", () => ({
   downloadFile: vi.fn(),
   downloadFolder: vi.fn(),
 }));
-vi.mock("@/lib/editors", () => ({
+vi.mock("@/lib/platform/editors", () => ({
   detectEditors: vi.fn(),
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -28,9 +28,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   confirm: vi.fn(),
 }));
 
-import { createFile, deleteFile, getHostInfo, listFiles, renameFile } from "@/lib/filesClient";
-import { downloadFile, downloadFolder } from "@/lib/fileDownload";
-import { detectEditors } from "@/lib/editors";
+import { createFile, deleteFile, getHostInfo, listFiles, renameFile } from "@/lib/relay/filesClient";
+import { downloadFile, downloadFolder } from "@/lib/relay/fileDownload";
+import { detectEditors } from "@/lib/platform/editors";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm } from "@tauri-apps/plugin-dialog";
 

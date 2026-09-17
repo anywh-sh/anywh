@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setProfiles, type Profile } from "@/lib/profiles";
+import { setProfiles, type Profile } from "@/lib/profiles/profiles";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 import { en } from "@/i18n/en";

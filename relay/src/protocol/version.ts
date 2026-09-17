@@ -5,7 +5,7 @@
  * older client misinterpret a message instead of just not knowing about it
  * yet (see docs/invariants.md).
  *
- * Mirrored verbatim at client/src/lib/protocolVersion.ts — there is no
+ * Mirrored verbatim at client/src/lib/relay/protocolVersion.ts — there is no
  * shared package between the two npm projects (see docs/architecture.md) —
  * and protocolVersionParity.test.ts keeps the two copies from drifting apart
  * in silence.

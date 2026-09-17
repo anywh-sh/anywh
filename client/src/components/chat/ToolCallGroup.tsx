@@ -3,7 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { useDict } from "@/i18n";
-import type { LogEntry } from "@/hooks/useMessageLog";
+import type { LogEntry } from "@/hooks/relay/useMessageLog";
 
 export type ToolPair = {
   use: Extract<LogEntry, { kind: "tool-use" }>;

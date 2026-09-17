@@ -11,8 +11,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
-import { parsePairingCode } from "@/lib/pairingCode";
-import { enqueueProfileSetup } from "@/lib/profileSetup";
+import { parsePairingCode } from "@/lib/profiles/pairingCode";
+import { enqueueProfileSetup } from "@/lib/profiles/profileSetup";
 
 interface AddRemoteMachineDialogProps {
   open: boolean;

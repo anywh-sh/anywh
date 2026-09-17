@@ -1,6 +1,6 @@
 import { StepList, type StepStatus } from "@/components/shell/StepList";
 import { useDict } from "@/i18n";
-import type { SetupMode, SetupState } from "@/lib/profileSetup";
+import type { SetupMode, SetupState } from "@/lib/profiles/profileSetup";
 
 type StepKey = "claim" | "connect" | "verify";
 

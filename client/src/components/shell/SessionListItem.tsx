@@ -2,10 +2,10 @@ import { memo } from "react";
 import { SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
-import { profileColorClass, profileColorVar } from "@/lib/profiles";
-import { formatRelativeTime } from "@/lib/relativeTime";
-import type { MergedSession } from "@/lib/sessionGrouping";
-import { useContextMenu } from "@/hooks/useContextMenu";
+import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
+import { formatRelativeTime } from "@/lib/format/relativeTime";
+import type { MergedSession } from "@/lib/format/sessionGrouping";
+import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 
 interface SessionListItemProps {

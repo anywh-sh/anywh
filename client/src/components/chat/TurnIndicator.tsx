@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { cn, formatDurationLong } from "@/lib/utils";
-import { isIOS } from "@/lib/platform";
-import { pickThinkingWord } from "@/lib/thinkingWords";
+import { isIOS } from "@/lib/platform/platform";
+import { pickThinkingWord } from "@/lib/format/thinkingWords";
 import { useDict } from "@/i18n";
 
 interface TurnIndicatorProps {

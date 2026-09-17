@@ -1,4 +1,4 @@
-import { setProfiles, type Profile } from "@/lib/profiles";
+import { setProfiles, type Profile } from "@/lib/profiles/profiles";
 
 /**
  * The one profile the shell-tier tests run against. Nothing seeds a

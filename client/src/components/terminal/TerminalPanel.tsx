@@ -2,10 +2,10 @@ import { useEffect, useRef } from "react";
 import { PaneTabStrip } from "@/components/shell/PaneTabStrip";
 import { SessionPanel } from "@/components/shell/SessionPanel";
 import { TerminalView } from "@/components/terminal/TerminalView";
-import type { useTerminalTabs } from "@/hooks/useTerminalTabs";
-import { closeTerminal } from "@/lib/relayClient";
-import { resolveConnection } from "@/lib/connectionResolver";
-import type { Profile } from "@/lib/profiles";
+import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
+import { closeTerminal } from "@/lib/relay/relayClient";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 
 interface TerminalPanelProps {

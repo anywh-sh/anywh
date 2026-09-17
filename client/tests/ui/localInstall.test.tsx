@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { getProfiles, setProfiles } from "@/lib/profiles";
-import { __resetProfileSetupForTests, enqueueProfileSetup } from "@/lib/profileSetup";
-import { __resetFirstRunForTests } from "@/lib/firstRun";
-import { __resetLocalInstallForTests } from "@/lib/localInstall";
+import { getProfiles, setProfiles } from "@/lib/profiles/profiles";
+import { __resetProfileSetupForTests, enqueueProfileSetup } from "@/lib/profiles/profileSetup";
+import { __resetFirstRunForTests } from "@/lib/profiles/firstRun";
+import { __resetLocalInstallForTests } from "@/lib/install/localInstall";
 import type {
   InstallDoneEvent,
   InstallLogEvent,
   InstallRunStatus,
   LocalRelayProbe,
   Prerequisites,
-} from "@/lib/localRelay";
+} from "@/lib/install/localRelay";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 import { en } from "@/i18n/en";
@@ -42,7 +42,7 @@ const native = vi.hoisted(() => ({
   doneHandlers: [] as Array<(event: InstallDoneEvent) => void>,
 }));
 
-vi.mock("@/lib/localRelay", () => ({
+vi.mock("@/lib/install/localRelay", () => ({
   localInstallPossible: () => true,
   probeLocalRelay: () => native.probe(),
   checkPrerequisites: () => native.prerequisites(),
@@ -71,13 +71,13 @@ const { claimTailnetBundleMock, acquireTailnetSidecarMock, releaseTailnetSidecar
     resolveTailnetTargetMock: vi.fn(),
     fetchConnectGrantMock: vi.fn(),
   }));
-vi.mock("@/lib/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
-vi.mock("@/lib/tailnetSidecar", () => ({
+vi.mock("@/lib/profiles/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
+vi.mock("@/lib/profiles/tailnetSidecar", () => ({
   acquireTailnetSidecar: acquireTailnetSidecarMock,
   releaseTailnetSidecar: releaseTailnetSidecarMock,
   peekTailnetSidecar: peekTailnetSidecarMock,
 }));
-vi.mock("@/lib/tailnetBroker", () => ({ resolveTailnetTarget: resolveTailnetTargetMock, fetchConnectGrant: fetchConnectGrantMock }));
+vi.mock("@/lib/profiles/tailnetBroker", () => ({ resolveTailnetTarget: resolveTailnetTargetMock, fetchConnectGrant: fetchConnectGrantMock }));
 
 const EMPTY_PROBE: LocalRelayProbe = {
   platform: "linux",

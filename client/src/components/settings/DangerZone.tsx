@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DeleteProfileDialog } from "@/components/settings/DeleteProfileDialog";
 import { useDict } from "@/i18n";
-import { isTailnetProfile, removeProfile, type Profile } from "@/lib/profiles";
-import { deleteProfile } from "@/lib/relayClient";
-import { clearProfileRevoked } from "@/lib/profileRevocation";
+import { isTailnetProfile, removeProfile, type Profile } from "@/lib/profiles/profiles";
+import { deleteProfile } from "@/lib/relay/relayClient";
+import { clearProfileRevoked } from "@/lib/profiles/profileRevocation";
 
 /** Picks another profile on the same relay as `scopedProfile` to run an
  * operation that must never execute through the profile's own relay

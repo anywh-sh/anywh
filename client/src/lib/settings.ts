@@ -1,4 +1,4 @@
-import type { ModelChoice } from "@/lib/relayClient";
+import type { ModelChoice } from "@/lib/relay/relayClient";
 
 export type ModelPreferenceMode = "lastUsed" | "fixed";
 

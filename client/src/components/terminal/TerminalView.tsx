@@ -3,11 +3,11 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
-import type { Profile } from "@/lib/profiles";
-import { useResolvedTheme } from "@/hooks/useThemes";
-import { resolveConnection } from "@/lib/connectionResolver";
-import { BrokerRevokedError } from "@/lib/tailnetBroker";
-import { markProfileRevoked } from "@/lib/profileRevocation";
+import type { Profile } from "@/lib/profiles/profiles";
+import { useResolvedTheme } from "@/hooks/relay/useThemes";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
+import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { useDict } from "@/i18n";
 
 interface TerminalViewProps {

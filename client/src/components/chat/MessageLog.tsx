@@ -8,7 +8,7 @@ import { ToolCallGroup, type ToolPair } from "@/components/chat/ToolCallGroup";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
 import { cn } from "@/lib/utils";
 import { useDict, type Dictionary } from "@/i18n";
-import type { LogEntry } from "@/hooks/useMessageLog";
+import type { LogEntry } from "@/hooks/relay/useMessageLog";
 
 interface MessageLogProps {
   entries: LogEntry[];

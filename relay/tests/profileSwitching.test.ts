@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): exercises the
-// `/control/profiles` HTTP surface (client/src/hooks/useProfileSync.ts polls
+// `/control/profiles` HTTP surface (client/src/hooks/relay/useProfileSync.ts polls
 // this to learn what profiles exist on a host, which is the "switching
 // between profiles" flow's network-crossing half) against the real
 // profileRegistry.ts, real filesystem, and a REAL second listening socket to

@@ -2,8 +2,8 @@ import { useRef } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
-import { contextUsageColor, contextUsagePercent, formatTokenCount } from "@/lib/contextUsage";
-import type { ContextUsage } from "@/lib/relayClient";
+import { contextUsageColor, contextUsagePercent, formatTokenCount } from "@/lib/format/contextUsage";
+import type { ContextUsage } from "@/lib/relay/relayClient";
 
 interface ContextUsageButtonProps {
   usage: ContextUsage | null;

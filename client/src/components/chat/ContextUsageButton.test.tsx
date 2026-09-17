@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ContextUsageButton } from "./ContextUsageButton";
 import { en } from "@/i18n/en";
-import type { ContextUsage } from "@/lib/relayClient";
+import type { ContextUsage } from "@/lib/relay/relayClient";
 
 afterEach(() => cleanup());
 

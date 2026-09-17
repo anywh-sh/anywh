@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatDurationLong } from "@/lib/utils";
 import { useDict } from "@/i18n";
-import type { BackgroundJobSummary } from "@/lib/relayClient";
+import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
 
 interface BackgroundJobIndicatorProps {
   jobs: BackgroundJobSummary[];

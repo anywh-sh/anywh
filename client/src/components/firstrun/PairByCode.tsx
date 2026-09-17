@@ -4,8 +4,8 @@ import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
-import { parsePairingCode } from "@/lib/pairingCode";
-import { enqueueProfileSetup } from "@/lib/profileSetup";
+import { parsePairingCode } from "@/lib/profiles/pairingCode";
+import { enqueueProfileSetup } from "@/lib/profiles/profileSetup";
 
 /**
  * Path 02: a typed `<join-code>@<host>` pairing code. The first-run twin of

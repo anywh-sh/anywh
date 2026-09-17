@@ -7,20 +7,20 @@ import { FolderPickerDialog } from "@/components/chat/FolderPickerDialog";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { SettingsRow, SettingsSectionHeading } from "@/components/settings/SettingsRow";
 import { useDefaultPaths } from "@/hooks/useDefaultPaths";
-import { useLocalRelayProbe } from "@/hooks/useLocalRelayProbe";
-import { useRevokedProfiles } from "@/hooks/useProfileRevoked";
+import { useLocalRelayProbe } from "@/hooks/platform/useLocalRelayProbe";
+import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import {
   DEFAULT_MODEL_PREFERENCE,
   useModelPreference,
   type ModelPreference,
   type ModelPreferenceMode,
-} from "@/hooks/useModelPreference";
+} from "@/hooks/relay/useModelPreference";
 import { useDict } from "@/i18n";
-import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/appVersion";
-import { onInstallDone, startLocalInstall } from "@/lib/localRelay";
-import { getKnownModels, labelForModel } from "@/lib/modelCatalog";
-import { currentPlatform } from "@/lib/platform";
-import { profileBadge } from "@/lib/profileBadge";
+import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
+import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
+import { getKnownModels, labelForModel } from "@/lib/composer/modelCatalog";
+import { currentPlatform } from "@/lib/platform/platform";
+import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
   addProfile,
   isTailnetProfile,
@@ -28,10 +28,10 @@ import {
   profileColorClass,
   profileColorClassForIndex,
   type Profile,
-} from "@/lib/profiles";
-import { resolveConnection } from "@/lib/connectionResolver";
-import { evaluateRelayDrift } from "@/lib/relayDrift";
-import { updateProfileMeta } from "@/lib/relayClient";
+} from "@/lib/profiles/profiles";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { evaluateRelayDrift } from "@/lib/relay/relayDrift";
+import { updateProfileMeta } from "@/lib/relay/relayClient";
 import { cn } from "@/lib/utils";
 
 /** Small square button, the shape every choice in this page uses: the

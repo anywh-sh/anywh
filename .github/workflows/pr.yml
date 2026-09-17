@@ -39,18 +39,19 @@ jobs:
             client:
               - 'client/**'
               # The client tier also guards that relay/src/host/theme.ts is
-              # still byte-identical to its copy under client/src/lib/
-              # (there's no shared package for them to live in). Without this
-              # line, a change to the relay's copy alone would skip the only
-              # job that can notice the two drifting apart.
+              # still byte-identical to its copy under
+              # client/src/lib/theme/theme.ts (there's no shared package for
+              # them to live in). Without this line, a change to the relay's
+              # copy alone would skip the only job that can notice the two
+              # drifting apart.
               - 'relay/src/**/theme.ts'
               # Same reasoning, same job, for the WS protocol version
               # constant (relay/src/protocol/version.ts vs.
-              # client/src/lib/protocolVersion.ts).
+              # client/src/lib/relay/protocolVersion.ts).
               - 'relay/src/protocol/version.ts'
               # Same reasoning, same job, for the AgentEvent contract
               # (relay/src/protocol/agent-event.ts vs.
-              # client/src/lib/agent-event.ts).
+              # client/src/lib/relay/agent-event.ts).
               - 'relay/src/protocol/agent-event.ts'
               # The installers are compile-time inputs to the client crate,
               # not loose scripts: relay_setup.rs `include_str!`s

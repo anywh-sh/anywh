@@ -12,8 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDict } from "@/i18n";
-import { listDirectories, type FsEntry } from "@/lib/fsBrowse";
-import type { Profile } from "@/lib/profiles";
+import { listDirectories, type FsEntry } from "@/lib/relay/fsBrowse";
+import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
 interface FolderPickerDialogProps {

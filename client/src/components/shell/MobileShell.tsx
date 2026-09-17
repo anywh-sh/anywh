@@ -1,10 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
 import { MobileSidebar } from "@/components/shell/MobileSidebar";
 import { MobileTopBar } from "@/components/shell/MobileTopBar";
-import { REVEAL_PUSH_PX, useRevealDrawer } from "@/hooks/useRevealDrawer";
+import { REVEAL_PUSH_PX, useRevealDrawer } from "@/hooks/tabs/useRevealDrawer";
 import { cn } from "@/lib/utils";
-import type { Profile } from "@/lib/profiles";
-import type { MergedSession } from "@/lib/sessionGrouping";
+import type { Profile } from "@/lib/profiles/profiles";
+import type { MergedSession } from "@/lib/format/sessionGrouping";
 
 interface MobileShellProps {
   activeProfile: Profile;

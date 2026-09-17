@@ -12,17 +12,17 @@ import { LanguageControl } from "@/components/shell/LanguageControl";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { MAC_TRAFFIC_LIGHTS_INSET, WindowControls } from "@/components/shell/WindowControls";
 import { Button } from "@/components/ui/button";
-import { useProfileSetup } from "@/hooks/useProfileSetup";
-import { useProfiles } from "@/hooks/useProfiles";
+import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
+import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useDict } from "@/i18n";
-import { APP_VERSION } from "@/lib/appVersion";
-import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/firstRun";
-import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/localInstall";
-import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/localRelay";
-import { isMacOS } from "@/lib/platform";
-import { clearProfileRevoked, isProfileRevoked } from "@/lib/profileRevocation";
-import { addProfile, removeProfile } from "@/lib/profiles";
-import { completeProfileSetup, dismissProfileSetup, resumeProfileSetup, retryProfileSetup } from "@/lib/profileSetup";
+import { APP_VERSION } from "@/lib/install/appVersion";
+import { beginFirstRun, finishFirstRun, type FirstRunScreen } from "@/lib/profiles/firstRun";
+import { attachPreviousRun, beginLocalInstall, type LocalNote } from "@/lib/install/localInstall";
+import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/lib/install/localRelay";
+import { isMacOS } from "@/lib/platform/platform";
+import { clearProfileRevoked, isProfileRevoked } from "@/lib/profiles/profileRevocation";
+import { addProfile, removeProfile } from "@/lib/profiles/profiles";
+import { completeProfileSetup, dismissProfileSetup, resumeProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
 import { cn } from "@/lib/utils";
 
 /**
