@@ -58,8 +58,31 @@ export interface ContextUsage {
   usedTokens: number;
 }
 
+/** No fixed union: this file doesn't know the full set of agent ids
+ * (`runtimes/registry.ts` does), and hardcoding one here would make adding
+ * a def also require an edit to session persistence. `"claude"` is used as
+ * the literal default below (`DEFAULT_AGENT_ID`) instead of importing
+ * `claudeRuntimeDef.identity.id` from `runtimes/defs/claude/` — the
+ * boundary lint would allow that (via the def's `index.ts` barrel), but
+ * `defs/claude/def.ts` already imports `PermissionMode` from THIS file
+ * (see its own eslint-disable comment), so importing back would be a real
+ * module cycle for three characters that never change independently of the
+ * id that file declares. */
+export type AgentId = string;
+
+const DEFAULT_AGENT_ID: AgentId = "claude";
+
 export interface SessionEntry {
-  sessionId: string | null;
+  /** Which agent def owns this session — every session today, since no
+   * runtime picks a different one yet (see `getAgentId`). Determines which
+   * key `sessionId`/`permissionMode`/`model` read/write below. */
+  agentId: AgentId;
+  /** Keyed by `agentId` — a session's continuity with one agent is
+   * independent of any other agent's, so switching agents (once possible)
+   * can never clobber either one's `--resume` value. A record written
+   * before this existed is migrated so its one value lands under
+   * `DEFAULT_AGENT_ID`'s key (see `load()`). */
+  sessionId: Record<AgentId, string | null>;
   /** `null` until the title is inferred from the first prompt (or set by a
    * manual rename) — while `null`, the session exists (cwd/lock may already
    * be in use) but doesn't show up in `listTitled()`/`GET /sessions`, which
@@ -80,15 +103,16 @@ export interface SessionEntry {
    * read as `"bypassPermissions"` (see `getPermissionMode`), which is the
    * hardcoded behavior everyone already had before a selectable mode
    * existed. Unlike `cwd`, it doesn't lock after the first turn — the mode
-   * can change at any point in the conversation. */
-  permissionMode?: PermissionMode;
+   * can change at any point in the conversation. Keyed by `agentId`, same
+   * reasoning as `sessionId` above. */
+  permissionMode?: Record<AgentId, PermissionMode>;
   /** Optional: `undefined` (never chosen via `/model`) means "don't pass
    * `--model` on spawn", same as the behavior that always existed before
    * this feature — unlike `permissionMode`, there's no hardcoded fallback
    * value, because "let the CLI decide its own default" already IS the
    * default behavior. Same "doesn't lock after the first turn" rule as
-   * `permissionMode`. */
-  model?: ModelChoice;
+   * `permissionMode`, and the same per-`agentId` keying as `sessionId`. */
+  model?: Record<AgentId, ModelChoice>;
   /** Optional for the same reason as `permissionMode`: tolerates records
    * written before this feature existed. Never rebuilt from Claude Code's
    * `.jsonl` on a restart — the `result` event (the only source of the real
@@ -163,6 +187,31 @@ function isLegacyRecord(value: object): value is LegacySessionRecord {
   return Object.values(value).every((entry) => typeof entry === "string" || entry === null);
 }
 
+/** Shape prior to this change: already has `lastActiveAt`, but `sessionId`/
+ * `permissionMode`/`model` are flat — one agent (implicitly Claude) per
+ * session, not keyed by `agentId`. Every session file in production today
+ * is this shape, `PreTitleSessionRecord`, or `PreActivitySessionRecord`. */
+type PreAgentSessionRecord = Record<
+  string,
+  {
+    sessionId: string | null;
+    title: string | null;
+    cwd: SessionCwdState;
+    lastActiveAt: number;
+    permissionMode?: PermissionMode;
+    model?: ModelChoice;
+    contextUsage?: ContextUsage;
+    draft?: string;
+    suggestion?: string | null;
+  }
+>;
+
+function isPreAgentRecord(value: object): value is PreAgentSessionRecord {
+  return Object.values(value).every(
+    (entry) => typeof entry === "object" && entry !== null && "lastActiveAt" in entry && !("agentId" in entry),
+  );
+}
+
 export class SessionStore {
   private records: SessionRecord;
   private migrated = false;
@@ -203,7 +252,8 @@ export class SessionStore {
         // title: an already-existing session doesn't need (and shouldn't)
         // generate a new title, it already had a useful name.
         migrated[name] = {
-          sessionId,
+          agentId: DEFAULT_AGENT_ID,
+          sessionId: { [DEFAULT_AGENT_ID]: sessionId },
           title: name,
           cwd: { cwd: this.defaultCwd, locked: sessionId !== null },
           lastActiveAt: migrationNow,
@@ -216,7 +266,7 @@ export class SessionStore {
       this.migrated = true;
       const migrated: SessionRecord = {};
       for (const [id, entry] of Object.entries(parsed)) {
-        migrated[id] = { ...entry, title: id, lastActiveAt: migrationNow };
+        migrated[id] = { agentId: DEFAULT_AGENT_ID, sessionId: { [DEFAULT_AGENT_ID]: entry.sessionId }, cwd: entry.cwd, title: id, lastActiveAt: migrationNow };
       }
       return migrated;
     }
@@ -225,7 +275,23 @@ export class SessionStore {
       this.migrated = true;
       const migrated: SessionRecord = {};
       for (const [id, entry] of Object.entries(parsed)) {
-        migrated[id] = { ...entry, lastActiveAt: migrationNow };
+        migrated[id] = { agentId: DEFAULT_AGENT_ID, sessionId: { [DEFAULT_AGENT_ID]: entry.sessionId }, title: entry.title, cwd: entry.cwd, lastActiveAt: migrationNow };
+      }
+      return migrated;
+    }
+
+    if (isPreAgentRecord(parsed)) {
+      this.migrated = true;
+      const migrated: SessionRecord = {};
+      for (const [id, entry] of Object.entries(parsed)) {
+        const { sessionId, permissionMode, model, ...rest } = entry;
+        migrated[id] = {
+          ...rest,
+          agentId: DEFAULT_AGENT_ID,
+          sessionId: { [DEFAULT_AGENT_ID]: sessionId },
+          ...(permissionMode !== undefined ? { permissionMode: { [DEFAULT_AGENT_ID]: permissionMode } } : {}),
+          ...(model !== undefined ? { model: { [DEFAULT_AGENT_ID]: model } } : {}),
+        };
       }
       return migrated;
     }
@@ -266,8 +332,8 @@ export class SessionStore {
     return this.records[id]?.lastActiveAt;
   }
 
-  getSessionId(id: string): string | undefined {
-    return this.records[id]?.sessionId ?? undefined;
+  getSessionId(id: string, agentId: AgentId): string | undefined {
+    return this.records[id]?.sessionId[agentId] ?? undefined;
   }
 
   getTitle(id: string): string | null {
@@ -279,8 +345,15 @@ export class SessionStore {
    * real session_id for it). */
   recordId(id: string): void {
     if (id in this.records) return;
-    this.records[id] = { sessionId: null, title: null, cwd: { cwd: this.defaultCwd, locked: false }, lastActiveAt: Date.now() };
+    this.records[id] = { agentId: DEFAULT_AGENT_ID, sessionId: {}, title: null, cwd: { cwd: this.defaultCwd, locked: false }, lastActiveAt: Date.now() };
     this.persist();
+  }
+
+  /** Which agent def owns this session — `DEFAULT_AGENT_ID` for an id that
+   * doesn't exist yet or predates this field, same fallback shape as every
+   * other per-session getter here. */
+  getAgentId(id: string): AgentId {
+    return this.records[id]?.agentId ?? DEFAULT_AGENT_ID;
   }
 
   /** Called on every turn sent (not just the first) — this is what makes an
@@ -310,18 +383,18 @@ export class SessionStore {
     this.persist();
   }
 
-  recordSessionId(id: string, sessionId: string): void {
+  recordSessionId(id: string, agentId: AgentId, sessionId: string): void {
     this.ensureEntry(id);
-    this.records[id].sessionId = sessionId;
+    this.records[id].sessionId[agentId] = sessionId;
     this.persist();
   }
 
   /** `/clear` — drops the recorded continuity, otherwise a relay
    * restart would go back to `--resume`ing the conversation the user
    * already cleared. */
-  clearSessionId(id: string): void {
+  clearSessionId(id: string, agentId: AgentId): void {
     this.ensureEntry(id);
-    this.records[id].sessionId = null;
+    this.records[id].sessionId[agentId] = null;
     this.persist();
   }
 
@@ -359,23 +432,25 @@ export class SessionStore {
     this.persist();
   }
 
-  getPermissionMode(id: string): PermissionMode {
-    return this.records[id]?.permissionMode ?? "bypassPermissions";
+  getPermissionMode(id: string, agentId: AgentId): PermissionMode {
+    return this.records[id]?.permissionMode?.[agentId] ?? "bypassPermissions";
   }
 
-  setPermissionMode(id: string, mode: PermissionMode): void {
+  setPermissionMode(id: string, agentId: AgentId, mode: PermissionMode): void {
     this.ensureEntry(id);
-    this.records[id].permissionMode = mode;
+    this.records[id].permissionMode ??= {};
+    this.records[id].permissionMode[agentId] = mode;
     this.persist();
   }
 
-  getModel(id: string): ModelChoice | undefined {
-    return this.records[id]?.model;
+  getModel(id: string, agentId: AgentId): ModelChoice | undefined {
+    return this.records[id]?.model?.[agentId];
   }
 
-  setModel(id: string, model: ModelChoice): void {
+  setModel(id: string, agentId: AgentId, model: ModelChoice): void {
     this.ensureEntry(id);
-    this.records[id].model = model;
+    this.records[id].model ??= {};
+    this.records[id].model[agentId] = model;
     this.persist();
   }
 
@@ -418,7 +493,8 @@ export class SessionStore {
   private ensureEntry(id: string): void {
     if (!(id in this.records)) {
       this.records[id] = {
-        sessionId: null,
+        agentId: DEFAULT_AGENT_ID,
+        sessionId: {},
         title: null,
         cwd: { cwd: this.defaultCwd, locked: false },
         lastActiveAt: Date.now(),

@@ -62,3 +62,28 @@ test("GET /host-info: ANYWH_EDITOR_SSH describes the ssh target", async () => {
   const body = (await (await fetch(httpUrl("/host-info"))).json()) as { editor: unknown };
   assert.deepEqual(body.editor, { kind: "ssh", user: "wil", host: "debian-headless", port: 2222 });
 });
+
+// The boot-time runtimes/detection.ts probe (server.ts) runs in parallel
+// with httpServer.listen, so `agents` can genuinely be `[]` for a request
+// that lands before it resolves — collectUntil's polling loop is the fix,
+// same "no arbitrary sleep" rule as everywhere else this doctrine applies.
+async function waitForAgents(): Promise<{ id: string; capabilities: Record<string, string> }[]> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const body = (await (await fetch(httpUrl("/host-info"))).json()) as { agents: { id: string; capabilities: Record<string, string> }[] };
+    if (body.agents.length > 0) return body.agents;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("timed out waiting for /host-info's agents to be populated");
+}
+
+test("GET /host-info: agents lists claude (detected against the fake binary), with its declared capabilities", async () => {
+  const agents = await waitForAgents();
+  assert.deepEqual(
+    agents.map((agent) => agent.id),
+    ["claude"],
+  );
+  // Pass-through of the def's own capabilities, not something detection
+  // infers from the binary.
+  assert.equal(agents[0].capabilities.approvalPrompt, "bridged");
+  assert.equal(agents[0].capabilities.thinking, "native");
+});

@@ -217,20 +217,25 @@ export class SessionManager {
 
   private createSession(id: string): SharedSession {
     const { cwd, locked } = this.sessionStore.getCwdState(id);
+    // Every session's agent today — see SessionStore.getAgentId's own
+    // comment for why this isn't picked per-call yet. Read once so every
+    // sessionId/permissionMode/model access below is scoped to the same
+    // agent.
+    const agentId = this.sessionStore.getAgentId(id);
     const session = new SharedSession(this.homeOverride, {
-      initialSessionId: this.sessionStore.getSessionId(id),
-      onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, sessionId),
-      onSessionIdClear: () => this.sessionStore.clearSessionId(id),
+      initialSessionId: this.sessionStore.getSessionId(id, agentId),
+      onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, agentId, sessionId),
+      onSessionIdClear: () => this.sessionStore.clearSessionId(id, agentId),
       onTitleClear: () => this.sessionStore.clearTitle(id),
       initialCwd: cwd,
       initialLocked: locked,
       onCwdChange: (newCwd) => this.sessionStore.setCwd(id, newCwd),
       onLockChange: () => this.sessionStore.lockCwd(id),
       onUnlockChange: () => this.sessionStore.unlockCwd(id),
-      initialPermissionMode: this.sessionStore.getPermissionMode(id),
-      onPermissionModeChange: (mode) => this.sessionStore.setPermissionMode(id, mode),
-      initialModel: this.sessionStore.getModel(id),
-      onModelChange: (model) => this.sessionStore.setModel(id, model),
+      initialPermissionMode: this.sessionStore.getPermissionMode(id, agentId),
+      onPermissionModeChange: (mode) => this.sessionStore.setPermissionMode(id, agentId, mode),
+      initialModel: this.sessionStore.getModel(id, agentId),
+      onModelChange: (model) => this.sessionStore.setModel(id, agentId, model),
       initialContextUsage: this.sessionStore.getContextUsage(id),
       onContextUsageChange: (usage) => this.sessionStore.setContextUsage(id, usage),
       initialDraft: this.sessionStore.getDraft(id),

@@ -64,5 +64,5 @@ test("a completed turn's session_id is persisted to disk, readable by a fresh Se
   // real-persistence check sessionStore.test.ts already uses for the
   // pure-unit side of this class.
   const reloaded = new SessionStore(process.env.RELAY_SESSIONS_FILE!, server.homeDir);
-  assert.ok(reloaded.getSessionId("session-c"), "expected session-c's claude session_id to survive a reload from disk");
+  assert.ok(reloaded.getSessionId("session-c", "claude"), "expected session-c's claude session_id to survive a reload from disk");
 });

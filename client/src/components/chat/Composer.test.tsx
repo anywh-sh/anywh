@@ -5,8 +5,20 @@ import { Composer } from "./Composer";
 import { LocaleProvider, LOCALE_STORAGE_KEY, useLocale } from "@/i18n";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
+import { getHostInfo } from "@/lib/relay/filesClient";
+import type { Profile } from "@/lib/profiles/profiles";
+
+// AgentPickerButton (mounted inside Composer) fetches /host-info — mocked
+// here the same way FileTree.test.tsx does, so this suite stays about the
+// composer's language switch, not a real network call.
+vi.mock("@/lib/relay/filesClient", () => ({
+  getHostInfo: vi.fn(),
+}));
+
+const profile: Profile = { id: "p1", label: "Perfil", host: "localhost", relayPort: 4317 };
 
 beforeEach(() => {
+  vi.mocked(getHostInfo).mockResolvedValue({ hostname: "host", platform: "linux", editor: null });
   localStorage.clear();
   // The provider resolves its first locale from `navigator.languages`, which
   // differs between machines — pinned so the "before" half of the assertion
@@ -26,6 +38,7 @@ function Harness() {
         switch
       </button>
       <Composer
+        profile={profile}
         onSend={vi.fn()}
         turnInFlight={false}
         onStop={vi.fn()}

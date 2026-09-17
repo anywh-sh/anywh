@@ -169,10 +169,25 @@ export async function renameFile(profile: Profile, sessionId: string, path: stri
   return postJson(`${base}/files/rename`, { session: sessionId, path, newName }, token);
 }
 
+/** One entry of `/host-info`'s `agents` — only the agent ids that have an
+ * actual engine behind them today (just `"claude"`; see server.ts's
+ * `SELECTABLE_AGENT_IDS`). Capability values are relay's `CapabilityLevel`
+ * strings ("native"/"bridged"/"none"), kept as `Record<string, string>`
+ * rather than mirroring the full `AgentCapability` union client-side — no
+ * consumer here reads a specific key yet. */
+export interface SelectableAgentInfo {
+  id: string;
+  capabilities: Record<string, string>;
+}
+
 export interface HostInfo {
   hostname: string;
   platform: string;
   editor: EditorLocality;
+  /** Optional: an older relay simply omits it, same shape as `version`
+   * (server.ts) — empty/absent until the boot-time detection probe
+   * resolves. */
+  agents?: SelectableAgentInfo[];
 }
 
 /** Whether/how the client can open a file panel path in a local editor —

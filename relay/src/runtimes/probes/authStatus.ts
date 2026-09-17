@@ -11,6 +11,15 @@ export interface ClaudeAuthStatus {
   subscriptionType?: string;
 }
 
+/** Pure parse of `claude auth status --json`'s stdout — pulled out of
+ * `runClaudeAuthStatus` so `defs/claude/def.ts`'s `AuthSource` can reuse it
+ * without duplicating the shape or re-spawning anything. Throws on invalid
+ * JSON, same as the inline `JSON.parse` this replaces — `runClaudeAuthStatus`
+ * below still turns that into a rejected promise. */
+export function parseClaudeAuthStatus(stdout: string): ClaudeAuthStatus {
+  return JSON.parse(stdout) as ClaudeAuthStatus;
+}
+
 /** Runs `claude auth status --json` under the given `$HOME` — reuses
  * `buildChildEnv` (strips `ANTHROPIC_API_KEY`, patches `PATH`) for the exact
  * reason a real turn does: without the `PATH` patch the binary isn't found
@@ -37,7 +46,7 @@ export function runClaudeAuthStatus(homeOverride: string | undefined): Promise<C
     child.on("close", () => {
       clearTimeout(timeout);
       try {
-        resolveStatus(JSON.parse(stdout) as ClaudeAuthStatus);
+        resolveStatus(parseClaudeAuthStatus(stdout));
       } catch (error) {
         rejectStatus(error instanceof Error ? error : new Error(String(error)));
       }

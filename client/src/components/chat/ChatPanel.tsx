@@ -686,6 +686,7 @@ export function ChatPanel({
 
             <Composer
               ref={composerRef}
+              profile={profile}
               disabled={!connected}
               turnInFlight={turnInFlight}
               onStop={stopTurn}

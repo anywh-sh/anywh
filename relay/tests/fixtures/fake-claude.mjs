@@ -113,7 +113,14 @@ async function callPresentChoice(mcpConfigJson, questions) {
   return callResult.result?.content?.[0]?.text ?? "";
 }
 
-if (args[0] === "auth" && args[1] === "status") {
+if (args[0] === "--version") {
+  // Real shape: a bare version number followed by a parenthesized product
+  // name. runtimes/detection.ts only checks the exit code and trims
+  // stdout — this exists so a test can assert `installed: true` against
+  // this fixture the same way it would against the real binary.
+  process.stdout.write("2.1.0 (Claude Code)\n");
+  process.exit(0);
+} else if (args[0] === "auth" && args[1] === "status") {
   emit({ loggedIn: true, email: "fake@anywh.test", subscriptionType: "pro" });
   process.exit(0);
 } else if (args[0] === "-p") {
