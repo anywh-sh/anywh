@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractContextUsage, isMainThreadEvent, isSessionInvalidError, type ClaudeEvent } from "./session.js";
+import { buildTurnArgs, extractContextUsage, isMainThreadEvent, isSessionInvalidError, type ClaudeEvent } from "./session.js";
+
+/** The value passed to `--append-system-prompt` — every case below folds
+ * something into this single joined string rather than a separate flag. */
+function appendSystemPromptValue(args: readonly string[]): string {
+  const index = args.indexOf("--append-system-prompt");
+  assert.notEqual(index, -1, "expected --append-system-prompt in argv");
+  return args[index + 1];
+}
 
 // Real shapes, captured by actually running `claude -p` (see the context
 // window indicator plan) — used as the basis for the tests below so the
@@ -144,4 +152,55 @@ test("isMainThreadEvent: false when parent_tool_use_id points at the tool_use th
     }),
     false,
   );
+});
+
+// buildTurnArgs — characterizes the argv built for a turn today, minus MCP
+// flags and --resume (see the function's own comment for why those stay in
+// sendTurn). Pinning behavior as it exists now, not redesigning it here.
+
+test("buildTurnArgs: bypassPermissions uses --dangerously-skip-permissions, never --permission-mode", () => {
+  const args = buildTurnArgs("hi", "bypassPermissions", undefined);
+  assert.ok(args.includes("--dangerously-skip-permissions"));
+  assert.ok(!args.includes("--permission-mode"));
+});
+
+test("buildTurnArgs: every other mode passes --permission-mode <mode>, never the bypass flag", () => {
+  for (const mode of ["default", "acceptEdits", "plan"] as const) {
+    const args = buildTurnArgs("hi", mode, undefined);
+    const index = args.indexOf("--permission-mode");
+    assert.notEqual(index, -1, `expected --permission-mode for ${mode}`);
+    assert.equal(args[index + 1], mode);
+    assert.ok(!args.includes("--dangerously-skip-permissions"));
+  }
+});
+
+test("buildTurnArgs: --model is only present when a model was chosen", () => {
+  const withModel = buildTurnArgs("hi", "default", "claude-sonnet-5");
+  const modelIndex = withModel.indexOf("--model");
+  assert.notEqual(modelIndex, -1);
+  assert.equal(withModel[modelIndex + 1], "claude-sonnet-5");
+
+  const withoutModel = buildTurnArgs("hi", "default", undefined);
+  assert.ok(!withoutModel.includes("--model"));
+});
+
+test("buildTurnArgs: plan mode folds the plan-mode choice marker into --append-system-prompt", () => {
+  const planValue = appendSystemPromptValue(buildTurnArgs("hi", "plan", undefined));
+  const defaultValue = appendSystemPromptValue(buildTurnArgs("hi", "default", undefined));
+  // Marker text lives in bridges/planChoiceMarker.ts — asserting presence,
+  // not duplicating its literal value here.
+  assert.notEqual(planValue, defaultValue);
+  assert.ok(planValue.length > defaultValue.length);
+});
+
+test("buildTurnArgs: extraSystemPrompt folds into --append-system-prompt alongside the base prompt", () => {
+  const withoutExtra = appendSystemPromptValue(buildTurnArgs("hi", "default", undefined));
+  const withExtra = appendSystemPromptValue(buildTurnArgs("hi", "default", undefined, "use present_choice for this"));
+  assert.ok(withExtra.includes("use present_choice for this"));
+  assert.ok(withExtra.startsWith(withoutExtra));
+});
+
+test("buildTurnArgs: base flags and prompt text are always present, in a stable order", () => {
+  const args = buildTurnArgs("do the thing", "default", undefined);
+  assert.deepEqual(args.slice(0, 6), ["-p", "do the thing", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]);
 });
