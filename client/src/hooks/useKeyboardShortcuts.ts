@@ -49,6 +49,34 @@ export function matchShortcut(event: ShortcutKeyEvent): ShortcutId | null {
   }
 }
 
+/**
+ * Whether the terminal owns this keydown, given it has focus.
+ *
+ * The rule is one line on purpose: the shell owns every plain Ctrl+<key>,
+ * because that's exactly the set xterm translates into a control byte and
+ * sends down the pty. Before this guard existed, Ctrl+W deleted a word in the
+ * shell *and* closed the app's tab, Ctrl+K killed the line *and* opened the
+ * global search, Ctrl+B moved the cursor (or opened tmux's prefix) *and*
+ * toggled the sidebar — `preventDefault` can't undo any of it, since xterm's
+ * own handler runs first, on its internal textarea.
+ *
+ * The exceptions are the combinations xterm produces nothing for, which is
+ * what makes them safe to keep as app chrome — and Ctrl+` in particular has
+ * to stay reachable, it's how the panel gets closed from inside it. Anything
+ * using `metaKey` is out of scope too: on macOS Cmd is the app's modifier and
+ * Ctrl stays entirely the shell's.
+ */
+export function isTerminalOwnedShortcut(event: ShortcutKeyEvent): boolean {
+  return event.ctrlKey && !event.metaKey && !event.shiftKey && event.key !== "Tab" && event.key !== "`";
+}
+
+/** The keydown of a focused terminal is raised on xterm's hidden helper
+ * textarea, which lives inside the `.xterm` container — so the ancestor
+ * lookup, not a comparison against the container itself. */
+export function eventTargetInTerminal(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(".xterm") !== null;
+}
+
 interface ShortcutHandlers {
   onToggleSearch: () => void;
   onCycleTab: (direction: 1 | -1) => void;
@@ -74,6 +102,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers): void {
 
   useEffect(() => {
     function handleSearchShortcut(event: KeyboardEvent): void {
+      if (eventTargetInTerminal(event.target) && isTerminalOwnedShortcut(event)) return;
       if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         handlersRef.current.onToggleSearch();
@@ -85,6 +114,7 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers): void {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
+      if (eventTargetInTerminal(event.target) && isTerminalOwnedShortcut(event)) return;
       const shortcut = matchShortcut(event);
       if (!shortcut) return;
       event.preventDefault();
