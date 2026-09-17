@@ -12,13 +12,16 @@ import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/p
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
-import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
+import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
 import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
 import {
   type BroadcastMessage,
   broadcast,
+  broadcastAgentState,
   broadcastBackgroundJobs,
   broadcastContextUsage,
   broadcastContextUsageReset,
@@ -31,6 +34,7 @@ import {
   broadcastSuggestion,
   broadcastTitle,
   broadcastTurnState,
+  sendAgentState,
   sendBackgroundJobs,
   sendContextUsage,
   sendCwdState,
@@ -200,13 +204,20 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
  * session" across devices.
  */
 export class SharedSession implements SessionDriverHost {
-  private readonly driver: AgentSessionDriver;
+  /** Not `readonly`: `switchAgent` replaces it when the user picks a
+   * different agent mid-conversation — see that method's own doc comment. */
+  private driver: AgentSessionDriver;
   private readonly history: BroadcastMessage[] = [];
   private readonly clients = new Set<WebSocket>();
   private turnQueue: Promise<void> = Promise.resolve();
   private cwd: string;
   private locked: boolean;
   private title: string | null;
+  private def: AgentRuntimeDef;
+  /** This session's agent's own mode vocabulary for the host's platform —
+   * derived from `def` once at construction (see `session/permissionModes.ts`).
+   * `permissionMode` is validated against this, not against a fixed union. */
+  private permissionModes: readonly PermissionModeOption[];
   private permissionMode: PermissionMode;
   private model: ModelChoice | undefined;
   private draft: string;
@@ -249,24 +260,13 @@ export class SharedSession implements SessionDriverHost {
     private readonly homeOverride: string | undefined,
     private readonly options: SharedSessionOptions,
   ) {
-    this.driver = createSessionDriver(options.def, {
-      homeOverride,
-      initialSessionId: options.initialSessionId,
-      host: this,
-      claudeMcp:
-        options.mcpChoiceBridge || options.mcpPermissionBridge
-          ? {
-              choiceBridge: options.mcpChoiceBridge,
-              bridgeBaseUrl: options.mcpBridgeBaseUrl,
-              permissionBridge: options.mcpPermissionBridge,
-              permissionBridgeBaseUrl: options.mcpPermissionBridgeBaseUrl,
-            }
-          : undefined,
-    });
+    this.driver = this.createDriver(options.def, options.initialSessionId);
     this.cwd = options.initialCwd;
     this.locked = options.initialLocked;
     this.title = options.initialTitle ?? null;
-    this.permissionMode = options.initialPermissionMode;
+    this.def = options.def;
+    this.permissionModes = availableModes(this.def, toHostPlatform());
+    this.permissionMode = resolveInitialMode(this.permissionModes, options.initialPermissionMode, this.def.permissions.defaultModeId);
     this.model = options.initialModel;
     this.contextUsage = options.initialContextUsage;
     this.draft = options.initialDraft ?? "";
@@ -284,12 +284,80 @@ export class SharedSession implements SessionDriverHost {
     this.driver.dispose();
   }
 
+  /** Factored out of the constructor so `switchAgent` can build the
+   * replacement driver the same way — the MCP bridge wiring only ever
+   * applies to Claude's driver (`createSessionDriver` ignores `claudeMcp`
+   * for any other def), so passing it unconditionally here is harmless for
+   * a session that switches to Codex and back. */
+  private createDriver(def: AgentRuntimeDef, initialSessionId: string | undefined): AgentSessionDriver {
+    return createSessionDriver(def, {
+      homeOverride: this.homeOverride,
+      initialSessionId,
+      host: this,
+      claudeMcp:
+        this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
+          ? {
+              choiceBridge: this.options.mcpChoiceBridge,
+              bridgeBaseUrl: this.options.mcpBridgeBaseUrl,
+              permissionBridge: this.options.mcpPermissionBridge,
+              permissionBridgeBaseUrl: this.options.mcpPermissionBridgeBaseUrl,
+            }
+          : undefined,
+    });
+  }
+
   getCwdState(): { cwd: string; locked: boolean } {
     return { cwd: this.cwd, locked: this.locked };
   }
 
+  getAgentId(): string {
+    return this.def.identity.id;
+  }
+
+  /**
+   * Swaps the engine under a live session without touching its transcript:
+   * the log is the conversation's, not an agent's. The outgoing driver is
+   * disposed (a Codex daemon would otherwise leak until the session is
+   * deleted) and the incoming one starts from whatever thread/session id
+   * THIS agent had last — which is why `SessionStore` keys those per
+   * `agentId` (`SessionManager.setAgent`, which resolves all four `initial*`
+   * fields below before calling this).
+   *
+   * Refused mid-turn (`turnStartedAt !== null`): swapping the driver under
+   * an in-flight `sendTurn` would strand its promise on a driver nobody
+   * holds a reference to anymore. The client finds out via the
+   * `agent_state`/`permission_mode_state`/`model_state` re-broadcast this
+   * method skips in that case — `SessionManager.setAgent` still wrote the
+   * new choice to `SessionStore`, so the picker will show it correctly on
+   * this session's NEXT connection, just not this one, mid-turn.
+   */
+  switchAgent(next: { def: AgentRuntimeDef; initialSessionId?: string; initialPermissionMode: string; initialModel?: string }): void {
+    if (this.turnStartedAt !== null) return;
+    this.driver.dispose();
+    this.def = next.def;
+    this.driver = this.createDriver(next.def, next.initialSessionId);
+    this.permissionModes = availableModes(next.def, toHostPlatform());
+    this.permissionMode = resolveInitialMode(this.permissionModes, next.initialPermissionMode, next.def.permissions.defaultModeId);
+    this.model = next.initialModel;
+    // The previous agent's usage — Codex and Claude don't share a context
+    // window, so there's nothing honest to translate it to. The indicator
+    // simply won't show anything until this agent's next turn.
+    this.contextUsage = undefined;
+    this.broadcastAgentState();
+    this.broadcastPermissionMode();
+    this.broadcastModelState();
+  }
+
   getPermissionMode(): PermissionMode {
     return this.permissionMode;
+  }
+
+  /** This session's own def's mode vocabulary for the host's platform — what
+   * `PermissionModeButton` needs to render a dropdown, sent over the wire
+   * alongside `mode` itself (`sendPermissionMode`/`broadcastPermissionMode`),
+   * never through `GET /host-info` (that's per-relay, not per-session). */
+  getPermissionModes(): readonly PermissionModeOption[] {
+    return this.permissionModes;
   }
 
   getModel(): ModelChoice | undefined {
@@ -300,9 +368,18 @@ export class SharedSession implements SessionDriverHost {
     return this.contextUsage;
   }
 
-  /** Unlike `setCwd`, has no lock or validation — any of the 4 values is
-   * always acceptable at any point in the conversation. */
+  /** Unlike `setCwd`, has no lock — any offered mode is always acceptable at
+   * any point in the conversation. Does validate, though: the mode
+   * vocabulary is this session's own def's, and a client can be one build
+   * behind (or on another device that already switched agents). An unknown
+   * id re-broadcasts the current mode instead of accepting it — a dropdown
+   * showing a mode the engine will reject on the next turn is worse than a
+   * dropdown that snaps back. */
   setPermissionMode(mode: PermissionMode): void {
+    if (!isOfferedMode(this.permissionModes, mode)) {
+      this.broadcastPermissionMode();
+      return;
+    }
     this.permissionMode = mode;
     this.options.onPermissionModeChange?.(mode);
     this.broadcastPermissionMode();
@@ -448,9 +525,13 @@ export class SharedSession implements SessionDriverHost {
    * switch doesn't do redundant work on every status event; not
    * `setPermissionMode` (that one is for the human's own dropdown pick and
    * always notifies) because this needs the exact same side effects driven
-   * by a different source of truth. */
+   * by a different source of truth. Reached through `AgentEvent`'s
+   * driver-agnostic `status` variant (`runTurn`), so no driver is
+   * special-cased here — narrowing against THIS session's own modes (not a
+   * fixed Claude union) is what makes this agent-correct for whichever def
+   * is active. */
   private applyPermissionModeFromCli(mode: string): void {
-    if (!isPermissionMode(mode) || mode === this.permissionMode) return;
+    if (!isOfferedMode(this.permissionModes, mode) || mode === this.permissionMode) return;
     this.permissionMode = mode;
     this.options.onPermissionModeChange?.(mode);
     this.broadcastPermissionMode();
@@ -507,6 +588,7 @@ export class SharedSession implements SessionDriverHost {
     // First thing of all — a freshly opened tab knows the cwd/lock
     // immediately, without waiting for a turn or the history replay to finish.
     this.sendCwdState(socket);
+    this.sendAgentState(socket);
     this.sendPermissionMode(socket);
     this.sendModelState(socket);
     if (this.title !== null) this.sendTitle(socket, this.title);
@@ -976,12 +1058,20 @@ export class SharedSession implements SessionDriverHost {
     broadcastCwdState(this.clients, this.cwd, this.locked);
   }
 
+  private sendAgentState(target: WebSocket): void {
+    sendAgentState(target, this.def.identity.id);
+  }
+
+  private broadcastAgentState(): void {
+    broadcastAgentState(this.clients, this.def.identity.id);
+  }
+
   private sendPermissionMode(target: WebSocket): void {
-    sendPermissionMode(target, this.permissionMode);
+    sendPermissionMode(target, this.permissionMode, this.permissionModes);
   }
 
   private broadcastPermissionMode(): void {
-    broadcastPermissionMode(this.clients, this.permissionMode);
+    broadcastPermissionMode(this.clients, this.permissionMode, this.permissionModes);
   }
 
   private sendModelState(target: WebSocket): void {

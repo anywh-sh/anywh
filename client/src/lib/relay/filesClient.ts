@@ -169,12 +169,14 @@ export async function renameFile(profile: Profile, sessionId: string, path: stri
   return postJson(`${base}/files/rename`, { session: sessionId, path, newName }, token);
 }
 
-/** One entry of `/host-info`'s `agents` — only the agent ids that have an
- * actual engine behind them today (just `"claude"`; see server.ts's
- * `SELECTABLE_AGENT_IDS`). Capability values are relay's `CapabilityLevel`
- * strings ("native"/"bridged"/"none"), kept as `Record<string, string>`
- * rather than mirroring the full `AgentCapability` union client-side — no
- * consumer here reads a specific key yet. */
+/** One entry of `/host-info`'s `agents` — every agent id this relay's
+ * `SELECTABLE_AGENT_IDS` (server.ts) names AND has its binary actually
+ * installed (a relay without `codex` on `$PATH` only ever reports
+ * `"claude"`, even though both are selectable in principle). Capability
+ * values are relay's `CapabilityLevel` strings ("native"/"bridged"/"none"),
+ * kept as `Record<string, string>` rather than mirroring the full
+ * `AgentCapability` union client-side — no consumer here reads a specific
+ * key yet. */
 export interface SelectableAgentInfo {
   id: string;
   capabilities: Record<string, string>;

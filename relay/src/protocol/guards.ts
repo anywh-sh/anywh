@@ -44,14 +44,20 @@ export function isSetCwdMessage(value: unknown): value is { type: "set_cwd"; pat
   );
 }
 
-const PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
-
+// No fixed enum here on purpose, same reasoning `isSetModelMessage` below
+// already spells out: the real vocabulary is per-agent AND per-platform
+// (`PermissionPolicy.modesFor`), and this guard has no session — let alone a
+// def — in scope. The authoritative check runs one layer in, in
+// `SharedSession.setPermissionMode`, which owns the session's def and
+// answers a rejected mode by re-broadcasting the current one (so a client
+// that guessed wrong self-corrects instead of silently diverging).
 export function isSetPermissionModeMessage(value: unknown): value is { type: "set_permission_mode"; mode: PermissionMode } {
   return (
     typeof value === "object" &&
     value !== null &&
     (value as { type?: unknown }).type === "set_permission_mode" &&
-    PERMISSION_MODES.includes((value as { mode?: unknown }).mode as PermissionMode)
+    typeof (value as { mode?: unknown }).mode === "string" &&
+    (value as { mode: string }).mode.length > 0
   );
 }
 
@@ -67,6 +73,20 @@ export function isSetModelMessage(value: unknown): value is { type: "set_model";
     (value as { type?: unknown }).type === "set_model" &&
     typeof (value as { model?: unknown }).model === "string" &&
     (value as { model: string }).model.length > 0
+  );
+}
+
+/** No fixed enum here either, same reasoning as `isSetPermissionModeMessage`
+ * above — the real vocabulary is `SELECTABLE_AGENT_IDS` (server.ts), which
+ * this guard has no access to. An id the registry doesn't recognize is a
+ * no-op in `SessionManager.setAgent`, not a crash. */
+export function isSetAgentMessage(value: unknown): value is { type: "set_agent"; agentId: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "set_agent" &&
+    typeof (value as { agentId?: unknown }).agentId === "string" &&
+    (value as { agentId: string }).agentId.length > 0
   );
 }
 

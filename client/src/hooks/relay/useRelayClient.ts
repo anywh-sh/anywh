@@ -10,6 +10,7 @@ import {
   type HistoryPageMessage,
   type ModelChoice,
   type PermissionMode,
+  type PermissionModeOption,
   type RelayClientCallbacks,
   type SetCwdErrorCode,
 } from "@/lib/relay/relayClient";
@@ -82,8 +83,19 @@ export interface UseRelayClientResult {
   cwd: string | null;
   cwdLocked: boolean;
   /** `null` only in the brief window between connecting and the first
+   * `agent_state` arriving — same reason as `cwd` above. Drives
+   * `AgentPickerButton`'s selection and the `ModelButton` gate (its catalog
+   * is Claude's `/model` probe, meaningless for any other agent). */
+  agentId: string | null;
+  /** `null` only in the brief window between connecting and the first
    * `permission_mode_state` arriving — same reason as `cwd` above. */
   permissionMode: PermissionMode | null;
+  /** This session's own agent's mode vocabulary — `[]` until the first
+   * `permission_mode_state` arrives, same window as `permissionMode` above
+   * (`PermissionModeButton` stays disabled the whole time regardless, since
+   * `permissionMode` itself is `null` then). Reset alongside `permissionMode`
+   * on a session switch, not left stale from the previous session's agent. */
+  permissionModes: PermissionModeOption[];
   /** `null` both in the brief window between connecting and the first `model_state`
    * and in the final "never chosen via /model" state — the two
    * behave the same for the UI (uses the CLI default), no need to distinguish. */
@@ -118,6 +130,7 @@ export interface UseRelayClientResult {
   sendMessage: (text: string) => void;
   stopTurn: () => void;
   setCwd: (path: string) => void;
+  setAgent: (agentId: string) => void;
   setPermissionMode: (mode: PermissionMode) => void;
   setModel: (model: ModelChoice) => void;
   clearConversation: () => void;
@@ -165,7 +178,9 @@ export function useRelayClient(
   const [connectingTailnet, setConnectingTailnet] = useState(false);
   const [cwd, setCwdState] = useState<string | null>(null);
   const [cwdLocked, setCwdLocked] = useState(false);
+  const [agentId, setAgentIdState] = useState<string | null>(null);
   const [permissionMode, setPermissionModeState] = useState<PermissionMode | null>(null);
+  const [permissionModes, setPermissionModes] = useState<PermissionModeOption[]>([]);
   const [model, setModelState] = useState<ModelChoice | null>(null);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
@@ -188,7 +203,9 @@ export function useRelayClient(
     // first `cwd_state` for this new session.
     setCwdState(null);
     setCwdLocked(false);
+    setAgentIdState(null);
     setPermissionModeState(null);
+    setPermissionModes([]);
     setModelState(null);
     setDefaultModel(null);
     setContextUsage(null);
@@ -230,7 +247,11 @@ export function useRelayClient(
         setCwdLocked(locked);
       },
       onSetCwdError: (code) => optionsRef.current.onSetCwdError?.(code),
-      onPermissionModeState: setPermissionModeState,
+      onAgentState: setAgentIdState,
+      onPermissionModeState: (mode, available) => {
+        setPermissionModeState(mode);
+        setPermissionModes(available);
+      },
       onModelState: setModelState,
       onDefaultModelState: setDefaultModel,
       onContextUsageState: setContextUsage,
@@ -380,6 +401,10 @@ export function useRelayClient(
     clientRef.current?.setCwd(path);
   }, []);
 
+  const setAgent = useCallback((newAgentId: string) => {
+    clientRef.current?.setAgent(newAgentId);
+  }, []);
+
   const setPermissionMode = useCallback((mode: PermissionMode) => {
     clientRef.current?.setPermissionMode(mode);
   }, []);
@@ -427,7 +452,9 @@ export function useRelayClient(
     connectingTailnet,
     cwd,
     cwdLocked,
+    agentId,
     permissionMode,
+    permissionModes,
     model,
     defaultModel,
     contextUsage,
@@ -438,6 +465,7 @@ export function useRelayClient(
     sendMessage,
     stopTurn,
     setCwd,
+    setAgent,
     setPermissionMode,
     setModel,
     clearConversation,

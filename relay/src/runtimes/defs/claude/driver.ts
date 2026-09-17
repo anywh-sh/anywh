@@ -8,15 +8,9 @@ import { defaultCwd } from "../../../host/paths.js";
 import type { McpChoiceBridge } from "../../../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../../../bridges/permissionBridge.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
-// Known reverse-direction dependency, same declared exception
-// runtimes/defs/claude/session.ts already has for PermissionMode: a def
-// reaching into session/ for a type PermissionPolicy<S> takes over once an
-// engine consumes it at runtime, not yet the case here.
-// eslint-disable-next-line import-x/no-restricted-paths
-import type { PermissionMode } from "../../../session/sessionStore.js";
 import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../../sessionDriver.js";
 import type { TurnContext } from "../../types.js";
-import { ClaudeSession } from "./session.js";
+import { ClaudeSession, toClaudeMode } from "./session.js";
 import { transcriptPath } from "./transcriptReader.js";
 import { forkTruncatedTranscript } from "./transcriptFork.js";
 import { buildMcpSpawnConfig } from "./mcpSpawnConfig.js";
@@ -75,7 +69,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
   dispose(): void {}
 
   async sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult> {
-    const permissionMode = ctx.permissionModeId as PermissionMode;
+    const permissionMode = toClaudeMode(ctx.permissionModeId);
     // Registered fresh for every turn (not once per session): the token is
     // the endpoint's only auth, and a turn that ends (however it ends —
     // success, error, or `stop()`) must not leave a token alive that a

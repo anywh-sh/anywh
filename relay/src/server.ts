@@ -153,15 +153,12 @@ detectDefaultModel(HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
     console.error("[relay] failed to detect default model:", error);
   });
 
-// Every agent id that has an actual engine driving a turn today — the only
-// one this relay can spawn is Claude. `detectRuntimes` below still probes
-// Codex too (useful signal on its own, logged on failure), but its result
-// is deliberately filtered out here: a def with no engine behind it
-// reaching a client's agent picker would offer a choice that breaks the
-// moment it's made. Grows the day a second engine (runtimes/engines/) lands
-// — same "extend this list to teach the relay a new agent" shape as
-// BILLED_CREDENTIAL_VARS in runtimes/executables.ts.
-const SELECTABLE_AGENT_IDS = ["claude"];
+// Every agent id a client may pick for a session. `detectRuntimes` below
+// filters further on `installed`, so a relay without the `codex` binary
+// still only ever offers Claude. Extending this list is how the relay
+// learns a new agent — same shape as `BILLED_CREDENTIAL_VARS` in
+// `runtimes/executables.ts`, which also grows per agent.
+const SELECTABLE_AGENT_IDS = ["claude", "codex"];
 
 detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
   .then((detections) => {
@@ -311,7 +308,7 @@ wss.on("connection", (socket: WebSocket, request) => {
     } catch {
       return;
     }
-    dispatchChatMessage(session, socket, parsed);
+    dispatchChatMessage(session, socket, parsed, (agentId) => sessionManager.setAgent(sessionId, agentId));
   });
 
   socket.on("close", () => {

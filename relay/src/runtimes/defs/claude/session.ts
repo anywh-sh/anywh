@@ -4,13 +4,27 @@ import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../execut
 import { buildChildEnv } from "../../../host/childEnv.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
 // Known reverse-direction dependency, surfaced by turning on the boundary
-// lint (not by this file changing): a def reaching into session/ for three
-// types it should be the one describing. `PermissionMode` in particular is
-// exactly the kind of field the per-def PermissionPolicy<S> in
-// runtimes/types.ts takes over — dies once this def declares its own
-// settings shape instead of borrowing session/sessionStore.ts's.
+// lint (not by this file changing): a def reaching into session/ for two
+// types it should be the one describing.
 // eslint-disable-next-line import-x/no-restricted-paths
-import type { ContextUsage, ModelChoice, PermissionMode } from "../../../session/sessionStore.js";
+import type { ContextUsage, ModelChoice } from "../../../session/sessionStore.js";
+
+/** Claude's own permission-mode vocabulary — this def's answer to
+ * `PermissionPolicy<TSettings>` (runtimes/types.ts), not borrowed from
+ * `session/sessionStore.ts` anymore (that file's `PermissionMode` is an
+ * opaque per-agent string; conflating the two names is exactly the confusion
+ * that motivated splitting them). */
+export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+
+/** Total narrowing from the session's opaque mode id down to this CLI's four
+ * literals. The fallback branch is unreachable in practice —
+ * `SharedSession.setPermissionMode` never lets an id through that this def's
+ * own `permissions.modesFor` didn't offer — but this file has no such
+ * guarantee of its own to lean on, and a spawn should never carry
+ * `--permission-mode undefined`. */
+export function toClaudeMode(id: string): ClaudePermissionMode {
+  return id === "default" || id === "acceptEdits" || id === "plan" || id === "bypassPermissions" ? id : "default";
+}
 
 // A turn = a `claude -p` process. Continuity across turns comes from
 // `--resume <session_id>`, not from keeping a process alive.
@@ -171,7 +185,7 @@ export interface McpSpawnConfig {
  * file's comment for the gap this leaves (a real engine would need
  * `TurnContext` to carry MCP config and `extraSystemPrompt` too).
  */
-export function buildTurnArgs(text: string, permissionMode: PermissionMode, model: ModelChoice | undefined, extraSystemPrompt?: string): string[] {
+export function buildTurnArgs(text: string, permissionMode: ClaudePermissionMode, model: ModelChoice | undefined, extraSystemPrompt?: string): string[] {
   return [
     "-p",
     text,
@@ -379,7 +393,7 @@ export class ClaudeSession {
   async sendTurn(
     text: string,
     cwd: string,
-    permissionMode: PermissionMode,
+    permissionMode: ClaudePermissionMode,
     model: ModelChoice | undefined,
     onEvent: (event: ClaudeEvent) => void,
     mcp?: McpSpawnConfig,

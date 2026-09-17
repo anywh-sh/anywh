@@ -62,7 +62,7 @@ const ZONES = [
 // must only ever be read in the one file that strips them from a child's
 // env. A second read site is how a leak starts — this makes a new one a
 // lint error instead of a code-review hope.
-const CREDENTIAL_VAR_NAMES = "ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN";
+const CREDENTIAL_VAR_NAMES = "ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|OPENAI_API_KEY";
 
 export default tseslint.config(
   {

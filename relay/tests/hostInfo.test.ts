@@ -78,12 +78,18 @@ async function waitForAgents(): Promise<{ id: string; capabilities: Record<strin
 
 test("GET /host-info: agents lists claude (detected against the fake binary), with its declared capabilities", async () => {
   const agents = await waitForAgents();
-  assert.deepEqual(
-    agents.map((agent) => agent.id),
-    ["claude"],
-  );
+  // Not asserted as the WHOLE list: unlike Claude (AGENT_BIN points this
+  // whole suite at the fake binary), Codex's `identity.bin` is the literal
+  // `"codex"` with no test-time override — on a machine that happens to
+  // have the real CLI installed (the author's own, used for the live smoke
+  // tests documented on runtimes/defs/codex.ts), detection genuinely finds
+  // it and `agents` legitimately grows a second entry. What this test
+  // actually characterizes is Claude's own capabilities passing through
+  // detection unchanged, not the total count.
+  const claude = agents.find((agent) => agent.id === "claude");
+  assert.ok(claude, `expected "claude" among detected agents, got: ${JSON.stringify(agents)}`);
   // Pass-through of the def's own capabilities, not something detection
   // infers from the binary.
-  assert.equal(agents[0].capabilities.approvalPrompt, "bridged");
-  assert.equal(agents[0].capabilities.thinking, "native");
+  assert.equal(claude.capabilities.approvalPrompt, "bridged");
+  assert.equal(claude.capabilities.thinking, "native");
 });
