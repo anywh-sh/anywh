@@ -832,19 +832,20 @@ export class SharedSession {
         this.permissionMode,
         this.model,
         (event) => {
-          // Must run BEFORE the broadcast below: a device
-          // reconnecting mid-turn right as this arrives should see the
-          // updated mode, not a stale one from before this same event was
-          // processed. Checked unconditionally (not just when
-          // `permissionRegistration` is active) since this event is a
-          // general CLI mechanism, not exclusive to the `ExitPlanMode` path.
-          // Reads the raw CLI event directly — independent of the mapped
-          // `AgentEvent` stream below, which also gets its own `status`
-          // event out of the very same raw line for the log.
-          if (event.type === "system" && event.subtype === "status" && typeof event.permissionMode === "string") {
-            this.applyPermissionModeFromCli(event.permissionMode);
-          }
           for (const agentEvent of mapClaudeEvent(event)) {
+            // Must run BEFORE the broadcast below: a device reconnecting
+            // mid-turn right as this arrives should see the updated mode,
+            // not a stale one from before this same event was processed.
+            // Checked unconditionally (not just when `permissionRegistration`
+            // is active) since this is a general CLI mechanism, not
+            // exclusive to the `ExitPlanMode` path. Reads the already-mapped
+            // `status` event rather than peeking at the raw CLI line
+            // separately — both used to exist side by side, one only ever a
+            // step behind the other since they're produced from the exact
+            // same raw event.
+            if (agentEvent.type === "status" && agentEvent.permissionMode !== undefined) {
+              this.applyPermissionModeFromCli(agentEvent.permissionMode);
+            }
             this.broadcast({ type: "agent_event", event: agentEvent });
             // Lets the `anywh-bg` job tracker (owned by
             // `SessionManager`) see every event of every turn, looking for

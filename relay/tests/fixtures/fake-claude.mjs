@@ -63,6 +63,14 @@
 //                        same "fake only the model's decision, keep
 //                        everything downstream real" shape as
 //                        FAKE_CLAUDE_PRESENT_CHOICE above.
+//   FAKE_CLAUDE_STATUS_PERMISSION_MODE - if set (a permission mode string),
+//                        emits a `{"type":"system","subtype":"status",
+//                        "permissionMode":...}` event right after `init` —
+//                        the real binary's own shape for reporting a
+//                        permission-mode transition it decided on its own
+//                        mid-turn (e.g. right after an `ExitPlanMode`
+//                        approval), confirmed against it
+//                        (sharedSession.ts's `applyPermissionModeFromCli`).
 
 import { randomUUID } from "node:crypto";
 
@@ -187,6 +195,10 @@ if (args[0] === "--version") {
   }
 
   emit({ type: "system", subtype: "init", session_id: sessionId, model });
+
+  if (process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE && outputFormat === "stream-json") {
+    emit({ type: "system", subtype: "status", session_id: sessionId, permissionMode: process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE });
+  }
 
   if (hanging) {
     // Keep the process alive indefinitely while waiting for that signal.
