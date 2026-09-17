@@ -5,6 +5,7 @@
 import type { AgentRuntimeDef } from "./types.js";
 import type { AgentSessionDriver, SessionDriverHost } from "./sessionDriver.js";
 import { ClaudeSessionDriver, type ClaudeMcpWiring } from "./defs/claude/index.js";
+import { CodexSessionDriver } from "./defs/codexDriver.js";
 
 export interface CreateSessionDriverOptions {
   readonly homeOverride?: string;
@@ -32,10 +33,14 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
         mcp: options.claudeMcp,
       });
     case "jsonRpcDaemon":
-      // Codex's own driver lands in a later phase (Fase 10's daemon
-      // lifecycle/notification-mapper/def work is done — this is the one
-      // piece still missing before a session can actually pick it).
-      throw new Error(`no session driver for exec.kind "jsonRpcDaemon" yet (def "${def.identity.id}")`);
+      // CodexSessionDriver is the only driver of this shape today — same
+      // "honest for a registry of exactly one" caveat as the spawnPerTurn
+      // branch above, not a generic JSON-RPC-daemon dispatch yet.
+      return new CodexSessionDriver(def, {
+        homeOverride: options.homeOverride,
+        initialSessionId: options.initialSessionId,
+        host: options.host,
+      });
     case "custom":
       throw new Error(`no session driver for exec.kind "custom" (def "${def.identity.id}")`);
   }

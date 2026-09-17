@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createSessionDriver } from "./createSessionDriver.js";
 import { claudeRuntimeDef } from "./defs/claude/index.js";
+import { codexRuntimeDef } from "./defs/codex.js";
 import type { AgentRuntimeDef } from "./types.js";
 import type { SessionDriverHost } from "./sessionDriver.js";
 
@@ -23,19 +24,18 @@ test("createSessionDriver: a spawnPerTurn def (claudeRuntimeDef) resolves to a w
   assert.equal(driver.getSessionId(), undefined);
 });
 
-test("createSessionDriver: a jsonRpcDaemon def throws — Codex's driver isn't wired in yet", () => {
-  const def: AgentRuntimeDef = {
-    ...claudeRuntimeDef,
-    exec: {
-      kind: "jsonRpcDaemon",
-      framing: "ndjson",
-      thread: { start: () => ({ method: "thread/start", params: {} }) },
-      turn: { start: () => ({ method: "turn/start", params: {} }), interrupt: () => ({ method: "turn/interrupt", params: {} }) },
-      mapNotification: () => [],
-      handleServerRequest: () => undefined,
-    },
-  };
-  assert.throws(() => createSessionDriver(def, { host: noopHost }), /jsonRpcDaemon/);
+test("createSessionDriver: a jsonRpcDaemon def (codexRuntimeDef) resolves to a working driver", () => {
+  const driver = createSessionDriver(codexRuntimeDef, { host: noopHost });
+  // Same duck-typed check as the spawnPerTurn case above — the point of the
+  // interface is that this function's caller never needs to know it got a
+  // CodexSessionDriver rather than a ClaudeSessionDriver back.
+  assert.equal(typeof driver.sendTurn, "function");
+  assert.equal(typeof driver.stop, "function");
+  assert.equal(typeof driver.dispose, "function");
+  assert.equal(driver.getSessionId(), undefined);
+  // rewind is genuinely absent (not a stub that throws) — codexRuntimeDef
+  // declares capabilities.rewindTurn: "none".
+  assert.equal(typeof driver.rewind, "undefined");
 });
 
 test("createSessionDriver: a custom def throws", () => {
