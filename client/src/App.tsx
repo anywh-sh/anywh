@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/shell/EmptyState";
 import { SessionSearch } from "@/components/shell/SessionSearch";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { TabGroupLayout } from "@/components/shell/TabGroupLayout";
-import { TabPanel, type TabPanelActions } from "@/components/shell/TabPanel";
+import { TabPanel } from "@/components/shell/TabPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { MobileShell } from "@/components/shell/MobileShell";
@@ -20,6 +20,11 @@ import { DownloadToasts } from "@/components/files/DownloadToasts";
 import { useDict } from "@/i18n";
 import { useActiveProfile } from "@/hooks/profiles/useActiveProfile";
 import { useNavigationHistory } from "@/hooks/useNavigationHistory";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import { useLayoutCommands } from "@/hooks/useLayoutCommands";
+import { useProfileSwitching } from "@/hooks/useProfileSwitching";
+import { useSessionActions } from "@/hooks/useSessionActions";
+import { useTabPanelActions } from "@/hooks/useTabPanelActions";
 import { useSessionNames } from "@/hooks/relay/useSessionNames";
 import { useSessionListBootstrap } from "@/hooks/tabs/useSessionListBootstrap";
 import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
@@ -39,20 +44,11 @@ import { useFirstRun } from "@/hooks/useFirstRun";
 import { useActiveTheme } from "@/hooks/relay/useThemes";
 import { useProfileSync } from "@/hooks/relay/useProfileSync";
 import { useTailnetSidecarOwner } from "@/hooks/profiles/useTailnetSidecarOwner";
-import { addProfile, findProfile, getProfiles, removeProfile, type Profile } from "@/lib/profiles/profiles";
-import { clearProfileRevoked, isProfileRevoked } from "@/lib/profiles/profileRevocation";
-import {
-  pruneCachedProfiles,
-  removeCachedSession,
-  touchCachedSession,
-  upsertCachedSession,
-} from "@/lib/format/sessionListCache";
+import { findProfile, getProfiles } from "@/lib/profiles/profiles";
+import { pruneCachedProfiles } from "@/lib/format/sessionListCache";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
-import { completeProfileSetup, dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
-import { resolveChatPath } from "@/lib/relay/filesClient";
-import { resolveConnection } from "@/lib/profiles/connectionResolver";
-import { ensureNotificationPermission, notifyTurnComplete } from "@/lib/platform/notifications";
-import { deleteSession, renameSession } from "@/lib/relay/relayClient";
+import { dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
+import { ensureNotificationPermission } from "@/lib/platform/notifications";
 import { isIOS } from "@/lib/platform/platform";
 import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
@@ -236,18 +232,6 @@ function AppShell() {
     setUpdateModalOpen(true);
   }
 
-  // Global search shortcut (Ctrl/Cmd+K), on any screen.
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setSearchOpen((open) => !open);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
   // First launch: restores last time's tabs (full list + order + which one
   // was active), across all profiles together. Only runs once,
   // while no tab is open yet. The test deep-link via query string
@@ -305,106 +289,37 @@ function AppShell() {
     if (location?.tabId) tabsState.setActiveTab(location.tabId);
   }
 
-  function handleProfileChange(profileId: string): void {
-    setActiveProfileId(profileId);
-    setDrawerOpen(false);
-  }
+  // Read side of the deep-link/pairing queue `App` (the gate) feeds — nothing
+  // switches profile until the user clicks "Continue" on ProfileSetupDialog
+  // below (the old silent auto-switch is gone).
+  const setupSnapshot = useProfileSetup();
 
-  /** "Continuar para novo perfil" on `ProfileSetupDialog` — the only place
-   * that ever switches to a profile `enqueueProfileSetup` just set up.
-   * Order matters: `handleProfileChange` runs first so React has already
-   * scheduled the render that makes `useTailnetSidecarOwner` reclaim the
-   * tailnet-sidecar reference `profileSetup.ts` is about to hand over,
-   * before `completeProfileSetup` releases it (with `HANDOVER_GRACE_MS` to
-   * spare). `tabsState.openTab` takes `profileId` explicitly rather than
-   * going through `handleNewConversation` — that one reads
-   * `activeProfile.id` from the closure, which still has the old value in
-   * this same tick. */
-  function handleSetupContinue(profileId: string): void {
-    handleProfileChange(profileId);
-    tabsState.openTab(profileId, crypto.randomUUID(), null, true);
-    completeProfileSetup();
-  }
+  const { handleProfileChange, handleSetupContinue, handleSetupUseExisting } = useProfileSwitching({
+    setActiveProfileId,
+    setDrawerOpen,
+    openTab: tabsState.openTab,
+    setupSnapshot,
+  });
 
-  /** "Ir para o perfil existente" on `ProfileSetupDialog`'s duplicate
-   * notice — decision 4: normally just drops the freshly claimed duplicate
-   * profile, but if the existing one was revoked, migrates the fresh
-   * credentials onto its id first (`addProfile` replaces in place) so a
-   * dismissed `RevokedProfileBanner` doesn't leave that profile stuck dead.
-   * `removeProfile` refusing to empty the list is never a concern here — a
-   * duplicate existing means there are already at least two profiles.
-   * Ends the setup request via `dismissProfileSetup` (not `completeProfileSetup`):
-   * the just-claimed profile is being thrown away, not adopted, so its held
-   * tailnet-sidecar reference (if any) should be released right away, with
-   * no handover grace. */
-  function handleSetupUseExisting(existingId: string): void {
-    if (setupSnapshot.state?.status !== "ready") return;
-    const newProfile = setupSnapshot.state.profile;
-
-    if (isProfileRevoked(existingId)) {
-      addProfile({ ...newProfile, id: existingId });
-      clearProfileRevoked(existingId);
-    }
-    removeProfile(newProfile.id);
-
-    dismissProfileSetup();
-    handleProfileChange(existingId);
-    tabsState.openTab(existingId, crypto.randomUUID(), null, true);
-  }
-
-  // Creates the session implicitly: opens a blank tab right away, without
-  // asking for a name — the title is inferred from the first prompt the user
-  // sends (the relay fires this in parallel with the turn, see
-  // sessionManager.ts). The session only enters the sidebar once that title
-  // arrives (ChatPanel's onTitle below), not before.
-  function handleNewConversation(): void {
-    const id = crypto.randomUUID();
-    // Filtered down to exactly one profile, that profile is unambiguously
-    // the one being worked in, so a new conversation belongs there. With
-    // several selected there is nothing to infer from, and it falls back to
-    // the focused tab's profile as before.
-    const [onlySelected] = selectedProfileIds;
-    const target = selectedProfileIds.size === 1 ? onlySelected : activeProfile.id;
-    tabsState.openTab(target, id, null, true);
-    setDrawerOpen(false);
-  }
-
-  /** The `+` on a group's tab strip. `openTab` always appends to the focused
-   * group, so clicking `+` on a strip that isn't focused would otherwise
-   * open the tab in the other column. Focusing first works in one click
-   * because both are functional updaters on the same `useTabs` state: React
-   * batches them and `openTab`'s updater already sees the new
-   * `focusedGroupId` — no second render needed in between. */
-  function handleNewTabInGroup(groupId: string): void {
-    tabsState.focusGroup(groupId);
-    handleNewConversation();
-  }
-
-  /** A row in the sidebar can belong to any profile now, so this goes
-   * through `focusSession` — the same path search and notification clicks
-   * already used for "jump to a session that may not be in the current
-   * profile". `openTab` records the profile on the tab but does not move
-   * `activeProfile` on its own, and leaving that behind would keep the live
-   * `/sessions/watch` socket, the tailnet-sidecar reference and the default
-   * target for a new conversation pointing at the profile the user just
-   * navigated away from. */
-  function handleSelectSession(session: MergedSession): void {
-    focusSession(session.profileId, session.id, session.title);
-    setDrawerOpen(false);
-  }
-
-  /** Switches profile (sidebar) + opens/activates the tab — used both by
-   * session search (Cmd/Ctrl+K) and by clicking a notification
-   * (`useNotificationClick` below), the two cases of "jump straight to a
-   * session that may not belong to the currently selected profile". */
-  function focusSession(profileId: string, sessionId: string, title: string | null = null): void {
-    setActiveProfileId(profileId);
-    tabsState.openTab(profileId, sessionId, title);
-  }
-
-  function handleSearchSelectSession(profileId: string, sessionId: string, title: string): void {
-    focusSession(profileId, sessionId, title);
-  }
+  const {
+    handleNewConversation,
+    handleNewTabInGroup,
+    handleSelectSession,
+    focusSession,
+    handleSearchSelectSession,
+    handleRenameSession,
+    handleDeleteSession,
+  } = useSessionActions({
+    activeProfile,
+    selectedProfileIds,
+    setActiveProfileId,
+    setDrawerOpen,
+    dict,
+    tabsState,
+    sessionDock,
+    terminalTabs,
+    fileTabs,
+  });
 
   // Click on a turn-complete notification — see useNotificationClick.ts for
   // how each platform delivers this (and the limitation documented there:
@@ -413,218 +328,38 @@ function AppShell() {
     focusSession(profileId, sessionId);
   });
 
-  // Read side of the deep-link/pairing queue `App` (the gate) feeds — nothing
-  // switches profile until the user clicks "Continue" on ProfileSetupDialog
-  // below (the old silent auto-switch is gone).
-  const setupSnapshot = useProfileSetup();
-
-  /** Explicit `profileId` (not always `activeProfile`) for the same reason as
-   * `handleDeleteSession` right below: it's also called from a tab belonging
-   * to a profile other than the one currently selected in the sidebar. */
-  function handleRenameSession(profileId: string, id: string, title: string): void {
-    const profile = findProfile(profileId);
-    if (!profile) return;
-    resolveConnection(profile)
-      .then(({ host, port, token }) => renameSession(host, port, id, title, token))
-      .then(() => {
-        tabsState.setTabTitle(id, title);
-        upsertCachedSession(profileId, id, title);
-      })
-      .catch((error: unknown) => {
-        console.error("[anywh] failed to rename session", error);
-        window.alert(dict.shell.sidebar.renameFailed);
-      });
-  }
-
-  /** Only removes the session from anywh's control — doesn't delete the
-   * transcript that Claude Code already keeps on its own. Explicit
-   * `profileId` (not always `activeProfile`) because it's also called from a
-   * tab belonging to a profile other than the one currently selected in the
-   * sidebar. */
-  function handleDeleteSession(profileId: string, id: string): void {
-    const profile = findProfile(profileId);
-    if (!profile) return;
-    resolveConnection(profile)
-      .then(({ host, port, token }) => deleteSession(host, port, id, token))
-      .then(() => {
-        tabsState.closeTab(id);
-        sessionDock.removeSession(id);
-        terminalTabs.removeSession(id);
-        fileTabs.removeSession(id);
-        removeCachedSession(profileId, id);
-      })
-      .catch((error: unknown) => {
-        console.error("[anywh] failed to delete session", error);
-        window.alert(dict.shell.sidebar.deleteFailed);
-      });
-  }
-
-  function handleCloseActiveTab(): void {
-    if (!activeTabId) return;
-    tabsState.closeTab(activeTabId);
-  }
-
-  function handleToggleSidebarShortcut(): void {
-    if (isCompact) {
-      setDrawerOpen((open) => !open);
-    } else {
-      resizable.toggleCollapsed();
-    }
-  }
-
-  // Embedded terminal — desktop only (the original screenshot/flow
-  // is clearly desktop, iOS is left out for now, same gate that voice/titlebar
-  // already use).
-  function handleToggleTerminalPanel(): void {
-    if (isCompact || isIOS() || !activeTabId) return;
-    sessionDock.togglePane(activeTabId, "terminal");
-  }
-
-  // Work dir file panel — same desktop-only gate as the terminal.
-  function handleToggleFilesPanel(): void {
-    if (isCompact || isIOS() || !activeTabId) return;
-    sessionDock.togglePane(activeTabId, "files");
-  }
-
-  /** "Open in terminal" on a folder row in the file tree — always a fresh
-   * tab (never reuses/clobbers one the user might already be typing in),
-   * rooted at that folder. `openPane` (not `togglePane`) because this only
-   * ever means "show me this", never "close it" — same desktop-only gate as
-   * the terminal panel itself. */
-  function handleOpenTerminalAt(tabId: string, path: string): void {
-    if (isCompact || isIOS()) return;
-    sessionDock.openPane(tabId, "terminal");
-    terminalTabs.addTerminal(tabId, path);
-  }
-
-  /** A path mentioned in assistant chat text (`Message.tsx`'s `AssistantText`)
-   * — same "always show it" gate/`openPane` as `handleOpenTerminalAt` above.
-   * Resolution (bare-filename search, ancestor walk for a wrong last
-   * segment) runs server-side (`relay/src/fsFiles.ts::resolveChatPath`) —
-   * `existingDirs` gets expanded in the tree regardless of whether `target`
-   * panned out, so a path that's slightly off still lands the user
-   * somewhere browsable instead of just failing silently. */
-  function handleOpenFilePath(profile: Profile, tabId: string, rawPath: string): void {
-    if (isCompact || isIOS()) return;
-    sessionDock.openPane(tabId, "files");
-    resolveChatPath(profile, tabId, rawPath)
-      .then(({ target, isDirectory, existingDirs }) => {
-        if (existingDirs.length > 0) fileTabs.expandDirs(tabId, existingDirs);
-        if (target && !isDirectory) fileTabs.openPreview(tabId, target);
-      })
-      .catch(() => {});
-  }
-
-  // Ctrl+Tab / Ctrl+Shift+Tab, like a browser — intentionally only `ctrlKey`,
-  // not `metaKey || ctrlKey` like the other shortcuts below: on macOS Cmd+Tab
-  // is the OS's own app switcher (never reaches the app), so the real
-  // convention for cycling tabs there is also literal Ctrl+Tab, same as
-  // browser/VS Code — using `metaKey` here would just create a dead shortcut.
-  // Cycles within the focused group only — with more than one group open,
-  // cycling through every tab in the app regardless of which group it's in
-  // would jump the view to a different group out from under Ctrl+Tab, which
-  // isn't what "next tab" means once tabs are split into columns.
-  function handleCycleTab(direction: 1 | -1): void {
-    const focusedGroup = tabsState.groups.find((group) => group.id === tabsState.focusedGroupId);
-    if (!focusedGroup || focusedGroup.tabIds.length < 2) return;
-    const currentIndex = focusedGroup.tabIds.indexOf(focusedGroup.activeTabId ?? "");
-    if (currentIndex === -1) return;
-    const nextIndex = (currentIndex + direction + focusedGroup.tabIds.length) % focusedGroup.tabIds.length;
-    tabsState.setActiveTab(focusedGroup.tabIds[nextIndex]);
-  }
-
-  // `Ctrl+\` (VS Code's own "split editor") — moves the focused group's
-  // active tab into a new group immediately to its right. Desktop only, same
-  // gate as the dock: on compact/iOS there's only ever one group (point 12
-  // of the split design — narrow viewports fall back to one flat strip), so
-  // splitting wouldn't have anywhere to put a second column anyway.
-  function handleSplitActiveTab(): void {
-    if (isCompact || isIOS() || !activeTabId) return;
-    tabsState.splitTabToNewGroup(activeTabId, tabsState.focusedGroupId);
-  }
-
-  // Ctrl+1/2/3 — focuses the Nth group left to right. No-op past however
-  // many groups are actually open (never more than MAX_GROUPS anyway).
-  function handleFocusGroupByIndex(index: number): void {
-    const group = tabsState.groups[index];
-    if (group) tabsState.focusGroup(group.id);
-  }
-
-  // Standard shortcuts for any app (Ctrl on Windows/Linux and Cmd on macOS,
-  // via metaKey || ctrlKey): new (N), close current tab (W), show/hide side
-  // panel (B). Terminal (Ctrl+`) is handled separately, see the comment
-  // inside the handler.
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.ctrlKey && event.key === "Tab") {
-        event.preventDefault();
-        handleCycleTab(event.shiftKey ? -1 : 1);
-        return;
-      }
-      // `Ctrl+\`` — literal Ctrl even on macOS, never `metaKey`: it's VS
-      // Code's own convention (Cmd+` on macOS is already an OS shortcut for
-      // switching between windows of the same app), same reason as
-      // `Ctrl+Tab` above. Intentionally left out of the switch below, which
-      // is only `metaKey || ctrlKey`.
-      if (event.ctrlKey && event.key === "`") {
-        event.preventDefault();
-        handleToggleTerminalPanel();
-        return;
-      }
-      // `Ctrl+Shift+E` — VS Code's own Explorer shortcut, literal Ctrl even
-      // on macOS, same reasoning as `Ctrl+\`` right above.
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e") {
-        event.preventDefault();
-        handleToggleFilesPanel();
-        return;
-      }
-      // `Ctrl+\` — VS Code's own "split editor" shortcut, literal Ctrl even
-      // on macOS, same reasoning as `Ctrl+\`` above (distinct key: backslash,
-      // not backtick).
-      if (event.ctrlKey && event.key === "\\") {
-        event.preventDefault();
-        handleSplitActiveTab();
-        return;
-      }
-      if (!(event.metaKey || event.ctrlKey)) return;
-      switch (event.key.toLowerCase()) {
-        case "n":
-          event.preventDefault();
-          handleNewConversation();
-          break;
-        case "w":
-          event.preventDefault();
-          handleCloseActiveTab();
-          break;
-        case "b":
-          event.preventDefault();
-          handleToggleSidebarShortcut();
-          break;
-        case "1":
-        case "2":
-        case "3":
-          event.preventDefault();
-          handleFocusGroupByIndex(Number(event.key) - 1);
-          break;
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeProfile.id,
-    sessionDock.togglePane,
-    activeTabId,
+  const {
+    handleCloseActiveTab,
+    handleToggleSidebarShortcut,
+    handleToggleTerminalPanel,
+    handleToggleFilesPanel,
+    handleOpenTerminalAt,
+    handleOpenFilePath,
+    handleCycleTab,
+    handleSplitActiveTab,
+    handleFocusGroupByIndex,
+  } = useLayoutCommands({
     isCompact,
-    tabsState.closeTab,
-    tabsState.openTab,
-    tabsState.setActiveTab,
-    tabsState.splitTabToNewGroup,
-    tabsState.focusGroup,
-    tabsState.focusedGroupId,
-    tabsState.groups,
-    resizable.toggleCollapsed,
-  ]);
+    activeTabId,
+    tabsState,
+    sessionDock,
+    terminalTabs,
+    fileTabs,
+    resizable,
+    setDrawerOpen,
+  });
+
+  useKeyboardShortcuts({
+    onToggleSearch: () => setSearchOpen((open) => !open),
+    onCycleTab: handleCycleTab,
+    onToggleTerminal: handleToggleTerminalPanel,
+    onToggleFiles: handleToggleFilesPanel,
+    onSplitTab: handleSplitActiveTab,
+    onNewConversation: handleNewConversation,
+    onCloseTab: handleCloseActiveTab,
+    onToggleSidebar: handleToggleSidebarShortcut,
+    onFocusGroup: handleFocusGroupByIndex,
+  });
 
   // Every profile's running sessions, not just the selected profile's — the
   // sidebar lists them all now, and a turn running in another profile's tab
@@ -697,89 +432,23 @@ function AppShell() {
 
   const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
 
-  // Read by `actions` below at the moment something actually happens (a turn
-  // finishing, a path being opened from chat text), never at the moment the
-  // callback was built — which is what keeps that object stable across
-  // renders without any of it going stale. `handleOpenFilePath` and
-  // `handleOpenTerminalAt` are plain function declarations, re-created every
-  // render; the two values are just state that moves on its own.
-  const activeTabIdRef = useRef(activeTabId);
-  activeTabIdRef.current = activeTabId;
-  const windowFocusedRef = useRef(windowFocused);
-  windowFocusedRef.current = windowFocused;
-  const handleOpenFilePathRef = useRef(handleOpenFilePath);
-  handleOpenFilePathRef.current = handleOpenFilePath;
-  const handleOpenTerminalAtRef = useRef(handleOpenTerminalAt);
-  handleOpenTerminalAtRef.current = handleOpenTerminalAt;
-
   // Everything a panel calls back into here, built once. Each callback takes
   // the tab (or profile/path) it acts on as an argument and closes over
   // nothing that changes between renders — that is what lets `TabPanel` be
   // `memo`'d, and `App` stop costing one render per open conversation every
   // time any of its state moves. See the comment on `TabPanelActions`.
-  const actions = useMemo<TabPanelActions>(
-    () => ({
-      onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
-      onBackgroundJobsChange: (tabId, jobs) => tabsState.setHasBackgroundJob(tabId, jobs.length > 0),
-      onTurnComplete: (tab, profile, { stopped, lastUserText, lastAssistantText }) => {
-        // Read through refs, not captured: this runs when a turn finishes,
-        // which is arbitrarily long after the render that built this
-        // object, and both values move on their own in the meantime.
-        // Capturing them would mean notifying (or staying silent) based on
-        // where the user was, not where they are.
-        const stillVisible = tab.id === activeTabIdRef.current && windowFocusedRef.current;
-        if (stillVisible) return;
-        tabsState.setUnread(tab.id, true);
-        notifyTurnComplete(tab.id, profile, tab.title ?? dict.common.untitledSession, lastUserText, lastAssistantText, stopped);
-      },
-      onTitle: (tab, title) => {
-        tabsState.setTabTitle(tab.id, title);
-        // Ungated on the active profile, unlike before: with every profile
-        // in one list, a conversation titled in a background tab has to
-        // appear under its own profile whether or not that profile is the
-        // one currently selected.
-        upsertCachedSession(tab.profileId, tab.id, title, Date.now());
-      },
-      onActivity: (tab) => {
-        touchCachedSession(tab.profileId, tab.id);
-      },
-      onDeleted: (tab) => {
-        tabsState.closeTab(tab.id);
-        sessionDock.removeSession(tab.id);
-        terminalTabs.removeSession(tab.id);
-        fileTabs.removeSession(tab.id);
-        removeCachedSession(tab.profileId, tab.id);
-      },
-      onConnectedChange: (tabId, connected) => {
-        setConnectedByTab((prev) => (prev[tabId] === connected ? prev : { ...prev, [tabId]: connected }));
-      },
-      onTogglePane: (tabId, kind) => sessionDock.togglePane(tabId, kind),
-      onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
-      onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
-      onOpenPath: (profile, tabId, path) => handleOpenFilePathRef.current(profile, tabId, path),
-      onOpenTerminalAt: (tabId, path) => handleOpenTerminalAtRef.current(tabId, path),
-      onDockWidthChange: (tabId, width) => sessionDock.setWidth(tabId, width),
-      onDockSplitRatioChange: (tabId, ratio) => sessionDock.setSplitRatio(tabId, ratio),
-      onDockDragEnd: () => sessionDock.commitDock(),
-    }),
-    [
-      dict,
-      tabsState.setRunning,
-      tabsState.setHasBackgroundJob,
-      tabsState.setUnread,
-      tabsState.setTabTitle,
-      tabsState.closeTab,
-      sessionDock.removeSession,
-      sessionDock.togglePane,
-      sessionDock.closePane,
-      sessionDock.toggleMaximized,
-      sessionDock.setWidth,
-      sessionDock.setSplitRatio,
-      sessionDock.commitDock,
-      terminalTabs.removeSession,
-      fileTabs.removeSession,
-    ],
-  );
+  const actions = useTabPanelActions({
+    dict,
+    activeTabId,
+    windowFocused,
+    tabsState,
+    sessionDock,
+    terminalTabs,
+    fileTabs,
+    onOpenFilePath: handleOpenFilePath,
+    onOpenTerminalAt: handleOpenTerminalAt,
+    setConnectedByTab,
+  });
 
   // A tab can belong to any profile — each one's `ChatPanel` uses
   // the profile recorded on the tab itself, not the profile currently
