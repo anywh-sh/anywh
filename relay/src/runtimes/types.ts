@@ -193,12 +193,13 @@ export interface TurnHost {
 // branch to leave unhandled, and a CLI fork with a tweaked format just
 // passes a wrapped mapper instead of the relay growing a new enum member.
 //
-// `AgentEvent` below is a placeholder. The real wire vocabulary
-// (`turn_started`, `text_delta`, `tool_started`, ...) is `protocol/`'s job
-// in Phase 7, against recorded stream fixtures — this file's job today is
-// proving the `ExecPlan` union's shape, not the event vocabulary it will
-// eventually emit, and nothing in this phase constructs one.
-export type AgentEvent = Readonly<Record<string, unknown>>;
+// `AgentEvent` used to be a placeholder here (`Readonly<Record<string,
+// unknown>>`) — this file's job at the time was proving the `ExecPlan`
+// union's shape, not the event vocabulary. `protocol/agent-event.ts` (Phase
+// 7) is that real vocabulary now, so `StreamMapper` is defined against it
+// directly instead of carrying its own stand-in.
+import type { AgentEvent } from "../protocol/agent-event.js";
+export type { AgentEvent };
 
 export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => readonly AgentEvent[];
 
