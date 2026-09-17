@@ -34,6 +34,7 @@ import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { ModelButton } from "@/components/chat/ModelButton";
+import { AgentPickerButton } from "@/components/chat/AgentPickerButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
@@ -42,8 +43,12 @@ import { filterSlashCommands, parseSlashCommand, suggestSlashCommand, type Slash
 import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import type { Dictionary } from "@/i18n/dictionary";
 import type { ContextUsage, ModelChoice, PermissionMode } from "@/lib/relay/relayClient";
+import type { Profile } from "@/lib/profiles/profiles";
 
 interface ComposerProps {
+  /** Only for `AgentPickerButton`'s own `getHostInfo` fetch today — no
+   * other control in this toolbar is agent-scoped yet. */
+  profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
   turnInFlight: boolean;
@@ -446,6 +451,7 @@ function createSlashCommandExtension(
  * native behavior). */
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
   {
+    profile,
     onSend,
     disabled,
     turnInFlight,
@@ -892,6 +898,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
+              <AgentPickerButton profile={profile} />
               <PermissionModeButton mode={permissionMode} onChange={onChangePermissionMode} />
               <ModelButton
                 model={model}
