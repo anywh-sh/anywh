@@ -24,6 +24,7 @@ export interface ContextUsage {
   contextWindowSize: number;
   usedTokens: number;
   baselineTokens?: number;
+  sources?: Record<string, { tokens: number; calls: number }>;
 }
 
 /** A `history` entry from the relay (relay/src/session/broadcast.ts::BroadcastMessage)

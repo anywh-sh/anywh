@@ -148,6 +148,20 @@ export type AgentEvent =
   /** Claude Code compacted the conversation (automatic, near the context
    * limit, or a manual `/compact`). */
   | { type: "compact_boundary"; trigger: "auto" | "manual"; preTokens: number }
+  /** Synthesized by `SharedSession` (never emitted by a driver directly),
+   * same as `turn_started`/`user_message` — one per tool call `toolUseId`
+   * that contributed to a `usage` delta, carrying that tool's own share of
+   * the tokens injected between it and the previous response.
+   * `toolUseIds` is an array for symmetry with `contextAttribution.ts`'s
+   * internal `Attribution` type, but every event synthesized today carries
+   * exactly one id: a parallel batch of N tool calls fans out into N of
+   * these events, each already divided, rather than one event carrying N
+   * ids and a combined total. `estimated: false` for a delta with exactly
+   * one tool call (the number is exact); `true` when it was divided
+   * proportionally across a parallel batch (the total is still exact, only
+   * the SPLIT across the batch is a model — see the doc comment on
+   * `contextAttribution.ts`'s `divideProportionally`). */
+  | { type: "context_attribution"; toolUseIds: string[]; tokens: number; estimated: boolean }
   /** Synthesized by the session — replaces `turn_error`. A turn-ending
    * failure (spawn error, the CLI exiting non-zero, an unrecoverable `result`
    * error) — never a tool-level error, which is `tool_ended.isError`. */

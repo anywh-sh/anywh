@@ -33,9 +33,23 @@ interface StreamingTextBlock {
   text: string;
 }
 
+/** One tool call's own share of a context-window delta, keyed by
+ * `toolUseId` — never a `LogEntry` (a `context_attribution` event isn't a
+ * message, it has no bubble/card of its own; `ToolCallCard` looks itself up
+ * in here by the `toolUseId` it already has). Unlike `resultByToolUseId`
+ * (`MessageLog.tsx`), which is derived at render time by scanning `entries`
+ * for `tool-result`s, this has to live in reducer state instead: there's no
+ * `LogEntry` to scan for, since the event that carries it is never turned
+ * into one. */
+export interface AttributionState {
+  tokens: number;
+  estimated: boolean;
+}
+
 interface MessageLogState {
   entries: LogEntry[];
   streamingText: StreamingTextBlock[];
+  attributionByToolUseId: Record<string, AttributionState>;
   /** Whether there are turns older than `historyCursor` to fetch via
    * `load_older_history`. `false` until the initial
    * tail arrives (`HYDRATE`) — same default value as before this feature
@@ -81,6 +95,7 @@ type Action =
 const initialState: MessageLogState = {
   entries: [],
   streamingText: [],
+  attributionByToolUseId: {},
   hasMoreHistory: false,
   historyCursor: null,
   loadingOlderHistory: false,
@@ -212,7 +227,27 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
         entries: [...state.entries, { kind: "error", id: newId(), message: event.message }],
         streamingText: [],
       };
+
+    case "context_attribution": {
+      const attributionByToolUseId = { ...state.attributionByToolUseId };
+      for (const toolUseId of event.toolUseIds) {
+        attributionByToolUseId[toolUseId] = { tokens: event.tokens, estimated: event.estimated };
+      }
+      return { ...state, attributionByToolUseId };
+    }
   }
+  // Exhaustive above (TypeScript errors on a missing case), but this stays
+  // as a real runtime fallback, not a `default:` — a `default:` would
+  // silently swallow the compiler's exhaustiveness check for a genuinely
+  // new variant. Without this `return`, an old client's socket receiving a
+  // variant newer than what it was built with falls through the switch and
+  // returns `undefined` here, which becomes the reducer's new state and
+  // crashes the next render — not just "ignores the event" the way it
+  // reads at a glance. Verified against the real `WS_PROTOCOL_VERSION` bump
+  // this shipped with: the bump is what protects an already-running old
+  // client from ever reaching this case at all; this `return` only protects
+  // whatever client ships next, from whatever variant comes after this one.
+  return state;
 }
 
 function reducer(state: MessageLogState, action: Action): MessageLogState {
@@ -275,6 +310,11 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       return {
         ...state,
         entries: [...prefix.entries, ...state.entries],
+        // An older page can carry its own tool calls' attribution — merged
+        // in, not replaced, so it can't clobber anything the current
+        // (newer) state already has for a toolUseId that somehow appears
+        // in both (shouldn't happen in practice, ids don't repeat).
+        attributionByToolUseId: { ...prefix.attributionByToolUseId, ...state.attributionByToolUseId },
         hasMoreHistory: action.hasMore,
         historyCursor: action.cursor,
         loadingOlderHistory: false,
@@ -289,6 +329,11 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
 export interface UseMessageLogResult {
   entries: LogEntry[];
   streamingEntries: LogEntry[];
+  /** Every tool call's own share of a context-window delta seen so far,
+   * keyed by `toolUseId` — see `AttributionState`'s own doc comment on why
+   * this lives in state instead of being derived from `entries` the way
+   * `resultByToolUseId` is. */
+  attributionByToolUseId: Record<string, AttributionState>;
   /** Whether there are turns older than `historyCursor` to fetch —
    * UI uses this to know whether it still reacts to scrolling
    * to the top. */
@@ -341,6 +386,7 @@ export function useMessageLog(): UseMessageLogResult {
   return {
     entries: state.entries,
     streamingEntries,
+    attributionByToolUseId: state.attributionByToolUseId,
     hasMoreHistory: state.hasMoreHistory,
     historyCursor: state.historyCursor,
     loadingOlderHistory: state.loadingOlderHistory,

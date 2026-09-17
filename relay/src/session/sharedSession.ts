@@ -12,7 +12,7 @@ import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/p
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
-import { ContextAttributor } from "./contextAttribution.js";
+import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
@@ -259,6 +259,21 @@ export class SharedSession implements SessionDriverHost {
    * so it survives a relay restart, since `ContextAttributor` itself never
    * re-derives it for a resumed session (`hasPriorConversation: true`). */
   private baselineTokens: number | undefined;
+  /** Bounded lookup from a tool call's id to its name — `context_attribution`
+   * only ever carries `toolUseIds`, never a name, so this is what lets a
+   * delta get aggregated into `sourcesByTool` by name. A ring buffer (500
+   * entries, oldest evicted first — `Map` preserves insertion order, so
+   * `.keys().next()` is always the oldest): a very long session's tool
+   * calls are unbounded, but the name is only ever needed for a call whose
+   * `tool_ended`/`usage` pair hasn't been observed yet, which is always
+   * recent. */
+  private readonly toolNameByUseId = new Map<string, string>();
+  private static readonly TOOL_NAME_RING_LIMIT = 500;
+  /** Aggregated by tool NAME (not by call), for the popover's "top
+   * consumers" list — unlike `toolNameByUseId`, never evicted: the key
+   * space is the small, finite set of distinct tool names actually called,
+   * not one entry per call. */
+  private readonly sourcesByTool = new Map<string, { tokens: number; calls: number }>();
 
   constructor(
     private readonly homeOverride: string | undefined,
@@ -471,6 +486,37 @@ export class SharedSession implements SessionDriverHost {
     this.permissionMode = mode;
     this.options.onPermissionModeChange?.(mode);
     this.broadcastPermissionMode();
+  }
+
+  /** See `toolNameByUseId`'s own doc comment for why this evicts. */
+  private recordToolName(toolUseId: string, name: string): void {
+    if (this.toolNameByUseId.size >= SharedSession.TOOL_NAME_RING_LIMIT) {
+      const oldest = this.toolNameByUseId.keys().next().value;
+      if (oldest !== undefined) this.toolNameByUseId.delete(oldest);
+    }
+    this.toolNameByUseId.set(toolUseId, name);
+  }
+
+  /** Turns one delta's `Attribution` into the `context_attribution` events
+   * `runTurn`'s callback broadcasts, and folds each source into
+   * `sourcesByTool` for the popover's "top consumers" list. One event per
+   * `bySource` entry (see `agent-event.ts`'s own comment on why the wire
+   * variant's `toolUseIds` is an array but every synthesized event carries
+   * exactly one) — a source whose `toolUseId` was never seen via
+   * `tool_started` (evicted from the ring, or genuinely never arrived)
+   * still gets its event, just not a `sourcesByTool` entry: there's no name
+   * to aggregate it under. */
+  private emitContextAttribution(attribution: Attribution): void {
+    for (const source of attribution.bySource) {
+      this.broadcast({
+        type: "agent_event",
+        event: { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated },
+      });
+      const toolName = this.toolNameByUseId.get(source.toolUseId);
+      if (!toolName) continue;
+      const existing = this.sourcesByTool.get(toolName) ?? { tokens: 0, calls: 0 };
+      this.sourcesByTool.set(toolName, { tokens: existing.tokens + source.tokens, calls: existing.calls + 1 });
+    }
   }
 
   /** Thin delegation — see `ChoiceMachine.cancelPendingApproval`. Called
@@ -736,6 +782,14 @@ export class SharedSession implements SessionDriverHost {
 
     this.history.length = target.cutIndex;
     this.contextUsage = undefined;
+    // Both maps restart empty on ANY edit, rewound or not: they're
+    // cumulative sums with no way to "subtract" whatever the discarded
+    // tail of history contributed. Simplification accepted on purpose — a
+    // rewind is rare enough that a top-consumers list that's merely blank
+    // again for a few turns beats a stale one that includes tokens from
+    // history that no longer exists.
+    this.toolNameByUseId.clear();
+    this.sourcesByTool.clear();
     if (target.turnsBefore > 0) {
       // Rewound, not reset: the conversation continues (a new session id
       // that still carries the earlier history) — `baselineTokens` is
@@ -795,6 +849,8 @@ export class SharedSession implements SessionDriverHost {
       this.historyCleared = true;
       this.contextUsage = undefined;
       this.baselineTokens = undefined;
+      this.toolNameByUseId.clear();
+      this.sourcesByTool.clear();
       // Same reasoning as performEdit's turnsBefore === 0 branch: `/clear`
       // resets the session id, so the next turn is a genuinely new
       // conversation and gets its own `baseline`.
@@ -918,6 +974,9 @@ export class SharedSession implements SessionDriverHost {
         if (agentEvent.type === "status" && agentEvent.permissionMode !== undefined) {
           this.applyPermissionModeFromCli(agentEvent.permissionMode);
         }
+        if (agentEvent.type === "tool_started" && agentEvent.toolUseId) {
+          this.recordToolName(agentEvent.toolUseId, agentEvent.name);
+        }
         // Live chip during the turn (§6.1: today's gap — 13k of context can
         // disappear into a single tool call with no feedback until the turn
         // ends). `contextWindowSize` comes from this step when the def
@@ -938,6 +997,7 @@ export class SharedSession implements SessionDriverHost {
             this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
             this.broadcastContextUsage();
           }
+          if (step.attribution) this.emitContextAttribution(step.attribution);
         }
         this.broadcast({ type: "agent_event", event: agentEvent });
         // Lets the `anywh-bg` job tracker (owned by
@@ -953,10 +1013,15 @@ export class SharedSession implements SessionDriverHost {
       if (contextUsage) {
         // The driver's own object is authoritative for model/window/used
         // (it knows the canonical resolved model, this class doesn't) but
-        // carries no opinion on `baselineTokens` — re-attach it, or the
-        // live-update merge above would otherwise be the only place this
-        // field ever survives, and it'd vanish the moment a real turn ends.
-        this.contextUsage = { ...contextUsage, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
+        // carries no opinion on `baselineTokens`/`sources` — re-attach
+        // them, or the live-update merge above would otherwise be the only
+        // place either field ever survives, and they'd vanish the moment a
+        // real turn ends.
+        this.contextUsage = {
+          ...contextUsage,
+          ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}),
+          ...(this.sourcesByTool.size > 0 ? { sources: Object.fromEntries(this.sourcesByTool) } : {}),
+        };
         this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
       }

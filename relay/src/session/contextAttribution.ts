@@ -1,16 +1,53 @@
 import type { AgentEvent } from "../protocol/agent-event.js";
 
+/** This delta's own share of `Attribution.tokens`, for one tool call. */
+export interface AttributedSource {
+  readonly toolUseId: string;
+  readonly tokens: number;
+}
+
 /** One delta's worth of tool/user-message cost — `toolUseIds` empty means
  * the delta came from a plain user message with no tool call in between
  * (there's no dedicated "source" field: a consumer distinguishes the two by
- * whether this array is empty). `estimated` is always `false` here — this
- * is the whole delta's own exact total, never a per-source split (that's a
- * later problem: dividing this total across more than one `toolUseIds`
- * entry when several tool calls ran in parallel). */
+ * whether this array is empty).
+ *
+ * `bySource` always sums to exactly `tokens`, one entry per `toolUseIds`
+ * entry, same order. A single-source batch's one entry equals `tokens`
+ * itself (`estimated: false` — the number is exact). A parallel batch (more
+ * than one `tool_ended` since the last `usage`) divides `tokens`
+ * proportionally by each tool's own `tool_ended.content.length`
+ * (`estimated: true`) — the DIVISION is a model (two parallel calls of very
+ * different real cost could report the same content length), even though
+ * the total it divides remains exact. */
 export interface Attribution {
   readonly tokens: number;
   readonly toolUseIds: readonly string[];
   readonly estimated: boolean;
+  readonly bySource: readonly AttributedSource[];
+}
+
+/**
+ * Splits `total` across `weights` proportionally, guaranteeing the shares
+ * sum to exactly `total` (never `total ± rounding`) — every share but the
+ * last is rounded down or to nearest and the last absorbs whatever's left,
+ * the same trick apportionment methods use to keep a fixed total exact
+ * across rounded parts. Equal split when every weight is 0 (e.g. two
+ * `tool_ended`s that both reported empty content) rather than dividing by
+ * a zero `totalWeight`.
+ */
+function divideProportionally(total: number, weights: readonly number[]): number[] {
+  if (weights.length === 0) return [];
+  if (weights.length === 1) return [total];
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  const shares: number[] = [];
+  let allocated = 0;
+  for (let i = 0; i < weights.length - 1; i++) {
+    const share = totalWeight > 0 ? Math.round((total * weights[i]) / totalWeight) : Math.round(total / weights.length);
+    shares.push(share);
+    allocated += share;
+  }
+  shares.push(total - allocated);
+  return shares;
 }
 
 export interface AttributionStep {
@@ -65,7 +102,12 @@ export interface ContextAttributorOptions {
 export class ContextAttributor {
   private predecessor: { readonly prefixTokens: number; readonly outputTokens: number } | undefined;
   private awaitingBaseline: boolean;
-  private pendingToolUseIds: string[] = [];
+  /** One entry per `tool_ended` observed since the last `usage` step —
+   * `contentLength` is that tool's own `content.length`, the weight
+   * `divideProportionally` splits the next delta by. Verified against 8
+   * real transcripts (49 parallel batches, all size 2 or 3): `usage` never
+   * arrives mid-batch, so this never needs to flush a partial batch. */
+  private pendingBatch: { readonly toolUseId: string; readonly contentLength: number }[] = [];
 
   constructor(opts: ContextAttributorOptions) {
     this.awaitingBaseline = !opts.hasPriorConversation;
@@ -80,18 +122,18 @@ export class ContextAttributor {
       // response — but `awaitingBaseline` is NOT reset: `baseline` means
       // "conversation start," and a compaction is a mid-conversation event.
       this.predecessor = undefined;
-      this.pendingToolUseIds = [];
+      this.pendingBatch = [];
       return undefined;
     }
     if (event.type === "tool_ended") {
-      if (event.toolUseId) this.pendingToolUseIds.push(event.toolUseId);
+      if (event.toolUseId) this.pendingBatch.push({ toolUseId: event.toolUseId, contentLength: event.content.length });
       return undefined;
     }
     if (event.type !== "usage") return undefined;
 
     const { prefixTokens: used, outputTokens, contextWindowSize } = event;
-    const toolUseIds = this.pendingToolUseIds;
-    this.pendingToolUseIds = [];
+    const batch = this.pendingBatch;
+    this.pendingBatch = [];
 
     if (!this.predecessor) {
       const baseline = this.awaitingBaseline ? used : undefined;
@@ -108,10 +150,18 @@ export class ContextAttributor {
     const attributedTokens = delta - this.predecessor.outputTokens;
     this.predecessor = { prefixTokens: used, outputTokens };
 
+    const shares = divideProportionally(attributedTokens, batch.map((entry) => entry.contentLength));
+    const bySource: AttributedSource[] = batch.map((entry, index) => ({ toolUseId: entry.toolUseId, tokens: shares[index] }));
+
     return {
       used,
       ...(contextWindowSize !== undefined ? { contextWindowSize } : {}),
-      attribution: { tokens: attributedTokens, toolUseIds, estimated: false },
+      attribution: {
+        tokens: attributedTokens,
+        toolUseIds: batch.map((entry) => entry.toolUseId),
+        estimated: batch.length > 1,
+        bySource,
+      },
     };
   }
 }

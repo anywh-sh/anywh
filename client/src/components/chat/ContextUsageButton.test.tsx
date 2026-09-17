@@ -57,4 +57,35 @@ describe("ContextUsageButton", () => {
 
     expect(screen.getByText(en.chat.composer.context.outputCaveat)).toBeInTheDocument();
   });
+
+  it("lists top consumers sorted by tokens descending, capped at 5", async () => {
+    const user = userEvent.setup();
+    const usage: ContextUsage = {
+      ...USAGE,
+      sources: {
+        Bash: { tokens: 194_164, calls: 329 },
+        Read: { tokens: 104_764, calls: 89 },
+        Edit: { tokens: 8_293, calls: 75 },
+        Grep: { tokens: 1_000, calls: 3 },
+        Write: { tokens: 900, calls: 1 },
+        WebSearch: { tokens: 100, calls: 1 },
+      },
+    };
+    render(<ContextUsageButton usage={usage} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText(en.chat.composer.context.topConsumers)).toBeInTheDocument();
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    expect(screen.getByText("194k · 329×")).toBeInTheDocument();
+    // 6th-largest source (WebSearch, 100 tokens) doesn't make the top 5.
+    expect(screen.queryByText("WebSearch")).not.toBeInTheDocument();
+  });
+
+  it("hides the top-consumers section entirely when the session has no attributed source yet", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.queryByText(en.chat.composer.context.topConsumers)).not.toBeInTheDocument();
+  });
 });

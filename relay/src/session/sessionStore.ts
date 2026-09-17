@@ -65,6 +65,17 @@ export interface ContextUsage {
    * conversation (`ContextAttributor`'s `baseline`) — a `/clear` or editing
    * back to the first message starts a new one and gets its own. */
   baselineTokens?: number;
+  /** Cumulative tokens attributed to each tool NAME across the
+   * conversation so far (`SharedSession`'s `sourcesByTool`) — the popover's
+   * "top consumers" list. Optional for the same reasons as `baselineTokens`
+   * (absent before this field existed) and additionally absent whenever
+   * nothing has been attributed to a name yet (a session with no tool
+   * calls, or where every `toolUseId` seen so far aged out of the
+   * name-lookup ring before its delta arrived). Restarts empty on `/clear`
+   * or editing back before the first message — same lifetime as
+   * `baselineTokens`, but also on a mid-conversation rewind, where there's
+   * no way to "subtract" a discarded tail's contribution back out. */
+  sources?: Record<string, { tokens: number; calls: number }>;
 }
 
 /** No fixed union: this file doesn't know the full set of agent ids

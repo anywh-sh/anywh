@@ -45,6 +45,11 @@ export function ContextUsageButton({ usage }: ContextUsageButtonProps) {
       ? Math.min(pct, Math.max(0, (usage.baselineTokens / usage.contextWindowSize) * 100))
       : 0;
   const conversationPct = Math.max(0, pct - setupPct);
+  const topSources = usage.sources
+    ? Object.entries(usage.sources)
+        .sort((a, b) => b[1].tokens - a[1].tokens)
+        .slice(0, 5)
+    : [];
 
   return (
     <DropdownMenu
@@ -95,6 +100,19 @@ export function ContextUsageButton({ usage }: ContextUsageButtonProps) {
           )}
           <span className="text-[11px] whitespace-nowrap text-muted-foreground">{usage.model}</span>
           <span className="text-[10px] text-text-faint">{copy.outputCaveat}</span>
+          {topSources.length > 0 && (
+            <div className="mt-1 flex flex-col gap-1 border-t border-border-soft pt-1.5">
+              <span className="text-[11px] text-muted-foreground">{copy.topConsumers}</span>
+              {topSources.map(([name, source]) => (
+                <div key={name} className="flex items-center justify-between gap-2 font-mono text-[11px] text-foreground">
+                  <span className="truncate">{name}</span>
+                  <span className="shrink-0 text-text-faint">
+                    {formatTokenCount(source.tokens)} · {source.calls}×
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </DropdownMenuLabel>
       </DropdownMenuContent>
     </DropdownMenu>

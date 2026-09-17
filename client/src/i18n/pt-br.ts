@@ -44,6 +44,7 @@ export const ptBr: Dictionary = {
       running: "executando…",
       usingTools: "Usando {count} ferramentas",
       usedTools: "Usou {count} ferramentas",
+      attributionEstimatedHint: "Estimado — dividido proporcionalmente entre chamadas de ferramenta que rodaram em paralelo",
     },
     code: {
       copy: "Copiar código",
@@ -187,6 +188,7 @@ export const ptBr: Dictionary = {
         tokens: "{used} / {total} tokens",
         setup: "Setup: {tokens} ({percent}%)",
         outputCaveat: "Ainda não inclui o tamanho da sua última resposta — entra na conta no próximo turno.",
+        topConsumers: "Maiores consumidores",
       },
       voiceErrors: {
         microphonePermission:

@@ -9,5 +9,9 @@
  * package between the two npm projects (see docs/architecture.md) — and
  * protocolVersionParity.test.ts keeps the two copies from drifting apart in
  * silence.
+ *
+ * 1 -> 2: added the `context_attribution` AgentEvent variant — see the
+ * relay's copy of this comment for why an old client's `useMessageLog.ts`
+ * needed the bump, not just the new variant.
  */
-export const WS_PROTOCOL_VERSION = 1;
+export const WS_PROTOCOL_VERSION = 2;

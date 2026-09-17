@@ -44,6 +44,7 @@ export const en: Dictionary = {
       running: "running…",
       usingTools: "Using {count} tools",
       usedTools: "Used {count} tools",
+      attributionEstimatedHint: "Estimated — split proportionally across tool calls that ran in parallel",
     },
     code: {
       copy: "Copy code",
@@ -187,6 +188,7 @@ export const en: Dictionary = {
         tokens: "{used} / {total} tokens",
         setup: "Setup: {tokens} ({percent}%)",
         outputCaveat: "Doesn't include your last reply's size yet — it counts in on the next turn.",
+        topConsumers: "Top consumers",
       },
       voiceErrors: {
         microphonePermission:

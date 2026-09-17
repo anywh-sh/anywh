@@ -7,8 +7,8 @@ function usage(prefixTokens: number, outputTokens: number, extra: Partial<Extrac
   return { type: "usage", inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, prefixTokens, outputTokens, ...extra };
 }
 
-function toolEnded(toolUseId?: string): AgentEvent {
-  return { type: "tool_ended", toolUseId, content: "", isError: false };
+function toolEnded(toolUseId?: string, content = ""): AgentEvent {
+  return { type: "tool_ended", toolUseId, content, isError: false };
 }
 
 test("first usage of a brand-new conversation sets baseline, no attribution (nothing came before it)", () => {
@@ -84,18 +84,55 @@ test("compact_boundary never re-arms baseline — a post-compaction step stays a
   assert.deepEqual(step, { used: 30_000 });
 });
 
-test("tool_ended toolUseIds collected since the last usage event land on the next attribution, then reset", () => {
+test("a single tool_ended's whole delta is attributed to it, exact (estimated: false) — no division needed for one source", () => {
   const attributor = new ContextAttributor({ hasPriorConversation: true });
   attributor.observe(usage(1000, 10));
-  attributor.observe(toolEnded("tool-a"));
-  attributor.observe(toolEnded("tool-b"));
+  attributor.observe(toolEnded("tool-a", "x".repeat(50)));
   const step = attributor.observe(usage(1200, 10));
-  assert.deepEqual(step?.attribution?.toolUseIds, ["tool-a", "tool-b"]);
-  assert.equal(step?.attribution?.estimated, false);
+  assert.deepEqual(step?.attribution, {
+    tokens: 190,
+    toolUseIds: ["tool-a"],
+    estimated: false,
+    bySource: [{ toolUseId: "tool-a", tokens: 190 }],
+  });
+});
+
+test("a parallel batch's delta is divided proportionally by each tool_ended's own content.length, marked estimated, but the sum stays exact", () => {
+  const attributor = new ContextAttributor({ hasPriorConversation: true });
+  attributor.observe(usage(1000, 10));
+  attributor.observe(toolEnded("tool-a", "x".repeat(10)));
+  attributor.observe(toolEnded("tool-b", "y".repeat(30)));
+  const step = attributor.observe(usage(1200, 10));
+  // delta 200 - prevOut 10 = 190, weights 10:30 -> round(190*10/40)=48,
+  // last absorbs the remainder: 190-48=142. 48+142=190, exact.
+  assert.deepEqual(step?.attribution, {
+    tokens: 190,
+    toolUseIds: ["tool-a", "tool-b"],
+    estimated: true,
+    bySource: [
+      { toolUseId: "tool-a", tokens: 48 },
+      { toolUseId: "tool-b", tokens: 142 },
+    ],
+  });
 
   // Collected ids don't leak into the following step once consumed.
   const nextStep = attributor.observe(usage(1300, 10));
   assert.deepEqual(nextStep?.attribution?.toolUseIds, []);
+});
+
+test("a parallel batch where every tool_ended reported empty content divides equally, not by zero", () => {
+  const attributor = new ContextAttributor({ hasPriorConversation: true });
+  attributor.observe(usage(1000, 10));
+  attributor.observe(toolEnded("tool-a", ""));
+  attributor.observe(toolEnded("tool-b", ""));
+  attributor.observe(toolEnded("tool-c", ""));
+  const step = attributor.observe(usage(1301, 10));
+  // delta 301 - prevOut 10 = 291, split 3 ways: round(291/3)=97 twice, last
+  // absorbs the remainder (291 - 97 - 97 = 97 too, here exactly divisible).
+  assert.deepEqual(
+    step?.attribution?.bySource.map((s) => s.tokens),
+    [97, 97, 97],
+  );
 });
 
 test("tool_ended with no toolUseId is not attributed to a specific tool call, but doesn't throw", () => {
@@ -110,7 +147,7 @@ test("a delta with no tool_ended in between (toolUseIds empty) still reports its
   const attributor = new ContextAttributor({ hasPriorConversation: true });
   attributor.observe(usage(1000, 10));
   const step = attributor.observe(usage(17_389, 10));
-  assert.deepEqual(step?.attribution, { tokens: 16_379, toolUseIds: [], estimated: false });
+  assert.deepEqual(step?.attribution, { tokens: 16_379, toolUseIds: [], estimated: false, bySource: [] });
 });
 
 test("contextWindowSize passes through only when the event carries it (Codex), absent otherwise (Claude)", () => {
