@@ -88,6 +88,10 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
   function labelOf(option: ChoiceOption): string {
     if (option.id === "approve") return dict.chat.approval.approve;
     if (option.id === "deny") return dict.chat.approval.deny;
+    if (option.id === "accept") return dict.chat.approval.codexAccept;
+    if (option.id === "acceptForSession") return dict.chat.approval.codexAcceptForSession;
+    if (option.id === "decline") return dict.chat.approval.codexDecline;
+    if (option.id === "cancel") return dict.chat.approval.codexCancel;
     return option.label;
   }
 
@@ -97,9 +101,13 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
   function questionText(current: ChoiceQuestion): string {
     if (!current.approval) return current.question;
     if (current.approval.tool === "ExitPlanMode") return dict.chat.approval.exitPlanMode;
-    return dict.chat.approval.toolCall
-      .replace("{tool}", current.approval.tool)
-      .replace("{detail}", current.approval.detail);
+    const base =
+      current.approval.tool === "command" || current.approval.tool === "writeStdin"
+        ? dict.chat.approval.codexCommand.replace("{detail}", current.approval.detail)
+        : current.approval.tool === "fileChange"
+          ? dict.chat.approval.codexFileChange.replace("{detail}", current.approval.detail)
+          : dict.chat.approval.toolCall.replace("{tool}", current.approval.tool).replace("{detail}", current.approval.detail);
+    return current.approval.reason ? `${base} ${dict.chat.approval.reasonSuffix.replace("{reason}", current.approval.reason)}` : base;
   }
 
   function toggleOption(label: string): void {
@@ -263,14 +271,18 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
         })}
       </div>
 
-      {/* Free-text fallback — always the last option, only for `present_choice`/
-          plan-marker prompts. Not offered for `kind: "approval"`: that path
-          resolves a tool call the CLI is blocked on, and it matches the answer
-          against the two option ids it sent — free text matches neither, so
-          offering it here would only ever stall the blocked call. */}
-      {kind === "choice" && (
+      {/* Free-text fallback — always the last option. Gated on this specific
+          question having no options to pick from, not on `kind`: a
+          `kind: "approval"` question with real options (a permission
+          prompt, or a native multiple-choice user-input question) matches
+          the answer against option ids the engine sent, and free text
+          matches none of them, so offering it there would only ever stall
+          the blocked call — but a `kind: "approval"` user-input question
+          with NO options is the engine's own honest signal that it wants
+          free text, same as `kind: "choice"` always has. */}
+      {(kind === "choice" || question.options.length === 0) && (
         <input
-          type="text"
+          type={question.secret ? "password" : "text"}
           value={customText}
           onChange={(event) => setCustomTextFor(event.target.value)}
           onKeyDown={(event) => {

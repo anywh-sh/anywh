@@ -69,6 +69,13 @@ export const en: Dictionary = {
       exitPlanMode: "The model wants to leave Plan mode and start executing. Approve?",
       approve: "Approve",
       deny: "Deny",
+      codexCommand: "Codex wants to run `{detail}`. Approve?",
+      codexFileChange: "Codex wants to change files under `{detail}`. Approve?",
+      codexAccept: "Accept",
+      codexAcceptForSession: "Accept for this session",
+      codexDecline: "Decline",
+      codexCancel: "Cancel",
+      reasonSuffix: "Reason: {reason}.",
     },
     turn: {
       workingWords: [

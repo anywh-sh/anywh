@@ -164,7 +164,13 @@ export interface ChoiceQuestion {
   approval?: {
     tool: string;
     detail: string;
+    /** Why the engine is asking, when it has a channel to report one.
+     * Absent, not an empty string, for "no reason given". */
+    reason?: string;
   };
+  /** The answer should be masked in the UI — an engine-reported signal, not
+   * guessed from the question text. Absent on every question that isn't one. */
+  secret?: boolean;
 }
 
 export interface ChoiceAnswer {

@@ -17,7 +17,7 @@ describe("ChoiceCard", () => {
     expect(screen.getByLabelText(en.chat.choice.customLabel)).toBeInTheDocument();
   });
 
-  it("does not offer the free-text field for an `approval` prompt (its answer must match a fixed label)", () => {
+  it("does not offer the free-text field for an `approval` prompt with real options (its answer must match a fixed label)", () => {
     render(
       <ChoiceCard
         promptId="p1"
@@ -27,6 +27,16 @@ describe("ChoiceCard", () => {
       />,
     );
     expect(screen.queryByLabelText(en.chat.choice.customLabel)).toBeNull();
+  });
+
+  it("offers the free-text field for an `approval` prompt with NO options — a native user-input question asking for free text", () => {
+    render(<ChoiceCard promptId="p1" questions={[question({ options: [] })]} kind="approval" onAnswer={vi.fn()} />);
+    expect(screen.getByLabelText(en.chat.choice.customLabel)).toBeInTheDocument();
+  });
+
+  it("masks the free-text field for a question marked secret", () => {
+    render(<ChoiceCard promptId="p1" questions={[question({ options: [], secret: true })]} kind="approval" onAnswer={vi.fn()} />);
+    expect(screen.getByLabelText(en.chat.choice.customLabel)).toHaveAttribute("type", "password");
   });
 
   it("sends the typed text as the answer instead of any checked option", async () => {
@@ -102,6 +112,55 @@ describe("ChoiceCard", () => {
     render(<ChoiceCard promptId="p1" questions={[question()]} kind="approval" onAnswer={vi.fn()} />);
     expect(screen.queryByRole("button", { name: en.chat.choice.collapse })).toBeNull();
     expect(screen.getByRole("button", { name: en.chat.choice.closeAnswering })).toBeInTheDocument();
+  });
+
+  it("renders Codex's fixed decision ids with their own localized labels, not the wire's English fallback", () => {
+    render(
+      <ChoiceCard
+        promptId="p1"
+        questions={[
+          question({
+            options: [
+              { id: "accept", label: "Accept" },
+              { id: "acceptForSession", label: "Accept for this session" },
+              { id: "decline", label: "Decline" },
+              { id: "cancel", label: "Cancel" },
+            ],
+          }),
+        ]}
+        kind="approval"
+        onAnswer={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(en.chat.approval.codexAccept)).toBeInTheDocument();
+    expect(screen.getByText(en.chat.approval.codexAcceptForSession)).toBeInTheDocument();
+    expect(screen.getByText(en.chat.approval.codexDecline)).toBeInTheDocument();
+    expect(screen.getByText(en.chat.approval.codexCancel)).toBeInTheDocument();
+  });
+
+  it("composes a Codex command approval's question from its structured parts, including the reason", () => {
+    render(
+      <ChoiceCard
+        promptId="p1"
+        questions={[question({ approval: { tool: "command", detail: "rm -rf build", reason: "cleanup" } })]}
+        kind="approval"
+        onAnswer={vi.fn()}
+      />,
+    );
+    const expected = `${en.chat.approval.codexCommand.replace("{detail}", "rm -rf build")} ${en.chat.approval.reasonSuffix.replace("{reason}", "cleanup")}`;
+    expect(screen.getByText(expected)).toBeInTheDocument();
+  });
+
+  it("composes a Codex file-change approval's question, with no reason suffix when the engine gave none", () => {
+    render(
+      <ChoiceCard
+        promptId="p1"
+        questions={[question({ approval: { tool: "fileChange", detail: "/tmp/project/build" } })]}
+        kind="approval"
+        onAnswer={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(en.chat.approval.codexFileChange.replace("{detail}", "/tmp/project/build"))).toBeInTheDocument();
   });
 
   it("ArrowDown/ArrowUp move focus between options", async () => {

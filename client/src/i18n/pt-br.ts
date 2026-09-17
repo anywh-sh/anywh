@@ -69,6 +69,13 @@ export const ptBr: Dictionary = {
       exitPlanMode: "O modelo quer sair do modo Plan e começar a executar. Aprovar?",
       approve: "Aprovar",
       deny: "Recusar",
+      codexCommand: "O Codex quer executar `{detail}`. Aprovar?",
+      codexFileChange: "O Codex quer alterar arquivos em `{detail}`. Aprovar?",
+      codexAccept: "Aceitar",
+      codexAcceptForSession: "Aceitar para esta sessão",
+      codexDecline: "Recusar",
+      codexCancel: "Cancelar",
+      reasonSuffix: "Motivo: {reason}.",
     },
     turn: {
       workingWords: [

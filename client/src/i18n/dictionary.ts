@@ -442,6 +442,20 @@ export interface Dictionary {
       exitPlanMode: string;
       approve: string;
       deny: string;
+      /** `{detail}` — the command about to run, verbatim, which is data. */
+      codexCommand: string;
+      /** `{detail}` — the path the write would land under, which is data. */
+      codexFileChange: string;
+      /** Codex's own fixed decision vocabulary — a wider set than
+       * approve/deny above, so each gets its own key rather than reusing
+       * approve/deny for the two closest ones. */
+      codexAccept: string;
+      codexAcceptForSession: string;
+      codexDecline: string;
+      codexCancel: string;
+      /** `{reason}` — Codex's own explanation for why it's asking, appended
+       * to whichever question text is in play above. */
+      reasonSuffix: string;
     };
     turn: {
       /** One is drawn per turn and held for its whole duration — the Claude
