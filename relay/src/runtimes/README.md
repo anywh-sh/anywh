@@ -198,8 +198,10 @@ proves it was never generic in the first place.
 ## §8 — testing a def without the CLI installed
 
 Because every def function is pure (§2), a def's test is a table: feed
-`mapStdoutLine`/`mapNotification` a recorded line, assert the `AgentEvent`s
-it produces; feed `classifyFailure` a `RuntimeFailure`, assert the class;
+`mapStdoutLine` a recorded raw line, or `mapNotification` a recorded
+`(method, params)` pair — a daemon's transport already parses the envelope,
+so there's no raw line left for the def to re-parse — and assert the
+`AgentEvent`s each produces; feed `classifyFailure` a `RuntimeFailure`, assert the class;
 call `buildArgs`/`thread.start`/`turn.start` with a `TurnContext`, assert the
 argv or request. None of this requires the real binary, which is what makes
 `assertCoherent` and a def's own tests runnable in CI without a Claude/Codex

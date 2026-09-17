@@ -203,6 +203,18 @@ export type { AgentEvent };
 
 export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => readonly AgentEvent[];
 
+/** `JsonRpcDaemonPlan.mapNotification`'s shape, distinct from `StreamMapper`
+ * — found while writing the first real implementation
+ * (`runtimes/streams/codexAppServer.ts`) rather than assumed up front, which
+ * is exactly what this file's header comment expected to happen before an
+ * engine actually depended on the union. A daemon's transport
+ * (`runtimes/transports/jsonRpcStdio.ts`) already parses the JSON-RPC
+ * envelope before a notification ever reaches a def — handing a def the raw
+ * line back would mean re-parsing an envelope the engine already decoded,
+ * for no benefit a spawn-per-turn CLI's raw stdout line (which has no
+ * envelope to unwrap) doesn't share. */
+export type NotificationMapper = (method: string, params: unknown, ctx: { readonly turnId: string }) => readonly AgentEvent[];
+
 export interface TurnContext {
   readonly cwd: string;
   readonly prompt: string;
@@ -274,7 +286,7 @@ export interface JsonRpcDaemonPlan {
    * never a method call. */
   readonly rewindMethod?: string;
   readonly replayHistoryMethod?: string;
-  readonly mapNotification: StreamMapper;
+  readonly mapNotification: NotificationMapper;
   /** Where native approval and native structured input arrive — Codex's
    * `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
    * both land here and get answered through the same `TurnHost` the MCP
