@@ -1,17 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../registry.js";
-import { codexRuntimeDraft } from "./codex.js";
 import { acpRuntimeDraft } from "./acp.js";
 
-// These two drafts exist to validate ../types.ts against a second and
-// third agent shape before any engine consumes the contract — this test
-// is that validation. Neither draft is registered anywhere; running
-// assertCoherent against them is the whole point of writing them.
-
-test("codexRuntimeDraft is coherent", () => {
-  assert.deepEqual(assertCoherent(codexRuntimeDraft), []);
-});
+// ACP is the one remaining shape-proving draft — it exists to validate
+// ../types.ts against a third agent shape before any engine consumes the
+// contract, same reasoning codex.ts's own draft stage used to (see
+// codex.test.ts now that it's a real def). Not registered anywhere; running
+// assertCoherent against it is the whole point of writing it.
 
 test("acpRuntimeDraft is coherent except for its declared env.strip gap", () => {
   const issues = assertCoherent(acpRuntimeDraft);

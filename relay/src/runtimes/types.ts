@@ -265,7 +265,13 @@ export interface JsonRpcDaemonPlan {
     readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
   };
   readonly turn: {
-    readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
+    /** `threadId` is whatever the engine captured off `thread.start`'s own
+     * response — a second parameter rather than a `TurnContext` field
+     * because it's daemon-session state, not per-turn input. Confirmed
+     * against Codex's real generated bindings that `turn/start` requires it
+     * (`TurnStartParams.threadId`); found the same way the `interrupt`
+     * fix below was. */
+    readonly start: (ctx: TurnContext, threadId: string) => JsonRpcRequestSpec;
     /** Builds the interrupt request from the ids the engine captured off
      * `thread.start`/`turn.start`'s own responses — a bare method name (the
      * shape this replaced) can't express it: confirmed against Codex's real
