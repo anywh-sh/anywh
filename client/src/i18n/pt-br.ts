@@ -117,6 +117,7 @@ export const ptBr: Dictionary = {
       error: "Erro: {message}",
       stopped: "Interrompido por você.",
       backgroundJobDone: "{label} — finalizado, resumindo o resultado",
+      wakeupResumed: "Retomada agendada",
       compacted: "Conversa compactada",
       compactedAuto: "Conversa compactada automaticamente",
       idleSubtitle: "Escreva uma mensagem abaixo para começar.",

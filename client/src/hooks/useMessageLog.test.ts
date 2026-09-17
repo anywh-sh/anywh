@@ -102,6 +102,13 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "background-job-note", label: "build finished" }]);
   });
 
+  it("a synthetic wakeup user_message becomes a system note, never a user bubble", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "user_message", text: "keep going on the loop task", synthetic: "wakeup" }));
+
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "wakeup-note" }]);
+  });
+
   it("a real user_message (from another device) becomes a user entry", () => {
     const { result } = renderHook(() => useMessageLog());
     act(() => result.current.handleEvent({ type: "user_message", text: "oi de outro device" }));
