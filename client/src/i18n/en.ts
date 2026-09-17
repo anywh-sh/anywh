@@ -438,6 +438,8 @@ export const en: Dictionary = {
       parent: "up one level",
       empty: "no subfolders here",
       select: "select folder",
+      showHidden: "Show hidden folders",
+      hideHidden: "Hide hidden folders",
     },
     idle: {
       heading: "Pick a conversation",

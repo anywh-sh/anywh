@@ -438,6 +438,8 @@ export const ptBr: Dictionary = {
       parent: "um nível acima",
       empty: "nenhuma subpasta aqui",
       select: "selecionar pasta",
+      showHidden: "Mostrar pastas ocultas",
+      hideHidden: "Ocultar pastas ocultas",
     },
     idle: {
       heading: "Escolha uma conversa",
