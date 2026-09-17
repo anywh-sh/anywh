@@ -179,6 +179,26 @@ test("getAgentId defaults to 'claude' for an id that was never recorded", () => 
   });
 });
 
+test("setAgentId persists the choice — getAgentId reflects it, including across a reload from disk", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("s1");
+    store.setAgentId("s1", "codex");
+    assert.equal(store.getAgentId("s1"), "codex");
+
+    const reloaded = new SessionStore(filePath, DEFAULT_CWD);
+    assert.equal(reloaded.getAgentId("s1"), "codex");
+  });
+});
+
+test("setAgentId creates the entry if it doesn't exist yet, same as the other setters", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.setAgentId("never-recorded", "codex");
+    assert.equal(store.getAgentId("never-recorded"), "codex");
+  });
+});
+
 test("sessionId/permissionMode/model are scoped per agentId — a second agent never clobbers the first's", () => {
   withStoreFile(undefined, (filePath) => {
     const store = new SessionStore(filePath, DEFAULT_CWD);

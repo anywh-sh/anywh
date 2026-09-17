@@ -345,6 +345,18 @@ export class SessionStore {
     return this.records[id]?.agentId ?? DEFAULT_AGENT_ID;
   }
 
+  /** The write side `getAgentId` never had — until now every session was
+   * permanently `DEFAULT_AGENT_ID`, since nothing ever called this.
+   * `sessionId`/`permissionMode`/`model` are already keyed by `agentId`
+   * (see `SessionEntry`'s own comments), which is exactly what makes
+   * switching non-destructive: each agent keeps its own thread id, mode and
+   * model, and switching back resumes where it left off. */
+  setAgentId(id: string, agentId: AgentId): void {
+    this.ensureEntry(id);
+    this.records[id].agentId = agentId;
+    this.persist();
+  }
+
   /** Called on every turn sent (not just the first) — this is what makes an
    * old session move back to the top of the sidebar when used again. */
   touch(id: string): void {
