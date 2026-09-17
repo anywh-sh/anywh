@@ -198,6 +198,15 @@ function renderItem(item: RenderItem, userActions: UserActionHandlers, dict: Dic
           </p>
         </LogEntryRow>
       );
+    case "wakeup-note":
+      return (
+        <LogEntryRow key={entry.id}>
+          <p className="flex items-center gap-1.5 font-mono text-[11px] text-text-faint">
+            <Loader2 className="size-3 shrink-0" />
+            <span className="truncate">{dict.chat.log.wakeupResumed}</span>
+          </p>
+        </LogEntryRow>
+      );
     default:
       return null;
   }

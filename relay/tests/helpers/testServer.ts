@@ -94,6 +94,7 @@ export async function startTestServer(): Promise<TestServer> {
   process.env.ANYWH_ENV_DIR = envDir;
   process.env.RELAY_SESSIONS_FILE = join(workDir, "sessions.json");
   process.env.RELAY_BACKGROUND_JOBS_FILE = join(workDir, "background-jobs.json");
+  process.env.RELAY_WAKEUPS_FILE = join(workDir, "wakeups.json");
   process.env.AGENT_BIN = FAKE_AGENT_BIN;
   // Real incident (2026-09-07): a test hitting `DELETE /control/profiles/:id`
   // with the real `systemctl` disabled+stopped the operator's actual live

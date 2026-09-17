@@ -119,6 +119,14 @@ export interface SharedSessionOptions {
    * doesn't know anything about `BackgroundJobTracker`, it just passes it
    * along for `SessionManager` to decide what to do. */
   onCancelBackgroundJob?: (jobId: string) => void;
+  /** Called whenever a pending `ScheduleWakeup` timer for this session needs
+   * cancelling — a real user message (or `/clear`) arriving before it fires,
+   * or the session being deleted. Same "SharedSession doesn't know about the
+   * mechanism, just reports the intent" pattern as `onCancelBackgroundJob`:
+   * the timer itself lives in `SessionManager`'s `WakeupScheduler`. No id
+   * (unlike `onCancelBackgroundJob`): at most one wakeup can be armed per
+   * session. */
+  onCancelWakeup?: () => void;
   /** Draft text already persisted for this session (composer content not
    * yet sent), if any — prompt-draft feature. */
   initialDraft?: string;
@@ -375,6 +383,18 @@ export class SharedSession {
     this.choiceMachine.discardStaleChoice();
   }
 
+  /** Called from the same three sites as `discardStaleChoice`
+   * (`submitTurn`, `editMessage`, `clearConversation`): a wakeup a previous
+   * turn's model armed for itself is stale the moment a real message (or a
+   * fresh conversation) arrives first — firing it afterward would inject an
+   * unrelated prompt into a conversation that has already moved on. Thin
+   * passthrough to `SessionManager` (via `onCancelWakeup`), same reasoning as
+   * `cancelBackgroundJob`: this class doesn't know the timer mechanism
+   * exists, only that its intent no longer applies. */
+  private cancelPendingWakeup(): void {
+    this.options.onCancelWakeup?.();
+  }
+
   /** Called from the WS handler (`server.ts`) when any connected device
    * answers. Delegates the state transition to `choiceMachine` (see
    * `ChoiceMachine.answerChoice` for the full reasoning on the two slots and
@@ -485,6 +505,9 @@ export class SharedSession {
     // the card showing a question for a plan/tool call the conversation has
     // already moved past.
     this.discardStaleChoice();
+    // Same reasoning for a wakeup a previous turn armed for itself — a real
+    // message beat the timer to it.
+    this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
     this.turnQueue = this.turnQueue.then(() => this.runTurn(origin, text));
   }
@@ -501,7 +524,35 @@ export class SharedSession {
   submitBackgroundJobResult(job: FinishedBackgroundJob): void {
     this.clearSuggestion();
     const text = buildBackgroundJobFollowupPrompt(job);
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, { label: job.label }));
+    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, { label: job.label, kind: "background_job" }));
+  }
+
+  /** Fired by `WakeupScheduler` (via `SessionManager`) when a
+   * `ScheduleWakeup` timer armed by a previous turn's model call fires. The
+   * `claude -p` process that would have hosted that timer natively already
+   * exited at the end of that turn (spawn-per-turn, `runtimes/README.md`),
+   * so nothing re-injects `prompt` on its own — this is what does it
+   * instead, on the relay's own long-lived process. Same queue (`turnQueue`)
+   * as every other turn origin — never runs in parallel with a real turn nor
+   * corrupts `session_id`/history out of order. Unlike
+   * `submitBackgroundJobResult`, `prompt` isn't wrapped into a synthesized
+   * instruction: it's the model's own text, delivered verbatim, since that's
+   * exactly what the native tool would have re-injected had it run on a
+   * long-lived process. No `origin`, same reasoning as
+   * `submitBackgroundJobResult` — no client rendered a bubble for this
+   * locally.
+   *
+   * Known limitation: a `<<autonomous-loop-dynamic>>` sentinel `prompt`
+   * (used by an autonomous `/loop` with no explicit prompt) is delivered
+   * literally, like any other text — the harness resolves that sentinel
+   * back into the loop's real instructions "at fire time" inside the ORIGINAL
+   * `claude -p` process, which no longer exists by the time this fires on a
+   * brand new invocation. A `/loop` with an explicit user-supplied prompt
+   * (the common case, and the one originally reported broken) is unaffected:
+   * `prompt` is already literal text either way. */
+  submitWakeup(prompt: string): void {
+    this.clearSuggestion();
+    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
   }
 
   /** Interrupts the turn in progress, if any — doesn't touch the queue
@@ -534,6 +585,7 @@ export class SharedSession {
     // tied to the turn being interrupted) — a deferred `pendingChoice`
     // outlives its turn and needs the same explicit dismissal as `submitTurn`.
     this.discardStaleChoice();
+    this.cancelPendingWakeup();
     this.claude.stop();
     this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text));
   }
@@ -614,6 +666,7 @@ export class SharedSession {
    * like a new session. */
   clearConversation(): void {
     this.discardStaleChoice();
+    this.cancelPendingWakeup();
     this.turnQueue = this.turnQueue.then(() => {
       this.claude.resetSessionId();
       this.history.length = 0;
@@ -638,16 +691,19 @@ export class SharedSession {
     });
   }
 
-  /** `origin` is `undefined` only for the synthetic follow-up turn
-   * (`submitBackgroundJobResult`) — no specific client "already has the
+  /** `origin` is `undefined` only for a synthetic turn — `submitBackgroundJobResult`
+   * (an `anywh-bg` job's automatic follow-up) or `submitWakeup` (a
+   * `ScheduleWakeup` timer firing) — no specific client "already has the
    * bubble locally" in that case, so the synthetic prompt goes to
    * everyone, and the cwd/title lock (only makes sense for the FIRST real
-   * turn of the session, which by definition already happened before any
-   * job existed to finish) is skipped. */
+   * turn of the session, which by definition already happened before either
+   * kind of synthetic turn could exist) is skipped. `label` is only
+   * meaningful for `"background_job"` (the client shows it in the system
+   * note); a wakeup's note carries no per-instance label. */
   private async runTurn(
     origin: WebSocket | undefined,
     text: string,
-    synthetic?: { label: string },
+    synthetic?: { label?: string; kind: "background_job" | "wakeup" },
   ): Promise<void> {
     this.options.onActivity?.();
 
@@ -680,7 +736,7 @@ export class SharedSession {
     // getting it back would duplicate it.
     {
       const event: AgentEvent = synthetic
-        ? { type: "user_message", text, synthetic: "background_job", label: synthetic.label }
+        ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}) }
         : { type: "user_message", text };
       if (origin) {
         this.broadcastExcept({ type: "agent_event", event }, origin);

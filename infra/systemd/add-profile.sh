@@ -238,6 +238,7 @@ trap 'rm -f "$ENV_TMP"' EXIT
   echo "RELAY_UPLOAD_DIR=/tmp/anywh-uploads-$ID"
   echo "RELAY_SESSIONS_FILE=$HOME/.anywh-sessions/$ID.json"
   echo "RELAY_BACKGROUND_JOBS_FILE=$HOME/.anywh-sessions/$ID-bg-jobs.json"
+  echo "RELAY_WAKEUPS_FILE=$HOME/.anywh-sessions/$ID-wakeups.json"
   # "Open in editor" on by default for every profile this
   # script provisions — safe because editorHostInfo.ts's peer check only
   # ever downgrades this to ssh/null for a client connecting from a

@@ -21,7 +21,12 @@ export type LogEntry =
    * user bubble (the text is an internal instruction, not something the
    * user typed); this is just the note indicating where the following
    * response came from, same pattern as "stopped" (system note, no bubble). */
-  | { kind: "background-job-note"; id: string; label: string };
+  | { kind: "background-job-note"; id: string; label: string }
+  /** A `ScheduleWakeup` timer firing on its own, resuming the conversation
+   * with no human involved this turn — same "system note, no bubble"
+   * pattern as `background-job-note`, but with no per-instance label: unlike
+   * an `anywh-bg` job, a wakeup carries no name of its own. */
+  | { kind: "wakeup-note"; id: string };
 
 interface StreamingTextBlock {
   index: number;
@@ -112,6 +117,9 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "user_message": {
       if (event.synthetic === "background_job") {
         return { ...state, entries: [...state.entries, { kind: "background-job-note", id: newId(), label: event.label ?? "job em background" }] };
+      }
+      if (event.synthetic === "wakeup") {
+        return { ...state, entries: [...state.entries, { kind: "wakeup-note", id: newId() }] };
       }
       // `event.timestamp` only comes filled in during replay/history or in
       // the broadcast to OTHER devices — whoever sent the message already

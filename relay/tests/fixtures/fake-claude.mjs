@@ -47,6 +47,22 @@
 //                        test can assert on it, then the turn ends normally
 //                        — proving the process doesn't stay blocked waiting
 //                        for a human the way the pre-rework version did.
+//   FAKE_CLAUDE_SCHEDULE_WAKEUP - if set (JSON `{delaySeconds, prompt,
+//                        stop?}`), emits an `assistant` event with a
+//                        `tool_use` block for the native `ScheduleWakeup`
+//                        tool, followed by its own `tool_result` (a plain
+//                        ack — the real harness handles this tool
+//                        internally, there's no server for this fixture to
+//                        call into), then a normal assistant reply and a
+//                        successful `result`. This is what lets
+//                        wakeupScheduler integration tests exercise
+//                        `WakeupScheduler.observeEvent` against the REAL
+//                        `tool_started`/`tool_ended` shape `mapClaudeEvent`
+//                        produces (relay/src/runtimes/streams/claudeStreamJson.ts),
+//                        without a model ever actually calling the tool —
+//                        same "fake only the model's decision, keep
+//                        everything downstream real" shape as
+//                        FAKE_CLAUDE_PRESENT_CHOICE above.
 
 import { randomUUID } from "node:crypto";
 
@@ -188,6 +204,45 @@ if (args[0] === "auth" && args[1] === "status") {
       session_id: sessionId,
       is_error: false,
       result: toolResultText,
+      modelUsage: { [model]: { contextWindow: 200000 } },
+    });
+    process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_SCHEDULE_WAKEUP && outputFormat === "stream-json") {
+    const call = JSON.parse(process.env.FAKE_CLAUDE_SCHEDULE_WAKEUP);
+    const toolUseId = "toolu_fake_wakeup";
+    const input = call.stop ? { stop: true } : { delaySeconds: call.delaySeconds, prompt: call.prompt };
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "tool_use", id: toolUseId, name: "ScheduleWakeup", input }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    // The real harness executes `ScheduleWakeup` internally (it's a native
+    // tool, not an MCP server) — this fixture only needs to produce the same
+    // `tool_result` shape the CLI's own stream-json would, not actually
+    // implement the tool.
+    emit({
+      type: "user",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Wakeup scheduled.", is_error: false }],
+      },
+    });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: replyText }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "result",
+      session_id: sessionId,
+      is_error: false,
+      result: replyText,
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
     process.exit(0);

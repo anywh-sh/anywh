@@ -459,6 +459,7 @@ export interface Dictionary {
       error: string;
       stopped: string;
       backgroundJobDone: string;
+      wakeupResumed: string;
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;

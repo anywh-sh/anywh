@@ -117,6 +117,7 @@ export const en: Dictionary = {
       error: "Error: {message}",
       stopped: "Stopped by you.",
       backgroundJobDone: "{label} — finished, summarising the result",
+      wakeupResumed: "Self-scheduled wakeup",
       compacted: "Conversation compacted",
       compactedAuto: "Conversation compacted automatically",
       idleSubtitle: "Write a message below to start.",
