@@ -125,7 +125,11 @@ export type AgentEvent =
    * Claude's), so nothing downstream may sum them across defs.
    * `prefixTokens`/`outputTokens` are what every def normalizes into: the
    * one pair of numbers comparable between agents, and the only fields a
-   * cross-agent consumer may read from this event. */
+   * cross-agent consumer may read from this event. `outputTokens` is
+   * trustworthy for Codex (a structured daemon notification) but NOT for
+   * Claude today — `claudeStreamJson.ts`'s own comment on `output_tokens`
+   * has the measured numbers showing the live stream reports a near-constant
+   * placeholder regardless of the real reply length. */
   | {
       type: "usage";
       inputTokens: number;

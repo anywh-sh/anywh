@@ -85,6 +85,17 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
       // Claude's three fields are additive — cache_creation and cache_read
       // are each their own slice of the prefix, never a subset of input.
       prefixTokens: inputTokens + cacheCreationInputTokens + cacheReadInputTokens,
+      // MEASURED, not assumed: this live stream's `output_tokens` is stuck
+      // near a small constant regardless of the real reply length — checked
+      // against the SAME response's own persisted transcript
+      // (~/.claude/projects/<slug>/<session>.jsonl) twice, live vs
+      // persisted 1-vs-3 and 1-vs-21 tokens for a 1-line and a 10-line
+      // reply respectively. The correct number exists only in the
+      // turn-ending `result` event's `usage`/`modelUsage`, which is a
+      // turn-wide aggregate (may include subagents) rather than this one
+      // response's own count — there is no live, per-response, accurate
+      // output-token source for Claude today. A consumer computing
+      // attribution from `outputTokens` will systematically undercount it.
       outputTokens: message.usage.output_tokens ?? 0,
     });
   }
