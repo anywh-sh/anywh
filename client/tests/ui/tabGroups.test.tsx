@@ -74,7 +74,7 @@ describe("tab group split — end to end", () => {
     expect(visibleTabPanels()).toHaveLength(1);
 
     // Ctrl+\ splits the focused group's active tab into a new group to the
-    // right (App.tsx's handleSplitActiveTab) — no dnd-kit gesture needed.
+    // right (useLayoutCommands.ts's handleSplitActiveTab) — no dnd-kit gesture needed.
     await user.keyboard("{Control>}\\{/Control}");
 
     await vi.waitFor(() => expect(visibleTabPanels()).toHaveLength(2));

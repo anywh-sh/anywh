@@ -105,11 +105,36 @@ replaced the Claude-shaped types they used to reach across the boundary for.
 
 ## `client/`
 
-Still flat under `src/lib/` and `src/hooks/` as of this document — the
-same kind of split this file describes for the relay is planned there too
-(grouping into `lib/relay/`, `lib/profiles/`, `lib/theme/`, and so on) but
-hasn't happened yet. When it does, this section grows to describe it
-instead of pointing at a future phase.
+`src/lib/` and `src/hooks/` are grouped into the same topic clusters on
+both sides — `relay/`, `profiles/`, `theme/`, `install/`, `platform/`,
+`format/`, `composer/`, plus a handful of thin single-store wrappers left
+at the root of each (`settings.ts`, `useFirstRun.ts`, and similar). The
+split is mechanical, the same way the relay's was: every file moved
+verbatim, only import specifiers and path literals changed.
+
+`App.tsx` follows the relay's `server.ts` pattern: it stays a composition
+root and does not grow the logic it wires together. What used to be nine
+`handle*` functions and two `keydown` listeners inline in the component
+now live in their own hooks, called from `AppShell` and passed the pieces
+of state (`tabsState`, `sessionDock`, and so on) they act on:
+
+- `hooks/useKeyboardShortcuts.ts` — a pure `key → command` table
+  (`matchShortcut`, unit-tested with no DOM) plus the `window.addEventListener`
+  wiring around it.
+- `hooks/useSessionActions.ts` — creating, selecting, renaming and deleting
+  a session/tab.
+- `hooks/useLayoutCommands.ts` — the nine commands that move panels, panes
+  and tab focus around (terminal/files toggle, tab cycling, group split,
+  sidebar toggle).
+- `hooks/useProfileSwitching.ts` — the three ways the active profile
+  changes (sidebar pick, and `ProfileSetupDialog`'s two exits).
+- `hooks/useTabPanelActions.ts` — assembles the single `TabPanelActions`
+  object every tab's panel calls back into, built once via `useMemo` so
+  `TabPanel` can stay `memo`'d.
+
+`App.tsx` itself keeps the state each of these needs, the effects that
+don't belong to any one of them (first-launch tab restore, notification
+permission, the update-check interval), and the JSX.
 
 ## Further reading
 
