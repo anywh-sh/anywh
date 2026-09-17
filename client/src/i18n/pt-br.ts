@@ -182,6 +182,10 @@ export const ptBr: Dictionary = {
         "workspace-write": { label: "Escrita no workspace", hint: "Edita dentro da pasta da sessão; só pergunta quando um comando no sandbox falha" },
         "full-access": { label: "Acesso total", hint: "Sem sandbox, nunca pergunta — nem em comando destrutivo" },
       },
+      agentNames: {
+        claude: "Claude Code",
+        codex: "Codex",
+      },
       pending: "…",
       modelLocked: "O modelo fica fixo depois do primeiro turno da conversa",
       context: {

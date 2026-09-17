@@ -46,6 +46,8 @@ function Harness() {
         uploadingImage={false}
         onAddFiles={vi.fn()}
         onRemoveImage={vi.fn()}
+        agentId="claude"
+        onChangeAgent={vi.fn()}
         permissionMode="default"
         permissionModes={[
           { id: "default", pausesForApproval: true },

@@ -182,6 +182,10 @@ export const en: Dictionary = {
         "workspace-write": { label: "Workspace write", hint: "Edits inside the session folder; only asks when a sandboxed command fails" },
         "full-access": { label: "Full access", hint: "No sandbox, never asks — destructive commands included" },
       },
+      agentNames: {
+        claude: "Claude Code",
+        codex: "Codex",
+      },
       pending: "…",
       modelLocked: "The model is fixed after the conversation's first turn",
       context: {

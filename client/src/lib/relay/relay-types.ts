@@ -84,6 +84,12 @@ export type RelayMessage =
    * connection flow, and only for the socket that asked. */
   | ({ type: "older_history" } & HistoryPageMessage)
   | { type: "cwd_state"; cwd: string; locked: boolean }
+  /** Which agent def is driving this session — "current state" pattern like
+   * `cwd_state`/`permission_mode_state`, sent again on every new connection
+   * and on `SharedSession.switchAgent`. Sent right before
+   * `permission_mode_state`/`model_state` in the burst, since both only make
+   * sense once the client knows which agent they belong to. */
+  | { type: "agent_state"; agentId: string }
   | { type: "set_cwd_error"; code: SetCwdErrorCode }
   | { type: "session_title"; title: string }
   | { type: "session_deleted" }

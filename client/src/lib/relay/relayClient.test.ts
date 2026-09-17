@@ -51,6 +51,7 @@ const noopCallbacks: RelayClientCallbacks = {
   onTurnError: () => {},
   onCaughtUp: () => {},
   onCwdState: () => {},
+  onAgentState: () => {},
   onPermissionModeState: () => {},
   onModelState: () => {},
   onDraftState: () => {},

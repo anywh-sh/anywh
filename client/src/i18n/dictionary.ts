@@ -20,6 +20,14 @@ import type { EditMessageErrorCode, SetCwdErrorCode } from "@/lib/relay/relay-ty
  * `useModeCopy`) — an id this build doesn't know renders as itself, not a
  * compile error. Claude's four, Codex's three. */
 export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
+
+/** Every agent id this build has a display name for — resolved defensively
+ * at the call site (`AgentPickerButton`), same id-switch-with-fallback shape
+ * as `KnownPermissionModeId` above. Product names, so `en`/`pt-br` carry the
+ * identical string — still dictionary entries, not a literal in the
+ * component, per this repo's "any string rendered to a user lives in the
+ * dictionary" rule. */
+export type KnownAgentId = "claude" | "codex";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
 import type { FirstRunScreen } from "@/lib/profiles/firstRun";
 import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/install/localInstall";
@@ -569,6 +577,11 @@ export interface Dictionary {
        * catalog is whatever the CLI reports at runtime, and a blurb per
        * alias would go stale the day the CLI ships a new one. */
       mode: Record<KnownPermissionModeId, { label: string; hint: string }>;
+      /** Keyed by `KnownAgentId` — same completeness guarantee as `mode`
+       * above. Product names (`Claude Code`, `Codex`), identical in both
+       * languages by nature, but still resolved through here rather than a
+       * literal in `AgentPickerButton`. */
+      agentNames: Record<KnownAgentId, string>;
       /** Both toolbar dropdowns' label before the relay has reported this
        * session's mode/model. */
       pending: string;

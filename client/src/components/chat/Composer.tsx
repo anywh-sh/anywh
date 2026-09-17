@@ -46,8 +46,7 @@ import type { ContextUsage, ModelChoice, PermissionMode, PermissionModeOption } 
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface ComposerProps {
-  /** Only for `AgentPickerButton`'s own `getHostInfo` fetch today — no
-   * other control in this toolbar is agent-scoped yet. */
+  /** Also threaded to `AgentPickerButton`'s own `getHostInfo` fetch. */
   profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
@@ -57,6 +56,12 @@ interface ComposerProps {
   uploadingImage: boolean;
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveImage: (path: string) => void;
+  /** `null` only in the brief window before the first `agent_state` arrives
+   * — see `useRelayClient`. Drives `AgentPickerButton`'s selection and gates
+   * `ModelButton` (its catalog is Claude's `/model` probe, meaningless for
+   * any other agent — `defs/codex.ts` ignores `--model` entirely). */
+  agentId: string | null;
+  onChangeAgent: (agentId: string) => void;
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
   onChangePermissionMode: (mode: PermissionMode) => void;
@@ -461,6 +466,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     uploadingImage,
     onAddFiles,
     onRemoveImage,
+    agentId,
+    onChangeAgent,
     permissionMode,
     permissionModes,
     onChangePermissionMode,
@@ -900,15 +907,21 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
-              <AgentPickerButton profile={profile} />
+              <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} />
               <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
-              <ModelButton
-                model={model}
-                defaultModel={defaultModel}
-                onChange={onChangeModel}
-                disabled={disabled ?? false}
-                locked={modelLocked}
-              />
+              {/* The model catalog (`getKnownModels`) comes from Claude's own
+                  `/model` probe (`default_model_state`) — offering it in a
+                  Codex session would be a list the engine doesn't recognize
+                  at all, since `defs/codex.ts` never reads `--model`. */}
+              {(agentId === null || agentId === "claude") && (
+                <ModelButton
+                  model={model}
+                  defaultModel={defaultModel}
+                  onChange={onChangeModel}
+                  disabled={disabled ?? false}
+                  locked={modelLocked}
+                />
+              )}
               <ContextUsageButton usage={contextUsage} />
               <CompactBoundaryToast event={compactBoundary} />
               {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
