@@ -771,6 +771,7 @@ export const en: Dictionary = {
       not_found: "Message not found — the history may have changed.",
       truncate_failed: "That message couldn't be edited.",
       relay_restarting: "The relay is restarting. Try again in a moment.",
+      unsupported: "Editing an earlier message isn't supported for this agent.",
     },
   },
 };

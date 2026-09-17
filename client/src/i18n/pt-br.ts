@@ -771,6 +771,7 @@ export const ptBr: Dictionary = {
       not_found: "Mensagem não encontrada — o histórico pode ter mudado.",
       truncate_failed: "Não foi possível editar essa mensagem.",
       relay_restarting: "O relay está reiniciando. Tente de novo em instantes.",
+      unsupported: "Editar uma mensagem anterior não é suportado para este agente.",
     },
   },
 };
