@@ -27,7 +27,8 @@ export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method === "GET" && req.url?.startsWith("/fs/list")) {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
     const requestedPath = url.searchParams.get("path");
-    const result = listDirectories(requestedPath ?? defaultCwd(ctx.homeOverride));
+    const showHidden = url.searchParams.get("all") === "1";
+    const result = listDirectories(requestedPath ?? defaultCwd(ctx.homeOverride), showHidden);
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
     if (!result.ok) {

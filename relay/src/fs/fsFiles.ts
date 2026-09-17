@@ -63,8 +63,10 @@ export type ListResult = { ok: true; root: string; path: string; entries: FileEn
 
 /** Dotfiles and `node_modules` are exactly the noise nobody wants in the
  * tree by default — `showHidden` (the `all=1` query
- * param) turns the filter off for the rare "I need my `.env`" case. */
-function isHidden(name: string): boolean {
+ * param) turns the filter off for the rare "I need my `.env`" case. Also
+ * used by `fsBrowse.ts`'s folder picker, so the two directory listings in
+ * this app agree on what "hidden" means. */
+export function isHidden(name: string): boolean {
   return name.startsWith(".") || name === "node_modules";
 }
 
