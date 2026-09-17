@@ -273,6 +273,16 @@ export class SharedSession implements SessionDriverHost {
     this.choiceMachine = new ChoiceMachine(this.clients);
   }
 
+  /** Tears down anything the driver holds open beyond a single turn (a
+   * Codex daemon process) — called once, from `SessionManager.deleteSession`/
+   * `disposeAll`, never from `stopTurn` (invariant 3: killing a turn never
+   * destroys the session). A no-op for a spawn-per-turn driver, whose own
+   * `dispose()` already is one — nothing outlives a single turn there to
+   * begin with. */
+  dispose(): void {
+    this.driver.dispose();
+  }
+
   getCwdState(): { cwd: string; locked: boolean } {
     return { cwd: this.cwd, locked: this.locked };
   }

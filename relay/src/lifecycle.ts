@@ -24,7 +24,7 @@ function delay(ms: number): Promise<void> {
 
 export interface GracefulShutdownDeps {
   httpServer: Pick<Server, "close">;
-  sessionManager: Pick<SessionManager, "waitForAllIdle" | "stopAllTurns">;
+  sessionManager: Pick<SessionManager, "waitForAllIdle" | "stopAllTurns" | "disposeAll">;
 }
 
 /**
@@ -55,6 +55,15 @@ export async function gracefulShutdown(signal: NodeJS.Signals, deps: GracefulShu
     deps.sessionManager.stopAllTurns();
     await Promise.race([idle, delay(SHUTDOWN_ABORT_GRACE_MS)]);
   }
+
+  // Tears down anything a driver holds open past a single turn (a Codex
+  // daemon process) — a no-op per session until a Codex-driven session
+  // exists in production, but the only place in the shutdown sequence that
+  // will ever run once that's true. After the idle-wait/abort-SIGINT
+  // sequence above, not before it: a turn still finishing its own cleanup
+  // shouldn't have its driver torn out from under it.
+  console.log("[relay] disposing session driver(s)...");
+  deps.sessionManager.disposeAll();
 
   console.log("[relay] exiting.");
   process.exit(0);
