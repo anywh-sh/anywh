@@ -137,12 +137,15 @@ export interface McpSpawnConfig {
   permissionPromptTool?: string;
   /** Full `--disallowedTools` value. Used to block the CLI's own native
    * `AskUserQuestion` whenever `present_choice` is registered as its
-   * replacement (`SharedSession.runTurn`) — without this the model is free
-   * to call either, and `AskUserQuestion` never gets a real answer channel
-   * in headless, so a call to it silently fails and
-   * the model just paraphrases the question as plain text instead of
+   * replacement, or whenever plan mode is active (`SharedSession.runTurn`) —
+   * without this the model is free to call `AskUserQuestion`, and it never
+   * gets a real answer channel in headless, so a call to it silently fails
+   * and the model just paraphrases the question as plain text instead of
    * rendering the picker UI (confirmed live: this is exactly what happened
-   * instead of the `present_choice` panel opening). */
+   * instead of the `present_choice` panel opening). In plan mode specifically,
+   * `present_choice` itself can't be registered either (the CLI blocks any
+   * non-native tool categorically there), so this flag is what forces the
+   * model onto the `planChoiceMarker.ts` text convention instead. */
   disallowedTools?: string;
   /** Extra text folded into `--append-system-prompt` for this turn only —
    * currently just `CHOICE_USAGE_HINT` (`mcpBridge.ts`) when `present_choice`

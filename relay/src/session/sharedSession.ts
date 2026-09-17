@@ -803,6 +803,16 @@ export class SharedSession {
       permissionToken: permissionRegistration?.token,
       mcpBridgeBaseUrl: this.options.mcpBridgeBaseUrl,
       mcpPermissionBridgeBaseUrl: this.options.mcpPermissionBridgeBaseUrl,
+      // `choiceRegistration !== undefined` mirrors today's `choiceToken`
+      // truthiness (present_choice registered as AskUserQuestion's
+      // replacement); `permissionMode === "plan"` is the extra case where
+      // present_choice can't be registered (the CLI blocks it there) but the
+      // native tool still needs blocking so the model falls back to the
+      // plan-mode text-marker convention instead of a dead tool call. The two
+      // clauses are mutually exclusive given `choiceRegistration`'s own
+      // `permissionMode !== "plan"` gate above, but left as an OR so this
+      // stays correct if that gate ever changes.
+      blockAskUserQuestion: this.permissionMode === "plan" || choiceRegistration !== undefined,
     });
 
     // Hoisted out of the `try` below so the plan-mode marker check after it
