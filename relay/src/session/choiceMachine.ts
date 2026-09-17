@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
-import type { PermissionDecision } from "../bridges/permissionBridge.js";
 import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from "./broadcast.js";
-import { buildApprovalQuestion, isApproved } from "./turnMessages.js";
 
 /** What `answerChoice` resolved, told apart so `SharedSession` (the only
  * caller with a `turnQueue`/`runTurn` to act on it) knows what side effect
@@ -31,7 +29,7 @@ export type AnswerChoiceResult =
  * UI; separate fields don't.
  *
  * `pendingApproval` backs `--permission-prompt-tool`
- * (`checkPermission`/`presentApprovalChoice`) and stays BLOCKING on
+ * (`SharedSession.checkPermission`/`presentApprovalChoice`) and stays BLOCKING on
  * purpose: the CLI itself is paused mid-turn waiting for exactly this HTTP
  * response to decide whether to run a tool call — there's no "answer
  * arrives as a later turn" option for it, so `SharedSession.runTurn`'s
@@ -104,42 +102,6 @@ export class ChoiceMachine {
     return true;
   }
 
-  /** Called by the permission-prompt-tool bridge
-   * (`McpPermissionBridge`) for every tool call the CLI itself decided
-   * needs human approval given the turn's current mode (see
-   * `SharedSession.runTurn`'s `permissionRegistration` — wired for every
-   * mode except `bypassPermissions`). Validated against the real binary
-   * before writing this: the CLI, not the relay, already does the risk
-   * classification — trivial reads/Bash (e.g. `echo`) never reach here at
-   * all in `default`, and `acceptEdits` still routes a dangerous-looking
-   * `Bash` (`rm -rf`) here despite auto-allowing harmless file edits. So
-   * there's no risk policy left for us to invent: anything that reaches
-   * this function already needs a real yes/no, we just have to ask it
-   * instead of the blanket auto-allow this replaced.
-   *
-   * `ExitPlanMode` keeps its own wording (a mode transition reads
-   * differently than "approve this action"), everything else gets a
-   * generic question built from `describeToolCall` (turnMessages.ts).
-   *
-   * Reuses `presentApprovalChoice` (below) as-is instead of inventing a
-   * parallel pending-approval mechanism: a single yes/no `ChoiceQuestion`
-   * renders fine with the existing `ChoiceCard`, and
-   * `presentApprovalChoice`/`answerChoice` already handle every lifecycle
-   * edge case (multi-device "first answer wins", cancellation on any form of
-   * turn end, Stop button) that a fresh mechanism would need to reimplement
-   * — so reusing it needed no new turn-state UI: the mechanism was already
-   * generic, only the policy it replaced was narrow. */
-  async checkPermission(toolName: string, input: unknown, _toolUseId: string | undefined): Promise<PermissionDecision> {
-    const answers = await this.presentApprovalChoice([buildApprovalQuestion(toolName, input)]);
-    const approved = isApproved(answers);
-    const isExitPlanMode = toolName === "ExitPlanMode";
-    if (approved) return { behavior: "allow", updatedInput: input };
-    return {
-      behavior: "deny",
-      message: isExitPlanMode ? "O usuário optou por continuar no modo Plan." : "O usuário recusou a execução.",
-    };
-  }
-
   /** The permission-approval counterpart to
    * `presentChoice`, kept BLOCKING on purpose: `--permission-prompt-tool`
    * calls stay open in `McpPermissionBridge` (`permissionBridge.ts`) because
@@ -163,8 +125,17 @@ export class ChoiceMachine {
    * that could leave this dangling — client disconnect, session delete,
    * relay shutdown — resolves through the SAME turn-in-progress machinery
    * `stopTurn`/`waitForIdle` use, via `cancelPendingApproval` in `runTurn`'s
-   * `finally`. */
-  private presentApprovalChoice(questions: ChoiceQuestion[]): Promise<ChoiceAnswer[]> {
+   * `finally`.
+   *
+   * Public (used to be private, called only from this class's own
+   * `checkPermission`) — that method moved to `SharedSession`, which is the
+   * only place that knows what a Claude `--permission-prompt-tool` call
+   * needs to become a `ChoiceQuestion` in the first place
+   * (`buildApprovalQuestion`, Claude-CLI-shaped). This class stays generic:
+   * a slot lifecycle for "a yes/no question a human has to answer before a
+   * blocked action can proceed," reusable by any def whose approval is
+   * native rather than bridged (Fase 10's Codex driver, via `TurnHost`). */
+  presentApprovalChoice(questions: ChoiceQuestion[]): Promise<ChoiceAnswer[]> {
     return new Promise((resolve) => {
       const promptId = randomUUID();
       this.pendingApproval = { promptId, questions, resolve };

@@ -9,7 +9,7 @@ import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
-import { buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig } from "./turnMessages.js";
+import { buildApprovalQuestion, buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig, buildPermissionDecision, isApproved } from "./turnMessages.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
@@ -343,11 +343,26 @@ export class SharedSession {
     return this.choiceMachine.presentChoice(questions);
   }
 
-  /** Thin delegation to `choiceMachine` — see `ChoiceMachine.checkPermission`
-   * for the full reasoning. Wired as the permission-prompt-tool bridge's
-   * callback in `runTurn`'s `permissionRegistration`. */
-  private checkPermission(toolName: string, input: unknown, toolUseId: string | undefined): Promise<PermissionDecision> {
-    return this.choiceMachine.checkPermission(toolName, input, toolUseId);
+  /** Called by the permission-prompt-tool bridge (`McpPermissionBridge`) for
+   * every tool call the CLI itself decided needs human approval given the
+   * turn's current mode (see `runTurn`'s `permissionRegistration` — wired
+   * for every mode except `bypassPermissions`). Validated against the real
+   * binary before writing this: the CLI, not the relay, already does the
+   * risk classification — trivial reads/Bash (e.g. `echo`) never reach here
+   * at all in `default`, and `acceptEdits` still routes a dangerous-looking
+   * `Bash` (`rm -rf`) here despite auto-allowing harmless file edits. So
+   * there's no risk policy left for us to invent: anything that reaches
+   * this function already needs a real yes/no, we just have to ask it
+   * instead of the blanket auto-allow this replaced.
+   *
+   * Lives here, not on `choiceMachine`, because `buildApprovalQuestion` is
+   * Claude-`--permission-prompt-tool`-shaped — `ChoiceMachine` only owns the
+   * generic "publish a question, wait for an answer" slot
+   * (`presentApprovalChoice`), reusable by a native approval path (Fase
+   * 10's Codex driver) that never needs this Claude-specific framing at all. */
+  private async checkPermission(toolName: string, input: unknown, _toolUseId: string | undefined): Promise<PermissionDecision> {
+    const answers = await this.choiceMachine.presentApprovalChoice([buildApprovalQuestion(toolName, input)]);
+    return buildPermissionDecision(toolName, input, isApproved(answers));
   }
 
   /** The CLI reports its own permission-mode transitions

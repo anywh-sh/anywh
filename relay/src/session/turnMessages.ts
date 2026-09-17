@@ -1,5 +1,5 @@
 import { CHOICE_ALLOWED_TOOL, CHOICE_MCP_SERVER_NAME, CHOICE_USAGE_HINT, type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
-import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL } from "../bridges/permissionBridge.js";
+import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type PermissionDecision } from "../bridges/permissionBridge.js";
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
 import type { McpSpawnConfig } from "../runtimes/defs/claude/index.js";
 
@@ -101,6 +101,24 @@ export function buildApprovalQuestion(toolName: string, input: unknown): ChoiceQ
  */
 export function isApproved(answers: ChoiceAnswer[]): boolean {
   return answers[0]?.selected.includes(APPROVE_OPTION_ID) ?? false;
+}
+
+/**
+ * Turns a verdict into the `--permission-prompt-tool` response the CLI
+ * expects — pure (no waiting, no broadcast), so `SharedSession.checkPermission`
+ * only has to orchestrate getting `approved` from a human, not build the
+ * decision itself. `ExitPlanMode` keeps its own wording (a mode transition
+ * reads differently than "approve this action"); everything else gets the
+ * generic refusal. An approved decision passes `input` through unchanged —
+ * the relay never modifies what the model asked to do, only allows or blocks it.
+ */
+export function buildPermissionDecision(toolName: string, input: unknown, approved: boolean): PermissionDecision {
+  if (approved) return { behavior: "allow", updatedInput: input };
+  const isExitPlanMode = toolName === "ExitPlanMode";
+  return {
+    behavior: "deny",
+    message: isExitPlanMode ? "O usuário optou por continuar no modo Plan." : "O usuário recusou a execução.",
+  };
 }
 
 /** The CLI's own idle timeout for an `"http"` MCP server the child never

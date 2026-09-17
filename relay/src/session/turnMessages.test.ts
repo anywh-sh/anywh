@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
-import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig, describeToolCall, isApproved } from "./turnMessages.js";
+import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildBackgroundJobFollowupPrompt, buildMcpSpawnConfig, buildPermissionDecision, describeToolCall, isApproved } from "./turnMessages.js";
 
 // Merged into this file from the standalone approvalPrompt.test.ts — it was
 // the one test file whose name didn't match the module it tested; that
@@ -49,6 +49,21 @@ test("treats anything that is not an explicit approval as a refusal", () => {
   assert.equal(isApproved([{ question: "q", selected: [] }]), false);
   assert.equal(isApproved([]), false);
   assert.equal(isApproved([{ question: "q", selected: ["something the user typed"] }]), false);
+});
+
+test("buildPermissionDecision: approved allows the tool with the original input unchanged", () => {
+  const decision = buildPermissionDecision("Write", { file_path: "/tmp/x" }, true);
+  assert.deepEqual(decision, { behavior: "allow", updatedInput: { file_path: "/tmp/x" } });
+});
+
+test("buildPermissionDecision: a denied ExitPlanMode gets the Plan-mode-specific message", () => {
+  const decision = buildPermissionDecision("ExitPlanMode", {}, false);
+  assert.deepEqual(decision, { behavior: "deny", message: "O usuário optou por continuar no modo Plan." });
+});
+
+test("buildPermissionDecision: a denied ordinary tool gets the generic refusal message", () => {
+  const decision = buildPermissionDecision("Bash", { command: "rm -rf /" }, false);
+  assert.deepEqual(decision, { behavior: "deny", message: "O usuário recusou a execução." });
 });
 
 test("describeToolCall: Bash picks the command field", () => {
