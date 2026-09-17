@@ -7,7 +7,7 @@
 // flag the stale binary doesn't know makes the sidecar exit before printing
 // LISTENING — which reads like a tailnet failure and is not one.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,6 +24,22 @@ const TARGETS = {
   "linux-arm64": { triple: "aarch64-unknown-linux-gnu", goos: "linux", goarch: "arm64" },
 };
 
+// iOS can't be keyed by process.platform/arch like the targets above: this
+// script runs via the `pretauri` npm hook, which Xcode's own build phase
+// triggers on the host Mac regardless of what it's building for, so
+// process.platform/arch is always the Mac's, never the iOS one. Xcode does
+// export PLATFORM_NAME ("iphoneos" for a device, "iphonesimulator" for the
+// Simulator) and ARCHS into that phase's environment, which this hook
+// inherits — that's the only reliable signal.
+function iosTarget() {
+  const platformName = process.env.PLATFORM_NAME;
+  if (platformName !== "iphoneos" && platformName !== "iphonesimulator") return null;
+  const goarch = (process.env.ARCHS ?? "").split(" ")[0] === "x86_64" ? "amd64" : "arm64";
+  const triple =
+    platformName === "iphoneos" ? "aarch64-apple-ios" : goarch === "amd64" ? "x86_64-apple-ios" : "aarch64-apple-ios-sim";
+  return { triple, goos: "ios", goarch, sdk: platformName };
+}
+
 // `--target win32-x64` builds for another platform than this one. The sidecar
 // is pure Go with no cgo, so this is a plain GOOS/GOARCH cross-build and
 // needs no toolchain beyond Go itself — which means the machine that has Go
@@ -31,7 +47,7 @@ const TARGETS = {
 const targetFlag = process.argv.indexOf("--target");
 const key = targetFlag === -1 ? `${process.platform}-${process.arch}` : process.argv[targetFlag + 1];
 
-const target = TARGETS[key];
+const target = iosTarget() ?? TARGETS[key];
 if (!target) {
   console.error(`unknown target ${key} — known: ${Object.keys(TARGETS).join(", ")}`);
   process.exit(1);
@@ -41,13 +57,28 @@ const outDir = join(clientDir, "src-tauri", "binaries");
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, `tailnet-sidecar-${target.triple}${target.goos === "windows" ? ".exe" : ""}`);
 
+// Unlike every other target, GOOS=ios requires cgo — the pure-Go syscall
+// layer isn't ported for it — which means the Xcode-provided clang and the
+// iOS SDK's sysroot, not just GOOS/GOARCH.
+let buildEnv = { ...process.env, GOOS: target.goos, GOARCH: target.goarch, CGO_ENABLED: "0" };
+if (target.sdk) {
+  const sdkPath = execFileSync("xcrun", ["--sdk", target.sdk, "--show-sdk-path"], { encoding: "utf8" }).trim();
+  const cc = execFileSync("xcrun", ["--sdk", target.sdk, "-f", "clang"], { encoding: "utf8" }).trim();
+  // Matches bundle.iOS.minimumSystemVersion in tauri.ios.conf.json — read
+  // instead of duplicated so the two can't drift apart.
+  const iosConf = JSON.parse(readFileSync(join(clientDir, "src-tauri", "tauri.ios.conf.json"), "utf8"));
+  const minVersion = iosConf.bundle.iOS.minimumSystemVersion;
+  const versionFlag = target.sdk === "iphoneos" ? `-mios-version-min=${minVersion}` : `-mios-simulator-version-min=${minVersion}`;
+  const arch = target.goarch === "amd64" ? "x86_64" : "arm64";
+  const cflags = `-isysroot ${sdkPath} ${versionFlag} -arch ${arch}`;
+  buildEnv = { ...buildEnv, CGO_ENABLED: "1", CC: cc, CGO_CFLAGS: cflags, CGO_LDFLAGS: cflags };
+}
+
 try {
   execFileSync("go", ["build", "-o", out, "./cmd/tailnet-sidecar"], {
     cwd: join(clientDir, "tailnet-sidecar"),
     stdio: "inherit",
-    // CGO off so a cross-build never reaches for a C toolchain it doesn't
-    // have; nothing here needs one on any platform.
-    env: { ...process.env, GOOS: target.goos, GOARCH: target.goarch, CGO_ENABLED: "0" },
+    env: buildEnv,
   });
 } catch (err) {
   if (err.code === "ENOENT") {
