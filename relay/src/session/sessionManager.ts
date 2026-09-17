@@ -1,4 +1,5 @@
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
+import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import { SharedSession } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
@@ -222,7 +223,12 @@ export class SessionManager {
     // sessionId/permissionMode/model access below is scoped to the same
     // agent.
     const agentId = this.sessionStore.getAgentId(id);
+    // `agentId` isn't resolved against a registry yet (no `Registry` is
+    // threaded into `SessionManager` today) — every session still gets
+    // Claude's def regardless of what `agentId` says, same behavior as
+    // before `def` became an explicit field on `SharedSessionOptions`.
     const session = new SharedSession(this.homeOverride, {
+      def: claudeRuntimeDef,
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
       onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, agentId, sessionId),
       onSessionIdClear: () => this.sessionStore.clearSessionId(id, agentId),
