@@ -156,6 +156,56 @@ export interface McpSpawnConfig {
   extraSystemPrompt?: string;
 }
 
+/**
+ * Builds the argv for a `claude -p` turn, minus the MCP flags
+ * (`--mcp-config`/`--allowedTools`/`--permission-prompt-tool`/
+ * `--disallowedTools`) and `--resume` — both stay in `sendTurn` because they
+ * depend on state this function doesn't have: which MCP bridges to register
+ * (`SharedSession`'s decision, passed in as an opaque `McpSpawnConfig`) and
+ * the session's current `sessionId` (this class's own field, not an
+ * argument). `extraSystemPrompt` is the one piece of `McpSpawnConfig` this
+ * function does need — not the whole object, just the text fragment it
+ * folds into `--append-system-prompt` — so the caller passes
+ * `mcp?.extraSystemPrompt` instead of `mcp` itself. Exported so
+ * `runtimes/defs/claude/def.ts`'s `exec.buildArgs` can reuse it; see that
+ * file's comment for the gap this leaves (a real engine would need
+ * `TurnContext` to carry MCP config and `extraSystemPrompt` too).
+ */
+export function buildTurnArgs(text: string, permissionMode: PermissionMode, model: ModelChoice | undefined, extraSystemPrompt?: string): string[] {
+  return [
+    "-p",
+    text,
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--append-system-prompt",
+    // The marker convention is only relevant (and only ever
+    // requested) in `plan` mode: it's the fallback for the one mode where
+    // the real `present_choice` MCP tool can't be offered at all, so
+    // appending it in every other mode would just be dead weight on every
+    // spawn for nothing. `extraSystemPrompt` and the plan-mode marker never
+    // coexist in practice (`present_choice` is never registered in `plan`
+    // mode, `SharedSession.runTurn`), but both are folded in here
+    // regardless so this stays correct if that changes.
+    [APPEND_SYSTEM_PROMPT, permissionMode === "plan" ? PLAN_MODE_CHOICE_MARKER_PROMPT : undefined, extraSystemPrompt]
+      .filter(Boolean)
+      .join("\n\n"),
+    ...(model ? ["--model", model] : []),
+    // `bypassPermissions` is the historical default mode (the only one
+    // that existed before the mode became selectable) — it
+    // stays on the dedicated flag because that's the way, tested against
+    // the real binary, to avoid a tool touching a new path (e.g. a
+    // freshly uploaded image) getting stuck asking for approval that
+    // nobody can give in a non-interactive process (real finding while
+    // testing image upload). It's also the only mode that never
+    // gets `permissionPromptTool` (`SharedSession.runTurn`) — every
+    // other mode genuinely can pause a turn waiting on a
+    // human's approval, by design; that's the whole point of the flag.
+    ...(permissionMode === "bypassPermissions" ? ["--dangerously-skip-permissions"] : ["--permission-mode", permissionMode]),
+  ];
+}
+
 export interface SendTurnResult {
   /** `true` when the turn ended because `stop()` was called, not because
    * `claude` actually finished or errored. */
@@ -336,42 +386,7 @@ export class ClaudeSession {
   ): Promise<SendTurnResult> {
     this.stopRequested = false;
     const args = [
-      "-p",
-      text,
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--include-partial-messages",
-      "--append-system-prompt",
-      // The marker convention is only relevant (and only ever
-      // requested) in `plan` mode: it's the fallback for the one mode where
-      // the real `present_choice` MCP tool can't be offered at all (see the
-      // `mcp` arg below), so appending it in every other mode would just be
-      // dead weight on every spawn for nothing. `mcp.extraSystemPrompt` and
-      // the plan-mode marker never coexist in practice (`present_choice` is
-      // never registered in `plan` mode, `SharedSession.runTurn`), but both
-      // are folded in here regardless so this stays correct if that changes.
-      [
-        APPEND_SYSTEM_PROMPT,
-        permissionMode === "plan" ? PLAN_MODE_CHOICE_MARKER_PROMPT : undefined,
-        mcp?.extraSystemPrompt,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      ...(model ? ["--model", model] : []),
-      // `bypassPermissions` is the historical default mode (the only one
-      // that existed before the mode became selectable) — it
-      // stays on the dedicated flag because that's the way, tested against
-      // the real binary, to avoid a tool touching a new path (e.g. a
-      // freshly uploaded image) getting stuck asking for approval that
-      // nobody can give in a non-interactive process (real finding while
-      // testing image upload). It's also the only mode that never
-      // gets `permissionPromptTool` below (`SharedSession.runTurn`) — every
-      // other mode genuinely can pause a turn waiting on a
-      // human's approval, by design; that's the whole point of the flag.
-      ...(permissionMode === "bypassPermissions"
-        ? ["--dangerously-skip-permissions"]
-        : ["--permission-mode", permissionMode]),
+      ...buildTurnArgs(text, permissionMode, model, mcp?.extraSystemPrompt),
       // `mcp` combines whichever of the two independent bridges
       // `SharedSession.runTurn` decided to register for this turn's mode:
       // `allowedTools` for the `present_choice` tool outside `plan` mode
