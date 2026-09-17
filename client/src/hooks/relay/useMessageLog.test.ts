@@ -120,7 +120,7 @@ describe("useMessageLog", () => {
     const { result } = renderHook(() => useMessageLog());
     const noopEvents: AgentEvent[] = [
       { type: "session_id", sessionId: "s1" },
-      { type: "usage", inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+      { type: "usage", inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, prefixTokens: 1, outputTokens: 1 },
       { type: "status", permissionMode: "acceptEdits" },
       { type: "compact_boundary", trigger: "auto", preTokens: 100 },
       { type: "thinking", thinking: "hmm" },

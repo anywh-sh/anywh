@@ -118,10 +118,23 @@ export type AgentEvent =
   | { type: "session_id"; sessionId: string }
   /** Token usage of a single model response (never a turn-wide aggregate —
    * see `runtimes/defs/claude/session.ts`'s own doc comment on why an
-   * aggregate that includes subagents is actively misleading). No current
-   * consumer renders this; `context_usage_state` remains the UI's real
-   * source for context usage. */
-  | { type: "usage"; inputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number }
+   * aggregate that includes subagents is actively misleading). `inputTokens`/
+   * `cacheCreationInputTokens`/`cacheReadInputTokens` are each def's raw,
+   * CLI-specific fields — their semantics differ across agents (Codex's
+   * `cacheReadInputTokens` is a subset of `inputTokens`, not additive like
+   * Claude's), so nothing downstream may sum them across defs.
+   * `prefixTokens`/`outputTokens` are what every def normalizes into: the
+   * one pair of numbers comparable between agents, and the only fields a
+   * cross-agent consumer may read from this event. */
+  | {
+      type: "usage";
+      inputTokens: number;
+      cacheCreationInputTokens: number;
+      cacheReadInputTokens: number;
+      prefixTokens: number;
+      outputTokens: number;
+      contextWindowSize?: number;
+    }
   /** A CLI-reported status change with no more specific event of its own yet
    * — today this is only ever a permission-mode change the CLI itself
    * decided (`ExitPlanMode` and friends already sync `permission_mode_state`

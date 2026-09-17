@@ -35,6 +35,17 @@ interface FixtureBehavior {
    * same thread. */
   logFile?: string;
   pidFile?: string;
+  /** `thread/start`'s `model` field — real `ThreadStartResponse` always has
+   * one, so the fixture defaults to a value rather than omitting it. */
+  model?: string;
+  /** When set, a `thread/tokenUsage/updated` notification is sent right
+   * before the turn completes, carrying this breakdown. Omitted entirely
+   * otherwise, so a test can exercise a turn with no usage notification at
+   * all. */
+  tokenUsage?: {
+    last: { inputTokens: number; cacheWriteInputTokens: number; cachedInputTokens: number; outputTokens: number };
+    modelContextWindow: number;
+  };
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -61,7 +72,7 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
     if (msg.method === "thread/start") {
-      send({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "thread-1" } } });
+      send({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: "thread-1" }, model: behavior.model || "gpt-5-codex" } });
       continue;
     }
     if (msg.method === "turn/start") {
@@ -70,6 +81,9 @@ process.stdin.on("data", (chunk) => {
       send({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: turnId, status: "inProgress" } } });
       if (!behavior.holdTurnOpen) {
         setTimeout(() => {
+          if (behavior.tokenUsage) {
+            send({ jsonrpc: "2.0", method: "thread/tokenUsage/updated", params: { tokenUsage: behavior.tokenUsage } });
+          }
           if (behavior.reply) {
             send({ jsonrpc: "2.0", method: "item/completed", params: { item: { type: "agentMessage", id: "m1", text: behavior.reply } } });
           }
@@ -145,6 +159,39 @@ test("sendTurn: thread/start then turn/start, waits for turn/completed (not turn
       assert.equal(result.lastAssistantText, "hi there");
       assert.ok(events.some((event) => event.type === "text" && event.text === "hi there"));
       assert.equal(driver.getSessionId(), "thread-1");
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("sendTurn: builds contextUsage from thread/start's model and the turn's last thread/tokenUsage/updated notification", async () => {
+  await withTmpDir(async (dir) => {
+    const bin = writeFixture(dir, {
+      reply: "hi there",
+      model: "gpt-5-codex",
+      tokenUsage: { last: { inputTokens: 100, cacheWriteInputTokens: 5, cachedInputTokens: 20, outputTokens: 15 }, modelContextWindow: 200000 },
+    });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
+    try {
+      const result = await driver.sendTurn(turnContext(dir), () => {});
+      // usedTokens is prefixTokens (inputTokens alone) — never inputTokens +
+      // cacheWriteInputTokens + cachedInputTokens, which would double-count
+      // the cached slice (the bug `mapTokenUsageUpdated` exists to avoid).
+      assert.deepEqual(result.contextUsage, { model: "gpt-5-codex", contextWindowSize: 200000, usedTokens: 100 });
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("sendTurn: contextUsage is undefined when the turn produced no thread/tokenUsage/updated notification", async () => {
+  await withTmpDir(async (dir) => {
+    const bin = writeFixture(dir, { reply: "hi there" });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
+    try {
+      const result = await driver.sendTurn(turnContext(dir), () => {});
+      assert.equal(result.contextUsage, undefined);
     } finally {
       driver.dispose();
     }

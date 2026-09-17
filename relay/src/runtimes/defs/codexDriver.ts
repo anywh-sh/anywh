@@ -21,6 +21,11 @@
 import { spawnCodexDaemon, type CodexDaemon } from "../transports/codexDaemon.js";
 import type { AgentEvent, AgentRuntimeDef, JsonRpcDaemonPlan, TurnContext } from "../types.js";
 import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../sessionDriver.js";
+// Same known reverse-direction dependency `defs/claude/session.ts` already
+// has on this file for the same three types — see its own comment on why
+// (a def reaching into session/ for a type it should describe itself).
+// eslint-disable-next-line import-x/no-restricted-paths
+import type { ContextUsage } from "../../session/sessionStore.js";
 
 export interface CodexSessionDriverOptions {
   readonly homeOverride?: string;
@@ -34,6 +39,12 @@ export interface CodexSessionDriverOptions {
 // e.g. `Turn.items`/`itemsView`/`startedAt`, is irrelevant to driving a turn).
 interface ThreadStartResult {
   readonly thread: { readonly id: string };
+  // Verified against the real generated bindings (`ThreadStartResponse`,
+  // `codex app-server generate-ts --experimental`): `model` sits at the top
+  // level of the response, a sibling of `thread`, never inside it — the one
+  // place a Codex thread's model is knowable at all, since `thread/tokenUsage/updated`
+  // never carries it.
+  readonly model: string;
 }
 interface TurnStartResult {
   readonly turn: { readonly id: string };
@@ -70,6 +81,10 @@ export class CodexSessionDriver implements AgentSessionDriver {
    * process handle. `undefined` until the first turn's `thread/start`
    * resolves, or after `resetSessionId()` (`/clear`). */
   private threadId: string | undefined;
+  /** Learned once, off the first `thread/start` response — Codex never
+   * repeats it on any notification, so a resumed thread (no fresh
+   * `thread/start` this process) keeps whatever this was set to at spawn. */
+  private model: string | undefined;
   private inFlightTurnId: string | undefined;
   /** Set for the duration of `sendTurn`, cleared in its `finally` — the
    * turn currently awaiting a `turn/completed` notification. Rejected
@@ -147,8 +162,10 @@ export class CodexSessionDriver implements AgentSessionDriver {
     const exec = this.def.exec;
     const daemon = await this.ensureDaemon(ctx.cwd);
     let lastAssistantText: string | undefined;
+    let lastUsage: { readonly prefixTokens: number; readonly contextWindowSize?: number } | undefined;
     this.pendingOnEvent = (event) => {
       if (event.type === "text") lastAssistantText = event.text;
+      if (event.type === "usage") lastUsage = { prefixTokens: event.prefixTokens, contextWindowSize: event.contextWindowSize };
       onEvent(event);
     };
     try {
@@ -156,6 +173,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
         const startSpec = exec.thread.start(ctx);
         const threadResult = (await daemon.request(startSpec.method, startSpec.params)) as ThreadStartResult;
         this.threadId = threadResult.thread.id;
+        this.model = threadResult.model;
       }
       const turnSpec = exec.turn.start(ctx, this.threadId);
       const turnStartResult = (await daemon.request(turnSpec.method, turnSpec.params)) as TurnStartResult;
@@ -166,14 +184,15 @@ export class CodexSessionDriver implements AgentSessionDriver {
       });
 
       if (turn.status === "failed") throw new Error(turn.error?.message ?? `Codex turn ${turn.id} failed`);
-      // No `contextUsage` yet — `thread/tokenUsage/updated`'s real payload
-      // does carry `modelContextWindow` (confirmed against the generated
-      // bindings), but `codexAppServer.ts`'s local `ThreadTokenUsageUpdatedParams`
-      // doesn't capture it yet, and there's no `model` field on the
-      // notification at all (it lives on `thread/start`'s response
-      // instead) — wiring a real `ContextUsage` together is follow-up work,
-      // not invented here.
-      return { stopped: turn.status === "interrupted", lastAssistantText };
+      // `contextWindowSize` is missing whenever the turn produced no
+      // `thread/tokenUsage/updated` at all (e.g. interrupted before the
+      // model responded) — `ContextUsage` has no optional fields to leave
+      // this half-filled, so it's undefined rather than a lie.
+      const contextUsage: ContextUsage | undefined =
+        this.model && lastUsage?.contextWindowSize !== undefined
+          ? { model: this.model, contextWindowSize: lastUsage.contextWindowSize, usedTokens: lastUsage.prefixTokens }
+          : undefined;
+      return { stopped: turn.status === "interrupted", lastAssistantText, contextUsage };
     } finally {
       this.inFlightTurnId = undefined;
       this.pendingTurn = undefined;

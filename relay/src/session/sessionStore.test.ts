@@ -286,7 +286,7 @@ test("recordSessionId records the id without touching the already-chosen cwd", (
 test("getContextUsage with no record yet: undefined, doesn't break (new session, no turn has run)", () => {
   withStoreFile(undefined, (filePath) => {
     const store = new SessionStore(filePath, DEFAULT_CWD);
-    assert.equal(store.getContextUsage("nunca-visto"), undefined);
+    assert.equal(store.getContextUsage("nunca-visto", "claude"), undefined);
   });
 });
 
@@ -294,8 +294,8 @@ test("setContextUsage round-trips and persists to disk, surviving reopening the 
   withStoreFile(undefined, (filePath) => {
     const store = new SessionStore(filePath, DEFAULT_CWD);
     store.recordId("s1");
-    store.setContextUsage("s1", { model: "claude-sonnet-5", contextWindowSize: 1_000_000, usedTokens: 30693 });
-    assert.deepEqual(store.getContextUsage("s1"), {
+    store.setContextUsage("s1", "claude", { model: "claude-sonnet-5", contextWindowSize: 1_000_000, usedTokens: 30693 });
+    assert.deepEqual(store.getContextUsage("s1", "claude"), {
       model: "claude-sonnet-5",
       contextWindowSize: 1_000_000,
       usedTokens: 30693,
@@ -303,7 +303,7 @@ test("setContextUsage round-trips and persists to disk, surviving reopening the 
 
     // Simulates a relay restart: the value survives without waiting for a new turn.
     const reopened = new SessionStore(filePath, DEFAULT_CWD);
-    assert.deepEqual(reopened.getContextUsage("s1"), {
+    assert.deepEqual(reopened.getContextUsage("s1", "claude"), {
       model: "claude-sonnet-5",
       contextWindowSize: 1_000_000,
       usedTokens: 30693,
@@ -314,8 +314,8 @@ test("setContextUsage round-trips and persists to disk, surviving reopening the 
 test("setContextUsage called before recordId still works (ensureEntry creates the record)", () => {
   withStoreFile(undefined, (filePath) => {
     const store = new SessionStore(filePath, DEFAULT_CWD);
-    store.setContextUsage("nova", { model: "claude-opus-5", contextWindowSize: 200_000, usedTokens: 1000 });
-    assert.deepEqual(store.getContextUsage("nova"), {
+    store.setContextUsage("nova", "claude", { model: "claude-opus-5", contextWindowSize: 200_000, usedTokens: 1000 });
+    assert.deepEqual(store.getContextUsage("nova", "claude"), {
       model: "claude-opus-5",
       contextWindowSize: 200_000,
       usedTokens: 1000,
@@ -335,14 +335,34 @@ test("old record without contextUsage (written before this feature existed) load
     },
     (filePath) => {
       const store = new SessionStore(filePath, DEFAULT_CWD);
-      assert.equal(store.getContextUsage("s1"), undefined);
+      assert.equal(store.getContextUsage("s1", "claude"), undefined);
       // And it's still writable normally from here on.
-      store.setContextUsage("s1", { model: "claude-sonnet-5", contextWindowSize: 1_000_000, usedTokens: 42 });
-      assert.deepEqual(store.getContextUsage("s1"), {
+      store.setContextUsage("s1", "claude", { model: "claude-sonnet-5", contextWindowSize: 1_000_000, usedTokens: 42 });
+      assert.deepEqual(store.getContextUsage("s1", "claude"), {
         model: "claude-sonnet-5",
         contextWindowSize: 1_000_000,
         usedTokens: 42,
       });
+    },
+  );
+});
+
+test("session file with per-agent sessionId/permissionMode/model but flat contextUsage (written before this feature was agent-keyed) migrates it under the session's own agentId", () => {
+  withStoreFile(
+    {
+      s1: {
+        agentId: "codex",
+        sessionId: { codex: "thread-1" },
+        title: "Session 1",
+        cwd: { cwd: "/tmp/projeto", locked: true },
+        lastActiveAt: Date.now(),
+        contextUsage: { model: "gpt-5-codex", contextWindowSize: 200_000, usedTokens: 5000 },
+      },
+    },
+    (filePath) => {
+      const store = new SessionStore(filePath, DEFAULT_CWD);
+      assert.deepEqual(store.getContextUsage("s1", "codex"), { model: "gpt-5-codex", contextWindowSize: 200_000, usedTokens: 5000 });
+      assert.equal(store.getContextUsage("s1", "claude"), undefined);
     },
   );
 });

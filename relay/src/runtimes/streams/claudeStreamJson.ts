@@ -62,6 +62,7 @@ interface RawMessage {
     input_tokens?: number;
     cache_creation_input_tokens?: number;
     cache_read_input_tokens?: number;
+    output_tokens?: number;
   };
 }
 
@@ -73,11 +74,18 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
   // `usage`) — see the `usage` variant's own doc comment on why this is the
   // per-response number, never the turn-wide aggregate.
   if (event.type === "assistant" && isMainThreadEvent(event) && message?.usage) {
+    const inputTokens = message.usage.input_tokens ?? 0;
+    const cacheCreationInputTokens = message.usage.cache_creation_input_tokens ?? 0;
+    const cacheReadInputTokens = message.usage.cache_read_input_tokens ?? 0;
     results.push({
       type: "usage",
-      inputTokens: message.usage.input_tokens ?? 0,
-      cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
-      cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
+      inputTokens,
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      // Claude's three fields are additive — cache_creation and cache_read
+      // are each their own slice of the prefix, never a subset of input.
+      prefixTokens: inputTokens + cacheCreationInputTokens + cacheReadInputTokens,
+      outputTokens: message.usage.output_tokens ?? 0,
     });
   }
 
