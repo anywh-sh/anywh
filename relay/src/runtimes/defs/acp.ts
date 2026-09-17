@@ -77,7 +77,10 @@ export const acpRuntimeDraft: AgentRuntimeDef<undefined> = {
     // instead of assuming every daemon frames the same way.
     framing: "lsp-headers",
     thread: { start: startThread },
-    turn: { start: startTurn, interruptMethod: "session/cancel" },
+    // ACP has no per-turn id distinct from the session — `session/cancel`
+    // only takes `sessionId`, so this builder doesn't declare the second
+    // (`turnId`) parameter `JsonRpcDaemonPlan.turn.interrupt` allows for.
+    turn: { start: startTurn, interrupt: (threadId) => ({ method: "session/cancel", params: { sessionId: threadId } }) },
     mapNotification: () => [],
     handleServerRequest,
   },

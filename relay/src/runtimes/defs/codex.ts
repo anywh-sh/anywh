@@ -16,9 +16,15 @@
 // pair) were checked against a real `codex-cli 0.154.0` session logged in
 // via ChatGPT, not against documentation — the ones quoted verbatim
 // (`item/commandExecution/requestApproval`, `item/tool/requestUserInput`,
-// `turn/interrupt`) are load-bearing; `thread/start` and `turn/start` are
-// illustrative placeholders for the request Codex actually expects, to be
-// replaced by a real capture when Codex support is implemented (a later
+// `turn/interrupt`) are load-bearing. `turn/interrupt`'s params
+// (`{ threadId, turnId }`) are additionally confirmed against the real
+// generated protocol bindings (`codex app-server generate-ts`, same
+// binary) rather than just the logged session. `thread/start` and
+// `turn/start`'s *params* are still illustrative placeholders, though —
+// the generated bindings show them as `ThreadStartParams`/`TurnStartParams`,
+// far richer than `{ prompt, cwd }` (real turn input is a content array,
+// not a plain string, and carries dozens of optional overrides) — to be
+// replaced by a real mapping when Codex support is implemented (a later
 // phase — this draft only needs *a* method name to prove the shape typechecks).
 import type { AgentRuntimeDef, JsonRpcRequestSpec, TurnContext, TurnHost } from "../types.js";
 
@@ -100,7 +106,7 @@ export const codexRuntimeDraft: AgentRuntimeDef<CodexPermissionSettings> = {
     kind: "jsonRpcDaemon",
     framing: "ndjson",
     thread: { start: startThread },
-    turn: { start: startTurn, interruptMethod: "turn/interrupt" },
+    turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
     mapNotification: () => [],
     handleServerRequest,
   },

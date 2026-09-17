@@ -43,8 +43,8 @@ violates one of them is wrong regardless of how cleanly it typechecks.
    violation:* `interrupt()` tearing down the daemon — the Stop button
    quietly becomes `/clear` in disguise. This is why both `ExecPlan` variants
    carry their own interrupt shape (`{ signal, expectsCleanExit }` for a
-   spawn, `turn.interruptMethod` for a daemon) instead of one generic "kill
-   it" the engine has to guess the right meaning of.
+   spawn, `turn.interrupt(threadId, turnId)` for a daemon) instead of one
+   generic "kill it" the engine has to guess the right meaning of.
 4. **Restarting the relay never loses anything that resuming can't recover.**
    What survives a restart is persisted data, never in-memory process state.
 

@@ -254,9 +254,18 @@ export interface JsonRpcDaemonPlan {
   };
   readonly turn: {
     readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
-    /** e.g. Codex's `turn/interrupt` — a method name, not a signal; a
-     * daemon has no child process for the engine to `kill()`. */
-    readonly interruptMethod: string;
+    /** Builds the interrupt request from the ids the engine captured off
+     * `thread.start`/`turn.start`'s own responses — a bare method name (the
+     * shape this replaced) can't express it: confirmed against Codex's real
+     * generated protocol bindings (`codex app-server generate-ts`,
+     * `codex-cli 0.154.0`) that `turn/interrupt` takes `{ threadId, turnId }`
+     * as params, not just a method with none. A daemon has no child process
+     * for the engine to `kill()`, so a request is the only way to stop one.
+     * A def whose protocol has no per-turn id of its own (ACP's
+     * `session/cancel` only takes a session id) simply declares an
+     * `interrupt` that doesn't list the second parameter — TypeScript
+     * allows a narrower function where this type is expected. */
+    readonly interrupt: (threadId: string, turnId: string) => JsonRpcRequestSpec;
   };
   /** Optional: only defs whose `capabilities.rewindTurn`/`replayHistory`
    * declare more than `"none"` need these — `assertCoherent` enforces the
