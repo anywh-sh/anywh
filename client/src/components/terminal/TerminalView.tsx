@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useResolvedTheme } from "@/hooks/relay/useThemes";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
+import { isMacOS } from "@/lib/platform/platform";
+import { isNativePasteShortcut, shouldCopySelection } from "@/lib/terminal/terminalKeys";
+import { openTerminalLink } from "@/lib/terminal/terminalLinks";
 import { useDict } from "@/i18n";
 
 interface TerminalViewProps {
@@ -27,6 +31,17 @@ const RECONNECT_MAX_DELAY_MS = 30_000;
  * resize on the pty forces tmux to redraw the whole screen; without this,
  * dragging the edge turns into a flood of full redraws, visibly slow. */
 const RESIZE_SEND_DEBOUNCE_MS = 100;
+
+/** Reads the selection out of xterm and into the system clipboard, then drops
+ * it — the next Ctrl+C has to reach the shell as SIGINT, which it only does
+ * while nothing is selected (see `shouldCopySelection`). */
+function copySelectionToClipboard(term: XTerm): void {
+  const selection = term.getSelection();
+  term.clearSelection();
+  navigator.clipboard.writeText(selection).catch((error: unknown) => {
+    console.warn("[anywh] failed to copy the terminal selection:", error);
+  });
+}
 
 function isTerminalMessage(value: unknown): value is { type: "data"; data: string } | { type: "exit"; code: number | null } {
   return typeof value === "object" && value !== null && "type" in value;
@@ -86,22 +101,35 @@ export function TerminalView({ profile, chatSessionId, terminalId, cwd }: Termin
       // Bonus: without `allowTransparency`, the canvases go back to not
       // needing an alpha channel, slightly cheaper to composite.
       theme: themeRef.current,
+      // OSC 8 hyperlinks (a label carrying a hidden target, emitted by plenty
+      // of modern CLIs) don't go through the web-links addon below — they
+      // arrive already parsed, and this is the only hook for them. Same
+      // handler, so both kinds of link need the same modifier and open the
+      // same way. `allowNonHttpProtocols` stays off (the default): an escape
+      // sequence printed by any command the shell runs must not be able to
+      // name an arbitrary scheme for the OS to launch.
+      linkHandler: { activate: openTerminalLink },
     });
     termRef.current = term;
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    // Makes URLs in plain output clickable at all — without this addon xterm
+    // never even looks for them. Activation is gated on Ctrl/Cmd inside
+    // `openTerminalLink`; the hover underline and pointer cursor the addon
+    // draws are not configurable, so they show up regardless of the modifier.
+    term.loadAddon(new WebLinksAddon(openTerminalLink));
     term.open(container);
-    // Plain Ctrl+V: by default xterm treats Ctrl+<letter> as a control
-    // character for the shell (here, 0x16 — readline/vim's "quoted insert")
-    // and cancels the native keydown — on Chromium/WebView2 this suppresses
-    // the default paste action, so the `paste` event never fires
-    // (Ctrl+Shift+V already works, doesn't go through this path; Cmd+V on
-    // macOS doesn't either, it uses `metaKey`, not `ctrlKey`). Returning
-    // `false` here makes xterm ignore this specific keydown and let the
-    // browser's native paste happen normally.
+    // Returning `false` makes xterm ignore that keydown entirely: it emits no
+    // control character and doesn't cancel the native event, which is what
+    // both cases here need — the browser's own paste for Ctrl+V, and a copy
+    // instead of SIGINT for Ctrl+C. Everything else falls through unchanged.
+    // Why each shortcut qualifies lives with the predicate, in terminalKeys.ts.
     term.attachCustomKeyEventHandler((event) => {
-      if (event.type === "keydown" && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === "v") {
+      if (event.type !== "keydown") return true;
+      if (isNativePasteShortcut(event)) return false;
+      if (shouldCopySelection(event, term.hasSelection(), isMacOS())) {
+        copySelectionToClipboard(term);
         return false;
       }
       return true;
@@ -190,6 +218,11 @@ export function TerminalView({ profile, chatSessionId, terminalId, cwd }: Termin
     connect();
 
     const inputDisposable = term.onData((data) => {
+      // Typing drops the selection, the way a native terminal emulator
+      // behaves. It also closes the one hole Ctrl+C-copies-selection would
+      // otherwise leave: a selection made minutes ago and forgotten, quietly
+      // turning the interrupt the user just asked for into a copy.
+      if (term.hasSelection()) term.clearSelection();
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "input", data }));
     });
 
