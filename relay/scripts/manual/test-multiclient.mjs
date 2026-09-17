@@ -11,8 +11,8 @@ function connect(name) {
   socket.on("message", (raw) => {
     const msg = JSON.parse(raw.toString());
     events.push(msg);
-    if (msg.type === "claude_event" && msg.event.type === "result") {
-      console.log(`[${name}] recebeu result:`, msg.event.result);
+    if (msg.type === "agent_event" && msg.event.type === "text") {
+      console.log(`[${name}] recebeu text:`, msg.event.text);
     }
   });
   return { socket, events, name };
@@ -27,7 +27,7 @@ async function waitFor(client, predicate, timeoutMs = 30000) {
   throw new Error(`[${client.name}] timeout esperando evento`);
 }
 
-const isTurnComplete = (m) => m.type === "turn_complete";
+const isTurnComplete = (m) => m.type === "agent_event" && m.event.type === "turn_ended";
 
 const a = connect("cliente-A");
 const b = connect("cliente-B");

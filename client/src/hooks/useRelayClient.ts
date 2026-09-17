@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   RelayClient,
+  type AgentEvent,
   type BackgroundJobSummary,
   type ChoiceAnswer,
   type ChoiceQuestion,
-  type ClaudeEvent,
   type ContextUsage,
   type EditMessageErrorCode,
   type HistoryPageMessage,
@@ -40,7 +40,7 @@ export interface PendingChoice {
 }
 
 export interface UseRelayClientOptions {
-  onEvent?: (event: ClaudeEvent) => void;
+  onEvent?: (event: AgentEvent) => void;
   onTurnComplete?: (stopped: boolean) => void;
   onTurnError?: (message: string) => void;
   onCaughtUp?: () => void;
@@ -213,12 +213,12 @@ export function useRelayClient(
     let acquiredSidecar = false;
     const callbacks: RelayClientCallbacks = {
       onEvent: (event) => {
-        // `compact_boundary` already passes through the generic `claude_event`
-        // with no special treatment on the relay — this only intercepts it here to
-        // feed the toast, without removing the event from the normal flow (useMessageLog
-        // etc. keep receiving everything as before).
-        if (event.type === "system" && event.subtype === "compact_boundary" && event.compactMetadata) {
-          setCompactBoundary({ ...event.compactMetadata, receivedAt: Date.now() });
+        // `compact_boundary` passes through the generic `AgentEvent` stream
+        // with no special treatment on the relay — this only intercepts it
+        // here to feed the toast, without removing the event from the
+        // normal flow (useMessageLog etc. keep receiving everything as before).
+        if (event.type === "compact_boundary") {
+          setCompactBoundary({ trigger: event.trigger, preTokens: event.preTokens, receivedAt: Date.now() });
         }
         optionsRef.current.onEvent?.(event);
       },

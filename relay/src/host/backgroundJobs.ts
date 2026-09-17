@@ -1,10 +1,6 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-// Known reverse-direction dependency: a host/ file reaching into
-// runtimes/defs/ for a type. Dies once background-job detection parses the
-// normalized wire event instead of this Claude-shaped one (Phase 7).
-// eslint-disable-next-line import-x/no-restricted-paths
-import type { ClaudeEvent } from "../runtimes/defs/claude/session.js";
+import type { AgentEvent } from "../protocol/agent-event.js";
 
 // Tracks jobs started via `anywh-bg` (relay/scripts)
 // outside the turn's process, since the CLI's internal record for
@@ -80,7 +76,7 @@ const MARKER_RE = /\{"anywh_bg":"started".*\}/;
 /**
  * Pure (no I/O) parser for the marker that `anywh-bg start` prints —
  * separated from `extractStartedJobFromEvent` so it can be tested against
- * loose strings without having to build a whole `ClaudeEvent`.
+ * loose strings without having to build a whole `AgentEvent`.
  */
 export function parseStartedMarker(text: string): BackgroundJobStarted | undefined {
   const match = MARKER_RE.exec(text);
@@ -109,48 +105,16 @@ export function parseStartedMarker(text: string): BackgroundJobStarted | undefin
   return { id, pid, log, exitFile, label, ...(typeof alive === "string" ? { alive } : {}) };
 }
 
-interface ToolResultBlock {
-  type?: string;
-  content?: unknown;
-}
-
-interface TextBlock {
-  type?: string;
-  text?: unknown;
-}
-
 /**
- * Real shape of a `tool_result` event in the stream-json (confirmed by
- * actually running `claude -p`): `type: "user"`,
- * `message.content` is an array of blocks; what matters here has
- * `type: "tool_result"` and `content` — a string in most cases observed,
- * but the API also allows an array of text blocks, so both are handled.
+ * `tool_ended.content` is already flattened to a plain string by the
+ * mapper that produces `AgentEvent` (`runtimes/streams/claudeStreamJson.ts`)
+ * — this used to reach into the CLI's raw `tool_result` content-block array
+ * itself (a string, or an array of text blocks) before that normalization
+ * existed.
  */
-function collectToolResultTexts(event: ClaudeEvent): string[] {
-  if (event.type !== "user") return [];
-  const message = event.message as { content?: unknown } | undefined;
-  const content = message?.content;
-  if (!Array.isArray(content)) return [];
-  const texts: string[] = [];
-  for (const block of content as ToolResultBlock[]) {
-    if (!block || block.type !== "tool_result") continue;
-    if (typeof block.content === "string") {
-      texts.push(block.content);
-    } else if (Array.isArray(block.content)) {
-      for (const inner of block.content as TextBlock[]) {
-        if (inner?.type === "text" && typeof inner.text === "string") texts.push(inner.text);
-      }
-    }
-  }
-  return texts;
-}
-
-export function extractStartedJobFromEvent(event: ClaudeEvent): BackgroundJobStarted | undefined {
-  for (const text of collectToolResultTexts(event)) {
-    const job = parseStartedMarker(text);
-    if (job) return job;
-  }
-  return undefined;
+export function extractStartedJobFromEvent(event: AgentEvent): BackgroundJobStarted | undefined {
+  if (event.type !== "tool_ended") return undefined;
+  return parseStartedMarker(event.content);
 }
 
 /** `undefined` = the file exists but is still EMPTY: an older wrapper
@@ -310,10 +274,10 @@ export class BackgroundJobTracker {
     writeFileSync(this.options.persistPath, JSON.stringify([...this.jobs.values()], null, 2));
   }
 
-  /** Called with every `ClaudeEvent` of every turn (see
+  /** Called with every `AgentEvent` of every turn (see
    * `SharedSession.runTurn`) — a no-op for almost all of them, only reacts
    * to the ones carrying the start marker. */
-  observeEvent(sessionId: string, event: ClaudeEvent): void {
+  observeEvent(sessionId: string, event: AgentEvent): void {
     const started = extractStartedJobFromEvent(event);
     if (!started) return;
     const key = `${sessionId}:${started.id}`;

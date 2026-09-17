@@ -48,6 +48,10 @@ jobs:
               # constant (relay/src/protocol/version.ts vs.
               # client/src/lib/protocolVersion.ts).
               - 'relay/src/protocol/version.ts'
+              # Same reasoning, same job, for the AgentEvent contract
+              # (relay/src/protocol/agent-event.ts vs.
+              # client/src/lib/agent-event.ts).
+              - 'relay/src/protocol/agent-event.ts'
               # The installers are compile-time inputs to the client crate,
               # not loose scripts: relay_setup.rs `include_str!`s
               # install-relay.sh and infra/homebrew/app-install.sh, and its

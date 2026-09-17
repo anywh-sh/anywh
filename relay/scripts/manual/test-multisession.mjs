@@ -13,7 +13,7 @@ function connect(sessionName) {
 }
 
 function countTurnComplete(client) {
-  return client.events.filter((m) => m.type === "turn_complete").length;
+  return client.events.filter((m) => m.type === "agent_event" && m.event.type === "turn_ended").length;
 }
 
 async function waitForTurnCount(client, count, timeoutMs = 40000) {
@@ -38,10 +38,8 @@ function fetchSessions() {
 }
 
 function lastResult(client) {
-  const results = client.events
-    .filter((m) => m.type === "claude_event" && m.event.type === "result" && !m.event.is_error)
-    .map((m) => m.event.result);
-  return results[results.length - 1];
+  const texts = client.events.filter((m) => m.type === "agent_event" && m.event.type === "text").map((m) => m.event.text);
+  return texts[texts.length - 1];
 }
 
 const a = connect("projeto-a");

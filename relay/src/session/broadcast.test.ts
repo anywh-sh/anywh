@@ -151,7 +151,7 @@ test("broadcast: pushes into history and reaches every client, including the sen
   const a = fakeSocket();
   const b = fakeSocket();
   const history: BroadcastMessage[] = [];
-  const message: BroadcastMessage = { type: "turn_complete", stopped: false };
+  const message: BroadcastMessage = { type: "agent_event", event: { type: "turn_ended", stopped: false } };
   broadcast([a, b], history, message);
   assert.deepEqual(history, [message]);
   assert.deepEqual(a.sent, [message]);
@@ -162,7 +162,7 @@ test("broadcastExcept: still pushes into history for a client that connects late
   const origin = fakeSocket();
   const other = fakeSocket();
   const history: BroadcastMessage[] = [];
-  const message: BroadcastMessage = { type: "turn_error", message: "boom" };
+  const message: BroadcastMessage = { type: "agent_event", event: { type: "error", message: "boom" } };
   broadcastExcept([origin, other], history, message, origin);
   assert.deepEqual(history, [message]);
   assert.deepEqual(origin.sent, []);

@@ -4,8 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-// eslint-disable-next-line import-x/no-restricted-paths -- exercising the known reverse-direction dependency (see backgroundJobs.ts)
-import type { ClaudeEvent } from "../runtimes/defs/claude/session.js";
+import type { AgentEvent } from "../protocol/agent-event.js";
 import {
   BackgroundJobTracker,
   extractStartedJobFromEvent,
@@ -60,37 +59,29 @@ test("parseStartedMarker: malformed (truncated) JSON returns undefined, doesn't 
 });
 
 // ---- extractStartedJobFromEvent ----------------------------------------
+//
+// `tool_ended.content` is already a flattened plain string by the time it
+// reaches here (the mapper that produces it — `claudeStreamJson.test.ts` —
+// is what covers the raw `tool_result` shapes, string or array-of-text-
+// blocks, that content is flattened from).
 
-function toolResultEvent(content: unknown): ClaudeEvent {
-  return {
-    type: "user",
-    message: { content: [{ type: "tool_result", tool_use_id: "toolu_1", content }] },
-  };
+function toolResultEvent(content: string): AgentEvent {
+  return { type: "tool_ended", toolUseId: "toolu_1", content, isError: false };
 }
 
-test("extractStartedJobFromEvent: tool_result with string content (most common shape, confirmed against the real binary)", () => {
+test("extractStartedJobFromEvent: tool_ended with the marker in its content returns the parsed job", () => {
   const job = extractStartedJobFromEvent(toolResultEvent(STARTED_JSON));
   assert.equal(job?.id, "1788022610814662237-29477");
   assert.equal(job?.label, "sleep-build-stub");
 });
 
-test("extractStartedJobFromEvent: tool_result with content as an array of text blocks (alternative shape allowed by the API)", () => {
-  const job = extractStartedJobFromEvent(toolResultEvent([{ type: "text", text: STARTED_JSON }]));
-  assert.equal(job?.id, "1788022610814662237-29477");
-});
-
-test("extractStartedJobFromEvent: assistant event (not user/tool_result) returns undefined", () => {
-  const event: ClaudeEvent = { type: "assistant", message: { content: [{ type: "text", text: STARTED_JSON }] } };
+test("extractStartedJobFromEvent: a text event (not a tool result) returns undefined", () => {
+  const event: AgentEvent = { type: "text", text: STARTED_JSON };
   assert.equal(extractStartedJobFromEvent(event), undefined);
 });
 
-test("extractStartedJobFromEvent: tool_result from another tool (without the marker) returns undefined", () => {
+test("extractStartedJobFromEvent: tool_ended from another tool (without the marker) returns undefined", () => {
   assert.equal(extractStartedJobFromEvent(toolResultEvent("file.txt created")), undefined);
-});
-
-test("extractStartedJobFromEvent: user event without a content array (e.g. {}) doesn't throw", () => {
-  const event: ClaudeEvent = { type: "user", message: {} };
-  assert.equal(extractStartedJobFromEvent(event), undefined);
 });
 
 // ---- BackgroundJobTracker -----------------------------------------------
@@ -104,7 +95,7 @@ function withJobFiles(run: (dir: string, logPath: string, exitPath: string) => v
   }
 }
 
-function startedEvent(id: string, log: string, exitFile: string, label = "test", pid = 12345, alive?: string): ClaudeEvent {
+function startedEvent(id: string, log: string, exitFile: string, label = "test", pid = 12345, alive?: string): AgentEvent {
   return toolResultEvent(
     JSON.stringify({ anywh_bg: "started", id, pid, log, exitFile, label, ...(alive ? { alive } : {}) }),
   );

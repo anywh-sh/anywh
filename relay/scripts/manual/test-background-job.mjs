@@ -16,7 +16,7 @@ function connect(sessionName) {
 }
 
 function countTurnComplete(client) {
-  return client.events.filter((m) => m.type === "turn_complete").length;
+  return client.events.filter((m) => m.type === "agent_event" && m.event.type === "turn_ended").length;
 }
 
 async function waitForTurnCount(client, count, timeoutMs) {
@@ -29,16 +29,12 @@ async function waitForTurnCount(client, count, timeoutMs) {
 }
 
 function lastResultText(client) {
-  const results = client.events
-    .filter((m) => m.type === "claude_event" && m.event.type === "result" && !m.event.is_error)
-    .map((m) => m.event.result);
-  return results[results.length - 1];
+  const texts = client.events.filter((m) => m.type === "agent_event" && m.event.type === "text").map((m) => m.event.text);
+  return texts[texts.length - 1];
 }
 
 function userPrompts(client) {
-  return client.events
-    .filter((m) => m.type === "claude_event" && m.event.type === "user_prompt")
-    .map((m) => m.event);
+  return client.events.filter((m) => m.type === "agent_event" && m.event.type === "user_message").map((m) => m.event);
 }
 
 const client = connect(`test-bg-job-${Date.now()}`);
@@ -62,10 +58,10 @@ await waitForTurnCount(client, 2, 45_000);
 const prompts = userPrompts(client);
 const synthetic = prompts.find((p) => p.synthetic === "background_job");
 if (!synthetic) {
-  console.error("[test] FALHOU: nenhum user_prompt sintético (synthetic: background_job) encontrado");
+  console.error("[test] FALHOU: nenhum user_message sintético (synthetic: background_job) encontrado");
   process.exit(1);
 }
-console.log("[test] user_prompt sintético recebido, label:", synthetic.label);
+console.log("[test] user_message sintético recebido, label:", synthetic.label);
 
 const secondResult = lastResultText(client);
 console.log("[test] segundo turno (deveria reportar o resultado do job):", secondResult);

@@ -11,7 +11,7 @@ function send(text) {
 }
 
 let turn = 0;
-const resultsSeen = [];
+const sessionIdsSeen = [];
 
 socket.on("open", () => {
   console.log("[test] connected, sending turn 1");
@@ -21,14 +21,14 @@ socket.on("open", () => {
 
 socket.on("message", (raw) => {
   const msg = JSON.parse(raw.toString());
-  if (msg.type === "claude_event") {
-    const event = msg.event;
-    if (event.type === "result") {
-      resultsSeen.push(event);
-      console.log(`[test] turn ${turn} result:`, event.result);
-      console.log(`[test] turn ${turn} session_id:`, event.session_id);
-    }
-  } else if (msg.type === "turn_complete") {
+  if (msg.type !== "agent_event") return;
+  const event = msg.event;
+  if (event.type === "text") {
+    console.log(`[test] turn ${turn} text:`, event.text);
+  } else if (event.type === "session_id") {
+    sessionIdsSeen[turn - 1] = event.sessionId;
+    console.log(`[test] turn ${turn} session_id:`, event.sessionId);
+  } else if (event.type === "turn_ended") {
     console.log(`[test] turn ${turn} complete`);
     if (turn === 1) {
       turn = 2;
@@ -36,11 +36,8 @@ socket.on("message", (raw) => {
       send("Qual e minha cor favorita?");
     } else {
       console.log("--- resultado final ---");
-      console.log("turnos completados:", resultsSeen.length);
-      console.log(
-        "session_id manteve entre turnos:",
-        resultsSeen[0]?.session_id === resultsSeen[1]?.session_id,
-      );
+      console.log("turnos completados:", sessionIdsSeen.length);
+      console.log("session_id manteve entre turnos:", sessionIdsSeen[0] === sessionIdsSeen[1]);
       socket.close();
       process.exit(0);
     }

@@ -19,15 +19,16 @@ export interface HistoryPage {
 }
 
 function isTurnBoundary(message: BroadcastMessage): boolean {
-  return message.type === "turn_complete" || message.type === "turn_error";
+  return message.event.type === "turn_ended" || message.event.type === "error";
 }
 
 /** Start indices of each turn within `history`. A turn goes from its start
- * index up to (inclusive) the next `turn_complete`/`turn_error` — except
- * the last one, which stays "open" (no terminator yet) if there genuinely
- * is a turn in progress at the moment this runs. Doesn't require a
- * `user_prompt` marking the start (live history before Phase 1 didn't have
- * that) — the cut uses only the end terminator, present in both cases. */
+ * index up to (inclusive) the next `turn_ended`/`error`
+ * — except the last one, which stays "open" (no terminator yet) if there
+ * genuinely is a turn in progress at the moment this runs. Doesn't key off
+ * `turn_started` for the start of the next turn (even though every turn now
+ * emits one) — the cut uses only the end terminator, which is guaranteed to
+ * exist for every closed turn regardless of how it started. */
 function turnStartIndices(history: BroadcastMessage[]): number[] {
   if (history.length === 0) return [];
   const starts = [0];
@@ -53,16 +54,11 @@ export function pageHistoryBefore(history: BroadcastMessage[], beforeCursor: num
 }
 
 /** `true` only for the automatic follow-up turn of a finished `anywh-bg`
- * job — never appears to the user as an editable message
- * (the client renders it as a system note, `kind: "background-job-note"`,
- * not as a `kind: "user"` bubble). Old messages from before turns carried a
- * `user_prompt` marking their start fall through to the
- * `false` default — treated as real, same behavior that already existed
- * before this distinction existed. */
+ * job — never appears to the user as an editable message (the client renders
+ * it as a system note, `kind: "background-job-note"`, not as a `kind: "user"`
+ * bubble). */
 function isSyntheticBackgroundJobStart(message: BroadcastMessage): boolean {
-  return (
-    message.type === "claude_event" && message.event.type === "user_prompt" && message.event.synthetic === "background_job"
-  );
+  return message.event.type === "user_message" && message.event.synthetic === "background_job";
 }
 
 export interface EditTarget {

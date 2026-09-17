@@ -3,9 +3,9 @@ import WebSocket from "ws";
 /** Connects to the relay's chat WebSocket for one session and collects every
  * message the relay sends until `until` returns true (inclusive). Talks the
  * real wire protocol (`{"type":"user_message","text":...}` in,
- * `{"type":"claude_event",...}` / `{"type":"turn_complete",...}` out —
- * server.ts/sharedSession.ts) — no protocol mocking, only the `claude`
- * process underneath is faked (see testServer.ts). */
+ * `{"type":"agent_event",...}` out — server.ts/sharedSession.ts) — no
+ * protocol mocking, only the `claude` process underneath is faked (see
+ * testServer.ts). */
 export function connectSession(port: number, sessionId: string): Promise<WebSocket> {
   return new Promise((resolveConn, reject) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}/?session=${encodeURIComponent(sessionId)}`);
@@ -103,4 +103,24 @@ export function collectUntil(
 
     socket.on("message", onMessage);
   });
+}
+
+/** `collectUntil`/`connectSessionAndCollectUntil` predicate for "the turn is
+ * over" — every integration test that waits for a turn to finish (success,
+ * error, or `stop_turn`) ends up needing exactly this, since `turn_ended`
+ * replaced the old top-level `turn_complete`/`turn_error` messages. */
+export function isTurnEnded(message: Record<string, unknown>): boolean {
+  return message.type === "agent_event" && (message.event as { type?: string } | undefined)?.type === "turn_ended";
+}
+
+/** Finds a specific `agent_event` variant among collected messages — the
+ * other half of most `isTurnEnded` uses, once the turn's messages are in
+ * hand and the test wants to inspect one of them (e.g. `session_id`). */
+export function findAgentEvent<T extends string>(
+  messages: Record<string, unknown>[],
+  type: T,
+): Record<string, unknown> | undefined {
+  return messages.find(
+    (message) => message.type === "agent_event" && (message.event as { type?: string } | undefined)?.type === type,
+  );
 }

@@ -8,18 +8,30 @@ import { createTypeScriptImportResolver } from "eslint-import-resolver-typescrip
 // zones are the enforcement for that promise — see docs/invariants.md for
 // the full "who/where/orchestration" reasoning behind each line.
 //
-// Two known violations exist today and carry their own inline
-// `eslint-disable-next-line import-x/no-restricted-paths` (with a comment
-// explaining why and when they die) instead of a suppression here:
-// runtimes/defs/claude/transcriptReader.ts -> session/sharedSession.ts, and
-// host/backgroundJobs.ts -> runtimes/defs/claude/session.ts. Both die in
-// Phase 7, when a normalized wire event replaces the Claude-shaped types
-// they currently reach across the boundary for.
+// The two reverse-direction violations this comment used to document
+// (runtimes/defs/claude/transcriptReader.ts -> session/sharedSession.ts, and
+// host/backgroundJobs.ts -> runtimes/defs/claude/session.ts) are gone as of
+// Phase 7 — both now depend only on protocol/agent-event.ts.
+//
 // Everything under src/ except runtimes/defs/**, spelled out rather than
 // negated: the last zone below needs "every file that isn't inside a def"
-// as its target, and an explicit list is honest about needing an update
-// the day a new top-level folder shows up (protocol/, in Fase 2).
-const EVERYTHING_BUT_DEFS = ["src/server.ts", "src/host/**", "src/session/**", "src/bridges/**", "src/fs/**", "src/runtimes/executables.ts", "src/runtimes/probes/**"];
+// as its target, and an explicit list is honest about needing an update the
+// day a new top-level folder shows up — protocol/, routes/, ws/ and
+// runtimes/streams/ (Phases 1/3/7) already had to be added here once.
+const EVERYTHING_BUT_DEFS = [
+  "src/server.ts",
+  "src/lifecycle.ts",
+  "src/host/**",
+  "src/session/**",
+  "src/bridges/**",
+  "src/fs/**",
+  "src/protocol/**",
+  "src/routes/**",
+  "src/ws/**",
+  "src/runtimes/executables.ts",
+  "src/runtimes/probes/**",
+  "src/runtimes/streams/**",
+];
 
 // `except` globs are matched against the resolved *absolute* import path
 // (see eslint-plugin-import-x's no-restricted-paths source), so a pattern

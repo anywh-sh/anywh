@@ -1,13 +1,15 @@
 import type { WebSocket } from "ws";
-import type { ClaudeEvent } from "../runtimes/defs/claude/index.js";
+import type { AgentEvent } from "../protocol/agent-event.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
 import type { BackgroundJobSummary } from "../host/backgroundJobs.js";
 
-export type BroadcastMessage =
-  | { type: "claude_event"; event: ClaudeEvent }
-  | { type: "turn_complete"; stopped?: boolean }
-  | { type: "turn_error"; message: string };
+// A single variant — turn lifecycle used to be two separate sibling
+// messages (`turn_complete`/`turn_error`) alongside `claude_event`; both
+// folded into `AgentEvent` itself (`turn_ended`/`error`), so there's nothing
+// left to union here. Kept as a named type (not inlined at every call site)
+// since `historyPaging.ts`/`sharedSession.ts` reference it by name.
+export type BroadcastMessage = { type: "agent_event"; event: AgentEvent };
 
 // `suggestion` (and other "current" states: cwd_state, permission_mode_state
 // etc.) deliberately doesn't enter `BroadcastMessage`/`history` — they're

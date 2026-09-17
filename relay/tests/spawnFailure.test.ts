@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+
+function isAgentError(message: Record<string, unknown>): boolean {
+  return message.type === "agent_event" && (message.event as { type?: string } | undefined)?.type === "error";
+}
 
 // Real integration test (.anywh/skills/tests/SKILL.md): boots the actual
 // relay server, talks to it over a real WebSocket, only fakes the `claude`
@@ -26,7 +30,7 @@ after(async () => {
   await server.close();
 });
 
-test("cwd removed out from under a locked session: turn_error, not a dead server", async () => {
+test("cwd removed out from under a locked session: an agent_event error, not a dead server", async () => {
   const goneDir = join(server.homeDir, "moved-away");
   mkdirSync(goneDir, { recursive: true });
 
@@ -40,9 +44,9 @@ test("cwd removed out from under a locked session: turn_error, not a dead server
   rmSync(goneDir, { recursive: true, force: true });
 
   sendUserMessage(victim, "hello");
-  const messages = await collectUntil(victim, (message) => message.type === "turn_error");
-  const turnError = messages.find((message) => message.type === "turn_error");
-  assert.ok(turnError, `expected a turn_error, got: ${JSON.stringify(messages)}`);
+  const messages = await collectUntil(victim, isAgentError);
+  const turnError = messages.find(isAgentError);
+  assert.ok(turnError, `expected an agent_event error, got: ${JSON.stringify(messages)}`);
   victim.close();
 
   // The real assertion: the crash blast radius. A single tab's stale cwd
@@ -50,7 +54,7 @@ test("cwd removed out from under a locked session: turn_error, not a dead server
   // cwd must complete normally right after.
   const control = await connectSession(server.port, "session-control");
   sendUserMessage(control, "hello");
-  const controlMessages = await collectUntil(control, (message) => message.type === "turn_complete");
-  assert.deepEqual(controlMessages.at(-1), { type: "turn_complete", stopped: false });
+  const controlMessages = await collectUntil(control, isTurnEnded);
+  assert.deepEqual(controlMessages.at(-1), { type: "agent_event", event: { type: "turn_ended", stopped: false } });
   control.close();
 });

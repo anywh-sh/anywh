@@ -38,12 +38,10 @@ test("gracefulShutdown: a turn stuck past the grace period gets SIGINT (same pat
     sendUserMessage(socket, "please hang");
 
     // Same synchronization the existing stop_turn test uses: wait for the
-    // fake claude's own `system`/`init` event, proof the child has actually
-    // spawned and is genuinely blocked on SIGINT, before shutting down.
-    await collectUntil(
-      socket,
-      (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "system",
-    );
+    // fake claude's own `system`/`init` event (mapped to `session_id`),
+    // proof the child has actually spawned and is genuinely blocked on
+    // SIGINT, before shutting down.
+    await collectUntil(socket, (message) => message.type === "agent_event" && (message.event as { type?: string }).type === "session_id");
 
     const start = Date.now();
     relay.proc.kill("SIGTERM");

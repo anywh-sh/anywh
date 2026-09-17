@@ -70,7 +70,9 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
     return;
   }
   if (shuttingDown) {
-    socket.send(JSON.stringify({ type: "turn_error", message: "relay reiniciando, tente de novo em instantes" }));
+    socket.send(
+      JSON.stringify({ type: "agent_event", event: { type: "error", message: "relay reiniciando, tente de novo em instantes" } }),
+    );
     return;
   }
   session.submitTurn(socket, parsed.text);

@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { SessionStore } from "../src/session/sessionStore.js";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): boots the actual
 // relay server, talks to it over a real WebSocket, and only fakes the one
@@ -18,20 +18,17 @@ after(async () => {
   await server.close();
 });
 
-test("a turn streams claude_event(s) ending in a successful result, then turn_complete", async () => {
+test("a turn streams agent_event(s) ending in text, then turn_ended", async () => {
   const socket = await connectSession(server.port, "session-a");
   sendUserMessage(socket, "hello");
 
-  const messages = await collectUntil(socket, (message) => message.type === "turn_complete");
+  const messages = await collectUntil(socket, isTurnEnded);
 
-  const resultEvent = messages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  );
-  assert.ok(resultEvent, `expected a claude_event carrying a result, got: ${JSON.stringify(messages)}`);
-  assert.equal((resultEvent.event as { is_error?: boolean }).is_error, false);
+  const textEvent = findAgentEvent(messages, "text");
+  assert.ok(textEvent, `expected an agent_event carrying text, got: ${JSON.stringify(messages)}`);
 
-  const turnComplete = messages.at(-1);
-  assert.deepEqual(turnComplete, { type: "turn_complete", stopped: false });
+  const turnEnded = messages.at(-1);
+  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
 
   socket.close();
 });
@@ -40,19 +37,13 @@ test("a second turn on the same session resumes the same claude session_id", asy
   const socket = await connectSession(server.port, "session-b");
 
   sendUserMessage(socket, "first turn");
-  const firstMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
-  const firstResult = firstMessages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  );
-  const firstSessionId = (firstResult!.event as { session_id?: string }).session_id;
+  const firstMessages = await collectUntil(socket, isTurnEnded);
+  const firstSessionId = (findAgentEvent(firstMessages, "session_id")!.event as { sessionId?: string }).sessionId;
   assert.ok(firstSessionId, "first turn should produce a session_id");
 
   sendUserMessage(socket, "second turn");
-  const secondMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
-  const secondResult = secondMessages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  );
-  const secondSessionId = (secondResult!.event as { session_id?: string }).session_id;
+  const secondMessages = await collectUntil(socket, isTurnEnded);
+  const secondSessionId = (findAgentEvent(secondMessages, "session_id")!.event as { sessionId?: string }).sessionId;
 
   // The fake `claude` echoes back `--resume <id>` as-is (fixtures/fake-claude.mjs)
   // — a stable session_id across two turns proves the relay actually passed
@@ -65,7 +56,7 @@ test("a second turn on the same session resumes the same claude session_id", asy
 test("a completed turn's session_id is persisted to disk, readable by a fresh SessionStore", async () => {
   const socket = await connectSession(server.port, "session-c");
   sendUserMessage(socket, "hello");
-  await collectUntil(socket, (message) => message.type === "turn_complete");
+  await collectUntil(socket, isTurnEnded);
   socket.close();
 
   // Real file on real disk (RELAY_SESSIONS_FILE, set by startTestServer) —
