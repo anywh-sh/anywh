@@ -3,7 +3,7 @@ import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, write
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it, test } from "node:test";
-import { resolveAgentBin, SCRIPTS_DIR } from "./executables.js";
+import { BILLED_CREDENTIAL_VARS, resolveAgentBin, SCRIPTS_DIR, stripBilledCredentials } from "./executables.js";
 
 // `../../scripts` from this file's own new location is exactly the segment
 // that a directory move under `src/` silently breaks: it keeps resolving to
@@ -11,6 +11,17 @@ import { resolveAgentBin, SCRIPTS_DIR } from "./executables.js";
 // on PATH. Pinning it here turns that failure mode into a red unit test.
 test("SCRIPTS_DIR resolves to the real relay/scripts, with anywh-bg present and executable", () => {
   assert.doesNotThrow(() => accessSync(join(SCRIPTS_DIR, "anywh-bg"), constants.X_OK));
+});
+
+// Real finding: the interactive terminal and the one-shot probes (auth
+// status, the default-model probe) go through this blanket strip, not a
+// def's own `identity.env.strip` — so teaching the relay a second agent CLI
+// (Codex, OPENAI_API_KEY) means this list, not just codex.ts, has to grow.
+test("stripBilledCredentials removes every entry of BILLED_CREDENTIAL_VARS, including Codex's, leaving unrelated vars alone", () => {
+  const env: NodeJS.ProcessEnv = { PATH: "/usr/bin", OPENAI_API_KEY: "sk-x", ANTHROPIC_API_KEY: "sk-ant-x", ANTHROPIC_AUTH_TOKEN: "tok" };
+  stripBilledCredentials(env);
+  for (const name of BILLED_CREDENTIAL_VARS) assert.equal(env[name], undefined);
+  assert.equal(env.PATH, "/usr/bin");
 });
 
 // Real files with real permission bits, not a mocked `fs`: what this

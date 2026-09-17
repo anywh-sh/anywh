@@ -83,12 +83,18 @@ export const AGENT_BIN = resolveAgentBin(CONFIGURED_AGENT_BIN);
 // probes, and the interactive terminal — a terminal the user opened can run
 // the agent manually just as well.
 //
-// Scoped to the provider whose CLI this relay actually spawns, not every
+// Scoped to the providers whose CLIs this relay actually spawns, not every
 // provider that exists. A blanket `*_API_KEY` sweep would also strip a key a
 // project's own tooling legitimately needs inside a turn, which is not this
 // rule's business. Teaching the relay a second agent CLI means adding that
-// provider's credentials here, alongside it.
-export const BILLED_CREDENTIAL_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"] as const;
+// provider's credentials here, alongside it — `OPENAI_API_KEY` is Codex's:
+// `defs/codex.ts`'s own `identity.env.strip` already covers the daemon spawn
+// (`codexDaemon.ts`), but the interactive terminal and the one-shot probes
+// go through `stripBilledCredentials` below, not a def's own env — without
+// this entry, a `codex` run by hand in the app's embedded terminal on a
+// machine with `OPENAI_API_KEY` set would bill per token instead of drawing
+// on the CLI's own subscription.
+export const BILLED_CREDENTIAL_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"] as const;
 
 /** Strips every billed credential from `env`, in place. */
 export function stripBilledCredentials(env: NodeJS.ProcessEnv): void {

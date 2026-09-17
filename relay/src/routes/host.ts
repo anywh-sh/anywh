@@ -17,9 +17,9 @@ export interface SelectableAgentInfo {
 // Set once at boot (server.ts, after runtimes/detection.ts's probe
 // resolves) — empty until then, same "older relay/client simply sees
 // nothing new" shape as `version` below. Only agents server.ts's own
-// SELECTABLE_AGENT_IDS names land here — detection can probe a def with no
-// engine behind it yet (Codex today) without that def ever reaching a
-// client that couldn't do anything with it.
+// SELECTABLE_AGENT_IDS names land here, further filtered to `installed` —
+// a relay without the `codex` binary on `$PATH` still only ever offers
+// Claude, even though detection probes both.
 let selectableAgents: readonly SelectableAgentInfo[] = [];
 
 export function setSelectableAgents(agents: readonly SelectableAgentInfo[]): void {

@@ -259,18 +259,15 @@ export class SessionManager {
 
   private createSession(id: string): SharedSession {
     const { cwd, locked } = this.sessionStore.getCwdState(id);
-    // Every session's agent today — see SessionStore.getAgentId's own
-    // comment for why this isn't picked per-call yet. Read once so every
-    // sessionId/permissionMode/model access below is scoped to the same
-    // agent.
+    // Read once so every sessionId/permissionMode/model access below is
+    // scoped to the same agent — `setAgent` is the only thing that changes
+    // it afterward, and it re-reads this fresh rather than mutating a
+    // session already under construction.
     const agentId = this.sessionStore.getAgentId(id);
     // Falls back to Claude's def for an agentId the registry doesn't
     // recognize — an id from a build with a def this one's registry
     // excluded (assertCoherent failed) or simply doesn't ship, rather than
-    // SharedSession's constructor throwing on an undefined def. Behaviorally
-    // still always Claude in production today: SELECTABLE_AGENT_IDS
-    // (server.ts) lists only "claude", and getAgentId never returns
-    // anything else for a session that exists.
+    // SharedSession's constructor throwing on an undefined def.
     const def = this.registry.get(agentId) ?? claudeRuntimeDef;
     const session = new SharedSession(this.homeOverride, {
       def,

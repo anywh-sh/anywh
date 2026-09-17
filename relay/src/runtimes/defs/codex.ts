@@ -1,13 +1,13 @@
 // The real `AgentRuntimeDef` for Codex — promoted from a shape-proving
 // draft (this file's earlier form) once `thread.start`/`turn.start` had
 // real params to build and a real notification mapper
-// (`runtimes/streams/codexAppServer.ts`) to wire in. Still not driving an
-// actual turn anywhere: no engine reads `exec.kind === "jsonRpcDaemon"` yet
-// (that's `runtimes/transports/codexDaemon.ts` plus the `SharedSession`
-// integration that picks a driver per session), and `server.ts`'s
-// `SELECTABLE_AGENT_IDS` still lists only `"claude"`, so this def reaches
-// nothing a user can pick from the UI. `runtimes/README.md` §5 has the
-// three questions that decided `exec.kind` for this def.
+// (`runtimes/streams/codexAppServer.ts`) to wire in. Driven by
+// `CodexSessionDriver` (`runtimes/defs/codexDriver.ts`, via
+// `createSessionDriver`) once a session's `agentId` resolves to this def
+// (`SessionManager.createSession`/`setAgent`) — reachable from the UI's
+// agent picker since `server.ts`'s `SELECTABLE_AGENT_IDS` lists `"codex"`
+// alongside `"claude"`. `runtimes/README.md` §5 has the three questions
+// that decided `exec.kind` for this def.
 //
 // Every protocol detail below — `thread/start`, `turn/start`,
 // `turn/interrupt`'s params, every notification
