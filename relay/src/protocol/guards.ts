@@ -44,14 +44,20 @@ export function isSetCwdMessage(value: unknown): value is { type: "set_cwd"; pat
   );
 }
 
-const PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
-
+// No fixed enum here on purpose, same reasoning `isSetModelMessage` below
+// already spells out: the real vocabulary is per-agent AND per-platform
+// (`PermissionPolicy.modesFor`), and this guard has no session — let alone a
+// def — in scope. The authoritative check runs one layer in, in
+// `SharedSession.setPermissionMode`, which owns the session's def and
+// answers a rejected mode by re-broadcasting the current one (so a client
+// that guessed wrong self-corrects instead of silently diverging).
 export function isSetPermissionModeMessage(value: unknown): value is { type: "set_permission_mode"; mode: PermissionMode } {
   return (
     typeof value === "object" &&
     value !== null &&
     (value as { type?: unknown }).type === "set_permission_mode" &&
-    PERMISSION_MODES.includes((value as { mode?: unknown }).mode as PermissionMode)
+    typeof (value as { mode?: unknown }).mode === "string" &&
+    (value as { mode: string }).mode.length > 0
   );
 }
 

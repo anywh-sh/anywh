@@ -132,7 +132,7 @@ test("migration: pre-agent shape (flat sessionId/permissionMode/model, has lastA
       const store = new SessionStore(filePath, DEFAULT_CWD);
       assert.equal(store.getAgentId("s1"), "claude");
       assert.equal(store.getSessionId("s1", "claude"), "sess-1");
-      assert.equal(store.getPermissionMode("s1", "claude"), "acceptEdits");
+      assert.equal(store.getPermissionMode("s1", "claude", "bypassPermissions"), "acceptEdits");
       assert.equal(store.getModel("s1", "claude"), "claude-opus-5");
 
       const persisted = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
@@ -154,7 +154,10 @@ test("migration: pre-agent shape without permissionMode/model leaves those field
     { s1: { sessionId: null, title: "Session 1", cwd: { cwd: "/tmp/projeto", locked: false }, lastActiveAt: 1234 } },
     (filePath) => {
       const store = new SessionStore(filePath, DEFAULT_CWD);
-      assert.equal(store.getPermissionMode("s1", "claude"), "bypassPermissions");
+      // Fallback comes from the caller now, not a hardcoded Claude-specific
+      // default — a non-Claude value proves that, rather than coincidentally
+      // matching an internal constant.
+      assert.equal(store.getPermissionMode("s1", "claude", "workspace-write"), "workspace-write");
       assert.equal(store.getModel("s1", "claude"), undefined);
 
       const persisted = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
@@ -183,14 +186,16 @@ test("sessionId/permissionMode/model are scoped per agentId — a second agent n
     store.recordSessionId("s1", "claude", "sess-claude-1");
     store.recordSessionId("s1", "codex", "thread-codex-1");
     store.setPermissionMode("s1", "claude", "plan");
-    store.setPermissionMode("s1", "codex", "acceptEdits");
+    store.setPermissionMode("s1", "codex", "workspace-write");
     store.setModel("s1", "claude", "claude-opus-5");
     store.setModel("s1", "codex", "gpt-5-codex");
 
     assert.equal(store.getSessionId("s1", "claude"), "sess-claude-1");
     assert.equal(store.getSessionId("s1", "codex"), "thread-codex-1");
-    assert.equal(store.getPermissionMode("s1", "claude"), "plan");
-    assert.equal(store.getPermissionMode("s1", "codex"), "acceptEdits");
+    // Fallback args deliberately don't match what was set, so a pass here
+    // proves the persisted value won, not the fallback.
+    assert.equal(store.getPermissionMode("s1", "claude", "read-only"), "plan");
+    assert.equal(store.getPermissionMode("s1", "codex", "read-only"), "workspace-write");
     assert.equal(store.getModel("s1", "claude"), "claude-opus-5");
     assert.equal(store.getModel("s1", "codex"), "gpt-5-codex");
 

@@ -12,7 +12,9 @@ import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/p
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
-import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
+import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
 import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
@@ -207,6 +209,11 @@ export class SharedSession implements SessionDriverHost {
   private cwd: string;
   private locked: boolean;
   private title: string | null;
+  private def: AgentRuntimeDef;
+  /** This session's agent's own mode vocabulary for the host's platform —
+   * derived from `def` once at construction (see `session/permissionModes.ts`).
+   * `permissionMode` is validated against this, not against a fixed union. */
+  private permissionModes: readonly PermissionModeOption[];
   private permissionMode: PermissionMode;
   private model: ModelChoice | undefined;
   private draft: string;
@@ -266,7 +273,9 @@ export class SharedSession implements SessionDriverHost {
     this.cwd = options.initialCwd;
     this.locked = options.initialLocked;
     this.title = options.initialTitle ?? null;
-    this.permissionMode = options.initialPermissionMode;
+    this.def = options.def;
+    this.permissionModes = availableModes(this.def, toHostPlatform());
+    this.permissionMode = resolveInitialMode(this.permissionModes, options.initialPermissionMode, this.def.permissions.defaultModeId);
     this.model = options.initialModel;
     this.contextUsage = options.initialContextUsage;
     this.draft = options.initialDraft ?? "";
@@ -300,9 +309,18 @@ export class SharedSession implements SessionDriverHost {
     return this.contextUsage;
   }
 
-  /** Unlike `setCwd`, has no lock or validation — any of the 4 values is
-   * always acceptable at any point in the conversation. */
+  /** Unlike `setCwd`, has no lock — any offered mode is always acceptable at
+   * any point in the conversation. Does validate, though: the mode
+   * vocabulary is this session's own def's, and a client can be one build
+   * behind (or on another device that already switched agents). An unknown
+   * id re-broadcasts the current mode instead of accepting it — a dropdown
+   * showing a mode the engine will reject on the next turn is worse than a
+   * dropdown that snaps back. */
   setPermissionMode(mode: PermissionMode): void {
+    if (!isOfferedMode(this.permissionModes, mode)) {
+      this.broadcastPermissionMode();
+      return;
+    }
     this.permissionMode = mode;
     this.options.onPermissionModeChange?.(mode);
     this.broadcastPermissionMode();
@@ -448,9 +466,13 @@ export class SharedSession implements SessionDriverHost {
    * switch doesn't do redundant work on every status event; not
    * `setPermissionMode` (that one is for the human's own dropdown pick and
    * always notifies) because this needs the exact same side effects driven
-   * by a different source of truth. */
+   * by a different source of truth. Reached through `AgentEvent`'s
+   * driver-agnostic `status` variant (`runTurn`), so no driver is
+   * special-cased here — narrowing against THIS session's own modes (not a
+   * fixed Claude union) is what makes this agent-correct for whichever def
+   * is active. */
   private applyPermissionModeFromCli(mode: string): void {
-    if (!isPermissionMode(mode) || mode === this.permissionMode) return;
+    if (!isOfferedMode(this.permissionModes, mode) || mode === this.permissionMode) return;
     this.permissionMode = mode;
     this.options.onPermissionModeChange?.(mode);
     this.broadcastPermissionMode();

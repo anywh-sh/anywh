@@ -262,7 +262,7 @@ export class SessionManager {
       onCwdChange: (newCwd) => this.sessionStore.setCwd(id, newCwd),
       onLockChange: () => this.sessionStore.lockCwd(id),
       onUnlockChange: () => this.sessionStore.unlockCwd(id),
-      initialPermissionMode: this.sessionStore.getPermissionMode(id, agentId),
+      initialPermissionMode: this.sessionStore.getPermissionMode(id, agentId, def.permissions.defaultModeId),
       onPermissionModeChange: (mode) => this.sessionStore.setPermissionMode(id, agentId, mode),
       initialModel: this.sessionStore.getModel(id, agentId),
       onModelChange: (model) => this.sessionStore.setModel(id, agentId, model),

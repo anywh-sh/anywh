@@ -15,25 +15,15 @@ export interface SessionCwdState {
   locked: boolean;
 }
 
-/** Mirrors the values accepted by `claude --permission-mode` that we expose
- * in the UI — `bypassPermissions` is the only one that still uses
- * the historical `--dangerously-skip-permissions` flag (runtimes/defs/claude/session.ts),
- * the other three go straight through `--permission-mode <value>`.
- * `auto`/`dontAsk` were left out on purpose: `auto` depends on plan/model
- * eligibility and runs its own classifier behind the scenes (its own
- * cost/scope), `dontAsk` is meant for CI with a predefined allowlist, not
- * for interactive chat. */
-export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
-
-const PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
-
-/** Narrows an arbitrary string to `PermissionMode` — needed for the case
- * where the CLI reports its own mode transitions via a `system/status`
- * event (`SharedSession`'s `applyPermissionModeFromCli`) and the value comes
- * from the child process's stdout, not from our own typed UI. */
-export function isPermissionMode(value: string): value is PermissionMode {
-  return (PERMISSION_MODES as readonly string[]).includes(value);
-}
+/** Opaque permission-mode id — no fixed union anymore: the real vocabulary is
+ * whatever the session's own def declares (`PermissionPolicy.modesFor(platform)`,
+ * `runtimes/types.ts`), which differs per agent AND per platform (Codex's
+ * `workspace-write` doesn't exist on win32). Claude's four values are one
+ * def's answer, not this file's business — same reasoning `ModelChoice`
+ * below already uses. Validation lives where the def is in scope
+ * (`SharedSession`, via `session/permissionModes.ts`), not here and not in
+ * the wire guard (`protocol/guards.ts`). */
+export type PermissionMode = string;
 
 /** Opaque `claude --model` value — no fixed union anymore: the real catalog
  * is fetched from the CLI itself (defaultModel.ts's `/model` probe) instead
@@ -98,11 +88,12 @@ export interface SessionEntry {
    * special case). */
   lastActiveAt: number;
   /** Optional to tolerate records written before this feature existed —
-   * read as `"bypassPermissions"` (see `getPermissionMode`), which is the
-   * hardcoded behavior everyone already had before a selectable mode
-   * existed. Unlike `cwd`, it doesn't lock after the first turn — the mode
-   * can change at any point in the conversation. Keyed by `agentId`, same
-   * reasoning as `sessionId` above. */
+   * read as the caller's own `fallbackModeId` (see `getPermissionMode`),
+   * which for Claude is `"bypassPermissions"`, the hardcoded behavior
+   * everyone already had before a selectable mode existed. Unlike `cwd`, it
+   * doesn't lock after the first turn — the mode can change at any point in
+   * the conversation. Keyed by `agentId`, same reasoning as `sessionId`
+   * above. */
   permissionMode?: Record<AgentId, PermissionMode>;
   /** Optional: `undefined` (never chosen via `/model`) means "don't pass
    * `--model` on spawn", same as the behavior that always existed before
@@ -430,8 +421,13 @@ export class SessionStore {
     this.persist();
   }
 
-  getPermissionMode(id: string, agentId: AgentId): PermissionMode {
-    return this.records[id]?.permissionMode?.[agentId] ?? "bypassPermissions";
+  /** `fallbackModeId` is the caller's (`SessionManager`'s) job — it already
+   * resolved the session's def by the time it calls this, and the fallback
+   * is that def's own `permissions.defaultModeId`, not a value this file
+   * could know on its own (Claude's happens to be `"bypassPermissions"`,
+   * Codex's `"workspace-write"`). */
+  getPermissionMode(id: string, agentId: AgentId, fallbackModeId: string): PermissionMode {
+    return this.records[id]?.permissionMode?.[agentId] ?? fallbackModeId;
   }
 
   setPermissionMode(id: string, agentId: AgentId, mode: PermissionMode): void {
