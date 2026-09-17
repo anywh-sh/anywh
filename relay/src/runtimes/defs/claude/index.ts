@@ -16,3 +16,4 @@ export {
   describeToolCall,
   isApproved,
 } from "./mcpSpawnConfig.js";
+export { ClaudeSessionDriver, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
