@@ -215,7 +215,26 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     }
 
     const clientInfo = { name: "anywh", title: null, version: RELAY_VERSION };
-    connection.request("initialize", { clientInfo, capabilities: null }).then(
+    // `experimentalApi: true` is required for the daemon to accept an
+    // `askForApproval.granular` value at all — confirmed live: without this,
+    // EVERY `turn/start` in `workspace-write` mode (the def's own
+    // `settingsFor`, runtimes/defs/codex.ts) is rejected outright with
+    // `{"code":-32600,"message":"askForApproval.granular requires
+    // experimentalApi capability"}`, before the turn even starts. `granular`
+    // is the only way to express "pause only when the sandbox itself blocks
+    // something" in the real protocol (the legacy `on-failure` config value
+    // this def used to send doesn't exist in the wire `AskForApproval`
+    // union) — so this capability is on for every Codex session, not just
+    // ones that pick `workspace-write`, since the handshake is per-process
+    // (one daemon per session, not per turn). `experimentalApi`'s own doc
+    // comment in the generated bindings describes it as "opt into receiving
+    // experimental API methods and fields" — broader than just granular
+    // approval, and by definition unstable across `codex-cli` releases;
+    // accepted here because it's the only way to use `granular` today, not
+    // because the scope is fully known. `requestAttestation: false`: the
+    // other half of `InitializeCapabilities`, unrelated to approvals — no
+    // attestation flow exists anywhere in this relay to opt into.
+    connection.request("initialize", { clientInfo, capabilities: { experimentalApi: true, requestAttestation: false } }).then(
       () => {
         if (exited) return; // already settled via the exit/error listeners above
         scheduleIdleCheck();
