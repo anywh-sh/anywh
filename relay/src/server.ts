@@ -7,6 +7,7 @@ import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { detectRuntimes } from "./runtimes/detection.js";
+import { buildRegistry } from "./runtimes/registry.js";
 import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleFilesRoutes } from "./routes/files.js";
@@ -60,9 +61,16 @@ const mcpPermissionBridge = new McpPermissionBridge();
 // all; it just reports list changes through `onListChanged` below, and this
 // is where they get fanned out.
 const sessionListWatchers = new Set<WebSocket>();
+// Every def this relay can actually drive a turn with, coherence-checked
+// once at boot (an incoherent def is excluded and logged, never crashes the
+// relay — see assertCoherent's own doc comment) — `SessionManager.createSession`
+// resolves a session's persisted agentId against this instead of a
+// hardcoded literal.
+const registry = buildRegistry([claudeRuntimeDef, codexRuntimeDef]);
 const sessionManager = new SessionManager(
   HOME_OVERRIDE,
   sessionStore,
+  registry,
   BACKGROUND_JOBS_FILE,
   WAKEUPS_FILE,
   mcpChoiceBridge,
