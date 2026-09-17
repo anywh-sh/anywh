@@ -25,7 +25,7 @@ test("missing file: starts empty, recordId seeds an unlocked default cwd and no 
     assert.deepEqual(store.listTitled(), []);
     store.recordId("abc-123");
     assert.deepEqual(store.getCwdState("abc-123"), { cwd: DEFAULT_CWD, locked: false });
-    assert.equal(store.getSessionId("abc-123"), undefined);
+    assert.equal(store.getSessionId("abc-123", "claude"), undefined);
     assert.equal(store.getTitle("abc-123"), null);
     assert.deepEqual(store.listTitled(), []);
   });
@@ -64,12 +64,12 @@ test("migration: legacy shape (name -> session_id|null) becomes the new shape wi
 
     // Session that already had a real session_id: locks (doesn't risk its --resume).
     assert.deepEqual(store.getCwdState("com-historico"), { cwd: DEFAULT_CWD, locked: true });
-    assert.equal(store.getSessionId("com-historico"), "abc-123");
+    assert.equal(store.getSessionId("com-historico", "claude"), "abc-123");
     assert.equal(store.getTitle("com-historico"), "com-historico");
 
     // Session with no session_id yet: unlocked, but already titled with its own name.
     assert.deepEqual(store.getCwdState("sem-turno-ainda"), { cwd: DEFAULT_CWD, locked: false });
-    assert.equal(store.getSessionId("sem-turno-ainda"), undefined);
+    assert.equal(store.getSessionId("sem-turno-ainda", "claude"), undefined);
     assert.equal(store.getTitle("sem-turno-ainda"), "sem-turno-ainda");
 
     // Re-persisted in the new shape — reopening doesn't re-detect it as legacy.
@@ -77,7 +77,8 @@ test("migration: legacy shape (name -> session_id|null) becomes the new shape wi
     const { lastActiveAt, ...rest } = persisted["com-historico"];
     assert.equal(typeof lastActiveAt, "number");
     assert.deepEqual(rest, {
-      sessionId: "abc-123",
+      agentId: "claude",
+      sessionId: { claude: "abc-123" },
       title: "com-historico",
       cwd: { cwd: DEFAULT_CWD, locked: true },
     });
@@ -90,7 +91,7 @@ test("migration: pre-title shape (no title field) gets title = id", () => {
     (filePath) => {
       const store = new SessionStore(filePath, DEFAULT_CWD);
       assert.equal(store.getTitle("s1"), "s1");
-      assert.equal(store.getSessionId("s1"), "sess-1");
+      assert.equal(store.getSessionId("s1", "claude"), "sess-1");
       assert.deepEqual(store.getCwdState("s1"), { cwd: "/tmp/projeto", locked: true });
     },
   );
@@ -113,6 +114,90 @@ test("migration: pre-activity shape (with title, no lastActiveAt) gets lastActiv
       assert.equal(listed[0].lastActiveAt, persisted.s1.lastActiveAt);
     },
   );
+});
+
+test("migration: pre-agent shape (flat sessionId/permissionMode/model, has lastActiveAt) scopes everything under agentId 'claude'", () => {
+  withStoreFile(
+    {
+      s1: {
+        sessionId: "sess-1",
+        title: "Session 1",
+        cwd: { cwd: "/tmp/projeto", locked: true },
+        lastActiveAt: 1234,
+        permissionMode: "acceptEdits",
+        model: "claude-opus-5",
+      },
+    },
+    (filePath) => {
+      const store = new SessionStore(filePath, DEFAULT_CWD);
+      assert.equal(store.getAgentId("s1"), "claude");
+      assert.equal(store.getSessionId("s1", "claude"), "sess-1");
+      assert.equal(store.getPermissionMode("s1", "claude"), "acceptEdits");
+      assert.equal(store.getModel("s1", "claude"), "claude-opus-5");
+
+      const persisted = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+      assert.deepEqual(persisted.s1, {
+        agentId: "claude",
+        sessionId: { claude: "sess-1" },
+        title: "Session 1",
+        cwd: { cwd: "/tmp/projeto", locked: true },
+        lastActiveAt: 1234,
+        permissionMode: { claude: "acceptEdits" },
+        model: { claude: "claude-opus-5" },
+      });
+    },
+  );
+});
+
+test("migration: pre-agent shape without permissionMode/model leaves those fields absent, not empty records", () => {
+  withStoreFile(
+    { s1: { sessionId: null, title: "Session 1", cwd: { cwd: "/tmp/projeto", locked: false }, lastActiveAt: 1234 } },
+    (filePath) => {
+      const store = new SessionStore(filePath, DEFAULT_CWD);
+      assert.equal(store.getPermissionMode("s1", "claude"), "bypassPermissions");
+      assert.equal(store.getModel("s1", "claude"), undefined);
+
+      const persisted = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, unknown>;
+      assert.deepEqual(persisted.s1, {
+        agentId: "claude",
+        sessionId: { claude: null },
+        title: "Session 1",
+        cwd: { cwd: "/tmp/projeto", locked: false },
+        lastActiveAt: 1234,
+      });
+    },
+  );
+});
+
+test("getAgentId defaults to 'claude' for an id that was never recorded", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    assert.equal(store.getAgentId("nunca-visto"), "claude");
+  });
+});
+
+test("sessionId/permissionMode/model are scoped per agentId — a second agent never clobbers the first's", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("s1");
+    store.recordSessionId("s1", "claude", "sess-claude-1");
+    store.recordSessionId("s1", "codex", "thread-codex-1");
+    store.setPermissionMode("s1", "claude", "plan");
+    store.setPermissionMode("s1", "codex", "acceptEdits");
+    store.setModel("s1", "claude", "claude-opus-5");
+    store.setModel("s1", "codex", "gpt-5-codex");
+
+    assert.equal(store.getSessionId("s1", "claude"), "sess-claude-1");
+    assert.equal(store.getSessionId("s1", "codex"), "thread-codex-1");
+    assert.equal(store.getPermissionMode("s1", "claude"), "plan");
+    assert.equal(store.getPermissionMode("s1", "codex"), "acceptEdits");
+    assert.equal(store.getModel("s1", "claude"), "claude-opus-5");
+    assert.equal(store.getModel("s1", "codex"), "gpt-5-codex");
+
+    store.clearSessionId("s1", "claude");
+    assert.equal(store.getSessionId("s1", "claude"), undefined);
+    assert.equal(store.getSessionId("s1", "codex"), "thread-codex-1");
+  });
 });
 
 function sleep(ms: number): Promise<void> {
@@ -192,8 +277,8 @@ test("recordSessionId records the id without touching the already-chosen cwd", (
     const store = new SessionStore(filePath, DEFAULT_CWD);
     store.recordId("s1");
     store.setCwd("s1", "/tmp/projeto");
-    store.recordSessionId("s1", "sess-1");
-    assert.equal(store.getSessionId("s1"), "sess-1");
+    store.recordSessionId("s1", "claude", "sess-1");
+    assert.equal(store.getSessionId("s1", "claude"), "sess-1");
     assert.deepEqual(store.getCwdState("s1"), { cwd: "/tmp/projeto", locked: false });
   });
 });
