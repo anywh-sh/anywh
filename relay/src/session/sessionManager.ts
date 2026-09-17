@@ -1,5 +1,6 @@
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
+import type { Registry } from "../runtimes/registry.js";
 import { SharedSession } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
@@ -43,6 +44,12 @@ export class SessionManager {
   constructor(
     private readonly homeOverride: string | undefined,
     private readonly sessionStore: SessionStore,
+    /** Every `AgentRuntimeDef` this relay can actually drive a turn with —
+     * built once in `server.ts` (`buildRegistry([claudeRuntimeDef,
+     * codexRuntimeDef])`) and threaded down here so `createSession` can
+     * resolve a session's persisted `agentId` to a real def instead of the
+     * `claudeRuntimeDef` literal it used before this. */
+    private readonly registry: Registry,
     /** File where `BackgroundJobTracker` persists the list
      * of watched jobs, to survive a relay restart. Same optional `undefined`
      * that `BackgroundJobTrackerOptions.persistPath` accepts (used by tests
@@ -236,12 +243,16 @@ export class SessionManager {
     // sessionId/permissionMode/model access below is scoped to the same
     // agent.
     const agentId = this.sessionStore.getAgentId(id);
-    // `agentId` isn't resolved against a registry yet (no `Registry` is
-    // threaded into `SessionManager` today) — every session still gets
-    // Claude's def regardless of what `agentId` says, same behavior as
-    // before `def` became an explicit field on `SharedSessionOptions`.
+    // Falls back to Claude's def for an agentId the registry doesn't
+    // recognize — an id from a build with a def this one's registry
+    // excluded (assertCoherent failed) or simply doesn't ship, rather than
+    // SharedSession's constructor throwing on an undefined def. Behaviorally
+    // still always Claude in production today: SELECTABLE_AGENT_IDS
+    // (server.ts) lists only "claude", and getAgentId never returns
+    // anything else for a session that exists.
+    const def = this.registry.get(agentId) ?? claudeRuntimeDef;
     const session = new SharedSession(this.homeOverride, {
-      def: claudeRuntimeDef,
+      def,
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
       onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, agentId, sessionId),
       onSessionIdClear: () => this.sessionStore.clearSessionId(id, agentId),
