@@ -33,45 +33,30 @@ test("presentChoice: a second call while one is already pending is rejected, doe
   assert.equal(client.sent.length, 1);
 });
 
-test("checkPermission: approved answer allows the tool with the original input unchanged", async () => {
+test("presentApprovalChoice: publishes a blocking prompt, resolves with whatever answerChoice sends back", async () => {
   const client = fakeSocket();
   const machine = new ChoiceMachine(new Set([client]));
-  const pending = machine.checkPermission("Write", { file_path: "/tmp/x" }, undefined);
-  // The prompt is now pending as an approval — answer it as "approved".
-  const sent = client.sent[0] as { promptId: string; questions: ChoiceQuestion[] };
-  machine.answerChoice(sent.promptId, [{ question: sent.questions[0].question, selected: ["approve"] }]);
-  const decision = await pending;
-  assert.deepEqual(decision, { behavior: "allow", updatedInput: { file_path: "/tmp/x" } });
+  const pending = machine.presentApprovalChoice([question("approve this?")]);
+  const sent = client.sent[0] as { promptId: string; questions: ChoiceQuestion[]; kind: string };
+  assert.equal(sent.kind, "approval");
+  machine.answerChoice(sent.promptId, [{ question: sent.questions[0].question, selected: ["yes"] }]);
+  const answers = await pending;
+  assert.deepEqual(answers, [{ question: "approve this?", selected: ["yes"] }]);
 });
 
-test("checkPermission: a denied ExitPlanMode gets the Plan-mode-specific message", async () => {
-  const client = fakeSocket();
-  const machine = new ChoiceMachine(new Set([client]));
-  const pending = machine.checkPermission("ExitPlanMode", {}, undefined);
-  const sent = client.sent[0] as { promptId: string; questions: ChoiceQuestion[] };
-  machine.answerChoice(sent.promptId, [{ question: sent.questions[0].question, selected: [] }]);
-  const decision = await pending;
-  assert.deepEqual(decision, { behavior: "deny", message: "O usuário optou por continuar no modo Plan." });
-});
-
-test("checkPermission: a denied ordinary tool gets the generic refusal message", async () => {
-  const client = fakeSocket();
-  const machine = new ChoiceMachine(new Set([client]));
-  const pending = machine.checkPermission("Bash", { command: "rm -rf /" }, undefined);
-  const sent = client.sent[0] as { promptId: string; questions: ChoiceQuestion[] };
-  machine.answerChoice(sent.promptId, [{ question: sent.questions[0].question, selected: [] }]);
-  const decision = await pending;
-  assert.deepEqual(decision, { behavior: "deny", message: "O usuário recusou a execução." });
-});
+// checkPermission itself (which builds the ChoiceQuestion/PermissionDecision
+// from a tool name — Claude-`--permission-prompt-tool`-shaped) moved to
+// SharedSession; its decision-building half is buildPermissionDecision
+// (turnMessages.ts, own test coverage there). This class only owns the
+// generic slot lifecycle, exercised above.
 
 test("cancelPendingApproval: force-resolves a live approval with an empty answer and tells every client it's gone", async () => {
   const client = fakeSocket();
   const machine = new ChoiceMachine(new Set([client]));
-  const pending = machine.checkPermission("Bash", { command: "echo hi" }, undefined);
+  const pending = machine.presentApprovalChoice([question("approve this?")]);
   machine.cancelPendingApproval();
-  const decision = await pending;
-  // An empty answer set is never "approved" — the deny path runs.
-  assert.deepEqual(decision, { behavior: "deny", message: "O usuário recusou a execução." });
+  const answers = await pending;
+  assert.deepEqual(answers, []);
   const kinds = client.sent.map((m) => (m as { type: string }).type);
   assert.deepEqual(kinds, ["choice_prompt", "choice_resolved"]);
 });
@@ -134,7 +119,7 @@ test("sendPendingTo: sends the deferred choice before the blocking approval, whe
   const client = fakeSocket();
   const machine = new ChoiceMachine(new Set([client]));
   machine.presentChoice([question("deferred")]);
-  void machine.checkPermission("Bash", { command: "echo hi" }, undefined);
+  void machine.presentApprovalChoice([question("approval")]);
   const other = fakeSocket();
   machine.sendPendingTo(other);
   const kinds = other.sent.map((m) => (m as { kind: string }).kind);

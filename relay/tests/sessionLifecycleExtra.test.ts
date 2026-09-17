@@ -21,10 +21,12 @@ after(async () => {
 
 beforeEach(() => {
   delete process.env.FAKE_CLAUDE_HANG;
+  delete process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE;
 });
 
 afterEach(() => {
   delete process.env.FAKE_CLAUDE_HANG;
+  delete process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE;
 });
 
 function httpUrl(path: string): string {
@@ -184,4 +186,25 @@ test("/sessions/watch broadcasts a new session's title, and its deletion, to a c
     chatSocket?.close();
     watcher.close();
   }
+});
+
+test("a mid-turn system/status event from the CLI updates permission mode and broadcasts it before turn_ended", async () => {
+  const socket = await connectSession(server.port, "session-status-permission-mode");
+
+  process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE = "plan";
+  sendUserMessage(socket, "switch to plan mode please");
+
+  const messages = await collectUntil(socket, isTurnEnded);
+  socket.close();
+
+  const modeIndex = messages.findIndex((message) => message.type === "permission_mode_state");
+  assert.ok(modeIndex !== -1, "expected a permission_mode_state broadcast");
+  assert.equal((messages[modeIndex] as { mode?: string }).mode, "plan");
+
+  // Ordering matters, not just presence — sharedSession.ts's own comment on
+  // `applyPermissionModeFromCli` explains why: a device reconnecting right
+  // as this event arrives must see the updated mode, not a stale one from
+  // before this same status event finished processing.
+  const turnEndedIndex = messages.findIndex(isTurnEnded);
+  assert.ok(modeIndex < turnEndedIndex, "permission_mode_state must be broadcast before turn_ended");
 });
