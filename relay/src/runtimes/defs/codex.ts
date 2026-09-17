@@ -1,32 +1,30 @@
-// A design-validation DRAFT, not a runtime def — it is not exported from
-// `registry.ts`, and no engine is written against it yet. `server.ts` does
-// import it, to pass alongside `claudeRuntimeDef` into
-// `runtimes/detection.ts`'s probe (whether the `codex` binary is present and
-// what version it reports), but that's a version check, not execution:
-// nothing here drives an actual turn, and the result never reaches a
-// selectable-agent list (see server.ts's `SELECTABLE_AGENT_IDS`). Its main
-// job is still proving that `../types.ts` actually accommodates a JSON-RPC
-// daemon before any engine code is written against the contract; see
-// `runtimes/README.md` §5 for the three questions that decide `exec.kind`.
-// Codex is the agent that forced `exec` to become a union in the first
-// place — it's a daemon with one process per session, not a CLI that spawns
-// once per turn.
+// The real `AgentRuntimeDef` for Codex — promoted from a shape-proving
+// draft (this file's earlier form) once `thread.start`/`turn.start` had
+// real params to build and a real notification mapper
+// (`runtimes/streams/codexAppServer.ts`) to wire in. Still not driving an
+// actual turn anywhere: no engine reads `exec.kind === "jsonRpcDaemon"` yet
+// (that's `runtimes/transports/codexDaemon.ts` plus the `SharedSession`
+// integration that picks a driver per session — a later phase), and
+// `server.ts`'s `SELECTABLE_AGENT_IDS` still lists only `"claude"`, so this
+// def reaches nothing a user can pick from the UI. `runtimes/README.md` §5
+// has the three questions that decided `exec.kind` for this def.
 //
-// Protocol details below (method names, the sandbox/approval settings
-// pair) were checked against a real `codex-cli 0.154.0` session logged in
-// via ChatGPT, not against documentation — the ones quoted verbatim
-// (`item/commandExecution/requestApproval`, `item/tool/requestUserInput`,
-// `turn/interrupt`) are load-bearing. `turn/interrupt`'s params
-// (`{ threadId, turnId }`) are additionally confirmed against the real
-// generated protocol bindings (`codex app-server generate-ts`, same
-// binary) rather than just the logged session. `thread/start` and
-// `turn/start`'s *params* are still illustrative placeholders, though —
-// the generated bindings show them as `ThreadStartParams`/`TurnStartParams`,
-// far richer than `{ prompt, cwd }` (real turn input is a content array,
-// not a plain string, and carries dozens of optional overrides) — to be
-// replaced by a real mapping when Codex support is implemented (a later
-// phase — this draft only needs *a* method name to prove the shape typechecks).
+// Protocol details below were checked two ways, and this comment says which
+// is which: the ones checked only against a real `codex-cli 0.154.0`
+// session logged in via ChatGPT (not documentation) are
+// `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
+// as method names — load-bearing, but their *params* below
+// (`handleServerRequest`) are still illustrative placeholders, not the real
+// `CommandExecutionRequestApprovalParams`/`ToolRequestUserInputParams`
+// shapes; wiring those up for real is Phase 11's job (human-in-the-loop),
+// not this one. Everything else — `thread/start`, `turn/start`,
+// `turn/interrupt`'s params, and every notification
+// `runtimes/streams/codexAppServer.ts` maps — is checked against the real
+// generated protocol bindings (`codex app-server generate-ts
+// --experimental`, same binary), which is what makes this def's
+// turn-driving half (not the approval half) trustworthy today.
 import type { AgentRuntimeDef, JsonRpcRequestSpec, TurnContext, TurnHost } from "../types.js";
+import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** Codex's own two-axis permission model — opaque to everything except
  * whatever engine ends up owning it. Real Codex CLI concepts, not
@@ -37,17 +35,28 @@ export interface CodexPermissionSettings {
   readonly askForApproval: "untrusted" | "on-failure" | "on-request" | "never";
 }
 
-function startThread(_ctx: TurnContext): JsonRpcRequestSpec {
-  return { method: "thread/start", params: {} };
+/** `ThreadStartParams` is far richer than this in the real protocol (model
+ * overrides, sandbox/approval policy, a permissions profile id, ...) — every
+ * field but `cwd` is optional, and none of the rest has a `TurnContext`
+ * counterpart to source from yet, so this stays minimal rather than
+ * guessing at defaults the real binary already applies on its own. */
+function startThread(ctx: TurnContext): JsonRpcRequestSpec {
+  return { method: "thread/start", params: { cwd: ctx.cwd } };
 }
 
-function startTurn(ctx: TurnContext): JsonRpcRequestSpec {
-  return { method: "turn/start", params: { prompt: ctx.prompt, cwd: ctx.cwd } };
+/** `threadId` comes from the engine, not `ctx` — see `JsonRpcDaemonPlan.turn.start`'s
+ * own doc comment on why. Real `TurnStartParams.input` is a content array,
+ * never a plain string — `text_elements` is a UI-only concept (spans within
+ * the text for rendering/persisting special elements) that a relay-composed
+ * prompt never has any of. */
+function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
+  return { method: "turn/start", params: { threadId, input: [{ type: "text", text: ctx.prompt, text_elements: [] }] } };
 }
 
-// Real Codex methods; not placeholders. A daemon that pushes both of these
-// at the relay mid-turn is exactly what made `exec` a union: neither has
-// an equivalent in a spawn-per-turn, stdout-only world.
+// Real Codex methods; not placeholders — see this file's header comment for
+// which parts of this function still are. A daemon that pushes both of
+// these at the relay mid-turn is exactly what made `exec` a union: neither
+// has an equivalent in a spawn-per-turn, stdout-only world.
 function handleServerRequest(method: string, params: unknown, host: TurnHost): Promise<unknown> | undefined {
   if (method === "item/commandExecution/requestApproval") {
     const { summary, decisions } = params as { summary: string; decisions: readonly { id: string; labelKey: string }[] };
@@ -60,7 +69,7 @@ function handleServerRequest(method: string, params: unknown, host: TurnHost): P
   return undefined;
 }
 
-export const codexRuntimeDraft: AgentRuntimeDef<CodexPermissionSettings> = {
+export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   identity: {
     id: "codex",
     bin: "codex",
@@ -76,7 +85,7 @@ export const codexRuntimeDraft: AgentRuntimeDef<CodexPermissionSettings> = {
     rewindTurn: "none",
     replayHistory: "none",
     // Unverified against the real binary yet — conservative "none" rather
-    // than a claim this draft can't back up.
+    // than a claim this def can't back up.
     backgroundJobs: "none",
     thinking: "native",
     contextUsage: "native",
@@ -107,7 +116,7 @@ export const codexRuntimeDraft: AgentRuntimeDef<CodexPermissionSettings> = {
     framing: "ndjson",
     thread: { start: startThread },
     turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
-    mapNotification: () => [],
+    mapNotification: mapCodexNotification,
     handleServerRequest,
   },
 };

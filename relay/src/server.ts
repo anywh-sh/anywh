@@ -5,7 +5,7 @@ import { McpPermissionBridge } from "./bridges/permissionBridge.js";
 import { defaultCwd } from "./host/paths.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
-import { codexRuntimeDraft } from "./runtimes/defs/codex.js";
+import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { detectRuntimes } from "./runtimes/detection.js";
 import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
 import { gracefulShutdown } from "./lifecycle.js";
@@ -155,7 +155,7 @@ detectDefaultModel(HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
 // BILLED_CREDENTIAL_VARS in runtimes/executables.ts.
 const SELECTABLE_AGENT_IDS = ["claude"];
 
-detectRuntimes([claudeRuntimeDef, codexRuntimeDraft], HOME_OVERRIDE)
+detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
   .then((detections) => {
     setSelectableAgents(
       detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id)).map((detection) => ({ id: detection.id, capabilities: detection.capabilities })),

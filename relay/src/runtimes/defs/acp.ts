@@ -17,8 +17,8 @@ function startThread(_ctx: TurnContext): JsonRpcRequestSpec {
   return { method: "session/new", params: {} };
 }
 
-function startTurn(ctx: TurnContext): JsonRpcRequestSpec {
-  return { method: "session/prompt", params: { prompt: ctx.prompt } };
+function startTurn(ctx: TurnContext, sessionId: string): JsonRpcRequestSpec {
+  return { method: "session/prompt", params: { sessionId, prompt: ctx.prompt } };
 }
 
 // ACP's one server->client request in the permission surface — a single
