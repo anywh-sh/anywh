@@ -65,6 +65,38 @@ test("listDirectories: a symlink to a directory is included, a broken symlink is
   });
 });
 
+test("listDirectories: dotdirs and node_modules are hidden by default", () => {
+  withTempDir((dir) => {
+    mkdirSync(join(dir, ".git"));
+    mkdirSync(join(dir, "node_modules"));
+    mkdirSync(join(dir, "src"));
+
+    const result = listDirectories(dir);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(
+      result.entries.map((e) => e.name),
+      ["src"],
+    );
+  });
+});
+
+test("listDirectories: showHidden=true includes dotdirs and node_modules", () => {
+  withTempDir((dir) => {
+    mkdirSync(join(dir, ".git"));
+    mkdirSync(join(dir, "node_modules"));
+    mkdirSync(join(dir, "src"));
+
+    const result = listDirectories(dir, true);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(
+      result.entries.map((e) => e.name),
+      [".git", "node_modules", "src"],
+    );
+  });
+});
+
 test("listDirectories: nonexistent path propagates not_found", () => {
   withTempDir((dir) => {
     assert.deepEqual(listDirectories(join(dir, "nao-existe")), { ok: false, error: "not_found" });
