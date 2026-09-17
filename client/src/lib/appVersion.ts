@@ -9,7 +9,7 @@
  * browser `vite dev` would have a version to show. The cost is a third place
  * to bump on release, which `appVersion.test.ts` guards against forgetting.
  */
-export const APP_VERSION = "0.1.7";
+export const APP_VERSION = "0.1.8";
 
 /**
  * The floor below which a stale relay is severe enough to warrant a banner
