@@ -10,6 +10,7 @@ import type {
   HistoryPageMessage,
   ModelChoice,
   PermissionMode,
+  PermissionModeOption,
   ProfileMetaUpdate,
   ProfileValidation,
   RelayMessage,
@@ -36,6 +37,7 @@ export type {
   HistoryPageMessage,
   ModelChoice,
   PermissionMode,
+  PermissionModeOption,
   ProfileMetaUpdate,
   ProfileValidation,
   RemoteProfile,
@@ -271,8 +273,12 @@ export interface RelayClientCallbacks {
   onCwdState: (cwd: string, locked: boolean) => void;
   onSetCwdError?: (code: SetCwdErrorCode) => void;
   /** Sent right on connection (before the replay) and again every time the mode
-   * changes — see sharedSession.ts::setPermissionMode. */
-  onPermissionModeState: (mode: PermissionMode) => void;
+   * changes — see sharedSession.ts::setPermissionMode. `available` is this
+   * session's own agent's mode vocabulary (session/permissionModes.ts on the
+   * relay) — defaults to `[]` for a client one build behind a relay that
+   * doesn't send it yet, same "hasn't arrived" reading `PermissionModeButton`
+   * already gives an empty list. */
+  onPermissionModeState: (mode: PermissionMode, available: PermissionModeOption[]) => void;
   /** Sent right on connection and again every time the model changes — see
    * sharedSession.ts::setModel. `null` is a valid final state ("never
    * chosen via /model, uses the CLI default"), not "still loading". */
@@ -535,7 +541,7 @@ export class RelayClient {
       } else if (parsed.type === "draft_state") {
         this.callbacks.onDraftState(parsed.draft);
       } else if (parsed.type === "permission_mode_state") {
-        this.callbacks.onPermissionModeState(parsed.mode);
+        this.callbacks.onPermissionModeState(parsed.mode, parsed.available ?? []);
       } else if (parsed.type === "model_state") {
         this.callbacks.onModelState(parsed.model);
       } else if (parsed.type === "default_model_state") {

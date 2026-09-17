@@ -307,6 +307,7 @@ export function ChatPanel({
     cwd,
     cwdLocked,
     permissionMode,
+    permissionModes,
     model,
     defaultModel,
     contextUsage,
@@ -695,6 +696,7 @@ export function ChatPanel({
               onAddFiles={(files) => void images.addFiles(files)}
               onRemoveImage={images.remove}
               permissionMode={permissionMode}
+              permissionModes={permissionModes}
               onChangePermissionMode={setPermissionMode}
               model={model}
               defaultModel={defaultModel}

@@ -47,6 +47,12 @@ function Harness() {
         onAddFiles={vi.fn()}
         onRemoveImage={vi.fn()}
         permissionMode="default"
+        permissionModes={[
+          { id: "default", pausesForApproval: true },
+          { id: "acceptEdits", pausesForApproval: true },
+          { id: "plan", pausesForApproval: true },
+          { id: "bypassPermissions", pausesForApproval: false },
+        ]}
         onChangePermissionMode={vi.fn()}
         model={null}
         defaultModel="Sonnet"

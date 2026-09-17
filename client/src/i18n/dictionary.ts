@@ -9,7 +9,17 @@
  * translating text that is about to be deleted. `common` is the slice that
  * survives any redesign — the verbs on buttons.
  */
-import type { EditMessageErrorCode, PermissionMode, SetCwdErrorCode } from "@/lib/relay/relay-types";
+import type { EditMessageErrorCode, SetCwdErrorCode } from "@/lib/relay/relay-types";
+
+/** Every permission-mode id this build has real copy for, across every
+ * agent — a closed union HERE (so `en`/`pt-br` can't drift) even though the
+ * wire value (`PermissionMode`, relay-types.ts) is an opaque string: the
+ * real vocabulary is per-agent and per-platform, which this dictionary
+ * can't enumerate exhaustively without also knowing every def. Resolved
+ * defensively at the call site instead (`PermissionModeButton`'s
+ * `useModeCopy`) — an id this build doesn't know renders as itself, not a
+ * compile error. Claude's four, Codex's three. */
+export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
 import type { FirstRunScreen } from "@/lib/profiles/firstRun";
 import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/install/localInstall";
@@ -551,13 +561,14 @@ export interface Dictionary {
         use: string;
         sendAnyway: string;
       };
-      /** Keyed by the wire contract's own union, so a permission mode added
-       * on the relay is a compile error in both languages until it has copy.
-       * `hint` is the dropdown item's second line; the model dropdown has no
-       * equivalent because its catalog is whatever the CLI reports at
-       * runtime, and a blurb per alias would go stale the day the CLI ships
-       * a new one. */
-      mode: Record<PermissionMode, { label: string; hint: string }>;
+      /** Keyed by `KnownPermissionModeId`, not the wire's opaque
+       * `PermissionMode` — a permission mode this build knows about missing
+       * copy in either language is a compile error, same completeness
+       * guarantee as before this became multi-agent. `hint` is the dropdown
+       * item's second line; the model dropdown has no equivalent because its
+       * catalog is whatever the CLI reports at runtime, and a blurb per
+       * alias would go stale the day the CLI ships a new one. */
+      mode: Record<KnownPermissionModeId, { label: string; hint: string }>;
       /** Both toolbar dropdowns' label before the relay has reported this
        * session's mode/model. */
       pending: string;

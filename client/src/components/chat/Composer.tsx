@@ -42,7 +42,7 @@ import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/compos
 import { filterSlashCommands, parseSlashCommand, suggestSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
 import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import type { Dictionary } from "@/i18n/dictionary";
-import type { ContextUsage, ModelChoice, PermissionMode } from "@/lib/relay/relayClient";
+import type { ContextUsage, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface ComposerProps {
@@ -58,6 +58,7 @@ interface ComposerProps {
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveImage: (path: string) => void;
   permissionMode: PermissionMode | null;
+  permissionModes: PermissionModeOption[];
   onChangePermissionMode: (mode: PermissionMode) => void;
   /** `null` until the session's first explicit switch (now via
    * `ModelButton` in addition to typing `/model`) — in that case
@@ -461,6 +462,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onAddFiles,
     onRemoveImage,
     permissionMode,
+    permissionModes,
     onChangePermissionMode,
     model,
     defaultModel,
@@ -899,7 +901,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
               <AgentPickerButton profile={profile} />
-              <PermissionModeButton mode={permissionMode} onChange={onChangePermissionMode} />
+              <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
               <ModelButton
                 model={model}
                 defaultModel={defaultModel}
