@@ -4,10 +4,13 @@ import { McpChoiceBridge } from "./bridges/mcpBridge.js";
 import { McpPermissionBridge } from "./bridges/permissionBridge.js";
 import { defaultCwd } from "./host/paths.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
+import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
+import { codexRuntimeDraft } from "./runtimes/defs/codex.js";
+import { detectRuntimes } from "./runtimes/detection.js";
 import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleFilesRoutes } from "./routes/files.js";
-import { handleHostRoutes } from "./routes/host.js";
+import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
@@ -140,6 +143,29 @@ detectDefaultModel(HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
   })
   .catch((error: unknown) => {
     console.error("[relay] failed to detect default model:", error);
+  });
+
+// Every agent id that has an actual engine driving a turn today — the only
+// one this relay can spawn is Claude. `detectRuntimes` below still probes
+// Codex too (useful signal on its own, logged on failure), but its result
+// is deliberately filtered out here: a def with no engine behind it
+// reaching a client's agent picker would offer a choice that breaks the
+// moment it's made. Grows the day a second engine (runtimes/engines/) lands
+// — same "extend this list to teach the relay a new agent" shape as
+// BILLED_CREDENTIAL_VARS in runtimes/executables.ts.
+const SELECTABLE_AGENT_IDS = ["claude"];
+
+detectRuntimes([claudeRuntimeDef, codexRuntimeDraft], HOME_OVERRIDE)
+  .then((detections) => {
+    setSelectableAgents(
+      detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id)).map((detection) => ({ id: detection.id, capabilities: detection.capabilities })),
+    );
+  })
+  .catch((error: unknown) => {
+    // detectRuntimes itself never rejects (detection.ts's own contract) —
+    // this only exists so a mistake in that contract fails loudly instead
+    // of leaving /host-info's `agents` silently empty forever.
+    console.error("[relay] failed to detect agent runtimes:", error);
   });
 
 // Exported so integration tests (relay/tests/) can close both servers in

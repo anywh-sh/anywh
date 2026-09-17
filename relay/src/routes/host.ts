@@ -6,7 +6,25 @@ import { resolveEditorDescriptor } from "../host/editorHostInfo.js";
 import { readGitStatus } from "../host/gitStatus.js";
 import { resolveShipped } from "../host/paths.js";
 import { killTerminal } from "../host/terminalSession.js";
+import type { Capabilities } from "../runtimes/types.js";
 import type { RouteHandler } from "./context.js";
+
+export interface SelectableAgentInfo {
+  readonly id: string;
+  readonly capabilities: Capabilities;
+}
+
+// Set once at boot (server.ts, after runtimes/detection.ts's probe
+// resolves) — empty until then, same "older relay/client simply sees
+// nothing new" shape as `version` below. Only agents server.ts's own
+// SELECTABLE_AGENT_IDS names land here — detection can probe a def with no
+// engine behind it yet (Codex today) without that def ever reaching a
+// client that couldn't do anything with it.
+let selectableAgents: readonly SelectableAgentInfo[] = [];
+
+export function setSelectableAgents(agents: readonly SelectableAgentInfo[]): void {
+  selectableAgents = agents;
+}
 
 // Same `resolveShipped` reasoning as `runtimes/executables.ts`'s
 // `SCRIPTS_DIR`: `package.json` sits beside `src/`, not inside it, in both
@@ -31,7 +49,7 @@ export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
     // it now, ahead of any UI reading it, is what lets that UI eventually
     // warn about drift: every relay already in the field today has none,
     // and it takes an actual round of upgrades before this is useful at all.
-    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor, version: RELAY_VERSION }));
+    res.end(JSON.stringify({ hostname: hostname(), platform: process.platform, editor, version: RELAY_VERSION, agents: selectableAgents }));
     return true;
   }
 

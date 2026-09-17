@@ -10,7 +10,7 @@
 // (`session.ts`) is still what actually spawns a turn. This def exists so
 // `runtimes/detection.ts` and a future `AuthSource`-driven UI have
 // something real to probe, ahead of an engine depending on it.
-import { BILLED_CREDENTIAL_VARS } from "../../executables.js";
+import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import type { AgentRuntimeDef, FailureClass, RuntimeFailure, TurnContext } from "../../types.js";
@@ -61,7 +61,13 @@ const CLAUDE_PERMISSION_MODES: readonly PermissionMode[] = ["default", "acceptEd
 export const claudeRuntimeDef: AgentRuntimeDef<PermissionMode> = {
   identity: {
     id: "claude",
-    bin: "claude",
+    // Already resolved (bare "claude", an absolute WELL_KNOWN_BIN_DIRS
+    // path, or an operator's AGENT_BIN/CLAUDE_BIN override — see
+    // executables.ts) rather than the literal "claude": this is the exact
+    // binary every real turn spawns, and runtimes/detection.ts's own probe
+    // needs to agree with that, not re-derive a bare name that ignores the
+    // override (and, in a test process, the fake-claude.mjs fixture).
+    bin: AGENT_BIN,
     env: { strip: BILLED_CREDENTIAL_VARS, set: CLAUDE_AGENT_ENV_OVERRIDES },
     projectInstructionsFile: "CLAUDE.md",
   },
