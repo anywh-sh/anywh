@@ -1,16 +1,9 @@
 import type { WebSocket } from "ws";
-import {
-  ClaudeSession,
-  readHistoryFromTranscript,
-  transcriptPath,
-  forkTruncatedTranscript,
-  buildApprovalQuestion,
-  buildMcpSpawnConfig,
-  buildPermissionDecision,
-  isApproved,
-} from "../runtimes/defs/claude/index.js";
-import { mapClaudeEvent } from "../runtimes/streams/claudeStreamJson.js";
+import { readHistoryFromTranscript, buildApprovalQuestion, buildPermissionDecision, claudeRuntimeDef, isApproved } from "../runtimes/defs/claude/index.js";
+import { createSessionDriver } from "../runtimes/createSessionDriver.js";
+import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
+import type { ApprovalRequest, TurnContext, UserInputAnswer } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -186,15 +179,18 @@ export type SetCwdResult = { ok: true } | { ok: false; error: SetCwdError };
 
 /** Why an `edit_message` request could not be honored. Same contract as
  * `SetCwdError`: a code, rendered by the client. */
-export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarting";
+export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarting" | "unsupported";
 
 /**
- * A Claude session shared by every client connected to it. New clients
- * receive a history replay before switching over to live events — this is
- * what gives the "real-time shared session" across devices.
+ * A session shared by every client connected to it, driven by an
+ * `AgentSessionDriver` (Claude's, hardcoded for now — `createSessionDriver`
+ * doesn't have a Codex driver to pick yet, and nothing selects an agent per
+ * session either). New clients receive a history replay before switching
+ * over to live events — this is what gives the "real-time shared session"
+ * across devices.
  */
-export class SharedSession {
-  private readonly claude: ClaudeSession;
+export class SharedSession implements SessionDriverHost {
+  private readonly driver: AgentSessionDriver;
   private readonly history: BroadcastMessage[] = [];
   private readonly clients = new Set<WebSocket>();
   private turnQueue: Promise<void> = Promise.resolve();
@@ -243,7 +239,20 @@ export class SharedSession {
     private readonly homeOverride: string | undefined,
     private readonly options: SharedSessionOptions,
   ) {
-    this.claude = new ClaudeSession({ homeOverride, initialSessionId: options.initialSessionId });
+    this.driver = createSessionDriver(claudeRuntimeDef, {
+      homeOverride,
+      initialSessionId: options.initialSessionId,
+      host: this,
+      claudeMcp:
+        options.mcpChoiceBridge || options.mcpPermissionBridge
+          ? {
+              choiceBridge: options.mcpChoiceBridge,
+              bridgeBaseUrl: options.mcpBridgeBaseUrl,
+              permissionBridge: options.mcpPermissionBridge,
+              permissionBridgeBaseUrl: options.mcpPermissionBridgeBaseUrl,
+            }
+          : undefined,
+    });
     this.cwd = options.initialCwd;
     this.locked = options.initialLocked;
     this.title = options.initialTitle ?? null;
@@ -345,33 +354,67 @@ export class SharedSession {
   }
 
   /** Thin delegation to `choiceMachine` — see `ChoiceMachine.presentChoice`
-   * for the full reasoning. Kept as a method here (not inlined at call
-   * sites) because it's called both from `runTurn`'s MCP bridge
-   * registration and from the `plan`-mode marker fallback at its tail. */
+   * for the full reasoning. Public: it's `ChoiceHost`'s half of
+   * `SessionDriverHost`, called by `ClaudeSessionDriver.sendTurn`'s MCP
+   * bridge registration (via `host.presentChoice`) and by the `plan`-mode
+   * marker fallback at `runTurn`'s tail. */
   presentChoice(questions: ChoiceQuestion[]): boolean {
     return this.choiceMachine.presentChoice(questions);
   }
 
-  /** Called by the permission-prompt-tool bridge (`McpPermissionBridge`) for
-   * every tool call the CLI itself decided needs human approval given the
-   * turn's current mode (see `runTurn`'s `permissionRegistration` — wired
-   * for every mode except `bypassPermissions`). Validated against the real
-   * binary before writing this: the CLI, not the relay, already does the
-   * risk classification — trivial reads/Bash (e.g. `echo`) never reach here
-   * at all in `default`, and `acceptEdits` still routes a dangerous-looking
-   * `Bash` (`rm -rf`) here despite auto-allowing harmless file edits. So
-   * there's no risk policy left for us to invent: anything that reaches
-   * this function already needs a real yes/no, we just have to ask it
-   * instead of the blanket auto-allow this replaced.
+  /** `PermissionCheckHost`'s half of `SessionDriverHost` — called by the
+   * permission-prompt-tool bridge (`McpPermissionBridge`, via
+   * `ClaudeSessionDriver.sendTurn`'s `host.checkPermission`) for every tool
+   * call the CLI itself decided needs human approval given the turn's
+   * current mode (wired for every mode except `bypassPermissions`).
+   * Validated against the real binary before writing this: the CLI, not
+   * the relay, already does the risk classification — trivial reads/Bash
+   * (e.g. `echo`) never reach here at all in `default`, and `acceptEdits`
+   * still routes a dangerous-looking `Bash` (`rm -rf`) here despite
+   * auto-allowing harmless file edits. So there's no risk policy left for
+   * us to invent: anything that reaches this function already needs a real
+   * yes/no, we just have to ask it instead of the blanket auto-allow this
+   * replaced.
    *
    * Lives here, not on `choiceMachine`, because `buildApprovalQuestion` is
    * Claude-`--permission-prompt-tool`-shaped — `ChoiceMachine` only owns the
    * generic "publish a question, wait for an answer" slot
-   * (`presentApprovalChoice`), reusable by a native approval path (Fase
-   * 10's Codex driver) that never needs this Claude-specific framing at all. */
-  private async checkPermission(toolName: string, input: unknown, _toolUseId: string | undefined): Promise<PermissionDecision> {
+   * (`presentApprovalChoice`), reusable by a native approval path (Codex's
+   * driver, via `requestApproval` below) that never needs this
+   * Claude-specific framing at all. */
+  async checkPermission(toolName: string, input: unknown, _toolUseId: string | undefined): Promise<PermissionDecision> {
     const answers = await this.choiceMachine.presentApprovalChoice([buildApprovalQuestion(toolName, input)]);
     return buildPermissionDecision(toolName, input, isApproved(answers));
+  }
+
+  /** `TurnHost`'s half of `SessionDriverHost` — where a def whose approval
+   * is native (not bridged through `McpPermissionBridge`) routes a
+   * server-initiated approval request. Nothing calls this yet: no driver
+   * for a JSON-RPC-daemon-shaped def is registered with `createSessionDriver`
+   * in production today, so this is unreachable, not untested-by-omission.
+   * `labelKey` resolution to real display text
+   * (rather than the key verbatim) and the "safe default" for a
+   * force-resolved request with no matching answer are both open — real
+   * i18n lookup and a designated deny-id convention are Phase 11's job
+   * (native approval), once a driver actually exercises this path. */
+  async requestApproval(request: ApprovalRequest): Promise<string> {
+    const question: ChoiceQuestion = {
+      question: request.summary,
+      options: request.availableDecisions.map((decision) => ({ id: decision.id, label: decision.labelKey })),
+    };
+    const answers = await this.choiceMachine.presentApprovalChoice([question]);
+    return answers[0]?.selected[0] ?? "";
+  }
+
+  /** `TurnHost`'s other half — same "unreachable today" status as
+   * `requestApproval` above. `"deferred"` rather than fabricating a
+   * text-input prompt: the wire has no free-text question shape yet
+   * (`ChoiceQuestion`/`ChoiceAnswer` is multiple-choice only), and
+   * `UserInputAnswer`'s own contract already treats `"deferred"` as a
+   * first-class answer, not a failure — degrading honestly here costs
+   * nothing since nothing can reach this method yet. */
+  requestUserInput(_prompt: string): Promise<UserInputAnswer | "deferred"> {
+    return Promise.resolve("deferred");
   }
 
   /** The CLI reports its own permission-mode transitions
@@ -582,7 +625,7 @@ export class SharedSession {
   /** Interrupts the turn in progress, if any — doesn't touch the queue
    * (queued turns, if they ever exist, continue normally afterward). */
   stopTurn(): void {
-    this.claude.stop();
+    this.driver.stop();
   }
 
   /**
@@ -605,44 +648,47 @@ export class SharedSession {
       return;
     }
     this.clearSuggestion();
-    // `claude.stop()` below only unblocks a live `pendingApproval` (it's
+    // `driver.stop()` below only unblocks a live `pendingApproval` (it's
     // tied to the turn being interrupted) — a deferred `pendingChoice`
     // outlives its turn and needs the same explicit dismissal as `submitTurn`.
     this.discardStaleChoice();
     this.cancelPendingWakeup();
-    this.claude.stop();
+    this.driver.stop();
     this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text));
   }
 
   /** Reuses the normal `runTurn` for the turn with the edited text — same
    * `user_message` broadcast to other devices (excluding `origin`, which
    * already optimistically self-truncated like a normal send), same
-   * streaming, same `turn_ended`. Only what comes before (truncating the
-   * real transcript + the in-memory `history` + notifying the OTHER
+   * streaming, same `turn_ended`. Only what comes before (rewinding the
+   * driver's continuity + the in-memory `history` + notifying the OTHER
    * devices of the cut) is edit-specific. */
   private async performEdit(origin: WebSocket, target: EditTarget, text: string): Promise<void> {
     try {
       if (target.turnsBefore > 0) {
-        const sessionId = this.claude.getSessionId();
+        const sessionId = this.driver.getSessionId();
         // No known session_id but with turns before the cut: only happens
-        // if the very first real turn failed before any `result` (a
-        // referenceable `.jsonl` never came to exist — see the comment on
-        // `ClaudeSession.sendTurn`). In that case there's no file to
-        // truncate; the next turn already goes out without `--resume`
-        // anyway, so nothing happens here (correct behavior by omission,
-        // not special-cased handling).
+        // if the very first real turn failed before any result (nothing
+        // resumable ever came to exist). In that case there's nothing to
+        // rewind; the next turn already goes out without resuming anyway,
+        // so nothing happens here (correct behavior by omission, not
+        // special-cased handling).
         if (sessionId) {
-          const home = defaultCwd(this.homeOverride);
-          const path = transcriptPath(home, this.cwd, sessionId);
-          const newSessionId = forkTruncatedTranscript(path, target.turnsBefore);
-          this.claude.setSessionId(newSessionId);
+          if (!this.driver.rewind) {
+            // The driver's def declares no rewind capability (e.g. Codex's
+            // rewindTurn: "none" today) — degrade honestly instead of
+            // calling a method that doesn't exist.
+            origin.send(JSON.stringify({ type: "edit_message_error", code: "unsupported" satisfies EditMessageError }));
+            return;
+          }
+          const newSessionId = await this.driver.rewind(target.turnsBefore, this.cwd);
+          this.driver.setSessionId(newSessionId);
           this.options.onSessionIdChange?.(newSessionId);
         }
       } else {
         // Editing the very first message of the session — nothing left to
-        // preserve in a new file, equivalent to a `/clear` followed by the
-        // edited text.
-        this.claude.resetSessionId();
+        // preserve, equivalent to a `/clear` followed by the edited text.
+        this.driver.resetSessionId();
         this.options.onSessionIdClear?.();
       }
     } catch (error) {
@@ -692,7 +738,7 @@ export class SharedSession {
     this.discardStaleChoice();
     this.cancelPendingWakeup();
     this.turnQueue = this.turnQueue.then(() => {
-      this.claude.resetSessionId();
+      this.driver.resetSessionId();
       this.history.length = 0;
       this.historyCleared = true;
       this.contextUsage = undefined;
@@ -793,52 +839,6 @@ export class SharedSession {
       }
     }
 
-    // Registered fresh for every turn (not once per session):
-    // the token is the endpoint's only auth, and a turn that ends (however
-    // it ends — success, error, or `stopTurn`) must not leave a token alive
-    // that a since-exited `claude` child could no longer call anyway. Only
-    // built outside `plan` mode: the CLI blocks any non-native tool
-    // categorically there regardless of `--allowedTools` — passing this
-    // would be dead weight on every spawn.
-    const choiceRegistration =
-      this.options.mcpChoiceBridge && this.permissionMode !== "plan"
-        ? this.options.mcpChoiceBridge.registerTurn({ presentChoice: (questions) => this.presentChoice(questions) })
-        : undefined;
-    // Only skipped in `bypassPermissions`, the one mode
-    // whose entire point is "don't ask". Merged below with
-    // `choiceRegistration` into a single `--mcp-config` when both are active
-    // (every mode except `bypassPermissions` — `plan` only gets this one,
-    // `default`/`acceptEdits` get both): validated against the real binary
-    // that `--allowedTools` and `--permission-prompt-tool` coexist fine in
-    // the same spawn, so there's no need to pick one over the other here.
-    const permissionRegistration =
-      this.options.mcpPermissionBridge && this.permissionMode !== "bypassPermissions"
-        ? this.options.mcpPermissionBridge.registerTurn({
-            checkPermission: (toolName, input, toolUseId) => this.checkPermission(toolName, input, toolUseId),
-          })
-        : undefined;
-    // The actual CLI-arg assembly (which servers, which flags, the known-
-    // ineffective idle-timeout override, the alwaysLoad fix) is pure and
-    // lives in `buildMcpSpawnConfig` (turnMessages.ts) — see its doc comment
-    // for the full reasoning. This is only the "which mode gets which
-    // bridge" decision, which needs `this.permissionMode` and stays here.
-    const mcp = buildMcpSpawnConfig({
-      choiceToken: choiceRegistration?.token,
-      permissionToken: permissionRegistration?.token,
-      mcpBridgeBaseUrl: this.options.mcpBridgeBaseUrl,
-      mcpPermissionBridgeBaseUrl: this.options.mcpPermissionBridgeBaseUrl,
-      // `choiceRegistration !== undefined` mirrors today's `choiceToken`
-      // truthiness (present_choice registered as AskUserQuestion's
-      // replacement); `permissionMode === "plan"` is the extra case where
-      // present_choice can't be registered (the CLI blocks it there) but the
-      // native tool still needs blocking so the model falls back to the
-      // plan-mode text-marker convention instead of a dead tool call. The two
-      // clauses are mutually exclusive given `choiceRegistration`'s own
-      // `permissionMode !== "plan"` gate above, but left as an OR so this
-      // stays correct if that gate ever changes.
-      blockAskUserQuestion: this.permissionMode === "plan" || choiceRegistration !== undefined,
-    });
-
     // Hoisted out of the `try` below so the plan-mode marker check after it
     // can see the turn's outcome — needs to run AFTER the `finally` block,
     // not before: `finally`'s `cancelPendingApproval` only ever touches
@@ -850,39 +850,27 @@ export class SharedSession {
     let turnStopped = false;
     let planChoiceText: string | undefined;
     try {
-      const { stopped, contextUsage, lastAssistantText } = await this.claude.sendTurn(
-        text,
-        this.cwd,
-        this.permissionMode,
-        this.model,
-        (event) => {
-          for (const agentEvent of mapClaudeEvent(event)) {
-            // Must run BEFORE the broadcast below: a device reconnecting
-            // mid-turn right as this arrives should see the updated mode,
-            // not a stale one from before this same event was processed.
-            // Checked unconditionally (not just when `permissionRegistration`
-            // is active) since this is a general CLI mechanism, not
-            // exclusive to the `ExitPlanMode` path. Reads the already-mapped
-            // `status` event rather than peeking at the raw CLI line
-            // separately — both used to exist side by side, one only ever a
-            // step behind the other since they're produced from the exact
-            // same raw event.
-            if (agentEvent.type === "status" && agentEvent.permissionMode !== undefined) {
-              this.applyPermissionModeFromCli(agentEvent.permissionMode);
-            }
-            this.broadcast({ type: "agent_event", event: agentEvent });
-            // Lets the `anywh-bg` job tracker (owned by
-            // `SessionManager`) see every event of every turn, looking for
-            // the start marker. Purely observational: never throws nor
-            // alters the turn's flow.
-            this.options.onEvent?.(agentEvent);
-          }
-        },
-        mcp,
-      );
+      const ctx: TurnContext = { cwd: this.cwd, prompt: text, modelId: this.model, permissionModeId: this.permissionMode };
+      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (agentEvent) => {
+        // Must run BEFORE the broadcast below: a device reconnecting
+        // mid-turn right as this arrives should see the updated mode, not a
+        // stale one from before this same event was processed. Checked
+        // unconditionally since this is a general mechanism, not exclusive
+        // to Claude's `ExitPlanMode` path — any driver's `status` event
+        // with a `permissionMode` goes through the same update.
+        if (agentEvent.type === "status" && agentEvent.permissionMode !== undefined) {
+          this.applyPermissionModeFromCli(agentEvent.permissionMode);
+        }
+        this.broadcast({ type: "agent_event", event: agentEvent });
+        // Lets the `anywh-bg` job tracker (owned by
+        // `SessionManager`) see every event of every turn, looking for
+        // the start marker. Purely observational: never throws nor
+        // alters the turn's flow.
+        this.options.onEvent?.(agentEvent);
+      });
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
-      const sessionId = this.claude.getSessionId();
+      const sessionId = this.driver.getSessionId();
       if (sessionId) this.options.onSessionIdChange?.(sessionId);
       if (contextUsage) {
         this.contextUsage = contextUsage;
@@ -913,8 +901,6 @@ export class SharedSession {
       console.error("[relay] turn failed:", message);
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
     } finally {
-      choiceRegistration?.unregister();
-      permissionRegistration?.unregister();
       // Only `pendingApproval` — `pendingChoice` deliberately survives the
       // turn that created it (see the doc
       // comment on `cancelPendingApproval`). This is THE inversion this
@@ -929,18 +915,18 @@ export class SharedSession {
       this.broadcastTurnState();
     }
 
-    // Plan mode's `present_choice` fallback: that mode never gets
-    // the MCP tool at all (`choiceRegistration` above is skipped for it), so
-    // a genuinely closed question only shows up as a text marker in the
-    // final response. Checked here, after the turn (and its `finally`
-    // cleanup) has fully finished, not inside the `try` — see the comment
-    // on `turnStopped`/`planChoiceText`. Goes through the same `presentChoice`
-    // the MCP tool uses (not a separate method anymore): both origins feed
-    // the same deferred `pendingChoice` slot now, so there's no reason for
-    // two publish paths. The acceptance check inside `presentChoice` is a
-    // no-op here in practice — plan mode never registers the `present_choice`
-    // MCP tool (`choiceRegistration` above), so nothing else could have set
-    // `pendingChoice` for this same turn to collide with.
+    // Plan mode's `present_choice` fallback: Claude's driver never
+    // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s
+    // own `choiceRegistration` gate), so a genuinely closed question only
+    // shows up as a text marker in the final response. Checked here, after
+    // the turn (and its `finally` cleanup) has fully finished, not inside
+    // the `try` — see the comment on `turnStopped`/`planChoiceText`. Goes
+    // through the same `presentChoice` the MCP tool uses (not a separate
+    // method anymore): both origins feed the same deferred `pendingChoice`
+    // slot now, so there's no reason for two publish paths. The acceptance
+    // check inside `presentChoice` is a no-op here in practice — plan mode
+    // never registers the `present_choice` MCP tool, so nothing else could
+    // have set `pendingChoice` for this same turn to collide with.
     if (!turnStopped && !synthetic && this.permissionMode === "plan" && planChoiceText) {
       const questions = parsePlanChoiceMarkers(planChoiceText);
       if (questions.length > 0) this.presentChoice(questions);

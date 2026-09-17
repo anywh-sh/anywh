@@ -52,7 +52,7 @@ export type SetCwdErrorCode = "not_found" | "permission_denied" | "not_a_directo
 
 /** Why an `edit_message` request was refused. Mirrors `EditMessageError` in
  * relay/src/sharedSession.ts, same contract as `SetCwdErrorCode`. */
-export type EditMessageErrorCode = "not_found" | "truncate_failed" | "relay_restarting";
+export type EditMessageErrorCode = "not_found" | "truncate_failed" | "relay_restarting" | "unsupported";
 
 export type RelayMessage =
   /** First message sent on every connection, ahead of anything else —
