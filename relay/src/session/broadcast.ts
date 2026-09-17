@@ -71,6 +71,18 @@ export function broadcastCwdState(clients: Iterable<WebSocket>, cwd: string, loc
   for (const client of clients) sendCwdState(client, cwd, locked);
 }
 
+/** Which agent def is currently driving this session — sent right before
+ * `permission_mode_state`/`model_state` in the connection burst (both only
+ * make sense once the client knows which agent they belong to) and again on
+ * `SharedSession.switchAgent`. */
+export function sendAgentState(target: WebSocket, agentId: string): void {
+  target.send(JSON.stringify({ type: "agent_state", agentId }));
+}
+
+export function broadcastAgentState(clients: Iterable<WebSocket>, agentId: string): void {
+  for (const client of clients) sendAgentState(client, agentId);
+}
+
 /** `available` is this session's own def's mode vocabulary for the host's
  * platform (`session/permissionModes.ts`'s `availableModes`) — sent
  * alongside `mode` on every burst/change so the client never has to

@@ -21,6 +21,7 @@ import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQue
 import {
   type BroadcastMessage,
   broadcast,
+  broadcastAgentState,
   broadcastBackgroundJobs,
   broadcastContextUsage,
   broadcastContextUsageReset,
@@ -33,6 +34,7 @@ import {
   broadcastSuggestion,
   broadcastTitle,
   broadcastTurnState,
+  sendAgentState,
   sendBackgroundJobs,
   sendContextUsage,
   sendCwdState,
@@ -202,7 +204,9 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
  * session" across devices.
  */
 export class SharedSession implements SessionDriverHost {
-  private readonly driver: AgentSessionDriver;
+  /** Not `readonly`: `switchAgent` replaces it when the user picks a
+   * different agent mid-conversation — see that method's own doc comment. */
+  private driver: AgentSessionDriver;
   private readonly history: BroadcastMessage[] = [];
   private readonly clients = new Set<WebSocket>();
   private turnQueue: Promise<void> = Promise.resolve();
@@ -256,20 +260,7 @@ export class SharedSession implements SessionDriverHost {
     private readonly homeOverride: string | undefined,
     private readonly options: SharedSessionOptions,
   ) {
-    this.driver = createSessionDriver(options.def, {
-      homeOverride,
-      initialSessionId: options.initialSessionId,
-      host: this,
-      claudeMcp:
-        options.mcpChoiceBridge || options.mcpPermissionBridge
-          ? {
-              choiceBridge: options.mcpChoiceBridge,
-              bridgeBaseUrl: options.mcpBridgeBaseUrl,
-              permissionBridge: options.mcpPermissionBridge,
-              permissionBridgeBaseUrl: options.mcpPermissionBridgeBaseUrl,
-            }
-          : undefined,
-    });
+    this.driver = this.createDriver(options.def, options.initialSessionId);
     this.cwd = options.initialCwd;
     this.locked = options.initialLocked;
     this.title = options.initialTitle ?? null;
@@ -293,8 +284,68 @@ export class SharedSession implements SessionDriverHost {
     this.driver.dispose();
   }
 
+  /** Factored out of the constructor so `switchAgent` can build the
+   * replacement driver the same way — the MCP bridge wiring only ever
+   * applies to Claude's driver (`createSessionDriver` ignores `claudeMcp`
+   * for any other def), so passing it unconditionally here is harmless for
+   * a session that switches to Codex and back. */
+  private createDriver(def: AgentRuntimeDef, initialSessionId: string | undefined): AgentSessionDriver {
+    return createSessionDriver(def, {
+      homeOverride: this.homeOverride,
+      initialSessionId,
+      host: this,
+      claudeMcp:
+        this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
+          ? {
+              choiceBridge: this.options.mcpChoiceBridge,
+              bridgeBaseUrl: this.options.mcpBridgeBaseUrl,
+              permissionBridge: this.options.mcpPermissionBridge,
+              permissionBridgeBaseUrl: this.options.mcpPermissionBridgeBaseUrl,
+            }
+          : undefined,
+    });
+  }
+
   getCwdState(): { cwd: string; locked: boolean } {
     return { cwd: this.cwd, locked: this.locked };
+  }
+
+  getAgentId(): string {
+    return this.def.identity.id;
+  }
+
+  /**
+   * Swaps the engine under a live session without touching its transcript:
+   * the log is the conversation's, not an agent's. The outgoing driver is
+   * disposed (a Codex daemon would otherwise leak until the session is
+   * deleted) and the incoming one starts from whatever thread/session id
+   * THIS agent had last — which is why `SessionStore` keys those per
+   * `agentId` (`SessionManager.setAgent`, which resolves all four `initial*`
+   * fields below before calling this).
+   *
+   * Refused mid-turn (`turnStartedAt !== null`): swapping the driver under
+   * an in-flight `sendTurn` would strand its promise on a driver nobody
+   * holds a reference to anymore. The client finds out via the
+   * `agent_state`/`permission_mode_state`/`model_state` re-broadcast this
+   * method skips in that case — `SessionManager.setAgent` still wrote the
+   * new choice to `SessionStore`, so the picker will show it correctly on
+   * this session's NEXT connection, just not this one, mid-turn.
+   */
+  switchAgent(next: { def: AgentRuntimeDef; initialSessionId?: string; initialPermissionMode: string; initialModel?: string }): void {
+    if (this.turnStartedAt !== null) return;
+    this.driver.dispose();
+    this.def = next.def;
+    this.driver = this.createDriver(next.def, next.initialSessionId);
+    this.permissionModes = availableModes(next.def, toHostPlatform());
+    this.permissionMode = resolveInitialMode(this.permissionModes, next.initialPermissionMode, next.def.permissions.defaultModeId);
+    this.model = next.initialModel;
+    // The previous agent's usage — Codex and Claude don't share a context
+    // window, so there's nothing honest to translate it to. The indicator
+    // simply won't show anything until this agent's next turn.
+    this.contextUsage = undefined;
+    this.broadcastAgentState();
+    this.broadcastPermissionMode();
+    this.broadcastModelState();
   }
 
   getPermissionMode(): PermissionMode {
@@ -537,6 +588,7 @@ export class SharedSession implements SessionDriverHost {
     // First thing of all — a freshly opened tab knows the cwd/lock
     // immediately, without waiting for a turn or the history replay to finish.
     this.sendCwdState(socket);
+    this.sendAgentState(socket);
     this.sendPermissionMode(socket);
     this.sendModelState(socket);
     if (this.title !== null) this.sendTitle(socket, this.title);
@@ -1004,6 +1056,14 @@ export class SharedSession implements SessionDriverHost {
 
   private broadcastCwdState(): void {
     broadcastCwdState(this.clients, this.cwd, this.locked);
+  }
+
+  private sendAgentState(target: WebSocket): void {
+    sendAgentState(target, this.def.identity.id);
+  }
+
+  private broadcastAgentState(): void {
+    broadcastAgentState(this.clients, this.def.identity.id);
   }
 
   private sendPermissionMode(target: WebSocket): void {

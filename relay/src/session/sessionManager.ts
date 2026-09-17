@@ -211,6 +211,27 @@ export class SessionManager {
     return true;
   }
 
+  /** Switches which agent def a live session's turns run against, without
+   * losing its transcript (the log is the conversation's, not an agent's).
+   * The store, not `SharedSession`, owns "which agent" — same division as
+   * every other persisted field here — so this is the one place that
+   * resolves the new def and orchestrates both sides of the switch. A no-op
+   * for an id the registry doesn't recognize (an id from a build with a def
+   * this one's registry doesn't ship) rather than a thrown error the client
+   * has no way to react to. Works even for a session with no tab currently
+   * open, same as `renameTitle` — only `sessions.get` may be `undefined`. */
+  setAgent(id: string, agentId: string): void {
+    const def = this.registry.get(agentId);
+    if (!def) return;
+    this.sessionStore.setAgentId(id, agentId);
+    this.sessions.get(id)?.switchAgent({
+      def,
+      initialSessionId: this.sessionStore.getSessionId(id, agentId),
+      initialPermissionMode: this.sessionStore.getPermissionMode(id, agentId, def.permissions.defaultModeId),
+      initialModel: this.sessionStore.getModel(id, agentId),
+    });
+  }
+
   /** Only removes the session from anywh's control (SessionStore +
    * in-memory map) — doesn't delete the transcript that Claude Code already
    * maintains on its own in `~/.claude/projects/`. Stops the turn in
@@ -254,8 +275,14 @@ export class SessionManager {
     const session = new SharedSession(this.homeOverride, {
       def,
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
-      onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, agentId, sessionId),
-      onSessionIdClear: () => this.sessionStore.clearSessionId(id, agentId),
+      // Re-reads the agent at call time rather than closing over the
+      // `agentId` resolved above: after `setAgent` (below) switches a live
+      // session, these same callbacks keep firing for whichever agent is
+      // CURRENT when they fire, not the one active when the session was
+      // constructed — otherwise a Codex turn's session id would get written
+      // under Claude's key in SessionStore.
+      onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, this.sessionStore.getAgentId(id), sessionId),
+      onSessionIdClear: () => this.sessionStore.clearSessionId(id, this.sessionStore.getAgentId(id)),
       onTitleClear: () => this.sessionStore.clearTitle(id),
       initialCwd: cwd,
       initialLocked: locked,
@@ -263,9 +290,9 @@ export class SessionManager {
       onLockChange: () => this.sessionStore.lockCwd(id),
       onUnlockChange: () => this.sessionStore.unlockCwd(id),
       initialPermissionMode: this.sessionStore.getPermissionMode(id, agentId, def.permissions.defaultModeId),
-      onPermissionModeChange: (mode) => this.sessionStore.setPermissionMode(id, agentId, mode),
+      onPermissionModeChange: (mode) => this.sessionStore.setPermissionMode(id, this.sessionStore.getAgentId(id), mode),
       initialModel: this.sessionStore.getModel(id, agentId),
-      onModelChange: (model) => this.sessionStore.setModel(id, agentId, model),
+      onModelChange: (model) => this.sessionStore.setModel(id, this.sessionStore.getAgentId(id), model),
       initialContextUsage: this.sessionStore.getContextUsage(id),
       onContextUsageChange: (usage) => this.sessionStore.setContextUsage(id, usage),
       initialDraft: this.sessionStore.getDraft(id),

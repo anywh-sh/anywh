@@ -6,6 +6,7 @@ import {
   isClearConversationMessage,
   isEditMessageMessage,
   isLoadOlderHistoryMessage,
+  isSetAgentMessage,
   isSetCwdMessage,
   isSetDraftMessage,
   isSetModelMessage,
@@ -15,11 +16,15 @@ import {
 } from "../protocol/guards.js";
 import type { EditMessageError, SharedSession } from "../session/sharedSession.js";
 
-/** The chat WS connection's `message` dispatch — the 10 message types a
+/** The chat WS connection's `message` dispatch — the 11 message types a
  * connected client can send once it's attached to a `SharedSession`
  * (terminal/files/sessions-watch connections have their own, simpler
- * protocols, see ws/terminal.ts, ws/files.ts). */
-export function dispatchChatMessage(session: SharedSession, socket: WebSocket, parsed: unknown): void {
+ * protocols, see ws/terminal.ts, ws/files.ts). `onSetAgent` is a callback
+ * rather than a `SessionManager` reference: switching a session's agent
+ * needs the registry AND the store (`SessionManager.setAgent`), neither of
+ * which `SharedSession`/this dispatcher have — `server.ts` closes over
+ * both at the one call site that has them. */
+export function dispatchChatMessage(session: SharedSession, socket: WebSocket, parsed: unknown, onSetAgent: (agentId: string) => void): void {
   if (isStopTurnMessage(parsed)) {
     session.stopTurn();
     return;
@@ -35,6 +40,10 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
   }
   if (isSetPermissionModeMessage(parsed)) {
     session.setPermissionMode(parsed.mode);
+    return;
+  }
+  if (isSetAgentMessage(parsed)) {
+    onSetAgent(parsed.agentId);
     return;
   }
   if (isSetModelMessage(parsed)) {

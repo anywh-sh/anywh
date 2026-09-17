@@ -76,6 +76,20 @@ export function isSetModelMessage(value: unknown): value is { type: "set_model";
   );
 }
 
+/** No fixed enum here either, same reasoning as `isSetPermissionModeMessage`
+ * above — the real vocabulary is `SELECTABLE_AGENT_IDS` (server.ts), which
+ * this guard has no access to. An id the registry doesn't recognize is a
+ * no-op in `SessionManager.setAgent`, not a crash. */
+export function isSetAgentMessage(value: unknown): value is { type: "set_agent"; agentId: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "set_agent" &&
+    typeof (value as { agentId?: unknown }).agentId === "string" &&
+    (value as { agentId: string }).agentId.length > 0
+  );
+}
+
 export function isSetDraftMessage(value: unknown): value is { type: "set_draft"; draft: string } {
   return (
     typeof value === "object" &&

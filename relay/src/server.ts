@@ -311,7 +311,7 @@ wss.on("connection", (socket: WebSocket, request) => {
     } catch {
       return;
     }
-    dispatchChatMessage(session, socket, parsed);
+    dispatchChatMessage(session, socket, parsed, (agentId) => sessionManager.setAgent(sessionId, agentId));
   });
 
   socket.on("close", () => {
