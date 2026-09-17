@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Folder } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
 import { listDirectories, type FsEntry } from "@/lib/relay/fsBrowse";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -83,11 +84,14 @@ export function FolderPickerDialog({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+  // Not persisted — same as the file panel's own toggle, this is view state,
+  // not worth surviving a restart. Defaults to filtered.
+  const [showHidden, setShowHidden] = useState(false);
 
-  async function navigate(path?: string): Promise<boolean> {
+  async function navigate(path?: string, hidden = showHidden): Promise<boolean> {
     setLoading(true);
     try {
-      const result = await listDirectories(profile, path);
+      const result = await listDirectories(profile, path, hidden);
       setBrowsePath(result.path);
       setPathInput(result.path);
       setEntries(result.entries);
@@ -108,12 +112,13 @@ export function FolderPickerDialog({
   useEffect(() => {
     if (!open) return;
     setInitialLoadDone(false);
+    setShowHidden(false);
     void (async () => {
       // Saved folder may have been deleted/lost permission since last time —
       // if the initial navigation fails, tries again with the app's default
       // instead of leaving the modal with nothing navigable.
-      const ok = await navigate(initialPath);
-      if (!ok) void navigate(undefined);
+      const ok = await navigate(initialPath, false);
+      if (!ok) void navigate(undefined, false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -158,24 +163,46 @@ export function FolderPickerDialog({
             </Button>
           </form>
 
-          {/* Every segment is clickable, which is also how you go up — the
-              breadcrumb is the navigation, not a label of where you are. */}
-          <div className="flex flex-wrap items-center gap-1 font-mono text-[11px]">
-            {crumbs.map((crumb, index) => (
-              <div key={crumb.path} className="flex items-center gap-1">
-                {index > 0 && <span className="text-text-faint">/</span>}
-                <button
+          <div className="flex items-center justify-between gap-2">
+            {/* Every segment is clickable, which is also how you go up — the
+                breadcrumb is the navigation, not a label of where you are. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-1 font-mono text-[11px]">
+              {crumbs.map((crumb, index) => (
+                <div key={crumb.path} className="flex items-center gap-1">
+                  {index > 0 && <span className="text-text-faint">/</span>}
+                  <button
+                    type="button"
+                    onClick={() => void navigate(crumb.path)}
+                    className={cn(
+                      "cursor-pointer px-1 py-0.5 transition-colors hover:text-foreground",
+                      index === crumbs.length - 1 ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {crumb.label}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
                   type="button"
-                  onClick={() => void navigate(crumb.path)}
-                  className={cn(
-                    "cursor-pointer px-1 py-0.5 transition-colors hover:text-foreground",
-                    index === crumbs.length - 1 ? "text-foreground" : "text-muted-foreground",
-                  )}
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => {
+                    const next = !showHidden;
+                    setShowHidden(next);
+                    void navigate(browsePath, next);
+                  }}
+                  aria-label={showHidden ? copy.hideHidden : copy.showHidden}
+                  className={cn("size-6 shrink-0", showHidden && "text-foreground")}
                 >
-                  {crumb.label}
-                </button>
-              </div>
-            ))}
+                  {showHidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{showHidden ? copy.hideHidden : copy.showHidden}</TooltipContent>
+            </Tooltip>
           </div>
 
           <ScrollArea className="h-64 border border-border bg-bg-chrome p-1">
