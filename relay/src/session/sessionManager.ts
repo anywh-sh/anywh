@@ -170,6 +170,18 @@ export class SessionManager {
     for (const session of this.sessions.values()) session.stopTurn();
   }
 
+  /** Tears down every session's driver — called once, from
+   * `gracefulShutdown` (lifecycle.ts), right before the process exits.
+   * A no-op for a Claude-driven session today (nothing outlives a single
+   * turn there), but load-bearing the day a session is driving a Codex
+   * daemon: without this, a relay restart would leak one orphaned
+   * `codex app-server` process per session that ever ran a live turn,
+   * on top of that daemon's own 15-minute idle reaper as a second line of
+   * defense. */
+  disposeAll(): void {
+    for (const session of this.sessions.values()) session.dispose();
+  }
+
   getOrCreate(id: string): SharedSession {
     let session = this.sessions.get(id);
     if (!session) {
@@ -202,6 +214,7 @@ export class SessionManager {
     if (session) {
       session.stopTurn();
       session.closeAllClients();
+      session.dispose();
       this.sessions.delete(id);
     }
     // The only real way a session "dies" today (closing a tab/disconnecting

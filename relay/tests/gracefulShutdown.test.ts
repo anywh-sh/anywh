@@ -21,6 +21,7 @@ test("gracefulShutdown: SIGTERM with no turn in progress exits promptly with cod
     assert.ok(Date.now() - start < 5000, "no active turn means waitForAllIdle resolves immediately, no grace period to wait out");
     const output = relay.output.join("");
     assert.match(output, /no longer accepting new connections/);
+    assert.match(output, /disposing session driver\(s\)/);
     assert.match(output, /exiting\./);
   } finally {
     relay.cleanup();
@@ -58,6 +59,7 @@ test("gracefulShutdown: a turn stuck past the grace period gets SIGINT (same pat
 
     const output = relay.output.join("");
     assert.match(output, /turn\(s\) still in progress after 200ms — aborting with SIGINT/);
+    assert.match(output, /disposing session driver\(s\)/);
     assert.match(output, /exiting\./);
   } finally {
     relay.cleanup();
