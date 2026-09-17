@@ -73,11 +73,12 @@ export type AgentEvent =
   /** A human message — sent live by whoever's device submitted it (so OTHER
    * devices see the question that prompted the response), or reconstructed
    * from an on-disk transcript. `synthetic: "background_job"` marks an
-   * `anywh-bg` job's automatic follow-up: never a real human message, shown
-   * as a system note rather than a chat bubble. `timestamp` is the real
-   * on-disk time on replay, absent live (whoever sent it already knows the
-   * click's own time). */
-  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job"; label?: string }
+   * `anywh-bg` job's automatic follow-up; `synthetic: "wakeup"` marks a
+   * `ScheduleWakeup` timer firing on its own — neither is ever a real human
+   * message, both shown as a system note rather than a chat bubble.
+   * `timestamp` is the real on-disk time on replay, absent live (whoever
+   * sent it already knows the click's own time). */
+  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup"; label?: string }
   /** Live streaming preview of a growing text block — `index` correlates
    * multiple chunks (and, in principle, multiple concurrently-streaming
    * blocks) to the same block before it commits as `text`. */

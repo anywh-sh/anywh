@@ -2,6 +2,7 @@ import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { SharedSession } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
+import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
 
@@ -32,6 +33,11 @@ export class SessionManager {
    * poller and the observation ceiling make more sense
    * shared than duplicated N times. */
   private readonly backgroundJobs: BackgroundJobTracker;
+  /** A single scheduler for the whole process, same reasoning as
+   * `backgroundJobs` — a `ScheduleWakeup` timer belongs to one session, but
+   * there's no reason to keep N independent instances of the mechanism that
+   * arms/persists it. */
+  private readonly wakeups: WakeupScheduler;
 
   constructor(
     private readonly homeOverride: string | undefined,
@@ -42,6 +48,8 @@ export class SessionManager {
      * that don't pass this), but in production `server.ts` always passes a
      * real path. */
     backgroundJobsFilePath?: string,
+    /** Same reasoning as `backgroundJobsFilePath`, for `WakeupScheduler`. */
+    wakeupsFilePath?: string,
     /** `undefined` in tests that don't exercise `present_choice`,
      * same reasoning as `backgroundJobsFilePath`; in production `server.ts`
      * always passes both. */
@@ -84,6 +92,15 @@ export class SessionManager {
     for (const job of this.backgroundJobs.listWatched()) {
       this.syncBackgroundJobState(job.sessionId);
     }
+    // Same ordering requirement as `BackgroundJobTracker` above: a wakeup
+    // reloaded from disk whose `fireAt` already passed fires immediately
+    // (`setTimeout(..., 0)`, not synchronous), and `handleWakeupFired` needs
+    // `this.sessions` fully populated by then to find the session to deliver
+    // it to — hence constructed after the loop above, not before it.
+    this.wakeups = new WakeupScheduler({
+      onFire: (sessionId, prompt) => this.handleWakeupFired(sessionId, prompt),
+      persistPath: wakeupsFilePath,
+    });
   }
 
   /** Called by `BackgroundJobTracker` when a job finishes.
@@ -99,6 +116,20 @@ export class SessionManager {
       return;
     }
     session.submitBackgroundJobResult(job);
+  }
+
+  /** Called by `WakeupScheduler` when an armed `ScheduleWakeup` timer
+   * fires. Same "session might be gone" guard as
+   * `handleBackgroundJobFinished` — a race between the session being
+   * deleted and the timer firing is possible (`deleteSession` cancels the
+   * timer, but can't stop one that already fired in the same tick). */
+  private handleWakeupFired(sessionId: string, prompt: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn(`[relay] wakeup fired for session ${sessionId}, but it no longer exists — discarding`);
+      return;
+    }
+    session.submitWakeup(prompt);
   }
 
   /** Keeps the `background_job_state` that `SharedSession`
@@ -172,6 +203,12 @@ export class SessionManager {
       session.closeAllClients();
       this.sessions.delete(id);
     }
+    // The only real way a session "dies" today (closing a tab/disconnecting
+    // a WS doesn't touch the `SharedSession`) — a wakeup armed for an id
+    // that no longer exists would otherwise fire into a session
+    // `handleWakeupFired` can't find, which it already tolerates, but
+    // there's no reason to let it linger until then.
+    this.wakeups.cancelForSession(id);
     const existedInStore = this.sessionStore.deleteEntry(id);
     const existed = existedInStore || session !== undefined;
     if (existed) this.onListChanged?.({ type: "remove", id });
@@ -205,9 +242,15 @@ export class SessionManager {
       mcpPermissionBridge: this.mcpPermissionBridge,
       mcpPermissionBridgeBaseUrl: this.mcpPermissionBridgeBaseUrl,
       onActivity: () => this.sessionStore.touch(id),
-      onEvent: (event) => this.backgroundJobs.observeEvent(id, event),
+      onEvent: (event) => {
+        this.backgroundJobs.observeEvent(id, event);
+        this.wakeups.observeEvent(id, event);
+      },
       onCancelBackgroundJob: (jobId) => {
         this.backgroundJobs.cancel(id, jobId);
+      },
+      onCancelWakeup: () => {
+        this.wakeups.cancelForSession(id);
       },
       initialTitle: this.sessionStore.getTitle(id),
       onFirstPrompt: (text) => {

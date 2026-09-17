@@ -37,6 +37,10 @@ const SESSIONS_FILE = process.env.RELAY_SESSIONS_FILE ?? "./sessions.local.json"
 // watched `anywh-bg` jobs (survives a relay restart).
 const BACKGROUND_JOBS_FILE = process.env.RELAY_BACKGROUND_JOBS_FILE ?? "./background-jobs.local.json";
 
+// Same reasoning as BACKGROUND_JOBS_FILE — persistence of an armed
+// `ScheduleWakeup` timer (survives a relay restart).
+const WAKEUPS_FILE = process.env.RELAY_WAKEUPS_FILE ?? "./wakeups.local.json";
+
 const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
@@ -57,6 +61,7 @@ const sessionManager = new SessionManager(
   HOME_OVERRIDE,
   sessionStore,
   BACKGROUND_JOBS_FILE,
+  WAKEUPS_FILE,
   mcpChoiceBridge,
   `http://127.0.0.1:${PORT}/mcp`,
   mcpPermissionBridge,
