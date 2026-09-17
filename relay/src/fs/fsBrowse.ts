@@ -1,5 +1,6 @@
 import { statSync, readdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { isHidden } from "./fsFiles.js";
 
 // Supports the folder-picker modal (see the "working directory" plan docs) —
 // lists only subdirectories, never files. Synchronous and pure on purpose:
@@ -44,10 +45,13 @@ type ListResult = { ok: true; path: string; entries: FsEntry[] } | { ok: false; 
 /** Subfolders only — a symlink pointing to a directory is included
  * (otherwise `/home/user/.anywh-trabalho-home`, which is where the work
  * profile actually operates, would disappear from any listing that goes
- * through a symlink); a broken link is ignored. No dotdir filter — hidden
- * folders remain navigable, the picker isn't an "end user" listing with
- * file-manager conventions. */
-export function listDirectories(rawPath: string): ListResult {
+ * through a symlink); a broken link is ignored. Same `isHidden` dotdir/
+ * `node_modules` filter as `fsFiles.ts`'s file panel, off by default and
+ * toggled the same way (`showHidden`, the `all=1` query param) — a folder
+ * like `.anywh-trabalho-home` is still reachable by toggling the filter or
+ * typing its path directly into the picker's path field, it's just not
+ * clutter in the default listing anymore. */
+export function listDirectories(rawPath: string, showHidden = false): ListResult {
   const check = checkDirectory(rawPath);
   if (!check.ok) return check;
 
@@ -60,6 +64,7 @@ export function listDirectories(rawPath: string): ListResult {
 
   const entries: FsEntry[] = [];
   for (const dirent of dirents) {
+    if (!showHidden && isHidden(dirent.name)) continue;
     const fullPath = join(check.path, dirent.name);
     let isDir = dirent.isDirectory();
     if (!isDir && dirent.isSymbolicLink()) {

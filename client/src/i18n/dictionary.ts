@@ -925,6 +925,8 @@ export interface Dictionary {
       parent: string;
       empty: string;
       select: string;
+      showHidden: string;
+      hideHidden: string;
     };
     idle: {
       heading: string;
