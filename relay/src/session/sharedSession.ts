@@ -1,9 +1,9 @@
 import type { WebSocket } from "ws";
-import { readHistoryFromTranscript, buildApprovalQuestion, buildPermissionDecision, claudeRuntimeDef, isApproved } from "../runtimes/defs/claude/index.js";
+import { readHistoryFromTranscript, buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
-import type { ApprovalRequest, TurnContext, UserInputAnswer } from "../runtimes/types.js";
+import type { AgentRuntimeDef, ApprovalRequest, TurnContext, UserInputAnswer } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -163,6 +163,12 @@ export interface SharedSessionOptions {
    * its own path prefix (`/permission/:token`, mounted separately in
    * `server.ts`) so the two bridges' tokens never share a namespace. */
   mcpPermissionBridgeBaseUrl?: string;
+  /** Which agent CLI drives this session — resolved once by
+   * `SessionManager.createSession` (from the session's persisted `agentId`
+   * against a `Registry`) and passed down rather than picked in here:
+   * `SharedSession` only ever hands this to `createSessionDriver`, it never
+   * branches on it itself. */
+  def: AgentRuntimeDef;
 }
 
 /**
@@ -183,11 +189,14 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
 
 /**
  * A session shared by every client connected to it, driven by an
- * `AgentSessionDriver` (Claude's, hardcoded for now — `createSessionDriver`
- * doesn't have a Codex driver to pick yet, and nothing selects an agent per
- * session either). New clients receive a history replay before switching
- * over to live events — this is what gives the "real-time shared session"
- * across devices.
+ * `AgentSessionDriver` for whichever def `options.def` names —
+ * `createSessionDriver` still only has a real driver for Claude's exec
+ * plan, so a def routed here with any other plan throws at construction
+ * time; nothing upstream of this class picks a non-Claude def yet either
+ * (`SessionManager.createSession` always resolves `agentId` back to
+ * Claude's def today). New clients receive a history replay before
+ * switching over to live events — this is what gives the "real-time shared
+ * session" across devices.
  */
 export class SharedSession implements SessionDriverHost {
   private readonly driver: AgentSessionDriver;
@@ -239,7 +248,7 @@ export class SharedSession implements SessionDriverHost {
     private readonly homeOverride: string | undefined,
     private readonly options: SharedSessionOptions,
   ) {
-    this.driver = createSessionDriver(claudeRuntimeDef, {
+    this.driver = createSessionDriver(options.def, {
       homeOverride,
       initialSessionId: options.initialSessionId,
       host: this,
