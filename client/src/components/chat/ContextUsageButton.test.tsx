@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ContextUsageButton } from "./ContextUsageButton";
 import { en } from "@/i18n/en";
 import type { ContextUsage } from "@/lib/relay/relayClient";
@@ -7,6 +8,7 @@ import type { ContextUsage } from "@/lib/relay/relayClient";
 afterEach(() => cleanup());
 
 const USAGE: ContextUsage = { model: "claude-opus-5", contextWindowSize: 200_000, usedTokens: 128_000 };
+const USAGE_WITH_BASELINE: ContextUsage = { ...USAGE, baselineTokens: 45_448 };
 
 describe("ContextUsageButton", () => {
   it("reads the spend and the window on the chip itself, not only in the popover", () => {
@@ -29,5 +31,30 @@ describe("ContextUsageButton", () => {
     // Deliberately absent rather than showing 0% — a session with no history
     // hasn't spent anything, and a zeroed ring reads like a measurement.
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows the Setup line, with the real percent of the window, only when baselineTokens is known", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE_WITH_BASELINE} />);
+    await user.click(screen.getByRole("button"));
+
+    // 45,448 / 200,000 = 22.724% — rounds to 23.
+    expect(screen.getByText("Setup: 45k (23%)")).toBeInTheDocument();
+  });
+
+  it("omits the Setup line entirely for a usage with no baselineTokens (a record written before this field existed, or a resumed session)", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.queryByText(/^Setup:/)).not.toBeInTheDocument();
+  });
+
+  it("always shows the output-tokens caveat, regardless of baselineTokens", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText(en.chat.composer.context.outputCaveat)).toBeInTheDocument();
   });
 });

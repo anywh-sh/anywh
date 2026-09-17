@@ -12,6 +12,7 @@ import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/p
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
+import { ContextAttributor } from "./contextAttribution.js";
 import { isPermissionMode, type ContextUsage, type ModelChoice, type PermissionMode } from "./sessionStore.js";
 import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
@@ -244,6 +245,20 @@ export class SharedSession implements SessionDriverHost {
    * here. See the class doc comment on `ChoiceMachine` for the full
    * reasoning on why they're separate slots. */
   private readonly choiceMachine: ChoiceMachine;
+  /** Correlates each response's `usage` with whatever ran since the last
+   * one — see its own doc comment. Seeded once, at construction: a session
+   * whose driver already has a session id (resuming after a relay restart)
+   * never gets a `baseline`, since the conversation didn't start now. */
+  private attributor: ContextAttributor;
+  /** Set at most once per session's lifetime, from `AttributionStep.baseline`
+   * — the conversation's first response's own prefix. Kept separately from
+   * `contextUsage` (rather than folded into it once and forgotten) because
+   * every later turn's `contextUsage` gets fully REPLACED by the driver's
+   * own end-of-turn object, which knows nothing about this field; re-merged
+   * back in every time (see `runTurn`). Restored from `initialContextUsage`
+   * so it survives a relay restart, since `ContextAttributor` itself never
+   * re-derives it for a resumed session (`hasPriorConversation: true`). */
+  private baselineTokens: number | undefined;
 
   constructor(
     private readonly homeOverride: string | undefined,
@@ -263,12 +278,14 @@ export class SharedSession implements SessionDriverHost {
             }
           : undefined,
     });
+    this.attributor = new ContextAttributor({ hasPriorConversation: this.driver.getSessionId() !== undefined });
     this.cwd = options.initialCwd;
     this.locked = options.initialLocked;
     this.title = options.initialTitle ?? null;
     this.permissionMode = options.initialPermissionMode;
     this.model = options.initialModel;
     this.contextUsage = options.initialContextUsage;
+    this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
     this.choiceMachine = new ChoiceMachine(this.clients);
@@ -719,6 +736,22 @@ export class SharedSession implements SessionDriverHost {
 
     this.history.length = target.cutIndex;
     this.contextUsage = undefined;
+    if (target.turnsBefore > 0) {
+      // Rewound, not reset: the conversation continues (a new session id
+      // that still carries the earlier history) — `baselineTokens` is
+      // still correct (the setup cost didn't change) and stays. Only the
+      // predecessor is now stale (it pointed at a response that no longer
+      // exists), so it's dropped the same way a resumed session's is —
+      // `hasPriorConversation: true` never re-arms `baseline`.
+      this.attributor = new ContextAttributor({ hasPriorConversation: true });
+    } else {
+      // Truncating back to before the first turn (`driver.resetSessionId()`
+      // above) starts a genuinely new conversation — the next response
+      // should get its own `baseline`, same as a session created from
+      // scratch.
+      this.baselineTokens = undefined;
+      this.attributor = new ContextAttributor({ hasPriorConversation: false });
+    }
     this.broadcastContextUsageReset();
 
     // Syncs OTHER devices connected to this session to the truncated point
@@ -761,6 +794,11 @@ export class SharedSession implements SessionDriverHost {
       this.history.length = 0;
       this.historyCleared = true;
       this.contextUsage = undefined;
+      this.baselineTokens = undefined;
+      // Same reasoning as performEdit's turnsBefore === 0 branch: `/clear`
+      // resets the session id, so the next turn is a genuinely new
+      // conversation and gets its own `baseline`.
+      this.attributor = new ContextAttributor({ hasPriorConversation: false });
       this.options.onSessionIdClear?.();
       // Same reasoning as the session_id/history reset above: the title
       // described the conversation that no longer exists. Also rearms
@@ -880,6 +918,27 @@ export class SharedSession implements SessionDriverHost {
         if (agentEvent.type === "status" && agentEvent.permissionMode !== undefined) {
           this.applyPermissionModeFromCli(agentEvent.permissionMode);
         }
+        // Live chip during the turn (§6.1: today's gap — 13k of context can
+        // disappear into a single tool call with no feedback until the turn
+        // ends). `contextWindowSize` comes from this step when the def
+        // reports it per-response (Codex) or, failing that, whatever this
+        // session's own last completed turn already established (Claude) —
+        // never a made-up number. Skipped entirely (not broadcast at a
+        // wrong/guessed window size) when neither is known yet, which only
+        // happens on a session's very first turn before its first `result`.
+        // Never calls `onContextUsageChange` here — that would persist to
+        // disk on every tool call; the existing end-of-turn write below
+        // already covers persistence once per turn.
+        const step = this.attributor.observe(agentEvent);
+        if (step) {
+          if (step.baseline !== undefined) this.baselineTokens = step.baseline;
+          const contextWindowSize = step.contextWindowSize ?? this.contextUsage?.contextWindowSize;
+          const model = this.contextUsage?.model ?? this.model;
+          if (contextWindowSize !== undefined && model !== undefined) {
+            this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
+            this.broadcastContextUsage();
+          }
+        }
         this.broadcast({ type: "agent_event", event: agentEvent });
         // Lets the `anywh-bg` job tracker (owned by
         // `SessionManager`) see every event of every turn, looking for
@@ -892,8 +951,13 @@ export class SharedSession implements SessionDriverHost {
       const sessionId = this.driver.getSessionId();
       if (sessionId) this.options.onSessionIdChange?.(sessionId);
       if (contextUsage) {
-        this.contextUsage = contextUsage;
-        this.options.onContextUsageChange?.(contextUsage);
+        // The driver's own object is authoritative for model/window/used
+        // (it knows the canonical resolved model, this class doesn't) but
+        // carries no opinion on `baselineTokens` — re-attach it, or the
+        // live-update merge above would otherwise be the only place this
+        // field ever survives, and it'd vanish the moment a real turn ends.
+        this.contextUsage = { ...contextUsage, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
+        this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
       }
       this.broadcast({ type: "agent_event", event: { type: "turn_ended", stopped } });

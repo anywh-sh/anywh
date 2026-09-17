@@ -56,6 +56,15 @@ export interface ContextUsage {
    * for the statusline's `used_percentage` (excludes `output_tokens` on
    * purpose). */
   usedTokens: number;
+  /** The conversation's first response's own `usedTokens` — system prompt +
+   * tools + MCP + skills/memory + the first message, all already paid for
+   * before anything else happened. Optional: absent for a record written
+   * before this field existed, and never backfilled for a session that was
+   * already mid-conversation when it shipped (there's no way to learn a
+   * conversation's first response after the fact). Set at most once per
+   * conversation (`ContextAttributor`'s `baseline`) — a `/clear` or editing
+   * back to the first message starts a new one and gets its own. */
+  baselineTokens?: number;
 }
 
 /** No fixed union: this file doesn't know the full set of agent ids

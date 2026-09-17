@@ -185,6 +185,8 @@ export const ptBr: Dictionary = {
         label: "Janela de contexto",
         ariaLabel: "Janela de contexto: {percent}% usada",
         tokens: "{used} / {total} tokens",
+        setup: "Setup: {tokens} ({percent}%)",
+        outputCaveat: "Ainda não inclui o tamanho da sua última resposta — entra na conta no próximo turno.",
       },
       voiceErrors: {
         microphonePermission:

@@ -185,6 +185,8 @@ export const en: Dictionary = {
         label: "Context window",
         ariaLabel: "Context window: {percent}% used",
         tokens: "{used} / {total} tokens",
+        setup: "Setup: {tokens} ({percent}%)",
+        outputCaveat: "Doesn't include your last reply's size yet — it counts in on the next turn.",
       },
       voiceErrors: {
         microphonePermission:

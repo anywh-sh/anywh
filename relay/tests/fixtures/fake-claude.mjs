@@ -265,6 +265,36 @@ if (args[0] === "--version") {
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
     process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_TWO_USAGE_EVENTS && outputFormat === "stream-json") {
+    // Two main-thread assistant events with distinct prefixes, before the
+    // turn ends — exercises the live chip (SharedSession.runTurn's
+    // ContextAttributor wiring), which needs to see more than one `usage`
+    // mid-turn to prove it updates before `turn_ended`, not just once at
+    // the end from the `result` event.
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: "thinking out loud" }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: replyText }],
+        usage: { input_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "result",
+      session_id: sessionId,
+      is_error: false,
+      result: replyText,
+      modelUsage: { [model]: { contextWindow: 200000 } },
+    });
+    process.exit(0);
   } else {
     emit({
       type: "assistant",
