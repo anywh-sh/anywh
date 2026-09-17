@@ -10,8 +10,8 @@ import { vi } from "vitest";
  * Behavior on the one flow this tier currently exercises (sending a message):
  * every socket auto-opens, then auto-sends `caught_up` (required before
  * ChatPanel renders anything at all, including the user's own bubble — see
- * useRelayClient.ts), then answers a `user_message` with one `assistant`
- * claude_event carrying `replyText` followed by `turn_complete`.
+ * useRelayClient.ts), then answers a `user_message` with one `text`
+ * agent_event carrying `replyText` followed by a `turn_ended` agent_event.
  */
 type Listener = (event: { data?: string }) => void;
 
@@ -78,11 +78,8 @@ export function installFakeRelay(replyText = "fake relay reply"): FakeRelay {
     const message = JSON.parse(raw) as { type?: string; text?: string };
     if (message.type !== "user_message") return; // this tier only scripts the send flow so far
     queueMicrotask(() => {
-      socket.emitMessage({
-        type: "claude_event",
-        event: { type: "assistant", message: { content: [{ type: "text", text: replyText }] } },
-      });
-      socket.emitMessage({ type: "turn_complete", stopped: false });
+      socket.emitMessage({ type: "agent_event", event: { type: "text", text: replyText } });
+      socket.emitMessage({ type: "agent_event", event: { type: "turn_ended", stopped: false } });
     });
   }
 

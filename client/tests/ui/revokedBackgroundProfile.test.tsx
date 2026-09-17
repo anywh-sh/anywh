@@ -101,11 +101,8 @@ class FakeSocket {
     const message = JSON.parse(raw) as { type?: string };
     if (message.type !== "user_message") return;
     queueMicrotask(() => {
-      this.emit({
-        type: "claude_event",
-        event: { type: "assistant", message: { content: [{ type: "text", text: "reply" }] } },
-      });
-      this.emit({ type: "turn_complete", stopped: false });
+      this.emit({ type: "agent_event", event: { type: "text", text: "reply" } });
+      this.emit({ type: "agent_event", event: { type: "turn_ended", stopped: false } });
     });
   }
 

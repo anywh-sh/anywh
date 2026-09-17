@@ -1,5 +1,7 @@
 import type { WebSocket } from "ws";
-import { ClaudeSession, type ClaudeEvent, readHistoryFromTranscript, transcriptPath, forkTruncatedTranscript } from "../runtimes/defs/claude/index.js";
+import { ClaudeSession, readHistoryFromTranscript, transcriptPath, forkTruncatedTranscript } from "../runtimes/defs/claude/index.js";
+import { mapClaudeEvent } from "../runtimes/streams/claudeStreamJson.js";
+import type { AgentEvent } from "../protocol/agent-event.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -107,11 +109,11 @@ export interface SharedSessionOptions {
   /** Called whenever the model changes — same pattern as
    * `onPermissionModeChange`, can fire at any moment. */
   onModelChange?: (model: ModelChoice) => void;
-  /** Called with every `ClaudeEvent` of every turn (real or a background
+  /** Called with every `AgentEvent` of every turn (real or a background
    * follow-up) — this is how `SessionManager` wires up the
    * `BackgroundJobTracker` without `SharedSession` needing to know anything
    * about `anywh-bg`. Purely observational. */
-  onEvent?: (event: ClaudeEvent) => void;
+  onEvent?: (event: AgentEvent) => void;
   /** Called with the id of an `anywh-bg` job the user
    * asked to cancel from the UI. Same reasoning as `onEvent`: `SharedSession`
    * doesn't know anything about `BackgroundJobTracker`, it just passes it
@@ -384,7 +386,7 @@ export class SharedSession {
    * immediately after asking), so it's enqueued as an ordinary new turn
    * instead (`origin: undefined` — no client rendered a bubble for it
    * locally the way `submitTurn` callers do, so everyone connected needs the
-   * synthetic `user_prompt` broadcast, not just "the others"). */
+   * synthetic `user_message` broadcast, not just "the others"). */
   answerChoice(promptId: string, answers: ChoiceAnswer[]): boolean {
     const result = this.choiceMachine.answerChoice(promptId, answers);
     if (result.kind === "not_found") return false;
@@ -423,7 +425,7 @@ export class SharedSession {
     // Marks the end of the replay for this client — doesn't enter `history`
     // (it's not a session event, it's per-connection), so it's never resent
     // to the next clients that connect. This is what lets the client tell
-    // apart a "turn_complete" from history reconstruction vs a real turn
+    // apart a "turn_ended" from history reconstruction vs a real turn
     // that finished after it connected (relevant for OS notifications).
     socket.send(JSON.stringify({ type: "caught_up" }));
     this.clients.add(socket);
@@ -471,7 +473,7 @@ export class SharedSession {
   /** `origin` is the socket that sent this message — used only to know who
    * already has the question bubble locally (the sender's `ChatPanel`
    * already committed it optimistically before calling this) so it doesn't
-   * get duplicated by the synthetic `user_prompt` that `runTurn` broadcasts
+   * get duplicated by the synthetic `user_message` that `runTurn` broadcasts
    * to the OTHER devices connected to the same session (see comment there). */
   submitTurn(origin: WebSocket, text: string): void {
     // A previous turn's suggestion no longer applies once a new one starts —
@@ -537,9 +539,9 @@ export class SharedSession {
   }
 
   /** Reuses the normal `runTurn` for the turn with the edited text — same
-   * `user_prompt` broadcast to other devices (excluding `origin`, which
+   * `user_message` broadcast to other devices (excluding `origin`, which
    * already optimistically self-truncated like a normal send), same
-   * streaming, same `turn_complete`. Only what comes before (truncating the
+   * streaming, same `turn_ended`. Only what comes before (truncating the
    * real transcript + the in-memory `history` + notifying the OTHER
    * devices of the cut) is edit-specific. */
   private async performEdit(origin: WebSocket, target: EditTarget, text: string): Promise<void> {
@@ -581,7 +583,7 @@ export class SharedSession {
     // Syncs OTHER devices connected to this session to the truncated point
     // — `origin` doesn't receive this because it already optimistically
     // self-truncated before sending `edit_message` (same pattern as the
-    // synthetic `user_prompt` in `runTurn`, which also skips `origin`).
+    // synthetic `user_message` in `runTurn`, which also skips `origin`).
     const page = pageHistoryBefore(this.history, this.history.length, INITIAL_HISTORY_TAIL_TURNS);
     const payload = JSON.stringify({ type: "history_truncated", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore });
     for (const client of this.clients) {
@@ -660,24 +662,30 @@ export class SharedSession {
     this.turnStartedAt = Date.now();
     this.broadcastTurnState();
 
+    // First thing in the log for this turn — see `AgentEvent`'s own doc
+    // comment on why this (and `turn_ended` below) are synthesized here
+    // rather than mapped from anything the CLI emits. Sent to every device,
+    // origin included: unlike `user_message` below, no device has already
+    // rendered this locally.
+    this.broadcast({ type: "agent_event", event: { type: "turn_started" } });
+
     // Syncs the question to the OTHER devices connected to this same
     // session — a real finding: without this, whoever didn't send the
     // message would see the assistant's response appear live without the
     // question that prompted it (the protocol never carried the user's
     // text, only the events the CLI emits afterward). Same synthetic format
     // that `transcriptReader.ts` already uses for the replay reconstructed
-    // from disk — the client's reducer (`useMessageLog.ts`) already knows
-    // how to handle `user_prompt`. Doesn't send to `origin`: whoever sent it
+    // from disk. Doesn't send to `origin`: whoever sent it
     // already committed the bubble locally optimistically (`ChatPanel`),
     // getting it back would duplicate it.
     {
-      const event: ClaudeEvent = synthetic
-        ? { type: "user_prompt", synthetic: "background_job", label: synthetic.label, message: { content: [{ type: "text", text }] } }
-        : { type: "user_prompt", message: { content: [{ type: "text", text }] } };
+      const event: AgentEvent = synthetic
+        ? { type: "user_message", text, synthetic: "background_job", label: synthetic.label }
+        : { type: "user_message", text };
       if (origin) {
-        this.broadcastExcept({ type: "claude_event", event }, origin);
+        this.broadcastExcept({ type: "agent_event", event }, origin);
       } else {
-        this.broadcast({ type: "claude_event", event });
+        this.broadcast({ type: "agent_event", event });
       }
     }
 
@@ -764,15 +772,20 @@ export class SharedSession {
           // processed. Checked unconditionally (not just when
           // `permissionRegistration` is active) since this event is a
           // general CLI mechanism, not exclusive to the `ExitPlanMode` path.
+          // Reads the raw CLI event directly — independent of the mapped
+          // `AgentEvent` stream below, which also gets its own `status`
+          // event out of the very same raw line for the log.
           if (event.type === "system" && event.subtype === "status" && typeof event.permissionMode === "string") {
             this.applyPermissionModeFromCli(event.permissionMode);
           }
-          this.broadcast({ type: "claude_event", event });
-          // Lets the `anywh-bg` job tracker (owned by
-          // `SessionManager`) see every event of every turn, looking for
-          // the start marker. Purely observational: never throws nor
-          // alters the turn's flow.
-          this.options.onEvent?.(event);
+          for (const agentEvent of mapClaudeEvent(event)) {
+            this.broadcast({ type: "agent_event", event: agentEvent });
+            // Lets the `anywh-bg` job tracker (owned by
+            // `SessionManager`) see every event of every turn, looking for
+            // the start marker. Purely observational: never throws nor
+            // alters the turn's flow.
+            this.options.onEvent?.(agentEvent);
+          }
         },
         mcp,
       );
@@ -785,9 +798,9 @@ export class SharedSession {
         this.options.onContextUsageChange?.(contextUsage);
         this.broadcastContextUsage();
       }
-      this.broadcast({ type: "turn_complete", stopped });
+      this.broadcast({ type: "agent_event", event: { type: "turn_ended", stopped } });
       // Only suggests a follow-up for a turn that genuinely finished (not
-      // interrupted) — fire-and-forget, doesn't delay `turn_complete`
+      // interrupted) — fire-and-forget, doesn't delay `turn_ended`
       // above. Speed isn't a priority here (it's a convenience, not part
       // of the main flow), so no timeout/cancellation is needed. A
       // synthetic turn (`synthetic`) never suggests: the "user text" that
@@ -807,7 +820,7 @@ export class SharedSession {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[relay] turn failed:", message);
-      this.broadcast({ type: "turn_error", message });
+      this.broadcast({ type: "agent_event", event: { type: "error", message } });
     } finally {
       choiceRegistration?.unregister();
       permissionRegistration?.unregister();

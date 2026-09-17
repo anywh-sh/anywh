@@ -4,15 +4,15 @@ import { findEditTarget, pageHistoryBefore } from "./historyPaging.js";
 import type { BroadcastMessage } from "./sharedSession.js";
 
 function userPrompt(text: string): BroadcastMessage {
-  return { type: "claude_event", event: { type: "user_prompt", message: { content: [{ type: "text", text }] } } };
+  return { type: "agent_event", event: { type: "user_message", text } };
 }
 
 function assistantText(text: string): BroadcastMessage {
-  return { type: "claude_event", event: { type: "assistant", message: { content: [{ type: "text", text }] } } };
+  return { type: "agent_event", event: { type: "text", text } };
 }
 
-const turnComplete: BroadcastMessage = { type: "turn_complete", stopped: false };
-const turnError: BroadcastMessage = { type: "turn_error", message: "something went wrong" };
+const turnComplete: BroadcastMessage = { type: "agent_event", event: { type: "turn_ended", stopped: false } };
+const turnError: BroadcastMessage = { type: "agent_event", event: { type: "error", message: "something went wrong" } };
 
 /** N complete turns, each with 2 events + terminator (3 messages per turn)
  * — enough to exercise cutting in the middle of several turns. */
@@ -85,10 +85,7 @@ test("load_older_history: one page's cursor fetches the previous page, without o
 });
 
 function syntheticBackgroundJobPrompt(label: string): BroadcastMessage {
-  return {
-    type: "claude_event",
-    event: { type: "user_prompt", synthetic: "background_job", label, message: { content: [{ type: "text", text: "..." }] } },
-  };
+  return { type: "agent_event", event: { type: "user_message", text: "...", synthetic: "background_job", label } };
 }
 
 test("findEditTarget: fromEnd 1 finds the last message, cutIndex at the start of the turn", () => {

@@ -25,7 +25,7 @@ test("session without a transcript returns empty", () => {
   });
 });
 
-test("simple text -> text turn, no synthetic turn_complete at the end of the file", () => {
+test("simple text -> text turn, no synthetic turn_ended at the end of the file", () => {
   withFixture(
     "s1",
     [
@@ -35,14 +35,15 @@ test("simple text -> text turn, no synthetic turn_complete at the end of the fil
     (home) => {
       const result = readHistoryFromTranscript(home, home, "s1");
       assert.deepEqual(result, [
-        { type: "claude_event", event: { type: "user_prompt", message: { content: [{ type: "text", text: "hi" }] } } },
-        { type: "claude_event", event: { type: "assistant", message: { content: [{ type: "text", text: "hello!" }] } } },
+        { type: "agent_event", event: { type: "turn_started" } },
+        { type: "agent_event", event: { type: "user_message", text: "hi" } },
+        { type: "agent_event", event: { type: "text", text: "hello!" } },
       ]);
     },
   );
 });
 
-test("second turn closes the first with a synthetic turn_complete, tool_use/tool_result pass through", () => {
+test("second turn closes the first with a synthetic turn_ended, tool_use/tool_result pass through", () => {
   withFixture(
     "s2",
     [
@@ -58,15 +59,17 @@ test("second turn closes the first with a synthetic turn_complete, tool_use/tool
     ],
     (home) => {
       const result = readHistoryFromTranscript(home, home, "s2");
-      const shape = result.map((m) => (m.type === "claude_event" ? `claude_event:${m.event.type}` : m.type));
+      const shape = result.map((m) => m.event.type);
       assert.deepEqual(shape, [
-        "claude_event:user_prompt",
-        "claude_event:assistant",
-        "turn_complete",
-        "claude_event:user_prompt",
-        "claude_event:assistant",
-        "claude_event:user",
-        "claude_event:assistant",
+        "turn_started",
+        "user_message",
+        "text",
+        "turn_ended",
+        "turn_started",
+        "user_message",
+        "tool_started",
+        "tool_ended",
+        "text",
       ]);
     },
   );
@@ -91,9 +94,7 @@ test("cwd crossing a symlink resolves to the real path (real bug: ~/.anywh-traba
     // fix this computed a different folder than the one written above and
     // returned [].
     const result = readHistoryFromTranscript(realHome, cwdLink, "s-symlink");
-    assert.deepEqual(result, [
-      { type: "claude_event", event: { type: "assistant", message: { content: [{ type: "text", text: "hi" }] } } },
-    ]);
+    assert.deepEqual(result, [{ type: "agent_event", event: { type: "text", text: "hi" } }]);
   } finally {
     rmSync(realHome, { recursive: true, force: true });
     rmSync(linkDir, { recursive: true, force: true });
@@ -114,8 +115,9 @@ test("isMeta, unknown types, and a truncated line are ignored without breaking t
     (home) => {
       const result = readHistoryFromTranscript(home, home, "s3");
       assert.deepEqual(result, [
-        { type: "claude_event", event: { type: "user_prompt", message: { content: [{ type: "text", text: "do something" }] } } },
-        { type: "claude_event", event: { type: "assistant", message: { content: [{ type: "text", text: "done" }] } } },
+        { type: "agent_event", event: { type: "turn_started" } },
+        { type: "agent_event", event: { type: "user_message", text: "do something" } },
+        { type: "agent_event", event: { type: "text", text: "done" } },
       ]);
     },
   );

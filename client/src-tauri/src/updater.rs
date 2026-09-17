@@ -26,6 +26,18 @@ const GITHUB_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/anywh-sh/a
 /// because a real "latest release" would make the test's pass/fail depend
 /// on what this repo happens to have shipped most recently.
 const UPDATE_ENDPOINT_OVERRIDE_ENV: &str = "ANYWH_UPDATE_ENDPOINT";
+/// Second e2e-only escape hatch (`updateDownload.spec.js`), gated by the
+/// `e2e` Cargo feature so it can never exist in a real build: the e2e binary
+/// is a plain `--no-bundle` debug build, not run from inside an AppImage or
+/// `.app`, so `decide_origin` below would honestly (and correctly, for a
+/// real dev build) answer `updatable: false` — which would make
+/// `normalizeUpdateMode` silently downgrade `auto-download` back to
+/// `notify` and defeat the entire point of that test, exercising the real
+/// `tauri-plugin-updater` download+signature-verify path. Forcing the
+/// answer here is the same kind of origin-probe override
+/// `UPDATE_ENDPOINT_OVERRIDE_ENV` already is for the release check above.
+#[cfg(feature = "e2e")]
+const E2E_FORCE_UPDATABLE_ENV: &str = "ANYWH_E2E_FORCE_UPDATABLE";
 
 // ---------------------------------------------------------------------------
 // Origin probe
@@ -177,6 +189,16 @@ pub struct InstallOrigin {
 
 #[tauri::command]
 pub fn app_install_source() -> InstallOrigin {
+    #[cfg(feature = "e2e")]
+    if std::env::var_os(E2E_FORCE_UPDATABLE_ENV).is_some() {
+        return InstallOrigin {
+            channel: "e2e".to_string(),
+            updatable: true,
+            exec_path: std::env::current_exe().unwrap_or_default().to_string_lossy().to_string(),
+            marker: None,
+        };
+    }
+
     let facts = gather_origin_facts();
     let (channel, updatable) = decide_origin(&facts);
     InstallOrigin {

@@ -31,9 +31,11 @@ stopped being true the moment a second agent CLI became a real target.
 relay/src/
   server.ts              composition root — see below, it does not move
   protocol/               type guards for every WS message and HTTP body
-                           (guards.ts) — the wire message shapes themselves
-                           still don't exist as a named type; that lands
-                           when Phase 7 normalizes the wire
+                           (guards.ts), the WS handshake version
+                           (version.ts), and the normalized event vocabulary
+                           every def's stream maps into (agent-event.ts) —
+                           the latter two mirrored verbatim on the client,
+                           see each file's own doc comment
   runtimes/
     types.ts               the agent runtime contract — what a `def`
                            is, independent of any one agent CLI. See
@@ -44,6 +46,11 @@ relay/src/
     probes/                title/suggestion/default-model generation —
                            agnostic in purpose, Claude-only in today's
                            implementation
+    streams/                per-agent mappers from a raw CLI stream into
+                           `protocol/agent-event.ts`'s `AgentEvent` — the
+                           only thing outside a def allowed to know that
+                           def's private wire format, since it exists to
+                           translate it away
     defs/claude/           Claude's own knowledge: process spawn, stream
                            parsing, on-disk transcript format
       index.ts              the ONLY file anything outside this folder may
@@ -84,12 +91,17 @@ before this existed. `import-x/no-restricted-paths` enforces it; a def
 that grows a second internal file re-exports through the barrel, it
 doesn't get imported around it.
 
-Three imports predate this split and reach across a boundary the rule
-would otherwise catch. They're declared inline (`eslint-disable-next-line`
-with a comment) rather than hidden, and each names the phase of the
-current multi-agent-CLI plan that removes it — see the comments
-themselves, in `runtimes/defs/claude/transcriptReader.ts`,
-`host/backgroundJobs.ts`, and `runtimes/defs/claude/session.ts`.
+One import predates this split and reaches across a boundary the rule
+would otherwise catch: `runtimes/defs/claude/session.ts` borrows
+`PermissionMode`/`ModelChoice`/`ContextUsage` from `session/sessionStore.ts`.
+It's declared inline (`eslint-disable-next-line` with a comment) rather
+than hidden, and names the phase of the current multi-agent-CLI plan that
+removes it (once this def declares its own settings shape instead of
+borrowing `session/`'s). Two sibling violations — `transcriptReader.ts` ->
+`session/sharedSession.ts` and `host/backgroundJobs.ts` ->
+`runtimes/defs/claude/session.ts` — used to live here too; both are gone as
+of Phase 7, now that a normalized `AgentEvent` (`protocol/agent-event.ts`)
+replaced the Claude-shaped types they used to reach across the boundary for.
 
 ## `client/`
 

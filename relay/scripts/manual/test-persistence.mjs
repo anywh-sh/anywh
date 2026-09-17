@@ -44,12 +44,12 @@ await new Promise((resolve, reject) => {
   const timeout = setTimeout(() => reject(new Error("timeout esperando turno completar")), 40000);
   socket.on("message", (raw) => {
     const msg = JSON.parse(raw.toString());
-    if (msg.type === "turn_complete") {
+    if (msg.type === "agent_event" && msg.event.type === "turn_ended") {
       clearTimeout(timeout);
       resolve();
-    } else if (msg.type === "turn_error") {
+    } else if (msg.type === "agent_event" && msg.event.type === "error") {
       clearTimeout(timeout);
-      reject(new Error(`turno falhou: ${msg.message}`));
+      reject(new Error(`turno falhou: ${msg.event.message}`));
     }
   });
 });

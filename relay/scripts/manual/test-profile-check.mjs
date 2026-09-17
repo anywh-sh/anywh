@@ -1,5 +1,5 @@
 // Confirms each relay runs with the right isolated $HOME/cwd, by reading the
-// system/init event Claude Code emits at the start of every turn.
+// `cwd_state` message the relay sends right on connection.
 // Usage: node test-profile-check.mjs <host> <port> [label]
 import WebSocket from "ws";
 
@@ -18,14 +18,14 @@ socket.on("open", () => {
 
 socket.on("message", (raw) => {
   const msg = JSON.parse(raw.toString());
-  if (msg.type === "claude_event" && msg.event.type === "system" && msg.event.subtype === "init") {
-    console.log(`[${label}] cwd da sessão:`, msg.event.cwd);
+  if (msg.type === "cwd_state") {
+    console.log(`[${label}] cwd da sessão:`, msg.cwd);
   }
-  if (msg.type === "turn_complete") {
+  if (msg.type === "agent_event" && msg.event.type === "turn_ended") {
     process.exit(0);
   }
-  if (msg.type === "turn_error") {
-    console.error(`[${label}] erro:`, msg.message);
+  if (msg.type === "agent_event" && msg.event.type === "error") {
+    console.error(`[${label}] erro:`, msg.event.message);
     process.exit(1);
   }
 });

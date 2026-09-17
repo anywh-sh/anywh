@@ -40,10 +40,10 @@ socket.on("message", (raw) => {
     choicePrompt = message;
     console.log("[test] choice_prompt received:", JSON.stringify(message.questions));
   }
-  if (message.type === "turn_complete") {
+  if (message.type === "agent_event" && message.event.type === "turn_ended") {
     turnCompleteCount += 1;
     if (turnCompleteCount === 1) turnCompleteAt = Date.now();
-    console.log(`[test] turn_complete #${turnCompleteCount}`);
+    console.log(`[test] turn_ended #${turnCompleteCount}`);
   }
 });
 
@@ -77,7 +77,7 @@ socket.send(
 // If this hangs past a handful of seconds, the deferred lifecycle isn't
 // working — the old blocking design would have hung here for ~6 minutes
 // before degrading, not failed fast.
-await waitFor(() => turnCompleteCount === 1, 60_000, "first turn_complete");
+await waitFor(() => turnCompleteCount === 1, 60_000, "first turn_ended");
 const elapsedMs = turnCompleteAt - sentAt;
 console.log(`[test] first turn completed in ${elapsedMs}ms (must be seconds, not minutes)`);
 if (elapsedMs > 30_000) {
@@ -101,7 +101,7 @@ socket.send(
   }),
 );
 
-await waitFor(() => turnCompleteCount === 2, 60_000, "second turn_complete (the answer's follow-up turn)");
+await waitFor(() => turnCompleteCount === 2, 60_000, "second turn_ended (the answer's follow-up turn)");
 console.log("[test] second turn completed — the answer was correctly enqueued as a new turn");
 
 const resolvedEvent = events.find((message) => message.type === "choice_resolved");

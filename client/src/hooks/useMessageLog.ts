@@ -1,11 +1,11 @@
 import { useMemo, useReducer } from "react";
-import type { ClaudeEvent, ClaudeContentBlock, HistoryMessage, HistoryPageMessage, StructuredPatchHunk } from "@/lib/relay-types";
+import type { AgentEvent, HistoryMessage, HistoryPageMessage, StructuredPatchHunk, ToolInput } from "@/lib/relay-types";
 import type { PendingAttachment } from "@/hooks/useImageUpload";
 
 export type LogEntry =
   | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number }
   | { kind: "text"; id: string; text: string; streaming: boolean; sentAt: number }
-  | { kind: "tool-use"; id: string; toolUseId?: string; name: string; input: ClaudeContentBlock["input"] }
+  | { kind: "tool-use"; id: string; toolUseId?: string; name: string; input: ToolInput }
   | {
       kind: "tool-result";
       id: string;
@@ -55,9 +55,14 @@ type Action =
    * in-memory `history`) asynchronously; this here just gets ahead of the
    * local UI, same spirit as the rest of the reducer. */
   | { type: "EDIT_USER_MESSAGE"; id: string; text: string; sentAt: number }
-  | { type: "CLAUDE_EVENT"; event: ClaudeEvent }
+  | { type: "AGENT_EVENT"; event: AgentEvent }
+  /** `relayClient.ts` already split `turn_ended`/`error` out of the live
+   * `AgentEvent` stream into `onTurnComplete`/`onTurnError` (see
+   * `RelayClientCallbacks.onEvent`'s doc comment) — these two actions
+   * reconstruct the same event shape `applyAgentEvent` expects, so live
+   * dispatch and history replay share one code path. */
   | { type: "TURN_ERROR"; message: string }
-  | { type: "TURN_COMPLETE"; stopped?: boolean }
+  | { type: "TURN_COMPLETE"; stopped: boolean }
   | { type: "RESET" }
   /** Initial tail received via `history_page` — swaps
    * the old replay (one dispatch per event, O(n²) `entries` copying) for a
@@ -80,145 +85,126 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
-function commitContentBlock(entries: LogEntry[], block: ClaudeContentBlock, sentAt: number): void {
-  if (block.type === "text" && typeof block.text === "string") {
-    // Synthetic marker the CLI itself inserts into the transcript when
-    // interrupted (`[Request interrupted by user]`, `[...for tool use]`,
-    // `[...by a plugin for tool use]`) — not real assistant content.
-    // TURN_COMPLETE's `stopped` already covers this notice ("Interrompido
-    // pelo usuário."), so committing this too would have duplicated the message on screen.
-    if (block.text.startsWith("[Request interrupted")) return;
-    entries.push({ kind: "text", id: newId(), text: block.text, streaming: false, sentAt });
-  } else if (block.type === "tool_use") {
-    entries.push({
-      kind: "tool-use",
-      id: newId(),
-      toolUseId: block.id as string | undefined,
-      name: block.name ?? "tool",
-      input: block.input,
-    });
-  } else if (block.type === "tool_result") {
-    entries.push({
-      kind: "tool-result",
-      id: newId(),
-      toolUseId: block.tool_use_id,
-      content: typeof block.content === "string" ? block.content : JSON.stringify(block.content),
-      isError: block.is_error === true,
-    });
-  }
-  // "thinking" (the text almost always comes in empty in real events)
-  // and other block types have no visual representation in the
-  // log; the turn-in-progress indicator (above the composer) covers that time.
-}
+/**
+ * Applies a single `AgentEvent` — used both by live dispatch (`handleEvent`/
+ * `handleTurnComplete`/`handleTurnError`, one at a time) and by batch
+ * hydration (`HYDRATE`/`PREPEND_HISTORY`, folding a whole history page
+ * through this same function). Several variants have no visual
+ * representation yet (`session_id`, `usage`, `status`, `compact_boundary`,
+ * `thinking`/`thinking_delta`, `tool_input_delta`, `tool_progress`) — a
+ * no-op here, same as before this vocabulary had names at all; a future UI
+ * feature (a thinking bubble, live tool-argument streaming, a todo-list
+ * widget) is what would give one of these its own branch.
+ */
+function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogState {
+  switch (event.type) {
+    case "turn_started":
+    case "session_id":
+    case "usage":
+    case "status":
+    case "compact_boundary":
+    case "thinking":
+    case "thinking_delta":
+    case "tool_input_delta":
+    case "tool_progress":
+      return state;
 
-/** Applies a single `ClaudeEvent` — extracted from the old
- * `case "CLAUDE_EVENT"` to be reused both by live dispatch (`handleEvent`,
- * one at a time) and by batch hydration (`applyHistoryMessage`, folding a
- * whole page through this same function). `user_prompt` is synthetic: it
- * only exists when rebuilding history from the `.jsonl`
- * (relay/src/transcriptReader.ts) or in the broadcast to a second device
- * connected live (relay/src/sharedSession.ts::runTurn) —
- * the protocol never confuses this with anything real. A `user_prompt`
- * marked `synthetic: "background_job"` (relay/src/sharedSession.ts::runTurn)
- * is a second kind of synthetic, generated by an
- * `anywh-bg` job's automatic follow-up — it becomes a system note, not a
- * user bubble (see comment on `kind: "background-job-note"`). */
-function applyClaudeEvent(state: MessageLogState, event: ClaudeEvent): MessageLogState {
-  if (event.type === "user_prompt") {
-    if (event.synthetic === "background_job") {
-      const label = typeof event.label === "string" ? event.label : "job em background";
-      return { ...state, entries: [...state.entries, { kind: "background-job-note", id: newId(), label }] };
-    }
-    const block = event.message?.content?.[0];
-    const text = block?.type === "text" ? block.text : undefined;
-    if (typeof text !== "string") return state;
-    // `event.timestamp` only comes filled in during replay/history or in
-    // the broadcast to OTHER devices — whoever sent the message
-    // already committed it via `USER_MESSAGE` with the local click time,
-    // it never goes through here for its own message. The `Date.now()`
-    // fallback would only cover an unexpected event format, shouldn't
-    // happen in practice.
-    const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
-    return { ...state, entries: [...state.entries, { kind: "user", id: newId(), text, sentAt }] };
-  }
-
-  if (event.type === "stream_event" && event.event) {
-    const se = event.event;
-    if (se.type === "message_start") {
-      return { ...state, streamingText: [] };
-    }
-    if (se.type === "content_block_start" && se.content_block.type === "text") {
-      return {
-        ...state,
-        streamingText: [...state.streamingText.filter((b) => b.index !== se.index), { index: se.index, text: "" }],
-      };
-    }
-    if (se.type === "content_block_delta" && se.delta.type === "text_delta") {
-      const index = se.index;
-      const chunk = se.delta.text;
-      return {
-        ...state,
-        streamingText: state.streamingText.map((b) => (b.index === index ? { ...b, text: b.text + chunk } : b)),
-      };
-    }
-    return state;
-  }
-
-  if (event.type === "assistant" || event.type === "user") {
-    const entries = [...state.entries];
-    // Unlike `user_prompt`, `event.timestamp` here is a genuine field the
-    // CLI itself stamps on every `assistant` stream-json line (verified
-    // against real `claude -p --output-format stream-json` output and the
-    // on-disk transcript, both live and replayed) — the `Date.now()`
-    // fallback only covers an unexpected/older event shape.
-    const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
-    for (const block of event.message?.content ?? []) {
-      commitContentBlock(entries, block, sentAt);
-      // Enriches the most recent tool-result with structuredPatch, if it
-      // comes (found in an earlier pass: the relay already delivers Edit's
-      // diff ready-made).
-      if (block.type === "tool_result" && event.tool_use_result?.structuredPatch) {
-        const last = entries[entries.length - 1];
-        if (last && last.kind === "tool-result") last.structuredPatch = event.tool_use_result.structuredPatch;
+    case "user_message": {
+      if (event.synthetic === "background_job") {
+        return { ...state, entries: [...state.entries, { kind: "background-job-note", id: newId(), label: event.label ?? "job em background" }] };
       }
+      // `event.timestamp` only comes filled in during replay/history or in
+      // the broadcast to OTHER devices — whoever sent the message already
+      // committed it via `USER_MESSAGE` with the local click time, it never
+      // goes through here for its own message. The `Date.now()` fallback
+      // would only cover an unexpected event format, shouldn't happen in
+      // practice.
+      const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
+      return { ...state, entries: [...state.entries, { kind: "user", id: newId(), text: event.text, sentAt }] };
     }
-    return { ...state, entries, streamingText: [] };
+
+    case "text_delta": {
+      const existing = state.streamingText.find((b) => b.index === event.index);
+      const merged = { index: event.index, text: (existing?.text ?? "") + event.text };
+      return { ...state, streamingText: [...state.streamingText.filter((b) => b.index !== event.index), merged] };
+    }
+
+    case "text": {
+      // Synthetic marker the CLI itself inserts into the transcript when
+      // interrupted (`[Request interrupted by user]`, `[...for tool use]`,
+      // `[...by a plugin for tool use]`) — not real assistant content.
+      // `turn_ended`'s `stopped` already covers this notice ("Interrompido
+      // pelo usuário."), so committing this too would have duplicated the
+      // message on screen.
+      if (event.text.startsWith("[Request interrupted")) return state;
+      // Unlike `user_message`'s synthetic timestamp, this one is a genuine
+      // field the CLI itself stamps on every `assistant` stream-json line
+      // (verified against real `claude -p --output-format stream-json`
+      // output and the on-disk transcript, both live and replayed) — the
+      // `Date.now()` fallback only covers an unexpected/older event shape.
+      const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "text", id: newId(), text: event.text, streaming: false, sentAt }],
+        streamingText: [],
+      };
+    }
+
+    case "tool_started":
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "tool-use", id: newId(), toolUseId: event.toolUseId, name: event.name, input: event.input }],
+      };
+
+    // TodoWrite's plan carries structured `todos` on the wire, but renders
+    // through the exact same generic tool-use card as any other tool for
+    // now (ToolCallCard's fallback branch already shows key/value pairs) —
+    // a dedicated todo-list widget is future work, not required to close
+    // out the wire-format debt this event exists to pay down.
+    case "plan":
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "tool-use", id: newId(), toolUseId: event.toolUseId, name: "TodoWrite", input: { todos: event.todos } }],
+      };
+
+    case "tool_ended":
+      return {
+        ...state,
+        entries: [
+          ...state.entries,
+          {
+            kind: "tool-result",
+            id: newId(),
+            toolUseId: event.toolUseId,
+            content: event.content,
+            isError: event.isError,
+            ...(event.structuredPatch ? { structuredPatch: event.structuredPatch } : {}),
+          },
+        ],
+      };
+
+    // Stopping mid-stream cuts off before the final `text` event that
+    // normally commits the live preview into `entries` — without this the
+    // partial text (which only existed in `streamingText`) would simply
+    // vanish from the screen when the turn ends.
+    case "turn_ended": {
+      const entries = [...state.entries];
+      for (const block of state.streamingText) {
+        // No `timestamp` to fall back on here — this is a stop/interrupt
+        // cutting the stream short, not a real `text` event.
+        if (block.text.length > 0) entries.push({ kind: "text", id: newId(), text: block.text, streaming: false, sentAt: Date.now() });
+      }
+      if (event.stopped) entries.push({ kind: "stopped", id: newId() });
+      return { ...state, entries, streamingText: [] };
+    }
+
+    case "error":
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "error", id: newId(), message: event.message }],
+        streamingText: [],
+      };
   }
-
-  return state;
-}
-
-/** Applies a `history_page`/`older_history` entry (`HistoryMessage`, same
- * format as `relay/src/sharedSession.ts::BroadcastMessage`) — the same
- * state machine as `applyClaudeEvent`, except it also covers
- * `turn_complete`/`turn_error`, which close a turn (see the original
- * comment on `TURN_COMPLETE` about interrupted partial text). Reused by
- * `HYDRATE` (folds a whole page from scratch) and `PREPEND_HISTORY` (same,
- * result inserted before what already exists). */
-function applyHistoryMessage(state: MessageLogState, message: HistoryMessage): MessageLogState {
-  if (message.type === "claude_event") return applyClaudeEvent(state, message.event);
-
-  if (message.type === "turn_error") {
-    return {
-      ...state,
-      entries: [...state.entries, { kind: "error", id: newId(), message: message.message }],
-      streamingText: [],
-    };
-  }
-
-  // turn_complete — stopping mid-stream cuts off before the final
-  // `assistant` event that normally commits the text into `entries`;
-  // without this the partial text (which only existed in `streamingText`,
-  // a live preview) would simply vanish from the screen when marking the
-  // turn complete.
-  const entries = [...state.entries];
-  for (const block of state.streamingText) {
-    // No `event.timestamp` to fall back on here — this is a stop/interrupt
-    // cutting the stream short, not a real `assistant` line.
-    if (block.text.length > 0) entries.push({ kind: "text", id: newId(), text: block.text, streaming: false, sentAt: Date.now() });
-  }
-  if (message.stopped) entries.push({ kind: "stopped", id: newId() });
-  return { ...state, entries, streamingText: [] };
 }
 
 function reducer(state: MessageLogState, action: Action): MessageLogState {
@@ -244,14 +230,14 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       };
     }
 
-    case "CLAUDE_EVENT":
-      return applyHistoryMessage(state, { type: "claude_event", event: action.event });
+    case "AGENT_EVENT":
+      return applyAgentEvent(state, action.event);
 
     case "TURN_ERROR":
-      return applyHistoryMessage(state, { type: "turn_error", message: action.message });
+      return applyAgentEvent(state, { type: "error", message: action.message });
 
     case "TURN_COMPLETE":
-      return applyHistoryMessage(state, { type: "turn_complete", stopped: action.stopped });
+      return applyAgentEvent(state, { type: "turn_ended", stopped: action.stopped });
 
     // Reconnection — the relay resends the history
     // tail on every new connection, so the log needs to go back to empty
@@ -262,7 +248,7 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
 
     case "HYDRATE": {
       let next: MessageLogState = initialState;
-      for (const message of action.messages) next = applyHistoryMessage(next, message);
+      for (const message of action.messages) next = applyAgentEvent(next, message.event);
       return { ...next, hasMoreHistory: action.hasMore, historyCursor: action.cursor, loadingOlderHistory: false };
     }
 
@@ -277,7 +263,7 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       // `entries` goes in before what already exists, now's
       // `streamingText` stays untouched.
       let prefix: MessageLogState = initialState;
-      for (const message of action.messages) prefix = applyHistoryMessage(prefix, message);
+      for (const message of action.messages) prefix = applyAgentEvent(prefix, message.event);
       return {
         ...state,
         entries: [...prefix.entries, ...state.entries],
@@ -311,7 +297,7 @@ export interface UseMessageLogResult {
    * updates this device's screen, same pattern as
    * `addUserMessage`/`sendMessage` in `ChatPanel.onSend`. */
   editUserMessage: (id: string, text: string) => void;
-  handleEvent: (event: ClaudeEvent) => void;
+  handleEvent: (event: AgentEvent) => void;
   handleTurnError: (message: string) => void;
   handleTurnComplete: (stopped?: boolean) => void;
   reset: () => void;
@@ -352,9 +338,9 @@ export function useMessageLog(): UseMessageLogResult {
     loadingOlderHistory: state.loadingOlderHistory,
     addUserMessage: (text, images) => dispatch({ type: "USER_MESSAGE", text, images, sentAt: Date.now() }),
     editUserMessage: (id, text) => dispatch({ type: "EDIT_USER_MESSAGE", id, text, sentAt: Date.now() }),
-    handleEvent: (event) => dispatch({ type: "CLAUDE_EVENT", event }),
+    handleEvent: (event) => dispatch({ type: "AGENT_EVENT", event }),
     handleTurnError: (message) => dispatch({ type: "TURN_ERROR", message }),
-    handleTurnComplete: (stopped) => dispatch({ type: "TURN_COMPLETE", stopped }),
+    handleTurnComplete: (stopped) => dispatch({ type: "TURN_COMPLETE", stopped: stopped === true }),
     reset: () => dispatch({ type: "RESET" }),
     hydrate: (page) => dispatch({ type: "HYDRATE", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),
     beginLoadingOlderHistory: () => dispatch({ type: "REQUEST_OLDER_HISTORY" }),

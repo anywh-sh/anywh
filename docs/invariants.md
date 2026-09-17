@@ -38,13 +38,16 @@ internals. A def under `runtimes/defs/` never reaches into `session/` for
 orchestration state — a def describes an agent, it doesn't decide what a
 session does with the result.
 
-Three violations of this predate the rule and are declared, not hidden:
-inline `eslint-disable-next-line import-x/no-restricted-paths` comments
-name each one, explain why, and say which phase of the current multi-agent
-plan removes it. They're visible on the line specifically so grep finds
-them — see the comments themselves for the current list rather than
-duplicating it here, since duplicating it is exactly how this kind of note
-goes stale.
+One violation of this predates the rule and is declared, not hidden: an
+inline `eslint-disable-next-line import-x/no-restricted-paths` comment
+names it, explains why, and says which phase of the current multi-agent
+plan removes it. It's visible on the line specifically so grep finds it —
+see the comment itself (`runtimes/defs/claude/session.ts`) for the current
+detail rather than duplicating it here, since duplicating it is exactly how
+this kind of note goes stale. Two sibling violations that used to live here
+(`transcriptReader.ts` and `host/backgroundJobs.ts`, both reaching for a
+Claude-shaped type) are gone as of the wire normalization below — both
+depend only on `protocol/agent-event.ts` now.
 
 ## Directional: a def is pure data + parsers, never a process
 
@@ -93,6 +96,23 @@ Bump the constant (both copies) whenever a change to the wire vocabulary
 would make an *older* client misinterpret a message rather than just not
 know about it yet — a new discriminated variant that reuses an existing
 `type` differently, not one that simply adds a new one.
+
+## Enforced: the wire speaks `AgentEvent`, never a CLI's own format
+
+**Enforced** — `agentEventParity.test.ts` (client) fails the build if
+`relay/src/protocol/agent-event.ts` and `client/src/lib/agent-event.ts`
+diverge, same mechanism as `theme.ts`/`protocolVersion.ts`.
+
+`runtimes/streams/claudeStreamJson.ts` is the one place that translates
+Claude's raw stream-json shape (`ClaudeEvent`, private to
+`runtimes/defs/claude/`) into `AgentEvent` — the relay broadcasts
+`{type: "agent_event", event}`, never the raw shape, and turn lifecycle
+(`turn_started`/`turn_ended`/`error`) is synthesized by the session layer
+itself rather than mapped from any one CLI's output (see `AgentEvent`'s own
+doc comment). `useMessageLog.ts` and `host/backgroundJobs.ts` — the two
+consumers on either side of the wire — read only `AgentEvent`; neither knows
+Claude's content-block shape exists. A second agent's def gets its own
+mapper into the same `AgentEvent` vocabulary; nothing downstream changes.
 
 ## Directional: killing a turn never destroys the session
 

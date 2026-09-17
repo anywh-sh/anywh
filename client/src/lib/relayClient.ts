@@ -1,9 +1,9 @@
 // Client for our own relay protocol (no longer the ttyd protocol).
 import type {
+  AgentEvent,
   BackgroundJobSummary,
   ChoiceAnswer,
   ChoiceQuestion,
-  ClaudeEvent,
   ContextUsage,
   CreatedProfile,
   EditMessageErrorCode,
@@ -24,13 +24,11 @@ import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/l
 import { WS_PROTOCOL_VERSION } from "@/lib/protocolVersion";
 
 export type {
+  AgentEvent,
   BackgroundJobSummary,
   ChoiceAnswer,
   ChoiceOption,
   ChoiceQuestion,
-  ClaudeContentBlock,
-  ClaudeMessage,
-  ClaudeEvent,
   ContextUsage,
   CreatedProfile,
   EditMessageErrorCode,
@@ -256,7 +254,13 @@ export async function deleteProfile(host: string, port: number, id: string): Pro
 }
 
 export interface RelayClientCallbacks {
-  onEvent: (event: ClaudeEvent) => void;
+  /** Every `AgentEvent` of the session's log, EXCEPT `turn_ended`/`error` —
+   * those two are turn lifecycle, folded into the same `agent_event` wire
+   * message but split back out into `onTurnComplete`/`onTurnError` below,
+   * the same two callbacks that existed before the fold. `turn_started` DOES
+   * come through here — nothing distinguishes it from any other event this
+   * callback doesn't act on yet. */
+  onEvent: (event: AgentEvent) => void;
   onTurnComplete: (stopped: boolean) => void;
   onTurnError: (message: string) => void;
   /** End of this session's history replay — completed turns received
@@ -510,12 +514,14 @@ export class RelayClient {
           this.callbacks.onProtocolMismatch?.(parsed.version);
           socket.close();
         }
-      } else if (parsed.type === "claude_event") {
-        this.callbacks.onEvent(parsed.event);
-      } else if (parsed.type === "turn_complete") {
-        this.callbacks.onTurnComplete(parsed.stopped === true);
-      } else if (parsed.type === "turn_error") {
-        this.callbacks.onTurnError(parsed.message);
+      } else if (parsed.type === "agent_event") {
+        if (parsed.event.type === "turn_ended") {
+          this.callbacks.onTurnComplete(parsed.event.stopped);
+        } else if (parsed.event.type === "error") {
+          this.callbacks.onTurnError(parsed.event.message);
+        } else {
+          this.callbacks.onEvent(parsed.event);
+        }
       } else if (parsed.type === "caught_up") {
         this.callbacks.onCaughtUp();
       } else if (parsed.type === "cwd_state") {

@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, connectSessionListWatch, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionListWatch, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md) for the one piece of
 // wire data the unified session list needs and `GET /sessions` never carried:
@@ -41,7 +41,7 @@ async function listSessions(): Promise<ListedSession[]> {
 async function runTurn(sessionId: string, text: string): Promise<void> {
   const socket = await connectSession(server.port, sessionId);
   sendUserMessage(socket, text);
-  await collectUntil(socket, (message) => message.type === "turn_complete");
+  await collectUntil(socket, isTurnEnded);
   socket.close();
 }
 
@@ -97,7 +97,7 @@ test("session_list_upsert carries lastActiveAt, and a rename reports the session
   const watcher = await connectSessionListWatch(server.port);
 
   // Attached before the turn that triggers the broadcast, never after — the
-  // title-generation upsert can land before `turn_complete` (parallel `-p`
+  // title-generation upsert can land before `turn_ended` (parallel `-p`
   // calls, see the skill), so awaiting first would race it away.
   const titleUpsert = collectUntil(
     watcher,

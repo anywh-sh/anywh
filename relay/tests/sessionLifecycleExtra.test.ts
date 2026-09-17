@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import type WebSocket from "ws";
-import { collectUntil, connectSession, connectSessionListWatch, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionListWatch, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md), continuing where
 // sessionLifecycle.test.ts leaves off: the "Stop" button (interrupt) and the
@@ -38,24 +38,19 @@ test("stop_turn interrupts an in-flight turn (stopped: true) without losing sess
   sendUserMessage(socket, "please hang");
 
   // Explicit synchronization on the real event stream (skill's "Determinism"
-  // section) — waits for the fake claude's own `system`/`init` event, proof
-  // the child has actually spawned and is genuinely blocked waiting for
-  // SIGINT, before sending `stop_turn`. A fixed sleep here would either race
-  // ahead of the spawn or pad every run with dead time.
-  await collectUntil(
-    socket,
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "system",
-  );
+  // section) — waits for the fake claude's own `system`/`init` event (mapped
+  // to `session_id`), proof the child has actually spawned and is genuinely
+  // blocked waiting for SIGINT, before sending `stop_turn`. A fixed sleep
+  // here would either race ahead of the spawn or pad every run with dead time.
+  await collectUntil(socket, (message) => message.type === "agent_event" && (message.event as { type?: string }).type === "session_id");
   socket.send(JSON.stringify({ type: "stop_turn" }));
 
-  const messages = await collectUntil(socket, (message) => message.type === "turn_complete");
-  const turnComplete = messages.at(-1);
-  assert.deepEqual(turnComplete, { type: "turn_complete", stopped: true });
+  const messages = await collectUntil(socket, isTurnEnded);
+  const turnEnded = messages.at(-1);
+  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: true } });
 
-  const resultEvent = messages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  );
-  const sessionId = (resultEvent!.event as { session_id?: string }).session_id;
+  const sessionIdEvent = findAgentEvent(messages, "session_id");
+  const sessionId = (sessionIdEvent!.event as { sessionId?: string }).sessionId;
   assert.ok(sessionId, "an interrupted turn should still report a session_id (runtimes/defs/claude/session.ts's stop() contract)");
 
   // A second, normal turn on the same session proves the interrupted one
@@ -63,11 +58,9 @@ test("stop_turn interrupts an in-flight turn (stopped: true) without losing sess
   // for two successful turns, here across a stop.
   delete process.env.FAKE_CLAUDE_HANG;
   sendUserMessage(socket, "are you still there");
-  const secondMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
-  const secondResult = secondMessages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  );
-  assert.equal((secondResult!.event as { session_id?: string }).session_id, sessionId);
+  const secondMessages = await collectUntil(socket, isTurnEnded);
+  const secondSessionId = (findAgentEvent(secondMessages, "session_id")!.event as { sessionId?: string }).sessionId;
+  assert.equal(secondSessionId, sessionId);
 
   socket.close();
 });
@@ -75,7 +68,7 @@ test("stop_turn interrupts an in-flight turn (stopped: true) without losing sess
 test("a session renamed and deleted over HTTP disappears from GET /sessions, and reconnecting to the same id starts fresh", async () => {
   const socket = await connectSession(server.port, "session-http-lifecycle");
   sendUserMessage(socket, "hello");
-  await collectUntil(socket, (message) => message.type === "turn_complete");
+  await collectUntil(socket, isTurnEnded);
 
   const renameResponse = await fetch(httpUrl("/sessions/rename"), {
     method: "POST",
@@ -113,14 +106,11 @@ test("a session renamed and deleted over HTTP disappears from GET /sessions, and
   // that just happens to reuse the id.
   const secondSocket = await connectSession(server.port, "session-http-lifecycle");
   sendUserMessage(secondSocket, "hi again");
-  const messages = await collectUntil(secondSocket, (message) => message.type === "turn_complete");
-  const resultEvent = messages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  );
+  const messages = await collectUntil(secondSocket, isTurnEnded);
   // The fake claude only echoes back a `--resume` id if one was passed
   // (fixtures/fake-claude.mjs); a fresh session_id here (rather than a
   // rejection) proves no `--resume` flag was sent this time.
-  assert.ok((resultEvent!.event as { session_id?: string }).session_id);
+  assert.ok((findAgentEvent(messages, "session_id")!.event as { sessionId?: string }).sessionId);
 
   socket.close();
   secondSocket.close();
@@ -140,7 +130,7 @@ test("/sessions/watch broadcasts a new session's title, and its deletion, to a c
   try {
     // Attach both collectors BEFORE triggering the action that causes the
     // broadcast, not after awaiting it — the title-generation broadcast can
-    // arrive before `turn_complete` (they fire from parallel `-p` calls, see
+    // arrive before `turn_ended` (they fire from parallel `-p` calls, see
     // .anywh/skills/tests/SKILL.md), and the delete broadcast happens
     // synchronously inside the HTTP handler before the response is even sent.
     // Attaching the listener only after awaiting either would race exactly
@@ -152,7 +142,7 @@ test("/sessions/watch broadcasts a new session's title, and its deletion, to a c
 
     chatSocket = await connectSession(server.port, "session-watched-by-other");
     sendUserMessage(chatSocket, "hello from another device");
-    await collectUntil(chatSocket, (message) => message.type === "turn_complete");
+    await collectUntil(chatSocket, isTurnEnded);
 
     // Filters by id, not just by type — the same predicate `collectUntil`
     // stopped on. `/sessions/watch` is a list-wide channel, so what lands in

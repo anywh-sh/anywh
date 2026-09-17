@@ -1,101 +1,9 @@
-// Relay protocol types, extended from what already existed in
-// relayClient.ts, informed by inspecting real stream-json events from a
-// live relay.
-
-export interface ClaudeContentBlock {
-  type: string;
-  text?: string;
-  thinking?: string;
-  signature?: string;
-  name?: string;
-  input?: {
-    command?: string;
-    description?: string;
-    file_path?: string;
-    old_string?: string;
-    new_string?: string;
-    replace_all?: boolean;
-    [key: string]: unknown;
-  };
-  content?: unknown;
-  is_error?: boolean;
-  tool_use_id?: string;
-  [key: string]: unknown;
-}
-
-export interface ClaudeMessage {
-  role?: string;
-  content?: ClaudeContentBlock[];
-}
-
-/** A `structuredPatch` line that the relay already receives ready-made from
- * Edit — we don't need to compute the diff on the client. */
-export interface StructuredPatchHunk {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  lines: string[];
-}
-
-export interface ToolUseResult {
-  filePath?: string;
-  oldString?: string;
-  newString?: string;
-  structuredPatch?: StructuredPatchHunk[];
-  [key: string]: unknown;
-}
-
-// Streaming envelope from the (Anthropic) Messages API, as it arrives inside
-// `claude_event.event` when `claude_event.type === "stream_event"`.
-export type StreamDelta =
-  | { type: "text_delta"; text: string }
-  | { type: "thinking_delta"; thinking: string }
-  | { type: "signature_delta"; signature: string }
-  | { type: "input_json_delta"; partial_json: string };
-
-export type StreamEventEnvelope =
-  | { type: "message_start" }
-  | { type: "content_block_start"; index: number; content_block: ClaudeContentBlock }
-  | { type: "content_block_delta"; index: number; delta: StreamDelta }
-  | { type: "content_block_stop"; index: number }
-  | { type: "message_delta" }
-  | { type: "message_stop" };
-
-/** Present on `type: "system", subtype: "compact_boundary"` — fired when
- * Claude Code compacts the conversation (automatically when nearing the
- * window limit, or via manual `/compact`). The relay doesn't treat this
- * event specially: it already passes through the generic `onEvent` like any
- * other (`runtimes/defs/claude/session.ts` doesn't filter by type), it just needed a type
- * here so the client can recognize it without needing `as`. */
-export interface CompactBoundaryMetadata {
-  trigger: "auto" | "manual";
-  preTokens: number;
-}
-
-export interface ClaudeEvent {
-  type: string;
-  subtype?: string;
-  message?: ClaudeMessage;
-  session_id?: string;
-  result?: string;
-  status?: string;
-  /** Present only when type === "stream_event". */
-  event?: StreamEventEnvelope;
-  /** Present on "user" events that are a tool_result — see ToolUseResult. */
-  tool_use_result?: ToolUseResult;
-  /** Present on `type: "system", subtype: "compact_boundary"`. */
-  compactMetadata?: CompactBoundaryMetadata;
-  /** On `type: "assistant"` this is a genuine field the CLI itself stamps on
-   * every stream-json line — present both live and on replay
-   * (relay/src/transcriptReader.ts). On `type: "user_prompt"` (synthetic)
-   * it's ISO from the real `.jsonl` line on replay, or absent in the live
-   * broadcast to other devices — whoever sent the message already
-   * knows their own click time, doesn't depend on this. Either way,
-   * `useMessageLog.ts` falls back to `Date.now()` when absent. */
-  timestamp?: string;
-  [key: string]: unknown;
-}
+// Relay protocol types. The wire's event vocabulary itself
+// (AgentEvent/ToolKind/StructuredPatchHunk) lives in agent-event.ts, mirrored
+// verbatim from the relay — this file is everything else: the other message
+// types, and the wrappers that carry an AgentEvent around.
+import type { AgentEvent } from "@/lib/agent-event";
+export type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind } from "@/lib/agent-event";
 
 /** Mirrors the relay's `PermissionMode` (relay/src/sessionStore.ts) — no
  * cross-package import here, both sides only agree by convention. */
@@ -117,14 +25,12 @@ export interface ContextUsage {
   usedTokens: number;
 }
 
-/** A `history` entry from the relay (relay/src/sharedSession.ts::BroadcastMessage)
- * — the subset of `RelayMessage` that also shows up inside
- * `history_page`/`older_history`, batched instead of one `socket.send` per
- * event. */
-export type HistoryMessage =
-  | { type: "claude_event"; event: ClaudeEvent }
-  | { type: "turn_complete"; stopped?: boolean }
-  | { type: "turn_error"; message: string };
+/** A `history` entry from the relay (relay/src/session/broadcast.ts::BroadcastMessage)
+ * — the shape that also shows up batched inside `history_page`/`older_history`
+ * instead of one `socket.send` per event. A single variant: turn lifecycle
+ * (`turn_started`/`turn_ended`/`error`) is part of `AgentEvent` itself, not a
+ * sibling wire message — see agent-event.ts's own doc comment. */
+export type HistoryMessage = { type: "agent_event"; event: AgentEvent };
 
 /** History page — shape shared by `history_page` (initial tail) and
  * `older_history` (response to `load_older_history`). `hasMore` indicates
@@ -152,13 +58,13 @@ export type RelayMessage =
   /** First message sent on every connection, ahead of anything else —
    * see protocolVersion.ts and relayClient.ts's handling of it. */
   | { type: "protocol_version"; version: number }
-  | { type: "claude_event"; event: ClaudeEvent }
-  | { type: "turn_complete"; stopped?: boolean }
-  | { type: "turn_error"; message: string }
+  /** One `AgentEvent` of the session's log — turn lifecycle included (see
+   * `AgentEvent`'s own doc comment on `turn_started`/`turn_ended`/`error`). */
+  | { type: "agent_event"; event: AgentEvent }
   | { type: "caught_up" }
   /** Recent tail of this session's history — sent once
    * per connection, right before `caught_up`, in place of what used to be
-   * one `claude_event`/`turn_complete` per `socket.send`. */
+   * one `agent_event` per `socket.send`. */
   | ({ type: "history_page" } & HistoryPageMessage)
   /** Response to a `load_older_history` requested by the client itself
    * (scrolling up) — same shape as `history_page`, just outside the initial

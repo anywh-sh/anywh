@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { SessionStore } from "../src/session/sessionStore.js";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, connectSessionAndCollectUntil, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionAndCollectUntil, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): the prompt-draft
 // feature (composer content not yet sent, persisted per session so it
@@ -61,7 +61,7 @@ test("submitting a turn does not clear the session's stored draft", async () => 
   // draft on any turn would break the "another device is still typing its
   // own message" case this feature exists for.
   sendUserMessage(socket, "mensagem enviada normalmente, sem relação com o rascunho");
-  await collectUntil(socket, (message) => message.type === "turn_complete");
+  await collectUntil(socket, isTurnEnded);
 
   const reloaded = new SessionStore(process.env.RELAY_SESSIONS_FILE!, server.homeDir);
   assert.equal(reloaded.getDraft("session-draft-2"), draftText);

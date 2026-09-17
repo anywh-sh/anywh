@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 import type { ChoiceQuestion } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): exercises the
@@ -57,8 +57,8 @@ test("a plan-mode marker becomes a choice_prompt, and answering it enqueues the 
   // before the second `collectUntil` call attaches.
   const firstTurnMessages = await collectUntil(socket, (message) => message.type === "choice_prompt");
 
-  const turnComplete = firstTurnMessages.find((message) => message.type === "turn_complete");
-  assert.deepEqual(turnComplete, { type: "turn_complete", stopped: false });
+  const turnEnded = firstTurnMessages.find(isTurnEnded);
+  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
 
   const choicePrompt = firstTurnMessages.at(-1) as { type: string; promptId: string; questions: ChoiceQuestion[]; kind: string };
   assert.equal(choicePrompt.type, "choice_prompt");
@@ -86,7 +86,7 @@ test("a plan-mode marker becomes a choice_prompt, and answering it enqueues the 
     }),
   );
 
-  const secondTurnMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
+  const secondTurnMessages = await collectUntil(socket, isTurnEnded);
 
   const resolved = secondTurnMessages.find((message) => message.type === "choice_resolved") as
     | { type: string; promptId: string }
@@ -96,15 +96,12 @@ test("a plan-mode marker becomes a choice_prompt, and answering it enqueues the 
   // formatPlanChoiceAnswerText's single-answer shape (planChoiceMarker.ts):
   // just the selected label, not "question: label".
   const syntheticPrompt = secondTurnMessages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "user_prompt",
+    (message) => message.type === "agent_event" && (message.event as { type?: string }).type === "user_message",
   );
-  assert.equal(
-    ((syntheticPrompt!.event as { message?: { content?: { text?: string }[] } }).message?.content?.[0])?.text,
-    "Rewrite from scratch",
-  );
+  assert.equal((syntheticPrompt!.event as { text?: string }).text, "Rewrite from scratch");
 
-  const secondTurnComplete = secondTurnMessages.at(-1);
-  assert.deepEqual(secondTurnComplete, { type: "turn_complete", stopped: false });
+  const secondTurnEnded = secondTurnMessages.at(-1);
+  assert.deepEqual(secondTurnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
 
   socket.close();
 });

@@ -1,11 +1,17 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { isToolResultOnly, type ClaudeEvent } from "./session.js";
-// Known reverse-direction dependency: a runtimes/defs/** file reaching into
-// session/ for a type. Dies once the normalized wire event replaces this
-// Claude-shaped type across the relay (Phase 7).
-// eslint-disable-next-line import-x/no-restricted-paths
-import type { BroadcastMessage } from "../../../session/sharedSession.js";
+import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
+import type { AgentEvent } from "../../../protocol/agent-event.js";
+
+/** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
+ * independently (rather than imported) so this file has no reason to reach
+ * into `session/` at all. The two are structurally identical, so
+ * `SharedSession` accepts this return value directly. */
+export interface HistoryEntry {
+  type: "agent_event";
+  event: AgentEvent;
+}
 
 /**
  * A line of the `.jsonl` that Claude Code writes on its own at
@@ -100,12 +106,18 @@ export function transcriptPath(home: string, cwd: string, sessionId: string): st
  * persisted). Translation, not a direct replay — see the rules below for
  * the reasons.
  */
-export function readHistoryFromTranscript(home: string, cwd: string, sessionId: string): BroadcastMessage[] {
+export function readHistoryFromTranscript(home: string, cwd: string, sessionId: string): HistoryEntry[] {
   const path = transcriptPath(home, cwd, sessionId);
   if (!existsSync(path)) return [];
 
-  const messages: BroadcastMessage[] = [];
+  const messages: HistoryEntry[] = [];
   let turnOpen = false;
+
+  // Runs a raw (synthetic or real) `ClaudeEvent` through the same mapper the
+  // live turn uses, pushing zero or more resulting `AgentEvent`s.
+  function pushMapped(event: ClaudeEvent): void {
+    for (const agentEvent of mapClaudeEvent(event)) messages.push({ type: "agent_event", event: agentEvent });
+  }
 
   for (const rawLine of readFileSync(path, "utf8").split("\n")) {
     if (!rawLine.trim()) continue;
@@ -123,12 +135,11 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       // Real timestamp of the line (same as `user_prompt` below) —
       // the client shows it on the assistant bubble's action strip. Omitted
       // when absent, same reasoning as the `user_prompt` case.
-      const event: ClaudeEvent = {
+      pushMapped({
         type: "assistant",
         message: line.message,
         ...(typeof line.timestamp === "string" ? { timestamp: line.timestamp } : {}),
-      };
-      messages.push({ type: "claude_event", event });
+      });
       continue;
     }
 
@@ -136,26 +147,30 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
 
     const humanText = extractHumanText(line);
     if (humanText !== undefined) {
-      if (turnOpen) messages.push({ type: "turn_complete" });
+      // Closes the previous turn (if one was open) before opening this one
+      // — `stopped: false` because a turn that made it into the transcript
+      // as a closed, followed-by-another-turn conversation didn't end on a
+      // stop. Mirrors `turn_started`/`turn_ended`'s live ordering in
+      // `sharedSession.ts::runTurn`.
+      if (turnOpen) messages.push({ type: "agent_event", event: { type: "turn_ended", stopped: false } });
+      messages.push({ type: "agent_event", event: { type: "turn_started" } });
       // Real timestamp of the line — the client uses this to show
       // "X min ago" on messages reconstructed from disk; whoever sends it
       // live already knows the click's own time, doesn't depend on this.
       // Omitted (not explicit `undefined`) when the line has no
       // `timestamp` — keeps the event's shape identical to before this
       // feature existed in that case.
-      const event: ClaudeEvent = {
+      pushMapped({
         type: "user_prompt",
         message: { content: [{ type: "text", text: humanText }] },
         ...(typeof line.timestamp === "string" ? { timestamp: line.timestamp } : {}),
-      };
-      messages.push({ type: "claude_event", event });
+      });
       turnOpen = true;
       continue;
     }
 
     if (isToolResultOnly(line.message?.content)) {
-      const event: ClaudeEvent = { type: "user", message: line.message };
-      messages.push({ type: "claude_event", event });
+      pushMapped({ type: "user", message: line.message });
     }
     // `isMeta` or unexpected format: ignore, no visual representation.
   }

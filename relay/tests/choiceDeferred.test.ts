@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, connectSessionAndCollectUntil, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionAndCollectUntil, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 import { CHOICE_DEFERRED_RESPONSE_TEXT } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md) for the
@@ -46,15 +46,15 @@ test("present_choice replies immediately (not blocked on a human), the turn comp
   ]);
   sendUserMessage(socket, "how should we do this");
 
-  // A single wait for `turn_complete`, not two sequential collects — the
-  // whole behavioral claim here is that `turn_complete` arrives WITHOUT
-  // anyone ever answering the `choice_prompt`. If the old blocking
-  // implementation were still in place, this would hang until the 5s
-  // `collectUntil` timeout instead of completing.
-  const turnMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
+  // A single wait for `turn_ended`, not two sequential collects — the
+  // whole behavioral claim here is that the turn ends WITHOUT anyone ever
+  // answering the `choice_prompt`. If the old blocking implementation were
+  // still in place, this would hang until the 5s `collectUntil` timeout
+  // instead of completing.
+  const turnMessages = await collectUntil(socket, isTurnEnded);
 
-  const turnComplete = turnMessages.find((message) => message.type === "turn_complete");
-  assert.deepEqual(turnComplete, { type: "turn_complete", stopped: false });
+  const turnEnded = turnMessages.find(isTurnEnded);
+  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
 
   const choicePrompt = turnMessages.find((message) => message.type === "choice_prompt") as
     | { type: string; promptId: string; questions: { question: string; options: { label: string }[] }[]; kind: string }
@@ -69,10 +69,8 @@ test("present_choice replies immediately (not blocked on a human), the turn comp
   // The fake claude's "assistant reply" is literally the tool call's
   // response text — proves the relay replied to the MCP call with the
   // end-turn instruction, not with an answer (there isn't one yet).
-  const resultEvent = turnMessages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "result",
-  ) as { event: { result?: string } } | undefined;
-  assert.equal(resultEvent?.event.result, CHOICE_DEFERRED_RESPONSE_TEXT);
+  const textEvent = findAgentEvent(turnMessages, "text");
+  assert.equal((textEvent?.event as { text?: string } | undefined)?.text, CHOICE_DEFERRED_RESPONSE_TEXT);
 
   socket.close();
 
@@ -105,7 +103,7 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
   ]);
   sendUserMessage(socket, "how should we do this");
 
-  const firstTurnMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
+  const firstTurnMessages = await collectUntil(socket, isTurnEnded);
   const choicePrompt = firstTurnMessages.find((message) => message.type === "choice_prompt") as
     | { type: string; promptId: string }
     | undefined;
@@ -121,23 +119,18 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
     }),
   );
 
-  const secondTurnMessages = await collectUntil(socket, (message) => message.type === "turn_complete");
+  const secondTurnMessages = await collectUntil(socket, isTurnEnded);
 
   const resolved = secondTurnMessages.find((message) => message.type === "choice_resolved") as
     | { type: string; promptId: string }
     | undefined;
   assert.deepEqual(resolved, { type: "choice_resolved", promptId: choicePrompt.promptId });
 
-  const syntheticPrompt = secondTurnMessages.find(
-    (message) => message.type === "claude_event" && (message.event as { type?: string }).type === "user_prompt",
-  );
-  assert.equal(
-    ((syntheticPrompt!.event as { message?: { content?: { text?: string }[] } }).message?.content?.[0])?.text,
-    "Rewrite from scratch",
-  );
+  const syntheticPrompt = findAgentEvent(secondTurnMessages, "user_message");
+  assert.equal((syntheticPrompt!.event as { text?: string }).text, "Rewrite from scratch");
 
-  const secondTurnComplete = secondTurnMessages.at(-1);
-  assert.deepEqual(secondTurnComplete, { type: "turn_complete", stopped: false });
+  const secondTurnEnded = secondTurnMessages.at(-1);
+  assert.deepEqual(secondTurnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
 
   delete process.env.FAKE_CLAUDE_REPLY;
   socket.close();

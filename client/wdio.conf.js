@@ -30,6 +30,24 @@ export const updateE2EFixtures = {
 };
 const fakeOpenerBinDir = resolve(import.meta.dirname, "tests/e2e/fixtures/bin");
 
+// updateDownload.spec.js's fixtures — the real tauri-plugin-updater
+// download+signature-verify path, not just the GitHub check above. Unlike
+// `updateE2EFixtures.endpoint`, this port can't be threaded in through an
+// env var: the plugin's endpoints/pubkey are read once at plugin
+// registration time from tauri.conf.json (`Builder::new().build()` has no
+// per-call override, unlike updater.rs's own `ANYWH_UPDATE_ENDPOINT`
+// command), so `47864` is also hardcoded into
+// `src-tauri/tauri.e2e.conf.json`'s `plugins.updater.endpoints` — change one
+// without the other and the spec times out waiting for a download that
+// never starts. `pubkey` there is the public half of a disposable test-only
+// keypair generated just for this fixture; `artifactPath`/`signaturePath`
+// were signed with its (discarded) private half.
+export const updateDownloadE2EFixtures = {
+  port: 47864,
+  artifactPath: resolve(import.meta.dirname, "tests/e2e/fixtures/updater/update-artifact.bin"),
+  signaturePath: resolve(import.meta.dirname, "tests/e2e/fixtures/updater/update-artifact.bin.sig"),
+};
+
 export const config = {
   runner: "local",
   specs: ["./tests/e2e/*.spec.js"],
@@ -48,6 +66,14 @@ export const config = {
         env: {
           ANYWH_UPDATE_ENDPOINT: updateE2EFixtures.endpoint,
           ANYWH_E2E_OPENED_URLS_LOG: updateE2EFixtures.openedUrlsLog,
+          // Forces app_install_source() to report `updatable: true`
+          // (updater.rs's E2E_FORCE_UPDATABLE_ENV) — a plain --no-bundle
+          // debug build is honestly "unknown"/not updatable otherwise,
+          // which would make updateDownload.spec.js's auto-download mode
+          // get silently coerced back to `notify` before it ever reaches
+          // the plugin. Harmless for every other spec: it only widens which
+          // update modes UpdateModal offers, never which one is selected.
+          ANYWH_E2E_FORCE_UPDATABLE: "1",
           PATH: `${fakeOpenerBinDir}:${process.env.PATH}`,
         },
       },
