@@ -1,10 +1,13 @@
 // A design-validation DRAFT, not a runtime def — it is not exported from
-// `registry.ts` and nothing imports this file. Its only job is proving
-// that `../types.ts` actually accommodates a JSON-RPC daemon before any
-// engine code is written against the contract; see `runtimes/README.md`
-// §5 for the three questions that decide `exec.kind`. Codex is the agent
-// that forced `exec` to become a union in the first place — it's a daemon
-// with one process per session, not a CLI that spawns once per turn.
+// `registry.ts`, and no engine is written against it yet. `detection.ts`
+// does import it (to probe whether the `codex` binary is present and what
+// version it reports), but that's a version check, not execution: nothing
+// here drives an actual turn. Its main job is still proving that
+// `../types.ts` actually accommodates a JSON-RPC daemon before any engine
+// code is written against the contract; see `runtimes/README.md` §5 for the
+// three questions that decide `exec.kind`. Codex is the agent that forced
+// `exec` to become a union in the first place — it's a daemon with one
+// process per session, not a CLI that spawns once per turn.
 //
 // Protocol details below (method names, the sandbox/approval settings
 // pair) were checked against a real `codex-cli 0.154.0` session logged in
