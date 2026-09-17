@@ -72,10 +72,20 @@ test("broadcastCwdState: cwd and locked both carry through", () => {
   assert.deepEqual(client.sent, [{ type: "cwd_state", cwd: "/tmp/x", locked: true }]);
 });
 
-test("broadcastPermissionMode: the mode carries through unchanged", () => {
+test("broadcastPermissionMode: the mode and its available list both carry through unchanged", () => {
   const client = fakeSocket();
-  broadcastPermissionMode([client], "plan");
-  assert.deepEqual(client.sent, [{ type: "permission_mode_state", mode: "plan" }]);
+  const available = [
+    { id: "default", pausesForApproval: true },
+    { id: "bypassPermissions", pausesForApproval: false },
+  ];
+  broadcastPermissionMode([client], "plan", available);
+  assert.deepEqual(client.sent, [{ type: "permission_mode_state", mode: "plan", available }]);
+});
+
+test("broadcastPermissionMode: an empty available list still sends (a client mid-agent-switch, before the new def's list is ready)", () => {
+  const client = fakeSocket();
+  broadcastPermissionMode([client], "plan", []);
+  assert.deepEqual(client.sent, [{ type: "permission_mode_state", mode: "plan", available: [] }]);
 });
 
 test("sendModelState: undefined becomes null on the wire — never chosen is a final state, not a gap", () => {

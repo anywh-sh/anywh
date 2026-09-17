@@ -301,6 +301,14 @@ export class SharedSession implements SessionDriverHost {
     return this.permissionMode;
   }
 
+  /** This session's own def's mode vocabulary for the host's platform — what
+   * `PermissionModeButton` needs to render a dropdown, sent over the wire
+   * alongside `mode` itself (`sendPermissionMode`/`broadcastPermissionMode`),
+   * never through `GET /host-info` (that's per-relay, not per-session). */
+  getPermissionModes(): readonly PermissionModeOption[] {
+    return this.permissionModes;
+  }
+
   getModel(): ModelChoice | undefined {
     return this.model;
   }
@@ -999,11 +1007,11 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private sendPermissionMode(target: WebSocket): void {
-    sendPermissionMode(target, this.permissionMode);
+    sendPermissionMode(target, this.permissionMode, this.permissionModes);
   }
 
   private broadcastPermissionMode(): void {
-    broadcastPermissionMode(this.clients, this.permissionMode);
+    broadcastPermissionMode(this.clients, this.permissionMode, this.permissionModes);
   }
 
   private sendModelState(target: WebSocket): void {

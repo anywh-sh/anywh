@@ -20,6 +20,17 @@ after(async () => {
   await server.close();
 });
 
+test("the connection burst's permission_mode_state carries Claude's 4 available modes alongside the current one", async () => {
+  const { socket, messages: burst } = await connectSessionAndCollectUntil(server.port, "session-mode-burst", (message) => message.type === "caught_up");
+  const initialMode = burst.find((message) => message.type === "permission_mode_state") as { mode: string; available: { id: string }[] } | undefined;
+  assert.equal(initialMode?.mode, "bypassPermissions");
+  assert.deepEqual(
+    initialMode?.available.map((mode) => mode.id),
+    ["default", "acceptEdits", "plan", "bypassPermissions"],
+  );
+  socket.close();
+});
+
 test("set_permission_mode with an id the session's def doesn't offer re-broadcasts the CURRENT mode, not the rejected one", async () => {
   const { socket, messages: burst } = await connectSessionAndCollectUntil(server.port, "session-bad-mode", (message) => message.type === "caught_up");
   const initialMode = burst.find((message) => message.type === "permission_mode_state");
