@@ -1,5 +1,6 @@
-import { useRef } from "react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useRef, useState } from "react";
+import { X } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
 import { contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
@@ -55,6 +56,7 @@ interface BreakdownSegment {
  */
 export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const dict = useDict();
   if (!usage) return null;
 
@@ -100,8 +102,10 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
   return (
     <DropdownMenu
       modal={false}
-      onOpenChange={(open) => {
-        if (open) onOpen();
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) onOpen();
         else triggerRef.current?.blur();
       }}
     >
@@ -121,14 +125,27 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-72">
-        <DropdownMenuLabel className="flex flex-col gap-1.5">
-          <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">{copy.label}</span>
+      <DropdownMenuContent align="start" className="w-72 p-0">
+        <div className="flex items-center gap-2 border-b border-border-soft bg-accent px-[11px] py-[9px]">
+          <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">{copy.label}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              triggerRef.current?.blur();
+            }}
+            aria-label={copy.close}
+            className="flex size-5 shrink-0 cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground"
+          >
+            <X className="size-3" aria-hidden="true" />
+          </button>
+        </div>
 
+        <div className="flex flex-col gap-2.5 px-[11px] pt-3 pb-[11px]">
           <div className="flex items-baseline gap-1.5">
-            <span className="font-mono text-lg text-foreground">{Math.round(pct)}%</span>
-            <span className="flex-1 text-[10.5px] text-muted-foreground">{copy.occupied}</span>
-            <span className="font-mono text-[11.5px] whitespace-nowrap text-foreground">
+            <span className="font-mono text-[19px] font-medium tracking-tight text-foreground">{Math.round(pct)}%</span>
+            <span className="flex-1 font-mono text-[10.5px] text-text-faint">{copy.occupied}</span>
+            <span className="font-mono text-[11.5px] whitespace-nowrap text-muted-foreground">
               {copy.tokens.replace("{used}", formatTokenCount(usage.usedTokens)).replace("{total}", formatTokenCount(usage.contextWindowSize))}
             </span>
           </div>
@@ -147,16 +164,16 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
                 {setupSegments.map((segment) => (
                   <div key={segment.key} className="flex items-center gap-1.5 border-b border-border-soft py-1 first:pt-0 last:border-b-0">
                     <span className="size-1.5 shrink-0" style={{ backgroundColor: segment.color }} aria-hidden="true" />
-                    <span className="flex-1 truncate text-[11.5px] text-foreground">{segment.label}</span>
-                    <span className="w-7 shrink-0 text-right font-mono text-[10px] text-muted-foreground">{formatCategoryPercent(segment.tokens, total)}</span>
-                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTokenCount(segment.tokens)}</span>
+                    <span className="flex-1 truncate text-[12.5px] text-muted-foreground">{segment.label}</span>
+                    <span className="shrink-0 font-mono text-[10.5px] text-text-faint">{formatCategoryPercent(segment.tokens, total)}</span>
+                    <span className="w-[46px] shrink-0 text-right font-mono text-[11.5px] text-foreground">{formatTokenCount(segment.tokens)}</span>
                   </div>
                 ))}
                 <div className="flex items-center gap-1.5 py-1">
                   <span className="size-1.5 shrink-0" style={{ backgroundColor: barColor }} aria-hidden="true" />
-                  <span className="flex-1 truncate text-[11.5px] text-foreground">{copy.breakdownConversation}</span>
-                  <span className="w-7 shrink-0 text-right font-mono text-[10px] text-muted-foreground">{formatCategoryPercent(conversationTokens, total)}</span>
-                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTokenCount(conversationTokens)}</span>
+                  <span className="flex-1 truncate text-[12.5px] text-muted-foreground">{copy.breakdownConversation}</span>
+                  <span className="shrink-0 font-mono text-[10.5px] text-text-faint">{formatCategoryPercent(conversationTokens, total)}</span>
+                  <span className="w-[46px] shrink-0 text-right font-mono text-[11.5px] text-foreground">{formatTokenCount(conversationTokens)}</span>
                 </div>
               </div>
             </>
@@ -179,11 +196,13 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
               )}
             </>
           )}
+        </div>
 
-          <span className="text-[11px] whitespace-nowrap text-muted-foreground">
+        <div className="border-t border-border-soft bg-accent px-[11px] py-[9px]">
+          <span className="block truncate font-mono text-[10.5px] text-text-faint">
             {copy.windowNote.replace("{model}", usage.model).replace("{window}", formatTokenCount(usage.contextWindowSize))}
           </span>
-        </DropdownMenuLabel>
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

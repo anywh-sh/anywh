@@ -72,12 +72,26 @@ describe("ContextUsageButton", () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
     render(<ContextUsageButton usage={USAGE} onOpen={onOpen} />);
+    // getByTitle, not getByRole("button"): once open, the popover's own
+    // close button is a second button on the page.
+    const trigger = screen.getByTitle(en.chat.composer.context.label);
 
-    await user.click(screen.getByRole("button"));
+    await user.click(trigger);
     expect(onOpen).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button"));
+    await user.click(trigger);
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the popover from its own close button, in the header", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
+
+    await user.click(screen.getByTitle(en.chat.composer.context.label));
+    const closeButton = screen.getByRole("button", { name: en.chat.composer.context.close });
+
+    await user.click(closeButton);
+    expect(screen.queryByRole("button", { name: en.chat.composer.context.close })).not.toBeInTheDocument();
   });
 
   describe("with a detailed breakdown", () => {

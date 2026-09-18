@@ -192,6 +192,7 @@ export const en: Dictionary = {
       context: {
         label: "Context window",
         ariaLabel: "Context window: {percent}% used",
+        close: "Close",
         tokens: "{used} / {total} tokens",
         occupied: "occupied",
         windowNote: "{model} · {window} window",

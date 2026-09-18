@@ -593,6 +593,8 @@ export interface Dictionary {
       context: {
         label: string;
         ariaLabel: string;
+        /** The popover's own close button, in its header row. */
+        close: string;
         tokens: string;
         /** The word between the big percentage and the token count on the
          * popover's headline row (e.g. "67% [occupied] 134k / 200k
