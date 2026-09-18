@@ -192,10 +192,17 @@ export const en: Dictionary = {
       context: {
         label: "Context window",
         ariaLabel: "Context window: {percent}% used",
+        close: "Close",
         tokens: "{used} / {total} tokens",
+        occupied: "occupied",
+        windowNote: "{model} · {window} window",
         setup: "Setup: {tokens} ({percent}%)",
-        outputCaveat: "Doesn't include your last reply's size yet — it counts in on the next turn.",
-        topConsumers: "Top consumers",
+        breakdownRules: "Rules",
+        breakdownSkills: "Skills",
+        breakdownSubagents: "Subagents",
+        breakdownSystemPromptTools: "System prompt & tools",
+        breakdownEmptyDirectory: "Empty folder",
+        breakdownConversation: "Conversation",
       },
       voiceErrors: {
         microphonePermission:

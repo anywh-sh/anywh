@@ -192,10 +192,17 @@ export const ptBr: Dictionary = {
       context: {
         label: "Janela de contexto",
         ariaLabel: "Janela de contexto: {percent}% usada",
+        close: "Fechar",
         tokens: "{used} / {total} tokens",
+        occupied: "ocupado",
+        windowNote: "{model} · {window} de janela",
         setup: "Setup: {tokens} ({percent}%)",
-        outputCaveat: "Ainda não inclui o tamanho da sua última resposta — entra na conta no próximo turno.",
-        topConsumers: "Maiores consumidores",
+        breakdownRules: "Regras",
+        breakdownSkills: "Skills",
+        breakdownSubagents: "Subagentes",
+        breakdownSystemPromptTools: "Prompt do sistema e ferramentas",
+        breakdownEmptyDirectory: "Pasta vazia",
+        breakdownConversation: "Conversa",
       },
       voiceErrors: {
         microphonePermission:

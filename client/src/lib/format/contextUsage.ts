@@ -42,3 +42,13 @@ export function formatTokenCount(n: number): string {
   }
   return String(Math.round(n));
 }
+
+/** A breakdown row's share of the window, rounded to the nearest integer —
+ * except a nonzero share that would round to "0%", which reads as "<1%"
+ * instead (a Rules line at 0.3% is real, not absent). */
+export function formatCategoryPercent(tokens: number, total: number): string {
+  if (total <= 0) return "0%";
+  const pct = (tokens / total) * 100;
+  if (pct > 0 && pct < 1) return "<1%";
+  return `${String(Math.round(pct))}%`;
+}

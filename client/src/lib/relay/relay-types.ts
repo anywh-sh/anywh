@@ -37,11 +37,16 @@ export interface ContextUsage {
   contextWindowSize: number;
   usedTokens: number;
   baselineTokens?: number;
-  sources?: Record<string, { tokens: number; calls: number }>;
   /** Mirrors the relay's `ContextBreakdown` (relay/src/context/breakdown.ts)
-   * — absent until a `request_context_breakdown` round-trip fills it in. */
+   * — absent until a `request_context_breakdown` round-trip fills it in.
+   * Every field is independently optional: a def may declare no `skills`/
+   * `subagents` accounting at all (a real "this category doesn't exist"),
+   * and `emptyDirectory` only ever appears for a cwd that's actually empty. */
   breakdown?: {
     rules?: { tokens: number; estimated: true };
+    skills?: { tokens: number; estimated: true; count: number };
+    subagents?: { tokens: number; estimated: true; count: number };
+    emptyDirectory?: { tokens: number; estimated: true };
     residual?: { tokens: number; estimated: false };
   };
 }
