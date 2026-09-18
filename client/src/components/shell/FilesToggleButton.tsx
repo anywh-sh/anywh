@@ -10,12 +10,13 @@ interface FilesToggleButtonProps {
 }
 
 /**
- * Work dir file panel button — lives in `TabGroupStrip`, immediately to the
- * left of `TerminalToggleButton` and the group's `+` (files, then terminal,
- * then new tab). Same raw-`<button>` markup as `+` (not the shared `Button`
- * component) so the three read as one row of border-separated actions, one
- * pair per tab group — acts on and reflects the dock of that group's active
- * tab, not a single tab's own state.
+ * Work dir file panel button — portaled by a tab's `ChatPanel` into its
+ * group's `TabGroupStrip` toggle slot (see `panelTogglesSlot.ts`), landing
+ * immediately to the left of `TerminalToggleButton` and the group's `+`
+ * (files, then terminal, then new tab). Same raw-`<button>` markup as `+`
+ * (not the shared `Button` component) so the three read as one row of
+ * border-separated actions. Only the group's own active tab ever claims the
+ * slot, so this reflects that tab's state, not a fixed per-tab instance.
  */
 export function FilesToggleButton({ open, disabled, onToggle }: FilesToggleButtonProps) {
   const dict = useDict();

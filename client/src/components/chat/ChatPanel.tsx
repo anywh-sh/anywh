@@ -19,6 +19,9 @@ import { Composer, type ComposerHandle } from "@/components/chat/Composer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
 import { useTitleBarSlot } from "@/hooks/useTitleBarSlot";
+import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
+import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
+import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
 import { BackgroundJobIndicator } from "@/components/chat/BackgroundJobIndicator";
 import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
 import { isIOS } from "@/lib/platform/platform";
@@ -60,6 +63,21 @@ interface ChatPanelProps {
   /** This session's connection state — `App` uses this to feed iOS's
    * consolidated top bar, which lives outside ChatPanel. */
   onConnectedChange?: (connected: boolean) => void;
+  /** This tab's group, for portaling the files/terminal toggle pair into
+   * that group's strip (see `usePanelTogglesSlot`) — `null` on compact/iOS,
+   * where panels aren't available and nothing is portaled regardless. */
+  groupId?: string | null;
+  /** Embedded terminal — desktop only, `App` passes `undefined` on
+   * iOS/compact viewport and the toggle doesn't even appear. */
+  terminal?: {
+    open: boolean;
+    onToggle: () => void;
+  };
+  /** Work dir file panel — same desktop-only gating as `terminal`. */
+  files?: {
+    open: boolean;
+    onToggle: () => void;
+  };
   /** Opens a path mentioned in assistant text in the file panel — `App`
    * passes `undefined` on compact/iOS (there's no file panel to open it in
    * there). */
@@ -125,6 +143,9 @@ export function ChatPanel({
   onActivity,
   onDeleted,
   onConnectedChange,
+  groupId = null,
+  terminal,
+  files,
   onOpenPath,
   isActiveTab,
   isFocusedTab = false,
@@ -143,6 +164,11 @@ export function ChatPanel({
   const dictRef = useRef(dict);
   dictRef.current = dict;
   const titleBarSlot = useTitleBarSlot();
+  // Only this tab's group's own active tab may claim the slot — with split
+  // groups, `isActiveTab` can be true for more than one tab at once (one per
+  // group), unlike `isFocusedTab` above which is at most one in the whole
+  // app.
+  const panelTogglesSlot = usePanelTogglesSlot(isActiveTab ? groupId : null);
   const isActiveTabRef = useRef(isActiveTab);
   isActiveTabRef.current = isActiveTab;
   const onTurnActiveChangeRef = useRef(onTurnActiveChange);
@@ -766,6 +792,23 @@ export function ChatPanel({
               onFocusComposer={() => composerRef.current?.focus()}
             />,
             titleBarSlot,
+          )
+        : null}
+
+      {/* This group's own active tab claims the strip's toggle slot — see
+       * panelTogglesSlot.ts for why this is a portal rather than `cwd`
+       * (only known here, on this tab's own socket) flowing down as a prop.
+       * Disabled until the session has a folder: the terminal is born in it
+       * (terminalSession.ts) and there's nothing for the file tree to list
+       * without one — same gate the keyboard shortcuts don't have (they
+       * already no-op on a group with no active tab, which subsumes this). */}
+      {panelTogglesSlot && files && terminal
+        ? createPortal(
+            <>
+              <FilesToggleButton disabled={!cwd} open={files.open} onToggle={files.onToggle} />
+              <TerminalToggleButton disabled={!cwd} open={terminal.open} onToggle={terminal.onToggle} />
+            </>,
+            panelTogglesSlot,
           )
         : null}
     </div>

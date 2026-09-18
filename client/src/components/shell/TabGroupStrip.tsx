@@ -11,8 +11,7 @@ import { profileCloseHoverClass, profileColorClass, profileTabClasses } from "@/
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
-import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
-import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
+import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -48,16 +47,6 @@ interface TabGroupStripProps {
    * always appends to the focused group, so the caller has to focus this
    * one first (see `TabGroupLayout`). */
   onNewTab: () => void;
-  /** The files/terminal toggle pair, right before the `+`. One pair per
-   * group (not per tab) — they act on and reflect the dock of this group's
-   * `activeTabId`. Left undefined where panels aren't available in this
-   * context (compact viewport) so the pair doesn't render at all, same
-   * optional-as-capability convention `ChatPanelProps.terminal`/`files` used
-   * before this moved here. */
-  filesOpen?: boolean;
-  terminalOpen?: boolean;
-  onToggleFiles?: () => void;
-  onToggleTerminal?: () => void;
 }
 
 interface SortableTabProps {
@@ -230,10 +219,6 @@ export function TabGroupStrip({
   onDelete,
   onSplitToNewGroup,
   onNewTab,
-  filesOpen,
-  terminalOpen,
-  onToggleFiles,
-  onToggleTerminal,
 }: TabGroupStripProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
@@ -303,12 +288,12 @@ export function TabGroupStrip({
             ))}
             <div ref={setEndDropRef} className={cn("h-full min-w-2 flex-1", isOverEnd && "bg-border")} />
           </div>
-          {onToggleFiles && onToggleTerminal && (
-            <>
-              <FilesToggleButton open={filesOpen ?? false} disabled={!activeTabId} onToggle={onToggleFiles} />
-              <TerminalToggleButton open={terminalOpen ?? false} disabled={!activeTabId} onToggle={onToggleTerminal} />
-            </>
-          )}
+          {/* Published so this group's own active tab's `ChatPanel` can portal
+           * the files/terminal toggle pair in here — see panelTogglesSlot.ts
+           * for why this is a portal target rather than props flowing down
+           * from a lifted `cwd`. `display: contents` keeps the portaled
+           * buttons themselves as the flex items in this row, not this span. */}
+          <div ref={(node) => setPanelTogglesSlot(groupId, node)} className="contents" />
           <Tooltip>
             <TooltipTrigger asChild>
               <button

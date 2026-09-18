@@ -194,5 +194,3 @@ export function useSessionDock() {
 
   return { getDock, togglePane, openPane, closePane, setWidth, setSplitRatio, commitDock, toggleMaximized, removeSession };
 }
-
-export type SessionDock = ReturnType<typeof useSessionDock>;

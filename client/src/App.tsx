@@ -453,10 +453,11 @@ function AppShell() {
   // A tab can belong to any profile — each one's `ChatPanel` uses
   // the profile recorded on the tab itself, not the profile currently
   // selected in the sidebar.
-  const renderPanel = (tab: Tab) => (
+  const renderPanel = (tab: Tab, groupId: string | null) => (
     <TabPanel
       key={tab.id}
       tab={tab}
+      groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
       dock={sessionDock.getDock(tab.id)}
       // Two different gates, now that a group split can put more than one
@@ -496,14 +497,13 @@ function AppShell() {
         // the background — only mounts the active session, without
         // TabGroupLayout's tab mechanism (forceMount/dnd-kit, designed for
         // desktop).
-        activeTab && renderPanel(activeTab)
+        activeTab && renderPanel(activeTab, null)
       ) : (
         <TabGroupLayout
           tabs={tabsState.tabs}
           groups={tabsState.groups}
           activeTabId={activeTabId}
           splitEnabled={!isCompact}
-          sessionDock={{ getDock: sessionDock.getDock, togglePane: actions.onTogglePane }}
           onSelect={tabsState.setActiveTab}
           onFocusGroup={tabsState.focusGroup}
           onNewTab={handleNewTabInGroup}

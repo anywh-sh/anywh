@@ -12,7 +12,6 @@ import {
 import { TabGroupStrip, groupEndDropId } from "@/components/shell/TabGroupStrip";
 import { useGroupSizeDrag } from "@/hooks/tabs/useGroupSizeDrag";
 import { MAX_GROUPS, type Tab, type TabGroup } from "@/hooks/tabs/useTabs";
-import type { SessionDock } from "@/hooks/tabs/useSessionDock";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -67,12 +66,6 @@ interface TabGroupLayoutProps {
    * layout, without touching `groups` itself — the real split stays intact
    * underneath and comes back the moment the viewport widens again. */
   splitEnabled: boolean;
-  /** Backs the files/terminal toggle pair each group's strip renders next to
-   * its `+` (see `TabGroupStrip`) — read via `getDock(group.activeTabId)`,
-   * written via `togglePane`. Only consulted in split mode: in flat/compact
-   * mode (`!splitEnabled`) the pair is left off the strip entirely, same as
-   * panels being unavailable there before this moved out of `ChatPanel`. */
-  sessionDock: Pick<SessionDock, "getDock" | "togglePane">;
   onSelect: (tabId: string) => void;
   onFocusGroup: (groupId: string) => void;
   /** The `+` at the end of a group's strip. Takes the group id because a new
@@ -86,7 +79,10 @@ interface TabGroupLayoutProps {
   onCommitSizes: (sizes: number[]) => void;
   onRenameSession: (tabId: string, title: string) => void;
   onDelete: (tabId: string) => void;
-  renderPanel: (tab: Tab) => ReactNode;
+  /** `groupId` is `null` in flat/compact mode — no real per-group strip
+   * exists there to own a toggle slot (see `panelTogglesSlot.ts`), and
+   * panels are unavailable in that mode regardless. */
+  renderPanel: (tab: Tab, groupId: string | null) => ReactNode;
 }
 
 /** One `--g{i}-frac`/`--g{i}-cum` pair per group, set on the outer container
@@ -217,7 +213,6 @@ export function TabGroupLayout({
   groups,
   activeTabId,
   splitEnabled,
-  sessionDock,
   onSelect,
   onFocusGroup,
   onNewTab,
@@ -310,7 +305,7 @@ export function TabGroupLayout({
                 className={cn("absolute inset-0 overflow-hidden", tab.id !== activeTabId && "invisible")}
                 style={{ contain: "layout paint" }}
               >
-                {renderPanel(tab)}
+                {renderPanel(tab, null)}
               </div>
             ))}
           </div>
@@ -358,10 +353,6 @@ export function TabGroupLayout({
                 onDelete={onDelete}
                 onSplitToNewGroup={(tabId) => onSplitTabToNewGroup(tabId, group.id)}
                 onNewTab={() => onNewTab(group.id)}
-                filesOpen={sessionDock.getDock(group.activeTabId ?? "").panes.includes("files")}
-                terminalOpen={sessionDock.getDock(group.activeTabId ?? "").panes.includes("terminal")}
-                onToggleFiles={() => group.activeTabId && sessionDock.togglePane(group.activeTabId, "files")}
-                onToggleTerminal={() => group.activeTabId && sessionDock.togglePane(group.activeTabId, "terminal")}
               />
             </div>
           ))}
@@ -398,7 +389,7 @@ export function TabGroupLayout({
                 }}
                 onPointerDownCapture={() => onFocusGroup(group.id)}
               >
-                {renderPanel(tab)}
+                {renderPanel(tab, group.id)}
               </div>
             );
           })}
