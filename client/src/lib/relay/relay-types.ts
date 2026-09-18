@@ -38,6 +38,12 @@ export interface ContextUsage {
   usedTokens: number;
   baselineTokens?: number;
   sources?: Record<string, { tokens: number; calls: number }>;
+  /** Mirrors the relay's `ContextBreakdown` (relay/src/context/breakdown.ts)
+   * — absent until a `request_context_breakdown` round-trip fills it in. */
+  breakdown?: {
+    rules?: { tokens: number; estimated: true };
+    residual?: { tokens: number; estimated: false };
+  };
 }
 
 /** A `history` entry from the relay (relay/src/session/broadcast.ts::BroadcastMessage)

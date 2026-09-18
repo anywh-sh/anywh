@@ -659,6 +659,16 @@ export class RelayClient {
     this.socket.send(JSON.stringify({ type: "clear_conversation" }));
   }
 
+  /** Asks the relay to compute (or hand back a cached) context breakdown —
+   * sent once, when the context usage popover first opens. No "pending
+   * before connecting" queue, same reasoning as `setModel`: this can only
+   * ever be triggered by clicking a chip that itself requires a connected
+   * session with an existing `contextUsage` to be visible at all. */
+  requestContextBreakdown(): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(JSON.stringify({ type: "request_context_breakdown" }));
+  }
+
   /** Fetches turns older than `beforeCursor` —
    * triggered by the user scrolling up in the UI. Same reasoning
    * as `setModel` about not needing a pending queue: it only makes sense to

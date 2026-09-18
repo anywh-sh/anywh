@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { ContextBreakdown } from "../context/breakdown.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -66,6 +67,13 @@ export interface ContextUsage {
    * `baselineTokens`, but also on a mid-conversation rewind, where there's
    * no way to "subtract" a discarded tail's contribution back out. */
   sources?: Record<string, { tokens: number; calls: number }>;
+  /** The def's own estimate of what its baseline is made of (`context/
+   * breakdown.ts`), cached here so reopening the popover after the first
+   * request is free. Absent until a client sends `request_context_breakdown`
+   * at least once, and again after `/clear` (a new conversation gets a new
+   * `baselineTokens`, so any cached breakdown of the old one no longer
+   * applies — see SharedSession's own reset of this field). */
+  breakdown?: ContextBreakdown;
 }
 
 /** No fixed union: this file doesn't know the full set of agent ids

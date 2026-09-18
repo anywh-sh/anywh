@@ -156,4 +156,17 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     interrupt: { signal: "SIGINT", expectsCleanExit: true },
   },
   classifyFailure,
+  // Measured with claude-code 2.1.274 against the real `claude -p` CLI:
+  // paired probes (`--strict-mcp-config`, same cwd) diffing an empty
+  // directory against one holding only CLAUDE.md, against cl100k_base's raw
+  // count, fit across five points spanning English/pt-BR prose, dense code,
+  // and file sizes from 620 B to 28 KB. Worst residual 4.0% of the file's
+  // own real cost. A second, independent diff (an otherwise-empty directory
+  // against one holding a single unrelated file) isolated the fixed
+  // baseline surcharge an empty directory carries on this CLI specifically.
+  contextAccounting: {
+    encoding: "cl100k_base",
+    rules: { multiplier: 1.1262, perFile: 83 },
+    emptyDirectoryInflation: 2233,
+  },
 };

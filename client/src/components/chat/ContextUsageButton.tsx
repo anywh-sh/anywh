@@ -7,6 +7,10 @@ import type { ContextUsage } from "@/lib/relay/relayClient";
 
 interface ContextUsageButtonProps {
   usage: ContextUsage | null;
+  /** Fired every time the popover opens — cheap to call more than once,
+   * since the relay caches the result on `contextUsage.breakdown` and only
+   * re-reads the rule file when its `mtime` actually changed. */
+  onOpen: () => void;
 }
 
 /**
@@ -25,7 +29,7 @@ interface ContextUsageButtonProps {
  * inheriting the focus). `usage` null (session with no turn yet) hides the
  * whole chip, same as the ring alone already did.
  */
-export function ContextUsageButton({ usage }: ContextUsageButtonProps) {
+export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dict = useDict();
   if (!usage) return null;
@@ -55,7 +59,8 @@ export function ContextUsageButton({ usage }: ContextUsageButtonProps) {
     <DropdownMenu
       modal={false}
       onOpenChange={(open) => {
-        if (!open) triggerRef.current?.blur();
+        if (open) onOpen();
+        else triggerRef.current?.blur();
       }}
     >
       <DropdownMenuTrigger asChild>

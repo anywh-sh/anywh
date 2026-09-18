@@ -348,6 +348,60 @@ export interface CustomPlan {
 export type ExecPlan = SpawnPerTurnPlan | JsonRpcDaemonPlan | CustomPlan;
 
 // ---------------------------------------------------------------------------
+// Context accounting — how much of the estimated (non-"Conversation") slice
+// of a fresh session's baseline this def can actually name, versus leave in
+// an honest residual. Not an `AgentCapability`: it doesn't change what the UI
+// offers (that's already `contextUsage`), only how a breakdown a client
+// already asked for gets computed — and unlike a capability, it's not a
+// three-value enum, it's the calibrated constants themselves. `undefined` on
+// a def (not every field on this interface) means "this agent can report a
+// total, but not break it down" — a real, honest answer for an agent whose
+// CLI never reports enough about its own setup cost, not a gap to fill in
+// later. The estimator itself (reads disk, calls a tokenizer) intentionally
+// isn't a method here: a field that needs an effect to answer belongs to the
+// feature that owns that effect (`context/breakdown.ts`), not to a def that
+// is supposed to stay inert data.
+//
+// Every constant here was measured against a real CLI, not guessed:
+// diffing a session's own baseline between an empty directory and one
+// containing only the rule file isolates that file's real cost, in that
+// CLI's own tokenizer — a ground truth, not an estimate to calibrate
+// against. `multiplier`/`perFile` fit that ground truth against a public
+// BPE tokenizer's raw count (the closest proxy this repo can run without
+// asking the vendor's own tokenizer, which neither CLI exposes), because
+// this repo has to guess in production without ever being able to call the
+// vendor's real one either.
+export interface ContextRuleAccounting {
+  /** Regression coefficient against the chosen `encoding`'s raw token count
+   * — CLIs consistently under-report relative to a public BPE tokenizer
+   * (never the reverse), by a factor specific to each CLI's own real
+   * tokenizer and to how it wraps an injected file. */
+  readonly multiplier: number;
+  /** Fixed per-file overhead (the wrapper a CLI puts around an injected
+   * file — its path, a delimiter) — visible only as a nonzero intercept
+   * once a small enough file makes the multiplier's error disappear into
+   * rounding. */
+  readonly perFile: number;
+}
+
+export interface ContextAccounting {
+  /** Which public BPE encoding the `multiplier`/`perFile` below were fit
+   * against — the newest encoding is not always the best proxy: pick
+   * whichever one this CLI's own real tokenizer agrees with most across
+   * languages, not whichever corresponds to the model generation in use. */
+  readonly encoding: "cl100k_base" | "o200k_base";
+  /** Calibration for `identity.projectInstructionsFile`. */
+  readonly rules: ContextRuleAccounting;
+  /** Extra baseline tokens a brand-new, otherwise-empty working directory
+   * costs versus one with at least one unrelated file in it — some CLIs
+   * inject a bigger prompt block when they find nothing to describe, and
+   * that cost has nothing to do with any category above; `0` is a real,
+   * measured "no such effect" for a CLI that doesn't do this, not a
+   * placeholder for "not measured yet". */
+  readonly emptyDirectoryInflation: number;
+}
+
+// ---------------------------------------------------------------------------
 // Quick prompts — a second, much smaller exec-shaped axis for the relay's
 // own probes (title generation, next-message suggestion): a short, isolated
 // one-shot prompt against this CLI, never a real turn (no session
@@ -397,4 +451,9 @@ export interface AgentRuntimeDef<TPermissionSettings = unknown> {
   readonly exec: ExecPlan;
   readonly quickPrompt: QuickPromptPlan;
   readonly classifyFailure?: (failure: RuntimeFailure) => FailureClass;
+  /** Absent for a def with no way to break its baseline down (e.g. a def
+   * whose CLI never reports enough to calibrate against) — the client
+   * degrades to showing the total only, same shape as every other optional
+   * capability in this file. */
+  readonly contextAccounting?: ContextAccounting;
 }
