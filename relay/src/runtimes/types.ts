@@ -384,6 +384,37 @@ export interface ContextRuleAccounting {
   readonly perFile: number;
 }
 
+/** Calibration for a CLI that reads a skill's description into its prompt —
+ * absent `skills` on `ContextAccounting` entirely (not this shape with all
+ * zeros) means the opposite: a CLI that lists skill names only, at a cost
+ * small enough not to deserve its own line (Claude's real, measured case:
+ * ~2.3 tokens/skill from the name alone, invisible against a 200k window). */
+export interface ContextSkillAccounting {
+  /** This CLI truncates the description before it ever reaches the prompt
+   * — a longer one costs exactly as much as one truncated to this length,
+   * not proportionally more. */
+  readonly descriptionMaxTokens: number;
+  readonly perEntry: number;
+  readonly header: number;
+  /** Relative paths (joined against both the session's `cwd` and the
+   * agent's home directory) this CLI scans for a skill's own subfolder
+   * (`<dir>/<name>/SKILL.md`) — plural because Codex accepts skills from
+   * either `.codex/skills` or `.agents/skills`. */
+  readonly dirs: readonly string[];
+}
+
+/** Calibration for a CLI with a subagent concept — absent on
+ * `ContextAccounting` means this CLI has no such concept at all (Codex's
+ * real, measured case), not "not measured yet". */
+export interface ContextSubagentAccounting {
+  readonly multiplier: number;
+  readonly perEntry: number;
+  readonly header: number;
+  /** Relative paths (joined against both `cwd` and home) scanned for a flat
+   * `<dir>/<name>.md` per subagent — Claude's real convention. */
+  readonly dirs: readonly string[];
+}
+
 export interface ContextAccounting {
   /** Which public BPE encoding the `multiplier`/`perFile` below were fit
    * against — the newest encoding is not always the best proxy: pick
@@ -399,6 +430,8 @@ export interface ContextAccounting {
    * measured "no such effect" for a CLI that doesn't do this, not a
    * placeholder for "not measured yet". */
   readonly emptyDirectoryInflation: number;
+  readonly skills?: ContextSkillAccounting;
+  readonly subagents?: ContextSubagentAccounting;
 }
 
 // ---------------------------------------------------------------------------

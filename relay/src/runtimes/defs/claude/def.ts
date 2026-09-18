@@ -168,5 +168,14 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     encoding: "cl100k_base",
     rules: { multiplier: 1.1262, perFile: 83 },
     emptyDirectoryInflation: 2233,
+    // No `skills` here on purpose: fixtures with a controlled skill count
+    // (1, 12) and both identical and unique descriptions all measured the
+    // same delta per count, and a 10x-longer description didn't move the
+    // number either — `claude -p` reads only a skill's name into the
+    // prompt, never its description. The real cost is ~2.3 tokens/skill;
+    // at any realistic skill count that's noise against a 200k window, so
+    // this category doesn't get a line rather than reporting a number too
+    // small to mean anything.
+    subagents: { multiplier: 1.0955, perEntry: 12.7, header: 2, dirs: [".claude/agents"] },
   },
 };

@@ -89,27 +89,21 @@ test("switching agents mid-session doesn't touch the transcript a prior turn alr
   );
 });
 
-test("baselineTokens/sources don't leak across an agent switch, even switching back to the same agent", async () => {
+test("baselineTokens doesn't leak across an agent switch, even switching back to the same agent", async () => {
   const socket = await connectSessionAndCollectUntil(server.port, "session-agent-attribution-reset", (message) => message.type === "caught_up").then(
     (r) => r.socket,
   );
 
-  // Establishes claude's baseline, then attributes a real batch to "Bash".
+  // Establishes claude's baseline.
   sendUserMessage(socket, "hello");
-  await collectUntil(socket, isTurnEnded);
-  process.env.FAKE_CLAUDE_PARALLEL_TOOLS = "1";
-  sendUserMessage(socket, "run two commands in parallel");
-  const withSources = await collectUntil(socket, isTurnEnded);
-  delete process.env.FAKE_CLAUDE_PARALLEL_TOOLS;
-  const usageWithSources = withSources.filter((m) => m.type === "context_usage_state").at(-1) as
-    | { usage: { sources?: Record<string, unknown> } }
-    | undefined;
-  assert.ok(usageWithSources?.usage.sources?.Bash, "sanity check: the batch turn really did attribute something to Bash");
+  const withBaseline = await collectUntil(socket, isTurnEnded);
+  const usageWithBaseline = withBaseline.filter((m) => m.type === "context_usage_state").at(-1) as { usage: { baselineTokens?: number } } | undefined;
+  assert.ok(usageWithBaseline?.usage.baselineTokens, "sanity check: the first turn really did set a baseline");
 
   // Switch away and back — `switchAgent` fires twice, `sharedSession.ts`'s
   // own comment on why this must still reset even switching back to an
   // agent with pre-existing history (its OWN history, never this session's
-  // Bash aggregate from a moment ago).
+  // baseline from a moment ago).
   socket.send(JSON.stringify({ type: "set_agent", agentId: "codex" }));
   await collectUntil(socket, (message) => message.type === "permission_mode_state");
   socket.send(JSON.stringify({ type: "set_agent", agentId: "claude" }));
@@ -117,10 +111,12 @@ test("baselineTokens/sources don't leak across an agent switch, even switching b
 
   sendUserMessage(socket, "hello again");
   const afterSwitch = await collectUntil(socket, isTurnEnded);
-  const usageAfterSwitch = afterSwitch.filter((m) => m.type === "context_usage_state").at(-1) as
-    | { usage: { sources?: Record<string, unknown>; baselineTokens?: number } }
-    | undefined;
-  assert.equal(usageAfterSwitch?.usage.sources, undefined, "the stale Bash aggregate from before the switch must not survive it");
+  const usageAfterSwitch = afterSwitch.filter((m) => m.type === "context_usage_state").at(-1) as { usage: { baselineTokens?: number } } | undefined;
+  // Claude already had a session id from before the switch, so
+  // `hasPriorConversation: true` never re-arms a fresh baseline either —
+  // the stale one from before the switch must not survive as a false
+  // positive.
+  assert.equal(usageAfterSwitch?.usage.baselineTokens, undefined, "the stale baseline from before the switch must not survive it");
 
   socket.close();
 });

@@ -593,20 +593,35 @@ export interface Dictionary {
       context: {
         label: string;
         ariaLabel: string;
+        /** The popover's own close button, in its header row. */
+        close: string;
         tokens: string;
+        /** The word between the big percentage and the token count on the
+         * popover's headline row (e.g. "67% [occupied] 134k / 200k
+         * tokens"). */
+        occupied: string;
+        /** Footer line: `{model}` and `{window}` (already formatted, e.g.
+         * "200k") are the CLI's own resolved model and this session's
+         * context window size. */
+        windowNote: string;
         /** The popover's "Setup" line — shown only when `baselineTokens` is
          * known (absent for a record written before that field existed, or
          * a resumed session that never got a fresh baseline). `{tokens}`/
          * `{percent}` are the setup cost and its share of the window. */
         setup: string;
-        /** Caveat below the breakdown: `usedTokens` excludes the size of
-         * the LAST response (same as Claude Code's own statusline) — it
-         * shows up as part of the total on the turn after. */
-        outputCaveat: string;
-        /** Heading over the top-5-by-tokens list built from
-         * `ContextUsage.sources` — absent (and the whole section hidden)
-         * for a session with no attributed tool call yet. */
-        topConsumers: string;
+        breakdownRules: string;
+        breakdownSkills: string;
+        breakdownSubagents: string;
+        /** The catch-all line for everything the baseline paid for that no
+         * other category could name — never called "Other": it's usually
+         * the single largest line, and "Other" would read like a rounding
+         * error instead of the biggest cost this panel can't break down
+         * further. */
+        breakdownSystemPromptTools: string;
+        breakdownEmptyDirectory: string;
+        /** The remainder of the window beyond `baselineTokens` — everything
+         * that happened after the conversation's first response. */
+        breakdownConversation: string;
       };
       /** The three ways voice input fails. The first is a state the user can
        * fix and is written as an instruction; the other two carry whatever

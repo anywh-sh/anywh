@@ -1,13 +1,13 @@
 import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md) for the
-// context_attribution fan-out (SharedSession.emitContextAttribution) and the
-// ContextUsage.sources aggregate it feeds — against the real WebSocket/HTTP
-// stack, a real parallel tool-call batch (two tool_use blocks in one
-// assistant message), not just contextAttribution.test.ts's pure unit table.
+// context_attribution fan-out (SharedSession.emitContextAttribution) —
+// against the real WebSocket/HTTP stack, a real parallel tool-call batch
+// (two tool_use blocks in one assistant message), not just
+// contextAttribution.test.ts's pure unit table.
 
 let server: TestServer;
 
@@ -23,7 +23,7 @@ afterEach(() => {
   delete process.env.FAKE_CLAUDE_PARALLEL_TOOLS;
 });
 
-test("a parallel tool-call batch fans out into one context_attribution event per tool, divided proportionally, and aggregates into ContextUsage.sources by tool name", async () => {
+test("a parallel tool-call batch fans out into one context_attribution event per tool, divided proportionally", async () => {
   const socket = await connectSession(server.port, "session-context-attribution-live");
 
   // First turn: ordinary — establishes the model, same prerequisite as
@@ -52,15 +52,6 @@ test("a parallel tool-call batch fans out into one context_attribution event per
     messages.filter((m) => m.type === "agent_event" && (m.event as { type?: string }).type === "context_attribution").at(-1)!,
   );
   assert.ok(lastAttributionIndex < turnEndedIndex, "context_attribution must arrive before turn_ended, not after");
-
-  const usageFrames = messages.filter((m) => m.type === "context_usage_state");
-  const lastUsage = usageFrames.at(-1) as { usage: { sources?: Record<string, { tokens: number; calls: number }> } } | undefined;
-  assert.deepEqual(lastUsage?.usage.sources, { Bash: { tokens: 50, calls: 2 } });
-
-  // Both tool_started events resolved to "Bash" via the toolNameByUseId
-  // ring — sanity check that the fan-out didn't silently skip aggregation.
-  const toolStarted = findAgentEvent(messages, "tool_started");
-  assert.equal((toolStarted?.event as { name?: string } | undefined)?.name, "Bash");
 
   socket.close();
 });
