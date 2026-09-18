@@ -100,4 +100,82 @@ describe("ContextUsageButton", () => {
     await user.click(screen.getByRole("button"));
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
+
+  describe("with a detailed breakdown", () => {
+    // Shaped like the two real defs' own accounting (see claude/def.ts and
+    // codex.ts): only Claude ever declares `subagents`/`emptyDirectory`
+    // (nonzero `emptyDirectoryInflation`); only Codex ever declares
+    // `skills`. Neither def ever sends the other's exclusive category.
+    const CLAUDE_SHAPED_USAGE: ContextUsage = {
+      ...USAGE_WITH_BASELINE,
+      breakdown: {
+        rules: { tokens: 9490, estimated: true },
+        subagents: { tokens: 614, count: 12, estimated: true },
+        emptyDirectory: { tokens: 2233, estimated: true },
+        residual: { tokens: 33111, estimated: false },
+      },
+    };
+    const CODEX_SHAPED_USAGE: ContextUsage = {
+      ...USAGE_WITH_BASELINE,
+      breakdown: {
+        rules: { tokens: 7669, estimated: true },
+        skills: { tokens: 715, count: 12, estimated: true },
+        residual: { tokens: 100, estimated: false },
+      },
+    };
+
+    it("renders a line per category the breakdown actually returned, plus Conversation", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={CLAUDE_SHAPED_USAGE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.getByText(en.chat.composer.context.breakdownRules)).toBeInTheDocument();
+      expect(screen.getByText(en.chat.composer.context.breakdownSubagents)).toBeInTheDocument();
+      expect(screen.getByText(en.chat.composer.context.breakdownSystemPromptTools)).toBeInTheDocument();
+      expect(screen.getByText(en.chat.composer.context.breakdownConversation)).toBeInTheDocument();
+    });
+
+    it("never renders a Skills line for a Claude-shaped breakdown (the def declares no skills accounting)", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={CLAUDE_SHAPED_USAGE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.queryByText(en.chat.composer.context.breakdownSkills)).not.toBeInTheDocument();
+    });
+
+    it("never renders a Subagents line for a Codex-shaped breakdown (no such concept), but does render Skills", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={CODEX_SHAPED_USAGE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.getByText(en.chat.composer.context.breakdownSkills)).toBeInTheDocument();
+      expect(screen.queryByText(en.chat.composer.context.breakdownSubagents)).not.toBeInTheDocument();
+    });
+
+    it("shows the empty-folder line, with its explanatory hint, only when the relay reported one", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={CLAUDE_SHAPED_USAGE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.getByText(en.chat.composer.context.breakdownEmptyDirectory)).toBeInTheDocument();
+      expect(screen.getByText(en.chat.composer.context.breakdownEmptyDirectoryHint)).toBeInTheDocument();
+    });
+
+    it("omits the empty-folder line for a Codex-shaped breakdown, which never reports one", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={CODEX_SHAPED_USAGE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.queryByText(en.chat.composer.context.breakdownEmptyDirectory)).not.toBeInTheDocument();
+    });
+
+    it("falls back to the simple Setup line when no breakdown has arrived yet, even with a baseline known", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={USAGE_WITH_BASELINE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.getByText("Setup: 45k (23%)")).toBeInTheDocument();
+      expect(screen.queryByText(en.chat.composer.context.breakdownRules)).not.toBeInTheDocument();
+    });
+  });
 });

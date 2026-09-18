@@ -607,6 +607,21 @@ export interface Dictionary {
          * `ContextUsage.sources` — absent (and the whole section hidden)
          * for a session with no attributed tool call yet. */
         topConsumers: string;
+        breakdownRules: string;
+        breakdownSkills: string;
+        breakdownSubagents: string;
+        /** The catch-all line for everything the baseline paid for that no
+         * other category could name — never called "Other": it's usually
+         * the single largest line, and "Other" would read like a rounding
+         * error instead of the biggest cost this panel can't break down
+         * further. */
+        breakdownSystemPromptTools: string;
+        breakdownSystemPromptToolsHint: string;
+        breakdownEmptyDirectory: string;
+        breakdownEmptyDirectoryHint: string;
+        /** The remainder of the window beyond `baselineTokens` — everything
+         * that happened after the conversation's first response. */
+        breakdownConversation: string;
       };
       /** The three ways voice input fails. The first is a state the user can
        * fix and is written as an instruction; the other two carry whatever

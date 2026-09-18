@@ -196,6 +196,14 @@ export const en: Dictionary = {
         setup: "Setup: {tokens} ({percent}%)",
         outputCaveat: "Doesn't include your last reply's size yet — it counts in on the next turn.",
         topConsumers: "Top consumers",
+        breakdownRules: "Rules",
+        breakdownSkills: "Skills",
+        breakdownSubagents: "Subagents",
+        breakdownSystemPromptTools: "System prompt & tools",
+        breakdownSystemPromptToolsHint: "Includes MCP servers and whatever the CLI injects without reporting.",
+        breakdownEmptyDirectory: "Empty folder",
+        breakdownEmptyDirectoryHint: "This CLI injects extra setup text when it finds nothing to describe in the folder.",
+        breakdownConversation: "Conversation",
       },
       voiceErrors: {
         microphonePermission:

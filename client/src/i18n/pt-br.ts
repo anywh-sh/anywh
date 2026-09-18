@@ -196,6 +196,14 @@ export const ptBr: Dictionary = {
         setup: "Setup: {tokens} ({percent}%)",
         outputCaveat: "Ainda não inclui o tamanho da sua última resposta — entra na conta no próximo turno.",
         topConsumers: "Maiores consumidores",
+        breakdownRules: "Regras",
+        breakdownSkills: "Skills",
+        breakdownSubagents: "Subagentes",
+        breakdownSystemPromptTools: "Prompt do sistema e ferramentas",
+        breakdownSystemPromptToolsHint: "Inclui servidores MCP e o que o CLI injeta sem reportar.",
+        breakdownEmptyDirectory: "Pasta vazia",
+        breakdownEmptyDirectoryHint: "Este CLI injeta texto extra de configuração quando não encontra nada pra descrever na pasta.",
+        breakdownConversation: "Conversa",
       },
       voiceErrors: {
         microphonePermission:
