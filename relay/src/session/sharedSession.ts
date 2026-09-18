@@ -13,6 +13,7 @@ import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
+import { computeContextBreakdown } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
@@ -411,6 +412,29 @@ export class SharedSession implements SessionDriverHost {
 
   getContextUsage(): ContextUsage | undefined {
     return this.contextUsage;
+  }
+
+  /** Answers a client's `request_context_breakdown` — sent once, when the
+   * popover first opens. No-ops when there's nothing to attach a breakdown
+   * to yet (no turn has completed, so `contextUsage` itself doesn't exist)
+   * or when this session's def declares no `contextAccounting` (an honest
+   * "can't break this one down", not a bug to work around). Otherwise reads
+   * the rule file straight from this session's own `cwd`/def and caches the
+   * result onto `contextUsage.breakdown`, so reopening the popover later is
+   * free — the whole point of not putting this behind a capability the UI
+   * would otherwise poll on every render. */
+  async requestContextBreakdown(): Promise<void> {
+    const accounting = this.def.contextAccounting;
+    if (!accounting || !this.contextUsage) return;
+    const breakdown = await computeContextBreakdown({
+      cwd: this.cwd,
+      ruleFileName: this.def.identity.projectInstructionsFile,
+      accounting,
+      baselineTokens: this.contextUsage.baselineTokens,
+    });
+    this.contextUsage = { ...this.contextUsage, breakdown };
+    this.options.onContextUsageChange?.(this.contextUsage);
+    this.broadcastContextUsage();
   }
 
   /** Unlike `setCwd`, has no lock — any offered mode is always acceptable at

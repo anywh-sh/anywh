@@ -99,6 +99,13 @@ export function isSetDraftMessage(value: unknown): value is { type: "set_draft";
   );
 }
 
+/** No payload — the client sends this once, when the popover first opens,
+ * to ask the relay to compute (or hand back a cached) context breakdown for
+ * the session's own def. See SharedSession.requestContextBreakdown. */
+export function isRequestContextBreakdownMessage(value: unknown): value is { type: "request_context_breakdown" } {
+  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "request_context_breakdown";
+}
+
 export function isRenameBody(value: unknown): value is { id: string; title: string } {
   return (
     typeof value === "object" &&
