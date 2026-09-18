@@ -79,7 +79,10 @@ interface TabGroupLayoutProps {
   onCommitSizes: (sizes: number[]) => void;
   onRenameSession: (tabId: string, title: string) => void;
   onDelete: (tabId: string) => void;
-  renderPanel: (tab: Tab) => ReactNode;
+  /** `groupId` is `null` in flat/compact mode — no real per-group strip
+   * exists there to own a toggle slot (see `panelTogglesSlot.ts`), and
+   * panels are unavailable in that mode regardless. */
+  renderPanel: (tab: Tab, groupId: string | null) => ReactNode;
 }
 
 /** One `--g{i}-frac`/`--g{i}-cum` pair per group, set on the outer container
@@ -302,7 +305,7 @@ export function TabGroupLayout({
                 className={cn("absolute inset-0 overflow-hidden", tab.id !== activeTabId && "invisible")}
                 style={{ contain: "layout paint" }}
               >
-                {renderPanel(tab)}
+                {renderPanel(tab, null)}
               </div>
             ))}
           </div>
@@ -386,7 +389,7 @@ export function TabGroupLayout({
                 }}
                 onPointerDownCapture={() => onFocusGroup(group.id)}
               >
-                {renderPanel(tab)}
+                {renderPanel(tab, group.id)}
               </div>
             );
           })}

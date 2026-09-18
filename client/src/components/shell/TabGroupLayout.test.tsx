@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,7 +32,15 @@ function group(id: string, tabIds: string[], size: number): TabGroup {
   return { id, tabIds, activeTabId: tabIds[0] ?? null, size };
 }
 
-function renderLayout(tabs: Tab[], groups: TabGroup[], overrides: { activeTabId?: string | null; splitEnabled?: boolean } = {}) {
+function renderLayout(
+  tabs: Tab[],
+  groups: TabGroup[],
+  overrides: {
+    activeTabId?: string | null;
+    splitEnabled?: boolean;
+    renderPanel?: (tab: Tab, groupId: string | null) => ReactNode;
+  } = {},
+) {
   return render(
     <TooltipProvider>
       <TabGroupLayout
@@ -48,7 +57,7 @@ function renderLayout(tabs: Tab[], groups: TabGroup[], overrides: { activeTabId?
         onCommitSizes={vi.fn()}
         onRenameSession={vi.fn()}
         onDelete={vi.fn()}
-        renderPanel={(t) => <div>{t.title}</div>}
+        renderPanel={overrides.renderPanel ?? ((t) => <div>{t.title}</div>)}
       />
     </TooltipProvider>,
   );
@@ -146,6 +155,33 @@ describe("TabGroupLayout — compact fallback (splitEnabled: false)", () => {
     expect(screen.getByTestId("tab-panel-s1")).toBeInTheDocument();
     expect(screen.getByTestId("tab-panel-s2")).toBeInTheDocument();
     expect(screen.getByTestId("tab-panel-s3")).toBeInTheDocument();
+  });
+});
+
+// `renderPanel`'s second argument is how a tab's `ChatPanel` learns which
+// group's `TabGroupStrip` toggle slot to portal into (panelTogglesSlot.ts) —
+// `cwd` (what actually gates those buttons) is deliberately not lifted up
+// here, so this is the one piece of that wiring `TabGroupLayout` itself
+// still owns and that's worth pinning down.
+describe("TabGroupLayout — renderPanel's groupId argument", () => {
+  it("passes each tab's own group id in split mode", () => {
+    const tabs = [tab("s1"), tab("s2")];
+    const groups = [group("g1", ["s1"], 0.5), group("g2", ["s2"], 0.5)];
+    const renderPanel = vi.fn((t: Tab) => <div>{t.title}</div>);
+    renderLayout(tabs, groups, { renderPanel });
+
+    expect(renderPanel).toHaveBeenCalledWith(tabs[0], "g1");
+    expect(renderPanel).toHaveBeenCalledWith(tabs[1], "g2");
+  });
+
+  it("passes null in flat/compact mode — no per-group strip exists there to own a slot", () => {
+    const tabs = [tab("s1"), tab("s2")];
+    const groups = [group("g1", ["s1"], 0.5), group("g2", ["s2"], 0.5)];
+    const renderPanel = vi.fn((t: Tab) => <div>{t.title}</div>);
+    renderLayout(tabs, groups, { splitEnabled: false, renderPanel });
+
+    expect(renderPanel).toHaveBeenCalledWith(tabs[0], null);
+    expect(renderPanel).toHaveBeenCalledWith(tabs[1], null);
   });
 });
 

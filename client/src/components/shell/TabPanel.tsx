@@ -49,6 +49,8 @@ export interface TabPanelActions {
 interface TabChatProps {
   tab: Tab;
   profile: Profile;
+  /** `null` in flat/compact mode and on iOS — see `TabGroupLayoutProps.renderPanel`. */
+  groupId: string | null;
   terminalOpen: boolean;
   filesOpen: boolean;
   isVisible: boolean;
@@ -67,6 +69,7 @@ interface TabChatProps {
 const TabChat = memo(function TabChat({
   tab,
   profile,
+  groupId,
   terminalOpen,
   filesOpen,
   isVisible,
@@ -102,6 +105,7 @@ const TabChat = memo(function TabChat({
       onActivity={() => actions.onActivity(tab)}
       onDeleted={() => actions.onDeleted(tab)}
       onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
+      groupId={noPanes ? null : groupId}
       terminal={noPanes ? undefined : { open: terminalOpen, onToggle: () => actions.onTogglePane(tab.id, "terminal") }}
       files={noPanes ? undefined : { open: filesOpen, onToggle: () => actions.onTogglePane(tab.id, "files") }}
       onOpenPath={noPanes ? undefined : (path) => actions.onOpenPath(profile, tab.id, path)}
@@ -141,6 +145,7 @@ interface TabPanelProps extends Omit<TabChatProps, "terminalOpen" | "filesOpen">
 export const TabPanel = memo(function TabPanel({
   tab,
   profile,
+  groupId,
   dock,
   isVisible,
   isFocusedTab,
@@ -153,6 +158,7 @@ export const TabPanel = memo(function TabPanel({
     <TabChat
       tab={tab}
       profile={profile}
+      groupId={groupId}
       terminalOpen={dock.panes.includes("terminal")}
       filesOpen={dock.panes.includes("files")}
       isVisible={isVisible}

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { DndContext } from "@dnd-kit/core";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabGroupStrip } from "./TabGroupStrip";
+import { getPanelTogglesSlot } from "@/lib/panelTogglesSlot";
 import { en } from "@/i18n/en";
 import type { Tab } from "@/hooks/tabs/useTabs";
 
@@ -142,6 +143,25 @@ describe("TabGroupStrip", () => {
     expect(
       screen.getByRole("button", { name: en.chat.tabs.close.replace("{title}", en.common.untitledSession) }),
     ).toBeInTheDocument();
+  });
+
+  // The actual files/terminal toggle buttons are portaled in here by a tab's
+  // own `ChatPanel` (see panelTogglesSlot.ts and ChatPanel.tsx) — `cwd`,
+  // which gates them, lives only on that tab's socket and is deliberately
+  // not passed down as a prop. What this component owns is publishing (and
+  // un-publishing) the slot itself, right before the `+`.
+  describe("panel toggles slot", () => {
+    it("publishes a node for this group id while mounted, right before the +", () => {
+      const { unmount } = renderStrip([tab()], "s1");
+
+      const slot = getPanelTogglesSlot("g1");
+      expect(slot).not.toBeNull();
+      const newTab = screen.getByRole("button", { name: en.chat.tabs.newTab });
+      expect(slot!.compareDocumentPosition(newTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      unmount();
+      expect(getPanelTogglesSlot("g1")).toBeNull();
+    });
   });
 
   it("hides the split context-menu item when allowSplit is false", async () => {
