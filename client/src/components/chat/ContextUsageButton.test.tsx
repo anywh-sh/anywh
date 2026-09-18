@@ -50,45 +50,6 @@ describe("ContextUsageButton", () => {
     expect(screen.queryByText(/^Setup:/)).not.toBeInTheDocument();
   });
 
-  it("always shows the output-tokens caveat, regardless of baselineTokens", async () => {
-    const user = userEvent.setup();
-    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
-    await user.click(screen.getByRole("button"));
-
-    expect(screen.getByText(en.chat.composer.context.outputCaveat)).toBeInTheDocument();
-  });
-
-  it("lists top consumers sorted by tokens descending, capped at 5", async () => {
-    const user = userEvent.setup();
-    const usage: ContextUsage = {
-      ...USAGE,
-      sources: {
-        Bash: { tokens: 194_164, calls: 329 },
-        Read: { tokens: 104_764, calls: 89 },
-        Edit: { tokens: 8_293, calls: 75 },
-        Grep: { tokens: 1_000, calls: 3 },
-        Write: { tokens: 900, calls: 1 },
-        WebSearch: { tokens: 100, calls: 1 },
-      },
-    };
-    render(<ContextUsageButton usage={usage} onOpen={() => {}} />);
-    await user.click(screen.getByRole("button"));
-
-    expect(screen.getByText(en.chat.composer.context.topConsumers)).toBeInTheDocument();
-    expect(screen.getByText("Bash")).toBeInTheDocument();
-    expect(screen.getByText("194k · 329×")).toBeInTheDocument();
-    // 6th-largest source (WebSearch, 100 tokens) doesn't make the top 5.
-    expect(screen.queryByText("WebSearch")).not.toBeInTheDocument();
-  });
-
-  it("hides the top-consumers section entirely when the session has no attributed source yet", async () => {
-    const user = userEvent.setup();
-    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
-    await user.click(screen.getByRole("button"));
-
-    expect(screen.queryByText(en.chat.composer.context.topConsumers)).not.toBeInTheDocument();
-  });
-
   it("calls onOpen every time the popover opens, but not on close", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
@@ -152,13 +113,12 @@ describe("ContextUsageButton", () => {
       expect(screen.queryByText(en.chat.composer.context.breakdownSubagents)).not.toBeInTheDocument();
     });
 
-    it("shows the empty-folder line, with its explanatory hint, only when the relay reported one", async () => {
+    it("shows the empty-folder line only when the relay reported one", async () => {
       const user = userEvent.setup();
       render(<ContextUsageButton usage={CLAUDE_SHAPED_USAGE} onOpen={() => {}} />);
       await user.click(screen.getByRole("button"));
 
       expect(screen.getByText(en.chat.composer.context.breakdownEmptyDirectory)).toBeInTheDocument();
-      expect(screen.getByText(en.chat.composer.context.breakdownEmptyDirectoryHint)).toBeInTheDocument();
     });
 
     it("omits the empty-folder line for a Codex-shaped breakdown, which never reports one", async () => {

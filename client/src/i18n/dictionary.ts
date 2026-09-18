@@ -599,14 +599,6 @@ export interface Dictionary {
          * a resumed session that never got a fresh baseline). `{tokens}`/
          * `{percent}` are the setup cost and its share of the window. */
         setup: string;
-        /** Caveat below the breakdown: `usedTokens` excludes the size of
-         * the LAST response (same as Claude Code's own statusline) — it
-         * shows up as part of the total on the turn after. */
-        outputCaveat: string;
-        /** Heading over the top-5-by-tokens list built from
-         * `ContextUsage.sources` — absent (and the whole section hidden)
-         * for a session with no attributed tool call yet. */
-        topConsumers: string;
         breakdownRules: string;
         breakdownSkills: string;
         breakdownSubagents: string;
@@ -616,9 +608,7 @@ export interface Dictionary {
          * error instead of the biggest cost this panel can't break down
          * further. */
         breakdownSystemPromptTools: string;
-        breakdownSystemPromptToolsHint: string;
         breakdownEmptyDirectory: string;
-        breakdownEmptyDirectoryHint: string;
         /** The remainder of the window beyond `baselineTokens` — everything
          * that happened after the conversation's first response. */
         breakdownConversation: string;

@@ -18,7 +18,6 @@ interface BreakdownSegment {
   label: string;
   tokens: number;
   color: string;
-  hint?: string;
 }
 
 /**
@@ -76,7 +75,6 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
       label: copy.breakdownEmptyDirectory,
       tokens: breakdown.emptyDirectory.tokens,
       color: "var(--context-ring-warn)",
-      hint: copy.breakdownEmptyDirectoryHint,
     });
   if (breakdown?.residual)
     setupSegments.push({
@@ -84,7 +82,6 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
       label: copy.breakdownSystemPromptTools,
       tokens: breakdown.residual.tokens,
       color: "var(--text-faint)",
-      hint: copy.breakdownSystemPromptToolsHint,
     });
 
   const hasDetailedBreakdown = setupSegments.length > 0;
@@ -99,12 +96,6 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
   // transient underflow reading as a negative width.
   const setupPct = usage.baselineTokens !== undefined && total > 0 ? Math.min(pct, Math.max(0, (usage.baselineTokens / total) * 100)) : 0;
   const conversationPct = Math.max(0, pct - setupPct);
-
-  const topSources = usage.sources
-    ? Object.entries(usage.sources)
-        .sort((a, b) => b[1].tokens - a[1].tokens)
-        .slice(0, 5)
-    : [];
 
   return (
     <DropdownMenu
@@ -149,13 +140,10 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
               </div>
               <div className="flex flex-col">
                 {setupSegments.map((segment) => (
-                  <div key={segment.key} className="flex flex-col gap-0.5 border-b border-border-soft py-1 first:pt-0 last:border-b-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="size-1.5 shrink-0" style={{ backgroundColor: segment.color }} aria-hidden="true" />
-                      <span className="flex-1 truncate text-[11.5px] text-foreground">{segment.label}</span>
-                      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTokenCount(segment.tokens)}</span>
-                    </div>
-                    {segment.hint && <span className="pl-3 text-[10px] text-text-faint">{segment.hint}</span>}
+                  <div key={segment.key} className="flex items-center gap-1.5 border-b border-border-soft py-1 first:pt-0 last:border-b-0">
+                    <span className="size-1.5 shrink-0" style={{ backgroundColor: segment.color }} aria-hidden="true" />
+                    <span className="flex-1 truncate text-[11.5px] text-foreground">{segment.label}</span>
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTokenCount(segment.tokens)}</span>
                   </div>
                 ))}
                 <div className="flex items-center gap-1.5 py-1">
@@ -189,20 +177,6 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
             {copy.tokens.replace("{used}", formatTokenCount(usage.usedTokens)).replace("{total}", formatTokenCount(usage.contextWindowSize))}
           </span>
           <span className="text-[11px] whitespace-nowrap text-muted-foreground">{usage.model}</span>
-          <span className="text-[10px] text-text-faint">{copy.outputCaveat}</span>
-          {topSources.length > 0 && (
-            <div className="mt-1 flex flex-col gap-1 border-t border-border-soft pt-1.5">
-              <span className="text-[11px] text-muted-foreground">{copy.topConsumers}</span>
-              {topSources.map(([name, source]) => (
-                <div key={name} className="flex items-center justify-between gap-2 font-mono text-[11px] text-foreground">
-                  <span className="truncate">{name}</span>
-                  <span className="shrink-0 text-text-faint">
-                    {formatTokenCount(source.tokens)} · {source.calls}×
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </DropdownMenuLabel>
       </DropdownMenuContent>
     </DropdownMenu>

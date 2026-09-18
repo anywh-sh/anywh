@@ -37,7 +37,6 @@ export interface ContextUsage {
   contextWindowSize: number;
   usedTokens: number;
   baselineTokens?: number;
-  sources?: Record<string, { tokens: number; calls: number }>;
   /** Mirrors the relay's `ContextBreakdown` (relay/src/context/breakdown.ts)
    * — absent until a `request_context_breakdown` round-trip fills it in.
    * Every field is independently optional: a def may declare no `skills`/
