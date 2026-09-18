@@ -19,8 +19,6 @@ import { Composer, type ComposerHandle } from "@/components/chat/Composer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
 import { useTitleBarSlot } from "@/hooks/useTitleBarSlot";
-import { FilesToggleButton } from "@/components/chat/FilesToggleButton";
-import { TerminalToggleButton } from "@/components/chat/TerminalToggleButton";
 import { BackgroundJobIndicator } from "@/components/chat/BackgroundJobIndicator";
 import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
 import { isIOS } from "@/lib/platform/platform";
@@ -62,21 +60,9 @@ interface ChatPanelProps {
   /** This session's connection state — `App` uses this to feed iOS's
    * consolidated top bar, which lives outside ChatPanel. */
   onConnectedChange?: (connected: boolean) => void;
-  /** Embedded terminal — desktop only, `App` passes `undefined` on
-   * iOS/compact viewport and the button doesn't even appear (see
-   * renderPanel). */
-  terminal?: {
-    open: boolean;
-    onToggle: () => void;
-  };
-  /** Work dir file panel — same desktop-only gating as `terminal`. */
-  files?: {
-    open: boolean;
-    onToggle: () => void;
-  };
   /** Opens a path mentioned in assistant text in the file panel — `App`
-   * passes `undefined` on compact/iOS, same gate as `terminal`/`files`
-   * above (there's no file panel to open it in there). */
+   * passes `undefined` on compact/iOS (there's no file panel to open it in
+   * there). */
   onOpenPath?: (path: string) => void;
   /** Only the active tab should react to Tauri's native drag-and-drop —
    * unlike the old HTML5 DnD (scoped by the DOM itself), the native event
@@ -139,8 +125,6 @@ export function ChatPanel({
   onActivity,
   onDeleted,
   onConnectedChange,
-  terminal,
-  files,
   onOpenPath,
   isActiveTab,
   isFocusedTab = false,
@@ -751,18 +735,14 @@ export function ChatPanel({
             />
 
             {!isIOS() && (
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  {/* The working directory itself lives in the title bar now
-                   * (see the portal below) — what stays here is the job
-                   * indicator, which belongs next to the composer because it
-                   * is about the turn being typed, not about the window. */}
-                  <BackgroundJobIndicator jobs={backgroundJobs} onCancel={cancelBackgroundJob} />
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  {files && <FilesToggleButton cwd={cwd} open={files.open} onToggle={files.onToggle} />}
-                  {terminal && <TerminalToggleButton cwd={cwd} open={terminal.open} onToggle={terminal.onToggle} />}
-                </div>
+              <div className="mb-3 flex min-w-0 items-center gap-1.5">
+                {/* The working directory itself lives in the title bar now
+                 * (see the portal below); the files/terminal toggles moved to
+                 * the tab group strip, next to its `+` — what stays here is
+                 * the job indicator, which belongs next to the composer
+                 * because it is about the turn being typed, not about the
+                 * window. */}
+                <BackgroundJobIndicator jobs={backgroundJobs} onCancel={cancelBackgroundJob} />
               </div>
             )}
           </div>

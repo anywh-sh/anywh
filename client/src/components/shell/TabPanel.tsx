@@ -49,8 +49,6 @@ export interface TabPanelActions {
 interface TabChatProps {
   tab: Tab;
   profile: Profile;
-  terminalOpen: boolean;
-  filesOpen: boolean;
   isVisible: boolean;
   isFocusedTab: boolean;
   isCompact: boolean;
@@ -67,8 +65,6 @@ interface TabChatProps {
 const TabChat = memo(function TabChat({
   tab,
   profile,
-  terminalOpen,
-  filesOpen,
   isVisible,
   isFocusedTab,
   isCompact,
@@ -102,8 +98,6 @@ const TabChat = memo(function TabChat({
       onActivity={() => actions.onActivity(tab)}
       onDeleted={() => actions.onDeleted(tab)}
       onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
-      terminal={noPanes ? undefined : { open: terminalOpen, onToggle: () => actions.onTogglePane(tab.id, "terminal") }}
-      files={noPanes ? undefined : { open: filesOpen, onToggle: () => actions.onTogglePane(tab.id, "files") }}
       onOpenPath={noPanes ? undefined : (path) => actions.onOpenPath(profile, tab.id, path)}
       isActiveTab={isVisible}
       isFocusedTab={isFocusedTab}
@@ -153,8 +147,6 @@ export const TabPanel = memo(function TabPanel({
     <TabChat
       tab={tab}
       profile={profile}
-      terminalOpen={dock.panes.includes("terminal")}
-      filesOpen={dock.panes.includes("files")}
       isVisible={isVisible}
       isFocusedTab={isFocusedTab}
       isCompact={isCompact}

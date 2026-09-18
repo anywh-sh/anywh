@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabGroupLayout, EDGE_START_DROP_ID, EDGE_END_DROP_ID, resolveTabDrop } from "./TabGroupLayout";
 import { groupEndDropId } from "./TabGroupStrip";
 import type { Tab, TabGroup } from "@/hooks/tabs/useTabs";
+import type { DockPaneKind, SessionDock } from "@/hooks/tabs/useSessionDock";
+import { en } from "@/i18n/en";
 
 afterEach(() => cleanup());
 
@@ -31,7 +34,15 @@ function group(id: string, tabIds: string[], size: number): TabGroup {
   return { id, tabIds, activeTabId: tabIds[0] ?? null, size };
 }
 
-function renderLayout(tabs: Tab[], groups: TabGroup[], overrides: { activeTabId?: string | null; splitEnabled?: boolean } = {}) {
+function renderLayout(
+  tabs: Tab[],
+  groups: TabGroup[],
+  overrides: {
+    activeTabId?: string | null;
+    splitEnabled?: boolean;
+    sessionDock?: Pick<SessionDock, "getDock" | "togglePane">;
+  } = {},
+) {
   return render(
     <TooltipProvider>
       <TabGroupLayout
@@ -39,6 +50,12 @@ function renderLayout(tabs: Tab[], groups: TabGroup[], overrides: { activeTabId?
         groups={groups}
         activeTabId={overrides.activeTabId ?? tabs[0]?.id ?? null}
         splitEnabled={overrides.splitEnabled ?? true}
+        sessionDock={
+          overrides.sessionDock ?? {
+            getDock: () => ({ panes: [], width: 480, splitRatio: 0.5, maximized: null }),
+            togglePane: vi.fn(),
+          }
+        }
         onSelect={vi.fn()}
         onFocusGroup={vi.fn()}
       onNewTab={vi.fn()}
@@ -146,6 +163,49 @@ describe("TabGroupLayout — compact fallback (splitEnabled: false)", () => {
     expect(screen.getByTestId("tab-panel-s1")).toBeInTheDocument();
     expect(screen.getByTestId("tab-panel-s2")).toBeInTheDocument();
     expect(screen.getByTestId("tab-panel-s3")).toBeInTheDocument();
+  });
+});
+
+describe("TabGroupLayout — files/terminal toggle wiring", () => {
+  function makeSessionDock(dockByTabId: Record<string, DockPaneKind[]>, togglePane = vi.fn()): Pick<SessionDock, "getDock" | "togglePane"> {
+    return {
+      getDock: (tabId) => ({ panes: dockByTabId[tabId] ?? [], width: 480, splitRatio: 0.5, maximized: null }),
+      togglePane,
+    };
+  }
+
+  it("marks a group's toggle active only when that group's OWN active tab has the pane open", () => {
+    const tabs = [tab("s1"), tab("s2")];
+    const groups = [group("g1", ["s1"], 0.5), group("g2", ["s2"], 0.5)];
+    renderLayout(tabs, groups, { sessionDock: makeSessionDock({ s1: ["terminal"] }) });
+
+    const group1 = screen.getByTestId("group-strip-g1");
+    const group2 = screen.getByTestId("group-strip-g2");
+    expect(within(group1).getByLabelText(en.panels.closeTerminal)).toBeInTheDocument();
+    expect(within(group2).getByLabelText(en.panels.openTerminal)).toBeInTheDocument();
+  });
+
+  it("toggles the pane for the group's own active tab, never the sibling group's", async () => {
+    const user = userEvent.setup();
+    const tabs = [tab("s1"), tab("s2")];
+    const groups = [group("g1", ["s1"], 0.5), group("g2", ["s2"], 0.5)];
+    const togglePane = vi.fn();
+    renderLayout(tabs, groups, { sessionDock: makeSessionDock({}, togglePane) });
+
+    const group2 = screen.getByTestId("group-strip-g2");
+    await user.click(within(group2).getByLabelText(en.panels.openFiles));
+
+    expect(togglePane).toHaveBeenCalledTimes(1);
+    expect(togglePane).toHaveBeenCalledWith("s2", "files");
+  });
+
+  it("leaves the toggle pair off the strip entirely in compact/flat mode", () => {
+    const tabs = [tab("s1")];
+    const groups = [group("g1", ["s1"], 1)];
+    renderLayout(tabs, groups, { splitEnabled: false });
+
+    expect(screen.queryByLabelText(en.panels.openFiles)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(en.panels.openTerminal)).not.toBeInTheDocument();
   });
 });
 

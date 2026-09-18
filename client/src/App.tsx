@@ -503,6 +503,7 @@ function AppShell() {
           groups={tabsState.groups}
           activeTabId={activeTabId}
           splitEnabled={!isCompact}
+          sessionDock={{ getDock: sessionDock.getDock, togglePane: actions.onTogglePane }}
           onSelect={tabsState.setActiveTab}
           onFocusGroup={tabsState.focusGroup}
           onNewTab={handleNewTabInGroup}

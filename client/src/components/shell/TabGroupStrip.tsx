@@ -11,6 +11,8 @@ import { profileCloseHoverClass, profileColorClass, profileTabClasses } from "@/
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
+import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
+import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -46,6 +48,16 @@ interface TabGroupStripProps {
    * always appends to the focused group, so the caller has to focus this
    * one first (see `TabGroupLayout`). */
   onNewTab: () => void;
+  /** The files/terminal toggle pair, right before the `+`. One pair per
+   * group (not per tab) — they act on and reflect the dock of this group's
+   * `activeTabId`. Left undefined where panels aren't available in this
+   * context (compact viewport) so the pair doesn't render at all, same
+   * optional-as-capability convention `ChatPanelProps.terminal`/`files` used
+   * before this moved here. */
+  filesOpen?: boolean;
+  terminalOpen?: boolean;
+  onToggleFiles?: () => void;
+  onToggleTerminal?: () => void;
 }
 
 interface SortableTabProps {
@@ -207,7 +219,22 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
  * possible at all. This only contributes its `SortableContext` (for
  * same-strip reordering) and the trailing drop zone.
  */
-export function TabGroupStrip({ groupId, tabs, activeTabId, allowSplit, onSelect, onClose, onRenameSession, onDelete, onSplitToNewGroup, onNewTab }: TabGroupStripProps) {
+export function TabGroupStrip({
+  groupId,
+  tabs,
+  activeTabId,
+  allowSplit,
+  onSelect,
+  onClose,
+  onRenameSession,
+  onDelete,
+  onSplitToNewGroup,
+  onNewTab,
+  filesOpen,
+  terminalOpen,
+  onToggleFiles,
+  onToggleTerminal,
+}: TabGroupStripProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -276,6 +303,12 @@ export function TabGroupStrip({ groupId, tabs, activeTabId, allowSplit, onSelect
             ))}
             <div ref={setEndDropRef} className={cn("h-full min-w-2 flex-1", isOverEnd && "bg-border")} />
           </div>
+          {onToggleFiles && onToggleTerminal && (
+            <>
+              <FilesToggleButton open={filesOpen ?? false} disabled={!activeTabId} onToggle={onToggleFiles} />
+              <TerminalToggleButton open={terminalOpen ?? false} disabled={!activeTabId} onToggle={onToggleTerminal} />
+            </>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button

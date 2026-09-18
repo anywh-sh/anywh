@@ -144,6 +144,87 @@ describe("TabGroupStrip", () => {
     ).toBeInTheDocument();
   });
 
+  describe("files/terminal toggles", () => {
+    function renderStripWithToggles(
+      overrides: Partial<{
+        filesOpen: boolean;
+        terminalOpen: boolean;
+        onToggleFiles: () => void;
+        onToggleTerminal: () => void;
+        activeTabId: string | null;
+      }> = {},
+    ) {
+      const onToggleFiles = overrides.onToggleFiles ?? vi.fn();
+      const onToggleTerminal = overrides.onToggleTerminal ?? vi.fn();
+      render(
+        <TooltipProvider>
+          <DndContext>
+            <TabGroupStrip
+              groupId="g1"
+              tabs={[tab()]}
+              activeTabId={"activeTabId" in overrides ? overrides.activeTabId! : "s1"}
+              allowSplit
+              onSelect={vi.fn()}
+              onClose={vi.fn()}
+              onRenameSession={vi.fn()}
+              onDelete={vi.fn()}
+              onSplitToNewGroup={vi.fn()}
+              onNewTab={vi.fn()}
+              filesOpen={overrides.filesOpen ?? false}
+              terminalOpen={overrides.terminalOpen ?? false}
+              onToggleFiles={onToggleFiles}
+              onToggleTerminal={onToggleTerminal}
+            />
+          </DndContext>
+        </TooltipProvider>,
+      );
+      return { onToggleFiles, onToggleTerminal };
+    }
+
+    // Compact/flat mode passes neither prop (see TabGroupLayout) — the pair
+    // must disappear entirely, not just render disabled, same as the
+    // buttons being absent from ChatPanel on iOS/compact before this moved.
+    it("doesn't render the pair when the caller leaves the toggle props out", () => {
+      renderStrip([tab()], "s1");
+
+      expect(screen.queryByLabelText(en.panels.openFiles)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(en.panels.openTerminal)).not.toBeInTheDocument();
+    });
+
+    it("renders both buttons, right before the +, when the pair is supplied", () => {
+      renderStripWithToggles();
+
+      const files = screen.getByLabelText(en.panels.openFiles);
+      const terminal = screen.getByLabelText(en.panels.openTerminal);
+      const newTab = screen.getByRole("button", { name: en.chat.tabs.newTab });
+      expect(files.compareDocumentPosition(terminal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(terminal.compareDocumentPosition(newTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("reflects filesOpen/terminalOpen as the active state and calls back on click", async () => {
+      const user = userEvent.setup();
+      const { onToggleFiles, onToggleTerminal } = renderStripWithToggles({ filesOpen: true });
+
+      // Open → the accessible name flips to "close", same convention the
+      // buttons used before this moved out of ChatPanel.
+      expect(screen.getByLabelText(en.panels.closeFiles)).toBeInTheDocument();
+      expect(screen.getByLabelText(en.panels.openTerminal)).toBeInTheDocument();
+
+      await user.click(screen.getByLabelText(en.panels.closeFiles));
+      expect(onToggleFiles).toHaveBeenCalledTimes(1);
+
+      await user.click(screen.getByLabelText(en.panels.openTerminal));
+      expect(onToggleTerminal).toHaveBeenCalledTimes(1);
+    });
+
+    it("disables both toggles when the group has no active tab", () => {
+      renderStripWithToggles({ activeTabId: null });
+
+      expect(screen.getByLabelText(en.panels.openFiles)).toBeDisabled();
+      expect(screen.getByLabelText(en.panels.openTerminal)).toBeDisabled();
+    });
+  });
+
   it("hides the split context-menu item when allowSplit is false", async () => {
     const user = userEvent.setup();
     const a = tab({ id: "s1", title: "Primeira" });

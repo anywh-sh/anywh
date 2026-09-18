@@ -1,41 +1,42 @@
 import { SquareTerminal } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface TerminalToggleButtonProps {
-  cwd: string | null;
   open: boolean;
+  disabled?: boolean;
   onToggle: () => void;
 }
 
 /**
- * Embedded terminal button — next to `WorkingDirectoryButton` in
- * the same row, aligned to the far right (`ChatPanel` handles the
- * `justify-between` between the two). Disabled until the session has a
- * folder (the terminal is born in it — see terminalSession.ts), same gating
- * logic `WorkingDirectoryButton` already uses for "a session without a
- * folder yet can't do anything that depends on one".
+ * Embedded terminal button — lives in `TabGroupStrip`, immediately to the
+ * right of `FilesToggleButton` and to the left of the group's `+` (files,
+ * then terminal, then new tab). Same raw-`<button>` markup as `+` (not the
+ * shared `Button` component) so the three read as one row of
+ * border-separated actions, one pair per tab group — acts on and reflects
+ * the dock of that group's active tab, not a single tab's own state.
  */
-export function TerminalToggleButton({ cwd, open, onToggle }: TerminalToggleButtonProps) {
+export function TerminalToggleButton({ open, disabled, onToggle }: TerminalToggleButtonProps) {
   const dict = useDict();
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={!cwd}
+        <button
+          type="button"
+          disabled={disabled}
           onClick={onToggle}
           aria-label={open ? dict.panels.closeTerminal : dict.panels.openTerminal}
-          className={cn(open && "bg-bg-elevated")}
+          className={cn(
+            "flex w-9 shrink-0 cursor-pointer items-center justify-center border-l border-border-soft text-text-faint transition-colors hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+            open && "bg-bg-elevated text-foreground",
+          )}
         >
           <SquareTerminal className="size-3.5" />
-        </Button>
+        </button>
       </TooltipTrigger>
-      <TooltipContent side="top">
+      <TooltipContent side="bottom">
         {open ? dict.panels.closeTerminal : dict.panels.openTerminal}
         {/* Literal Ctrl even on macOS — VS Code's own convention, whose
          * integrated terminal shortcut uses Control on any OS because
