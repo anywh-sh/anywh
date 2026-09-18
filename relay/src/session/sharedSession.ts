@@ -1129,7 +1129,7 @@ export class SharedSession implements SessionDriverHost {
       // would feed the generator is the follow-up's internal instruction,
       // not something that makes sense to offer as a real next message.
       if (!stopped && !synthetic) {
-        generateSuggestion(this.homeOverride, this.cwd, text, lastAssistantText)
+        generateSuggestion(this.def, this.homeOverride, this.cwd, text, lastAssistantText)
           .then((suggestion) => {
             this.suggestion = suggestion ?? null;
             this.options.onSuggestionChange?.(this.suggestion);

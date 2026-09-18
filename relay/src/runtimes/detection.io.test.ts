@@ -50,6 +50,7 @@ function fixtureDef(overrides: Partial<AgentRuntimeDef["identity"]> = {}): Agent
     auth: { kind: "none" },
     permissions: { defaultModeId: "default", modesFor: () => [{ id: "default", labelKey: "mode.default", settings: undefined, pausesForApproval: false }] },
     bridges: [],
+    quickPrompt: { kind: "none" },
     exec: { kind: "spawnPerTurn", promptDelivery: "argv", buildArgs: () => [], mapStdoutLine: () => [], interrupt: { signal: "SIGINT", expectsCleanExit: true } },
   };
 }

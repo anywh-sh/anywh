@@ -58,3 +58,29 @@ test("classifyFailure: session-invalid, usage-limit, not-installed, and a transi
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "spawn claude ENOENT" }), "not-installed");
   assert.equal(claudeRuntimeDef.classifyFailure?.({ text: "Overloaded" }), "transient");
 });
+
+test("quickPrompt.buildArgs: system prompt as its own flag, no tools, no persistence, haiku for speed", () => {
+  if (claudeRuntimeDef.quickPrompt.kind !== "cli") throw new Error("expected a cli quickPrompt");
+  const args = claudeRuntimeDef.quickPrompt.buildArgs({ systemPrompt: "You title chats.", userPrompt: "fix the login bug", cwd: "/tmp/project" });
+  assert.deepEqual(args, [
+    "-p",
+    "fix the login bug",
+    "--system-prompt",
+    "You title chats.",
+    "--model",
+    "haiku",
+    "--output-format",
+    "text",
+    "--no-session-persistence",
+    "--tools",
+    "",
+    "--dangerously-skip-permissions",
+    "--strict-mcp-config",
+  ]);
+});
+
+test("quickPrompt.extractReply: the whole trimmed stdout is the reply, undefined when blank", () => {
+  if (claudeRuntimeDef.quickPrompt.kind !== "cli") throw new Error("expected a cli quickPrompt");
+  assert.equal(claudeRuntimeDef.quickPrompt.extractReply("  Login bug fix  \n"), "Login bug fix");
+  assert.equal(claudeRuntimeDef.quickPrompt.extractReply("   \n"), undefined);
+});

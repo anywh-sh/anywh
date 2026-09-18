@@ -320,7 +320,13 @@ export class SessionManager {
         // is the other way this can fire with a title already set — there it
         // doesn't apply, since `clearConversation` already nulled it out.
         if (this.sessionStore.getTitle(id) !== null) return;
-        generateTitle(this.homeOverride, session.getCwdState().cwd, text)
+        // Re-resolves the current agent rather than closing over `def`
+        // above: `setAgent`/`switchAgent` mutate this same `SharedSession`
+        // in place instead of recreating it, so a session switched to
+        // Codex before its first prompt would otherwise still title itself
+        // with the Claude def this closure was built against.
+        const currentDef = this.registry.get(this.sessionStore.getAgentId(id)) ?? claudeRuntimeDef;
+        generateTitle(currentDef, this.homeOverride, session.getCwdState().cwd, text)
           .then((title) => {
             // Null means the first prompt had no text worth a title and the
             // model gave nothing back either. The session stays untitled and
