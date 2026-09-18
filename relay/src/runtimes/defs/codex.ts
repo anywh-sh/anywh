@@ -339,4 +339,21 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     mapNotification: mapCodexNotification,
     handleServerRequest,
   },
+  // Measured with codex-cli 0.154.0 against the real `codex exec --json`
+  // binary, same paired-diff method as Claude's own constants (see that
+  // def's comment): an empty directory versus one holding only AGENTS.md,
+  // against o200k_base's raw count. The multiplier came back exactly 1.000
+  // with a fixed ~21-token residual across both English and pt-BR files —
+  // because here the encoding isn't a proxy, it's OpenAI's own tokenizer
+  // for the model this CLI actually runs, unlike Claude's cl100k_base fit,
+  // which stays an approximation of a tokenizer this repo can't call
+  // directly. No empty-directory surcharge was measurable on this CLI
+  // (baseline stayed flat, ±4 tokens of pure noise, whether the directory
+  // held nothing or one unrelated file) — `0` here is that real finding,
+  // not an unmeasured placeholder.
+  contextAccounting: {
+    encoding: "o200k_base",
+    rules: { multiplier: 1.0, perFile: 21 },
+    emptyDirectoryInflation: 0,
+  },
 };
