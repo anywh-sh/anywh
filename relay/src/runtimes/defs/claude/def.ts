@@ -13,7 +13,7 @@
 import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
-import type { AgentRuntimeDef, FailureClass, RuntimeFailure, TurnContext } from "../../types.js";
+import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
 function buildArgs(ctx: TurnContext): string[] {
@@ -35,6 +35,33 @@ function mapStdoutLine(raw: string) {
     return [];
   }
   return mapClaudeEvent(event);
+}
+
+/** `--system-prompt` (not `--append-system-prompt`) because Claude Code's
+ * default system prompt (code-assistant persona) competes with a probe's
+ * instruction and the model tries to "help" instead of just answering it —
+ * tested manually, only the full override works reliably. `haiku`: cheap
+ * and fast is the whole point of a probe, and Claude has a stable alias for
+ * that tier (unlike Codex, whose `models: session-rpc` means this relay has
+ * no static "cheap model" name to reach for — see `codex.ts`'s own
+ * `quickPrompt`). No tools, no MCP, no persistence: a probe never needs any
+ * of the three. */
+function buildQuickPromptArgs(ctx: QuickPromptContext): string[] {
+  return [
+    "-p",
+    ctx.userPrompt,
+    "--system-prompt",
+    ctx.systemPrompt,
+    "--model",
+    "haiku",
+    "--output-format",
+    "text",
+    "--no-session-persistence",
+    "--tools",
+    "",
+    "--dangerously-skip-permissions",
+    "--strict-mcp-config",
+  ];
 }
 
 function classifyFailure(failure: RuntimeFailure): FailureClass {
@@ -114,6 +141,13 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
       })),
   },
   bridges: ["mcp", "permission", "planMarker"],
+  quickPrompt: {
+    kind: "cli",
+    buildArgs: buildQuickPromptArgs,
+    // `--output-format text` already prints nothing but the reply — no
+    // JSONL to pick a final message out of, unlike Codex's `exec --json`.
+    extractReply: (stdout) => stdout.trim() || undefined,
+  },
   exec: {
     kind: "spawnPerTurn",
     promptDelivery: "argv",

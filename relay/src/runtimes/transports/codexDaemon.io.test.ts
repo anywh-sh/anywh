@@ -94,6 +94,7 @@ function fixtureDef(bin: string, overrides: Partial<Pick<AgentRuntimeDef, "ident
     auth: { kind: "session-rpc" },
     permissions: { defaultModeId: "default", modesFor: () => [{ id: "default", labelKey: "mode.default", settings: undefined, pausesForApproval: true }] },
     bridges: [],
+    quickPrompt: { kind: "none" },
     exec: {
       kind: "jsonRpcDaemon",
       framing: "ndjson",

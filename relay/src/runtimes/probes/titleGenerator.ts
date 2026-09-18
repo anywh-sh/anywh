@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executables.js";
+import { runQuickPrompt } from "./quickPrompt.js";
+import type { AgentRuntimeDef } from "../types.js";
 
 const SYSTEM_PROMPT =
   "You are a short title generator for a chat session list, like a browser tab title. The user's " +
@@ -34,66 +34,19 @@ export function fallbackTitle(prompt: string): string | null {
 }
 
 /**
- * `claude -p` call separate from the real session (no `--resume`, no
- * persistence) just to infer a short title from the first prompt — same
- * idea as ChatGPT/Claude.ai, but via CLI/plan instead of a direct paid API
- * (project's golden rule). `--system-prompt` (not
- * `--append-system-prompt`) because Claude Code's default system prompt
- * (code-assistant persona) competes with the instruction and the model
- * tries to "help" instead of just titling — tested manually, only the full
- * override works reliably.
+ * A one-shot call separate from the real session (no `--resume`/no
+ * persistence, whatever that means for `def`'s own CLI) just to infer a
+ * short title from the first prompt — same idea as ChatGPT/Claude.ai, but
+ * via CLI/plan instead of a direct paid API (project's golden rule).
+ * `def.quickPrompt.kind === "none"` degrades straight to `fallbackTitle`,
+ * same as any other failure — a CLI with no one-shot mode isn't a bug here.
  */
-export async function generateTitle(
-  homeOverride: string | undefined,
-  cwd: string,
-  prompt: string,
-): Promise<string | null> {
+export async function generateTitle(def: AgentRuntimeDef, homeOverride: string | undefined, cwd: string, prompt: string): Promise<string | null> {
   const truncated = prompt.length > MAX_PROMPT_CHARS ? prompt.slice(0, MAX_PROMPT_CHARS) : prompt;
 
-  const env = { ...process.env };
-  stripBilledCredentials(env);
-  if (homeOverride) env.HOME = homeOverride;
-  env.PATH = [...EXTRA_PATH_DIRS, env.PATH ?? ""].join(":");
-
-  const child = spawn(
-    AGENT_BIN,
-    [
-      "-p",
-      truncated,
-      "--system-prompt",
-      SYSTEM_PROMPT,
-      "--model",
-      "haiku",
-      "--output-format",
-      "text",
-      "--no-session-persistence",
-      "--tools",
-      "",
-      "--dangerously-skip-permissions",
-      "--strict-mcp-config",
-    ],
-    // Without this, the process inherits the relay's own cwd (systemd's
-    // WorkingDirectory) instead of the session's folder — Claude Code
-    // auto-discovers the CLAUDE.md from there (this project's, anywh) and
-    // the title comes out about the wrong project, even with
-    // `--system-prompt` overriding the persona. Real finding: asking for a
-    // title for a session in `~/mode/storefront` returned "anywh wrapper
-    // Claude multiplataforma" — the wrong cwd is the reason. Same cwd that
-    // the real turn uses (runtimes/defs/claude/session.ts).
-    { env, cwd },
-  );
-
-  let stdout = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdout += chunk.toString();
-  });
-
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", resolve);
-  });
-
-  const title = stdout.trim().replace(/^["']|["']$/g, "");
-  if (exitCode !== 0 || !title) return fallbackTitle(prompt);
+  const result = await runQuickPrompt(def, homeOverride, cwd, SYSTEM_PROMPT, truncated);
+  const reply = result && def.quickPrompt.kind === "cli" ? def.quickPrompt.extractReply(result.stdout) : undefined;
+  const title = reply?.trim().replace(/^["']|["']$/g, "");
+  if (!result || result.exitCode !== 0 || !title) return fallbackTitle(prompt);
   return title;
 }
