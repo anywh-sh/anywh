@@ -71,6 +71,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `bridges` | which of today's three bridge files this agent uses, if any | data |
 | `exec` | the union: how a turn is actually driven | data + pure functions |
 | `classifyFailure` | turns raw failure text/code into one of a fixed set of classes | a pure function |
+| `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category — absent when the CLI never reports enough to calibrate against | data, or absent |
 
 The def's own functions (`buildArgs`, the stream mappers, `thread.start`,
 `turn.start`, `handleServerRequest`, `classifyFailure`, a `models`/`auth`
@@ -244,3 +245,13 @@ could go stale. A fixture with no version is folklore, not a test.
       fixture that names the exact CLI version it was captured from (§8).
 - [ ] `assertCoherent(def)` passes with zero issues before the def is wired
       into `runtimes/registry.ts` for real.
+- [ ] If this def declares `contextAccounting`, its `multiplier`/`perFile`/
+      `emptyDirectoryInflation` constants are calibrated against the real
+      CLI, not guessed — a paired diff (empty directory vs. one holding only
+      the rule file, both runs at least twice to rule out a first-run
+      warm-up cost) against the chosen `encoding`'s raw token count, with the
+      exact CLI version that produced them recorded in a comment next to the
+      constants (a fixture — or a constant — with no version is folklore,
+      not a test). Absent `contextAccounting` is a legitimate answer for a
+      CLI that never reports enough to calibrate against, not a gap to fill
+      in later.
