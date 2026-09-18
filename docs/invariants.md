@@ -10,8 +10,9 @@ make them literally true hasn't landed yet). Each entry says which.
 
 **Enforced** — `no-restricted-syntax` in `relay/eslint.config.js`.
 
-A credential that makes an agent bill per token (`ANTHROPIC_API_KEY`,
-`ANTHROPIC_AUTH_TOKEN` today) must never reach a process this relay spawns —
+A credential that makes an agent bill per token (`ANTHROPIC_API_KEY` and
+`ANTHROPIC_AUTH_TOKEN` for Claude, `OPENAI_API_KEY` for Codex, today) must
+never reach a process this relay spawns —
 not a turn, not a one-shot probe, not the interactive terminal. If one
 leaks, the agent starts drawing on paid API usage instead of the
 subscription its CLI is already logged into, silently, with no error to
@@ -49,21 +50,37 @@ this kind of note goes stale. Two sibling violations that used to live here
 Claude-shaped type) are gone as of the wire normalization below — both
 depend only on `protocol/agent-event.ts` now.
 
-## Directional: a def is pure data + parsers, never a process
+## Enforced: `session/` never branches on an agent's identity or `exec.kind`
 
-**Not yet enforced — today's `runtimes/defs/claude/session.ts` spawns the
-`claude` process directly.** The folder split (`runtimes/defs/claude/`
-holding Claude-specific knowledge, separate from wherever the actual
-`spawn`/stdout-reading logic ends up) exists so that a def's functions —
-building argv, parsing a stream, classifying a failure — can eventually be
-plain data and pure functions, testable against a recorded fixture without
-the real CLI installed and without touching `child_process`, `fs`, `net`,
-or `http`. Getting there means extracting the spawn-and-parse machinery
-into a shared engine that every spawn-per-turn-shaped agent reuses, with
-the def itself reduced to argv-building and event-mapping. That extraction
-hasn't happened yet, so a test asserting "no file under `runtimes/defs/**`
-reaches those four built-ins" would be red on arrival — it lands once the
-engine exists, not before, so it can start green and stay that way.
+**Enforced** — `relay/architecture.test.ts`'s tripwire on `ExecPlan`'s
+variant tags (`"spawnPerTurn"`, `"jsonRpcDaemon"`): a string literal match
+outside `runtimes/` fails the build. `session/` codes against the
+`AgentSessionDriver` interface (`runtimes/sessionDriver.ts`) only —
+`runtimes/createSessionDriver.ts` is the one place outside `registry.ts`
+allowed to look at `exec.kind`, picking `ClaudeSessionDriver` for a
+`spawnPerTurn` def or `CodexSessionDriver` for a `jsonRpcDaemon` one. A def
+that leaked its shape into `session/` (an `if (agentId === 'codex')`,
+anywhere outside `runtimes/`) would be exactly the graft this test exists
+to catch.
+
+## A def is pure data + parsers; a driver is the process
+
+**Partially enforced.** `runtimes/defs/claude/def.ts` (the `AgentRuntimeDef`
+— argv-building, env, capability declarations) is now separate from
+`runtimes/defs/claude/driver.ts` (the `AgentSessionDriver` implementation
+that owns the actual `claude` child process); Codex's `defs/codex.ts` /
+`defs/codexDriver.ts` follow the same split. A def's own functions —
+building argv, parsing a stream, classifying a failure — are pure and
+testable against a recorded fixture with no real CLI installed and no
+`child_process`/`fs`/`net`/`http` (see §8 of `runtimes/README.md`).
+
+What's still directional: today's split is one driver per def, not a
+shared engine that a second `spawnPerTurn`-shaped agent could reuse without
+`createSessionDriver.ts` changing — its own header comment calls this out
+as "honest for a registry of exactly one" on each branch. Generalizing that
+dispatch waits for a real second agent of the same `exec.kind` to design
+against, same reasoning as `docs/architecture.md`'s note on `probes/` being
+agnostic in purpose but Claude-only in today's implementation.
 
 ## Directional: the relay never guards a second turn's context on its own memory
 
@@ -72,10 +89,14 @@ conversation continuity across turns — it resumes via whatever mechanism
 the CLI provides (a session id, a resume flag), rather than replaying
 history itself. A def that reassembled and resent the whole transcript
 "just to be safe" would work, but the token cost lands on the user for
-context the CLI already had. This matters once a second agent's def
-exists: a spawn-per-turn CLI and a long-lived daemon CLI keep continuity in
-different places, and neither should route through the relay reassembling
-state it doesn't need to own.
+context the CLI already had. This is no longer hypothetical: Claude (a
+spawn-per-turn CLI) and Codex (a long-lived JSON-RPC daemon) keep
+continuity in different places — a session id resumed via a flag for one, a
+thread the daemon itself remembers for the other — and neither routes
+through the relay reassembling state it doesn't need to own. Every def
+declares `continuity: { kind: 'cli-resume' }` today; the one declared,
+non-tacit exception is `{ kind: 'relay-transcript' }`, for a CLI with no
+resume of its own — see `runtimes/README.md` §1.
 
 ## Enforced: the wire vocabulary is versioned, and the two copies of the version stay in sync
 

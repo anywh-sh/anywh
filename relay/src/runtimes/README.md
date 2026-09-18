@@ -75,9 +75,16 @@ names in `identity.env.strip`, never to strip them itself.
 The def's own functions (`buildArgs`, the stream mappers, `thread.start`,
 `turn.start`, `handleServerRequest`, `classifyFailure`, a `models`/`auth`
 `parse`) are **pure** — no `spawn`, no `fs`, no `net`, no clock. Effect lives
-only in `runtimes/engines/*.ts` (not written yet) and `runtimes/detection.ts`
-(same). This is what lets a def's test be a table fed a recorded stream
-fixture, with no real CLI installed — see §8.
+in that agent's own `AgentSessionDriver` implementation
+(`runtimes/defs/claude/driver.ts`, `runtimes/defs/codexDriver.ts`) and in
+`runtimes/detection.ts`. `runtimes/createSessionDriver.ts` is the one place
+outside `registry.ts` allowed to branch on `exec.kind`, picking the right
+driver for a def — `session/` only ever sees the `AgentSessionDriver`
+interface (`runtimes/sessionDriver.ts`), never the branch. Today that's one
+driver per def, not a shared engine a second `spawnPerTurn` agent could plug
+into without `createSessionDriver.ts` changing — see its own header comment.
+That a def's functions stay pure regardless is what lets a def's test be a
+table fed a recorded stream fixture, with no real CLI installed — see §8.
 
 Derived rule: **if a field would need to spawn something to answer, it isn't
 a field on the def — it belongs in detection, at runtime.**
@@ -173,9 +180,9 @@ where the relay talks to a process it doesn't control the source of.
 
 ## §7 — the Claude def, read as the worst case
 
-When `runtimes/defs/claude/` eventually grows the shape this contract
-describes (it doesn't yet — see the "directional" entries in
-`docs/invariants.md`), it will be worth reading as the **worst-served**
+`runtimes/defs/claude/` has grown the shape this contract describes — `def.ts`
+(pure) separate from `driver.ts` (the `AgentSessionDriver` implementation
+that actually owns the `claude` process). Read it as the **worst-served**
 member of the registry, not the reference implementation the contract was
 designed around:
 
