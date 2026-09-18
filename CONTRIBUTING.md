@@ -28,7 +28,7 @@ The repo is two independent codebases with no shared code:
 
 | Path | What it is |
 | --- | --- |
-| `relay/` | Node/TypeScript server. Spawns the agent CLI per turn, streams events over WebSocket, persists session state. |
+| `relay/` | Node/TypeScript server. Drives whichever agent CLI a session picked (spawned per turn, or a long-lived daemon — see [`relay/src/runtimes/README.md`](./relay/src/runtimes/README.md) for the contract), streams normalized events over WebSocket, persists session state. |
 | `client/` | React + TypeScript + Tailwind + shadcn/ui, packaged with Tauri for desktop and iOS. |
 | `infra/systemd/` | Optional unit template for running the relay as a service. |
 
