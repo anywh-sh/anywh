@@ -68,10 +68,10 @@ interface TabGroupLayoutProps {
   splitEnabled: boolean;
   onSelect: (tabId: string) => void;
   onFocusGroup: (groupId: string) => void;
-  /** The `+` at the end of a group's strip. Takes the group id because a new
-   * conversation belongs to the strip that was clicked, not to whichever
-   * group happened to be focused — the caller focuses it first, then opens
-   * (see `App.tsx`). */
+  /** The `+` right after a group's tab list. Takes the group id because a
+   * new conversation belongs to the strip that was clicked, not to
+   * whichever group happened to be focused — the caller focuses it first,
+   * then opens (see `App.tsx`). */
   onNewTab: (groupId: string) => void;
   onClose: (tabId: string) => void;
   onMoveTab: (tabId: string, groupId: string, index: number) => void;
