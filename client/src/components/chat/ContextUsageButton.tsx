@@ -126,7 +126,7 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="w-72 p-0">
-        <div className="flex items-center gap-2 border-b border-border-soft bg-accent px-[11px] py-[9px]">
+        <div className="flex items-center gap-2 border-b border-border-soft bg-bg-chrome px-[11px] py-[9px]">
           <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">{copy.label}</span>
           <button
             type="button"
@@ -198,7 +198,7 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
           )}
         </div>
 
-        <div className="border-t border-border-soft bg-accent px-[11px] py-[9px]">
+        <div className="border-t border-border-soft bg-bg-chrome px-[11px] py-[9px]">
           <span className="block truncate font-mono text-[10.5px] text-text-faint">
             {copy.windowNote.replace("{model}", usage.model).replace("{window}", formatTokenCount(usage.contextWindowSize))}
           </span>
