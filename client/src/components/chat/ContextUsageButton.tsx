@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
-import { contextUsageColor, contextUsagePercent, formatTokenCount } from "@/lib/format/contextUsage";
+import { contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
 import type { ContextUsage } from "@/lib/relay/relayClient";
 
 interface ContextUsageButtonProps {
@@ -123,9 +123,14 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
 
       <DropdownMenuContent align="start" className="w-72">
         <DropdownMenuLabel className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between gap-2 text-foreground">
-            <span>{copy.label}</span>
-            <span className="font-mono text-xs">{Math.round(pct)}%</span>
+          <span className="font-mono text-[10px] tracking-wider text-muted-foreground uppercase">{copy.label}</span>
+
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono text-lg text-foreground">{Math.round(pct)}%</span>
+            <span className="flex-1 text-[10.5px] text-muted-foreground">{copy.occupied}</span>
+            <span className="font-mono text-[11.5px] whitespace-nowrap text-foreground">
+              {copy.tokens.replace("{used}", formatTokenCount(usage.usedTokens)).replace("{total}", formatTokenCount(usage.contextWindowSize))}
+            </span>
           </div>
 
           {hasDetailedBreakdown ? (
@@ -143,12 +148,14 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
                   <div key={segment.key} className="flex items-center gap-1.5 border-b border-border-soft py-1 first:pt-0 last:border-b-0">
                     <span className="size-1.5 shrink-0" style={{ backgroundColor: segment.color }} aria-hidden="true" />
                     <span className="flex-1 truncate text-[11.5px] text-foreground">{segment.label}</span>
+                    <span className="w-7 shrink-0 text-right font-mono text-[10px] text-muted-foreground">{formatCategoryPercent(segment.tokens, total)}</span>
                     <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTokenCount(segment.tokens)}</span>
                   </div>
                 ))}
                 <div className="flex items-center gap-1.5 py-1">
                   <span className="size-1.5 shrink-0" style={{ backgroundColor: barColor }} aria-hidden="true" />
                   <span className="flex-1 truncate text-[11.5px] text-foreground">{copy.breakdownConversation}</span>
+                  <span className="w-7 shrink-0 text-right font-mono text-[10px] text-muted-foreground">{formatCategoryPercent(conversationTokens, total)}</span>
                   <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatTokenCount(conversationTokens)}</span>
                 </div>
               </div>
@@ -173,10 +180,9 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
             </>
           )}
 
-          <span className="font-mono text-xs whitespace-nowrap text-foreground">
-            {copy.tokens.replace("{used}", formatTokenCount(usage.usedTokens)).replace("{total}", formatTokenCount(usage.contextWindowSize))}
+          <span className="text-[11px] whitespace-nowrap text-muted-foreground">
+            {copy.windowNote.replace("{model}", usage.model).replace("{window}", formatTokenCount(usage.contextWindowSize))}
           </span>
-          <span className="text-[11px] whitespace-nowrap text-muted-foreground">{usage.model}</span>
         </DropdownMenuLabel>
       </DropdownMenuContent>
     </DropdownMenu>

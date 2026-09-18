@@ -193,6 +193,8 @@ export const ptBr: Dictionary = {
         label: "Janela de contexto",
         ariaLabel: "Janela de contexto: {percent}% usada",
         tokens: "{used} / {total} tokens",
+        occupied: "ocupado",
+        windowNote: "{model} · {window} de janela",
         setup: "Setup: {tokens} ({percent}%)",
         breakdownRules: "Regras",
         breakdownSkills: "Skills",

@@ -594,6 +594,14 @@ export interface Dictionary {
         label: string;
         ariaLabel: string;
         tokens: string;
+        /** The word between the big percentage and the token count on the
+         * popover's headline row (e.g. "67% [occupied] 134k / 200k
+         * tokens"). */
+        occupied: string;
+        /** Footer line: `{model}` and `{window}` (already formatted, e.g.
+         * "200k") are the CLI's own resolved model and this session's
+         * context window size. */
+        windowNote: string;
         /** The popover's "Setup" line — shown only when `baselineTokens` is
          * known (absent for a record written before that field existed, or
          * a resumed session that never got a fresh baseline). `{tokens}`/

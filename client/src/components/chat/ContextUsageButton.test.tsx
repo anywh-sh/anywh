@@ -33,6 +33,24 @@ describe("ContextUsageButton", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("shows the headline percentage, the occupied label and the used/total tokens as one line, before the bar", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText("64%")).toBeInTheDocument();
+    expect(screen.getByText(en.chat.composer.context.occupied)).toBeInTheDocument();
+    expect(screen.getByText("128k / 200k tokens")).toBeInTheDocument();
+  });
+
+  it("shows the model and the window size together in the footer", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText("claude-opus-5 · 200k window")).toBeInTheDocument();
+  });
+
   it("shows the Setup line, with the real percent of the window, only when baselineTokens is known", async () => {
     const user = userEvent.setup();
     render(<ContextUsageButton usage={USAGE_WITH_BASELINE} onOpen={() => {}} />);
@@ -94,6 +112,18 @@ describe("ContextUsageButton", () => {
       expect(screen.getByText(en.chat.composer.context.breakdownSubagents)).toBeInTheDocument();
       expect(screen.getByText(en.chat.composer.context.breakdownSystemPromptTools)).toBeInTheDocument();
       expect(screen.getByText(en.chat.composer.context.breakdownConversation)).toBeInTheDocument();
+    });
+
+    it("shows each category's own share of the window as a percentage, not just its width in the bar", async () => {
+      const user = userEvent.setup();
+      render(<ContextUsageButton usage={CLAUDE_SHAPED_USAGE} onOpen={() => {}} />);
+      await user.click(screen.getByRole("button"));
+
+      expect(screen.getByText("5%")).toBeInTheDocument(); // rules: 9490 / 200000
+      expect(screen.getByText("<1%")).toBeInTheDocument(); // subagents: 614 / 200000
+      expect(screen.getByText("1%")).toBeInTheDocument(); // emptyDirectory: 2233 / 200000
+      expect(screen.getByText("17%")).toBeInTheDocument(); // residual: 33111 / 200000
+      expect(screen.getByText("41%")).toBeInTheDocument(); // conversation: 82552 / 200000
     });
 
     it("never renders a Skills line for a Claude-shaped breakdown (the def declares no skills accounting)", async () => {
