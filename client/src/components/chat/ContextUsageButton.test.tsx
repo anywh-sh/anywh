@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ContextUsageButton } from "./ContextUsageButton";
@@ -12,7 +12,7 @@ const USAGE_WITH_BASELINE: ContextUsage = { ...USAGE, baselineTokens: 45_448 };
 
 describe("ContextUsageButton", () => {
   it("reads the spend and the window on the chip itself, not only in the popover", () => {
-    render(<ContextUsageButton usage={USAGE} />);
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
 
     // The reason the turn indicator carries no token count of its own — so
     // the number has to be legible without opening anything.
@@ -20,13 +20,13 @@ describe("ContextUsageButton", () => {
   });
 
   it("announces the percentage, which the compact label never spells out", () => {
-    render(<ContextUsageButton usage={USAGE} />);
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
 
     expect(screen.getByRole("button")).toHaveAccessibleName(en.chat.composer.context.ariaLabel.replace("{percent}", "64"));
   });
 
   it("renders nothing at all before the session's first turn", () => {
-    const { container } = render(<ContextUsageButton usage={null} />);
+    const { container } = render(<ContextUsageButton usage={null} onOpen={() => {}} />);
 
     // Deliberately absent rather than showing 0% — a session with no history
     // hasn't spent anything, and a zeroed ring reads like a measurement.
@@ -35,7 +35,7 @@ describe("ContextUsageButton", () => {
 
   it("shows the Setup line, with the real percent of the window, only when baselineTokens is known", async () => {
     const user = userEvent.setup();
-    render(<ContextUsageButton usage={USAGE_WITH_BASELINE} />);
+    render(<ContextUsageButton usage={USAGE_WITH_BASELINE} onOpen={() => {}} />);
     await user.click(screen.getByRole("button"));
 
     // 45,448 / 200,000 = 22.724% — rounds to 23.
@@ -44,7 +44,7 @@ describe("ContextUsageButton", () => {
 
   it("omits the Setup line entirely for a usage with no baselineTokens (a record written before this field existed, or a resumed session)", async () => {
     const user = userEvent.setup();
-    render(<ContextUsageButton usage={USAGE} />);
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
     await user.click(screen.getByRole("button"));
 
     expect(screen.queryByText(/^Setup:/)).not.toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("ContextUsageButton", () => {
 
   it("always shows the output-tokens caveat, regardless of baselineTokens", async () => {
     const user = userEvent.setup();
-    render(<ContextUsageButton usage={USAGE} />);
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
     await user.click(screen.getByRole("button"));
 
     expect(screen.getByText(en.chat.composer.context.outputCaveat)).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe("ContextUsageButton", () => {
         WebSearch: { tokens: 100, calls: 1 },
       },
     };
-    render(<ContextUsageButton usage={usage} />);
+    render(<ContextUsageButton usage={usage} onOpen={() => {}} />);
     await user.click(screen.getByRole("button"));
 
     expect(screen.getByText(en.chat.composer.context.topConsumers)).toBeInTheDocument();
@@ -83,9 +83,21 @@ describe("ContextUsageButton", () => {
 
   it("hides the top-consumers section entirely when the session has no attributed source yet", async () => {
     const user = userEvent.setup();
-    render(<ContextUsageButton usage={USAGE} />);
+    render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
     await user.click(screen.getByRole("button"));
 
     expect(screen.queryByText(en.chat.composer.context.topConsumers)).not.toBeInTheDocument();
+  });
+
+  it("calls onOpen every time the popover opens, but not on close", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    render(<ContextUsageButton usage={USAGE} onOpen={onOpen} />);
+
+    await user.click(screen.getByRole("button"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

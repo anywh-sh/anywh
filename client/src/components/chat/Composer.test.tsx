@@ -61,6 +61,7 @@ function Harness() {
         onChangeModel={vi.fn()}
         modelLocked={false}
         contextUsage={null}
+        onRequestContextBreakdown={vi.fn()}
         compactBoundary={null}
         suggestion={null}
       />

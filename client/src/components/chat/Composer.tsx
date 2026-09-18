@@ -81,6 +81,9 @@ interface ComposerProps {
   /** Desktop-only for now — the iOS layout (single attach/text/send line,
    * see isIOS() below) has no toolbar for this to go into. */
   contextUsage: ContextUsage | null;
+  /** Sent once, the first time the context usage popover opens — see
+   * `ContextUsageButton`. */
+  onRequestContextBreakdown: () => void;
   compactBoundary: CompactBoundaryEvent | null;
   /** Next-message suggestion (relay-types.ts) — shown as the composer's
    * placeholder while the field is empty; `Tab` fills it in (see
@@ -476,6 +479,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onChangeModel,
     modelLocked,
     contextUsage,
+    onRequestContextBreakdown,
     compactBoundary,
     suggestion,
     onChangeDraft,
@@ -922,7 +926,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   locked={modelLocked}
                 />
               )}
-              <ContextUsageButton usage={contextUsage} />
+              <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
               <CompactBoundaryToast event={compactBoundary} />
               {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
               {uploadingImage && !isRecording && !isTranscribing && (

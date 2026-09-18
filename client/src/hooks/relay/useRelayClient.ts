@@ -134,6 +134,9 @@ export interface UseRelayClientResult {
   setPermissionMode: (mode: PermissionMode) => void;
   setModel: (model: ModelChoice) => void;
   clearConversation: () => void;
+  /** Sent once, when the context usage popover first opens — see
+   * `RelayClient.requestContextBreakdown`. */
+  requestContextBreakdown: () => void;
   /** Fetches turns older than `beforeCursor` — see
    * `RelayClient.loadOlderHistory`. */
   loadOlderHistory: (beforeCursor: number) => void;
@@ -417,6 +420,10 @@ export function useRelayClient(
     clientRef.current?.clearConversation();
   }, []);
 
+  const requestContextBreakdown = useCallback(() => {
+    clientRef.current?.requestContextBreakdown();
+  }, []);
+
   const dismissSuggestion = useCallback(() => {
     setSuggestion(null);
   }, []);
@@ -469,6 +476,7 @@ export function useRelayClient(
     setPermissionMode,
     setModel,
     clearConversation,
+    requestContextBreakdown,
     loadOlderHistory,
     backgroundJobs,
     cancelBackgroundJob,

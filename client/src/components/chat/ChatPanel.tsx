@@ -323,6 +323,7 @@ export function ChatPanel({
     setPermissionMode,
     setModel,
     clearConversation,
+    requestContextBreakdown,
     loadOlderHistory,
     backgroundJobs,
     cancelBackgroundJob,
@@ -708,6 +709,7 @@ export function ChatPanel({
               onChangeModel={setModel}
               modelLocked={cwdLocked}
               contextUsage={contextUsage}
+              onRequestContextBreakdown={requestContextBreakdown}
               compactBoundary={compactBoundary}
               suggestion={isIOS() ? null : suggestion}
               onChangeDraft={setDraft}
