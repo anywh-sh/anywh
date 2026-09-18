@@ -8,10 +8,18 @@ import { en } from "@/i18n/en";
 
 // Same Tauri shims as sendMessage.test.tsx — ChatPanel calls getCurrentWebview()
 // unconditionally on mount, which throws outside a real Tauri shell.
+// `onDragDropEvent`'s result is chained with `.then` (not `await`) in
+// ChatPanel.tsx, so it has to be a real thenable — `Promise.resolve` gives
+// that without an `async` function that never uses `await`, which is what
+// trips `@typescript-eslint/require-await` on a file with no baselined
+// suppression yet (sendMessage.test.tsx's copy of this shim predates the
+// baseline). `invoke`'s callers all `await` it, and `await` on a plain
+// return value resolves immediately regardless, so it doesn't need the same
+// treatment.
 vi.mock("@tauri-apps/api/webview", () => ({
-  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+  getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
 }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: async () => [] }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: () => [] }));
 
 let relay: FakeRelay;
 
