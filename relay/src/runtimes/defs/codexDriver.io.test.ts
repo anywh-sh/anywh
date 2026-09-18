@@ -46,6 +46,11 @@ interface FixtureBehavior {
     last: { inputTokens: number; cacheWriteInputTokens: number; cachedInputTokens: number; outputTokens: number };
     modelContextWindow: number;
   };
+  /** `turn/start` answers with this JSON-RPC error instead of a normal
+   * result — real shape confirmed live against `codex-cli 0.154.0`:
+   * `turn/start` with a `threadId` the daemon doesn't recognize rejects
+   * with `{code: -32600, message: "thread not found: <id>"}`. */
+  turnStartError?: { code: number; message: string };
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -76,6 +81,10 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
     if (msg.method === "turn/start") {
+      if (behavior.turnStartError) {
+        send({ jsonrpc: "2.0", id: msg.id, error: behavior.turnStartError });
+        continue;
+      }
       turnCounter += 1;
       const turnId = "turn-" + turnCounter;
       send({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: turnId, status: "inProgress" } } });
@@ -229,6 +238,41 @@ test("sendTurn: Turn.status \"failed\" rejects with the real TurnError message, 
     const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
     try {
       await assert.rejects(driver.sendTurn(turnContext(dir), () => {}), /the model refused/);
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("sendTurn: a real 'thread not found' rejection from turn/start clears the threadId, so the next turn starts a fresh thread instead of failing forever", async () => {
+  await withTmpDir(async (dir) => {
+    const logFile = join(dir, "log");
+    writeFileSync(logFile, "");
+    const bin = writeFixture(dir, { turnStartError: { code: -32600, message: "thread not found: stale-thread-1" }, logFile });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost, initialSessionId: "stale-thread-1" });
+    try {
+      assert.equal(driver.getSessionId(), "stale-thread-1");
+      await assert.rejects(driver.sendTurn(turnContext(dir), () => {}), /thread not found/);
+      assert.equal(driver.getSessionId(), undefined, "a dead threadId must not survive the failure it caused");
+      const methods = readFileSync(logFile, "utf8").trim().split("\n");
+      assert.deepEqual(
+        methods.filter((m) => m === "thread/start"),
+        [],
+        "thread/start must not fire for a session that already has a threadId, even one about to prove stale",
+      );
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("sendTurn: every other turn/start failure (not 'thread not found') leaves the threadId alone — the conversation may still be resumable", async () => {
+  await withTmpDir(async (dir) => {
+    const bin = writeFixture(dir, { turnStartError: { code: -32000, message: "rate limit exceeded" } });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost, initialSessionId: "thread-1" });
+    try {
+      await assert.rejects(driver.sendTurn(turnContext(dir), () => {}), /rate limit exceeded/);
+      assert.equal(driver.getSessionId(), "thread-1");
     } finally {
       driver.dispose();
     }
