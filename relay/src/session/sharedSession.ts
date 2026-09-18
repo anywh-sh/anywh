@@ -428,6 +428,7 @@ export class SharedSession implements SessionDriverHost {
     if (!accounting || !this.contextUsage) return;
     const breakdown = await computeContextBreakdown({
       cwd: this.cwd,
+      home: defaultCwd(this.homeOverride),
       ruleFileName: this.def.identity.projectInstructionsFile,
       accounting,
       baselineTokens: this.contextUsage.baselineTokens,

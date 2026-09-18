@@ -416,5 +416,12 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     encoding: "o200k_base",
     rules: { multiplier: 1.0, perFile: 21 },
     emptyDirectoryInflation: 0,
+    // Opposite of Claude: this CLI reads a skill's description into the
+    // prompt (not just its name), but truncates it — a 1,170-token
+    // description cost exactly the same as a 390-token one, both far more
+    // than a 117-token one, pinning the cap here rather than a guess.
+    skills: { descriptionMaxTokens: 180, perEntry: 23, header: 19, dirs: [".codex/skills", ".agents/skills"] },
+    // No `subagents` here: `codex agents` lists live daemon sessions, not
+    // subagent definitions — this CLI has no such concept to measure.
   },
 };
