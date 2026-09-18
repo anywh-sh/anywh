@@ -68,6 +68,27 @@ interface TurnCompletedParams {
  * notification" log line from its `default` branch. */
 const TURN_LIFECYCLE_METHODS = new Set(["turn/started", "turn/completed"]);
 
+/**
+ * `true` for the one error that means "this thread id is dead, not just this
+ * turn" — confirmed live against a real `codex app-server` (`codex-cli
+ * 0.154.0`): a `turn/start` naming a `threadId` the daemon doesn't recognize
+ * rejects with `{code: -32600, message: "thread not found: <id>"}`. Mirrors
+ * `defs/claude/session.ts`'s `isSessionInvalidError` — same shape of bug it
+ * exists to prevent: without this, `sendTurn` keeps sending `turn/start`
+ * against a `threadId` Codex will never again recognize (its own local
+ * thread storage cleared, the thread archived/deleted, a fresh `$CODEX_HOME`
+ * on a new machine, ...), failing every turn forever instead of starting a
+ * fresh thread on the next one.
+ *
+ * Every other failure (`unauthorized`, a rate limit, a crashed daemon, a
+ * network hiccup) says nothing about the thread itself being invalid — the
+ * conversation may still be perfectly resumable once whatever's actually
+ * wrong is fixed, so none of those should ever clear `threadId`.
+ */
+export function isThreadNotFoundError(message: string): boolean {
+  return /thread not found/i.test(message);
+}
+
 function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { exec: JsonRpcDaemonPlan } {
   return def.exec.kind === "jsonRpcDaemon";
 }
@@ -193,6 +214,10 @@ export class CodexSessionDriver implements AgentSessionDriver {
           ? { model: this.model, contextWindowSize: lastUsage.contextWindowSize, usedTokens: lastUsage.prefixTokens }
           : undefined;
       return { stopped: turn.status === "interrupted", lastAssistantText, contextUsage };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isThreadNotFoundError(message)) this.threadId = undefined;
+      throw error;
     } finally {
       this.inFlightTurnId = undefined;
       this.pendingTurn = undefined;
