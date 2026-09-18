@@ -35,6 +35,7 @@ function baseDef(): AgentRuntimeDef {
       modesFor: () => [DEFAULT_MODE],
     },
     bridges: [],
+    quickPrompt: { kind: "none" },
     exec: {
       kind: "spawnPerTurn",
       promptDelivery: "argv",

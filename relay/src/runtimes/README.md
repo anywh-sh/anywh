@@ -70,6 +70,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `permissions` | a function from host platform to available modes, and which one is default | a pure function |
 | `bridges` | which of today's three bridge files this agent uses, if any | data |
 | `exec` | the union: how a turn is actually driven | data + pure functions |
+| `quickPrompt` | how to run a short, isolated one-shot prompt for the relay's own probes (title/suggestion generation) — never a real turn | data + a pure function, or `{ kind: "none" }` |
 | `classifyFailure` | turns raw failure text/code into one of a fixed set of classes | a pure function |
 | `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category — absent when the CLI never reports enough to calibrate against | data, or absent |
 

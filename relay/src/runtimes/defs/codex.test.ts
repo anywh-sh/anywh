@@ -281,3 +281,31 @@ test("handleServerRequest: item/permissions/requestApproval, mcpServer/elicitati
     assert.equal(codexRuntimeDef.exec.handleServerRequest(method, {}, host), undefined);
   }
 });
+
+// ---- quickPrompt — codex exec's one-shot mode, confirmed live against a
+// real logged-in codex-cli 0.154.0 (see codex.ts's own doc comment) --------
+
+test("quickPrompt.buildArgs: folds systemPrompt/userPrompt into one argv string (no --system-prompt equivalent), read-only sandbox, --json", () => {
+  if (codexRuntimeDef.quickPrompt.kind !== "cli") throw new Error("expected a cli quickPrompt");
+  const args = codexRuntimeDef.quickPrompt.buildArgs({ systemPrompt: "You title chats.", userPrompt: "fix the login bug", cwd: "/tmp/project" });
+  assert.deepEqual(args, ["exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--json", "You title chats.\n\nUser text:\nfix the login bug"]);
+});
+
+test("quickPrompt.extractReply: picks the LAST item.completed agent_message out of the JSONL stream", () => {
+  if (codexRuntimeDef.quickPrompt.kind !== "cli") throw new Error("expected a cli quickPrompt");
+  const stdout = [
+    '{"type":"thread.started","thread_id":"t1"}',
+    '{"type":"turn.started"}',
+    '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"first draft"}}',
+    '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Pergunta sobre versão"}}',
+    '{"type":"turn.completed","usage":{"input_tokens":1}}',
+    "",
+  ].join("\n");
+  assert.equal(codexRuntimeDef.quickPrompt.extractReply(stdout), "Pergunta sobre versão");
+});
+
+test("quickPrompt.extractReply: undefined for a blank stream or one with no agent_message item", () => {
+  if (codexRuntimeDef.quickPrompt.kind !== "cli") throw new Error("expected a cli quickPrompt");
+  assert.equal(codexRuntimeDef.quickPrompt.extractReply(""), undefined);
+  assert.equal(codexRuntimeDef.quickPrompt.extractReply('{"type":"turn.started"}\nnot json\n'), undefined);
+});

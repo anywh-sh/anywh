@@ -69,6 +69,10 @@ export const acpRuntimeDraft: AgentRuntimeDef<undefined> = {
     modesFor: () => [{ id: "default", labelKey: "acp.mode.default", settings: undefined, pausesForApproval: true }],
   },
   bridges: [],
+  // Draft-only: no ACP-speaking agent's one-shot mode has been checked yet,
+  // same status as everything else in this file — "none" is honest, not a
+  // placeholder for something missing.
+  quickPrompt: { kind: "none" },
   exec: {
     kind: "jsonRpcDaemon",
     // LSP-style Content-Length framing, not one-JSON-per-line like Codex

@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executables.js";
+import { runQuickPrompt } from "./quickPrompt.js";
+import type { AgentRuntimeDef } from "../types.js";
 
 const SYSTEM_PROMPT =
   "You suggest the next message the user would likely send in a conversation with a code " +
@@ -30,15 +30,17 @@ export function normalizeSuggestion(rawStdout: string, exitCode: number | null):
 }
 
 /**
- * `claude -p` call separate from the real session (no `--resume`, no
- * persistence, `haiku` model) just to suggest a possible next message — same
- * idea as ChatGPT/Claude Code, and the same cost/architecture pattern as
- * `titleGenerator.ts` (project's golden rule: never via a direct
- * paid API). Runs in parallel at the end of every successful turn
- * (SharedSession.runTurn) — not as critical as the title, so any failure
- * (process, parse, "NONE") just results in no suggestion, with no fallback.
+ * A one-shot call separate from the real session (no `--resume`/no
+ * persistence, whatever that means for `def`'s own CLI) just to suggest a
+ * possible next message — same idea as ChatGPT/Claude Code, and the same
+ * cost/architecture pattern as `titleGenerator.ts` (project's golden rule:
+ * never via a direct paid API). Runs in parallel at the end of every
+ * successful turn (`SharedSession.runTurn`) — not as critical as the title,
+ * so any failure (process, parse, "NONE", `quickPrompt.kind === "none"`)
+ * just results in no suggestion, with no fallback.
  */
 export async function generateSuggestion(
+  def: AgentRuntimeDef,
   homeOverride: string | undefined,
   cwd: string,
   lastUserText: string,
@@ -51,43 +53,8 @@ export async function generateSuggestion(
     .filter(Boolean)
     .join("\n\n");
 
-  const env = { ...process.env };
-  stripBilledCredentials(env);
-  if (homeOverride) env.HOME = homeOverride;
-  env.PATH = [...EXTRA_PATH_DIRS, env.PATH ?? ""].join(":");
-
-  const child = spawn(
-    AGENT_BIN,
-    [
-      "-p",
-      prompt,
-      "--system-prompt",
-      SYSTEM_PROMPT,
-      "--model",
-      "haiku",
-      "--output-format",
-      "text",
-      "--no-session-persistence",
-      "--tools",
-      "",
-      "--dangerously-skip-permissions",
-      "--strict-mcp-config",
-    ],
-    // Same reason as the title generator: without this, Claude Code
-    // auto-discovers the CLAUDE.md from the relay's own cwd instead of the
-    // session's.
-    { env, cwd },
-  );
-
-  let stdout = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdout += chunk.toString();
-  });
-
-  const exitCode = await new Promise<number | null>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", resolve);
-  });
-
-  return normalizeSuggestion(stdout, exitCode);
+  const result = await runQuickPrompt(def, homeOverride, cwd, SYSTEM_PROMPT, prompt);
+  if (!result) return undefined;
+  const reply = def.quickPrompt.kind === "cli" ? def.quickPrompt.extractReply(result.stdout) : undefined;
+  return normalizeSuggestion(reply ?? "", result.exitCode);
 }

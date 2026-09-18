@@ -41,7 +41,7 @@
 // `initialize`'s capabilities (see `runtimes/transports/codexDaemon.ts`) —
 // without it every `turn/start` in `workspace-write` mode was rejected
 // outright, confirmed live the same way.
-import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
+import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
@@ -287,6 +287,66 @@ function handleServerRequest(method: string, params: unknown, host: TurnHost): P
   return undefined;
 }
 
+/**
+ * `codex exec`, Codex's own non-interactive one-shot mode — confirmed live
+ * against a real logged-in `codex-cli 0.154.0` rather than guessed:
+ * `--sandbox read-only` alone was enough to make the daemon pick
+ * `approval: never` on its own (nothing a probe would run needs approval
+ * anyway), and a title-generator-shaped prompt came back a clean short
+ * answer with no tool calls despite Codex having no `--system-prompt`-
+ * equivalent override. `systemPrompt`/`userPrompt` are folded into one argv
+ * string instead (labeled "User text:", the same boundary Claude's separate
+ * flag draws structurally) — an honest degrade, not a proven-safe one: text
+ * crafted to look like part of the instruction has no structural wall
+ * stopping it here the way Claude's flag provides one. No `-m`: unlike
+ * Claude's `haiku` alias, `models: session-rpc` above means this relay has
+ * no static "cheap model" name for Codex to reach for, so this uses
+ * whichever model the account already defaults to rather than guessing one
+ * that might not exist. `--ephemeral` skips persisting a session file for a
+ * call nothing ever resumes; `--skip-git-repo-check` since a session's cwd
+ * isn't guaranteed to be a git repo.
+ */
+function buildQuickPromptArgs(ctx: QuickPromptContext): string[] {
+  return ["exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--json", `${ctx.systemPrompt}\n\nUser text:\n${ctx.userPrompt}`];
+}
+
+interface CodexExecItemCompleted {
+  readonly type: "item.completed";
+  readonly item: { readonly type: string; readonly text?: string };
+}
+
+/**
+ * `codex exec --json`'s own JSONL event stream — a different wire format
+ * from `runtimes/streams/codexAppServer.ts`'s JSON-RPC notifications (the
+ * real turn's own protocol), so this curates its own minimal subset rather
+ * than reusing that file's types. Confirmed live that `--json` keeps the
+ * human-readable preamble/transcript entirely off stdout (it goes to
+ * stderr instead) — parsing stdout as JSONL needs no screen-scraping.
+ * Picks the LAST `item.completed` `agent_message`, mirroring
+ * `codexAppServer.ts`'s `mapItemCompleted` picking a turn's final text the
+ * same way. `undefined` for a line that isn't valid JSON or isn't this
+ * shape — same "unrecognized, drop it" tolerance every other Codex mapper
+ * in this codebase already has.
+ */
+function extractCodexQuickPromptReply(stdout: string): string | undefined {
+  let reply: string | undefined;
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const typed = event as Partial<CodexExecItemCompleted>;
+    if (typed.type === "item.completed" && typed.item?.type === "agent_message" && typeof typed.item.text === "string") {
+      reply = typed.item.text;
+    }
+  }
+  return reply;
+}
+
 export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   identity: {
     id: "codex",
@@ -331,6 +391,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     },
   },
   bridges: [],
+  quickPrompt: { kind: "cli", buildArgs: buildQuickPromptArgs, extractReply: extractCodexQuickPromptReply },
   exec: {
     kind: "jsonRpcDaemon",
     framing: "ndjson",

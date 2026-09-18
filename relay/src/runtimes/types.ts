@@ -402,6 +402,43 @@ export interface ContextAccounting {
 }
 
 // ---------------------------------------------------------------------------
+// Quick prompts — a second, much smaller exec-shaped axis for the relay's
+// own probes (title generation, next-message suggestion): a short, isolated
+// one-shot prompt against this CLI, never a real turn (no session
+// persistence, no tool access, no resumable id, nothing a `TurnHost` would
+// need to answer). Kept separate from `ExecPlan` rather than folded into it
+// — a probe has no `TurnContext` (no `permissionModeId`, no resume), and
+// forcing one through `SpawnPerTurnPlan`/`JsonRpcDaemonPlan` would mean
+// inventing fake values for fields that don't apply.
+
+export interface QuickPromptContext {
+  /** Folded in however this CLI actually honors an instruction override —
+   * a literal flag for one CLI (Claude's `--system-prompt`), prepended to
+   * `userPrompt` as plain text for one with no such flag (Codex's `exec`) —
+   * the def's own `buildArgs` decides which. */
+  readonly systemPrompt: string;
+  readonly userPrompt: string;
+  readonly cwd: string;
+}
+
+/** `"none"` means this CLI has no one-shot mode a probe can drive — honest
+ * absence, not a placeholder for something missing; the probe falls back to
+ * its own non-CLI default instead of guessing at a mode that doesn't exist. */
+export type QuickPromptPlan =
+  | {
+      readonly kind: "cli";
+      readonly buildArgs: (ctx: QuickPromptContext) => readonly string[];
+      /** Extracts the model's final reply from raw stdout. Claude's
+       * `--output-format text` needs none of substance (the whole trimmed
+       * stdout already is the answer); a CLI whose one-shot mode only
+       * offers a structured stream (Codex's `exec --json`) picks the final
+       * reply out of it here instead of the probe learning that CLI's wire
+       * format itself. */
+      readonly extractReply: (stdout: string) => string | undefined;
+    }
+  | { readonly kind: "none" };
+
+// ---------------------------------------------------------------------------
 
 export interface AgentRuntimeDef<TPermissionSettings = unknown> {
   readonly identity: RuntimeIdentity;
@@ -412,6 +449,7 @@ export interface AgentRuntimeDef<TPermissionSettings = unknown> {
   readonly permissions: PermissionPolicy<TPermissionSettings>;
   readonly bridges: readonly BridgeId[];
   readonly exec: ExecPlan;
+  readonly quickPrompt: QuickPromptPlan;
   readonly classifyFailure?: (failure: RuntimeFailure) => FailureClass;
   /** Absent for a def with no way to break its baseline down (e.g. a def
    * whose CLI never reports enough to calibrate against) — the client
