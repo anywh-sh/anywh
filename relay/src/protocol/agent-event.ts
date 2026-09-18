@@ -118,10 +118,27 @@ export type AgentEvent =
   | { type: "session_id"; sessionId: string }
   /** Token usage of a single model response (never a turn-wide aggregate —
    * see `runtimes/defs/claude/session.ts`'s own doc comment on why an
-   * aggregate that includes subagents is actively misleading). No current
-   * consumer renders this; `context_usage_state` remains the UI's real
-   * source for context usage. */
-  | { type: "usage"; inputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number }
+   * aggregate that includes subagents is actively misleading). `inputTokens`/
+   * `cacheCreationInputTokens`/`cacheReadInputTokens` are each def's raw,
+   * CLI-specific fields — their semantics differ across agents (Codex's
+   * `cacheReadInputTokens` is a subset of `inputTokens`, not additive like
+   * Claude's), so nothing downstream may sum them across defs.
+   * `prefixTokens`/`outputTokens` are what every def normalizes into: the
+   * one pair of numbers comparable between agents, and the only fields a
+   * cross-agent consumer may read from this event. `outputTokens` is
+   * trustworthy for Codex (a structured daemon notification) but NOT for
+   * Claude today — `claudeStreamJson.ts`'s own comment on `output_tokens`
+   * has the measured numbers showing the live stream reports a near-constant
+   * placeholder regardless of the real reply length. */
+  | {
+      type: "usage";
+      inputTokens: number;
+      cacheCreationInputTokens: number;
+      cacheReadInputTokens: number;
+      prefixTokens: number;
+      outputTokens: number;
+      contextWindowSize?: number;
+    }
   /** A CLI-reported status change with no more specific event of its own yet
    * — today this is only ever a permission-mode change the CLI itself
    * decided (`ExitPlanMode` and friends already sync `permission_mode_state`
@@ -131,6 +148,20 @@ export type AgentEvent =
   /** Claude Code compacted the conversation (automatic, near the context
    * limit, or a manual `/compact`). */
   | { type: "compact_boundary"; trigger: "auto" | "manual"; preTokens: number }
+  /** Synthesized by `SharedSession` (never emitted by a driver directly),
+   * same as `turn_started`/`user_message` — one per tool call `toolUseId`
+   * that contributed to a `usage` delta, carrying that tool's own share of
+   * the tokens injected between it and the previous response.
+   * `toolUseIds` is an array for symmetry with `contextAttribution.ts`'s
+   * internal `Attribution` type, but every event synthesized today carries
+   * exactly one id: a parallel batch of N tool calls fans out into N of
+   * these events, each already divided, rather than one event carrying N
+   * ids and a combined total. `estimated: false` for a delta with exactly
+   * one tool call (the number is exact); `true` when it was divided
+   * proportionally across a parallel batch (the total is still exact, only
+   * the SPLIT across the batch is a model — see the doc comment on
+   * `contextAttribution.ts`'s `divideProportionally`). */
+  | { type: "context_attribution"; toolUseIds: string[]; tokens: number; estimated: boolean }
   /** Synthesized by the session — replaces `turn_error`. A turn-ending
    * failure (spawn error, the CLI exiting non-zero, an unrecoverable `result`
    * error) — never a tool-level error, which is `tool_ended.isError`. */

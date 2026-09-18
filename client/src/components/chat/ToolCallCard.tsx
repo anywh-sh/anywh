@@ -7,12 +7,23 @@ import { DiffView } from "@/components/chat/DiffView";
 import { CodeLines } from "@/components/chat/CodeLines";
 import { languageForPath } from "@/lib/format/codeLanguage";
 import { countDiffLines, relativeToCwd } from "@/lib/relay/toolCallSummary";
+import { formatTokenCount } from "@/lib/format/contextUsage";
 import { useDict } from "@/i18n";
-import type { LogEntry } from "@/hooks/relay/useMessageLog";
+import type { LogEntry, AttributionState } from "@/hooks/relay/useMessageLog";
+
+// The graça is finding the Read that cost 13.5k, not annotating forty Edits
+// averaging ~111 tokens each — anything under this is noise on a card that
+// already has a name, a summary and (for Edit/Write) a diff.
+const ATTRIBUTION_BADGE_FLOOR = 1000;
 
 interface ToolCallCardProps {
   use: Extract<LogEntry, { kind: "tool-use" }>;
   result?: Extract<LogEntry, { kind: "tool-result" }>;
+  /** This call's own share of whatever context-window delta it was part of
+   * — absent until the `context_attribution` event for it arrives (never,
+   * for a call that predates this feature, or one whose delta was too
+   * small to bother attributing at all — see `contextAttribution.ts`). */
+  attribution?: AttributionState;
   /** The session's working directory, so the header can show the file the
    * way the user would name it instead of the relay's absolute path.
    * `null` until the first `cwd_state` arrives. */
@@ -47,7 +58,7 @@ function summaryFor(use: ToolCallCardProps["use"]): string | undefined {
  * shallow-compare) during the streaming of other messages in the
  * conversation. `cwd` is a string and `onOpenPath` comes from a ref in
  * `ChatPanel`, so neither breaks that. */
-export const ToolCallCard = memo(function ToolCallCard({ use, result, cwd, onOpenPath }: ToolCallCardProps) {
+export const ToolCallCard = memo(function ToolCallCard({ use, result, attribution, cwd, onOpenPath }: ToolCallCardProps) {
   const dict = useDict();
   // Edit/Write already open right away — the content (diff or new file) is
   // what matters to see up front, same as Claude Code's automatic preview
@@ -77,11 +88,22 @@ export const ToolCallCard = memo(function ToolCallCard({ use, result, cwd, onOpe
               already short enough to read at a glance. */}
           <Badge variant="secondary">{use.name}</Badge>
           {summary && <span className="truncate font-mono text-[11.5px] text-muted-foreground">{summary}</span>}
-          {counts && (counts.added > 0 || counts.removed > 0) && (
+          {counts && (counts.added > 0 || counts.removed > 0) ? (
             <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] font-medium">
               {counts.added > 0 && <span className="text-diff-add">+{counts.added}</span>}
               {counts.removed > 0 && <span className="text-destructive">−{counts.removed}</span>}
             </span>
+          ) : (
+            attribution &&
+            attribution.tokens >= ATTRIBUTION_BADGE_FLOOR && (
+              <span
+                className="ml-auto shrink-0 font-mono text-[10.5px] font-medium text-text-faint"
+                title={attribution.estimated ? dict.chat.toolCall.attributionEstimatedHint : undefined}
+              >
+                +{formatTokenCount(attribution.tokens)}
+                {attribution.estimated ? "~" : ""}
+              </span>
+            )
           )}
         </button>
         {filePath && onOpenPath && (

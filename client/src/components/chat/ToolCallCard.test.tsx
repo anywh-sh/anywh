@@ -74,4 +74,34 @@ describe("ToolCallCard", () => {
     expect(screen.getByText("npm test")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: en.chat.toolCall.viewFile })).not.toBeInTheDocument();
   });
+
+  function bashUse(): Extract<LogEntry, { kind: "tool-use" }> {
+    return { kind: "tool-use", id: "u3", toolUseId: "t3", name: "Bash", input: { command: "cat big.log" } };
+  }
+
+  it("shows the context-cost badge on a tool with no diff of its own (Read/Bash), the headline case the card exists for", () => {
+    render(<ToolCallCard use={bashUse()} cwd={CWD} attribution={{ tokens: 13_472, estimated: false }} />);
+
+    expect(screen.getByText("+13k")).toBeInTheDocument();
+  });
+
+  it("hides the badge below the ~1,000 token floor — the point is finding the big one, not annotating every small call", () => {
+    render(<ToolCallCard use={bashUse()} cwd={CWD} attribution={{ tokens: 111, estimated: false }} />);
+
+    expect(screen.queryByText(/^\+/)).not.toBeInTheDocument();
+  });
+
+  it("marks a divided (parallel-batch) badge with a trailing ~ and an explanatory tooltip", () => {
+    render(<ToolCallCard use={bashUse()} cwd={CWD} attribution={{ tokens: 5_000, estimated: true }} />);
+
+    const badge = screen.getByText("+5k~");
+    expect(badge).toHaveAttribute("title", en.chat.toolCall.attributionEstimatedHint);
+  });
+
+  it("prefers the diff badge over the context-cost one when both would apply — they don't collide in practice, but if they did, the more specific one wins", () => {
+    render(<ToolCallCard use={editUse()} result={editResult()} cwd={CWD} attribution={{ tokens: 5_000, estimated: false }} />);
+
+    expect(screen.getByText("+2")).toBeInTheDocument();
+    expect(screen.queryByText("+5k")).not.toBeInTheDocument();
+  });
 });

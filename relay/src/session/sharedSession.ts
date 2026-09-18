@@ -12,6 +12,7 @@ import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/p
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
+import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
@@ -255,12 +256,42 @@ export class SharedSession implements SessionDriverHost {
    * here. See the class doc comment on `ChoiceMachine` for the full
    * reasoning on why they're separate slots. */
   private readonly choiceMachine: ChoiceMachine;
+  /** Correlates each response's `usage` with whatever ran since the last
+   * one — see its own doc comment. Seeded once, at construction: a session
+   * whose driver already has a session id (resuming after a relay restart)
+   * never gets a `baseline`, since the conversation didn't start now. */
+  private attributor: ContextAttributor;
+  /** Set at most once per session's lifetime, from `AttributionStep.baseline`
+   * — the conversation's first response's own prefix. Kept separately from
+   * `contextUsage` (rather than folded into it once and forgotten) because
+   * every later turn's `contextUsage` gets fully REPLACED by the driver's
+   * own end-of-turn object, which knows nothing about this field; re-merged
+   * back in every time (see `runTurn`). Restored from `initialContextUsage`
+   * so it survives a relay restart, since `ContextAttributor` itself never
+   * re-derives it for a resumed session (`hasPriorConversation: true`). */
+  private baselineTokens: number | undefined;
+  /** Bounded lookup from a tool call's id to its name — `context_attribution`
+   * only ever carries `toolUseIds`, never a name, so this is what lets a
+   * delta get aggregated into `sourcesByTool` by name. A ring buffer (500
+   * entries, oldest evicted first — `Map` preserves insertion order, so
+   * `.keys().next()` is always the oldest): a very long session's tool
+   * calls are unbounded, but the name is only ever needed for a call whose
+   * `tool_ended`/`usage` pair hasn't been observed yet, which is always
+   * recent. */
+  private readonly toolNameByUseId = new Map<string, string>();
+  private static readonly TOOL_NAME_RING_LIMIT = 500;
+  /** Aggregated by tool NAME (not by call), for the popover's "top
+   * consumers" list — unlike `toolNameByUseId`, never evicted: the key
+   * space is the small, finite set of distinct tool names actually called,
+   * not one entry per call. */
+  private readonly sourcesByTool = new Map<string, { tokens: number; calls: number }>();
 
   constructor(
     private readonly homeOverride: string | undefined,
     private readonly options: SharedSessionOptions,
   ) {
     this.driver = this.createDriver(options.def, options.initialSessionId);
+    this.attributor = new ContextAttributor({ hasPriorConversation: this.driver.getSessionId() !== undefined });
     this.cwd = options.initialCwd;
     this.locked = options.initialLocked;
     this.title = options.initialTitle ?? null;
@@ -269,6 +300,7 @@ export class SharedSession implements SessionDriverHost {
     this.permissionMode = resolveInitialMode(this.permissionModes, options.initialPermissionMode, this.def.permissions.defaultModeId);
     this.model = options.initialModel;
     this.contextUsage = options.initialContextUsage;
+    this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
     this.choiceMachine = new ChoiceMachine(this.clients);
@@ -343,6 +375,19 @@ export class SharedSession implements SessionDriverHost {
     // window, so there's nothing honest to translate it to. The indicator
     // simply won't show anything until this agent's next turn.
     this.contextUsage = undefined;
+    // Same reasoning, extended to attribution: a fresh agent's prefix isn't
+    // comparable to the outgoing one's, `sourcesByTool`/`toolNameByUseId`
+    // are keyed by tool names that may not even exist for the new agent,
+    // and `baselineTokens` was THIS agent's own setup cost, not the new
+    // one's. `hasPriorConversation` mirrors `next.initialSessionId`: this
+    // agent may already have history of its own from before the LAST time
+    // it was active on this session (see this method's own doc comment on
+    // per-`agentId` continuity), in which case it doesn't get a fresh
+    // `baseline` either.
+    this.baselineTokens = undefined;
+    this.toolNameByUseId.clear();
+    this.sourcesByTool.clear();
+    this.attributor = new ContextAttributor({ hasPriorConversation: next.initialSessionId !== undefined });
     this.broadcastAgentState();
     this.broadcastPermissionMode();
     this.broadcastModelState();
@@ -535,6 +580,37 @@ export class SharedSession implements SessionDriverHost {
     this.permissionMode = mode;
     this.options.onPermissionModeChange?.(mode);
     this.broadcastPermissionMode();
+  }
+
+  /** See `toolNameByUseId`'s own doc comment for why this evicts. */
+  private recordToolName(toolUseId: string, name: string): void {
+    if (this.toolNameByUseId.size >= SharedSession.TOOL_NAME_RING_LIMIT) {
+      const oldest = this.toolNameByUseId.keys().next().value;
+      if (oldest !== undefined) this.toolNameByUseId.delete(oldest);
+    }
+    this.toolNameByUseId.set(toolUseId, name);
+  }
+
+  /** Turns one delta's `Attribution` into the `context_attribution` events
+   * `runTurn`'s callback broadcasts, and folds each source into
+   * `sourcesByTool` for the popover's "top consumers" list. One event per
+   * `bySource` entry (see `agent-event.ts`'s own comment on why the wire
+   * variant's `toolUseIds` is an array but every synthesized event carries
+   * exactly one) — a source whose `toolUseId` was never seen via
+   * `tool_started` (evicted from the ring, or genuinely never arrived)
+   * still gets its event, just not a `sourcesByTool` entry: there's no name
+   * to aggregate it under. */
+  private emitContextAttribution(attribution: Attribution): void {
+    for (const source of attribution.bySource) {
+      this.broadcast({
+        type: "agent_event",
+        event: { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated },
+      });
+      const toolName = this.toolNameByUseId.get(source.toolUseId);
+      if (!toolName) continue;
+      const existing = this.sourcesByTool.get(toolName) ?? { tokens: 0, calls: 0 };
+      this.sourcesByTool.set(toolName, { tokens: existing.tokens + source.tokens, calls: existing.calls + 1 });
+    }
   }
 
   /** Thin delegation — see `ChoiceMachine.cancelPendingApproval`. Called
@@ -801,6 +877,30 @@ export class SharedSession implements SessionDriverHost {
 
     this.history.length = target.cutIndex;
     this.contextUsage = undefined;
+    // Both maps restart empty on ANY edit, rewound or not: they're
+    // cumulative sums with no way to "subtract" whatever the discarded
+    // tail of history contributed. Simplification accepted on purpose — a
+    // rewind is rare enough that a top-consumers list that's merely blank
+    // again for a few turns beats a stale one that includes tokens from
+    // history that no longer exists.
+    this.toolNameByUseId.clear();
+    this.sourcesByTool.clear();
+    if (target.turnsBefore > 0) {
+      // Rewound, not reset: the conversation continues (a new session id
+      // that still carries the earlier history) — `baselineTokens` is
+      // still correct (the setup cost didn't change) and stays. Only the
+      // predecessor is now stale (it pointed at a response that no longer
+      // exists), so it's dropped the same way a resumed session's is —
+      // `hasPriorConversation: true` never re-arms `baseline`.
+      this.attributor = new ContextAttributor({ hasPriorConversation: true });
+    } else {
+      // Truncating back to before the first turn (`driver.resetSessionId()`
+      // above) starts a genuinely new conversation — the next response
+      // should get its own `baseline`, same as a session created from
+      // scratch.
+      this.baselineTokens = undefined;
+      this.attributor = new ContextAttributor({ hasPriorConversation: false });
+    }
     this.broadcastContextUsageReset();
 
     // Syncs OTHER devices connected to this session to the truncated point
@@ -843,6 +943,13 @@ export class SharedSession implements SessionDriverHost {
       this.history.length = 0;
       this.historyCleared = true;
       this.contextUsage = undefined;
+      this.baselineTokens = undefined;
+      this.toolNameByUseId.clear();
+      this.sourcesByTool.clear();
+      // Same reasoning as performEdit's turnsBefore === 0 branch: `/clear`
+      // resets the session id, so the next turn is a genuinely new
+      // conversation and gets its own `baseline`.
+      this.attributor = new ContextAttributor({ hasPriorConversation: false });
       this.options.onSessionIdClear?.();
       // Same reasoning as the session_id/history reset above: the title
       // described the conversation that no longer exists. Also rearms
@@ -962,6 +1069,31 @@ export class SharedSession implements SessionDriverHost {
         if (agentEvent.type === "status" && agentEvent.permissionMode !== undefined) {
           this.applyPermissionModeFromCli(agentEvent.permissionMode);
         }
+        if (agentEvent.type === "tool_started" && agentEvent.toolUseId) {
+          this.recordToolName(agentEvent.toolUseId, agentEvent.name);
+        }
+        // Live chip during the turn (§6.1: today's gap — 13k of context can
+        // disappear into a single tool call with no feedback until the turn
+        // ends). `contextWindowSize` comes from this step when the def
+        // reports it per-response (Codex) or, failing that, whatever this
+        // session's own last completed turn already established (Claude) —
+        // never a made-up number. Skipped entirely (not broadcast at a
+        // wrong/guessed window size) when neither is known yet, which only
+        // happens on a session's very first turn before its first `result`.
+        // Never calls `onContextUsageChange` here — that would persist to
+        // disk on every tool call; the existing end-of-turn write below
+        // already covers persistence once per turn.
+        const step = this.attributor.observe(agentEvent);
+        if (step) {
+          if (step.baseline !== undefined) this.baselineTokens = step.baseline;
+          const contextWindowSize = step.contextWindowSize ?? this.contextUsage?.contextWindowSize;
+          const model = this.contextUsage?.model ?? this.model;
+          if (contextWindowSize !== undefined && model !== undefined) {
+            this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
+            this.broadcastContextUsage();
+          }
+          if (step.attribution) this.emitContextAttribution(step.attribution);
+        }
         this.broadcast({ type: "agent_event", event: agentEvent });
         // Lets the `anywh-bg` job tracker (owned by
         // `SessionManager`) see every event of every turn, looking for
@@ -974,8 +1106,18 @@ export class SharedSession implements SessionDriverHost {
       const sessionId = this.driver.getSessionId();
       if (sessionId) this.options.onSessionIdChange?.(sessionId);
       if (contextUsage) {
-        this.contextUsage = contextUsage;
-        this.options.onContextUsageChange?.(contextUsage);
+        // The driver's own object is authoritative for model/window/used
+        // (it knows the canonical resolved model, this class doesn't) but
+        // carries no opinion on `baselineTokens`/`sources` — re-attach
+        // them, or the live-update merge above would otherwise be the only
+        // place either field ever survives, and they'd vanish the moment a
+        // real turn ends.
+        this.contextUsage = {
+          ...contextUsage,
+          ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}),
+          ...(this.sourcesByTool.size > 0 ? { sources: Object.fromEntries(this.sourcesByTool) } : {}),
+        };
+        this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
       }
       this.broadcast({ type: "agent_event", event: { type: "turn_ended", stopped } });

@@ -265,6 +265,82 @@ if (args[0] === "--version") {
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
     process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_TWO_USAGE_EVENTS && outputFormat === "stream-json") {
+    // Two main-thread assistant events with distinct prefixes, before the
+    // turn ends — exercises the live chip (SharedSession.runTurn's
+    // ContextAttributor wiring), which needs to see more than one `usage`
+    // mid-turn to prove it updates before `turn_ended`, not just once at
+    // the end from the `result` event.
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: "thinking out loud" }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: replyText }],
+        usage: { input_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "result",
+      session_id: sessionId,
+      is_error: false,
+      result: replyText,
+      modelUsage: { [model]: { contextWindow: 200000 } },
+    });
+    process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_PARALLEL_TOOLS && outputFormat === "stream-json") {
+    // Two tool_use blocks in ONE assistant message (real parallel tool
+    // calls, not two sequential turns) followed by both tool_results in one
+    // `user` message — exercises SharedSession's context_attribution
+    // fan-out for a real batch, not the pure unit test's synthetic one.
+    // Deliberately different content lengths (1 char vs 10) so a test can
+    // tell the proportional division apart from an even split.
+    const toolUseIdA = "toolu_parallel_a";
+    const toolUseIdB = "toolu_parallel_b";
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [
+          { type: "tool_use", id: toolUseIdA, name: "Bash", input: { command: "echo a" } },
+          { type: "tool_use", id: toolUseIdB, name: "Bash", input: { command: "echo bbbbbbbbbb" } },
+        ],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "user",
+      session_id: sessionId,
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: toolUseIdA, content: "a", is_error: false },
+          { type: "tool_result", tool_use_id: toolUseIdB, content: "bbbbbbbbbb", is_error: false },
+        ],
+      },
+    });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: replyText }],
+        usage: { input_tokens: 60, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "result",
+      session_id: sessionId,
+      is_error: false,
+      result: replyText,
+      modelUsage: { [model]: { contextWindow: 200000 } },
+    });
+    process.exit(0);
   } else {
     emit({
       type: "assistant",

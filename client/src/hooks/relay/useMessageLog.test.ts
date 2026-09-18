@@ -120,7 +120,7 @@ describe("useMessageLog", () => {
     const { result } = renderHook(() => useMessageLog());
     const noopEvents: AgentEvent[] = [
       { type: "session_id", sessionId: "s1" },
-      { type: "usage", inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+      { type: "usage", inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, prefixTokens: 1, outputTokens: 1 },
       { type: "status", permissionMode: "acceptEdits" },
       { type: "compact_boundary", trigger: "auto", preTokens: 100 },
       { type: "thinking", thinking: "hmm" },
@@ -157,6 +157,42 @@ describe("useMessageLog", () => {
     act(() => result.current.handleTurnError("boom"));
 
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "error", message: "boom" }]);
+  });
+
+  it("context_attribution updates attributionByToolUseId, never entries — it isn't a message", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1"], tokens: 13_472, estimated: false }));
+
+    expect(result.current.attributionByToolUseId).toEqual({ t1: { tokens: 13_472, estimated: false } });
+    expect(result.current.entries).toEqual([]);
+  });
+
+  it("context_attribution with more than one toolUseId sets the same entry for each — the wire shape allows it even though nothing synthesizes it that way today", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1", "t2"], tokens: 100, estimated: true }));
+
+    expect(result.current.attributionByToolUseId).toEqual({
+      t1: { tokens: 100, estimated: true },
+      t2: { tokens: 100, estimated: true },
+    });
+  });
+
+  it("a later context_attribution for the same toolUseId overwrites the earlier one", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1"], tokens: 100, estimated: true }));
+    act(() => result.current.handleEvent({ type: "context_attribution", toolUseIds: ["t1"], tokens: 250, estimated: false }));
+
+    expect(result.current.attributionByToolUseId).toEqual({ t1: { tokens: 250, estimated: false } });
+  });
+
+  it("an AgentEvent variant the client doesn't recognize (protocol skew) is ignored, not a crash — the whole reason WS_PROTOCOL_VERSION exists is to keep this from happening for real, but the reducer stays safe on its own too", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.addUserMessage("before", undefined));
+    // Simulates a relay newer than this client build — a variant that
+    // doesn't exist in this build's AgentEvent union at all.
+    act(() => result.current.handleEvent({ type: "some_future_variant" } as unknown as AgentEvent));
+
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "user", text: "before" }]);
   });
 
   it("editUserMessage truncates entries at the target id and pushes the new text", () => {

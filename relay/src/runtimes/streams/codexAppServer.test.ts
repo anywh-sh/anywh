@@ -115,9 +115,30 @@ test("thread/tokenUsage/updated maps the LAST response's breakdown, renaming Cod
       modelContextWindow: 200000,
     },
   };
-  assert.deepEqual(mapCodexNotification("thread/tokenUsage/updated", params), [
-    { type: "usage", inputTokens: 100, cacheCreationInputTokens: 5, cacheReadInputTokens: 20 },
-  ]);
+  const [usage] = mapCodexNotification("thread/tokenUsage/updated", params);
+  assert.deepEqual(usage, {
+    type: "usage",
+    inputTokens: 100,
+    cacheCreationInputTokens: 5,
+    cacheReadInputTokens: 20,
+    prefixTokens: 100,
+    outputTokens: 15,
+    contextWindowSize: 200000,
+  });
+});
+
+test("thread/tokenUsage/updated computes prefixTokens from inputTokens alone, never summed with cachedInputTokens — Codex's cache slice is a subset of input, not additive like Claude's", () => {
+  const params = {
+    tokenUsage: {
+      last: { totalTokens: 120, inputTokens: 100, cachedInputTokens: 20, cacheWriteInputTokens: 5, outputTokens: 15, reasoningOutputTokens: 0 },
+      modelContextWindow: 200000,
+    },
+  };
+  const [usage] = mapCodexNotification("thread/tokenUsage/updated", params);
+  assert.equal(usage?.type, "usage");
+  // A naive sum (input + cacheWrite + cachedInput) would report 125 — the
+  // double-count bug this mapper exists to avoid.
+  assert.strictEqual(usage?.type === "usage" ? usage.prefixTokens : undefined, 100);
 });
 
 test("thread/tokenUsage/updated with no 'last' breakdown produces nothing", () => {

@@ -1,4 +1,4 @@
-import { test, before, after } from "node:test";
+import { test, before, after, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSessionAndCollectUntil, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
@@ -20,6 +20,10 @@ before(async () => {
 
 after(async () => {
   await server.close();
+});
+
+afterEach(() => {
+  delete process.env.FAKE_CLAUDE_PARALLEL_TOOLS;
 });
 
 test("the connection burst includes agent_state, defaulting to claude", async () => {
@@ -83,4 +87,40 @@ test("switching agents mid-session doesn't touch the transcript a prior turn alr
     findAgentEvent(historyPage.messages, "text"),
     "the turn sent before switching agents must still be in the session's history, not reset by the agent switch",
   );
+});
+
+test("baselineTokens/sources don't leak across an agent switch, even switching back to the same agent", async () => {
+  const socket = await connectSessionAndCollectUntil(server.port, "session-agent-attribution-reset", (message) => message.type === "caught_up").then(
+    (r) => r.socket,
+  );
+
+  // Establishes claude's baseline, then attributes a real batch to "Bash".
+  sendUserMessage(socket, "hello");
+  await collectUntil(socket, isTurnEnded);
+  process.env.FAKE_CLAUDE_PARALLEL_TOOLS = "1";
+  sendUserMessage(socket, "run two commands in parallel");
+  const withSources = await collectUntil(socket, isTurnEnded);
+  delete process.env.FAKE_CLAUDE_PARALLEL_TOOLS;
+  const usageWithSources = withSources.filter((m) => m.type === "context_usage_state").at(-1) as
+    | { usage: { sources?: Record<string, unknown> } }
+    | undefined;
+  assert.ok(usageWithSources?.usage.sources?.Bash, "sanity check: the batch turn really did attribute something to Bash");
+
+  // Switch away and back — `switchAgent` fires twice, `sharedSession.ts`'s
+  // own comment on why this must still reset even switching back to an
+  // agent with pre-existing history (its OWN history, never this session's
+  // Bash aggregate from a moment ago).
+  socket.send(JSON.stringify({ type: "set_agent", agentId: "codex" }));
+  await collectUntil(socket, (message) => message.type === "permission_mode_state");
+  socket.send(JSON.stringify({ type: "set_agent", agentId: "claude" }));
+  await collectUntil(socket, (message) => message.type === "permission_mode_state");
+
+  sendUserMessage(socket, "hello again");
+  const afterSwitch = await collectUntil(socket, isTurnEnded);
+  const usageAfterSwitch = afterSwitch.filter((m) => m.type === "context_usage_state").at(-1) as
+    | { usage: { sources?: Record<string, unknown>; baselineTokens?: number } }
+    | undefined;
+  assert.equal(usageAfterSwitch?.usage.sources, undefined, "the stale Bash aggregate from before the switch must not survive it");
+
+  socket.close();
 });

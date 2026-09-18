@@ -571,6 +571,7 @@ export function ChatPanel({
         <MessageLog
           entries={log.entries}
           streamingEntries={log.streamingEntries}
+          attributionByToolUseId={log.attributionByToolUseId}
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}

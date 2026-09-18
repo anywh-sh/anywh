@@ -415,6 +415,10 @@ export interface Dictionary {
       running: string;
       usingTools: string;
       usedTools: string;
+      /** Tooltip on the context-cost badge (`+13.5k`) when it was divided
+       * proportionally across a parallel batch of tool calls, rather than
+       * being this one call's own exact number. */
+      attributionEstimatedHint: string;
     };
     code: {
       copy: string;
@@ -590,6 +594,19 @@ export interface Dictionary {
         label: string;
         ariaLabel: string;
         tokens: string;
+        /** The popover's "Setup" line — shown only when `baselineTokens` is
+         * known (absent for a record written before that field existed, or
+         * a resumed session that never got a fresh baseline). `{tokens}`/
+         * `{percent}` are the setup cost and its share of the window. */
+        setup: string;
+        /** Caveat below the breakdown: `usedTokens` excludes the size of
+         * the LAST response (same as Claude Code's own statusline) — it
+         * shows up as part of the total on the turn after. */
+        outputCaveat: string;
+        /** Heading over the top-5-by-tokens list built from
+         * `ContextUsage.sources` — absent (and the whole section hidden)
+         * for a session with no attributed tool call yet. */
+        topConsumers: string;
       };
       /** The three ways voice input fails. The first is a state the user can
        * fix and is written as an instruction; the other two carry whatever

@@ -120,7 +120,9 @@ interface ThreadTokenUsageUpdatedParams {
       inputTokens: number;
       cacheWriteInputTokens: number;
       cachedInputTokens: number;
+      outputTokens: number;
     };
+    modelContextWindow?: number;
   };
 }
 
@@ -215,9 +217,13 @@ function toolInputFrom(value: unknown): ToolInput {
  * aggregate (see `runtimes/defs/claude/session.ts`'s own doc comment on why
  * an aggregate is actively misleading) — `tokenUsage.total`, the running sum
  * across the whole thread, is deliberately not used here for the same
- * reason. Field correspondence: Codex's `cacheWriteInputTokens` is Claude's
- * `cache_creation_input_tokens`, and `cachedInputTokens` is
- * `cache_read_input_tokens`.
+ * reason. Field correspondence by *name* only, not by *semantics*: Codex's
+ * `cacheWriteInputTokens` lands in `cacheCreationInputTokens` and
+ * `cachedInputTokens` lands in `cacheReadInputTokens`, but unlike Claude's
+ * fields — which are additive slices of the prefix — Codex's
+ * `cachedInputTokens` is already a *subset* of `inputTokens`. Summing all
+ * three the way Claude's mapper does would double-count the cached slice, so
+ * `prefixTokens` here is `inputTokens` alone.
  */
 function mapTokenUsageUpdated(params: ThreadTokenUsageUpdatedParams): AgentEvent[] {
   const last = params?.tokenUsage?.last;
@@ -228,6 +234,9 @@ function mapTokenUsageUpdated(params: ThreadTokenUsageUpdatedParams): AgentEvent
       inputTokens: last.inputTokens,
       cacheCreationInputTokens: last.cacheWriteInputTokens,
       cacheReadInputTokens: last.cachedInputTokens,
+      prefixTokens: last.inputTokens,
+      outputTokens: last.outputTokens,
+      ...(params.tokenUsage.modelContextWindow !== undefined ? { contextWindowSize: params.tokenUsage.modelContextWindow } : {}),
     },
   ];
 }

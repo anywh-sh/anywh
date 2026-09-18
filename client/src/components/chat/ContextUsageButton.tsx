@@ -33,6 +33,23 @@ export function ContextUsageButton({ usage }: ContextUsageButtonProps) {
   const copy = dict.chat.composer.context;
   const pct = contextUsagePercent(usage);
   const barColor = contextUsageColor(pct);
+  // Setup segment only renders when `baselineTokens` is known — absent for
+  // a record written before that field existed, or a resumed session that
+  // never got a fresh baseline (see ContextAttributor's own doc comment).
+  // Clamped defensively: `usedTokens` should never fall below `baselineTokens`
+  // (the conversation only grows from there), but a mid-flight live update
+  // and the end-of-turn merge come from two different sources, so this
+  // guards against a transient underflow reading as a negative width.
+  const setupPct =
+    usage.baselineTokens !== undefined && usage.contextWindowSize > 0
+      ? Math.min(pct, Math.max(0, (usage.baselineTokens / usage.contextWindowSize) * 100))
+      : 0;
+  const conversationPct = Math.max(0, pct - setupPct);
+  const topSources = usage.sources
+    ? Object.entries(usage.sources)
+        .sort((a, b) => b[1].tokens - a[1].tokens)
+        .slice(0, 5)
+    : [];
 
   return (
     <DropdownMenu
@@ -57,23 +74,45 @@ export function ContextUsageButton({ usage }: ContextUsageButtonProps) {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-56">
+      <DropdownMenuContent align="start" className="w-72">
         <DropdownMenuLabel className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2 text-foreground">
             <span>{copy.label}</span>
             <span className="font-mono text-xs">{Math.round(pct)}%</span>
           </div>
-          {/* Same color function as the ring (contextUsageColor) — the bar
-           * inside here is just the linear version of the same data, never diverges. */}
-          <div className="h-1.5 w-full overflow-hidden bg-border">
-            <div style={{ width: `${String(Math.min(100, Math.max(0, pct)))}%`, backgroundColor: barColor }} className="h-full" />
+          {/* Same color function as the ring (contextUsageColor) for the
+           * conversation segment — categorical now (setup / conversation /
+           * free), unlike the ring, which stays severity-only by total %:
+           * they diverge on purpose, this bar shows what the ring can't. */}
+          <div className="flex h-1.5 w-full overflow-hidden bg-border">
+            {setupPct > 0 && <div style={{ width: `${String(setupPct)}%` }} className="h-full bg-text-faint" />}
+            <div style={{ width: `${String(conversationPct)}%`, backgroundColor: barColor }} className="h-full" />
           </div>
           <span className="font-mono text-xs whitespace-nowrap text-foreground">
             {copy.tokens
               .replace("{used}", formatTokenCount(usage.usedTokens))
               .replace("{total}", formatTokenCount(usage.contextWindowSize))}
           </span>
+          {usage.baselineTokens !== undefined && (
+            <span className="font-mono text-[11px] whitespace-nowrap text-muted-foreground">
+              {copy.setup.replace("{tokens}", formatTokenCount(usage.baselineTokens)).replace("{percent}", String(Math.round(setupPct)))}
+            </span>
+          )}
           <span className="text-[11px] whitespace-nowrap text-muted-foreground">{usage.model}</span>
+          <span className="text-[10px] text-text-faint">{copy.outputCaveat}</span>
+          {topSources.length > 0 && (
+            <div className="mt-1 flex flex-col gap-1 border-t border-border-soft pt-1.5">
+              <span className="text-[11px] text-muted-foreground">{copy.topConsumers}</span>
+              {topSources.map(([name, source]) => (
+                <div key={name} className="flex items-center justify-between gap-2 font-mono text-[11px] text-foreground">
+                  <span className="truncate">{name}</span>
+                  <span className="shrink-0 text-text-faint">
+                    {formatTokenCount(source.tokens)} · {source.calls}×
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </DropdownMenuLabel>
       </DropdownMenuContent>
     </DropdownMenu>

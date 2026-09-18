@@ -8,11 +8,16 @@ import { ToolCallGroup, type ToolPair } from "@/components/chat/ToolCallGroup";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
 import { cn } from "@/lib/utils";
 import { useDict, type Dictionary } from "@/i18n";
-import type { LogEntry } from "@/hooks/relay/useMessageLog";
+import type { LogEntry, AttributionState } from "@/hooks/relay/useMessageLog";
 
 interface MessageLogProps {
   entries: LogEntry[];
   streamingEntries: LogEntry[];
+  /** Every tool call's own share of a context-window delta seen so far,
+   * keyed by `toolUseId` — see `useMessageLog`'s own doc comment on
+   * `AttributionState` for why this is a separate map instead of living on
+   * the `tool-result` entry itself. */
+  attributionByToolUseId: Record<string, AttributionState>;
   /** Whether there are turns older than what's already loaded —
    * controls whether scrolling near the top still triggers a fetch. */
   hasMoreHistory: boolean;
@@ -81,7 +86,7 @@ function isGroupable(pair: ToolPair): boolean {
  * adjacency in the log (contiguous = no text/error block in between), not
  * by turn: it works identically live and on replay, without needing a
  * concept the protocol doesn't provide. */
-function buildRenderItems(entries: LogEntry[]): RenderItem[] {
+function buildRenderItems(entries: LogEntry[], attributionByToolUseId: Record<string, AttributionState>): RenderItem[] {
   const resultByToolUseId = new Map<string, Extract<LogEntry, { kind: "tool-result" }>>();
   for (const entry of entries) {
     if (entry.kind === "tool-result" && entry.toolUseId) resultByToolUseId.set(entry.toolUseId, entry);
@@ -99,7 +104,11 @@ function buildRenderItems(entries: LogEntry[]): RenderItem[] {
   for (const entry of entries) {
     if (entry.kind === "tool-result") continue;
     if (entry.kind === "tool-use") {
-      const pair: ToolPair = { use: entry, result: entry.toolUseId ? resultByToolUseId.get(entry.toolUseId) : undefined };
+      const pair: ToolPair = {
+        use: entry,
+        result: entry.toolUseId ? resultByToolUseId.get(entry.toolUseId) : undefined,
+        attribution: entry.toolUseId ? attributionByToolUseId[entry.toolUseId] : undefined,
+      };
       if (isGroupable(pair)) {
         buffer.push(pair);
       } else {
@@ -135,7 +144,7 @@ function renderItem(item: RenderItem, userActions: UserActionHandlers, dict: Dic
   if (item.kind === "tool") {
     return (
       <LogEntryRow key={item.use.id}>
-        <ToolCallCard use={item.use} result={item.result} cwd={userActions.cwd} onOpenPath={userActions.onOpenPath} />
+        <ToolCallCard use={item.use} result={item.result} attribution={item.attribution} cwd={userActions.cwd} onOpenPath={userActions.onOpenPath} />
       </LogEntryRow>
     );
   }
@@ -224,6 +233,7 @@ function renderItem(item: RenderItem, userActions: UserActionHandlers, dict: Dic
 export const MessageLog = memo(function MessageLog({
   entries,
   streamingEntries,
+  attributionByToolUseId,
   hasMoreHistory,
   loadingOlderHistory,
   onLoadOlderHistory,
@@ -245,7 +255,7 @@ export const MessageLog = memo(function MessageLog({
   // committed (see reducer in useMessageLog) — memoizing here avoids
   // recomputing the tool-use/tool-result pairing on every streaming token,
   // when only `streamingEntries` changes.
-  const items = useMemo(() => buildRenderItems(entries), [entries]);
+  const items = useMemo(() => buildRenderItems(entries, attributionByToolUseId), [entries, attributionByToolUseId]);
 
   const allItems = useMemo<RenderItem[]>(
     () => [...items, ...streamingEntries.map((entry): RenderItem => ({ kind: "single", entry }))],

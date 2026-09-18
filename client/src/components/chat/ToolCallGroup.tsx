@@ -3,11 +3,12 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { useDict } from "@/i18n";
-import type { LogEntry } from "@/hooks/relay/useMessageLog";
+import type { LogEntry, AttributionState } from "@/hooks/relay/useMessageLog";
 
 export type ToolPair = {
   use: Extract<LogEntry, { kind: "tool-use" }>;
   result?: Extract<LogEntry, { kind: "tool-result" }>;
+  attribution?: AttributionState;
 };
 
 interface ToolCallGroupProps {
@@ -43,7 +44,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({ items, cwd, onOpenPat
       {open && (
         <div className="flex flex-col gap-1 border-t border-border-soft p-1.5">
           {items.map((item) => (
-            <ToolCallCard key={item.use.id} use={item.use} result={item.result} cwd={cwd} onOpenPath={onOpenPath} />
+            <ToolCallCard key={item.use.id} use={item.use} result={item.result} attribution={item.attribution} cwd={cwd} onOpenPath={onOpenPath} />
           ))}
         </div>
       )}

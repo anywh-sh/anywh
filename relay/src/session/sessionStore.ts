@@ -46,6 +46,26 @@ export interface ContextUsage {
    * for the statusline's `used_percentage` (excludes `output_tokens` on
    * purpose). */
   usedTokens: number;
+  /** The conversation's first response's own `usedTokens` — system prompt +
+   * tools + MCP + skills/memory + the first message, all already paid for
+   * before anything else happened. Optional: absent for a record written
+   * before this field existed, and never backfilled for a session that was
+   * already mid-conversation when it shipped (there's no way to learn a
+   * conversation's first response after the fact). Set at most once per
+   * conversation (`ContextAttributor`'s `baseline`) — a `/clear` or editing
+   * back to the first message starts a new one and gets its own. */
+  baselineTokens?: number;
+  /** Cumulative tokens attributed to each tool NAME across the
+   * conversation so far (`SharedSession`'s `sourcesByTool`) — the popover's
+   * "top consumers" list. Optional for the same reasons as `baselineTokens`
+   * (absent before this field existed) and additionally absent whenever
+   * nothing has been attributed to a name yet (a session with no tool
+   * calls, or where every `toolUseId` seen so far aged out of the
+   * name-lookup ring before its delta arrived). Restarts empty on `/clear`
+   * or editing back before the first message — same lifetime as
+   * `baselineTokens`, but also on a mid-conversation rewind, where there's
+   * no way to "subtract" a discarded tail's contribution back out. */
+  sources?: Record<string, { tokens: number; calls: number }>;
 }
 
 /** No fixed union: this file doesn't know the full set of agent ids
@@ -108,8 +128,10 @@ export interface SessionEntry {
    * per-model limit) only exists in `claude -p`'s live stdout, it's never
    * persisted in the transcript. That's why it needs to be recorded here on
    * every turn, otherwise it disappears for the client until the next turn
-   * runs. */
-  contextUsage?: ContextUsage;
+   * runs. Keyed by `agentId`, same reasoning as `sessionId`/`permissionMode`/
+   * `model` above — a record written before this was per-agent is migrated
+   * so its one value lands under `DEFAULT_AGENT_ID`'s key (see `load()`). */
+  contextUsage?: Record<AgentId, ContextUsage>;
   /** Text typed into the composer but not yet sent, kept so it survives an
    * app crash/restart — see the prompt-draft feature. Optional for the same
    * reason as `permissionMode`/`model`: tolerates records written before
@@ -201,6 +223,27 @@ function isPreAgentRecord(value: object): value is PreAgentSessionRecord {
   );
 }
 
+/** Shape prior to this change: `agentId`/`sessionId`/`permissionMode`/`model`
+ * are already per-agent, but `contextUsage` is still flat — one session, one
+ * `ContextUsage`, not keyed by `agentId`. Every session file written between
+ * the agent-keying migration above and this one is this shape. */
+type PreContextUsageAgentRecord = Record<string, Omit<SessionEntry, "contextUsage"> & { contextUsage?: ContextUsage }>;
+
+/** Distinguishes the old flat `ContextUsage` from the new `Record<AgentId,
+ * ContextUsage>` by checking for `contextWindowSize` directly on
+ * `contextUsage` — only the flat shape has it at that level; the new shape's
+ * own keys are agent ids (`"claude"`, `"codex"`, ...), and no agent id is
+ * ever literally `"contextWindowSize"`. `some`, not `every`: `contextUsage`
+ * is optional per session, so most entries may not have one at all — the
+ * check only needs one entry in the old shape to know the whole file is. */
+function hasFlatContextUsage(value: object): value is PreContextUsageAgentRecord {
+  return Object.values(value).some((entry) => {
+    if (typeof entry !== "object" || entry === null || !("contextUsage" in entry)) return false;
+    const usage = (entry as { contextUsage?: unknown }).contextUsage;
+    return typeof usage === "object" && usage !== null && "contextWindowSize" in usage;
+  });
+}
+
 export class SessionStore {
   private records: SessionRecord;
   private migrated = false;
@@ -273,13 +316,28 @@ export class SessionStore {
       this.migrated = true;
       const migrated: SessionRecord = {};
       for (const [id, entry] of Object.entries(parsed)) {
-        const { sessionId, permissionMode, model, ...rest } = entry;
+        const { sessionId, permissionMode, model, contextUsage, ...rest } = entry;
         migrated[id] = {
           ...rest,
           agentId: DEFAULT_AGENT_ID,
           sessionId: { [DEFAULT_AGENT_ID]: sessionId },
           ...(permissionMode !== undefined ? { permissionMode: { [DEFAULT_AGENT_ID]: permissionMode } } : {}),
           ...(model !== undefined ? { model: { [DEFAULT_AGENT_ID]: model } } : {}),
+          ...(contextUsage !== undefined ? { contextUsage: { [DEFAULT_AGENT_ID]: contextUsage } } : {}),
+        };
+      }
+      return migrated;
+    }
+
+    if (hasFlatContextUsage(parsed)) {
+      this.migrated = true;
+      const migrated: SessionRecord = {};
+      for (const [id, entry] of Object.entries(parsed)) {
+        const { contextUsage, agentId, ...rest } = entry;
+        migrated[id] = {
+          ...rest,
+          agentId,
+          ...(contextUsage !== undefined ? { contextUsage: { [agentId]: contextUsage } } : {}),
         };
       }
       return migrated;
@@ -460,13 +518,14 @@ export class SessionStore {
     this.persist();
   }
 
-  getContextUsage(id: string): ContextUsage | undefined {
-    return this.records[id]?.contextUsage;
+  getContextUsage(id: string, agentId: AgentId): ContextUsage | undefined {
+    return this.records[id]?.contextUsage?.[agentId];
   }
 
-  setContextUsage(id: string, usage: ContextUsage): void {
+  setContextUsage(id: string, agentId: AgentId, usage: ContextUsage): void {
     this.ensureEntry(id);
-    this.records[id].contextUsage = usage;
+    this.records[id].contextUsage ??= {};
+    this.records[id].contextUsage[agentId] = usage;
     this.persist();
   }
 

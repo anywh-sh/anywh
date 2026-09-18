@@ -56,16 +56,16 @@ test("assistant: a thinking block becomes thinking", () => {
   assert.deepEqual(mapClaudeEvent(event), [{ type: "thinking", thinking: "hmm" }]);
 });
 
-test("assistant: usage is extracted from a main-thread event's message.usage", () => {
+test("assistant: usage is extracted from a main-thread event's message.usage, prefixTokens summing all three (additive, unlike Codex's)", () => {
   const event: ClaudeEvent = {
     type: "assistant",
     message: {
       content: [{ type: "text", text: "hi" }],
-      usage: { input_tokens: 10, cache_creation_input_tokens: 2, cache_read_input_tokens: 3 },
+      usage: { input_tokens: 10, cache_creation_input_tokens: 2, cache_read_input_tokens: 3, output_tokens: 7 },
     },
   };
   assert.deepEqual(mapClaudeEvent(event), [
-    { type: "usage", inputTokens: 10, cacheCreationInputTokens: 2, cacheReadInputTokens: 3 },
+    { type: "usage", inputTokens: 10, cacheCreationInputTokens: 2, cacheReadInputTokens: 3, prefixTokens: 15, outputTokens: 7 },
     { type: "text", text: "hi" },
   ]);
 });
@@ -81,7 +81,9 @@ test("assistant: usage is NOT extracted from a subagent event (parent_tool_use_i
 
 test("assistant: missing usage fields default to 0 rather than throwing", () => {
   const event: ClaudeEvent = { type: "assistant", message: { content: [], usage: {} } };
-  assert.deepEqual(mapClaudeEvent(event), [{ type: "usage", inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }]);
+  assert.deepEqual(mapClaudeEvent(event), [
+    { type: "usage", inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, prefixTokens: 0, outputTokens: 0 },
+  ]);
 });
 
 // ---- assistant: tool_use ----------------------------------------------------

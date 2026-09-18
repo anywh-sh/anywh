@@ -22,13 +22,13 @@ export interface PermissionModeOption {
   pausesForApproval: boolean;
 }
 
-/** Mirrors the relay's `ModelChoice` (relay/src/sessionStore.ts) — same
- * convention as `PermissionMode` above, no cross-package import. Opaque
+/** Mirrors the relay's `ModelChoice` (relay/src/session/sessionStore.ts) —
+ * same convention as `PermissionMode` above, no cross-package import. Opaque
  * string, not a fixed union: the real catalog comes from the CLI's own
  * `/model` probe (see `default_model_state` below), not a hardcoded list. */
 export type ModelChoice = string;
 
-/** Mirrors the relay's `ContextUsage` (relay/src/sessionStore.ts) —
+/** Mirrors the relay's `ContextUsage` (relay/src/session/sessionStore.ts) —
  * `contextWindowSize` itself comes directly from the CLI
  * (`modelUsage[model].contextWindow` from the `result` event), never a
  * static table on the client. */
@@ -36,6 +36,8 @@ export interface ContextUsage {
   model: string;
   contextWindowSize: number;
   usedTokens: number;
+  baselineTokens?: number;
+  sources?: Record<string, { tokens: number; calls: number }>;
 }
 
 /** A `history` entry from the relay (relay/src/session/broadcast.ts::BroadcastMessage)
