@@ -479,8 +479,16 @@ export interface ContextAccounting {
  * cross. `dedicated` exists for a CLI whose declaration file is nothing
  * but declarations, which is a file that can simply be written. */
 export type McpDeclaration =
-  | { readonly kind: "dedicated"; readonly path: string }
-  | { readonly kind: "shared"; readonly path: string; readonly portableKeys: readonly string[] };
+  | { readonly kind: "dedicated"; readonly path: string; readonly format: McpDeclarationFormat }
+  | { readonly kind: "shared"; readonly path: string; readonly format: McpDeclarationFormat; readonly portableKeys: readonly string[] };
+
+/** Declared rather than inferred from the file extension: reading a key out
+ * of this file and writing it back into someone else's is the one operation
+ * that can corrupt a user's configuration, and "it ends in .toml" is a guess
+ * dressed as a fact. Two formats because those are the two the measured CLIs
+ * use; a third CLI adds a third here and the compiler finds every place that
+ * has to learn it. */
+export type McpDeclarationFormat = "json" | "toml";
 
 /** How this CLI's MCP OAuth flow gets the authorization code back, which
  * decides whether a headless machine can complete a login at all.

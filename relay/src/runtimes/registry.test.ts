@@ -214,7 +214,7 @@ test("assertCoherent: a shared declaration with no portable keys would merge not
       ...def.portability,
       mcp: {
         kind: "supported",
-        declaration: { kind: "shared", path: ".fixture/config.toml", portableKeys: [] },
+        declaration: { kind: "shared", path: ".fixture/config.toml", format: "toml", portableKeys: [] },
         loginArgs: (name) => ["mcp", "login", name],
         loginDriver: "child",
         callback: { kind: "paste-code" },
@@ -234,7 +234,7 @@ test("assertCoherent: the needs-auth file is a config-home path like any other",
       ...def.portability,
       mcp: {
         kind: "supported",
-        declaration: { kind: "dedicated", path: ".fixture/mcp.json" },
+        declaration: { kind: "dedicated", path: ".fixture/mcp.json", format: "json" },
         loginArgs: (name) => ["mcp", "login", name],
         loginDriver: "pty",
         callback: { kind: "paste-code" },
@@ -255,7 +255,7 @@ test("assertCoherent: a fully declared MCP contract passes", () => {
         authoredPaths: [".fixture/skills", ".fixture/agents"],
         mcp: {
           kind: "supported",
-          declaration: { kind: "shared", path: ".fixture/config.toml", portableKeys: ["mcp_servers"] },
+          declaration: { kind: "shared", path: ".fixture/config.toml", format: "toml", portableKeys: ["mcp_servers"] },
           loginArgs: (name) => ["mcp", "login", name],
           loginDriver: "child",
           callback: { kind: "configurable-port", portKeyPath: (name) => ["mcp_servers", name, "oauth", "callback_port"] },

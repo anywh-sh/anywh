@@ -269,7 +269,9 @@ could go stale. A fixture with no version is folklore, not a test.
       `dedicated` has to be earned by a file that holds nothing else.
       Enumerate those keys against a *real* user's file: the vendor's
       example never shows the keys that hurt (an absolute path, a
-      per-project trust level).
+      per-project trust level). `format` is declared, never inferred from
+      the file's extension — this is the one file a mistake here can
+      corrupt.
 - [ ] `portability.mcp.callback` was **observed**, not read: run
       `<cli> mcp login` twice and compare the `redirect_uri`. A port that
       repeats is fixed; one that changes is `ephemeral-port`, and only
