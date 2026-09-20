@@ -1,3 +1,4 @@
+import { isAbsolute, normalize } from "node:path";
 import type { AgentCapability, AgentRuntimeDef, BridgeId, HostPlatform } from "./types.js";
 
 // Six values, matching `HostPlatform` in types.ts — kept here rather than
@@ -19,6 +20,21 @@ export interface CoherenceIssue {
   readonly message: string;
 }
 
+/** A path in `portability` has to stay relative to the runtime's config
+ * home, because the whole point is that it resolves against a *different*
+ * home than the one it was written on. An absolute path is a def that only
+ * works on its author's machine — the exact bug measured inside one CLI's
+ * own config file, which carries 25 absolute local project paths. `..` is
+ * refused for the same reason plus a sharper one: it escapes the config
+ * home entirely, and the feature that consumes this reads and writes files
+ * at those paths. */
+function pathIssue(field: string, path: string): CoherenceIssue | undefined {
+  if (path.length === 0) return { message: `${field} is empty — a path relative to the runtime config home was expected` };
+  if (isAbsolute(path) || /^[A-Za-z]:/.test(path)) return { message: `${field} ("${path}") is absolute — portability paths are relative to the runtime config home` };
+  if (normalize(path).split(/[\\/]/).includes("..")) return { message: `${field} ("${path}") escapes the runtime config home with ".."` };
+  return undefined;
+}
+
 /**
  * Checks a def against the invariants the type system can't express on its
  * own — `PermissionPolicy.modesFor` being a function instead of data means
@@ -27,7 +43,7 @@ export interface CoherenceIssue {
  */
 export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] {
   const issues: CoherenceIssue[] = [];
-  const { identity, capabilities, models, auth, permissions, bridges, exec } = def;
+  const { identity, capabilities, models, auth, permissions, bridges, exec, portability } = def;
 
   for (const [capability, bridgeId] of Object.entries(BRIDGE_BACKED_CAPABILITIES) as [AgentCapability, BridgeId][]) {
     if (capabilities[capability] === "bridged" && !bridges.includes(bridgeId)) {
@@ -80,6 +96,36 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
     issues.push({ message: "identity.env.strip is empty — every runtime bills some credential if it leaks into a spawned child" });
   }
 
+  // A runtime that names nothing the user authored is a runtime the UI can
+  // never offer "bring my configuration" for. Declaring the empty list is
+  // allowed to be the honest answer for a transport rather than an agent
+  // (defs/acp.ts), but it has to be *noticed* — same posture as the empty
+  // `env.strip` right above.
+  if (portability.authoredPaths.length === 0) {
+    issues.push({ message: "portability.authoredPaths is empty — a runtime with no authored config is a runtime the UI can't offer to carry" });
+  }
+  for (const path of portability.authoredPaths) {
+    const issue = pathIssue("portability.authoredPaths entry", path);
+    if (issue) issues.push(issue);
+  }
+
+  if (portability.mcp.kind === "supported") {
+    const { declaration, needsAuthSignal } = portability.mcp;
+    const declarationIssue = pathIssue("portability.mcp.declaration.path", declaration.path);
+    if (declarationIssue) issues.push(declarationIssue);
+    // A shared file is merged key by key, so an empty allowlist means the
+    // merge would carry nothing — the declaration would be written and no
+    // server would cross, which looks like a working feature that quietly
+    // does nothing.
+    if (declaration.kind === "shared" && declaration.portableKeys.length === 0) {
+      issues.push({ message: 'portability.mcp.declaration is "shared" but portableKeys is empty — a merge with no keys copies nothing' });
+    }
+    if (needsAuthSignal.kind === "file") {
+      const signalIssue = pathIssue("portability.mcp.needsAuthSignal.path", needsAuthSignal.path);
+      if (signalIssue) issues.push(signalIssue);
+    }
+  }
+
   return issues;
 }
 
@@ -108,6 +154,23 @@ export function buildRegistry(candidates: readonly AgentRuntimeDef[], options: B
     if (options.strict) throw new Error(message);
     console.error(message);
   }
-  const byId = new Map(accepted.map((def) => [def.identity.id, def] as const));
-  return { defs: accepted, get: (id) => byId.get(id) };
+  // Cross-def, so `assertCoherent` (which only ever sees one def) can't
+  // catch it: two defs answering to the same `identity.id`. `byId` below is
+  // a last-wins `Map`, so today the second one silently replaces the first
+  // and every session that resolved the id before the collision existed
+  // starts being driven by a different CLI — with nothing logged anywhere.
+  const seen = new Set<string>();
+  const unique: AgentRuntimeDef[] = [];
+  for (const def of accepted) {
+    if (seen.has(def.identity.id)) {
+      const message = `two runtime defs share identity.id "${def.identity.id}", excluding the later one from the registry`;
+      if (options.strict) throw new Error(message);
+      console.error(message);
+      continue;
+    }
+    seen.add(def.identity.id);
+    unique.push(def);
+  }
+  const byId = new Map(unique.map((def) => [def.identity.id, def] as const));
+  return { defs: unique, get: (id) => byId.get(id) };
 }

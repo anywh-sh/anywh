@@ -88,4 +88,14 @@ export const acpRuntimeDraft: AgentRuntimeDef<undefined> = {
     mapNotification: () => [],
     handleServerRequest,
   },
+  /** The second respect in which this draft can't be `assertCoherent`, and
+   * it has the same root cause as `identity.env.strip` being empty: ACP is a
+   * transport, not an agent, so there is no config home of its own to name
+   * — the skills, instructions and MCP declarations belong to whichever
+   * agent happens to be speaking ACP. A concrete def for one of them (Zed's
+   * reference agent, `xum acp`, ...) fills both fields in together. */
+  portability: {
+    authoredPaths: [],
+    mcp: { kind: "none" },
+  },
 };

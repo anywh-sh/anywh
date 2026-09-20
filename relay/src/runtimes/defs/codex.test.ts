@@ -339,3 +339,27 @@ test("auth.parse: exit 0 with an unrecognized stderr is still logged in, just un
   if (codexRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
   assert.deepEqual(codexRuntimeDef.auth.parse({ stdout: "", stderr: "", exitCode: 0 }), { loggedIn: true });
 });
+
+test("portability.mcp.callback: the port key path is per server, matching the TOML the declaration lives in", () => {
+  if (codexRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
+  const { callback } = codexRuntimeDef.portability.mcp;
+  if (callback.kind !== "configurable-port") throw new Error("expected a configurable port");
+  assert.deepEqual(callback.portKeyPath("sentry"), ["mcp_servers", "sentry", "oauth", "callback_port"]);
+});
+
+test("portability.mcp.declaration: a shared file, so only named keys cross", () => {
+  if (codexRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
+  const { declaration } = codexRuntimeDef.portability.mcp;
+  if (declaration.kind !== "shared") throw new Error("expected a shared declaration");
+  assert.equal(declaration.path, ".codex/config.toml");
+  // `projects` is the one that must never be on this list: it keys absolute
+  // local paths to a trust level, and carrying it would grant trust on a
+  // machine the user never made that decision for.
+  assert.ok(!declaration.portableKeys.includes("projects"));
+  assert.ok(declaration.portableKeys.includes("mcp_servers"));
+});
+
+test("portability.mcp.loginArgs: the subcommand that doesn't start OAuth on its own, unlike `mcp add --url`", () => {
+  if (codexRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
+  assert.deepEqual(codexRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "sentry"]);
+});

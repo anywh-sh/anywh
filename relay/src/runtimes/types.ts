@@ -454,6 +454,103 @@ export interface ContextAccounting {
 }
 
 // ---------------------------------------------------------------------------
+// Portability — what has to be true for this runtime's setup to be
+// reproduced somewhere else: a fresh machine, a second profile on this one,
+// a remote instance. Mandatory, not optional, for the same reason
+// `Capabilities` is a `Record` and not a `Partial`: a runtime that can't
+// answer this is a runtime the UI must not offer "bring my configuration"
+// for, and an omitted field would read as "nothing to bring" on every def
+// that predates it, with no compiler error to catch it.
+//
+// The shape is a manifest, never an archive. Copy what the user authored,
+// declare what can be reinstalled, re-authenticate what is a secret — a
+// runtime's config home also holds machine identity, absolute local paths
+// and caches (measured: one CLI's is 100 KB across 82 keys, 25 of them
+// local project paths), so "copy the home directory" is not a design, it's
+// a data leak with extra steps.
+
+/** Where a runtime's MCP server list is written, and whether that file is
+ * the user's alone.
+ *
+ * `shared` is not an edge case — it is what both CLIs measured actually do:
+ * the same file that holds the server list also holds model preferences,
+ * per-project trust and machine identity. A `shared` file is merged key by
+ * key, never copied over, and `portableKeys` is the allowlist of what may
+ * cross. `dedicated` exists for a CLI whose declaration file is nothing
+ * but declarations, which is a file that can simply be written. */
+export type McpDeclaration =
+  | { readonly kind: "dedicated"; readonly path: string }
+  | { readonly kind: "shared"; readonly path: string; readonly portableKeys: readonly string[] };
+
+/** How this CLI's MCP OAuth flow gets the authorization code back, which
+ * decides whether a headless machine can complete a login at all.
+ *
+ * `paste-code` is the one that needs nothing from us: the CLI prints the
+ * URL and takes the redirect back as text. The two port variants both
+ * imply a browser reaching a loopback listener; `configurable-port` is the
+ * milder one only because we write the config file the port lives in. */
+export type McpCallback =
+  | { readonly kind: "paste-code" }
+  | { readonly kind: "ephemeral-port" }
+  | {
+      readonly kind: "configurable-port";
+      /** Key path, inside the declaration file, that pins the port for one
+       * server — a path rather than a number because the file is per
+       * server (`mcp_servers.<name>.oauth.callback_port`), and pure data
+       * because writing it is the engine's job, not this file's. */
+      readonly portKeyPath: (serverName: string) => readonly string[];
+    };
+
+/** How the relay learns that a declared MCP server needs the user to log
+ * in again — the difference between a UI that can warn beforehand and one
+ * that can only react after a turn already failed. */
+export type McpNeedsAuthSignal =
+  | {
+      readonly kind: "file";
+      /** Relative to the runtime's config home, like every path here. */
+      readonly path: string;
+      /** Server names that file says need auth, parsed out of its raw
+       * text. Pure, and tolerant: a file that isn't there yet, or is
+       * malformed, means "nothing needs auth", never a crash. */
+      readonly parse: (text: string) => readonly string[];
+    }
+  | { readonly kind: "in-band" };
+
+export type McpContract =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "supported";
+      readonly declaration: McpDeclaration;
+      /** Argv for this CLI's own login subcommand, per server. A pure
+       * function returning args — nothing here runs it. */
+      readonly loginArgs: (serverName: string) => readonly string[];
+      /** `"pty"` when the CLI refuses to authenticate without a terminal
+       * ("stdin isn't a terminal"), `"child"` when an ordinary process
+       * suffices. Determined by *trying* the login without a TTY, not by
+       * reading documentation — neither CLI documents this, and the two
+       * measured so far disagree. */
+      readonly loginDriver: "pty" | "child";
+      readonly callback: McpCallback;
+      readonly needsAuthSignal: McpNeedsAuthSignal;
+    };
+
+export interface RuntimePortability {
+  /** Paths, relative to this runtime's config home, that are entirely the
+   * user's own work — skills, subagents, commands, personal instructions —
+   * and can therefore be copied byte for byte. Same relative-path
+   * convention as `ContextSkillAccounting.dirs`. A path that doesn't exist
+   * on a given machine is simply skipped, so listing one a user may not
+   * have costs nothing; omitting one they do have loses their work.
+   *
+   * Never the project instructions file: that one is already declared
+   * once, as `identity.projectInstructionsFile`, and lives with the
+   * project rather than the config home. Two sources for one fact is how
+   * a contract starts lying. */
+  readonly authoredPaths: readonly string[];
+  readonly mcp: McpContract;
+}
+
+// ---------------------------------------------------------------------------
 // Quick prompts — a second, much smaller exec-shaped axis for the relay's
 // own probes (title generation, next-message suggestion): a short, isolated
 // one-shot prompt against this CLI, never a real turn (no session
@@ -508,4 +605,5 @@ export interface AgentRuntimeDef<TPermissionSettings = unknown> {
    * degrades to showing the total only, same shape as every other optional
    * capability in this file. */
   readonly contextAccounting?: ContextAccounting;
+  readonly portability: RuntimePortability;
 }

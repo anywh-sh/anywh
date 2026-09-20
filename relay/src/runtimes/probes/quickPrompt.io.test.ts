@@ -47,6 +47,7 @@ function fixtureDef(bin: string, kind: "cli" | "none" = "cli"): AgentRuntimeDef 
         ? { kind: "none" }
         : { kind: "cli", buildArgs: (ctx: QuickPromptContext) => ["--system", ctx.systemPrompt, "--user", ctx.userPrompt], extractReply: (stdout) => stdout.trim() || undefined },
     exec: { kind: "spawnPerTurn", promptDelivery: "argv", buildArgs: () => [], mapStdoutLine: () => [], interrupt: { signal: "SIGINT", expectsCleanExit: true } },
+    portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
 }
 

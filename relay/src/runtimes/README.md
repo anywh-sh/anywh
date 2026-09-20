@@ -73,6 +73,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `quickPrompt` | how to run a short, isolated one-shot prompt for the relay's own probes (title/suggestion generation) — never a real turn | data + a pure function, or `{ kind: "none" }` |
 | `classifyFailure` | turns raw failure text/code into one of a fixed set of classes | a pure function |
 | `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category — absent when the CLI never reports enough to calibrate against | data, or absent |
+| `portability` | what has to be true to reproduce this runtime's setup somewhere else: which paths under its config home are the user's own, where its MCP servers are declared, and how a login is driven on a machine with no browser | data + pure functions |
 
 The def's own functions (`buildArgs`, the stream mappers, `thread.start`,
 `turn.start`, `handleServerRequest`, `classifyFailure`, a `models`/`auth`
@@ -254,6 +255,41 @@ could go stale. A fixture with no version is folklore, not a test.
       the exit code, with unrelated warning lines mixed into that stderr
       whenever `$HOME` isn't writable. Version noted next to the parser, as
       §8 requires of any fixture.
+- [ ] `portability.authoredPaths` lists every path under this CLI's config
+      home that is the *user's* work, and nothing that is reinstallable or
+      secret. Erring long is cheap (a path that doesn't exist is skipped);
+      erring short loses the user's configuration silently. Never the
+      project instructions file — `identity.projectInstructionsFile`
+      already declares that one.
+- [ ] `portability.mcp.declaration` was found by **running** this CLI's own
+      "add an MCP server" command under a throwaway `$HOME` and diffing
+      what appeared on disk, not by reading its docs. Both CLIs measured so
+      far write into a file they share with unrelated state, so the default
+      answer is `shared` plus an explicit `portableKeys` allowlist —
+      `dedicated` has to be earned by a file that holds nothing else.
+      Enumerate those keys against a *real* user's file: the vendor's
+      example never shows the keys that hurt (an absolute path, a
+      per-project trust level).
+- [ ] `portability.mcp.callback` was **observed**, not read: run
+      `<cli> mcp login` twice and compare the `redirect_uri`. A port that
+      repeats is fixed; one that changes is `ephemeral-port`, and only
+      `configurable-port` if some config we write can pin it (measured:
+      one CLI's does). A CLI that prints the URL for pasting instead is
+      `paste-code`, which needs no tunnel at all.
+- [ ] `portability.mcp.loginDriver` was determined by **trying** the login
+      with no TTY: refused (`"stdin isn't a terminal"`) means `"pty"`,
+      completed means `"child"`. Neither CLI documents this, and the two
+      measured disagree.
+- [ ] `portability.mcp.needsAuthSignal` was confirmed by watching the file
+      change, or by confirming there is no file and the CLI only reports it
+      in band. A `file` signal's `parse` tolerates a file that doesn't
+      exist yet and one whose shape changed — it returns "nothing needs
+      auth", never throws.
+- [ ] Token storage was checked **without a keyring** (the state a headless
+      box is in), with the exact CLI version noted — one CLI falls back to
+      a file store silently, and assuming the other does too is how a
+      login that "can't work remotely" gets designed around a problem that
+      isn't there.
 - [ ] `assertCoherent(def)` passes with zero issues before the def is wired
       into `runtimes/registry.ts` for real.
 - [ ] If this def declares `contextAccounting`, its `multiplier`/`perFile`/

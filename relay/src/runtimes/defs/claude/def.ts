@@ -177,4 +177,57 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     // small to mean anything.
     subagents: { multiplier: 1.0955, perEntry: 12.7, header: 2, dirs: [".claude/agents"] },
   },
+  // Measured against Claude Code 2.1.274 on a real installation, plus a
+  // throwaway `$HOME` for the writes.
+  portability: {
+    // `.claude/plugins` is deliberately absent: a plugin is reinstallable,
+    // and `settings.json`'s own `enabledPlugins` already names every one
+    // the user turned on, so copying the settings file declares them
+    // without shipping their code. That same file is also where a hook
+    // pointing at a path or binary the destination doesn't have comes
+    // from — carried across on purpose, and worth surfacing to the user
+    // before it runs, not silently dropped here.
+    authoredPaths: [".claude/skills", ".claude/agents", ".claude/commands", ".claude/CLAUDE.md", ".claude/settings.json"],
+    mcp: {
+      kind: "supported",
+      // `claude mcp add --scope user` writes here, and nowhere else —
+      // observed by running it under a throwaway `$HOME` and diffing what
+      // appeared: `~/.claude.json`, gaining an `mcpServers` key. That file
+      // is emphatically shared, which is why only one key may cross: on
+      // the machine this was measured on it was 103 KB over 82 top-level
+      // keys, including `machineID`, `userID`, caches, and a `projects`
+      // map of 25 absolute local paths carrying conversation history.
+      // Copying the file would move all of that; merging one key moves the
+      // servers.
+      declaration: { kind: "shared", path: ".claude.json", portableKeys: ["mcpServers"] },
+      // `--no-browser`: "Print the authorization URL instead of opening a
+      // browser (for SSH/headless sessions — paste the redirect URL back
+      // when prompted)". That flag is what makes a remote instance's login
+      // possible without a tunnel at all.
+      loginArgs: (serverName) => ["mcp", "login", "--no-browser", serverName],
+      // Not a preference: without a terminal this CLI refuses outright —
+      // "stdin isn't a terminal, so authentication can't be completed
+      // here." An ordinary child process cannot drive this login.
+      loginDriver: "pty",
+      callback: { kind: "paste-code" },
+      needsAuthSignal: {
+        kind: "file",
+        // A dedicated file, so the UI can warn before the user trips over
+        // a server that needs re-authenticating — object keyed by server
+        // name, e.g. {"plugin:serena:serena":{"timestamp":…,"id":…}}.
+        path: ".claude/mcp-needs-auth-cache.json",
+        parse: (text) => {
+          try {
+            const parsed: unknown = JSON.parse(text);
+            // A file that hasn't been written yet, or was written by a
+            // version with a different shape, means "nothing needs auth" —
+            // never an exception thrown at whoever polls this.
+            return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? Object.keys(parsed) : [];
+          } catch {
+            return [];
+          }
+        },
+      },
+    },
+  },
 };

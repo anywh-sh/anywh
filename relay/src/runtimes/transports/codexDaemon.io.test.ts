@@ -103,6 +103,7 @@ function fixtureDef(bin: string, overrides: Partial<Pick<AgentRuntimeDef, "ident
       mapNotification: () => [],
       handleServerRequest: () => undefined,
     },
+    portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
 }
 
