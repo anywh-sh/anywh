@@ -199,7 +199,7 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
       // map of 25 absolute local paths carrying conversation history.
       // Copying the file would move all of that; merging one key moves the
       // servers.
-      declaration: { kind: "shared", path: ".claude.json", format: "json", portableKeys: ["mcpServers"] },
+      declaration: { kind: "shared", path: ".claude.json", format: "json", serversKey: "mcpServers", portableKeys: ["mcpServers"] },
       // `--no-browser`: "Print the authorization URL instead of opening a
       // browser (for SSH/headless sessions — paste the redirect URL back
       // when prompted)". That flag is what makes a remote instance's login

@@ -471,6 +471,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
         kind: "shared",
         path: ".codex/config.toml",
         format: "toml",
+        serversKey: "mcp_servers",
         portableKeys: ["model", "model_reasoning_effort", "mcp_servers"],
       },
       // Writing this file directly, then logging in, is the only automatable
