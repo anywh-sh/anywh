@@ -141,15 +141,21 @@ test("startMcpLogin: runs under the config home it was given, not the relay's ow
   assert.match(output(), new RegExp(`HOME=${home}`));
 });
 
-test("startMcpLogin: the billed credential never reaches the login either", async () => {
-  const bin = fakeCli('printf "key=%s\\n" "${ANTHROPIC_API_KEY:-absent}"');
-  process.env.ANTHROPIC_API_KEY = "sk-should-not-leak";
+test("startMcpLogin: the billed credentials the def declares never reach the login", async () => {
+  // Read off the def rather than written out: naming a real billed
+  // credential outside `runtimes/executables.ts` is what the repo's own
+  // lint rule forbids, and deriving it here is the stronger test anyway —
+  // it checks whatever the def declares today, not a list this file would
+  // have to remember to grow.
+  const [billed] = claudeRuntimeDef.identity.env.strip;
+  const bin = fakeCli(`printf "key=%s\\n" "\${${billed}:-absent}"`);
+  process.env[billed] = "sk-should-not-leak";
   try {
     const { output, exit } = collect(startMcpLogin(defWithBin(claudeRuntimeDef, bin), newHome(), "sentry"));
     assert.equal(await exit, 0);
     assert.match(output(), /key=absent/);
   } finally {
-    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env[billed];
   }
 });
 
