@@ -12,6 +12,7 @@ import type {
   PermissionMode,
   PermissionModeOption,
   ProfileMetaUpdate,
+  McpAuthStatus,
   PortabilityApplyResult,
   PortabilityBundle,
   PortabilitySnapshot,
@@ -38,6 +39,7 @@ export type {
   EditMessageErrorCode,
   HistoryMessage,
   HistoryPageMessage,
+  McpAuthStatus,
   ModelChoice,
   PermissionMode,
   PermissionModeOption,
@@ -212,6 +214,33 @@ export async function applyPortabilityBundle(
   });
   const body = (await response.json().catch(() => ({}))) as PortabilityApplyResult & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `failed to apply configuration (${String(response.status)})`);
+  return body;
+}
+
+/** Opens the socket that drives one MCP server's sign-in on `host`: the
+ * CLI's own `mcp login`, streamed. Frames out are `{type:"data"}` and
+ * `{type:"exit"}` (plus `{type:"error"}` when the relay refuses to start
+ * one at all); the single frame in is `{type:"input"}`, carrying whatever
+ * the user pasted back.
+ *
+ * Deliberately raw rather than wrapped in a client object: what crosses
+ * here is a CLI's output and a line typed into it, and the moment this
+ * starts parsing either, it starts owning a vocabulary that belongs to the
+ * CLI. Closing the socket ends the login.
+ */
+export function openMcpLogin(host: string, port: number, runtimeId: string, serverName: string, home?: string): WebSocket {
+  const params = new URLSearchParams({ runtime: runtimeId, server: serverName });
+  if (home) params.set("home", home);
+  return new WebSocket(`ws://${host}:${port}/mcp-login?${params.toString()}`);
+}
+
+/** What `GET /control/portability/mcp` reports for one config home. */
+export async function fetchMcpAuthStatus(host: string, port: number, runtimeId: string, home?: string): Promise<McpAuthStatus> {
+  const params = new URLSearchParams({ runtime: runtimeId });
+  if (home) params.set("home", home);
+  const response = await fetch(`http://${host}:${port}/control/portability/mcp?${params.toString()}`);
+  const body = (await response.json().catch(() => ({}))) as McpAuthStatus & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `failed to read MCP status (${String(response.status)})`);
   return body;
 }
 

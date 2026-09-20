@@ -318,6 +318,21 @@ export interface PortabilityApplyResult {
   rejected: string[];
 }
 
+/** What `GET /control/portability/mcp` reports: the MCP servers a config
+ * home declares, and — for a runtime that says so out of band — which of
+ * them need signing in. */
+export interface McpAuthStatus {
+  runtimeId: string;
+  /** `false` for a runtime with no MCP contract at all. */
+  supported: boolean;
+  /** `"file"` means the runtime tells us ahead of time and `needsAuth` is
+   * meaningful; `"in-band"` means it only reports a missing session when a
+   * call fails, so `needsAuth` is always false and means "unknown". */
+  signal: "file" | "in-band" | "none";
+  loginDriver: "pty" | "child" | "none";
+  servers: { name: string; needsAuth: boolean }[];
+}
+
 /** Response of `POST /control/profiles` — enough to build the local
  * `Profile` (`addProfile`) once the relay finishes provisioning. */
 export interface CreatedProfile {

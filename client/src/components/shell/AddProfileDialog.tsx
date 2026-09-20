@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
+import type { McpSignInTarget } from "@/components/shell/McpSignInDialog";
 import { addProfile, type Profile } from "@/lib/profiles/profiles";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import {
@@ -35,6 +36,12 @@ import { cn } from "@/lib/utils";
 interface AddProfileDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called after a copy that carried MCP servers, with everything needed
+   * to sign in to them *under the new profile's home*. The declarations
+   * travel with the bundle; the sessions can't, and this is the moment the
+   * user is in a position to fix that — not a toast they'll see later with
+   * no idea which home it means. */
+  onMcpSignInNeeded?: (target: McpSignInTarget) => void;
   /** Whose relay hosts every call in here — the only machine the client
    * already knows how to reach. A new profile always lives on this same
    * host, just a different account/port, and the configuration offered
@@ -59,7 +66,7 @@ const DEFAULT_RUNTIME_ID = "claude";
  * so the profile is never usable for a turn that would run without the
  * instructions the user asked to bring.
  */
-export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfileDialogProps) {
+export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignInNeeded }: AddProfileDialogProps) {
   const dict = useDict();
   const copy = dict.shell.profiles.add;
   const agentNames = dict.chat.composer.agentNames;
@@ -172,6 +179,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
     const trimmedLabel = label.trim();
     if (!trimmedLabel || !validation) return;
     const home = homePath.trim() || undefined;
+    let signInTarget: McpSignInTarget | null = null;
     setCreating(true);
     try {
       const created = await createProfile(activeProfile.host, activeProfile.relayPort, trimmedLabel, home, runtimeId);
@@ -184,6 +192,9 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
         try {
           const bundle = await fetchPortabilityBundle(activeProfile.host, activeProfile.relayPort, runtimeId);
           await applyPortabilityBundle(activeProfile.host, activeProfile.relayPort, bundle, home);
+          if (bundle.mcpServers.length > 0) {
+            signInTarget = { host: activeProfile.host, port: activeProfile.relayPort, runtimeId, home, servers: bundle.mcpServers };
+          }
         } catch (err) {
           // The profile itself exists and works — only the copy failed,
           // and it can be redone by hand. Saying so beats rolling back a
@@ -202,6 +213,9 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
         colorIndex: created.colorIndex,
       });
       onOpenChange(false);
+      // After the dialog closes, so the two never stack: the sign-in is a
+      // separate step the user can also skip entirely.
+      if (signInTarget) onMcpSignInNeeded?.(signInTarget);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

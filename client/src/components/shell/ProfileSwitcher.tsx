@@ -17,6 +17,7 @@ import { useDict } from "@/i18n";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import { resumeProfileSetup } from "@/lib/profiles/profileSetup";
 import { AddProfileDialog } from "@/components/shell/AddProfileDialog";
+import { McpSignInDialog, type McpSignInTarget } from "@/components/shell/McpSignInDialog";
 import { AddRemoteMachineDialog } from "@/components/shell/AddRemoteMachineDialog";
 
 interface ProfileSwitcherProps {
@@ -32,6 +33,9 @@ export function ProfileSwitcher({ activeProfile, supported, onChange }: ProfileS
   const dict = useDict();
   const revoked = useRevokedProfiles();
   const [addOpen, setAddOpen] = useState(false);
+  // Set by AddProfileDialog when a copied setup brought MCP servers along
+  // — kept here rather than inside that dialog so the sign-in outlives it.
+  const [mcpSignIn, setMcpSignIn] = useState<McpSignInTarget | null>(null);
   const [pairOpen, setPairOpen] = useState(false);
   const activeBadge = profileBadge(activeProfile, revoked, dict);
 
@@ -112,8 +116,10 @@ export function ProfileSwitcher({ activeProfile, supported, onChange }: ProfileS
       <AddRemoteMachineDialog open={pairOpen} onOpenChange={setPairOpen} />
 
       {supported && (
-        <AddProfileDialog open={addOpen} onOpenChange={setAddOpen} activeProfile={activeProfile} />
+        <AddProfileDialog open={addOpen} onOpenChange={setAddOpen} activeProfile={activeProfile} onMcpSignInNeeded={setMcpSignIn} />
       )}
+
+      <McpSignInDialog open={mcpSignIn !== null} onOpenChange={(next) => !next && setMcpSignIn(null)} target={mcpSignIn} />
     </>
   );
 }

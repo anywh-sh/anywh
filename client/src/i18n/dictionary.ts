@@ -902,6 +902,20 @@ export interface Dictionary {
          * make it; nothing is lost, the copy can be retried by hand. */
         applyFailed: string;
       };
+      /** Signing in to the MCP servers a carried setup brought along —
+       * they travel declared, never authenticated. */
+      mcpSignIn: {
+        title: string;
+        description: string;
+        signIn: string;
+        working: string;
+        signedIn: string;
+        failed: string;
+        /** The field where the redirect URL from the browser goes back. */
+        pastePlaceholder: string;
+        send: string;
+        done: string;
+      };
       pair: {
         title: string;
         description: string;

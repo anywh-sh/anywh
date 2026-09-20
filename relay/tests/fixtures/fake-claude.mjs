@@ -134,6 +134,27 @@ if (args[0] === "--version") {
   // this fixture the same way it would against the real binary.
   process.stdout.write("2.1.0 (Claude Code)\n");
   process.exit(0);
+} else if (args[0] === "mcp" && args[1] === "login") {
+  // The `--no-browser` flow, in miniature and with no OAuth server: print
+  // the authorization URL, wait for the redirect URL to be pasted back on
+  // stdin, report success. The real binary refuses outright without a TTY
+  // ("stdin isn't a terminal"), and so does this — that refusal is what
+  // makes `portability.mcp.loginDriver: "pty"` a measured claim rather
+  // than a preference, and a relay that stops honoring it fails here.
+  if (!process.stdin.isTTY) {
+    process.stdout.write("stdin isn't a terminal, so authentication can't be completed here.\n");
+    process.exit(1);
+  }
+  const serverName = args[args.length - 1];
+  process.stdout.write(`Open this URL to authorize ${serverName}:\nhttps://auth.fake.test/authorize?server=${serverName}\n`);
+  let pasted = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    pasted += chunk;
+    if (!/[\r\n]/.test(pasted)) return;
+    process.stdout.write(`Successfully logged in to MCP server '${serverName}'.\n`);
+    process.exit(0);
+  });
 } else if (args[0] === "auth" && args[1] === "status") {
   emit({ loggedIn: true, email: "fake@anywh.test", subscriptionType: "pro" });
   process.exit(0);
