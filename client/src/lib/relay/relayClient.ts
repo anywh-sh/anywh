@@ -12,6 +12,9 @@ import type {
   PermissionMode,
   PermissionModeOption,
   ProfileMetaUpdate,
+  PortabilityApplyResult,
+  PortabilityBundle,
+  PortabilitySnapshot,
   ProfileValidation,
   RelayMessage,
   RemoteProfile,
@@ -39,6 +42,9 @@ export type {
   PermissionMode,
   PermissionModeOption,
   ProfileMetaUpdate,
+  PortabilityApplyResult,
+  PortabilityBundle,
+  PortabilitySnapshot,
   ProfileValidation,
   RemoteProfile,
   SessionSummary,
@@ -127,11 +133,11 @@ export async function fetchControlProfiles(host: string, port: number, token?: s
  * this host already has. Always resolves with a body to interpret (`loggedIn`,
  * `collidesWith`) rather than throwing for those cases — only a genuine
  * failure to run the check (the relay's own 502) throws. */
-export async function validateProfile(host: string, port: number, homeOverride?: string): Promise<ProfileValidation> {
+export async function validateProfile(host: string, port: number, homeOverride?: string, runtimeId?: string): Promise<ProfileValidation> {
   const response = await fetch(`http://${host}:${port}/control/profiles/validate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(homeOverride ? { homeOverride } : {}),
+    body: JSON.stringify({ ...(homeOverride ? { homeOverride } : {}), ...(runtimeId ? { runtimeId } : {}) }),
   });
   const body = (await response.json().catch(() => ({}))) as ProfileValidation & { error?: string };
   if (!response.ok) {
@@ -145,16 +151,67 @@ export async function validateProfile(host: string, port: number, homeOverride?:
  * re-validates login/collision itself before provisioning, so a stale
  * `validateProfile` result from earlier in the dialog can't create a
  * profile that would actually fail. */
-export async function createProfile(host: string, port: number, label: string, homeOverride?: string): Promise<CreatedProfile> {
+export async function createProfile(host: string, port: number, label: string, homeOverride?: string, runtimeId?: string): Promise<CreatedProfile> {
   const response = await fetch(`http://${host}:${port}/control/profiles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(homeOverride ? { label, home: homeOverride } : { label }),
+    body: JSON.stringify({ label, ...(homeOverride ? { home: homeOverride } : {}), ...(runtimeId ? { runtimeId } : {}) }),
   });
   const body = (await response.json().catch(() => ({}))) as CreatedProfile & { error?: string };
   if (!response.ok) {
     throw new Error(body.error ?? `failed to create profile (${String(response.status)})`);
   }
+  return body;
+}
+
+/** What this host has configured for `runtimeId` that could be carried to
+ * another config home — summary only (paths, sizes, declared MCP servers,
+ * warnings), never file contents. `home` names the config home to read;
+ * omitted, the relay reads its own profile's.
+ *
+ * A relay older than this endpoint 404s, which `AddProfileDialog` treats
+ * as "nothing to offer" rather than an error: the checkbox simply doesn't
+ * appear, which is the same thing the user sees on a machine that has
+ * nothing configured. */
+export async function fetchPortabilitySnapshot(host: string, port: number, runtimeId: string, home?: string): Promise<PortabilitySnapshot> {
+  const params = new URLSearchParams({ runtime: runtimeId });
+  if (home) params.set("home", home);
+  const response = await fetch(`http://${host}:${port}/control/portability?${params.toString()}`);
+  const body = (await response.json().catch(() => ({}))) as PortabilitySnapshot & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `failed to read configuration (${String(response.status)})`);
+  return body;
+}
+
+/** The same read with contents included — asked for only once the user has
+ * actually chosen to copy, since this is the call that moves the bytes. */
+export async function fetchPortabilityBundle(host: string, port: number, runtimeId: string, home?: string): Promise<PortabilityBundle> {
+  const params = new URLSearchParams({ runtime: runtimeId, full: "1" });
+  if (home) params.set("home", home);
+  const response = await fetch(`http://${host}:${port}/control/portability?${params.toString()}`);
+  const body = (await response.json().catch(() => ({}))) as PortabilityBundle & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `failed to read configuration (${String(response.status)})`);
+  return body;
+}
+
+/** Writes a bundle into `home` on the given host. Separate from the read
+ * on purpose: the two ends are usually different machines, and the local
+ * "second profile on this box" case is just the degenerate one where they
+ * happen to be the same. */
+export async function applyPortabilityBundle(
+  host: string,
+  port: number,
+  bundle: PortabilityBundle,
+  home?: string,
+): Promise<PortabilityApplyResult> {
+  const params = new URLSearchParams();
+  if (home) params.set("home", home);
+  const response = await fetch(`http://${host}:${port}/control/portability/apply?${params.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bundle }),
+  });
+  const body = (await response.json().catch(() => ({}))) as PortabilityApplyResult & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `failed to apply configuration (${String(response.status)})`);
   return body;
 }
 

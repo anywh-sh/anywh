@@ -874,11 +874,33 @@ export interface Dictionary {
         verify: string;
         verifying: string;
         creating: string;
-        /** `{path}` — the config path the command needs. */
+        /** `{path}` — the config path the command needs; `{agent}` — the
+         * CLI that owns the login, since which one it is now depends on
+         * the agent picked above. */
         notLoggedIn: string;
         /** `{profile}` — the profile already using that path. */
         collides: string;
         confirmed: string;
+        /** Which agent CLI this profile is for — decides what the login
+         * check asks, and whose configuration the copy offer reads. */
+        runtimeLabel: string;
+        /** The offer itself, shown only when the host actually has
+         * something configured for the chosen agent. */
+        copyLabel: string;
+        /** `{files}`, `{servers}` — what the copy would carry. */
+        copySummary: string;
+        /** Explains that servers come across declared, not signed in. */
+        copyServersNote: string;
+        /** `{count}` — settings naming a path that may not exist where
+         * this lands (a hook, an MCP command). */
+        copyWarnings: string;
+        /** Shown while the configuration is written, before the dialog
+         * closes — the profile must not be usable before its setup is in
+         * place. */
+        applying: string;
+        /** `{error}` — the profile exists, but its configuration didn't
+         * make it; nothing is lost, the copy can be retried by hand. */
+        applyFailed: string;
       };
       pair: {
         title: string;
