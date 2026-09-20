@@ -12,8 +12,8 @@ interface TerminalToggleButtonProps {
 /**
  * Embedded terminal button — portaled by a tab's `ChatPanel` into its
  * group's `TabGroupStrip` toggle slot (see `panelTogglesSlot.ts`), landing
- * immediately to the right of `FilesToggleButton` and to the left of the
- * group's `+` (files, then terminal, then new tab). Same raw-`<button>`
+ * immediately to the right of `FilesToggleButton`, itself right after the
+ * group's `+` (new tab, then files, then terminal). Same raw-`<button>`
  * markup as `+` (not the shared `Button` component) so the three read as
  * one row of border-separated actions. Only the group's own active tab ever
  * claims the slot, so this reflects that tab's state, not a fixed per-tab

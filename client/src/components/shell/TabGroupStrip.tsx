@@ -42,10 +42,11 @@ interface TabGroupStripProps {
   onRenameSession: (tabId: string, title: string) => void;
   onDelete: (tabId: string) => void;
   onSplitToNewGroup: (tabId: string) => void;
-  /** The `+` at the end of the strip — opens a new conversation in THIS
-   * group, which is why it isn't just the sidebar's own handler: `openTab`
-   * always appends to the focused group, so the caller has to focus this
-   * one first (see `TabGroupLayout`). */
+  /** The `+` right after the tab list (the files/terminal toggle pair comes
+   * after it — see the toggle slot below) — opens a new conversation in
+   * THIS group, which is why it isn't just the sidebar's own handler:
+   * `openTab` always appends to the focused group, so the caller has to
+   * focus this one first (see `TabGroupLayout`). */
   onNewTab: () => void;
 }
 
@@ -288,12 +289,6 @@ export function TabGroupStrip({
             ))}
             <div ref={setEndDropRef} className={cn("h-full min-w-2 flex-1", isOverEnd && "bg-border")} />
           </div>
-          {/* Published so this group's own active tab's `ChatPanel` can portal
-           * the files/terminal toggle pair in here — see panelTogglesSlot.ts
-           * for why this is a portal target rather than props flowing down
-           * from a lifted `cwd`. `display: contents` keeps the portaled
-           * buttons themselves as the flex items in this row, not this span. */}
-          <div ref={(node) => setPanelTogglesSlot(groupId, node)} className="contents" />
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -307,6 +302,12 @@ export function TabGroupStrip({
             </TooltipTrigger>
             <TooltipContent side="bottom">{dict.chat.tabs.newTab}</TooltipContent>
           </Tooltip>
+          {/* Published so this group's own active tab's `ChatPanel` can portal
+           * the files/terminal toggle pair in here — see panelTogglesSlot.ts
+           * for why this is a portal target rather than props flowing down
+           * from a lifted `cwd`. `display: contents` keeps the portaled
+           * buttons themselves as the flex items in this row, not this span. */}
+          <div ref={(node) => setPanelTogglesSlot(groupId, node)} className="contents" />
         </div>
       </SortableContext>
 

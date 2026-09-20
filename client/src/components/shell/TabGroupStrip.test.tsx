@@ -151,13 +151,13 @@ describe("TabGroupStrip", () => {
   // not passed down as a prop. What this component owns is publishing (and
   // un-publishing) the slot itself, right before the `+`.
   describe("panel toggles slot", () => {
-    it("publishes a node for this group id while mounted, right before the +", () => {
+    it("publishes a node for this group id while mounted, right after the +", () => {
       const { unmount } = renderStrip([tab()], "s1");
 
       const slot = getPanelTogglesSlot("g1");
       expect(slot).not.toBeNull();
       const newTab = screen.getByRole("button", { name: en.chat.tabs.newTab });
-      expect(slot!.compareDocumentPosition(newTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(newTab.compareDocumentPosition(slot!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
       unmount();
       expect(getPanelTogglesSlot("g1")).toBeNull();
