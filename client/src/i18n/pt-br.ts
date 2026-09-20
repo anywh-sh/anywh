@@ -389,6 +389,17 @@ export const ptBr: Dictionary = {
         applying: "Aplicando suas configurações…",
         applyFailed: "Perfil criado, mas as configurações não foram copiadas: {error}",
       },
+      mcpSignIn: {
+        title: "Entrar nos servidores MCP",
+        description: "Estes servidores vieram declarados, sem login. Comece por um, abra o endereço que ele imprimir onde você tiver navegador e cole aqui o endereço em que você cair.",
+        signIn: "Entrar",
+        working: "Aguardando…",
+        signedIn: "Conectado",
+        failed: "Não concluiu",
+        pastePlaceholder: "Cole o endereço em que você caiu",
+        send: "Enviar",
+        done: "Pronto",
+      },
       pair: {
         title: "Adicionar máquina remota",
         description: "Cole o código de pareamento gerado pela máquina que você quer alcançar.",

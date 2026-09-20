@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import { applyBundle, readBundle } from "../portability/configHome.js";
+import { readMcpAuthStatus } from "../portability/mcpAuth.js";
 import { toSnapshot } from "../portability/manifest.js";
 import { defaultCwd } from "../host/paths.js";
 import { isApplyPortabilityBody } from "../protocol/guards.js";
@@ -46,6 +47,28 @@ export const handlePortabilityRoutes: RouteHandler = async (req, res, ctx) => {
     // whole thing only once the user says yes.
     const bundle = readBundle(def, home.home);
     res.end(JSON.stringify(url.searchParams.get("full") === "1" ? { ...bundle, found: true } : toSnapshot(bundle)));
+    return true;
+  }
+
+  // Which MCP servers a config home declares, and which of them the
+  // runtime says need signing in. Separate from the bundle read because
+  // its answer changes on its own — a token expires without anybody
+  // touching a file — and the UI polls it, while a bundle is read once.
+  if (req.method === "GET" && url.pathname === "/control/portability/mcp") {
+    const runtimeId = url.searchParams.get("runtime")?.trim() ?? "";
+    const def = ctx.registry.get(runtimeId);
+    if (!def) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: `unknown runtime "${runtimeId}"` }));
+      return true;
+    }
+    const home = resolveHome(url, ctx.homeOverride);
+    if ("error" in home) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: home.error }));
+      return true;
+    }
+    res.end(JSON.stringify(readMcpAuthStatus(def, home.home)));
     return true;
   }
 
