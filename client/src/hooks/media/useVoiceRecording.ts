@@ -72,6 +72,10 @@ export function useVoiceRecording({ onTranscribed, onError }: UseVoiceRecordingO
 
   const start = useCallback(async () => {
     if (isIOS()) return;
+    if (devices.length === 0) {
+      onError(copy.noMicrophone);
+      return;
+    }
     cancelledRef.current = false;
     try {
       await ensureMicrophonePermission();
@@ -87,7 +91,7 @@ export function useVoiceRecording({ onTranscribed, onError }: UseVoiceRecordingO
     setState("recording");
     setElapsedSeconds(0);
     timerRef.current = window.setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
-  }, [selectedDevice, onError, copy]);
+  }, [devices, selectedDevice, onError, copy]);
 
   const stop = useCallback(async () => {
     stopTimer();

@@ -623,10 +623,12 @@ export interface Dictionary {
          * that happened after the conversation's first response. */
         breakdownConversation: string;
       };
-      /** The three ways voice input fails. The first is a state the user can
-       * fix and is written as an instruction; the other two carry whatever
-       * the OS or the transcriber said, which is untranslated by nature. */
+      /** The four ways voice input fails. The first two are states the user
+       * can fix and are written as instructions; the other two carry
+       * whatever the OS or the transcriber said, which is untranslated by
+       * nature. */
       voiceErrors: {
+        noMicrophone: string;
         microphonePermission: string;
         startFailed: string;
         transcriptionFailed: string;

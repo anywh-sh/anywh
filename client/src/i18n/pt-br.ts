@@ -205,6 +205,7 @@ export const ptBr: Dictionary = {
         breakdownConversation: "Conversa",
       },
       voiceErrors: {
+        noMicrophone: "Nenhum microfone disponível. Conecte um e tente novamente.",
         microphonePermission:
           "Permissão de microfone não concedida. Autorize em Ajustes do Sistema > Privacidade e Segurança > Microfone.",
         startFailed: "Não foi possível iniciar a gravação: {reason}",

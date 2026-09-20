@@ -979,7 +979,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   variant={isRecording ? "destructive" : "ghost"}
                   size={isRecording ? "sm" : "icon-sm"}
                   onClick={() => (isRecording ? void voice.stop() : void voice.start())}
-                  disabled={isTranscribing}
+                  disabled={isTranscribing || (!isRecording && voice.devices.length === 0)}
                   aria-label={isRecording ? copy.stopRecording : copy.record}
                 >
                   {isRecording ? (
