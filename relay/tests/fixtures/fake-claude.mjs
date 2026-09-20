@@ -71,6 +71,12 @@
 //                        mid-turn (e.g. right after an `ExitPlanMode`
 //                        approval), confirmed against it
 //                        (sharedSession.ts's `applyPermissionModeFromCli`).
+//   FAKE_CLAUDE_TITLE_DELAY_MS - if set, delays the reply of a
+//                        `--output-format text` invocation (the title/
+//                        suggestion probe, never a real turn) by this many
+//                        ms before exiting — lets a test hold one probe's
+//                        result back long enough to race a second, faster
+//                        one deterministically.
 
 import { randomUUID } from "node:crypto";
 
@@ -194,7 +200,13 @@ if (args[0] === "--version") {
     });
   }
 
-  emit({ type: "system", subtype: "init", session_id: sessionId, model });
+  // `--output-format text` (the title/suggestion probe) never streams
+  // events in the real binary — a single plain-text reply on stdout, no
+  // `system`/`init` line — matching what `runQuickPrompt`'s `extractReply`
+  // actually gets from the real CLI (it just trims raw stdout).
+  if (outputFormat !== "text") {
+    emit({ type: "system", subtype: "init", session_id: sessionId, model });
+  }
 
   if (process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE && outputFormat === "stream-json") {
     emit({ type: "system", subtype: "status", session_id: sessionId, permissionMode: process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE });
@@ -341,6 +353,18 @@ if (args[0] === "--version") {
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
     process.exit(0);
+  } else if (outputFormat === "text") {
+    // title/suggestion probe (titleGenerator.ts/suggestionGenerator.ts,
+    // buildQuickPromptArgs in defs/claude/def.ts) — `runQuickPrompt`'s
+    // `extractReply` just trims raw stdout, no JSONL to unwrap, unlike every
+    // branch above. FAKE_CLAUDE_TITLE_DELAY_MS lets a test hold the reply
+    // back long enough to land a real race against a second, faster probe or
+    // a `/clear` in between (sessionManager's title-generation coverage) —
+    // real `claude -p` calls vary in latency the same way, this just makes
+    // it deterministic instead of hoping to catch one mid-flight.
+    const delayMs = Number(process.env.FAKE_CLAUDE_TITLE_DELAY_MS ?? 0);
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    process.stdout.write(replyText, () => process.exit(0));
   } else {
     emit({
       type: "assistant",

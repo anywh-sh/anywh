@@ -312,7 +312,7 @@ export class SessionManager {
         this.wakeups.cancelForSession(id);
       },
       initialTitle: this.sessionStore.getTitle(id),
-      onFirstPrompt: (text) => {
+      onFirstPrompt: (text, generation) => {
         // Guards against overwriting an already-titled session: a session
         // migrated from an old format arrives with `initialTitle` filled in
         // (its name at the time), so it never had a null `title` to begin
@@ -326,20 +326,27 @@ export class SessionManager {
         // Codex before its first prompt would otherwise still title itself
         // with the Claude def this closure was built against.
         const currentDef = this.registry.get(this.sessionStore.getAgentId(id)) ?? claudeRuntimeDef;
-        generateTitle(currentDef, this.homeOverride, session.getCwdState().cwd, text)
-          .then((title) => {
+        void (async () => {
+          try {
+            const title = await generateTitle(currentDef, this.homeOverride, session.getCwdState().cwd, text);
             // Null means the first prompt had no text worth a title and the
             // model gave nothing back either. The session stays untitled and
             // the client names it, rather than the relay writing a name in a
             // language nobody picked.
             if (title === null) return;
+            // `generation` is stale once `/clear` or a manual rename moved
+            // the session past it while this was in flight — writing anyway
+            // would either resurrect a title for a conversation that no
+            // longer exists (blocking the *next* real generation attempt via
+            // the guard above) or stomp a rename that landed first.
+            if (!session.isCurrentTitleGeneration(generation)) return;
             this.sessionStore.setTitle(id, title);
             session.setTitle(title);
             this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
-          })
-          .catch((error: unknown) => {
+          } catch (error: unknown) {
             console.error("[relay] failed to generate session title:", error);
-          });
+          }
+        })();
       },
     });
     return session;
