@@ -205,6 +205,7 @@ export const en: Dictionary = {
         breakdownConversation: "Conversation",
       },
       voiceErrors: {
+        noMicrophone: "No microphone available. Connect one and try again.",
         microphonePermission:
           "Microphone access wasn't granted. Allow it under System Settings > Privacy & Security > Microphone.",
         startFailed: "Couldn't start recording: {reason}",
