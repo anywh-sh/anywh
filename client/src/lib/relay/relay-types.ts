@@ -263,14 +263,19 @@ export interface RemoteProfile {
   themeId?: string;
 }
 
-/** Response of `POST /control/profiles/validate` — passes through whatever
- * `claude auth status --json` reports (a real account has more fields than
- * these, e.g. `authMethod`/`orgName`, safely ignored), plus `collidesWith`
- * when the relay already has a profile pointed at the same `$HOME`. */
+/** Response of `POST /control/profiles/validate` — the chosen runtime's own
+ * answer about the `$HOME` being validated, normalized by that runtime's
+ * def (the relay asks whichever CLI the body named, so neither field is
+ * Claude-shaped any more), plus `collidesWith` when the relay already has a
+ * profile pointed at the same `$HOME`. */
 export interface ProfileValidation {
   loggedIn: boolean;
-  email?: string;
-  subscriptionType?: string;
+  /** Who is logged in — an email for Claude, absent for a CLI that only
+   * reports *how* the session authenticates. */
+  account?: string;
+  /** What that login is worth, as the CLI worded it ("pro", "ChatGPT") —
+   * displayed beside the account, never branched on. */
+  plan?: string;
   collidesWith?: string;
 }
 

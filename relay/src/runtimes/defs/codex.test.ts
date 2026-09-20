@@ -309,3 +309,33 @@ test("quickPrompt.extractReply: undefined for a blank stream or one with no agen
   assert.equal(codexRuntimeDef.quickPrompt.extractReply(""), undefined);
   assert.equal(codexRuntimeDef.quickPrompt.extractReply('{"type":"turn.started"}\nnot json\n'), undefined);
 });
+
+// The three shapes `codex login status` was measured producing (codex-cli
+// 0.154.0) — none of them on stdout, which stays empty in every one.
+test("auth.parse: a logged-in run reports the method the sentence names", () => {
+  if (codexRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
+  assert.deepEqual(codexRuntimeDef.auth.parse({ stdout: "", stderr: "Logged in using ChatGPT\n", exitCode: 0 }), {
+    loggedIn: true,
+    plan: "ChatGPT",
+  });
+});
+
+test("auth.parse: the WARNING line an unwritable $HOME adds doesn't hide the sentence under it", () => {
+  if (codexRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
+  const stderr = "WARNING: proceeding, even though we could not create PATH aliases: Permission denied (os error 13)\nLogged in using ChatGPT\n";
+  assert.deepEqual(codexRuntimeDef.auth.parse({ stdout: "", stderr, exitCode: 0 }), { loggedIn: true, plan: "ChatGPT" });
+});
+
+test("auth.parse: the exit code decides, so a non-zero run is logged out however noisy its stderr", () => {
+  if (codexRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
+  assert.deepEqual(codexRuntimeDef.auth.parse({ stdout: "", stderr: "Not logged in\n", exitCode: 1 }), { loggedIn: false });
+  assert.deepEqual(
+    codexRuntimeDef.auth.parse({ stdout: "", stderr: 'Error loading configuration: CODEX_HOME points to "/nope"\n', exitCode: 1 }),
+    { loggedIn: false },
+  );
+});
+
+test("auth.parse: exit 0 with an unrecognized stderr is still logged in, just unlabeled", () => {
+  if (codexRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
+  assert.deepEqual(codexRuntimeDef.auth.parse({ stdout: "", stderr: "", exitCode: 0 }), { loggedIn: true });
+});

@@ -372,7 +372,30 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   // resumes by referencing a thread id it captured, never by replaying.
   continuity: { kind: "cli-resume", resumeStyle: "capture" },
   models: { kind: "session-rpc" },
-  auth: { kind: "session-rpc" },
+  // `codex login status`, measured against codex-cli 0.154.0 — not the
+  // session RPC this used to claim, which was the honest answer only while
+  // nothing outside a session ever asked (`routes/profiles.ts` validates a
+  // profile *before* any session exists, so an in-session answer is no
+  // answer at all).
+  //
+  // Two things the real binary does that a stdout-only probe cannot see,
+  // and the reason `parse` takes the whole `AuthProbeOutput`:
+  //   - it writes to **stderr**, never stdout ("Logged in using ChatGPT");
+  //     stdout comes back empty in both states.
+  //   - it answers in the **exit code** (0 logged in, 1 not), and stderr
+  //     carries unrelated noise on top — a `WARNING: … could not create
+  //     PATH aliases` line whenever `$HOME` isn't writable, which is
+  //     exactly the shape of a profile's fresh config path.
+  // So the code is the authority and the sentence only supplies the label.
+  auth: {
+    kind: "cli-probe",
+    args: ["login", "status"],
+    parse: ({ stderr, exitCode }) => {
+      if (exitCode !== 0) return { loggedIn: false };
+      const method = /Logged in using (.+)/.exec(stderr)?.[1].trim();
+      return method ? { loggedIn: true, plan: method } : { loggedIn: true };
+    },
+  },
   permissions: {
     defaultModeId: "workspace-write",
     modesFor: (platform) => {

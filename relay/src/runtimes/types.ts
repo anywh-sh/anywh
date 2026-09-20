@@ -93,11 +93,30 @@ export type ModelSource =
 
 export interface AuthStatus {
   readonly loggedIn: boolean;
+  /** Who the CLI says is logged in — Claude reports the account's email.
+   * Absent when the CLI names no one: `codex login status` reports only
+   * *how* the session authenticates, never whose it is. */
   readonly account?: string;
+  /** What the CLI says that login is worth, as free text it chose — Claude's
+   * `subscriptionType` ("pro"), Codex's login method ("ChatGPT"). Rendered
+   * beside the account, never branched on. */
+  readonly plan?: string;
+}
+
+/** Everything a CLI emitted answering an auth probe. A union of streams
+ * rather than plain stdout because the two CLIs measured disagree on all
+ * three: Claude prints JSON to stdout and exits 0 either way, Codex prints
+ * a sentence to *stderr* and carries the answer in the exit code. A `parse`
+ * that only sees stdout can express the first and not the second. */
+export interface AuthProbeOutput {
+  readonly stdout: string;
+  readonly stderr: string;
+  /** `null` when the process was killed by a signal rather than exiting. */
+  readonly exitCode: number | null;
 }
 
 export type AuthSource =
-  | { readonly kind: "cli-probe"; readonly args: readonly string[]; readonly parse: (stdout: string) => AuthStatus }
+  | { readonly kind: "cli-probe"; readonly args: readonly string[]; readonly parse: (output: AuthProbeOutput) => AuthStatus }
   | { readonly kind: "session-rpc" }
   | { readonly kind: "none" };
 

@@ -37,7 +37,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
   const [label, setLabel] = useState("");
   const [homePath, setHomePath] = useState("");
   const [validating, setValidating] = useState(false);
-  const [validation, setValidation] = useState<{ email?: string; subscriptionType?: string } | null>(null);
+  const [validation, setValidation] = useState<{ account?: string; plan?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collidesWith, setCollidesWith] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -76,7 +76,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
         setError(copy.notLoggedIn.replace("{path}", homeForCommand));
         return;
       }
-      setValidation({ email: result.email, subscriptionType: result.subscriptionType });
+      setValidation({ account: result.account, plan: result.plan });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -147,8 +147,8 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile }: AddProfi
           {validation && (
             <p className="text-sm text-foreground">
               {copy.confirmed}
-              {validation.email ? `: ${validation.email}` : ""}
-              {validation.subscriptionType ? ` (${validation.subscriptionType})` : ""}
+              {validation.account ? `: ${validation.account}` : ""}
+              {validation.plan ? ` (${validation.plan})` : ""}
             </p>
           )}
 

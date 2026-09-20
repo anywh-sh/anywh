@@ -119,13 +119,20 @@ export function isIdBody(value: unknown): value is { id: string } {
   return typeof value === "object" && value !== null && typeof (value as { id?: unknown }).id === "string";
 }
 
-export function isCreateProfileBody(value: unknown): value is { label: string; home?: string } {
+/** `runtimeId` is only shape-checked here, never checked against the
+ * registry — same split as `isSetAgentMessage` above, and for the same
+ * reason: the vocabulary lives in the registry, which this file has no
+ * access to. `routes/profiles.ts` resolves it and answers 400 for an id no
+ * def answers to. Absent means Claude, for every client built before the
+ * runtime was a choice. */
+export function isCreateProfileBody(value: unknown): value is { label: string; home?: string; runtimeId?: string } {
   if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { label?: unknown; home?: unknown };
+  const candidate = value as { label?: unknown; home?: unknown; runtimeId?: unknown };
   return (
     typeof candidate.label === "string" &&
     candidate.label.trim().length > 0 &&
-    (candidate.home === undefined || typeof candidate.home === "string")
+    (candidate.home === undefined || typeof candidate.home === "string") &&
+    (candidate.runtimeId === undefined || typeof candidate.runtimeId === "string")
   );
 }
 

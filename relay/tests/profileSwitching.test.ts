@@ -94,9 +94,10 @@ test("GET /control/profiles reports a second profile's running state from a real
 test("POST /control/profiles/validate checks the real fake-claude auth status, and flags a homeOverride already claimed by another profile", async () => {
   const noBody = await fetch(httpUrl("/control/profiles/validate"), { method: "POST" });
   assert.equal(noBody.status, 200, "the whole body is optional");
-  const noBodyResult = (await noBody.json()) as { loggedIn: boolean; email?: string; collidesWith?: string };
+  const noBodyResult = (await noBody.json()) as { loggedIn: boolean; account?: string; plan?: string; collidesWith?: string };
   assert.equal(noBodyResult.loggedIn, true, "fake-claude.mjs's canned 'auth status --json' reply");
-  assert.equal(noBodyResult.email, "fake@anywh.test");
+  assert.equal(noBodyResult.account, "fake@anywh.test", "a body naming no runtime still means Claude");
+  assert.equal(noBodyResult.plan, "pro");
   assert.equal(noBodyResult.collidesWith, undefined, "no other profile registered yet");
 
   writeFileSync(join(server.envDir, "existing.env"), "RELAY_PORT=9999\nRELAY_HOME_OVERRIDE=/home/shared\n");
@@ -115,4 +116,36 @@ test("POST /control/profiles/validate checks the real fake-claude auth status, a
   });
   const noCollisionResult = (await noCollision.json()) as { collidesWith?: string };
   assert.equal(noCollisionResult.collidesWith, undefined);
+});
+
+test("POST /control/profiles/validate resolves the runtime it was asked for, and refuses one no def answers to", async () => {
+  // The bug this route was carrying: it ran `claude auth status` whatever
+  // the caller meant. Naming the runtime explicitly has to reach the same
+  // def the default does, and an id the registry doesn't know has to come
+  // back as the caller's mistake — never as a silent fallback to Claude,
+  // which would report a Codex profile logged in on Claude's session.
+  const named = await fetch(httpUrl("/control/profiles/validate"), {
+    method: "POST",
+    body: JSON.stringify({ runtimeId: "claude" }),
+  });
+  assert.equal(named.status, 200);
+  assert.equal(((await named.json()) as { account?: string }).account, "fake@anywh.test");
+
+  const unknown = await fetch(httpUrl("/control/profiles/validate"), {
+    method: "POST",
+    body: JSON.stringify({ runtimeId: "not-a-runtime" }),
+  });
+  assert.equal(unknown.status, 400);
+  assert.match(((await unknown.json()) as { error: string }).error, /unknown runtime/);
+});
+
+test("POST /control/profiles refuses to provision against a runtime no def answers to, before running anything", async () => {
+  const response = await fetch(httpUrl("/control/profiles"), {
+    method: "POST",
+    body: JSON.stringify({ label: "Ghost", runtimeId: "not-a-runtime" }),
+  });
+  assert.equal(response.status, 400);
+  assert.match(((await response.json()) as { error: string }).error, /unknown runtime/);
+  const listed = (await (await fetch(httpUrl("/control/profiles"))).json()) as { profiles: { id: string }[] };
+  assert.ok(!listed.profiles.some((profile) => profile.id === "ghost"), "a rejected body must not have reached add-profile.sh");
 });
