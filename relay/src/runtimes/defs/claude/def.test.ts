@@ -94,3 +94,30 @@ test("quickPrompt.extractReply: the whole trimmed stdout is the reply, undefined
   assert.equal(claudeRuntimeDef.quickPrompt.extractReply("  Login bug fix  \n"), "Login bug fix");
   assert.equal(claudeRuntimeDef.quickPrompt.extractReply("   \n"), undefined);
 });
+
+test("portability.mcp.needsAuthSignal.parse: server names out of the real cache file's shape", () => {
+  if (claudeRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
+  const { needsAuthSignal } = claudeRuntimeDef.portability.mcp;
+  if (needsAuthSignal.kind !== "file") throw new Error("expected a file signal");
+  // Verbatim from a real ~/.claude/mcp-needs-auth-cache.json (2.1.274).
+  const real = '{"plugin:serena:serena":{"timestamp":1789920277081,"id":"f76980a47f22f13a"}}';
+  assert.deepEqual(needsAuthSignal.parse(real), ["plugin:serena:serena"]);
+});
+
+test("portability.mcp.needsAuthSignal.parse: a missing, empty or reshaped file means nothing needs auth", () => {
+  if (claudeRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
+  const { needsAuthSignal } = claudeRuntimeDef.portability.mcp;
+  if (needsAuthSignal.kind !== "file") throw new Error("expected a file signal");
+  // The three ways this file is read before it is ever written, plus the
+  // one where a CLI update changes its shape — none of them may throw at
+  // whoever polls it.
+  assert.deepEqual(needsAuthSignal.parse(""), []);
+  assert.deepEqual(needsAuthSignal.parse("{}"), []);
+  assert.deepEqual(needsAuthSignal.parse('["serena"]'), []);
+  assert.deepEqual(needsAuthSignal.parse("null"), []);
+});
+
+test("portability.mcp.loginArgs: headless by construction — the flag that prints the URL instead of opening a browser", () => {
+  if (claudeRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
+  assert.deepEqual(claudeRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "--no-browser", "sentry"]);
+});

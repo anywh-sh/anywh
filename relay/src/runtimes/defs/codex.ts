@@ -447,4 +447,55 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     // No `subagents` here: `codex agents` lists live daemon sessions, not
     // subagent definitions — this CLI has no such concept to measure.
   },
+  // Measured against codex-cli 0.154.0, on a real installation and in a
+  // throwaway `CODEX_HOME`.
+  portability: {
+    // Both skill roots this CLI scans, same two `contextAccounting.skills`
+    // already names. A global instructions file is *not* listed: the binary
+    // carries a "Failed to read global AGENTS.md instructions from" message,
+    // so the concept exists, but no run here made it name its path and the
+    // file was absent on the machine this was calibrated on — listing a
+    // path on that basis would be folklore. Settling it takes one run of a
+    // login-capable `CODEX_HOME` with an unreadable `AGENTS.md` planted at
+    // the candidate path, reading back whether that message fires.
+    authoredPaths: [".codex/skills", ".agents/skills"],
+    mcp: {
+      kind: "supported",
+      // One TOML file holding portable and non-portable side by side, which
+      // is why only named keys may cross: a real user's file here carried
+      // `model` and `model_reasoning_effort` (both portable) next to
+      // `[projects."/home/wil/anywh"] trust_level` — an absolute path from
+      // this machine, meaningless anywhere else and a statement of trust
+      // nobody should be making on the user's behalf on a new box.
+      declaration: {
+        kind: "shared",
+        path: ".codex/config.toml",
+        format: "toml",
+        serversKey: "mcp_servers",
+        portableKeys: ["model", "model_reasoning_effort", "mcp_servers"],
+      },
+      // Writing this file directly, then logging in, is the only automatable
+      // order: `codex mcp add --url …` kicks off the OAuth flow itself and
+      // blocks waiting for the callback, so any provisioning that shells out
+      // to it hangs.
+      loginArgs: (serverName) => ["mcp", "login", serverName],
+      // Completed with stdout redirected to a file, no TTY anywhere — the
+      // opposite of Claude, and the reason `loginDriver` exists as a field
+      // instead of the relay assuming one mechanism.
+      loginDriver: "child",
+      callback: {
+        // Left alone it draws a fresh ephemeral port per run (40393, 41867,
+        // 40641 across three), but the port is ours to pin because the
+        // config file is ours to write: setting this key produced
+        // `redirect_uri=http://127.0.0.1:51234/callback/…`, stable across
+        // runs.
+        kind: "configurable-port",
+        portKeyPath: (serverName) => ["mcp_servers", serverName, "oauth", "callback_port"],
+      },
+      // No file to watch: this CLI reports a server needing authentication
+      // as an `AuthRequired`/`InsufficientScope` error on the MCP protocol
+      // itself, so the UI can only react after a call already failed.
+      needsAuthSignal: { kind: "in-band" },
+    },
+  },
 };

@@ -43,6 +43,7 @@ function baseDef(): AgentRuntimeDef {
       mapStdoutLine: () => [],
       interrupt: { signal: "SIGINT", expectsCleanExit: true },
     },
+    portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
 }
 
@@ -172,4 +173,122 @@ test("buildRegistry throws on the first incoherent def in strict mode", () => {
   const def = baseDef();
   const broken = { ...def, identity: { ...def.identity, env: { strip: [] } } };
   assert.throws(() => buildRegistry([broken], { strict: true }), /env\.strip is empty/);
+});
+
+// ---------------------------------------------------------------------
+// portability
+
+test("assertCoherent: a runtime with no authored paths can't be offered to carry", () => {
+  const def = baseDef();
+  const issues = assertCoherent({ ...def, portability: { ...def.portability, authoredPaths: [] } });
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /portability\.authoredPaths is empty/);
+});
+
+test("assertCoherent: an absolute authored path only works on the machine that wrote the def", () => {
+  const def = baseDef();
+  const issues = assertCoherent({ ...def, portability: { ...def.portability, authoredPaths: ["/home/someone/.fixture/skills"] } });
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /authoredPaths entry.*is absolute/);
+});
+
+test("assertCoherent: a Windows-drive authored path is absolute too, which node:path alone doesn't say on posix", () => {
+  const def = baseDef();
+  const issues = assertCoherent({ ...def, portability: { ...def.portability, authoredPaths: ["C:\\Users\\someone\\.fixture"] } });
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /is absolute/);
+});
+
+test("assertCoherent: an authored path may not climb out of the config home", () => {
+  const def = baseDef();
+  const issues = assertCoherent({ ...def, portability: { ...def.portability, authoredPaths: [".fixture/../../.ssh"] } });
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /escapes the runtime config home/);
+});
+
+test("assertCoherent: a shared declaration with no portable keys would merge nothing", () => {
+  const def = baseDef();
+  const issues = assertCoherent({
+    ...def,
+    portability: {
+      ...def.portability,
+      mcp: {
+        kind: "supported",
+        declaration: { kind: "shared", path: ".fixture/config.toml", format: "toml", serversKey: "mcp_servers", portableKeys: [] },
+        loginArgs: (name) => ["mcp", "login", name],
+        loginDriver: "child",
+        callback: { kind: "paste-code" },
+        needsAuthSignal: { kind: "in-band" },
+      },
+    },
+  });
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /portableKeys is empty/);
+});
+
+test("assertCoherent: the needs-auth file is a config-home path like any other", () => {
+  const def = baseDef();
+  const issues = assertCoherent({
+    ...def,
+    portability: {
+      ...def.portability,
+      mcp: {
+        kind: "supported",
+        declaration: { kind: "dedicated", path: ".fixture/mcp.json", format: "json", serversKey: "servers" },
+        loginArgs: (name) => ["mcp", "login", name],
+        loginDriver: "pty",
+        callback: { kind: "paste-code" },
+        needsAuthSignal: { kind: "file", path: "/var/tmp/needs-auth.json", parse: () => [] },
+      },
+    },
+  });
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /needsAuthSignal\.path.*is absolute/);
+});
+
+test("assertCoherent: a fully declared MCP contract passes", () => {
+  const def = baseDef();
+  assert.deepEqual(
+    assertCoherent({
+      ...def,
+      portability: {
+        authoredPaths: [".fixture/skills", ".fixture/agents"],
+        mcp: {
+          kind: "supported",
+          declaration: { kind: "shared", path: ".fixture/config.toml", format: "toml", serversKey: "mcp_servers", portableKeys: ["mcp_servers"] },
+          loginArgs: (name) => ["mcp", "login", name],
+          loginDriver: "child",
+          callback: { kind: "configurable-port", portKeyPath: (name) => ["mcp_servers", name, "oauth", "callback_port"] },
+          needsAuthSignal: { kind: "file", path: ".fixture/needs-auth.json", parse: () => [] },
+        },
+      },
+    }),
+    [],
+  );
+});
+
+// ---------------------------------------------------------------------
+// cross-def checks — things one def can't be incoherent about alone
+
+test("buildRegistry: two defs claiming the same id keep the first, and say so", () => {
+  // `byId` is a last-wins Map, so without this the second def silently
+  // becomes what every session resolving that id gets driven by.
+  const first = baseDef();
+  const second = { ...baseDef(), bridges: ["mcp"] as const, capabilities: { ...first.capabilities, presentChoice: "bridged" as const } };
+  const originalError = console.error;
+  const logged: string[] = [];
+  console.error = (...args: unknown[]) => logged.push(args.join(" "));
+  try {
+    const registry = buildRegistry([first, second]);
+    assert.equal(registry.defs.length, 1);
+    assert.equal(registry.get("fixture")?.bridges.length, 0, "the first def stays, the duplicate is dropped");
+    assert.equal(logged.length, 1);
+    assert.match(logged[0], /share identity\.id "fixture"/);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("buildRegistry: a duplicate id throws in strict mode, like any other incoherence", () => {
+  assert.throws(() => buildRegistry([baseDef(), baseDef()], { strict: true }), /share identity\.id "fixture"/);
 });

@@ -41,6 +41,7 @@ function defWith(bin: string, auth: AuthSource): AgentRuntimeDef {
       mapStdoutLine: () => [],
       interrupt: { signal: "SIGINT", expectsCleanExit: true },
     },
+    portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
 }
 

@@ -52,6 +52,7 @@ function fixtureDef(overrides: Partial<AgentRuntimeDef["identity"]> = {}): Agent
     bridges: [],
     quickPrompt: { kind: "none" },
     exec: { kind: "spawnPerTurn", promptDelivery: "argv", buildArgs: () => [], mapStdoutLine: () => [], interrupt: { signal: "SIGINT", expectsCleanExit: true } },
+    portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
 }
 
