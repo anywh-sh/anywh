@@ -90,8 +90,13 @@ export interface SharedSessionOptions {
    * response). Deliberately decoupled from `onLockChange`: a session whose
    * first messages are `/model opus`/`/clear` locks the cwd normally on the
    * first turn, but only gets a title once a real message arrives —
-   * without this the title would come out of the command text. */
-  onFirstPrompt?: (text: string) => void;
+   * without this the title would come out of the command text. The second
+   * argument is the session's `titleGeneration` at call time — SessionManager
+   * threads it back through `isCurrentTitleGeneration` once `generateTitle`
+   * resolves, so a generation a later `/clear` (or a manual rename) has
+   * already moved past discards its result instead of writing a stale title
+   * over the current one. */
+  onFirstPrompt?: (text: string, generation: number) => void;
   /** Called at the start of EVERY turn (not just the first) — this is what
    * lets SessionManager mark `lastActiveAt` in SessionStore, used to sort
    * the sidebar by last interaction. */
@@ -236,6 +241,12 @@ export class SharedSession implements SessionDriverHost {
    * (e.g. an opening `/model opus`) without yet having a real message for
    * the title — see `onFirstPrompt` above. */
   private firstPromptSeeded = false;
+  /** Bumped by `/clear` and by every `setTitle` call (manual rename or a
+   * completed title-generation) — lets `isCurrentTitleGeneration` tell a
+   * `generateTitle()` call in flight from `onFirstPrompt` that it's stale
+   * (started for a conversation that got cleared, or resolving after a
+   * rename/another generation already won) before it overwrites the title. */
+  private titleGeneration = 0;
   /** `true` after a `/clear` — prevents `ensureHistoryLoaded` from
    * reloading the old transcript from disk for a client that connects
    * after the clear (its normal guard only looks at `history.length`,
@@ -463,10 +474,24 @@ export class SharedSession implements SessionDriverHost {
    * manual rename (SessionManager.renameTitle) — both cases only need to
    * update local state and notify whoever is connected right now (e.g.
    * another device with this session open). Disk persistence is
-   * SessionStore's responsibility, not this class's. */
+   * SessionStore's responsibility, not this class's. Bumps
+   * `titleGeneration` so a `generateTitle()` call still in flight for an
+   * older generation (a rename that landed first, or another attempt that
+   * already won) recognizes its own result as stale when it resolves. */
   setTitle(title: string): void {
     this.title = title;
+    this.titleGeneration++;
     this.broadcastTitle();
+  }
+
+  /** True if `generation` (captured from `onFirstPrompt`'s second argument
+   * when a title-generation attempt started) is still this session's
+   * current one. SessionManager checks this right before writing a
+   * `generateTitle()` result, so a resolution that arrives after `/clear`
+   * or a manual rename has moved the generation forward gets discarded
+   * instead of overwriting a title that describes a different conversation. */
+  isCurrentTitleGeneration(generation: number): boolean {
+    return generation === this.titleGeneration;
   }
 
   /** Only allowed before the first turn (see `runTurn`) — the caller
@@ -936,6 +961,7 @@ export class SharedSession implements SessionDriverHost {
       // instead of it staying stuck on the old conversation's title forever.
       this.title = null;
       this.firstPromptSeeded = false;
+      this.titleGeneration++;
       this.options.onTitleClear?.();
       if (this.locked) {
         this.locked = false;
@@ -1022,7 +1048,7 @@ export class SharedSession implements SessionDriverHost {
       // for a while already if a job had time to run and finish).
       if (!this.firstPromptSeeded && !text.trim().startsWith("/")) {
         this.firstPromptSeeded = true;
-        this.options.onFirstPrompt?.(text);
+        this.options.onFirstPrompt?.(text, this.titleGeneration);
       }
     }
 
