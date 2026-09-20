@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
 
@@ -9,6 +10,12 @@ import type { SessionStore } from "../session/sessionStore.js";
 export interface RouteContext {
   readonly sessionStore: SessionStore;
   readonly sessionManager: SessionManager;
+  /** Every def this relay can drive, coherence-checked at boot — the same
+   * object `SessionManager` resolves a session's agent against. A route
+   * that acts per runtime (profile validation asks the chosen runtime
+   * whether it is logged in) resolves the id through this rather than
+   * hardcoding one CLI. */
+  readonly registry: Registry;
   readonly homeOverride: string | undefined;
   readonly port: number;
   readonly defaultSession: string;

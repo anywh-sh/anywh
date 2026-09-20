@@ -92,6 +92,7 @@ const sessionManager = new SessionManager(
 const routeContext: RouteContext = {
   sessionStore,
   sessionManager,
+  registry,
   homeOverride: HOME_OVERRIDE,
   port: PORT,
   defaultSession: DEFAULT_SESSION,

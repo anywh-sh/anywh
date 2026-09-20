@@ -12,6 +12,6 @@ test("parseClaudeAuthStatus: parses a logged-out status with no email/subscripti
   assert.deepEqual(status, { loggedIn: false });
 });
 
-test("parseClaudeAuthStatus: throws on invalid JSON — same failure mode runClaudeAuthStatus turns into a rejection", () => {
+test("parseClaudeAuthStatus: throws on invalid JSON — the failure mode probeRuntimeAuth turns into a rejection", () => {
   assert.throws(() => parseClaudeAuthStatus("not json"));
 });

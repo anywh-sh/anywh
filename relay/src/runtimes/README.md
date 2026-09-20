@@ -66,7 +66,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `capabilities` | what this agent can do, at what level (`native`/`bridged`/`none`) | data |
 | `continuity` | who owns conversation history across turns | data |
 | `models` | where to find the model list — a probe's args + a pure parser, or "ask the daemon" | data + a pure function |
-| `auth` | same shape as `models`, for login status | data + a pure function |
+| `auth` | login status: a probe's args + a pure parser over everything the CLI emitted (stdout, stderr, exit code), or "ask the daemon" | data + a pure function |
 | `permissions` | a function from host platform to available modes, and which one is default | a pure function |
 | `bridges` | which of today's three bridge files this agent uses, if any | data |
 | `exec` | the union: how a turn is actually driven | data + pure functions |
@@ -244,6 +244,16 @@ could go stale. A fixture with no version is folklore, not a test.
       or `http`, per §2's derived rule.
 - [ ] A characterization test exists for every pure function, against a
       fixture that names the exact CLI version it was captured from (§8).
+- [ ] If `auth` is a `cli-probe`, the probe was **run**, logged in and
+      logged out, with all three of stdout, stderr and the exit code
+      recorded — the two CLIs measured so far disagree on every one of
+      them, and a parser written from the shape the *other* CLI happens to
+      use silently reports a logged-in account as logged out. Claude Code
+      2.1.274 answers in a JSON object on stdout; codex-cli 0.154.0 leaves
+      stdout empty, prints a sentence to stderr and carries the answer in
+      the exit code, with unrelated warning lines mixed into that stderr
+      whenever `$HOME` isn't writable. Version noted next to the parser, as
+      §8 requires of any fixture.
 - [ ] `assertCoherent(def)` passes with zero issues before the def is wired
       into `runtimes/registry.ts` for real.
 - [ ] If this def declares `contextAccounting`, its `multiplier`/`perFile`/

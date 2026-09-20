@@ -12,7 +12,9 @@ import {
   slugify,
   updateProfileMeta,
 } from "../host/profileRegistry.js";
-import { runClaudeAuthStatus, type ClaudeAuthStatus } from "../runtimes/probes/authStatus.js";
+import { probeRuntimeAuth } from "../runtimes/probes/runtimeAuth.js";
+import type { AgentRuntimeDef, AuthStatus } from "../runtimes/types.js";
+import type { Registry } from "../runtimes/registry.js";
 import type { RouteHandler } from "./context.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
@@ -32,7 +34,23 @@ const ADD_PROFILE_SCRIPT = resolveShipped(import.meta.url, "../../../infra/syste
 // needed the identical override, not a mock of `spawn` itself.
 const SYSTEMCTL_BIN = process.env.SYSTEMCTL_BIN ?? "systemctl";
 
-export const handleProfileRoutes: RouteHandler = async (req, res) => {
+// What a body that names no runtime means. Every client shipped before the
+// runtime became a choice sends exactly that, and every one of them meant
+// Claude — this keeps such a client validating against the CLI it always
+// validated against, instead of failing on a field it has never heard of.
+const DEFAULT_RUNTIME_ID = "claude";
+
+/** Resolves `runtimeId` against the registry, or explains why it couldn't:
+ * an id no def answers to is the client's mistake (400), not a login
+ * problem, and must never fall back to Claude — silently validating the
+ * wrong CLI is the exact bug this route is being cured of. */
+function resolveRuntime(registry: Registry, runtimeId: unknown): { def: AgentRuntimeDef; error?: undefined } | { def?: undefined; error: string } {
+  const id = typeof runtimeId === "string" && runtimeId.length > 0 ? runtimeId : DEFAULT_RUNTIME_ID;
+  const def = registry.get(id);
+  return def ? { def } : { error: `unknown runtime "${id}"` };
+}
+
+export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method === "GET" && req.url?.startsWith("/control/profiles")) {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -57,19 +75,25 @@ export const handleProfileRoutes: RouteHandler = async (req, res) => {
           return;
         }
         const homeOverride = body.home && body.home.length > 0 ? body.home : undefined;
+        const runtime = resolveRuntime(ctx.registry, body.runtimeId);
+        if (!runtime.def) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: runtime.error }));
+          return;
+        }
 
         // Re-validated here, not trusted from an earlier `/validate` call by
         // the same client: another device could have registered a
         // colliding profile in between, and the client can't have checked
         // login for a `homeOverride` it just typed without a round trip
         // anyway.
-        let status: ClaudeAuthStatus;
+        let status: AuthStatus;
         try {
-          status = await runClaudeAuthStatus(homeOverride);
+          status = await probeRuntimeAuth(runtime.def, homeOverride);
         } catch (error) {
-          console.error("[relay] claude auth status check failed:", error);
+          console.error(`[relay] ${runtime.def.identity.id} auth check failed:`, error);
           res.writeHead(502);
-          res.end(JSON.stringify({ error: "failed to check claude auth status" }));
+          res.end(JSON.stringify({ error: `failed to check ${runtime.def.identity.id} auth status` }));
           return;
         }
         if (!status.loggedIn) {
@@ -148,13 +172,19 @@ export const handleProfileRoutes: RouteHandler = async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     await readOptionalJsonBody(req).then(async (body) => {
       const homeOverride = typeof body.homeOverride === "string" && body.homeOverride.length > 0 ? body.homeOverride : undefined;
-      let status: ClaudeAuthStatus;
+      const runtime = resolveRuntime(ctx.registry, body.runtimeId);
+      if (!runtime.def) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: runtime.error }));
+        return;
+      }
+      let status: AuthStatus;
       try {
-        status = await runClaudeAuthStatus(homeOverride);
+        status = await probeRuntimeAuth(runtime.def, homeOverride);
       } catch (error) {
-        console.error("[relay] claude auth status check failed:", error);
+        console.error(`[relay] ${runtime.def.identity.id} auth check failed:`, error);
         res.writeHead(502);
-        res.end(JSON.stringify({ error: "failed to check claude auth status" }));
+        res.end(JSON.stringify({ error: `failed to check ${runtime.def.identity.id} auth status` }));
         return;
       }
       const collidesWith = findHomeOverrideCollision(homeOverride);

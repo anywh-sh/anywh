@@ -40,10 +40,20 @@ test("exec.mapStdoutLine: invalid JSON degrades to no events instead of throwing
   assert.deepEqual(claudeRuntimeDef.exec.mapStdoutLine("not json", { turnId: "t1" }), []);
 });
 
-test("auth.parse: maps ClaudeAuthStatus onto AuthStatus, dropping subscriptionType", () => {
+test("auth.parse: maps ClaudeAuthStatus's stdout payload onto AuthStatus", () => {
   if (claudeRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
-  const status = claudeRuntimeDef.auth.parse(JSON.stringify({ loggedIn: true, email: "user@example.com", subscriptionType: "max" }));
-  assert.deepEqual(status, { loggedIn: true, account: "user@example.com" });
+  const status = claudeRuntimeDef.auth.parse({
+    stdout: JSON.stringify({ loggedIn: true, email: "user@example.com", subscriptionType: "max" }),
+    stderr: "",
+    exitCode: 0,
+  });
+  assert.deepEqual(status, { loggedIn: true, account: "user@example.com", plan: "max" });
+});
+
+test("auth.parse: reads the payload, not the exit code — a logged-out reply still exits 1", () => {
+  if (claudeRuntimeDef.auth.kind !== "cli-probe") throw new Error("expected cli-probe");
+  const status = claudeRuntimeDef.auth.parse({ stdout: JSON.stringify({ loggedIn: false }), stderr: "", exitCode: 1 });
+  assert.deepEqual(status, { loggedIn: false, account: undefined, plan: undefined });
 });
 
 test("permissions.modesFor: same four modes on every platform, default survives", () => {

@@ -117,15 +117,14 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
   models: { kind: "static", options: [] },
   auth: {
     kind: "cli-probe",
+    // Measured against Claude Code 2.1.274: one JSON object on stdout
+    // (exit 0 logged in, 1 logged out — the code only mirrors the payload's
+    // own `loggedIn`, and the payload is the richer source, so nothing here
+    // reads `exitCode`).
     args: ["auth", "status", "--json"],
-    // Drops `subscriptionType` on purpose: `routes/profiles.ts` still calls
-    // `runClaudeAuthStatus` directly for that (`AddProfileDialog.tsx`
-    // renders it), and this generic `AuthSource.parse` is a different,
-    // poorer caller — swapping `routes/profiles.ts` over to this would
-    // silently lose that field from the UI.
-    parse: (stdout) => {
+    parse: ({ stdout }) => {
       const status = parseClaudeAuthStatus(stdout);
-      return { loggedIn: status.loggedIn, account: status.email };
+      return { loggedIn: status.loggedIn, account: status.email, plan: status.subscriptionType };
     },
   },
   permissions: {
