@@ -279,6 +279,45 @@ export interface ProfileValidation {
   collidesWith?: string;
 }
 
+/** What a relay reports it could carry for one runtime — the summary form
+ * (`GET /control/portability`), with paths and sizes but no contents, so
+ * "is there anything to copy" is answerable without moving the files to
+ * find out. */
+export interface PortabilitySnapshot {
+  runtimeId: string;
+  found: boolean;
+  files: { path: string; bytes: number }[];
+  /** MCP servers the setup declares. They travel as declarations; signing
+   * in to them happens on the destination, by the user. */
+  mcpServers: string[];
+  warnings: PortabilityWarning[];
+}
+
+/** Why a file that copies cleanly may still not work where it lands — a
+ * code and its operands, never a sentence, so the wording stays in the
+ * dictionary with every other piece of UI text. */
+export interface PortabilityWarning {
+  kind: "absolute-path" | "file-too-large" | "bundle-truncated";
+  path: string;
+  detail: string;
+}
+
+/** The same read with contents included (`full=1`), which is also exactly
+ * what `POST /control/portability/apply` takes. */
+export interface PortabilityBundle extends Omit<PortabilitySnapshot, "files"> {
+  files: { path: string; contents: string; bytes: number; executable: boolean }[];
+  declaration?: { path: string; format: "json" | "toml"; values: Record<string, unknown> };
+}
+
+export interface PortabilityApplyResult {
+  written: string[];
+  /** Paths the destination refused because they would have escaped its
+   * config home. Always empty in practice; surfaced rather than swallowed
+   * because a silent partial write is the one outcome nobody could
+   * diagnose. */
+  rejected: string[];
+}
+
 /** Response of `POST /control/profiles` — enough to build the local
  * `Profile` (`addProfile`) once the relay finishes provisioning. */
 export interface CreatedProfile {
