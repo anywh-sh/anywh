@@ -12,6 +12,7 @@ import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/def
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
+import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
@@ -103,6 +104,7 @@ const routeContext: RouteContext = {
 const routeHandlers: readonly RouteHandler[] = [
   handleSessionRoutes,
   handleProfileRoutes,
+  handlePortabilityRoutes,
   handleThemeRoutes,
   handleFilesRoutes,
   handleHostRoutes,

@@ -119,6 +119,38 @@ export function isIdBody(value: unknown): value is { id: string } {
   return typeof value === "object" && value !== null && typeof (value as { id?: unknown }).id === "string";
 }
 
+/** Shape-checks a bundle arriving from another machine's relay. Only the
+ * fields this relay acts on are checked, and the paths inside are checked
+ * again where they are used (`isSafeRelativePath`) rather than trusted for
+ * having passed a guard — a guard proves a shape, not an intent. */
+export function isApplyPortabilityBody(value: unknown): value is {
+  bundle: {
+    runtimeId: string;
+    files: { path: string; contents: string; executable: boolean }[];
+    declaration?: { path: string; format: "json" | "toml"; values: Record<string, unknown> };
+  };
+} {
+  if (typeof value !== "object" || value === null) return false;
+  const bundle = (value as { bundle?: unknown }).bundle;
+  if (typeof bundle !== "object" || bundle === null) return false;
+  const candidate = bundle as { runtimeId?: unknown; files?: unknown; declaration?: unknown };
+  if (typeof candidate.runtimeId !== "string" || candidate.runtimeId.length === 0) return false;
+  if (!Array.isArray(candidate.files)) return false;
+  const filesOk = candidate.files.every((file: unknown) => {
+    if (typeof file !== "object" || file === null) return false;
+    const entry = file as { path?: unknown; contents?: unknown; executable?: unknown };
+    return typeof entry.path === "string" && typeof entry.contents === "string" && typeof entry.executable === "boolean";
+  });
+  if (!filesOk) return false;
+  if (candidate.declaration !== undefined) {
+    const declaration = candidate.declaration as { path?: unknown; format?: unknown; values?: unknown };
+    if (typeof declaration.path !== "string") return false;
+    if (declaration.format !== "json" && declaration.format !== "toml") return false;
+    if (typeof declaration.values !== "object" || declaration.values === null || Array.isArray(declaration.values)) return false;
+  }
+  return true;
+}
+
 /** `runtimeId` is only shape-checked here, never checked against the
  * registry — same split as `isSetAgentMessage` above, and for the same
  * reason: the vocabulary lives in the registry, which this file has no

@@ -22,6 +22,7 @@
   "dependencies": {
     "gpt-tokenizer": "^4.0.0",
     "node-pty": "^1.1.0",
+    "smol-toml": "^1.8.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -85,6 +85,15 @@ relay/src/
                            plan-mode's text-marker fallback)
   fs/                      the file panel's own read/write/browse of a
                            session's working directory
+  portability/             reading and writing a runtime's *config home*
+                           (`~/.claude`, `~/.codex`) so a setup can be
+                           carried to another machine or profile — the
+                           files a def calls the user's own, plus the
+                           allowlisted slice of its MCP declaration, never
+                           a credential. Separate from `fs/` because that
+                           one is rooted at the session's cwd by
+                           construction and cannot reach a config home at
+                           all
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking
