@@ -787,7 +787,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             // (iOS shell, not redesigned) — here the glass chrome floats over
             // the content instead of sitting in a frame with it.
             "bg-bg-elevated/45 shadow-lg backdrop-blur-lg backdrop-saturate-150"
-          : "my-3 bg-bg-sidebar",
+          : "mb-3 bg-bg-sidebar",
         focused ? "border-primary" : isIOS() ? "border-glass-tint/8" : "border-border hover:border-text-faint",
       )}
     >
