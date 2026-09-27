@@ -337,7 +337,6 @@ export const en: Dictionary = {
         heading: "background activity",
         close: "Close",
         emptyTitle: "nothing in the background",
-        emptyDescription: "Delegated agents and long-running processes show up here while they run on your machine.",
         open: "open",
         stop: "stop",
         dismiss: "dismiss",

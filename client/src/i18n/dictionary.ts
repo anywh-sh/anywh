@@ -852,8 +852,6 @@ export interface Dictionary {
         close: string;
         /** Empty-state title, once every job is gone or dismissed. */
         emptyTitle: string;
-        /** Empty-state explanatory line, under `emptyTitle`. */
-        emptyDescription: string;
         /** Row action: jumps to the item's tab and closes the panel. */
         open: string;
         /** Row action on a running item: cancels the `anywh-bg` job, or

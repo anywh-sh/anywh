@@ -337,7 +337,6 @@ export const ptBr: Dictionary = {
         heading: "atividade em segundo plano",
         close: "Fechar",
         emptyTitle: "nada em segundo plano",
-        emptyDescription: "Agentes delegados e processos longos aparecem aqui enquanto rodam na sua máquina.",
         open: "abrir",
         stop: "parar",
         dismiss: "descartar",

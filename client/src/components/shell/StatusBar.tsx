@@ -306,7 +306,6 @@ export function StatusBar({
                 ○
               </span>
               <span className="font-mono text-[11.5px] text-muted-foreground">{activityStrings.emptyTitle}</span>
-              <span className="max-w-[236px] text-xs leading-relaxed text-text-faint">{activityStrings.emptyDescription}</span>
             </div>
           )}
 
