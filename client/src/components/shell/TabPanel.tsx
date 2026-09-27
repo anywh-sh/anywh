@@ -1,9 +1,9 @@
 import { memo } from "react";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatPanel, type BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
-import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
+import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
@@ -26,7 +26,8 @@ import { cn } from "@/lib/utils";
  */
 export interface TabPanelActions {
   onTurnActiveChange: (tabId: string, active: boolean) => void;
-  onBackgroundJobsChange: (tabId: string, jobs: BackgroundJobSummary[]) => void;
+  onBackgroundJobsChange: (tabId: string, jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
+  onBackgroundActionsReady: (tabId: string, actions: BackgroundJobActions | null) => void;
   onTurnComplete: (
     tab: Tab,
     profile: Profile,
@@ -99,7 +100,8 @@ const TabChat = memo(function TabChat({
       sessionId={tab.id}
       isNewConversation={tab.isNew}
       onTurnActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
-      onBackgroundJobsChange={(jobs) => actions.onBackgroundJobsChange(tab.id, jobs)}
+      onBackgroundJobsChange={(jobs, failedJobs) => actions.onBackgroundJobsChange(tab.id, jobs, failedJobs)}
+      onBackgroundActionsReady={(jobActions) => actions.onBackgroundActionsReady(tab.id, jobActions)}
       onTurnComplete={(result) => actions.onTurnComplete(tab, profile, result)}
       onTitle={(title) => actions.onTitle(tab, title)}
       onActivity={() => actions.onActivity(tab)}

@@ -451,6 +451,37 @@ export interface Dictionary {
       /** `{label}` — the single job's name. */
       confirmOneBody: string;
     };
+    /** Inline cards above the streaming indicator, for background work
+     * launched from THIS conversation — an `anywh-bg` process (real data:
+     * label, pid, elapsed time), or a `Task` subagent call still in flight
+     * (the only real signal for that: the protocol carries no step/progress,
+     * model or token data for a subagent's own work, so unlike the `proc`
+     * card there is nothing to show once expanded besides the stop action).
+     * Replaces `backgroundJobs` above on desktop — a single tray inside the
+     * conversation instead of a separate chip next to the composer. */
+    launchedInBackground: {
+      /** Section label above the cards, uppercase via CSS. */
+      heading: string;
+      /** Badge on a subagent card. */
+      agentBadge: string;
+      /** Badge on a process card. */
+      procBadge: string;
+      /** Fallback name for a subagent card when the `Task` call carries no
+       * `description` input. */
+      agentFallbackName: string;
+      /** `{pid}` `{time}` — a process card's meta line, pid and elapsed
+       * time. */
+      procMeta: string;
+      /** Expanded process card action: opens this session's embedded
+       * terminal (desktop only — hidden where there is no terminal pane). */
+      openTerminal: string;
+      /** Expanded process card action: cancels the `anywh-bg` job. */
+      stopProcess: string;
+      /** Expanded subagent card action: stops the WHOLE turn — there is no
+       * way to stop just the one subagent call, since it has no process of
+       * its own the way an `anywh-bg` job does. */
+      stopAgent: string;
+    };
     /** The permission prompt: a tool call the CLI has paused on, waiting for
      * a yes or no. The relay sends the tool and what it would do; the words
      * are written here, and the answer travels back as an id, so translating
@@ -804,6 +835,54 @@ export interface Dictionary {
        * already fetched and verified the update; nothing left to do but
        * restart into it. */
       updateReady: string;
+      /** The chip that opens the cross-session background-activity tray —
+       * first item on the left, before the git status. Unlike
+       * `backgroundJobs` below (a single session's own `anywh-bg` jobs, shown
+       * next to the composer), this aggregates every open tab: another tab
+       * mid-turn ("agent") and every `anywh-bg` job ("proc"), running or
+       * failed. */
+      backgroundActivity: {
+        /** Tooltip on the chip itself. */
+        chipTitle: string;
+        /** `{count}` — the chip's own summary text when at least one thing
+         * is running or queued. */
+        running: string;
+        /** The chip's summary text with nothing running or queued. */
+        none: string;
+        /** `{count}` — appended after `running`/`none` with " · " between
+         * them, only when at least one item failed. */
+        failedSuffix: string;
+        /** Panel header label, uppercase via CSS. */
+        heading: string;
+        /** Accessible name of the panel's close button. */
+        close: string;
+        /** Empty-state title, once every job is gone or dismissed. */
+        emptyTitle: string;
+        /** Empty-state explanatory line, under `emptyTitle`. */
+        emptyDescription: string;
+        /** Row action: jumps to the item's tab and closes the panel. */
+        open: string;
+        /** Row action on a running item: cancels the `anywh-bg` job, or
+         * stops the other tab's turn. */
+        stop: string;
+        /** Row action on a failed item: drops it from the list. There is no
+         * "retry" action — the relay never recorded the original command, so
+         * there is nothing to re-run. */
+        dismiss: string;
+        /** Footer button, stops every running/queued item at once. */
+        stopAll: string;
+        /** Badge on an item whose `kind` is `"agent"` — another tab with a
+         * turn in flight right now. */
+        agentBadge: string;
+        /** Badge on an item whose `kind` is `"proc"` — an `anywh-bg` job. */
+        procBadge: string;
+        /** Tail line for an `"agent"` item — there is no per-tab activity
+         * text to show here (that lives inside that tab's own
+         * `TurnIndicator`), just the fact that a turn is running. */
+        agentTail: string;
+        /** `{time}` — a failed item's row, how long ago it finished. */
+        timeAgo: string;
+      };
     };
     sidebar: {
       label: string;

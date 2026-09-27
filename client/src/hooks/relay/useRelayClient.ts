@@ -7,6 +7,7 @@ import {
   type ChoiceQuestion,
   type ContextUsage,
   type EditMessageErrorCode,
+  type FailedBackgroundJobSummary,
   type HistoryPageMessage,
   type ModelChoice,
   type PermissionMode,
@@ -149,6 +150,13 @@ export interface UseRelayClientResult {
    * `background_job_state` disappears from the list as soon as the relay processes it,
    * with no separate confirmation (the job disappearing from the chip is itself the signal). */
   cancelBackgroundJob: (id: string) => void;
+  /** `anywh-bg` jobs that finished with a non-zero exit code, kept by the
+   * relay until dismissed — same "empty, never `null`" reasoning as
+   * `backgroundJobs` above. */
+  failedBackgroundJobs: FailedBackgroundJobSummary[];
+  /** Asks the relay to drop a failed job from the list ("descartar") —
+   * same fire-and-forget reasoning as `cancelBackgroundJob`. */
+  dismissFailedBackgroundJob: (id: string) => void;
   /** Message edit — see `RelayClient.editMessage`. */
   editMessage: (fromEnd: number, text: string) => void;
   /** Composer text not yet sent, persisted per tab so it survives an app
@@ -191,6 +199,7 @@ export function useRelayClient(
   const [compactBoundary, setCompactBoundary] = useState<CompactBoundaryEvent | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [backgroundJobs, setBackgroundJobs] = useState<BackgroundJobSummary[]>([]);
+  const [failedBackgroundJobs, setFailedBackgroundJobs] = useState<FailedBackgroundJobSummary[]>([]);
   const [draft, setDraftState] = useState<string | null>(null);
   const [choicePrompt, setChoicePrompt] = useState<PendingChoice | null>(null);
   const clientRef = useRef<RelayClient | null>(null);
@@ -216,6 +225,7 @@ export function useRelayClient(
     setCompactBoundary(null);
     setSuggestion(null);
     setBackgroundJobs([]);
+    setFailedBackgroundJobs([]);
     setDraftState(null);
     setChoicePrompt(null);
 
@@ -269,7 +279,10 @@ export function useRelayClient(
       onHistoryPage: (page) => optionsRef.current.onHistoryPage?.(page),
       onOlderHistory: (page) => optionsRef.current.onOlderHistory?.(page),
       onTurnState: (state) => optionsRef.current.onTurnState?.(state),
-      onBackgroundJobState: setBackgroundJobs,
+      onBackgroundJobState: (jobs, failedJobs) => {
+        setBackgroundJobs(jobs);
+        setFailedBackgroundJobs(failedJobs);
+      },
       onHistoryTruncated: (page) => optionsRef.current.onHistoryTruncated?.(page),
       onEditMessageError: (message) => optionsRef.current.onEditMessageError?.(message),
       onDraftState: setDraftState,
@@ -436,6 +449,10 @@ export function useRelayClient(
     clientRef.current?.cancelBackgroundJob(id);
   }, []);
 
+  const dismissFailedBackgroundJob = useCallback((id: string) => {
+    clientRef.current?.dismissFailedBackgroundJob(id);
+  }, []);
+
   const editMessage = useCallback((fromEnd: number, text: string) => {
     clientRef.current?.editMessage(fromEnd, text);
   }, []);
@@ -480,6 +497,8 @@ export function useRelayClient(
     loadOlderHistory,
     backgroundJobs,
     cancelBackgroundJob,
+    failedBackgroundJobs,
+    dismissFailedBackgroundJob,
     editMessage,
     draft,
     setDraft,

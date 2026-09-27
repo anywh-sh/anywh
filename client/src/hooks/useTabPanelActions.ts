@@ -1,9 +1,11 @@
-import { useMemo, useRef, type Dispatch, type SetStateAction } from "react";
+import { useMemo, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useSessionDock } from "@/hooks/tabs/useSessionDock";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import type { TabPanelActions } from "@/components/shell/TabPanel";
+import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
+import type { BackgroundActivityEntry } from "@/hooks/useBackgroundActivity";
 import type { Dictionary } from "@/i18n";
 import { removeCachedSession, touchCachedSession, upsertCachedSession } from "@/lib/format/sessionListCache";
 import { notifyTurnComplete } from "@/lib/platform/notifications";
@@ -20,6 +22,14 @@ interface UseTabPanelActionsArgs {
   onOpenFilePath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
   setConnectedByTab: Dispatch<SetStateAction<Record<string, boolean>>>;
+  setBackgroundActivityByTab: Dispatch<SetStateAction<Record<string, BackgroundActivityEntry>>>;
+  /** Not React state on purpose — a tab's cancel/dismiss/stop functions are
+   * only ever read at the moment the global tray's user clicks something,
+   * never rendered from directly (the tray renders `BackgroundActivityItem`
+   * data, computed separately). A `Map` mutated in place avoids a re-render
+   * of `App` on every tab mount/unmount that a state-based registry would
+   * cause. */
+  backgroundActionsRef: MutableRefObject<Map<string, BackgroundJobActions>>;
 }
 
 /** Everything a tab's panel calls back into `App` for, as one object built
@@ -48,6 +58,8 @@ export function useTabPanelActions({
   onOpenFilePath,
   onOpenTerminalAt,
   setConnectedByTab,
+  setBackgroundActivityByTab,
+  backgroundActionsRef,
 }: UseTabPanelActionsArgs): TabPanelActions {
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
@@ -61,7 +73,14 @@ export function useTabPanelActions({
   return useMemo<TabPanelActions>(
     () => ({
       onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
-      onBackgroundJobsChange: (tabId, jobs) => tabsState.setHasBackgroundJob(tabId, jobs.length > 0),
+      onBackgroundJobsChange: (tabId, jobs, failedJobs) => {
+        tabsState.setHasBackgroundJob(tabId, jobs.length > 0);
+        setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { jobs, failedJobs } }));
+      },
+      onBackgroundActionsReady: (tabId, jobActions) => {
+        if (jobActions) backgroundActionsRef.current.set(tabId, jobActions);
+        else backgroundActionsRef.current.delete(tabId);
+      },
       onTurnComplete: (tab, profile, { stopped, lastUserText, lastAssistantText }) => {
         // Read through refs, not captured: this runs when a turn finishes,
         // which is arbitrarily long after the render that built this
@@ -90,6 +109,12 @@ export function useTabPanelActions({
         terminalTabs.removeSession(tab.id);
         fileTabs.removeSession(tab.id);
         removeCachedSession(tab.profileId, tab.id);
+        backgroundActionsRef.current.delete(tab.id);
+        setBackgroundActivityByTab((prev) => {
+          if (!(tab.id in prev)) return prev;
+          const { [tab.id]: _removed, ...rest } = prev;
+          return rest;
+        });
       },
       onConnectedChange: (tabId, connected) => {
         setConnectedByTab((prev) => (prev[tabId] === connected ? prev : { ...prev, [tabId]: connected }));
@@ -120,6 +145,8 @@ export function useTabPanelActions({
       terminalTabs.removeSession,
       fileTabs.removeSession,
       setConnectedByTab,
+      setBackgroundActivityByTab,
+      backgroundActionsRef,
     ],
   );
 }
