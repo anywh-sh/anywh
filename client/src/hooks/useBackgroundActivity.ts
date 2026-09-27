@@ -25,7 +25,6 @@ export interface BackgroundActivityItem {
   status: BackgroundActivityStatus;
   /** epoch ms — start time while running, finish time once failed. */
   time: number;
-  pid?: number;
 }
 
 interface UseBackgroundActivityArgs {
@@ -82,7 +81,6 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
           tail: "",
           status: "run",
           time: job.startedAt,
-          pid: job.pid,
         });
       }
       for (const job of entry.failedJobs ?? []) {
@@ -96,7 +94,6 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
           tail: tailLines[tailLines.length - 1] ?? "",
           status: "fail",
           time: job.finishedAt,
-          pid: job.pid,
         });
       }
     }

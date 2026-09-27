@@ -70,8 +70,6 @@ export const en: Dictionary = {
       agentBadge: "AGENT",
       procBadge: "PROC",
       agentFallbackName: "Subagent",
-      procMeta: "pid {pid} · {time}",
-      openTerminal: "Open in terminal",
       stopProcess: "Stop process",
       stopAgent: "Stop agent",
     },

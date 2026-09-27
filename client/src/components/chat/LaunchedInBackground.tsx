@@ -11,9 +11,6 @@ interface LaunchedInBackgroundProps {
   onCancelJob: (id: string) => void;
   runningTaskCall: RunningTaskCall | undefined;
   onStopAgent: () => void;
-  /** `undefined` where there's no embedded terminal to open (compact/iOS) —
-   * same desktop-only gating as `ChatPanelProps.terminal`. */
-  onOpenTerminal?: () => void;
 }
 
 function CardShell({
@@ -65,13 +62,11 @@ function ProcCard({
   open,
   onToggle,
   onCancel,
-  onOpenTerminal,
 }: {
   job: BackgroundJobSummary;
   open: boolean;
   onToggle: () => void;
   onCancel: () => void;
-  onOpenTerminal?: () => void;
 }) {
   const dict = useDict();
   const strings = dict.chat.launchedInBackground;
@@ -85,18 +80,9 @@ function ProcCard({
       badge={strings.procBadge}
       badgeClassName="border-border text-text-faint"
       name={job.label}
-      meta={strings.procMeta.replace("{pid}", String(job.pid)).replace("{time}", formatDurationLong(elapsedSeconds))}
+      meta={formatDurationLong(elapsedSeconds)}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-2 pl-8">
-        {onOpenTerminal && (
-          <button
-            type="button"
-            onClick={onOpenTerminal}
-            className="cursor-pointer border border-border px-2 py-1 font-mono text-[10.5px] font-medium text-muted-foreground transition-colors hover:border-text-faint hover:text-foreground"
-          >
-            {strings.openTerminal}
-          </button>
-        )}
         <button
           type="button"
           onClick={onCancel}
@@ -145,7 +131,7 @@ function AgentCard({ call, open, onToggle, onStop }: { call: RunningTaskCall; op
  * folds the same `anywh-bg` data into inline cards instead, plus a subagent
  * card the old chip never had).
  */
-export function LaunchedInBackground({ jobs, onCancelJob, runningTaskCall, onStopAgent, onOpenTerminal }: LaunchedInBackgroundProps) {
+export function LaunchedInBackground({ jobs, onCancelJob, runningTaskCall, onStopAgent }: LaunchedInBackgroundProps) {
   const dict = useDict();
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -183,7 +169,6 @@ export function LaunchedInBackground({ jobs, onCancelJob, runningTaskCall, onSto
           open={openIds.has(job.id)}
           onToggle={() => toggle(job.id)}
           onCancel={() => onCancelJob(job.id)}
-          onOpenTerminal={onOpenTerminal}
         />
       ))}
     </div>

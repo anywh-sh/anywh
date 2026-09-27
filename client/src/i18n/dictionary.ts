@@ -453,8 +453,8 @@ export interface Dictionary {
     };
     /** Inline cards above the streaming indicator, for background work
      * launched from THIS conversation — an `anywh-bg` process (real data:
-     * label, pid, elapsed time), or a `Task` subagent call still in flight
-     * (the only real signal for that: the protocol carries no step/progress,
+     * label, elapsed time), or a `Task` subagent call still in flight (the
+     * only real signal for that: the protocol carries no step/progress,
      * model or token data for a subagent's own work, so unlike the `proc`
      * card there is nothing to show once expanded besides the stop action).
      * Replaces `backgroundJobs` above on desktop — a single tray inside the
@@ -469,12 +469,6 @@ export interface Dictionary {
       /** Fallback name for a subagent card when the `Task` call carries no
        * `description` input. */
       agentFallbackName: string;
-      /** `{pid}` `{time}` — a process card's meta line, pid and elapsed
-       * time. */
-      procMeta: string;
-      /** Expanded process card action: opens this session's embedded
-       * terminal (desktop only — hidden where there is no terminal pane). */
-      openTerminal: string;
       /** Expanded process card action: cancels the `anywh-bg` job. */
       stopProcess: string;
       /** Expanded subagent card action: stops the WHOLE turn — there is no

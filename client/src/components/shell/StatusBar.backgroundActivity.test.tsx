@@ -32,7 +32,6 @@ const failedProc: BackgroundActivityItem = {
   tail: "exit 1",
   status: "fail",
   time: Date.now(),
-  pid: 123,
 };
 
 function baseProps() {

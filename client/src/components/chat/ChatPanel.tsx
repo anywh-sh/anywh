@@ -726,7 +726,6 @@ export function ChatPanel({
                   onCancelJob={cancelBackgroundJob}
                   runningTaskCall={runningTaskCall}
                   onStopAgent={stopTurn}
-                  onOpenTerminal={terminal?.onToggle}
                 />
               </div>
             )}

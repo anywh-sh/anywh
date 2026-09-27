@@ -47,7 +47,7 @@ describe("useBackgroundActivity", () => {
     const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab, dict }));
 
     const proc = result.current.find((item) => item.id === "j1");
-    expect(proc).toMatchObject({ kind: "proc", tabId: "tab-1", name: "pnpm dev", status: "run", time: 1000, pid: 42 });
+    expect(proc).toMatchObject({ kind: "proc", tabId: "tab-1", name: "pnpm dev", status: "run", time: 1000 });
 
     const failed = result.current.find((item) => item.id === "j2");
     expect(failed).toMatchObject({ kind: "proc", tabId: "tab-2", name: "migrate", status: "fail", time: 2000, tail: "boom" });

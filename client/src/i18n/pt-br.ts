@@ -70,8 +70,6 @@ export const ptBr: Dictionary = {
       agentBadge: "AGENTE",
       procBadge: "PROC",
       agentFallbackName: "Subagente",
-      procMeta: "pid {pid} · {time}",
-      openTerminal: "abrir no terminal",
       stopProcess: "parar processo",
       stopAgent: "parar agente",
     },

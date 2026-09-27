@@ -32,25 +32,14 @@ describe("LaunchedInBackground", () => {
 
     expect(screen.getByText("pnpm dev --host")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: copy.stopProcess })).not.toBeInTheDocument();
+    // pid is on the wire (BackgroundJobSummary.pid) but deliberately not
+    // shown — the meta line is elapsed time only.
+    expect(screen.queryByText(/pid/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByText("pnpm dev --host"));
     const stopButton = screen.getByRole("button", { name: copy.stopProcess });
     await user.click(stopButton);
     expect(onCancelJob).toHaveBeenCalledWith("j1");
-  });
-
-  it("hides 'open in terminal' when there is no terminal to open", async () => {
-    const user = userEvent.setup();
-    render(
-      <LaunchedInBackground
-        jobs={[{ id: "j1", label: "pnpm dev", startedAt: Date.now(), pid: 1 }]}
-        onCancelJob={() => {}}
-        runningTaskCall={undefined}
-        onStopAgent={() => {}}
-      />,
-    );
-    await user.click(screen.getByText("pnpm dev"));
-    expect(screen.queryByRole("button", { name: copy.openTerminal })).not.toBeInTheDocument();
   });
 
   it("shows a running subagent card, with a fallback name and only a stop action", async () => {
