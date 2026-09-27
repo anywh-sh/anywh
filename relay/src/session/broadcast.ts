@@ -3,7 +3,7 @@ import type { AgentEvent } from "../protocol/agent-event.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
 import type { PermissionModeOption } from "./permissionModes.js";
-import type { BackgroundJobSummary } from "../host/backgroundJobs.js";
+import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "../host/backgroundJobs.js";
 
 // A single variant — turn lifecycle used to be two separate sibling
 // messages (`turn_complete`/`turn_error`) alongside `claude_event`; both
@@ -20,13 +20,15 @@ export type BroadcastMessage = { type: "agent_event"; event: AgentEvent };
 /** Always sends, even an empty list — same as `sendCwdState`/`sendTurnState`,
  * there's no "hasn't arrived yet" ambiguity here to justify a guard (a
  * session with no jobs and one that never had one look the same to the
- * client: neither shows the indicator). */
-export function sendBackgroundJobs(target: WebSocket, jobs: BackgroundJobSummary[]): void {
-  target.send(JSON.stringify({ type: "background_job_state", jobs }));
+ * client: neither shows the indicator). `failedJobs` rides along in the
+ * same message rather than a separate one — both describe the same "current
+ * state of anywh-bg activity in this session" the client renders together. */
+export function sendBackgroundJobs(target: WebSocket, jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]): void {
+  target.send(JSON.stringify({ type: "background_job_state", jobs, failedJobs }));
 }
 
-export function broadcastBackgroundJobs(clients: Iterable<WebSocket>, jobs: BackgroundJobSummary[]): void {
-  for (const client of clients) sendBackgroundJobs(client, jobs);
+export function broadcastBackgroundJobs(clients: Iterable<WebSocket>, jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]): void {
+  for (const client of clients) sendBackgroundJobs(client, jobs, failedJobs);
 }
 
 /** Same "current state" pattern as `sendCwdState`/`sendTurnState`:

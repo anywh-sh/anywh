@@ -45,15 +45,45 @@ export interface WatchedJob {
 
 /** Subset of `WatchedJob` safe to expose to the client —
  * without `logPath`/`exitPath` (server-side file paths, internal detail)
- * nor `sessionId` (already implicit in the session's WS connection). */
+ * nor `sessionId` (already implicit in the session's WS connection). `pid`
+ * is safe (unlike the paths) — it's already shown to the user as a way to
+ * recognize which process a job is. */
 export interface BackgroundJobSummary {
   id: string;
   label: string;
   startedAt: number;
+  pid: number;
 }
 
 export function toBackgroundJobSummary(job: WatchedJob): BackgroundJobSummary {
-  return { id: job.id, label: job.label, startedAt: job.startedAt };
+  return { id: job.id, label: job.label, startedAt: job.startedAt, pid: job.pid };
+}
+
+/** A finished job that didn't exit cleanly, kept around (client-side
+ * concern — see `SharedSession.failedBackgroundJobs`) until the user
+ * dismisses it, instead of vanishing the instant `BackgroundJobTracker`
+ * stops watching it. Subset of `FinishedBackgroundJob` — same reasoning as
+ * `BackgroundJobSummary` above, no server-side paths. */
+export interface FailedBackgroundJobSummary {
+  id: string;
+  label: string;
+  pid: number;
+  exitCode: number;
+  logTail: string;
+  finishedAt: number;
+  terminated?: true;
+}
+
+export function toFailedBackgroundJobSummary(job: FinishedBackgroundJob): FailedBackgroundJobSummary {
+  return {
+    id: job.id,
+    label: job.label,
+    pid: job.pid,
+    exitCode: job.exitCode,
+    logTail: job.logTail,
+    finishedAt: Date.now(),
+    ...(job.terminated ? { terminated: true as const } : {}),
+  };
 }
 
 export interface FinishedBackgroundJob extends WatchedJob {

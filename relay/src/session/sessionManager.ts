@@ -92,6 +92,12 @@ export class SessionManager {
       onFinished: (job) => this.handleBackgroundJobFinished(job),
       onChanged: (sessionId) => this.syncBackgroundJobState(sessionId),
       persistPath: backgroundJobsFilePath,
+      // Test-only override, same pattern as `AGENT_BIN`/`SYSTEMCTL_BIN`
+      // (runtimes/executables.ts): an integration test writing a real
+      // `.exit` file needs the tracker to notice it without waiting out the
+      // 10s production poll interval. Unset in production — `server.ts`
+      // never sets this var.
+      ...(process.env.BACKGROUND_JOB_POLL_MS ? { pollIntervalMs: Number(process.env.BACKGROUND_JOB_POLL_MS) } : {}),
     });
     // Jobs reloaded from disk that are STILL running (not captured by the
     // synchronous `onChanged` above, which only fires on finish/expiry) —

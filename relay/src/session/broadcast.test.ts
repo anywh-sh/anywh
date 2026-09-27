@@ -35,9 +35,16 @@ function fakeSocket(): WebSocket & { sent: unknown[] } {
 test("broadcastBackgroundJobs: every client gets the same job list, even empty", () => {
   const a = fakeSocket();
   const b = fakeSocket();
-  broadcastBackgroundJobs([a, b], []);
-  assert.deepEqual(a.sent, [{ type: "background_job_state", jobs: [] }]);
-  assert.deepEqual(b.sent, [{ type: "background_job_state", jobs: [] }]);
+  broadcastBackgroundJobs([a, b], [], []);
+  assert.deepEqual(a.sent, [{ type: "background_job_state", jobs: [], failedJobs: [] }]);
+  assert.deepEqual(b.sent, [{ type: "background_job_state", jobs: [], failedJobs: [] }]);
+});
+
+test("broadcastBackgroundJobs: failed jobs ride along in the same message", () => {
+  const client = fakeSocket();
+  const failed = [{ id: "j1", label: "pnpm dev", pid: 123, exitCode: 1, logTail: "boom", finishedAt: 1 }];
+  broadcastBackgroundJobs([client], [], failed);
+  assert.deepEqual(client.sent, [{ type: "background_job_state", jobs: [], failedJobs: failed }]);
 });
 
 test("broadcastChoicePrompt: carries promptId, questions and kind through unchanged", () => {

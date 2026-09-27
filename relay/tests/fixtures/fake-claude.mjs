@@ -63,6 +63,18 @@
 //                        same "fake only the model's decision, keep
 //                        everything downstream real" shape as
 //                        FAKE_CLAUDE_PRESENT_CHOICE above.
+//   FAKE_CLAUDE_BACKGROUND_JOB - if set (the already-serialized
+//                        `{"anywh_bg":"started",...}` marker JSON the real
+//                        `anywh-bg` wrapper prints), emits it as a `Bash`
+//                        tool call's own `tool_result`, then a normal
+//                        assistant reply and a successful `result`. Lets an
+//                        integration test exercise
+//                        `BackgroundJobTracker.observeEvent`
+//                        (host/backgroundJobs.ts) against the REAL
+//                        `tool_started`/`tool_ended` shape, with the test
+//                        itself owning the log/exit files the marker points
+//                        at (same "fake only the model's decision" shape as
+//                        FAKE_CLAUDE_SCHEDULE_WAKEUP above).
 //   FAKE_CLAUDE_STATUS_PERMISSION_MODE - if set (a permission mode string),
 //                        emits a `{"type":"system","subtype":"status",
 //                        "permissionMode":...}` event right after `init` —
@@ -280,6 +292,40 @@ if (args[0] === "--version") {
       session_id: sessionId,
       message: {
         content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Wakeup scheduled.", is_error: false }],
+      },
+    });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: replyText }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "result",
+      session_id: sessionId,
+      is_error: false,
+      result: replyText,
+      modelUsage: { [model]: { contextWindow: 200000 } },
+    });
+    process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_BACKGROUND_JOB && outputFormat === "stream-json") {
+    const toolUseId = "toolu_fake_bg_job";
+    const marker = process.env.FAKE_CLAUDE_BACKGROUND_JOB;
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: "anywh-bg start -- pnpm dev" } }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "user",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "tool_result", tool_use_id: toolUseId, content: marker, is_error: false }],
       },
     });
     emit({
