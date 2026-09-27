@@ -68,7 +68,11 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
       const entry = byTab[tab.id];
       if (!entry) continue;
 
-      for (const job of entry.jobs) {
+      // An older relay's `background_job_state` (pre-dating `failedJobs`)
+      // sends `{ jobs }` with no `failedJobs` field at all — `?? []` here is
+      // what keeps a version-skewed relay from crashing this view instead of
+      // just showing an empty failed list.
+      for (const job of entry.jobs ?? []) {
         items.push({
           id: job.id,
           kind: "proc",
@@ -81,7 +85,7 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
           pid: job.pid,
         });
       }
-      for (const job of entry.failedJobs) {
+      for (const job of entry.failedJobs ?? []) {
         const tailLines = job.logTail.trim().split("\n");
         items.push({
           id: job.id,

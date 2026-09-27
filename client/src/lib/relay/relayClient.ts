@@ -663,7 +663,12 @@ export class RelayClient {
       } else if (parsed.type === "older_history") {
         this.callbacks.onOlderHistory?.(parsed);
       } else if (parsed.type === "background_job_state") {
-        this.callbacks.onBackgroundJobState?.(parsed.jobs, parsed.failedJobs);
+        // `failedJobs` is undefined on the wire from a relay that predates
+        // it (`npm run build` not yet re-run there — the systemd services
+        // run compiled `dist/`, not `src/`) — `?? []` here is what keeps
+        // that version skew from crashing every consumer downstream instead
+        // of just showing no failed jobs.
+        this.callbacks.onBackgroundJobState?.(parsed.jobs, parsed.failedJobs ?? []);
       } else if (parsed.type === "history_truncated") {
         this.callbacks.onHistoryTruncated?.(parsed);
       } else if (parsed.type === "edit_message_error") {

@@ -229,3 +229,38 @@ describe("RelayClient protocol version", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 });
+
+describe("RelayClient background_job_state", () => {
+  function receive(socket: FakeWebSocket, message: unknown): void {
+    socket.emit("message", { data: JSON.stringify(message) });
+  }
+
+  it("defaults failedJobs to an empty array when an older relay's message omits the field", () => {
+    // Real bug (2026-09-27): a relay that hadn't been rebuilt yet (systemd
+    // runs compiled dist/, not src/ — see CLAUDE.md's own pitfall) sends
+    // `{type:"background_job_state", jobs}` with no `failedJobs` at all.
+    // Every downstream consumer (useBackgroundActivity) assumed the field
+    // was always an array and crashed trying to iterate `undefined`.
+    const onBackgroundJobState = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onBackgroundJobState });
+
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    const jobs = [{ id: "j1", label: "pnpm dev", startedAt: 1, pid: 1 }];
+    receive(socket, { type: "background_job_state", jobs });
+
+    expect(onBackgroundJobState).toHaveBeenCalledWith(jobs, []);
+  });
+
+  it("passes failedJobs through as-is once the relay does send it", () => {
+    const onBackgroundJobState = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onBackgroundJobState });
+
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    const failedJobs = [{ id: "j1", label: "migrate", pid: 1, exitCode: 1, logTail: "boom", finishedAt: 1 }];
+    receive(socket, { type: "background_job_state", jobs: [], failedJobs });
+
+    expect(onBackgroundJobState).toHaveBeenCalledWith([], failedJobs);
+  });
+});

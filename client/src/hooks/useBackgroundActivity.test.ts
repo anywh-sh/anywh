@@ -66,6 +66,21 @@ describe("useBackgroundActivity", () => {
     expect(result.current.map((item) => item.status)).toEqual(["run", "fail"]);
   });
 
+  it("does not crash on an entry with no failedJobs array (an older relay's message)", () => {
+    // Belt and suspenders alongside relayClient.test.ts's own coverage of
+    // this: whatever fills `byTab` should never be able to reach this hook
+    // with a missing `failedJobs`, but this is cheap insurance against a
+    // future caller that skips that guarantee.
+    const tabs = [makeTab({ id: "tab-1" })];
+    const byTab = {
+      "tab-1": { jobs: [{ id: "j1", label: "pnpm dev", startedAt: 1, pid: 1 }] },
+    } as unknown as Record<string, BackgroundActivityEntry>;
+
+    const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab, dict }));
+
+    expect(result.current).toEqual([expect.objectContaining({ id: "j1", status: "run" })]);
+  });
+
   it("falls back to the untitled-session label for an agent item with no title yet", () => {
     const tabs = [makeTab({ id: "tab-1", title: null, isRunning: true })];
     const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab: {}, dict }));
