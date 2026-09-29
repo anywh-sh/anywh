@@ -197,6 +197,9 @@ export class CodexSessionDriver implements AgentSessionDriver {
         this.model = threadResult.model;
       }
       const turnSpec = exec.turn.start(ctx, this.threadId);
+      // A picked model overrides the thread's from this turn on (see
+      // `startTurn` in codex.ts) — the usage report should name it.
+      if (ctx.modelId) this.model = ctx.modelId;
       const turnStartResult = (await daemon.request(turnSpec.method, turnSpec.params)) as TurnStartResult;
       this.inFlightTurnId = turnStartResult.turn.id;
 

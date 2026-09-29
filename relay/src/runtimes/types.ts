@@ -78,18 +78,43 @@ export type Continuity =
   | { readonly kind: "cli-resume"; readonly resumeStyle: "specify" | "capture" }
   | { readonly kind: "relay-transcript" };
 
+/** One model as the agent's own CLI presents it in its own picker —
+ * `label` is that CLI's display name ("Opus 5.5", "GPT-5.5"), shown
+ * verbatim rather than mapped through a dictionary: the catalog changes
+ * whenever the CLI ships a model, and a relay-side label would go stale the
+ * same day. `id` is whatever that CLI takes back to select it (an alias or
+ * a full model id — opaque to everything but the def's own `exec`). */
 export interface ModelOption {
   readonly id: string;
-  readonly labelKey: string;
+  readonly label: string;
+  /** The CLI's own one-line blurb, when it has one. */
+  readonly description?: string;
 }
 
-/** Describes *where* to find the model list as data, not a function that
+export interface ModelCatalog {
+  readonly options: readonly ModelOption[];
+  /** The option the CLI runs when no model was picked — what a session
+   * with no explicit choice is actually on. Absent when the CLI doesn't say. */
+  readonly defaultId?: string;
+}
+
+/** Describes *where* to find the model catalog as data, not a function that
  * goes and fetches it — the fetch (and any process it requires) is the
- * engine's job. `parse` is a pure function: text in, options out. */
+ * engine's job (`probes/modelCatalog.ts`). `cli-probe` spawns `identity.bin`
+ * with `args`, writes `stdin` (if any) and keeps stdin open, feeding the
+ * stdout seen so far to `parse` until it returns a catalog — a CLI that
+ * answers over a request/response protocol (Codex's app-server exits on
+ * EOF before replying) needs the pipe held open until the answer lands.
+ * `parse` is a pure function: text in, catalog (or "not yet") out. */
 export type ModelSource =
-  | { readonly kind: "cli-probe"; readonly args: readonly string[]; readonly parse: (stdout: string) => readonly ModelOption[] }
+  | {
+      readonly kind: "cli-probe";
+      readonly args: readonly string[];
+      readonly stdin?: string;
+      readonly parse: (stdout: string) => ModelCatalog | undefined;
+    }
   | { readonly kind: "session-rpc" }
-  | { readonly kind: "static"; readonly options: readonly ModelOption[] };
+  | { readonly kind: "static"; readonly catalog: ModelCatalog };
 
 export interface AuthStatus {
   readonly loggedIn: boolean;

@@ -7,8 +7,8 @@
 // Understands the two invocation shapes the relay actually spawns:
 //   - `-p <text> --output-format stream-json ...`  -> a real turn
 //     (runtimes/defs/claude/session.ts sendTurn)
-//   - `-p /model --output-format json ...`          -> the default-model
-//     probe (defaultModel.ts detectDefaultModel)
+//   - `-p --input-format stream-json ...` + an `initialize` control_request
+//     on stdin -> the model catalog probe (defs/claude/def.ts `models`)
 // Everything else (`auth status --json`) gets a canned success reply so
 // routes that shell out to it don't error during a test that isn't
 // exercising that path.
@@ -158,21 +158,48 @@ if (args[0] === "--version") {
 } else if (args[0] === "auth" && args[1] === "status") {
   emit({ loggedIn: true, email: "fake@anywh.test", subscriptionType: "pro" });
   process.exit(0);
+} else if (args[0] === "-p" && flagValue("--input-format") === "stream-json") {
+  // The model catalog probe (defs/claude/modelCatalog.ts): answers the
+  // `initialize` control_request with the same shape the real binary
+  // does (Claude Code 2.1.284), a `default` pseudo-entry first, and exits
+  // on stdin EOF like it.
+  process.stdin.setEncoding("utf8");
+  let buffered = "";
+  process.stdin.on("data", (chunk) => {
+    buffered += chunk;
+    let newline;
+    while ((newline = buffered.indexOf("\n")) !== -1) {
+      const line = buffered.slice(0, newline);
+      buffered = buffered.slice(newline + 1);
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (message.type !== "control_request" || message.request?.subtype !== "initialize") continue;
+      emit({
+        type: "control_response",
+        response: {
+          subtype: "success",
+          request_id: message.request_id,
+          response: {
+            models: [
+              { value: "default", resolvedModel: "claude-fake-opus-9", displayName: "Default (recommended)", description: "Fake Opus 9 · Best for everyday tasks" },
+              { value: "fake-sonnet", resolvedModel: "claude-fake-sonnet-9", displayName: "Fake Sonnet 9", description: "Efficient" },
+              { value: "fake-opus", resolvedModel: "claude-fake-opus-9", displayName: "Fake Opus 9", description: "For complex work" },
+              { value: "claude-fake-opus-8", resolvedModel: "claude-fake-opus-8", displayName: "Fake Opus 8" },
+            ],
+          },
+        },
+      });
+    }
+  });
+  process.stdin.on("end", () => process.exit(0));
 } else if (args[0] === "-p") {
   const outputFormat = flagValue("--output-format");
   const resumeId = flagValue("--resume");
   const sessionId = resumeId ?? randomUUID();
-
-  if (outputFormat === "json") {
-    // The default-model probe (defaultModel.ts) — a single JSON line whose
-    // `result` field is CLI usage text, not conversation output.
-    emit({
-      result:
-        "Current model: `Sonnet 5 (default)`\n" +
-        "Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], opus[1m], fable[1m], opusplan, default, or a full model ID.",
-    });
-    process.exit(0);
-  }
 
   const replyText = process.env.FAKE_CLAUDE_REPLY ?? "ok";
   const errorMessage = process.env.FAKE_CLAUDE_ERROR;

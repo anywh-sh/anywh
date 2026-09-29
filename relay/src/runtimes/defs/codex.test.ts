@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../registry.js";
-import { codexRuntimeDef } from "./codex.js";
+import { codexRuntimeDef, parseCodexModelList } from "./codex.js";
 import type { TurnContext } from "../types.js";
 
 function turnContext(overrides: Partial<TurnContext> = {}): TurnContext {
@@ -29,6 +29,49 @@ test("exec.turn.start: threadId comes from the engine, not TurnContext; prompt b
       sandboxPolicy: { type: "readOnly", networkAccess: false },
     },
   });
+});
+
+test("exec.turn.start: a picked model rides along as TurnStartParams.model, and is absent otherwise", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const picked = codexRuntimeDef.exec.turn.start(turnContext({ modelId: "gpt-5.5" }), "t1");
+  assert.equal((picked.params as { model?: unknown }).model, "gpt-5.5");
+  const unpicked = codexRuntimeDef.exec.turn.start(turnContext(), "t1");
+  assert.equal("model" in (unpicked.params as object), false);
+});
+
+// `model/list`'s reply as the real app-server interleaves it on stdout
+// (codex-cli 0.154.0): the `initialize` reply and an unsolicited
+// notification first, fields this parser ignores cut.
+const REAL_MODEL_LIST_STDOUT = [
+  { id: 1, result: { userAgent: "anywh/0 (Debian 13.0.0; x86_64)" } },
+  { method: "remoteControl/status/changed", params: { status: "disabled" } },
+  {
+    id: 2,
+    result: {
+      data: [
+        { id: "gpt-6-astra", model: "gpt-6-astra", displayName: "GPT-6-Astra", description: "Latest frontier model", hidden: false, isDefault: true },
+        { id: "gpt-5.5", model: "gpt-5.5", displayName: "GPT-5.5", description: "", hidden: false, isDefault: false },
+        { id: "gpt-internal", model: "gpt-internal", displayName: "GPT-Internal", description: "", hidden: true, isDefault: false },
+      ],
+      nextCursor: null,
+    },
+  },
+]
+  .map((message) => JSON.stringify(message))
+  .join("\n");
+
+test("models: parseCodexModelList keeps Codex's own display names and default, drops hidden models", () => {
+  assert.deepEqual(parseCodexModelList(`${REAL_MODEL_LIST_STDOUT}\n`), {
+    options: [
+      { id: "gpt-6-astra", label: "GPT-6-Astra", description: "Latest frontier model" },
+      { id: "gpt-5.5", label: "GPT-5.5" },
+    ],
+    defaultId: "gpt-6-astra",
+  });
+});
+
+test("models: parseCodexModelList is undefined until model/list's own reply has arrived", () => {
+  assert.equal(parseCodexModelList(REAL_MODEL_LIST_STDOUT.split("\n").slice(0, 2).join("\n")), undefined);
 });
 
 // ---- turn/start's actual application of the session's chosen mode --------

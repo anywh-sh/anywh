@@ -28,6 +28,7 @@ import { isIOS } from "@/lib/platform/platform";
 import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import { cn } from "@/lib/utils";
 import { parseSlashCommand } from "@/lib/composer/slashCommands";
+import { catalogHasModel } from "@/lib/composer/modelCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 
@@ -320,7 +321,7 @@ export function ChatPanel({
     permissionMode,
     permissionModes,
     model,
-    defaultModel,
+    modelCatalog,
     contextUsage,
     protocolMismatch,
     compactBoundary,
@@ -448,13 +449,18 @@ export function ChatPanel({
   // `/model`), which would make it indistinguishable from "hasn't arrived
   // yet" — `ready` already guarantees that first `model_state` (always sent
   // before `caught_up`, see `SharedSession.addClient`) has been processed.
+  //
+  // Also waits on the session's agent's catalog, and only applies a
+  // preference that catalog actually lists: a preference is a model id of
+  // ONE agent ("opus" means nothing to Codex), so it can't be applied
+  // blindly to whichever agent this session runs.
   const appliedModelPreferenceRef = useRef(false);
   useEffect(() => {
-    if (!isNewConversation || appliedModelPreferenceRef.current || !ready) return;
+    if (!isNewConversation || appliedModelPreferenceRef.current || !ready || !agentId || !modelCatalog) return;
     appliedModelPreferenceRef.current = true;
-    const preferredModel = getPreferredModel(profile.id);
-    if (preferredModel && preferredModel !== model) setModel(preferredModel);
-  }, [isNewConversation, ready, model, profile.id, setModel]);
+    const preferredModel = getPreferredModel(profile.id, agentId);
+    if (preferredModel && preferredModel !== model && catalogHasModel(modelCatalog, preferredModel)) setModel(preferredModel);
+  }, [isNewConversation, ready, agentId, modelCatalog, model, profile.id, setModel]);
 
   // Records the model in use as the profile's "last used" whenever
   // it changes to a concrete value — covers manual switching (`ModelButton`,
@@ -462,8 +468,8 @@ export function ChatPanel({
   // "lastUsed" mode back on later shouldn't lose what ran while "fixed" was
   // active.
   useEffect(() => {
-    if (model) setLastModel(profile.id, model);
-  }, [model, profile.id]);
+    if (model && agentId) setLastModel(profile.id, agentId, model);
+  }, [model, agentId, profile.id]);
 
   // Same pattern as `onTurnActiveChange` above: reports to the Tab via ref —
   // background tabs stay mounted, so this also covers a job
@@ -715,7 +721,7 @@ export function ChatPanel({
               permissionModes={permissionModes}
               onChangePermissionMode={setPermissionMode}
               model={model}
-              defaultModel={defaultModel}
+              modelCatalog={modelCatalog}
               onChangeModel={setModel}
               modelLocked={cwdLocked}
               contextUsage={contextUsage}
@@ -742,7 +748,7 @@ export function ChatPanel({
                 // autocomplete menu (see Composer.tsx) — there's no toolbar
                 // button there to change model/permission mode, so typing the
                 // command is the only way to do it on that platform.
-                const command = parseSlashCommand(text);
+                const command = parseSlashCommand(text, modelCatalog);
                 if (command?.name === "clear") {
                   clearConversation();
                   return;

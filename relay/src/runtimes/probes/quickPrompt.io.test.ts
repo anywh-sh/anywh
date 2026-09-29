@@ -38,7 +38,7 @@ function fixtureDef(bin: string, kind: "cli" | "none" = "cli"): AgentRuntimeDef 
       contextUsage: "none",
     },
     continuity: { kind: "relay-transcript" },
-    models: { kind: "static", options: [] },
+    models: { kind: "static", catalog: { options: [] } },
     auth: { kind: "none" },
     permissions: { defaultModeId: "default", modesFor: () => [{ id: "default", labelKey: "mode.default", settings: undefined, pausesForApproval: false }] },
     bridges: [],

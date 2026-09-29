@@ -18,7 +18,8 @@ import {
 import { useDict } from "@/i18n";
 import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
 import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
-import { getKnownModels, labelForModel } from "@/lib/composer/modelCatalog";
+import { getModelCatalogs } from "@/lib/composer/modelCatalog";
+import { agentName } from "@/components/chat/AgentPickerButton";
 import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
@@ -41,16 +42,19 @@ import { cn } from "@/lib/utils";
 function ChoiceButton({
   selected,
   onClick,
+  title,
   children,
 }: {
   selected?: boolean;
   onClick: () => void;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors",
         selected
@@ -108,9 +112,12 @@ function HomeFolderControl({ profile }: { profile: Profile }) {
 }
 
 /** The mode first, then — only when the mode is "always the same" — which
- * model that is. Two rows of small buttons rather than two selects: the
- * whole catalog is four to nine entries, and a list you can read at a
- * glance doesn't need to be opened first. */
+ * model that is. Small buttons rather than selects: a list you can read at
+ * a glance doesn't need to be opened first. One group per installed agent,
+ * each labelled with the agent's CLI's own model names (`getModelCatalogs`)
+ * — a fixed pick is one agent's model id, applied only to sessions running
+ * that agent (`ChatPanel`), so which agent it belongs to has to be visible.
+ * The agent heading is left out when there's only one. */
 function ModelControl({
   preference,
   onChange,
@@ -119,6 +126,8 @@ function ModelControl({
   onChange: (preference: ModelPreference) => void;
 }) {
   const dict = useDict();
+  const agentNames = dict.chat.composer.agentNames;
+  const catalogs = Object.entries(getModelCatalogs());
   const modes: { id: ModelPreferenceMode; label: string }[] = [
     { id: "lastUsed", label: dict.settings.profile.model.lastUsed },
     { id: "fixed", label: dict.settings.profile.model.fixed },
@@ -138,15 +147,25 @@ function ModelControl({
         ))}
       </div>
       {preference.mode === "fixed" && (
-        <div className="flex max-w-[16rem] flex-wrap justify-end gap-1.5">
-          {getKnownModels().map((choice) => (
-            <ChoiceButton
-              key={choice}
-              selected={preference.fixedModel === choice}
-              onClick={() => onChange({ ...preference, fixedModel: choice })}
-            >
-              {labelForModel(choice, dict.chat.composer.modelAliases)}
-            </ChoiceButton>
+        <div className="flex max-w-[24rem] flex-col items-end gap-2">
+          {catalogs.map(([agentId, catalog]) => (
+            <div key={agentId} className="flex flex-col items-end gap-1">
+              {catalogs.length > 1 && (
+                <span className="text-[11px] text-muted-foreground">{agentName(agentNames, agentId)}</span>
+              )}
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {catalog.options.map((option) => (
+                  <ChoiceButton
+                    key={option.id}
+                    selected={preference.fixedModel === option.id}
+                    onClick={() => onChange({ ...preference, fixedModel: option.id })}
+                    title={option.description}
+                  >
+                    {option.label}
+                  </ChoiceButton>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

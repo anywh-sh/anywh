@@ -41,7 +41,7 @@
 // `initialize`'s capabilities (see `runtimes/transports/codexDaemon.ts`) —
 // without it every `turn/start` in `workspace-write` mode was rejected
 // outright, confirmed live the same way.
-import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
+import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
@@ -138,8 +138,52 @@ function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
       threadId,
       input: [{ type: "text", text: ctx.prompt, text_elements: [] }],
       ...(settings ? { approvalPolicy: settings.approvalPolicy, sandboxPolicy: settings.sandboxPolicy } : {}),
+      // `TurnStartParams.model`: "override the model for this turn and
+      // subsequent turns" (generated bindings, codex-cli 0.154.0). Absent
+      // means the thread keeps whatever it already runs — the account's
+      // default on a fresh one.
+      ...(ctx.modelId ? { model: ctx.modelId } : {}),
     },
   };
+}
+
+const MODEL_LIST_REQUEST_ID = 2;
+
+/** One `Model` from `model/list`'s `data`, the fields this reads. */
+interface CodexModel {
+  id?: unknown;
+  displayName?: unknown;
+  description?: unknown;
+  hidden?: unknown;
+  isDefault?: unknown;
+}
+
+/** Picks `model/list`'s reply out of the app-server's JSON-RPC stdout
+ * (interleaved with the `initialize` reply and unsolicited notifications),
+ * `undefined` until it has arrived whole. `hidden` models are left out —
+ * the same ones Codex's own picker leaves out by default. */
+export function parseCodexModelList(stdout: string): ModelCatalog | undefined {
+  for (const line of stdout.split("\n")) {
+    let parsed: { id?: unknown; result?: { data?: unknown } };
+    try {
+      parsed = JSON.parse(line) as typeof parsed;
+    } catch {
+      continue;
+    }
+    if (parsed.id !== MODEL_LIST_REQUEST_ID || !Array.isArray(parsed.result?.data)) continue;
+    const models = (parsed.result.data as CodexModel[]).filter(
+      (model): model is CodexModel & { id: string; displayName: string } =>
+        typeof model.id === "string" && model.id.length > 0 && typeof model.displayName === "string" && model.hidden !== true,
+    );
+    const options: ModelOption[] = models.map((model) => ({
+      id: model.id,
+      label: model.displayName,
+      ...(typeof model.description === "string" && model.description.length > 0 ? { description: model.description } : {}),
+    }));
+    const defaultId = models.find((model) => model.isDefault === true)?.id;
+    return { options, ...(defaultId ? { defaultId } : {}) };
+  }
+  return undefined;
 }
 
 /** Codex's own fixed decision vocabulary for both command and file-change
@@ -299,8 +343,9 @@ function handleServerRequest(method: string, params: unknown, host: TurnHost): P
  * flag draws structurally) — an honest degrade, not a proven-safe one: text
  * crafted to look like part of the instruction has no structural wall
  * stopping it here the way Claude's flag provides one. No `-m`: unlike
- * Claude's `haiku` alias, `models: session-rpc` above means this relay has
- * no static "cheap model" name for Codex to reach for, so this uses
+ * Claude's `haiku` alias, Codex's catalog (`models` above) is whatever
+ * `model/list` says at runtime — there is no static "cheap model" name for
+ * Codex to reach for, so this uses
  * whichever model the account already defaults to rather than guessing one
  * that might not exist. `--ephemeral` skips persisting a session file for a
  * call nothing ever resumes; `--skip-git-repo-check` since a session's cwd
@@ -371,7 +416,24 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   // Codex keeps its own conversation state daemon-side; the relay
   // resumes by referencing a thread id it captured, never by replaying.
   continuity: { kind: "cli-resume", resumeStyle: "capture" },
-  models: { kind: "session-rpc" },
+  // `codex app-server`'s own `model/list` — the catalog its picker draws
+  // from, display names included — measured against codex-cli 0.154.0. A
+  // one-off daemon just for this rather than the session's own, because
+  // the catalog is needed before any session has spawned one. The daemon
+  // exits on stdin EOF *before* answering, which is why the probe engine
+  // holds stdin open until `parse` sees the reply.
+  models: {
+    kind: "cli-probe",
+    args: ["app-server"],
+    stdin: [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "anywh", title: null, version: "0" } } },
+      { jsonrpc: "2.0", method: "initialized" },
+      { jsonrpc: "2.0", id: MODEL_LIST_REQUEST_ID, method: "model/list", params: {} },
+    ]
+      .map((message) => `${JSON.stringify(message)}\n`)
+      .join(""),
+    parse: parseCodexModelList,
+  },
   // `codex login status`, measured against codex-cli 0.154.0 — not the
   // session RPC this used to claim, which was the honest answer only while
   // nothing outside a session ever asked (`routes/profiles.ts` validates a

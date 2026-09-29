@@ -24,9 +24,22 @@ export interface PermissionModeOption {
 
 /** Mirrors the relay's `ModelChoice` (relay/src/session/sessionStore.ts) —
  * same convention as `PermissionMode` above, no cross-package import. Opaque
- * string, not a fixed union: the real catalog comes from the CLI's own
- * `/model` probe (see `default_model_state` below), not a hardcoded list. */
+ * string, not a fixed union: the real catalog comes from each agent's own
+ * CLI (see `model_catalogs_state` below), not a hardcoded list. */
 export type ModelChoice = string;
+
+/** Mirrors the relay's `ModelOption`/`ModelCatalog` (relay/src/runtimes/
+ * types.ts). `label` is the agent CLI's own display name, shown verbatim. */
+export interface ModelOption {
+  id: ModelChoice;
+  label: string;
+  description?: string;
+}
+
+export interface ModelCatalog {
+  options: ModelOption[];
+  defaultId?: ModelChoice;
+}
 
 /** Mirrors the relay's `ContextUsage` (relay/src/session/sessionStore.ts) —
  * `contextWindowSize` itself comes directly from the CLI
@@ -131,14 +144,12 @@ export type RelayMessage =
    * notifies an already-connected client that the conversation was reset;
    * whoever connects afterward naturally sees the empty history already. */
   | { type: "conversation_reset" }
-  /** This profile's actual default account model, probed once at
-   * relay boot — not per session, it's the same value for every connection
-   * of this process. Used as a display fallback when the session never ran
-   * `/model` (`model_state` still `null`). `available` is the full model
-   * catalog straight from the CLI's own usage text (defaultModel.ts) —
-   * source of truth for every model picker in the UI, replacing what used to
-   * be a hardcoded list. */
-  | { type: "default_model_state"; label: string; available: string[] }
+  /** Every installed agent's model catalog, keyed by agent id — each one
+   * exactly as that agent's own CLI picker lists it (relay's
+   * `probes/modelCatalog.ts`). Per connection, not per session: the client
+   * picks the entry for whichever agent the session runs. Re-sent as each
+   * agent's probe lands, so a partial map is normal right after boot. */
+  | { type: "model_catalogs_state"; catalogs: Record<string, ModelCatalog> }
   /** Next-message suggestion, generated asynchronously at the end of every
    * successful turn (relay/src/sharedSession.ts) — shown as the composer's
    * placeholder when the field is empty. `null` both for "no suggestion yet"
