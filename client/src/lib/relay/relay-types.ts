@@ -150,6 +150,11 @@ export type RelayMessage =
    * picks the entry for whichever agent the session runs. Re-sent as each
    * agent's probe lands, so a partial map is normal right after boot. */
   | { type: "model_catalogs_state"; catalogs: Record<string, ModelCatalog> }
+  /** Legacy: what a relay from before `model_catalogs_state` sends in its
+   * place — Claude's aliases and the default's family name. Still handled
+   * (`catalogsFromLegacyDefaultModelState`) so a client updated ahead of its
+   * relay keeps a model picker. */
+  | { type: "default_model_state"; label: string; available: string[] }
   /** Next-message suggestion, generated asynchronously at the end of every
    * successful turn (relay/src/sharedSession.ts) — shown as the composer's
    * placeholder when the field is empty. `null` both for "no suggestion yet"
