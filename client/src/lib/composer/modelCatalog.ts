@@ -1,70 +1,38 @@
-import type { ModelChoice } from "@/lib/relay/relay-types";
+import type { ModelCatalog, ModelChoice } from "@/lib/relay/relay-types";
 
-/** Snapshot of the catalog before this session ever detected the CLI wasn't
- * around: cold start, or `SettingsDialog` opened before any profile ever
- * connected. Matches the CLI version this list was last curated against —
- * kept only as a fallback, `recordAvailableModels` below replaces it as soon
- * as any relay connection reports the real one back. */
-const FALLBACK_MODELS: ModelChoice[] = ["sonnet", "opus", "haiku", "fable"];
+/** Every installed agent's model catalog, from the most recent
+ * `model_catalogs_state` seen from ANY profile's relay connection
+ * (`relayClient.ts`) — keyed by agent id, each list exactly as that agent's
+ * own CLI picker shows it (the relay's `probes/modelCatalog.ts`, driven by
+ * each runtime def's `models`). Not scoped per profile, same call the
+ * previous Claude-only catalog made: it's a CLI-version catalog, not an
+ * account entitlement list. A plain module cache (not React state) because
+ * `ProfileSettings` reads it outside any one session; a session's own
+ * composer gets its agent's catalog as a prop instead (`useRelayClient`),
+ * so it re-renders when the catalog lands. */
+let cachedCatalogs: Record<string, ModelCatalog> = {};
 
-/** Curated labels for the aliases we know about — anything else (a new
- * alias the CLI ships later, or a full model ID) falls back to showing the
- * raw value as-is instead of needing a code change first. Product names
- * only: `default` and `best` are words, not names, so they come from the
- * caller's dictionary instead (see `labelForModel`). */
-const KNOWN_LABELS: Record<string, string> = {
-  sonnet: "Sonnet",
-  opus: "Opus",
-  haiku: "Haiku",
-  fable: "Fable",
-  opusplan: "Opus Plan",
-  "sonnet[1m]": "Sonnet (1M)",
-  "opus[1m]": "Opus (1M)",
-  "fable[1m]": "Fable (1M)",
-};
-
-/** Populated from the most recent `default_model_state` seen from ANY
- * profile's relay connection (`relayClient.ts`) — not scoped per profile:
- * tested both accounts (Sonnet-5 default and Opus-5 default) and the
- * available-aliases list came back identical, so it's a CLI-version
- * catalog, not an account entitlement list. A plain module cache (not React
- * state) is enough here — `SettingsDialog` and `ModelButton` just read it at
- * render time, same pattern as `getPreferredModel`/`getDefaultPath`. */
-let cachedModels: ModelChoice[] | null = null;
-
-/** Versioned name each alias resolves to right now ("opus" -> "Opus 5.5"),
- * same source and same cache shape as `cachedModels`. Empty until the
- * relay's second, slower `default_model_state` round lands — and forever
- * against an older relay that doesn't send it, which is why every reader
- * treats a miss as "show the bare alias label". */
-let cachedResolved: Record<string, string> = {};
-
-export function recordAvailableModels(models: ModelChoice[], resolved?: Record<string, string>): void {
-  if (resolved && Object.keys(resolved).length > 0) cachedResolved = resolved;
-  if (models.length === 0) return;
-  cachedModels = models;
+export function recordModelCatalogs(catalogs: Record<string, ModelCatalog>): void {
+  cachedCatalogs = { ...cachedCatalogs, ...catalogs };
 }
 
-/** What `model` points at right now, versioned ("Opus 5.5", "Opus 5.5 (1M
- * context)") — the only way to tell which release an alias means without
- * opening the CLI's own picker. `undefined` until the relay reports it. */
-export function resolvedNameFor(model: ModelChoice): string | undefined {
-  return cachedResolved[model];
+export function getModelCatalogs(): Record<string, ModelCatalog> {
+  return cachedCatalogs;
 }
 
-/** Every model the CLI currently accepts, excluding "default" — that's a
- * "no explicit override" meta-value, never a valid manual/fixed choice (see
- * `FixedModelChoice`). Falls back to `FALLBACK_MODELS` before any connection
- * has reported the real catalog back. */
-export function getKnownModels(): ModelChoice[] {
-  return (cachedModels ?? FALLBACK_MODELS).filter((model) => model !== "default");
+/** The agent's own display name for `model` ("Opus 5.5", "GPT-5.5") — the
+ * raw id when the catalog doesn't list it (typed by hand, or picked before a
+ * CLI update dropped it), never a label this app made up. */
+export function labelForModel(catalog: ModelCatalog | null | undefined, model: ModelChoice): string {
+  return catalog?.options.find((option) => option.id === model)?.label ?? model;
 }
 
-/** `aliases` carries the copy for the two aliases that are prose rather than
- * a product name. Passed in rather than imported so this module stays free of
- * React — it's read at render time from three different components. */
-export function labelForModel(model: ModelChoice, aliases: { default: string; best: string }): string {
-  if (model === "default") return aliases.default;
-  if (model === "best") return aliases.best;
-  return KNOWN_LABELS[model] ?? model;
+/** What a session is actually on: its explicit pick, or else the catalog's
+ * own default — the CLI's answer to "no model chosen", not a guess. */
+export function effectiveModel(catalog: ModelCatalog | null | undefined, model: ModelChoice | null): ModelChoice | null {
+  return model ?? catalog?.defaultId ?? null;
+}
+
+export function catalogHasModel(catalog: ModelCatalog | null | undefined, model: ModelChoice): boolean {
+  return catalog?.options.some((option) => option.id === model) ?? false;
 }

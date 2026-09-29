@@ -7,6 +7,7 @@ import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { ModelCatalog } from "@/lib/relay/relay-types";
 
 // AgentPickerButton (mounted inside Composer) fetches /host-info — mocked
 // here the same way FileTree.test.tsx does, so this suite stays about the
@@ -28,9 +29,11 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+const CLAUDE_CATALOG: ModelCatalog = { options: [{ id: "sonnet", label: "Sonnet 5.5" }], defaultId: "sonnet" };
+
 /** A language switch with no Settings dialog in the way — what's under test
  * is the composer's reaction to it, not the picker that triggers it. */
-function Harness() {
+function Harness({ agentId = "claude", modelCatalog = CLAUDE_CATALOG }: { agentId?: string; modelCatalog?: ModelCatalog | null }) {
   const { setLocale } = useLocale();
   return (
     <>
@@ -46,7 +49,7 @@ function Harness() {
         uploadingImage={false}
         onAddFiles={vi.fn()}
         onRemoveImage={vi.fn()}
-        agentId="claude"
+        agentId={agentId}
         onChangeAgent={vi.fn()}
         permissionMode="default"
         permissionModes={[
@@ -57,7 +60,7 @@ function Harness() {
         ]}
         onChangePermissionMode={vi.fn()}
         model={null}
-        defaultModel="Sonnet"
+        modelCatalog={modelCatalog}
         onChangeModel={vi.fn()}
         modelLocked={false}
         contextUsage={null}
@@ -102,5 +105,24 @@ describe("Composer", () => {
 
     const paragraph = container.querySelector(".ProseMirror p");
     expect(paragraph).toHaveAttribute("data-placeholder", ptBr.chat.composer.placeholder);
+  });
+
+  // The picker used to be gated on `agentId === "claude"` — the catalog is
+  // now what decides, whichever agent it belongs to.
+  it("offers the model picker for any agent whose catalog is known, and hides it when there is none", () => {
+    const codexCatalog: ModelCatalog = { options: [{ id: "gpt-5.5", label: "GPT-5.5" }], defaultId: "gpt-5.5" };
+    const { rerender } = render(
+      <LocaleProvider>
+        <Harness agentId="codex" modelCatalog={codexCatalog} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByRole("button", { name: "GPT-5.5" })).toBeInTheDocument();
+
+    rerender(
+      <LocaleProvider>
+        <Harness agentId="codex" modelCatalog={null} />
+      </LocaleProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "GPT-5.5" })).not.toBeInTheDocument();
   });
 });

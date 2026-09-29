@@ -8,12 +8,14 @@ import {
   type ContextUsage,
   type EditMessageErrorCode,
   type HistoryPageMessage,
+  type ModelCatalog,
   type ModelChoice,
   type PermissionMode,
   type PermissionModeOption,
   type RelayClientCallbacks,
   type SetCwdErrorCode,
 } from "@/lib/relay/relayClient";
+import { getModelCatalogs } from "@/lib/composer/modelCatalog";
 import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
 import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
 import { BrokerRevokedError, fetchConnectGrant } from "@/lib/profiles/tailnetBroker";
@@ -100,10 +102,11 @@ export interface UseRelayClientResult {
    * and in the final "never chosen via /model" state — the two
    * behave the same for the UI (uses the CLI default), no need to distinguish. */
   model: ModelChoice | null;
-  /** The actual default model for this profile's account — display
-   * fallback for when `model` above is `null`. `null` only in the brief window
-   * before the relay's probe finishes (or if it fails). */
-  defaultModel: string | null;
+  /** The session's agent's model catalog, exactly as that agent's CLI
+   * lists it — also where `model === null` resolves to (`defaultId`).
+   * `null` before `agentId` is known, in the brief window before the
+   * relay's probe for that agent lands, or when the agent has none. */
+  modelCatalog: ModelCatalog | null;
   /** `null` until the first `context_usage_state` arrives — never arrives for a
    * new session with no completed turn yet (see sharedSession.ts), and
    * goes back to `null` after a `/clear`. */
@@ -185,7 +188,7 @@ export function useRelayClient(
   const [permissionMode, setPermissionModeState] = useState<PermissionMode | null>(null);
   const [permissionModes, setPermissionModes] = useState<PermissionModeOption[]>([]);
   const [model, setModelState] = useState<ModelChoice | null>(null);
-  const [defaultModel, setDefaultModel] = useState<string | null>(null);
+  const [modelCatalogs, setModelCatalogs] = useState<Record<string, ModelCatalog>>(getModelCatalogs);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [protocolMismatch, setProtocolMismatch] = useState<number | null>(null);
   const [compactBoundary, setCompactBoundary] = useState<CompactBoundaryEvent | null>(null);
@@ -210,7 +213,6 @@ export function useRelayClient(
     setPermissionModeState(null);
     setPermissionModes([]);
     setModelState(null);
-    setDefaultModel(null);
     setContextUsage(null);
     setProtocolMismatch(null);
     setCompactBoundary(null);
@@ -256,7 +258,7 @@ export function useRelayClient(
         setPermissionModes(available);
       },
       onModelState: setModelState,
-      onDefaultModelState: setDefaultModel,
+      onModelCatalogs: (catalogs) => setModelCatalogs((current) => ({ ...current, ...catalogs })),
       onContextUsageState: setContextUsage,
       onSuggestion: setSuggestion,
       onSessionTitle: (title) => optionsRef.current.onSessionTitle?.(title),
@@ -463,7 +465,7 @@ export function useRelayClient(
     permissionMode,
     permissionModes,
     model,
-    defaultModel,
+    modelCatalog: (agentId !== null ? modelCatalogs[agentId] : undefined) ?? null,
     contextUsage,
     protocolMismatch,
     compactBoundary,

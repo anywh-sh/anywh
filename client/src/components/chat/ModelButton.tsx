@@ -8,17 +8,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
-import type { ModelChoice } from "@/lib/relay/relayClient";
-import { getKnownModels, labelForModel, resolvedNameFor } from "@/lib/composer/modelCatalog";
+import type { ModelCatalog, ModelChoice } from "@/lib/relay/relayClient";
+import { effectiveModel, labelForModel } from "@/lib/composer/modelCatalog";
 import { cn } from "@/lib/utils";
 
 interface ModelButtonProps {
   model: ModelChoice | null;
-  /** This profile's account's actual default model, used as the
-   * label when `model` is `null` (no explicit switch yet) — the defaults
-   * are DIFFERENT between profiles (personal came up Sonnet, work came up
-   * Opus), so we can't just hardcode a name here without really probing it. */
-  defaultModel: string | null;
+  /** The session's agent's catalog, as that agent's own CLI lists it —
+   * every label here is the CLI's own display name ("Opus 5.5",
+   * "GPT-5.5"), and `defaultId` is what `model === null` actually runs.
+   * `null` until the relay's probe for this agent lands. */
+  catalog: ModelCatalog | null;
   onChange: (model: ModelChoice) => void;
   /** `true` before the first `permission_mode_state`/`model_state` arrives —
    * nothing to show yet, and nothing to switch to. */
@@ -41,23 +41,19 @@ interface ModelButtonProps {
  * just text (`ModelLabel`); it became a dropdown so it doesn't depend on
  * typing `/model` in the composer.
  *
- * The items are one line each, with no blurb under them — unlike the
- * permission modes next door. The catalog is whatever the CLI reports at
- * runtime (`getKnownModels`), so a curated blurb per alias would go stale
- * the day the CLI ships a new one, and the fallback would read worse than
- * no blurb at all. What each item does carry, muted on the right, is the
- * versioned name the alias resolves to right now ("Opus 5.5") — also probed
- * from the CLI, so it can't go stale the way a blurb would, and without it
- * the only way to know which release "opus" meant was the CLI's own picker.
- * The trigger shows that same versioned name for an explicit choice.
+ * Every name comes from the session's agent's own CLI (`catalog`) and is
+ * shown the way that CLI's own picker shows it — one entry per model, its
+ * display name, version included, and its own blurb muted beside it — so
+ * which model and which release is running is readable here instead of
+ * only in the CLI. Nothing in this component knows which agent that is:
+ * a new agent gets a picker by its runtime def declaring a catalog.
  */
-export function ModelButton({ model, defaultModel, onChange, disabled, locked }: ModelButtonProps) {
+export function ModelButton({ model, catalog, onChange, disabled, locked }: ModelButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dict = useDict();
-  const label = model
-    ? (resolvedNameFor(model) ?? labelForModel(model, dict.chat.composer.modelAliases))
-    : (defaultModel ?? dict.chat.composer.pending);
-  const isDisabled = disabled || locked || label === dict.chat.composer.pending;
+  const current = effectiveModel(catalog, model);
+  const label = current !== null ? labelForModel(catalog, current) : dict.chat.composer.pending;
+  const isDisabled = disabled || locked || current === null;
   const [open, setOpen] = useState(false);
 
   return (
@@ -98,22 +94,18 @@ export function ModelButton({ model, defaultModel, onChange, disabled, locked }:
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="min-w-53">
-        {getKnownModels().map((choice) => {
-          const choiceLabel = labelForModel(choice, dict.chat.composer.modelAliases);
-          const resolved = resolvedNameFor(choice);
-          return (
-            <DropdownMenuItem key={choice} onSelect={() => onChange(choice)} className="gap-3">
-              <span className="flex-1 truncate text-left">{choiceLabel}</span>
-              {resolved && resolved !== choiceLabel && (
-                <span className="max-w-40 truncate text-xs text-muted-foreground" title={resolved}>
-                  {resolved}
-                </span>
-              )}
-              <Check className={cn("size-3.5 text-primary!", choice !== model && "opacity-0")} />
-            </DropdownMenuItem>
-          );
-        })}
+      <DropdownMenuContent align="start" className="max-w-96 min-w-53">
+        {catalog?.options.map((option) => (
+          <DropdownMenuItem key={option.id} onSelect={() => onChange(option.id)} className="gap-3">
+            {/* A fixed-width name column so the blurbs line up the way the
+                CLI's own picker lays them out. */}
+            <span className="min-w-28 shrink-0 text-left">{option.label}</span>
+            <span className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground" title={option.description}>
+              {option.description}
+            </span>
+            <Check className={cn("size-3.5 shrink-0 text-primary!", option.id !== current && "opacity-0")} />
+          </DropdownMenuItem>
+        ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
