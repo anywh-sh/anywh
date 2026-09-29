@@ -81,11 +81,13 @@ function ActivityRow({
         ? logTailLines(item.tail, 1)
         : logTailLines(liveLog ?? "", 2);
   const duration = item.time === null ? null : formatDurationLong(elapsedSeconds);
+  const lastLine = tailLines[tailLines.length - 1] ?? "";
+  const tailClassName = cn("font-mono text-[10.5px]", failed ? "text-destructive" : "text-text-faint");
 
   return (
-    <div className="group relative flex items-start gap-2.5 py-2.5 pr-2.5 pl-3.5 transition-colors hover:bg-bg-elevated">
+    <div className="group relative flex items-start gap-[9px] py-[9px] pr-[9px] pl-[13px] transition-colors hover:bg-bg-elevated">
       <span
-        className="absolute top-2.5 bottom-2.5 left-1 w-0.5 opacity-80"
+        className="absolute top-[9px] bottom-[9px] left-1 w-0.5 opacity-80"
         style={{ background: backgroundActivityProfileColor(item) }}
         aria-hidden="true"
       />
@@ -115,44 +117,46 @@ function ActivityRow({
             </span>
           )}
         </div>
-        {tailLines.map((line, index) => (
-          <div
-            key={index}
-            title={line}
-            className={cn("truncate font-mono text-[10.5px]", failed ? "text-destructive" : "text-text-faint")}
-          >
+        {tailLines.slice(0, -1).map((line, index) => (
+          <div key={index} title={line} className={cn("truncate", tailClassName)}>
             {line}
           </div>
         ))}
-        {/* Over the row's bottom-right corner rather than on a line of its own:
-         * hidden until hover, a reserved line would read as dead space. */}
-        <div className="absolute right-2.5 bottom-2 flex items-center gap-1 bg-bg-elevated pl-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          {failed ? (
-            <button
-              type="button"
-              onClick={onDismiss}
-              className="cursor-pointer border border-border px-1.5 py-0.5 font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
-            >
-              {strings.dismiss}
-            </button>
-          ) : (
-            <>
+        {/* The last line doubles as the actions' fixed slot: every row keeps
+         * the same shape, the actions never cover text, and there is no line
+         * left empty just to hold buttons that only show on hover. */}
+        <div className="flex items-center gap-2">
+          <span title={lastLine} className={cn("min-w-0 flex-1 truncate", tailClassName)}>
+            {lastLine}
+          </span>
+          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            {failed ? (
               <button
                 type="button"
-                onClick={onOpen}
-                className="cursor-pointer border border-border px-1.5 py-0.5 font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+                onClick={onDismiss}
+                className="cursor-pointer border border-border px-1.5 py-px font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
               >
-                {strings.open}
+                {strings.dismiss}
               </button>
-              <button
-                type="button"
-                onClick={onStop}
-                className="cursor-pointer border border-destructive px-1.5 py-0.5 font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
-              >
-                {strings.stop}
-              </button>
-            </>
-          )}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onOpen}
+                  className="cursor-pointer border border-border px-1.5 py-px font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+                >
+                  {strings.open}
+                </button>
+                <button
+                  type="button"
+                  onClick={onStop}
+                  className="cursor-pointer border border-destructive px-1.5 py-px font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                >
+                  {strings.stop}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -303,7 +307,7 @@ export function StatusBar({
           </div>
 
           {backgroundActivity.length > 0 ? (
-            <div className="max-h-[326px] overflow-y-auto py-1">
+            <div className="max-h-[326px] overflow-y-auto px-[5px] pt-1 pb-1.5">
               {backgroundActivity.map((item) => (
                 <ActivityRow
                   key={item.id}
