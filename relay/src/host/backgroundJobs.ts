@@ -437,6 +437,23 @@ export class BackgroundJobTracker {
     }
   }
 
+  /** The last `maxBytes` of a job still being watched — what the client's
+   * background cards show while the job runs, so "it's running" comes with
+   * what it's actually printing. `undefined` for a job this tracker isn't
+   * watching (finished, cancelled, never existed) — a finished one already
+   * carries its own tail in `FailedBackgroundJobSummary`. A log that can't
+   * be read yet (the wrapper hasn't created it) is an empty tail, not an
+   * error. */
+  readLiveLogTail(sessionId: string, jobId: string, maxBytes = this.logTailBytes): string | undefined {
+    const job = this.jobs.get(`${sessionId}:${jobId}`);
+    if (!job) return undefined;
+    try {
+      return readLogTail(job.logPath, maxBytes);
+    } catch {
+      return "";
+    }
+  }
+
   /** Cancellation from the UI. Kills the WHOLE process
    * GROUP (negative `pid`, reaches everything the command spawned, not just
    * the root process), doesn't go through `.exit`/`onFinished`: unlike a job

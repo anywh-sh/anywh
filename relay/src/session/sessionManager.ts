@@ -155,6 +155,11 @@ export class SessionManager {
     this.sessions.get(sessionId)?.setBackgroundJobs(this.backgroundJobs.listWatchedForSession(sessionId));
   }
 
+  /** See `BackgroundJobTracker.readLiveLogTail`. */
+  readBackgroundJobLog(sessionId: string, jobId: string): string | undefined {
+    return this.backgroundJobs.readLiveLogTail(sessionId, jobId);
+  }
+
   listTitled(): TitledSession[] {
     return this.sessionStore.listTitled();
   }

@@ -112,3 +112,48 @@ test("a background job that exits non-zero stays visible as failed until dismiss
 
   socket.close();
 });
+
+test("a running background job's log tail is readable over HTTP until the job ends", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "anywh-bg-job-"));
+  const logPath = join(workDir, "job.log");
+  const exitPath = join(workDir, "job.exit");
+  writeFileSync(logPath, "compiling 1/3\ncompiling 2/3\n");
+  const sessionId = "session-bg-log";
+  const logUrl = `http://127.0.0.1:${String(server.port)}/background-jobs/log?session=${sessionId}&job=job-log`;
+
+  const socket = await connectSession(server.port, sessionId);
+
+  process.env.FAKE_CLAUDE_REPLY = "started it";
+  process.env.FAKE_CLAUDE_BACKGROUND_JOB = JSON.stringify({
+    anywh_bg: "started",
+    id: "job-log",
+    pid: 999999,
+    log: logPath,
+    exitFile: exitPath,
+    label: "build",
+  });
+  sendUserMessage(socket, "build it in the background");
+  await collectUntil(socket, isTurnEnded);
+  delete process.env.FAKE_CLAUDE_BACKGROUND_JOB;
+
+  const running = await fetch(logUrl);
+  assert.equal(running.status, 200);
+  assert.equal(((await running.json()) as { tail: string }).tail, "compiling 1/3\ncompiling 2/3\n");
+
+  const unknown = await fetch(logUrl.replace("job=job-log", "job=nope"));
+  assert.equal(unknown.status, 404);
+
+  // Once the job finishes the tracker stops watching it — the tail then
+  // lives in `failedJobs` (or nowhere, for a success), not behind this route.
+  process.env.FAKE_CLAUDE_REPLY = "done";
+  writeFileSync(exitPath, "0\n");
+  await collectUntil(
+    socket,
+    (message) => message.type === "background_job_state" && (message as unknown as BackgroundJobStateMessage).jobs.length === 0,
+    5000,
+  );
+  await collectUntil(socket, isTurnEnded, 5000);
+  assert.equal((await fetch(logUrl)).status, 404);
+
+  socket.close();
+});

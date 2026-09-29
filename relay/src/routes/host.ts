@@ -77,6 +77,26 @@ export const handleHostRoutes: RouteHandler = async (req, res, ctx) => {
     return true;
   }
 
+  // What a running `anywh-bg` job has printed so far — the client asks for
+  // it only while a card showing that job is on screen, so nothing polls a
+  // log nobody is looking at. Session-scoped like `/git/status`: the client
+  // names a job id, never a path; the relay resolves the log file itself.
+  if (req.method === "GET" && req.url?.startsWith("/background-jobs/log")) {
+    const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
+    const sessionId = url.searchParams.get("session")?.trim() || ctx.defaultSession;
+    const jobId = url.searchParams.get("job")?.trim() ?? "";
+    const tail = jobId ? ctx.sessionManager.readBackgroundJobLog(sessionId, jobId) : undefined;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (tail === undefined) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: "unknown background job" }));
+      return true;
+    }
+    res.end(JSON.stringify({ tail }));
+    return true;
+  }
+
   if (req.method === "POST" && req.url?.startsWith("/terminals/close")) {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
