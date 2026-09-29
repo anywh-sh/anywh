@@ -10,7 +10,7 @@ import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreferenc
 import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { countToolCallsInCurrentTurn } from "@/lib/format/turnActivity";
-import { findRunningTaskCall, recentToolCallLines } from "@/lib/format/backgroundActivity";
+import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { MessageLog } from "@/components/chat/MessageLog";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
@@ -44,6 +44,15 @@ export interface BackgroundJobActions {
 export interface TurnProgress {
   startedAt: number;
   latestToolCall: string | null;
+  /** Subagents this turn has running — the tray lists each one. */
+  subagents: TraySubagent[];
+}
+
+export interface TraySubagent {
+  toolUseId: string;
+  description: string | null;
+  activity: string | null;
+  startedAt: number | null;
 }
 
 interface ChatPanelProps {
@@ -187,7 +196,6 @@ export function ChatPanel({
   // its identity while text streams in (that lands in `streamingText`), so
   // this doesn't walk the log once per token.
   const toolCallsThisTurn = useMemo(() => countToolCallsInCurrentTurn(log.entries), [log.entries]);
-  const runningTaskCall = useMemo(() => findRunningTaskCall(log.entries), [log.entries]);
   const logRef = useRef(log);
   logRef.current = log;
   // Same pattern as `logRef`: the drop handler and the copy callback are
@@ -517,15 +525,21 @@ export function ChatPanel({
     () => (turnStartedAt === null ? null : (recentToolCallLines(log.entries, cwd, { limit: 1 })[0] ?? null)),
     [turnStartedAt, log.entries, cwd],
   );
-  const subagentToolCalls = useMemo(
-    () =>
-      runningTaskCall ? recentToolCallLines(log.entries, cwd, { limit: 6, afterToolUseId: runningTaskCall.toolUseId }) : [],
-    [runningTaskCall, log.entries, cwd],
+  const subagents = useMemo(() => runningSubagents(log.entries, log.subagents, cwd), [log.entries, log.subagents, cwd]);
+
+  // Keyed on the serialized list so the effect below only reports a change
+  // the tray can actually show — not every `log.entries` identity change.
+  const traySubagentsKey = JSON.stringify(
+    subagents.map(({ toolUseId, description, activity, startedAt }): TraySubagent => ({ toolUseId, description, activity, startedAt })),
   );
 
   useEffect(() => {
-    onTurnProgressChangeRef.current?.(turnStartedAt === null ? null : { startedAt: turnStartedAt, latestToolCall });
-  }, [turnStartedAt, latestToolCall]);
+    onTurnProgressChangeRef.current?.(
+      turnStartedAt === null
+        ? null
+        : { startedAt: turnStartedAt, latestToolCall, subagents: JSON.parse(traySubagentsKey) as TraySubagent[] },
+    );
+  }, [turnStartedAt, latestToolCall, traySubagentsKey]);
 
   // Desktop: the background work this conversation launched and the turn
   // indicator sit right after the latest message, inside the scrolling log —
@@ -534,7 +548,7 @@ export function ChatPanel({
   // and this would otherwise be a new element on every `ChatPanel` render;
   // the indicator's own clock ticks inside it, not through here. iOS keeps its
   // floating indicator (see the composer block below).
-  const hasLaunchedInBackground = backgroundJobs.length > 0 || runningTaskCall !== undefined;
+  const hasLaunchedInBackground = backgroundJobs.length > 0 || subagents.length > 0;
   const logTrailing = useMemo(
     () =>
       isIOS() || (turnStartedAt === null && !hasLaunchedInBackground) ? null : (
@@ -546,8 +560,7 @@ export function ChatPanel({
               live={isActiveTab}
               jobs={backgroundJobs}
               onCancelJob={cancelBackgroundJob}
-              runningTaskCall={runningTaskCall}
-              subagentToolCalls={subagentToolCalls}
+              agents={subagents}
               onStopAgent={stopTurn}
             />
           )}
@@ -565,8 +578,7 @@ export function ChatPanel({
       isActiveTab,
       backgroundJobs,
       cancelBackgroundJob,
-      runningTaskCall,
-      subagentToolCalls,
+      subagents,
       stopTurn,
     ],
   );

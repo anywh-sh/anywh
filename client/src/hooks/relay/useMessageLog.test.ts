@@ -257,4 +257,50 @@ describe("useMessageLog", () => {
     // a scratch state, never on `state.streamingText`.
     expect(stripVolatile(result.current.streamingEntries)).toEqual([{ kind: "text", text: "live", streaming: true }]);
   });
+
+  it("keeps a subagent's work out of the log, tracking it as that subagent's own state", () => {
+    const { result } = renderHook(() => useMessageLog());
+    const events: AgentEvent[] = [
+      { type: "tool_started", toolUseId: "agent", name: "Agent", kind: "task", input: { description: "audit", run_in_background: true } },
+      { type: "subagent", toolUseId: "agent", status: "running", at: 1000, description: "audit", background: true },
+      { type: "tool_ended", toolUseId: "agent", content: "Async agent launched successfully.", isError: false },
+      { type: "text", text: "Launched it, carrying on.", timestamp: "2026-01-01T00:00:00.000Z" },
+      { type: "tool_started", toolUseId: "r1", name: "Read", kind: "read", input: { file_path: "/w/a.txt" }, parentToolUseId: "agent" },
+      { type: "tool_ended", toolUseId: "r1", content: "alpha", isError: false, parentToolUseId: "agent" },
+      { type: "text", text: "Done: alpha.", parentToolUseId: "agent" },
+      { type: "subagent", toolUseId: "agent", status: "running", at: 2000, activity: "Reading a.txt", toolUses: 1 },
+    ];
+    act(() => {
+      for (const event of events) result.current.handleEvent(event);
+    });
+
+    expect(result.current.entries.map((entry) => entry.kind)).toEqual(["tool-use", "tool-result", "text"]);
+    expect(result.current.subagents.agent).toMatchObject({
+      status: "running",
+      startedAt: 1000,
+      background: true,
+      description: "audit",
+      activity: "Reading a.txt",
+      toolUses: 1,
+      toolCalls: [{ name: "Read", input: { file_path: "/w/a.txt" } }],
+    });
+
+    act(() => result.current.handleEvent({ type: "subagent", toolUseId: "agent", status: "completed", at: 3000, summary: "alpha" }));
+    expect(result.current.subagents.agent).toMatchObject({ status: "completed", summary: "alpha", description: "audit" });
+  });
+
+  it("marks a subagent still running when the turn ends as stopped", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => {
+      result.current.handleEvent({ type: "subagent", toolUseId: "agent", status: "running", at: 1000 });
+      result.current.handleTurnComplete(true);
+    });
+    expect(result.current.subagents.agent.status).toBe("stopped");
+  });
+
+  it("ignores an end for something it never saw start (a subagent's own backgrounded shell)", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "subagent", toolUseId: "bash", status: "completed", at: 1000, summary: "sleep 8" }));
+    expect(result.current.subagents).toEqual({});
+  });
 });

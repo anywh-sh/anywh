@@ -1,45 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { findRunningTaskCall, logTailLines, recentToolCallLines } from "@/lib/format/backgroundActivity";
-import type { LogEntry } from "@/hooks/relay/useMessageLog";
+import { logTailLines, recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
+import type { LogEntry, SubagentState } from "@/hooks/relay/useMessageLog";
 
-describe("findRunningTaskCall", () => {
-  it("finds a Task call with no matching tool-result yet", () => {
+function subagent(overrides: Partial<SubagentState> = {}): SubagentState {
+  return { toolUseId: "agent", status: "running", startedAt: 1000, background: true, toolCalls: [], ...overrides };
+}
+
+describe("runningSubagents", () => {
+  it("lists running subagents from their own state, even once the spawning call has returned", () => {
+    const entries: LogEntry[] = [
+      { kind: "user", id: "u1", text: "go", sentAt: 1 },
+      { kind: "tool-use", id: "t1", toolUseId: "agent", name: "Agent", input: { description: "audit", run_in_background: true } },
+      { kind: "tool-result", id: "r1", toolUseId: "agent", content: "Async agent launched successfully.", isError: false },
+    ];
+    const subagents = {
+      agent: subagent({ description: "audit", toolUses: 2, toolCalls: [{ name: "Read", input: { file_path: "/repo/a.ts" } }] }),
+      done: subagent({ toolUseId: "done", status: "completed" }),
+    };
+
+    expect(runningSubagents(entries, subagents, "/repo")).toEqual([
+      { toolUseId: "agent", description: "audit", startedAt: 1000, activity: "Read a.ts", toolCalls: ["Read a.ts"], toolUses: 2 },
+    ]);
+  });
+
+  it("prefers the CLI's own progress line over the latest tool call", () => {
+    const subagents = { agent: subagent({ activity: "Reading a.txt", toolCalls: [{ name: "Read", input: { file_path: "/a.txt" } }] }) };
+    expect(runningSubagents([], subagents, null)[0].activity).toBe("Reading a.txt");
+  });
+
+  it("falls back to an unanswered Agent/Task call when the relay sends no subagent state", () => {
     const entries: LogEntry[] = [
       { kind: "user", id: "u1", text: "go", sentAt: 1 },
       { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: { description: "reviewing tests" } },
+      { kind: "tool-use", id: "t2", toolUseId: "tu2", name: "Agent", input: {} },
+      { kind: "tool-result", id: "r2", toolUseId: "tu2", content: "done", isError: false },
     ];
-    expect(findRunningTaskCall(entries)).toEqual({ toolUseId: "tu1", description: "reviewing tests" });
-  });
-
-  it("returns undefined once the Task call's tool-result has arrived", () => {
-    const entries: LogEntry[] = [
-      { kind: "user", id: "u1", text: "go", sentAt: 1 },
-      { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: {} },
-      { kind: "tool-result", id: "r1", toolUseId: "tu1", content: "done", isError: false },
-    ];
-    expect(findRunningTaskCall(entries)).toBeUndefined();
-  });
-
-  it("ignores tool-use entries that are not Task", () => {
-    const entries: LogEntry[] = [
-      { kind: "user", id: "u1", text: "go", sentAt: 1 },
-      { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Bash", input: { command: "ls" } },
-    ];
-    expect(findRunningTaskCall(entries)).toBeUndefined();
-  });
-
-  it("does not look past the most recent user message", () => {
-    const entries: LogEntry[] = [
-      { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: {} },
-      { kind: "tool-result", id: "r1", toolUseId: "tu1", content: "done", isError: false },
-      { kind: "user", id: "u2", text: "go again", sentAt: 2 },
-    ];
-    expect(findRunningTaskCall(entries)).toBeUndefined();
-  });
-
-  it("falls back to null when the Task call carries no description", () => {
-    const entries: LogEntry[] = [{ kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: {} }];
-    expect(findRunningTaskCall(entries)).toEqual({ toolUseId: "tu1", description: null });
+    expect(runningSubagents(entries, {}, null)).toEqual([
+      { toolUseId: "tu1", description: "reviewing tests", startedAt: null, activity: null, toolCalls: [], toolUses: null },
+    ]);
   });
 });
 
@@ -56,12 +54,6 @@ describe("recentToolCallLines", () => {
     expect(recentToolCallLines(entries, "/repo", { limit: 2 })).toEqual(["Read src/app.ts", "Bash npm test"]);
   });
 
-  it("stops at the given tool call, for a subagent's own calls", () => {
-    expect(recentToolCallLines(entries, "/repo", { limit: 10, afterToolUseId: "tu1" })).toEqual([
-      "Read src/app.ts",
-      "Bash npm test",
-    ]);
-  });
 });
 
 describe("logTailLines", () => {

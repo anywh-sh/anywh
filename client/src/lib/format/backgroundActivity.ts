@@ -1,46 +1,79 @@
-import type { LogEntry } from "@/hooks/relay/useMessageLog";
+import type { LogEntry, SubagentState } from "@/hooks/relay/useMessageLog";
+import type { ToolInput } from "@/lib/relay/agent-event";
 import { relativeToCwd } from "@/lib/relay/toolCallSummary";
 
-export interface RunningTaskCall {
+const SUBAGENT_TOOLS = new Set(["Agent", "Task"]);
+/** How many of a subagent's latest tool calls its card lists. */
+const SUBAGENT_TOOL_CALLS_SHOWN = 6;
+
+/** A subagent still at work, as the background cards show it. */
+export interface RunningSubagent {
+  /** The spawning `Agent`/`Task` call's id. */
   toolUseId: string;
   description: string | null;
+  /** epoch ms — `null` when only the spawning call is known. */
+  startedAt: number | null;
+  /** What it is doing right now: the CLI's own one-line progress summary,
+   * else its latest tool call. */
+  activity: string | null;
+  /** Its latest tool calls as `toolCallLine`s, oldest first. */
+  toolCalls: string[];
+  toolUses: number | null;
 }
 
 /**
- * The most recent `Task` (subagent delegation) tool call in the current turn
- * that hasn't gotten its `tool-result` back yet — `undefined` once the
- * result arrives or the turn moves on.
+ * Every subagent still running, oldest first — what the "AGENT" background
+ * cards list.
  *
- * This is deliberately the only signal the "AGENTE" background card reads:
- * the protocol carries no step/progress data for a subagent's own work, no
- * model name, and no token count for it (Claude's CLI filters `usage` to the
- * main thread only) — see `countToolCallsInCurrentTurn` for the same
- * "walk back to the last user message" current-turn boundary this reuses.
+ * Read from the relay's `subagent` events (`SubagentState`), not from the
+ * spawning tool call: `claude` names that call `Agent` (formerly `Task`), and
+ * a `run_in_background` one returns "launched" immediately, so "call without a
+ * result yet" says nothing about whether the subagent is still working.
+ *
+ * The one fallback is for a relay too old to send `subagent` events: an
+ * `Agent`/`Task` call of the current turn with no result yet and no state of
+ * its own still counts as running, with nothing more to say about it.
  */
-export function findRunningTaskCall(entries: LogEntry[]): RunningTaskCall | undefined {
-  const answeredToolUseIds = new Set(
-    entries
-      .filter((entry): entry is Extract<LogEntry, { kind: "tool-result" }> => entry.kind === "tool-result")
-      .map((entry) => entry.toolUseId)
-      .filter((id): id is string => id !== undefined),
-  );
+export function runningSubagents(entries: LogEntry[], subagents: Record<string, SubagentState>, cwd: string | null): RunningSubagent[] {
+  const running: RunningSubagent[] = Object.values(subagents)
+    .filter((subagent) => subagent.status === "running")
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((subagent) => {
+      const toolCalls = subagent.toolCalls.slice(-SUBAGENT_TOOL_CALLS_SHOWN).map((call) => toolCallLine(call, cwd));
+      return {
+        toolUseId: subagent.toolUseId,
+        description: subagent.description ?? null,
+        startedAt: subagent.startedAt,
+        activity: subagent.activity ?? toolCalls[toolCalls.length - 1] ?? null,
+        toolCalls,
+        toolUses: subagent.toolUses ?? null,
+      };
+    });
+
+  const answered = new Set(entries.flatMap((entry) => (entry.kind === "tool-result" && entry.toolUseId ? [entry.toolUseId] : [])));
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
     if (entry.kind === "user") break;
-    if (entry.kind !== "tool-use" || entry.name !== "Task" || !entry.toolUseId) continue;
-    if (answeredToolUseIds.has(entry.toolUseId)) continue;
-    return { toolUseId: entry.toolUseId, description: entry.input.description ?? null };
+    if (entry.kind !== "tool-use" || !SUBAGENT_TOOLS.has(entry.name) || !entry.toolUseId) continue;
+    if (answered.has(entry.toolUseId) || entry.toolUseId in subagents) continue;
+    running.push({
+      toolUseId: entry.toolUseId,
+      description: typeof entry.input.description === "string" ? entry.input.description : null,
+      startedAt: null,
+      activity: null,
+      toolCalls: [],
+      toolUses: null,
+    });
   }
-  return undefined;
+  return running;
 }
 
-type ToolUseEntry = Extract<LogEntry, { kind: "tool-use" }>;
 
 /** One line saying what a tool call is doing — `Bash npm test`,
  * `Read src/app.ts` — same "file path, else command, else the agent's own
  * description" choice `ToolCallCard`'s header makes, flattened onto a single
  * line for the background cards, which have no room for a card per call. */
-export function toolCallLine(use: ToolUseEntry, cwd: string | null): string {
+export function toolCallLine(use: { name: string; input: ToolInput }, cwd: string | null): string {
   const input = use.input;
   const detail =
     typeof input?.file_path === "string"
@@ -56,27 +89,16 @@ export function toolCallLine(use: ToolUseEntry, cwd: string | null): string {
   return firstLine ? `${use.name} ${firstLine}` : use.name;
 }
 
-/**
- * The last `limit` tool calls of the current turn, oldest first, as
+/** The last `limit` tool calls of the current turn, oldest first, as
  * `toolCallLine`s — what the background cards show as "what it's doing right
- * now". With `afterToolUseId`, only calls made after that one: a subagent's
- * own tool calls reach the log interleaved with the main thread's, with no
- * parent id on the wire, so "everything after the `Task` call that spawned
- * it" is the closest the log can get to "what the subagent is doing" — exact
- * for the usual case of one subagent at a time.
- */
-export function recentToolCallLines(
-  entries: LogEntry[],
-  cwd: string | null,
-  { limit, afterToolUseId }: { limit: number; afterToolUseId?: string },
-): string[] {
+ * now" for a turn running in another tab. A subagent's calls never reach
+ * `entries` (see `SubagentState`), so these are the main agent's own. */
+export function recentToolCallLines(entries: LogEntry[], cwd: string | null, { limit }: { limit: number }): string[] {
   const lines: string[] = [];
   for (let i = entries.length - 1; i >= 0 && lines.length < limit; i -= 1) {
     const entry = entries[i];
     if (entry.kind === "user") break;
-    if (entry.kind !== "tool-use") continue;
-    if (afterToolUseId !== undefined && entry.toolUseId === afterToolUseId) break;
-    lines.push(toolCallLine(entry, cwd));
+    if (entry.kind === "tool-use") lines.push(toolCallLine(entry, cwd));
   }
   return lines.reverse();
 }

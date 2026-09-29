@@ -10,7 +10,7 @@ vi.mock("@/lib/relay/backgroundJobClient", () => ({
 }));
 
 const profile = { id: "p1", label: "p1" } as Profile;
-const base = { profile, sessionId: "s1", live: true, subagentToolCalls: [] as string[] };
+const base = { profile, sessionId: "s1", live: true };
 
 const copy = en.chat.launchedInBackground;
 
@@ -21,7 +21,7 @@ afterEach(() => {
 describe("LaunchedInBackground", () => {
   it("renders nothing with no jobs and no running subagent call", () => {
     const { container } = render(
-      <LaunchedInBackground {...base} jobs={[]} onCancelJob={() => {}} runningTaskCall={undefined} onStopAgent={() => {}} />,
+      <LaunchedInBackground {...base} jobs={[]} onCancelJob={() => {}} agents={[]} onStopAgent={() => {}} />,
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -34,7 +34,7 @@ describe("LaunchedInBackground", () => {
         {...base}
         jobs={[{ id: "j1", label: "pnpm dev --host", startedAt: Date.now(), pid: 4821 }]}
         onCancelJob={onCancelJob}
-        runningTaskCall={undefined}
+        agents={[]}
         onStopAgent={() => {}}
       />,
     );
@@ -59,7 +59,7 @@ describe("LaunchedInBackground", () => {
         {...base}
         jobs={[]}
         onCancelJob={() => {}}
-        runningTaskCall={{ toolUseId: "tu1", description: null }}
+        agents={[{ toolUseId: "tu1", description: null, startedAt: null, activity: null, toolCalls: [], toolUses: null }]}
         onStopAgent={onStopAgent}
       />,
     );
@@ -77,7 +77,7 @@ describe("LaunchedInBackground", () => {
         {...base}
         jobs={[{ id: "j1", label: "pnpm dev", startedAt: Date.now(), pid: 1 }]}
         onCancelJob={() => {}}
-        runningTaskCall={undefined}
+        agents={[]}
         onStopAgent={() => {}}
       />,
     );
@@ -87,18 +87,30 @@ describe("LaunchedInBackground", () => {
     expect(screen.getByText(/installing deps\s+ready on :5173/)).toBeInTheDocument();
   });
 
-  it("shows the subagent's latest tool call on its card", () => {
+  it("shows a subagent's current activity, elapsed time and tool count, and its tool calls once expanded", async () => {
+    const user = userEvent.setup();
     render(
       <LaunchedInBackground
         {...base}
-        subagentToolCalls={["Read src/app.ts", "Grep useEffect"]}
         jobs={[]}
         onCancelJob={() => {}}
-        runningTaskCall={{ toolUseId: "tu1", description: "auditing hooks" }}
+        agents={[
+          {
+            toolUseId: "tu1",
+            description: "auditing hooks",
+            startedAt: Date.now() - 65_000,
+            activity: "Reading useEffect.ts",
+            toolCalls: ["Read src/app.ts", "Grep useEffect"],
+            toolUses: 2,
+          },
+        ]}
         onStopAgent={() => {}}
       />,
     );
 
-    expect(screen.getByText("Grep useEffect")).toBeInTheDocument();
+    expect(screen.getByText("Reading useEffect.ts")).toBeInTheDocument();
+    expect(screen.getByText(/1m 5s · 2 tools/)).toBeInTheDocument();
+    await user.click(screen.getByText("auditing hooks"));
+    expect(screen.getByText(/Read src\/app\.ts\s+Grep useEffect/)).toBeInTheDocument();
   });
 });

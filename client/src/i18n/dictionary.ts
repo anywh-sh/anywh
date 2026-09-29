@@ -481,6 +481,10 @@ export interface Dictionary {
       logEmpty: string;
       /** Expanded subagent card before the subagent has called any tool. */
       agentNoToolCalls: string;
+      /** Running subagent card meta, after its elapsed time: how many tools
+       * it has used so far — singular, then `{count}` plural. */
+      agentOneToolUse: string;
+      agentToolUses: string;
     };
     /** The permission prompt: a tool call the CLI has paused on, waiting for
      * a yes or no. The relay sends the tool and what it would do; the words

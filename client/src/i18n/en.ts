@@ -75,6 +75,8 @@ export const en: Dictionary = {
       logLoading: "Reading the log…",
       logEmpty: "No output yet.",
       agentNoToolCalls: "No tool calls yet.",
+      agentOneToolUse: "1 tool",
+      agentToolUses: "{count} tools",
     },
     approval: {
       toolCall: "The model wants to run `{tool}`: {detail}. Approve?",

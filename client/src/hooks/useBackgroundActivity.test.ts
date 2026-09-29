@@ -31,11 +31,31 @@ describe("useBackgroundActivity", () => {
   it("times an agent item from its turn's real start, and says what it last called", () => {
     const tabs = [makeTab({ id: "other", isRunning: true })];
     const byTab: Record<string, BackgroundActivityEntry> = {
-      other: { jobs: [], failedJobs: [], turn: { startedAt: 5000, latestToolCall: "Bash npm test" } },
+      other: { jobs: [], failedJobs: [], turn: { startedAt: 5000, latestToolCall: "Bash npm test", subagents: [] } },
     };
     const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab, dict }));
 
     expect(result.current[0]).toMatchObject({ kind: "agent", time: 5000, tail: "Bash npm test" });
+  });
+
+  it("lists a tab's running subagents as agent items, the focused tab included", () => {
+    const tabs = [makeTab({ id: "focused", isRunning: true })];
+    const byTab: Record<string, BackgroundActivityEntry> = {
+      focused: {
+        jobs: [],
+        failedJobs: [],
+        turn: {
+          startedAt: 1000,
+          latestToolCall: null,
+          subagents: [{ toolUseId: "agent", description: "audit", activity: "Reading a.txt", startedAt: 2000 }],
+        },
+      },
+    };
+    const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: "focused", byTab, dict }));
+
+    expect(result.current).toEqual([
+      expect.objectContaining({ id: "sub:agent", kind: "agent", tabId: "focused", name: "audit", tail: "Reading a.txt", time: 2000 }),
+    ]);
   });
 
   it("leaves an agent item untimed until its turn start is known, instead of counting from the epoch", () => {

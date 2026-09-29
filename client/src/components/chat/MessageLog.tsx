@@ -76,11 +76,11 @@ type RenderItem =
 
 // Tools that never go into a collapsed group — each one deserves its own
 // spotlight: Edit/Write mutate disk (the diff wants to be seen), TodoWrite
-// is a planning signal, and Task delegates to a subagent whose sub-tool-calls
-// are invisible in the protocol (they don't arrive as separate events), so
-// the card is the only window into that work — it can't stay buried in a
-// "Used N tools".
-const UNGROUPABLE_TOOLS = new Set(["Edit", "Write", "TodoWrite", "Task"]);
+// is a planning signal, and Agent (formerly Task) delegates to a subagent —
+// whose own tool calls are kept out of this log (they feed its background
+// card instead), so its call is the conversation's only mark of that work
+// and can't stay buried in a "Used N tools".
+const UNGROUPABLE_TOOLS = new Set(["Edit", "Write", "TodoWrite", "Agent", "Task"]);
 
 function isGroupable(pair: ToolPair): boolean {
   if (pair.result?.isError) return false;

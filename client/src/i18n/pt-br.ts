@@ -75,6 +75,8 @@ export const ptBr: Dictionary = {
       logLoading: "lendo o log…",
       logEmpty: "nenhuma saída ainda",
       agentNoToolCalls: "nenhuma chamada de ferramenta ainda",
+      agentOneToolUse: "1 ferramenta",
+      agentToolUses: "{count} ferramentas",
     },
     approval: {
       toolCall: "O modelo quer executar `{tool}`: {detail}. Aprovar?",

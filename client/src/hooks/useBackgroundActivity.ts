@@ -71,6 +71,22 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
         });
       }
 
+      // Subagents in every tab, the focused one included: unlike the turn
+      // itself, a background subagent's progress isn't on screen anywhere
+      // else unless its card happens to be scrolled into view.
+      for (const subagent of entry?.turn?.subagents ?? []) {
+        items.push({
+          id: `sub:${subagent.toolUseId}`,
+          kind: "agent",
+          tabId: tab.id,
+          profileId: tab.profileId,
+          name: subagent.description ?? dict.chat.launchedInBackground.agentFallbackName,
+          tail: subagent.activity ?? "",
+          status: "run",
+          time: subagent.startedAt,
+        });
+      }
+
       if (!entry) continue;
 
       // An older relay's `background_job_state` (pre-dating `failedJobs`)

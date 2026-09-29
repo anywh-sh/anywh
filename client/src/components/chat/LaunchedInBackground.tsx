@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { logTailLines, type RunningTaskCall } from "@/lib/format/backgroundActivity";
+import { logTailLines, type RunningSubagent } from "@/lib/format/backgroundActivity";
 import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
@@ -16,10 +16,9 @@ interface LaunchedInBackgroundProps {
   live: boolean;
   jobs: BackgroundJobSummary[];
   onCancelJob: (id: string) => void;
-  runningTaskCall: RunningTaskCall | undefined;
-  /** The subagent's own recent tool calls, oldest first — see
-   * `recentToolCallLines`. */
-  subagentToolCalls: string[];
+  /** Subagents still running — see `runningSubagents`. */
+  agents: RunningSubagent[];
+  /** Stops the whole turn: a subagent has no process of its own to stop. */
   onStopAgent: () => void;
 }
 
@@ -137,21 +136,20 @@ function ProcCard({
   );
 }
 
-function AgentCard({
-  call,
-  toolCalls,
-  open,
-  onToggle,
-  onStop,
-}: {
-  call: RunningTaskCall;
-  toolCalls: string[];
-  open: boolean;
-  onToggle: () => void;
-  onStop: () => void;
-}) {
+function AgentCard({ agent, open, onToggle, onStop }: { agent: RunningSubagent; open: boolean; onToggle: () => void; onStop: () => void }) {
   const dict = useDict();
   const strings = dict.chat.launchedInBackground;
+  const elapsedSeconds = useElapsedSeconds(agent.startedAt ?? 0);
+  const meta = [
+    agent.startedAt === null ? null : formatDurationLong(elapsedSeconds),
+    agent.toolUses === null
+      ? null
+      : agent.toolUses === 1
+        ? strings.agentOneToolUse
+        : strings.agentToolUses.replace("{count}", String(agent.toolUses)),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <CardShell
@@ -162,11 +160,11 @@ function AgentCard({
       }
       badge={strings.agentBadge}
       badgeClassName="border-primary bg-primary-soft text-primary-ink"
-      name={call.description ?? strings.agentFallbackName}
-      meta=""
-      latest={toolCalls[toolCalls.length - 1] ?? null}
+      name={agent.description ?? strings.agentFallbackName}
+      meta={meta}
+      latest={agent.activity}
     >
-      <CardLines lines={toolCalls} empty={strings.agentNoToolCalls} />
+      <CardLines lines={agent.toolCalls} empty={strings.agentNoToolCalls} />
       <div className="flex items-center gap-1.5 border-t border-border-soft px-2.5 py-2 pl-8">
         <button
           type="button"
@@ -193,14 +191,13 @@ export function LaunchedInBackground({
   live,
   jobs,
   onCancelJob,
-  runningTaskCall,
-  subagentToolCalls,
+  agents,
   onStopAgent,
 }: LaunchedInBackgroundProps) {
   const dict = useDict();
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
 
-  if (jobs.length === 0 && !runningTaskCall) return null;
+  if (jobs.length === 0 && agents.length === 0) return null;
 
   const toggle = (id: string) =>
     setOpenIds((prev) => {
@@ -219,15 +216,15 @@ export function LaunchedInBackground({
         <span className="h-px flex-1 bg-border-soft" />
       </div>
 
-      {runningTaskCall && (
+      {agents.map((agent) => (
         <AgentCard
-          call={runningTaskCall}
-          toolCalls={subagentToolCalls}
-          open={openIds.has(runningTaskCall.toolUseId)}
-          onToggle={() => toggle(runningTaskCall.toolUseId)}
+          key={agent.toolUseId}
+          agent={agent}
+          open={openIds.has(agent.toolUseId)}
+          onToggle={() => toggle(agent.toolUseId)}
           onStop={onStopAgent}
         />
-      )}
+      ))}
       {jobs.map((job) => (
         <ProcCard
           key={job.id}
