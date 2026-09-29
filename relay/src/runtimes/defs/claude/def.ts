@@ -13,6 +13,7 @@
 import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
+import { parseClaudeModelCatalog } from "./modelCatalog.js";
 import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
@@ -108,13 +109,31 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
   // The relay captures the session_id the CLI hands back; it never assigns
   // one ahead of time.
   continuity: { kind: "cli-resume", resumeStyle: "capture" },
-  // Deliberately not "real" yet: the actual catalog is dynamic (the CLI's
-  // own `/model` probe, runtimes/probes/defaultModel.ts) and each option
-  // doesn't have a static labelKey — the client resolves aliases at
-  // runtime instead. Forcing that into ModelOption.labelKey here would be a
-  // false correspondence; this stays a placeholder until that tension is
-  // resolved, same spirit as the codex/acp drafts proving shape, not truth.
-  models: { kind: "static", options: [] },
+  // The same list Claude Code's own interactive `/model` picker shows, one
+  // entry per model, from the SDK control protocol's `initialize` reply —
+  // measured against Claude Code 2.1.284: no turn runs (so no API call),
+  // ~1.3s. Replaces scraping `-p /model`'s usage text, which only listed
+  // aliases (`best`, `opus[1m]`, `opusplan`) that the picker itself hides
+  // and several of which resolve to the same model.
+  models: {
+    kind: "cli-probe",
+    args: [
+      "-p",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--no-session-persistence",
+      // Same flags as titleGenerator.ts, same reason: a profile with MCP
+      // configured otherwise prints stray log lines on stdout.
+      "--tools",
+      "",
+      "--strict-mcp-config",
+    ],
+    stdin: `${JSON.stringify({ type: "control_request", request_id: "anywh-models", request: { subtype: "initialize" } })}\n`,
+    parse: parseClaudeModelCatalog,
+  },
   auth: {
     kind: "cli-probe",
     // Measured against Claude Code 2.1.274: one JSON object on stdout
