@@ -36,3 +36,22 @@ export function effectiveModel(catalog: ModelCatalog | null | undefined, model: 
 export function catalogHasModel(catalog: ModelCatalog | null | undefined, model: ModelChoice): boolean {
   return catalog?.options.some((option) => option.id === model) ?? false;
 }
+
+/**
+ * A relay from before per-agent catalogs sends `default_model_state`
+ * instead of `model_catalogs_state` — Claude's aliases scraped from
+ * `claude -p /model` (`available`) and the default's family name
+ * (`label`, e.g. "Opus"). Without translating it, a client updated ahead
+ * of its relay (the app auto-updates, a self-hosted relay needn't) never
+ * gets a catalog and hides the picker altogether. That message was
+ * Claude's by construction — the old relay had no other agent's models to
+ * send — so it maps onto the `claude` entry only. The aliases are shown as
+ * the ids they are: that relay never sent display names, and inventing
+ * them here is exactly the stale dictionary the catalogs replaced.
+ */
+export function catalogsFromLegacyDefaultModelState(label: string, available: string[]): Record<string, ModelCatalog> {
+  const options = available.filter((alias) => alias !== "default").map((alias) => ({ id: alias, label: alias }));
+  if (options.length === 0) return {};
+  const defaultId = options.find((option) => option.id.toLowerCase() === label.toLowerCase())?.id;
+  return { claude: { options, ...(defaultId ? { defaultId } : {}) } };
+}

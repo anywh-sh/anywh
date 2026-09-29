@@ -229,3 +229,44 @@ describe("RelayClient protocol version", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 });
+
+describe("RelayClient model catalogs", () => {
+  function receive(socket: FakeWebSocket, message: unknown): void {
+    socket.emit("message", { data: JSON.stringify(message) });
+  }
+
+  // Real regression: a client updated ahead of its relay got only the old
+  // `default_model_state`, ignored it, and hid the model picker entirely.
+  it("still reports a catalog when the relay predates model_catalogs_state", () => {
+    const onModelCatalogs = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onModelCatalogs });
+
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    receive(socket, { type: "protocol_version", version: WS_PROTOCOL_VERSION });
+    receive(socket, { type: "default_model_state", label: "Opus", available: ["sonnet", "opus", "default"] });
+
+    expect(onModelCatalogs).toHaveBeenCalledWith({
+      claude: {
+        options: [
+          { id: "sonnet", label: "sonnet" },
+          { id: "opus", label: "opus" },
+        ],
+        defaultId: "opus",
+      },
+    });
+  });
+
+  it("passes a current relay's per-agent catalogs through as sent", () => {
+    const onModelCatalogs = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onModelCatalogs });
+    const catalogs = { codex: { options: [{ id: "gpt-5.5", label: "GPT-5.5" }], defaultId: "gpt-5.5" } };
+
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    receive(socket, { type: "protocol_version", version: WS_PROTOCOL_VERSION });
+    receive(socket, { type: "model_catalogs_state", catalogs });
+
+    expect(onModelCatalogs).toHaveBeenCalledWith(catalogs);
+  });
+});

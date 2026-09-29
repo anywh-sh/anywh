@@ -24,7 +24,7 @@ import type {
   SetCwdErrorCode,
 } from "@/lib/relay/relay-types";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
-import { recordModelCatalogs } from "@/lib/composer/modelCatalog";
+import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
 import { authHeaders } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
@@ -649,6 +649,10 @@ export class RelayClient {
       } else if (parsed.type === "model_catalogs_state") {
         recordModelCatalogs(parsed.catalogs);
         this.callbacks.onModelCatalogs?.(parsed.catalogs);
+      } else if (parsed.type === "default_model_state") {
+        const catalogs = catalogsFromLegacyDefaultModelState(parsed.label, parsed.available);
+        recordModelCatalogs(catalogs);
+        this.callbacks.onModelCatalogs?.(catalogs);
       } else if (parsed.type === "context_usage_state") {
         this.callbacks.onContextUsageState?.(parsed.usage);
       } else if (parsed.type === "turn_state") {
