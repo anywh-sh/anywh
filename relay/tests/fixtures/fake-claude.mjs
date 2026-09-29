@@ -165,10 +165,15 @@ if (args[0] === "--version") {
 
   if (outputFormat === "json") {
     // The default-model probe (defaultModel.ts) — a single JSON line whose
-    // `result` field is CLI usage text, not conversation output.
+    // `result` field is CLI usage text, not conversation output. Under
+    // `--model <alias>` (resolveModelAliases) the real binary reports what
+    // that alias resolves to, without the "(default)" marker; this echoes
+    // the alias back in a versioned-looking name a test can assert on.
+    const probedAlias = flagValue("--model");
+    const currentModel = probedAlias ? `Fake ${probedAlias} 9.9` : "Sonnet 5 (default)";
     emit({
       result:
-        "Current model: `Sonnet 5 (default)`\n" +
+        `Current model: \`${currentModel}\`\n` +
         "Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], opus[1m], fable[1m], opusplan, default, or a full model ID.",
     });
     process.exit(0);

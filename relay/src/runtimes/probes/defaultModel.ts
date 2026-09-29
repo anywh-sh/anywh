@@ -1,14 +1,16 @@
 import { spawn } from "node:child_process";
 import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../executables.js";
 
-// Extracts just the model family — "Current model: `Sonnet 5 (default)`" ->
-// "Sonnet", "Current model: `Opus 5 (1M context) (default)`" -> "Opus". The
-// backtick is optional: found by testing that a newer CLI version started
-// wrapping the value in markdown backticks, silently breaking this probe
-// (it always returned `undefined` until this was noticed). Same vocabulary
-// as MODEL_LABELS on the client, so the text already arrives
-// ready to display without remapping it there.
-export const MODEL_NAME_RE = /^Current model:\s*`?(Sonnet|Opus|Haiku|Fable)\b/i;
+// Extracts the CLI's own display name for the model in effect, versioned —
+// "Current model: `Sonnet 5.5 (default)`" -> "Sonnet 5.5", "Current model:
+// `Opus 5.5 (1M context)`" -> "Opus 5.5 (1M context)". Used to stop at the
+// family ("Opus"), which left no way to tell which version an alias
+// resolved to without opening the CLI's own picker. The backtick is
+// optional: found by testing that a newer CLI version started wrapping the
+// value in markdown backticks, silently breaking this probe (it always
+// returned `undefined` until this was noticed). The trailing "(default)"
+// marker is dropped by `parseCurrentModel`, not here.
+export const CURRENT_MODEL_RE = /^Current model:\s*`?([^`\n]+?)`?\s*$/m;
 
 // Same `result` string also lists every alias the CLI accepts, e.g.
 // "Usage: /model <name>. Available: sonnet, opus, haiku, fable, best,
@@ -20,6 +22,16 @@ export const AVAILABLE_MODELS_RE = /Available:\s*(.+?)(?:\.|$)/;
 export interface DefaultModelInfo {
   label: string;
   available: string[];
+}
+
+/** The versioned display name out of a `/model` probe's `result`, minus the
+ * "(default)" marker the CLI appends when no `--model` override is in
+ * effect — `undefined` when the text doesn't carry a "Current model:" line. */
+export function parseCurrentModel(result: string): string | undefined {
+  const match = CURRENT_MODEL_RE.exec(result);
+  if (!match) return undefined;
+  const name = match[1].replace(/\s*\(default\)\s*$/i, "").trim();
+  return name.length > 0 ? name : undefined;
 }
 
 /** Parses the "Available: ..." segment into individual aliases, dropping the
@@ -37,26 +49,14 @@ export function parseAvailableModels(result: string): string[] {
 }
 
 /**
- * Runs once at relay boot (server.ts) to find out this profile account's
- * actual default model — found by testing manually: `/model`
- * without an argument is intercepted by the CLI itself before any API call
- * (`num_turns: 0` in the result), so it costs nothing and runs in
- * ~100-200ms. Each profile runs its own relay process with its own `$HOME`
- * so each instance only probes its own account.
- *
- * The actual finding that motivated this: the two profiles have DIFFERENT
- * defaults — personal came back "Sonnet 5 (default)", work came back "Opus 5
- * (1M context) (default)". There was no way to assume a fixed value (e.g.
- * always "Opus") without showing a wrong label for at least one of the two.
- *
- * The same probe also returns the full model catalog (`available`) straight
- * from the CLI's own usage text, instead of a hardcoded list that goes stale
- * whenever a new alias ships.
+ * Spawns `claude -p /model` (optionally under `--model <alias>`) and returns
+ * the `result` text. Found by testing manually: `/model` without an argument
+ * is intercepted by the CLI itself before any API call (`num_turns: 0`,
+ * `total_cost_usd: 0` in the result), so it costs nothing — and under
+ * `--model <alias>` its "Current model:" line reports what that alias
+ * resolves to right now ("opus" -> "Opus 5.5", "best" -> "Fable 5.1").
  */
-export async function detectDefaultModel(
-  homeOverride: string | undefined,
-  cwd: string,
-): Promise<DefaultModelInfo | undefined> {
+async function runModelProbe(homeOverride: string | undefined, cwd: string, alias?: string): Promise<string | undefined> {
   const env = { ...process.env };
   stripBilledCredentials(env);
   if (homeOverride) env.HOME = homeOverride;
@@ -79,6 +79,7 @@ export async function detectDefaultModel(
       "",
       "--dangerously-skip-permissions",
       "--strict-mcp-config",
+      ...(alias ? ["--model", alias] : []),
     ],
     { env, cwd },
   );
@@ -103,14 +104,57 @@ export async function detectDefaultModel(
   } catch {
     return undefined;
   }
+  return typeof parsed.result === "string" ? parsed.result : undefined;
+}
 
-  const result = parsed.result;
-  if (typeof result !== "string") return undefined;
-  const match = MODEL_NAME_RE.exec(result);
-  if (!match) return undefined;
-  const name = match[1].toLowerCase();
-  return {
-    label: name.charAt(0).toUpperCase() + name.slice(1),
-    available: parseAvailableModels(result),
-  };
+/**
+ * Runs once at relay boot (server.ts) to find out this profile account's
+ * actual default model (see `runModelProbe` for why it's free). Each
+ * profile runs its own relay process with its own `$HOME` so each instance
+ * only probes its own account.
+ *
+ * The actual finding that motivated this: the two profiles have DIFFERENT
+ * defaults — personal came back "Sonnet 5 (default)", work came back "Opus 5
+ * (1M context) (default)". There was no way to assume a fixed value (e.g.
+ * always "Opus") without showing a wrong label for at least one of the two.
+ *
+ * The same probe also returns the full model catalog (`available`) straight
+ * from the CLI's own usage text, instead of a hardcoded list that goes stale
+ * whenever a new alias ships.
+ */
+export async function detectDefaultModel(
+  homeOverride: string | undefined,
+  cwd: string,
+): Promise<DefaultModelInfo | undefined> {
+  const result = await runModelProbe(homeOverride, cwd);
+  if (result === undefined) return undefined;
+  const label = parseCurrentModel(result);
+  if (!label) return undefined;
+  return { label, available: parseAvailableModels(result) };
+}
+
+/**
+ * What each alias resolves to right now ("opus" -> "Opus 5.5") — one probe
+ * per alias, all in parallel. Kept apart from `detectDefaultModel` because
+ * it's slow in aggregate (~4-5s for the nine aliases the CLI ships today,
+ * measured), and the default label shouldn't wait on it. "default" is
+ * skipped: it's the "no override" meta-value, already covered by
+ * `DefaultModelInfo.label`. An alias whose probe fails is just left out —
+ * the picker falls back to its bare label for it.
+ */
+export async function resolveModelAliases(
+  homeOverride: string | undefined,
+  cwd: string,
+  aliases: string[],
+): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    aliases
+      .filter((alias) => alias !== "default")
+      .map(async (alias) => {
+        const result = await runModelProbe(homeOverride, cwd, alias).catch(() => undefined);
+        const name = result === undefined ? undefined : parseCurrentModel(result);
+        return name ? ([alias, name] as const) : undefined;
+      }),
+  );
+  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
 }

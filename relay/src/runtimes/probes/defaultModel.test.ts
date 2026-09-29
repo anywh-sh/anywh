@@ -1,44 +1,48 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AVAILABLE_MODELS_RE, MODEL_NAME_RE, parseAvailableModels } from "./defaultModel.js";
+import { AVAILABLE_MODELS_RE, parseAvailableModels, parseCurrentModel } from "./defaultModel.js";
 
 // Real finding (documented in the file's own header comment): a CLI version
-// started wrapping the `/model` probe's answer in markdown backticks, and
-// MODEL_NAME_RE — anchored on a bare "Sonnet"/"Opus"/... right after "Current
-// model:" — silently stopped matching. `detectDefaultModel` swallows a
+// started wrapping the `/model` probe's answer in markdown backticks, and the
+// regex then in use silently stopped matching. `detectDefaultModel` swallows a
 // non-match as `undefined`, so this broke with no error anywhere, only a
 // missing label in the UI. `fake-claude.mjs`'s default-model reply already
 // carries the backticks (it was updated to match the real regression); this
-// pins the regex against exactly that shape so it can't happen again unnoticed.
-test("MODEL_NAME_RE matches the real regression: backtick-wrapped model names", () => {
-  const match = MODEL_NAME_RE.exec("Current model: `Sonnet 5 (default)`");
-  assert.ok(match);
-  assert.equal(match[1], "Sonnet");
+// pins the parser against exactly that shape so it can't happen again unnoticed.
+test("parseCurrentModel matches the real regression: backtick-wrapped model names", () => {
+  assert.equal(parseCurrentModel("Current model: `Sonnet 5 (default)`"), "Sonnet 5");
 });
 
-test("MODEL_NAME_RE also matches without backticks — the pre-regression shape", () => {
-  const match = MODEL_NAME_RE.exec("Current model: Opus 5 (1M context) (default)");
-  assert.ok(match);
-  assert.equal(match[1], "Opus");
+test("parseCurrentModel also matches without backticks — the pre-regression shape", () => {
+  assert.equal(parseCurrentModel("Current model: Opus 5 (1M context) (default)"), "Opus 5 (1M context)");
 });
 
-test("MODEL_NAME_RE matches all four known families, case-insensitively", () => {
+// The point of keeping the version at all: the picker used to show only the
+// family ("Opus"), with no way to tell which release an alias pointed at.
+// Shapes below are verbatim from the real CLI under `--model <alias>`.
+test("parseCurrentModel keeps the version and any qualifier, dropping only the '(default)' marker", () => {
   for (const [input, expected] of [
-    ["Current model: `sonnet 5 (default)`", "sonnet"],
-    ["Current model: `Opus 5 (default)`", "Opus"],
-    ["Current model: `HAIKU 4.5 (default)`", "HAIKU"],
-    ["Current model: `Fable 5.1 (default)`", "Fable"],
+    ["Current model: `Opus 5.5 (default)`", "Opus 5.5"],
+    ["Current model: `Opus 5.5`", "Opus 5.5"],
+    ["Current model: `Haiku 4.5`", "Haiku 4.5"],
+    ["Current model: `Opus 5.5 (1M context)`", "Opus 5.5 (1M context)"],
+    ["Current model: `Opus in plan mode, else Sonnet`", "Opus in plan mode, else Sonnet"],
   ] as const) {
-    const match = MODEL_NAME_RE.exec(input);
-    assert.ok(match, input);
-    assert.equal(match[1], expected);
+    assert.equal(parseCurrentModel(input), expected, input);
   }
 });
 
-test("MODEL_NAME_RE doesn't match an unrelated or malformed line", () => {
-  assert.equal(MODEL_NAME_RE.exec("Usage: /model <name>."), null);
-  assert.equal(MODEL_NAME_RE.exec("Current model: Gemini 3 (default)"), null, "not one of the four known families");
-  assert.equal(MODEL_NAME_RE.exec(""), null);
+test("parseCurrentModel finds the 'Current model:' line inside the full multi-line result", () => {
+  assert.equal(
+    parseCurrentModel("Current model: `Fable 5.1`\nUsage: /model <name>. Available: sonnet, opus, or a full model ID."),
+    "Fable 5.1",
+  );
+});
+
+test("parseCurrentModel returns undefined for an unrelated or empty line", () => {
+  assert.equal(parseCurrentModel("Usage: /model <name>."), undefined);
+  assert.equal(parseCurrentModel("Current model: `(default)`"), undefined);
+  assert.equal(parseCurrentModel(""), undefined);
 });
 
 const REAL_USAGE_LINE =

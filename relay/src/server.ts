@@ -8,7 +8,7 @@ import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { detectRuntimes } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
-import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
+import { detectDefaultModel, resolveModelAliases, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
@@ -142,16 +142,31 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
 // below). `defaultModelClients` covers the obvious race: the first client's
 // WS connection almost always arrives before the probe resolves. Also
 // carries the full model catalog (`available`) straight from the CLI's own
-// usage text, replacing what used to be a hardcoded list.
+// usage text, replacing what used to be a hardcoded list. Sent twice: once
+// as soon as the default is known, and again once every alias's versioned
+// name (`resolved`, "opus" -> "Opus 5.5") comes back — that second round
+// takes seconds, and the default label shouldn't wait on it.
 let defaultModelInfo: DefaultModelInfo | undefined;
+let resolvedModels: Record<string, string> = {};
 const defaultModelClients = new Set<WebSocket>();
+function sendDefaultModelState(client: WebSocket): void {
+  if (!defaultModelInfo) return;
+  client.send(
+    JSON.stringify({
+      type: "default_model_state",
+      label: defaultModelInfo.label,
+      available: defaultModelInfo.available,
+      resolved: resolvedModels,
+    }),
+  );
+}
 detectDefaultModel(HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
-  .then((info) => {
+  .then(async (info) => {
     defaultModelInfo = info;
     if (!info) return;
-    for (const client of defaultModelClients) {
-      client.send(JSON.stringify({ type: "default_model_state", label: info.label, available: info.available }));
-    }
+    for (const client of defaultModelClients) sendDefaultModelState(client);
+    resolvedModels = await resolveModelAliases(HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE), info.available);
+    for (const client of defaultModelClients) sendDefaultModelState(client);
   })
   .catch((error: unknown) => {
     console.error("[relay] failed to detect default model:", error);
@@ -304,11 +319,7 @@ wss.on("connection", (socket: WebSocket, request) => {
   session.addClient(socket);
 
   defaultModelClients.add(socket);
-  if (defaultModelInfo) {
-    socket.send(
-      JSON.stringify({ type: "default_model_state", label: defaultModelInfo.label, available: defaultModelInfo.available }),
-    );
-  }
+  sendDefaultModelState(socket);
 
   socket.on("message", (raw: Buffer) => {
     let parsed: unknown;
