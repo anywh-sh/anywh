@@ -8,7 +8,6 @@ import { FAKE_AGENT_BIN, FAKE_SYSTEMCTL_BIN } from "./testServer.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELAY_ROOT = resolvePath(HERE, "../..");
-const TSX_BIN = resolvePath(RELAY_ROOT, "node_modules/.bin/tsx");
 const SERVER_ENTRY = resolvePath(RELAY_ROOT, "src/server.ts");
 
 function getFreePort(): Promise<number> {
@@ -64,8 +63,14 @@ export interface SpawnedServer {
 }
 
 /**
- * Spawns the real relay as a genuinely separate OS process (via the same
- * `tsx` this project's own `npm run dev` uses) — required specifically for
+ * Spawns the real relay as a genuinely separate OS process (`node --import
+ * tsx`, the same TypeScript loader `npm run dev` uses, but loaded into the
+ * relay's own process rather than through the `tsx` CLI wrapper). Not the
+ * wrapper on purpose: on SIGTERM it waits only ~30ms for the child to
+ * acknowledge the signal over IPC and SIGKILLs it otherwise, exiting 143 —
+ * a busy event loop right after boot (the model probes, CI's slow runners)
+ * was enough to lose that race and fail `gracefulShutdown` with no bug in
+ * the relay. Production runs `node dist/server.js`, no wrapper either. — required specifically for
  * `gracefulShutdown`, which calls `process.exit(0)`: the normal integration
  * tier's `startTestServer` imports `server.ts` into the *same* process
  * running the test file, and triggering a real exit there would take
@@ -78,7 +83,7 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
   mkdirSync(homeDir, { recursive: true });
   const port = await getFreePort();
 
-  const proc = spawn(TSX_BIN, [SERVER_ENTRY], {
+  const proc = spawn(process.execPath, ["--import", "tsx", SERVER_ENTRY], {
     cwd: RELAY_ROOT,
     env: {
       ...process.env,
