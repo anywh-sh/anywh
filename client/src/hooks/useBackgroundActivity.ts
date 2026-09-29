@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { Tab } from "@/hooks/tabs/useTabs";
 import type { TurnProgress } from "@/components/chat/ChatPanel";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
-import { findProfile, profileColorVar } from "@/lib/profiles/profiles";
+import { profileColorVar } from "@/lib/profiles/profiles";
 import type { Dictionary } from "@/i18n";
 
 /** One open tab's own `anywh-bg` jobs and in-flight turn, lifted up from its
@@ -110,8 +110,4 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
 
 export function backgroundActivityProfileColor(item: BackgroundActivityItem): string {
   return profileColorVar(item.profileId);
-}
-
-export function backgroundActivityProfileName(item: BackgroundActivityItem): string {
-  return findProfile(item.profileId)?.label ?? item.profileId;
 }

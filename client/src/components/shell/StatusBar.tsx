@@ -4,11 +4,7 @@ import { ArrowUpCircle, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LanguageControl } from "@/components/shell/LanguageControl";
 import { useAppUpdate, useDownloadedUpdate } from "@/hooks/platform/useAppUpdate";
-import {
-  backgroundActivityProfileColor,
-  backgroundActivityProfileName,
-  type BackgroundActivityItem,
-} from "@/hooks/useBackgroundActivity";
+import { backgroundActivityProfileColor, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
 import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
 import { logTailLines } from "@/lib/format/backgroundActivity";
@@ -128,41 +124,35 @@ function ActivityRow({
             {line}
           </div>
         ))}
-        <div className="flex items-center gap-1.5">
-          <span
-            className="max-w-24 shrink-0 truncate border-l-2 pl-1.5 font-mono text-[10px] text-muted-foreground"
-            style={{ borderColor: backgroundActivityProfileColor(item) }}
-          >
-            {backgroundActivityProfileName(item)}
-          </span>
-          <div className="flex flex-1 items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-            {failed ? (
+        {/* Over the row's bottom-right corner rather than on a line of its own:
+         * hidden until hover, a reserved line would read as dead space. */}
+        <div className="absolute right-2.5 bottom-2 flex items-center gap-1 bg-bg-elevated pl-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {failed ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="cursor-pointer border border-border px-1.5 py-0.5 font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+            >
+              {strings.dismiss}
+            </button>
+          ) : (
+            <>
               <button
                 type="button"
-                onClick={onDismiss}
+                onClick={onOpen}
                 className="cursor-pointer border border-border px-1.5 py-0.5 font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
               >
-                {strings.dismiss}
+                {strings.open}
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={onOpen}
-                  className="cursor-pointer border border-border px-1.5 py-0.5 font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
-                >
-                  {strings.open}
-                </button>
-                <button
-                  type="button"
-                  onClick={onStop}
-                  className="cursor-pointer border border-destructive px-1.5 py-0.5 font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
-                >
-                  {strings.stop}
-                </button>
-              </>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={onStop}
+                className="cursor-pointer border border-destructive px-1.5 py-0.5 font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
+              >
+                {strings.stop}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -275,11 +265,12 @@ export function StatusBar({
             ref={activityTriggerRef}
             type="button"
             title={activityStrings.chipTitle}
+            // Same pill as `LanguageControl` on the other end of this bar —
+            // the two are the bar's only menus and should read as one kind
+            // of control.
             className={cn(
-              "flex h-[18px] shrink-0 cursor-pointer items-center gap-1.5 px-1.5 transition-colors",
-              activityOpen
-                ? "border border-border bg-popover text-foreground"
-                : "border border-transparent text-text-faint hover:text-muted-foreground",
+              "flex shrink-0 cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 outline-hidden transition-colors hover:border-border hover:text-foreground",
+              activityOpen ? "border-border text-foreground" : "border-transparent text-text-faint",
             )}
           >
             {runCount > 0 ? (
