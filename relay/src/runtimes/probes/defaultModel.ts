@@ -133,11 +133,17 @@ export async function detectDefaultModel(
   return { label, available: parseAvailableModels(result) };
 }
 
+/** How many alias probes run at once. Each one is a full `claude` CLI
+ * process (a Node runtime of its own), and all nine firing together at boot
+ * is a memory and CPU spike on a small self-hosted box — twice over with
+ * two profiles restarting side by side. */
+const ALIAS_PROBE_CONCURRENCY = 3;
+
 /**
  * What each alias resolves to right now ("opus" -> "Opus 5.5") — one probe
- * per alias, all in parallel. Kept apart from `detectDefaultModel` because
- * it's slow in aggregate (~4-5s for the nine aliases the CLI ships today,
- * measured), and the default label shouldn't wait on it. "default" is
+ * per alias, `ALIAS_PROBE_CONCURRENCY` at a time. Kept apart from
+ * `detectDefaultModel` because it's slow in aggregate (seconds for the nine
+ * aliases the CLI ships today), and the default label shouldn't wait on it. "default" is
  * skipped: it's the "no override" meta-value, already covered by
  * `DefaultModelInfo.label`. An alias whose probe fails is just left out —
  * the picker falls back to its bare label for it.
@@ -147,14 +153,15 @@ export async function resolveModelAliases(
   cwd: string,
   aliases: string[],
 ): Promise<Record<string, string>> {
-  const entries = await Promise.all(
-    aliases
-      .filter((alias) => alias !== "default")
-      .map(async (alias) => {
-        const result = await runModelProbe(homeOverride, cwd, alias).catch(() => undefined);
-        const name = result === undefined ? undefined : parseCurrentModel(result);
-        return name ? ([alias, name] as const) : undefined;
-      }),
-  );
-  return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+  const pending = aliases.filter((alias) => alias !== "default");
+  const resolved: Record<string, string> = {};
+  const worker = async () => {
+    for (let alias = pending.shift(); alias !== undefined; alias = pending.shift()) {
+      const result = await runModelProbe(homeOverride, cwd, alias).catch(() => undefined);
+      const name = result === undefined ? undefined : parseCurrentModel(result);
+      if (name) resolved[alias] = name;
+    }
+  };
+  await Promise.all(Array.from({ length: ALIAS_PROBE_CONCURRENCY }, worker));
+  return resolved;
 }
