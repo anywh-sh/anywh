@@ -18,7 +18,7 @@ import {
 import { useDict } from "@/i18n";
 import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
 import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
-import { getKnownModels, labelForModel } from "@/lib/composer/modelCatalog";
+import { getKnownModels, labelForModel, resolvedNameFor } from "@/lib/composer/modelCatalog";
 import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
@@ -41,16 +41,19 @@ import { cn } from "@/lib/utils";
 function ChoiceButton({
   selected,
   onClick,
+  title,
   children,
 }: {
   selected?: boolean;
   onClick: () => void;
+  title?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className={cn(
         "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors",
         selected
@@ -144,6 +147,9 @@ function ModelControl({
               key={choice}
               selected={preference.fixedModel === choice}
               onClick={() => onChange({ ...preference, fixedModel: choice })}
+              // The chips are too narrow for the versioned name, so it rides
+              // along as a tooltip — same source as ModelButton's menu.
+              title={resolvedNameFor(choice)}
             >
               {labelForModel(choice, dict.chat.composer.modelAliases)}
             </ChoiceButton>

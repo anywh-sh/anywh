@@ -645,7 +645,7 @@ export class RelayClient {
       } else if (parsed.type === "model_state") {
         this.callbacks.onModelState(parsed.model);
       } else if (parsed.type === "default_model_state") {
-        recordAvailableModels(parsed.available);
+        recordAvailableModels(parsed.available, parsed.resolved);
         this.callbacks.onDefaultModelState?.(parsed.label, parsed.available);
       } else if (parsed.type === "context_usage_state") {
         this.callbacks.onContextUsageState?.(parsed.usage);

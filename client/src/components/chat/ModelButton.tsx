@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import type { ModelChoice } from "@/lib/relay/relayClient";
-import { getKnownModels, labelForModel } from "@/lib/composer/modelCatalog";
+import { getKnownModels, labelForModel, resolvedNameFor } from "@/lib/composer/modelCatalog";
 import { cn } from "@/lib/utils";
 
 interface ModelButtonProps {
@@ -45,12 +45,18 @@ interface ModelButtonProps {
  * permission modes next door. The catalog is whatever the CLI reports at
  * runtime (`getKnownModels`), so a curated blurb per alias would go stale
  * the day the CLI ships a new one, and the fallback would read worse than
- * no blurb at all.
+ * no blurb at all. What each item does carry, muted on the right, is the
+ * versioned name the alias resolves to right now ("Opus 5.5") — also probed
+ * from the CLI, so it can't go stale the way a blurb would, and without it
+ * the only way to know which release "opus" meant was the CLI's own picker.
+ * The trigger shows that same versioned name for an explicit choice.
  */
 export function ModelButton({ model, defaultModel, onChange, disabled, locked }: ModelButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dict = useDict();
-  const label = model ? labelForModel(model, dict.chat.composer.modelAliases) : (defaultModel ?? dict.chat.composer.pending);
+  const label = model
+    ? (resolvedNameFor(model) ?? labelForModel(model, dict.chat.composer.modelAliases))
+    : (defaultModel ?? dict.chat.composer.pending);
   const isDisabled = disabled || locked || label === dict.chat.composer.pending;
   const [open, setOpen] = useState(false);
 
@@ -93,12 +99,21 @@ export function ModelButton({ model, defaultModel, onChange, disabled, locked }:
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-53">
-        {getKnownModels().map((choice) => (
-          <DropdownMenuItem key={choice} onSelect={() => onChange(choice)} className="gap-3">
-            <span className="flex-1 truncate text-left">{labelForModel(choice, dict.chat.composer.modelAliases)}</span>
-            <Check className={cn("size-3.5 text-primary!", choice !== model && "opacity-0")} />
-          </DropdownMenuItem>
-        ))}
+        {getKnownModels().map((choice) => {
+          const choiceLabel = labelForModel(choice, dict.chat.composer.modelAliases);
+          const resolved = resolvedNameFor(choice);
+          return (
+            <DropdownMenuItem key={choice} onSelect={() => onChange(choice)} className="gap-3">
+              <span className="flex-1 truncate text-left">{choiceLabel}</span>
+              {resolved && resolved !== choiceLabel && (
+                <span className="max-w-40 truncate text-xs text-muted-foreground" title={resolved}>
+                  {resolved}
+                </span>
+              )}
+              <Check className={cn("size-3.5 text-primary!", choice !== model && "opacity-0")} />
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

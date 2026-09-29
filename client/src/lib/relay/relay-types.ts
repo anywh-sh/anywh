@@ -137,8 +137,10 @@ export type RelayMessage =
    * `/model` (`model_state` still `null`). `available` is the full model
    * catalog straight from the CLI's own usage text (defaultModel.ts) —
    * source of truth for every model picker in the UI, replacing what used to
-   * be a hardcoded list. */
-  | { type: "default_model_state"; label: string; available: string[] }
+   * be a hardcoded list. `resolved` maps each alias to its versioned name
+   * ("opus" -> "Opus 5.5"); empty on the first send of a boot, filled on a
+   * second one a few seconds later, absent from an older relay. */
+  | { type: "default_model_state"; label: string; available: string[]; resolved?: Record<string, string> }
   /** Next-message suggestion, generated asynchronously at the end of every
    * successful turn (relay/src/sharedSession.ts) — shown as the composer's
    * placeholder when the field is empty. `null` both for "no suggestion yet"

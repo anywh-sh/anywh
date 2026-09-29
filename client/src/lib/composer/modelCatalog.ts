@@ -32,9 +32,24 @@ const KNOWN_LABELS: Record<string, string> = {
  * render time, same pattern as `getPreferredModel`/`getDefaultPath`. */
 let cachedModels: ModelChoice[] | null = null;
 
-export function recordAvailableModels(models: ModelChoice[]): void {
+/** Versioned name each alias resolves to right now ("opus" -> "Opus 5.5"),
+ * same source and same cache shape as `cachedModels`. Empty until the
+ * relay's second, slower `default_model_state` round lands — and forever
+ * against an older relay that doesn't send it, which is why every reader
+ * treats a miss as "show the bare alias label". */
+let cachedResolved: Record<string, string> = {};
+
+export function recordAvailableModels(models: ModelChoice[], resolved?: Record<string, string>): void {
+  if (resolved && Object.keys(resolved).length > 0) cachedResolved = resolved;
   if (models.length === 0) return;
   cachedModels = models;
+}
+
+/** What `model` points at right now, versioned ("Opus 5.5", "Opus 5.5 (1M
+ * context)") — the only way to tell which release an alias means without
+ * opening the CLI's own picker. `undefined` until the relay reports it. */
+export function resolvedNameFor(model: ModelChoice): string | undefined {
+  return cachedResolved[model];
 }
 
 /** Every model the CLI currently accepts, excluding "default" — that's a

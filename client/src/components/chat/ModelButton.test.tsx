@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ModelButton } from "./ModelButton";
+import { recordAvailableModels } from "@/lib/composer/modelCatalog";
 import { en } from "@/i18n/en";
 
 afterEach(() => cleanup());
@@ -44,5 +45,28 @@ describe("ModelButton", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Opus" }));
 
     expect(onChange).toHaveBeenCalledWith("opus");
+  });
+
+  it("shows the version each alias resolves to, once the relay has reported it", async () => {
+    // Shapes are the relay's `default_model_state.resolved`, verbatim from
+    // the real CLI's `/model` probe under `--model <alias>`.
+    recordAvailableModels(["sonnet", "opus", "opus[1m]", "haiku"], {
+      sonnet: "Sonnet 5.5",
+      opus: "Opus 5.5",
+      "opus[1m]": "Opus 5.5 (1M context)",
+      haiku: "Haiku 4.5",
+    });
+    const user = userEvent.setup();
+    render(<ModelButton model="opus" defaultModel="Sonnet 5.5" onChange={vi.fn()} disabled={false} locked={false} />);
+
+    expect(screen.getByRole("button")).toHaveTextContent("Opus 5.5");
+
+    await user.click(screen.getByRole("button"));
+    expect(
+      await screen.findByRole("menuitem", {
+        name: /Opus \(1M\).*Opus 5\.5 \(1M context\)/,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Haiku.*Haiku 4\.5/ })).toBeInTheDocument();
   });
 });
