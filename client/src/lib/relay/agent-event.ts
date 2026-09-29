@@ -62,6 +62,10 @@ export interface PlanTodo {
   activeForm?: string;
 }
 
+/** How a subagent's run ended, or that it is still going — see the
+ * `subagent` variant. */
+export type SubagentStatus = "running" | "completed" | "failed" | "stopped";
+
 export type AgentEvent =
   /** Synthesized by the session, not mapped from CLI output — see the file
    * doc comment. Fires once, before anything else for this turn. */
@@ -83,17 +87,23 @@ export type AgentEvent =
    * multiple chunks (and, in principle, multiple concurrently-streaming
    * blocks) to the same block before it commits as `text`. */
   | { type: "text_delta"; index: number; text: string }
-  /** The committed, final form of a text block. */
-  | { type: "text"; text: string; timestamp?: string }
+  /** The committed, final form of a text block. `parentToolUseId` (here and
+   * on `thinking`/`tool_started`/`tool_ended`/`plan`) marks an event a
+   * subagent produced rather than the main conversation: the `toolUseId` of
+   * the call that spawned it. Absent for the main thread. A subagent's
+   * events arrive interleaved with the main thread's — with a background
+   * subagent, while the main agent keeps talking — so this is the only way
+   * to keep its work out of the conversation itself. */
+  | { type: "text"; text: string; timestamp?: string; parentToolUseId?: string }
   /** Same relationship to `thinking` as `text_delta` has to `text`. */
   | { type: "thinking_delta"; index: number; thinking: string }
-  | { type: "thinking"; thinking: string; timestamp?: string }
+  | { type: "thinking"; thinking: string; timestamp?: string; parentToolUseId?: string }
   /** A tool call beginning — `toolUseId` pairs it with the `tool_ended` that
    * eventually closes it (or never arrives, if the turn was interrupted
    * first). `kind` is the def's own classification (see `ToolKind`); `name`
    * is the CLI's raw tool name, kept for display and for a future def's own
    * bridges to key off of. */
-  | { type: "tool_started"; toolUseId?: string; name: string; kind: ToolKind; input: ToolInput }
+  | { type: "tool_started"; toolUseId?: string; name: string; kind: ToolKind; input: ToolInput; parentToolUseId?: string }
   /** Live streaming preview of a tool call's arguments as they're being
    * generated — no current def emits this yet (nothing renders it either),
    * here for the def that will. */
@@ -104,13 +114,42 @@ export type AgentEvent =
   /** A tool call's result — `content` is already flattened to a plain
    * string (never the raw content-block array a CLI might use internally),
    * so nothing downstream needs to know that shape existed. */
-  | { type: "tool_ended"; toolUseId?: string; content: string; isError: boolean; structuredPatch?: StructuredPatchHunk[] }
+  | {
+      type: "tool_ended";
+      toolUseId?: string;
+      content: string;
+      isError: boolean;
+      structuredPatch?: StructuredPatchHunk[];
+      parentToolUseId?: string;
+    }
   /** A plan/todo-list update (`TodoWrite` on Claude) — carries structured
    * `todos` instead of opaque `input` because, unlike an arbitrary tool call,
    * the shape is part of the contract, not private to one CLI. `toolUseId`
    * still pairs this with its own `tool_ended` (the tool's ack), so a def
    * doesn't need a second lifecycle just for plans. */
-  | { type: "plan"; toolUseId?: string; todos: PlanTodo[] }
+  | { type: "plan"; toolUseId?: string; todos: PlanTodo[]; parentToolUseId?: string }
+  /** A subagent's lifecycle, keyed by the `toolUseId` of the call that
+   * spawned it — started, a progress update, finished. Each event carries the
+   * full current picture it knows (not a diff), so a consumer can simply keep
+   * the latest per `toolUseId`; fields a given update doesn't know are
+   * absent, never reset. `background` is whether the main agent went on
+   * without waiting for it — its own tool call returns immediately then, so
+   * this event is the only signal it is still running. `activity` is the
+   * CLI's own one-line summary of what it is doing right now; `toolUses`/
+   * `totalTokens` are its running totals; `summary` its final report. `at`
+   * is epoch ms, stamped by the relay when the update was seen. */
+  | {
+      type: "subagent";
+      toolUseId: string;
+      status: SubagentStatus;
+      at: number;
+      description?: string;
+      background?: boolean;
+      activity?: string;
+      toolUses?: number;
+      totalTokens?: number;
+      summary?: string;
+    }
   /** The CLI's own identifier for this conversation, whenever the def learns
    * it (may fire more than once in a turn; the value never changes within a
    * turn) — the seam a future rewind/persisted-log feature needs, unused by
