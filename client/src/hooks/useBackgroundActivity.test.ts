@@ -28,6 +28,23 @@ describe("useBackgroundActivity", () => {
     expect(result.current[0]).toMatchObject({ id: "tab:other", kind: "agent", tabId: "other", status: "run" });
   });
 
+  it("times an agent item from its turn's real start, and says what it last called", () => {
+    const tabs = [makeTab({ id: "other", isRunning: true })];
+    const byTab: Record<string, BackgroundActivityEntry> = {
+      other: { jobs: [], failedJobs: [], turn: { startedAt: 5000, latestToolCall: "Bash npm test" } },
+    };
+    const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab, dict }));
+
+    expect(result.current[0]).toMatchObject({ kind: "agent", time: 5000, tail: "Bash npm test" });
+  });
+
+  it("leaves an agent item untimed until its turn start is known, instead of counting from the epoch", () => {
+    const tabs = [makeTab({ id: "other", isRunning: true })];
+    const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab: {}, dict }));
+
+    expect(result.current[0].time).toBeNull();
+  });
+
   it("does not report a running tab as an agent item once it becomes the focused one", () => {
     const tabs = [makeTab({ id: "tab-1", isRunning: true })];
     const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: "tab-1", byTab: {}, dict }));
@@ -38,10 +55,11 @@ describe("useBackgroundActivity", () => {
   it("lists every open tab's own anywh-bg jobs, running and failed", () => {
     const tabs = [makeTab({ id: "tab-1" }), makeTab({ id: "tab-2", profileId: "p2" })];
     const byTab: Record<string, BackgroundActivityEntry> = {
-      "tab-1": { jobs: [{ id: "j1", label: "pnpm dev", startedAt: 1000, pid: 42 }], failedJobs: [] },
+      "tab-1": { jobs: [{ id: "j1", label: "pnpm dev", startedAt: 1000, pid: 42 }], failedJobs: [], turn: null },
       "tab-2": {
         jobs: [],
         failedJobs: [{ id: "j2", label: "migrate", pid: 43, exitCode: 1, logTail: "boom", finishedAt: 2000 }],
+        turn: null,
       },
     };
     const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab, dict }));
@@ -59,6 +77,7 @@ describe("useBackgroundActivity", () => {
       "tab-1": {
         jobs: [{ id: "run", label: "running", startedAt: 1, pid: 1 }],
         failedJobs: [{ id: "fail", label: "failed", pid: 2, exitCode: 1, logTail: "", finishedAt: 1 }],
+        turn: null,
       },
     };
     const { result } = renderHook(() => useBackgroundActivity({ tabs, activeTabId: null, byTab, dict }));

@@ -75,7 +75,10 @@ export function useTabPanelActions({
       onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
       onBackgroundJobsChange: (tabId, jobs, failedJobs) => {
         tabsState.setHasBackgroundJob(tabId, jobs.length > 0);
-        setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { jobs, failedJobs } }));
+        setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { turn: prev[tabId]?.turn ?? null, jobs, failedJobs } }));
+      },
+      onTurnProgressChange: (tabId, turn) => {
+        setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { jobs: prev[tabId]?.jobs ?? [], failedJobs: prev[tabId]?.failedJobs ?? [], turn } }));
       },
       onBackgroundActionsReady: (tabId, jobActions) => {
         if (jobActions) backgroundActionsRef.current.set(tabId, jobActions);

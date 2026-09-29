@@ -475,6 +475,12 @@ export interface Dictionary {
        * way to stop just the one subagent call, since it has no process of
        * its own the way an `anywh-bg` job does. */
       stopAgent: string;
+      /** Expanded process card, before the first log read comes back. */
+      logLoading: string;
+      /** Expanded process card whose job hasn't printed anything yet. */
+      logEmpty: string;
+      /** Expanded subagent card before the subagent has called any tool. */
+      agentNoToolCalls: string;
     };
     /** The permission prompt: a tool call the CLI has paused on, waiting for
      * a yes or no. The relay sends the tool and what it would do; the words

@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { ChatPanel, type BackgroundJobActions } from "@/components/chat/ChatPanel";
+import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 export interface TabPanelActions {
   onTurnActiveChange: (tabId: string, active: boolean) => void;
   onBackgroundJobsChange: (tabId: string, jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
+  onTurnProgressChange: (tabId: string, progress: TurnProgress | null) => void;
   onBackgroundActionsReady: (tabId: string, actions: BackgroundJobActions | null) => void;
   onTurnComplete: (
     tab: Tab,
@@ -101,6 +102,7 @@ const TabChat = memo(function TabChat({
       isNewConversation={tab.isNew}
       onTurnActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
       onBackgroundJobsChange={(jobs, failedJobs) => actions.onBackgroundJobsChange(tab.id, jobs, failedJobs)}
+      onTurnProgressChange={(progress) => actions.onTurnProgressChange(tab.id, progress)}
       onBackgroundActionsReady={(jobActions) => actions.onBackgroundActionsReady(tab.id, jobActions)}
       onTurnComplete={(result) => actions.onTurnComplete(tab, profile, result)}
       onTitle={(title) => actions.onTitle(tab, title)}

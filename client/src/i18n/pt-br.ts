@@ -72,6 +72,9 @@ export const ptBr: Dictionary = {
       agentFallbackName: "Subagente",
       stopProcess: "parar processo",
       stopAgent: "parar agente",
+      logLoading: "lendo o log…",
+      logEmpty: "nenhuma saída ainda",
+      agentNoToolCalls: "nenhuma chamada de ferramenta ainda",
     },
     approval: {
       toolCall: "O modelo quer executar `{tool}`: {detail}. Aprovar?",

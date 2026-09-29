@@ -10,7 +10,7 @@ import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreferenc
 import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { countToolCallsInCurrentTurn } from "@/lib/format/turnActivity";
-import { findRunningTaskCall } from "@/lib/format/backgroundActivity";
+import { findRunningTaskCall, recentToolCallLines } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { MessageLog } from "@/components/chat/MessageLog";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
@@ -40,6 +40,12 @@ export interface BackgroundJobActions {
   stopTurn: () => void;
 }
 
+/** See `ChatPanelProps.onTurnProgressChange`. */
+export interface TurnProgress {
+  startedAt: number;
+  latestToolCall: string | null;
+}
+
 interface ChatPanelProps {
   profile: Profile;
   sessionId: string;
@@ -66,6 +72,12 @@ interface ChatPanelProps {
    * uses this to feed the tab/sidebar badge, which needs to know even with
    * the tab out of focus (it stays mounted, WS alive). */
   onBackgroundJobsChange?: (jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
+  /** The in-flight turn's real start instant and its latest tool call, as
+   * one line — `null` between turns. Same "report up via ref" pattern as
+   * `onBackgroundJobsChange`: the background-activity tray lists this tab as
+   * a running agent while it isn't focused, and needs both to say for how
+   * long and doing what. */
+  onTurnProgressChange?: (progress: TurnProgress | null) => void;
   /** Registers this session's own `cancelBackgroundJob`/
    * `dismissFailedBackgroundJob`/`stopTurn` for the global background-activity
    * tray (`StatusBar`) to call into from OUTSIDE this tab — the tray shows
@@ -156,6 +168,7 @@ export function ChatPanel({
   onTurnComplete,
   onTurnActiveChange,
   onBackgroundJobsChange,
+  onTurnProgressChange,
   onBackgroundActionsReady,
   onTitle,
   onActivity,
@@ -194,6 +207,8 @@ export function ChatPanel({
   onTurnActiveChangeRef.current = onTurnActiveChange;
   const onBackgroundJobsChangeRef = useRef(onBackgroundJobsChange);
   onBackgroundJobsChangeRef.current = onBackgroundJobsChange;
+  const onTurnProgressChangeRef = useRef(onTurnProgressChange);
+  onTurnProgressChangeRef.current = onTurnProgressChange;
   const onBackgroundActionsReadyRef = useRef(onBackgroundActionsReady);
   onBackgroundActionsReadyRef.current = onBackgroundActionsReady;
   const onTitleRef = useRef(onTitle);
@@ -495,6 +510,23 @@ export function ChatPanel({
     onBackgroundJobsChangeRef.current?.(backgroundJobs, failedBackgroundJobs);
   }, [backgroundJobs, failedBackgroundJobs]);
 
+  // Only the latest call, and only as a string: the effect below then fires
+  // once per tool call rather than once per log append, so a busy turn in a
+  // background tab doesn't re-render `App` more than the tray needs.
+  const latestToolCall = useMemo(
+    () => (turnStartedAt === null ? null : (recentToolCallLines(log.entries, cwd, { limit: 1 })[0] ?? null)),
+    [turnStartedAt, log.entries, cwd],
+  );
+  const subagentToolCalls = useMemo(
+    () =>
+      runningTaskCall ? recentToolCallLines(log.entries, cwd, { limit: 6, afterToolUseId: runningTaskCall.toolUseId }) : [],
+    [runningTaskCall, log.entries, cwd],
+  );
+
+  useEffect(() => {
+    onTurnProgressChangeRef.current?.(turnStartedAt === null ? null : { startedAt: turnStartedAt, latestToolCall });
+  }, [turnStartedAt, latestToolCall]);
+
   // Registers this tab's own background-job actions once (all three are
   // `useCallback`'d with no deps in `useRelayClient`, so their identity is
   // stable across reconnects — no need to re-register on every change) and
@@ -722,9 +754,13 @@ export function ChatPanel({
             {!isIOS() && (backgroundJobs.length > 0 || runningTaskCall) && (
               <div className="mb-2">
                 <LaunchedInBackground
+                  profile={profile}
+                  sessionId={sessionId}
+                  live={isActiveTab}
                   jobs={backgroundJobs}
                   onCancelJob={cancelBackgroundJob}
                   runningTaskCall={runningTaskCall}
+                  subagentToolCalls={subagentToolCalls}
                   onStopAgent={stopTurn}
                 />
               </div>

@@ -72,6 +72,9 @@ export const en: Dictionary = {
       agentFallbackName: "Subagent",
       stopProcess: "Stop process",
       stopAgent: "Stop agent",
+      logLoading: "Reading the log…",
+      logEmpty: "No output yet.",
+      agentNoToolCalls: "No tool calls yet.",
     },
     approval: {
       toolCall: "The model wants to run `{tool}`: {detail}. Approve?",

@@ -1,14 +1,17 @@
 import { useMemo } from "react";
 import type { Tab } from "@/hooks/tabs/useTabs";
+import type { TurnProgress } from "@/components/chat/ChatPanel";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import { findProfile, profileColorVar } from "@/lib/profiles/profiles";
 import type { Dictionary } from "@/i18n";
 
-/** One open tab's own `anywh-bg` jobs, lifted up from its `ChatPanel` —
- * see `TabPanelActions.onBackgroundJobsChange`. */
+/** One open tab's own `anywh-bg` jobs and in-flight turn, lifted up from its
+ * `ChatPanel` — see `TabPanelActions.onBackgroundJobsChange`/
+ * `onTurnProgressChange`. */
 export interface BackgroundActivityEntry {
   jobs: BackgroundJobSummary[];
   failedJobs: FailedBackgroundJobSummary[];
+  turn: TurnProgress | null;
 }
 
 export type BackgroundActivityStatus = "run" | "fail";
@@ -23,8 +26,10 @@ export interface BackgroundActivityItem {
   name: string;
   tail: string;
   status: BackgroundActivityStatus;
-  /** epoch ms — start time while running, finish time once failed. */
-  time: number;
+  /** epoch ms — start time while running, finish time once failed. `null`
+   * for an agent row whose turn start hasn't been reported yet: showing no
+   * duration beats counting one from the epoch. */
+  time: number | null;
 }
 
 interface UseBackgroundActivityArgs {
@@ -51,6 +56,8 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
   return useMemo(() => {
     const items: BackgroundActivityItem[] = [];
     for (const tab of tabs) {
+      const entry = byTab[tab.id];
+
       if (tab.isRunning && tab.id !== activeTabId) {
         items.push({
           id: `tab:${tab.id}`,
@@ -58,13 +65,12 @@ export function useBackgroundActivity({ tabs, activeTabId, byTab, dict }: UseBac
           tabId: tab.id,
           profileId: tab.profileId,
           name: tab.title ?? dict.common.untitledSession,
-          tail: "",
+          tail: entry?.turn?.latestToolCall ?? "",
           status: "run",
-          time: 0,
+          time: entry?.turn?.startedAt ?? null,
         });
       }
 
-      const entry = byTab[tab.id];
       if (!entry) continue;
 
       // An older relay's `background_job_state` (pre-dating `failedJobs`)

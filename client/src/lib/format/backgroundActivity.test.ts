@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findRunningTaskCall } from "@/lib/format/backgroundActivity";
+import { findRunningTaskCall, logTailLines, recentToolCallLines } from "@/lib/format/backgroundActivity";
 import type { LogEntry } from "@/hooks/relay/useMessageLog";
 
 describe("findRunningTaskCall", () => {
@@ -40,5 +40,32 @@ describe("findRunningTaskCall", () => {
   it("falls back to null when the Task call carries no description", () => {
     const entries: LogEntry[] = [{ kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: {} }];
     expect(findRunningTaskCall(entries)).toEqual({ toolUseId: "tu1", description: null });
+  });
+});
+
+describe("recentToolCallLines", () => {
+  const entries: LogEntry[] = [
+    { kind: "tool-use", id: "old", toolUseId: "old", name: "Bash", input: { command: "previous turn" } },
+    { kind: "user", id: "u1", text: "go", sentAt: 1 },
+    { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: { description: "audit" } },
+    { kind: "tool-use", id: "t2", toolUseId: "tu2", name: "Read", input: { file_path: "/repo/src/app.ts" } },
+    { kind: "tool-use", id: "t3", toolUseId: "tu3", name: "Bash", input: { command: "npm test\n--watch" } },
+  ];
+
+  it("lists the current turn's latest calls, oldest first, paths relative to cwd", () => {
+    expect(recentToolCallLines(entries, "/repo", { limit: 2 })).toEqual(["Read src/app.ts", "Bash npm test"]);
+  });
+
+  it("stops at the given tool call, for a subagent's own calls", () => {
+    expect(recentToolCallLines(entries, "/repo", { limit: 10, afterToolUseId: "tu1" })).toEqual([
+      "Read src/app.ts",
+      "Bash npm test",
+    ]);
+  });
+});
+
+describe("logTailLines", () => {
+  it("keeps the last non-empty lines and collapses carriage-return progress", () => {
+    expect(logTailLines("a\n\nb\n10%\r50%\r100%\n", 2)).toEqual(["b", "100%"]);
   });
 });

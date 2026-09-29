@@ -1,17 +1,30 @@
 import { useState } from "react";
-import type { RunningTaskCall } from "@/lib/format/backgroundActivity";
+import { logTailLines, type RunningTaskCall } from "@/lib/format/backgroundActivity";
 import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
+import type { Profile } from "@/lib/profiles/profiles";
+import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
 import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
 import { formatDurationLong } from "@/lib/utils";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 interface LaunchedInBackgroundProps {
+  profile: Profile;
+  sessionId: string;
+  /** Whether this conversation is on screen — a job's log is only re-read
+   * while it is (see `useBackgroundJobLog`). */
+  live: boolean;
   jobs: BackgroundJobSummary[];
   onCancelJob: (id: string) => void;
   runningTaskCall: RunningTaskCall | undefined;
+  /** The subagent's own recent tool calls, oldest first — see
+   * `recentToolCallLines`. */
+  subagentToolCalls: string[];
   onStopAgent: () => void;
 }
+
+/** How many log lines an expanded process card shows. */
+const EXPANDED_LOG_LINES = 12;
 
 function CardShell({
   open,
@@ -21,6 +34,7 @@ function CardShell({
   badgeClassName,
   name,
   meta,
+  latest,
   children,
 }: {
   open: boolean;
@@ -30,6 +44,9 @@ function CardShell({
   badgeClassName: string;
   name: string;
   meta: string;
+  /** What it's doing right now, one line — shown collapsed too, since "it's
+   * running" without "doing what" is the part that leaves you guessing. */
+  latest: string | null;
   children: React.ReactNode;
 }) {
   return (
@@ -52,17 +69,38 @@ function CardShell({
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-foreground">{name}</span>
         <span className="shrink-0 font-mono text-[10.5px] text-text-faint">{meta}</span>
       </button>
+      {!open && latest && (
+        <div title={latest} className="-mt-1 truncate px-2.5 pb-2 pl-8 font-mono text-[10.5px] text-text-faint">
+          {latest}
+        </div>
+      )}
       {open && <div className="border-t border-border-soft bg-bg-chrome">{children}</div>}
     </div>
   );
 }
 
+/** Monospace lines under an expanded card — the job's log, or the
+ * subagent's tool calls. */
+function CardLines({ lines, empty }: { lines: string[]; empty: string }) {
+  return (
+    <pre className="max-h-48 overflow-y-auto px-2.5 py-2 pl-8 font-mono text-[10.5px] leading-relaxed whitespace-pre-wrap break-all text-muted-foreground">
+      {lines.length > 0 ? lines.join("\n") : <span className="text-text-faint">{empty}</span>}
+    </pre>
+  );
+}
+
 function ProcCard({
+  profile,
+  sessionId,
+  live,
   job,
   open,
   onToggle,
   onCancel,
 }: {
+  profile: Profile;
+  sessionId: string;
+  live: boolean;
   job: BackgroundJobSummary;
   open: boolean;
   onToggle: () => void;
@@ -71,6 +109,8 @@ function ProcCard({
   const dict = useDict();
   const strings = dict.chat.launchedInBackground;
   const elapsedSeconds = useElapsedSeconds(job.startedAt);
+  const log = useBackgroundJobLog(profile, sessionId, job.id, live);
+  const lines = logTailLines(log ?? "", EXPANDED_LOG_LINES);
 
   return (
     <CardShell
@@ -81,8 +121,10 @@ function ProcCard({
       badgeClassName="border-border text-text-faint"
       name={job.label}
       meta={formatDurationLong(elapsedSeconds)}
+      latest={lines[lines.length - 1] ?? null}
     >
-      <div className="flex items-center gap-1.5 px-2.5 py-2 pl-8">
+      <CardLines lines={lines} empty={log === null ? strings.logLoading : strings.logEmpty} />
+      <div className="flex items-center gap-1.5 border-t border-border-soft px-2.5 py-2 pl-8">
         <button
           type="button"
           onClick={onCancel}
@@ -95,7 +137,19 @@ function ProcCard({
   );
 }
 
-function AgentCard({ call, open, onToggle, onStop }: { call: RunningTaskCall; open: boolean; onToggle: () => void; onStop: () => void }) {
+function AgentCard({
+  call,
+  toolCalls,
+  open,
+  onToggle,
+  onStop,
+}: {
+  call: RunningTaskCall;
+  toolCalls: string[];
+  open: boolean;
+  onToggle: () => void;
+  onStop: () => void;
+}) {
   const dict = useDict();
   const strings = dict.chat.launchedInBackground;
 
@@ -110,8 +164,10 @@ function AgentCard({ call, open, onToggle, onStop }: { call: RunningTaskCall; op
       badgeClassName="border-primary bg-primary-soft text-primary-ink"
       name={call.description ?? strings.agentFallbackName}
       meta=""
+      latest={toolCalls[toolCalls.length - 1] ?? null}
     >
-      <div className="flex items-center gap-1.5 px-2.5 py-2 pl-8">
+      <CardLines lines={toolCalls} empty={strings.agentNoToolCalls} />
+      <div className="flex items-center gap-1.5 border-t border-border-soft px-2.5 py-2 pl-8">
         <button
           type="button"
           onClick={onStop}
@@ -131,7 +187,16 @@ function AgentCard({ call, open, onToggle, onStop }: { call: RunningTaskCall; op
  * folds the same `anywh-bg` data into inline cards instead, plus a subagent
  * card the old chip never had).
  */
-export function LaunchedInBackground({ jobs, onCancelJob, runningTaskCall, onStopAgent }: LaunchedInBackgroundProps) {
+export function LaunchedInBackground({
+  profile,
+  sessionId,
+  live,
+  jobs,
+  onCancelJob,
+  runningTaskCall,
+  subagentToolCalls,
+  onStopAgent,
+}: LaunchedInBackgroundProps) {
   const dict = useDict();
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
 
@@ -157,6 +222,7 @@ export function LaunchedInBackground({ jobs, onCancelJob, runningTaskCall, onSto
       {runningTaskCall && (
         <AgentCard
           call={runningTaskCall}
+          toolCalls={subagentToolCalls}
           open={openIds.has(runningTaskCall.toolUseId)}
           onToggle={() => toggle(runningTaskCall.toolUseId)}
           onStop={onStopAgent}
@@ -165,6 +231,9 @@ export function LaunchedInBackground({ jobs, onCancelJob, runningTaskCall, onSto
       {jobs.map((job) => (
         <ProcCard
           key={job.id}
+          profile={profile}
+          sessionId={sessionId}
+          live={live}
           job={job}
           open={openIds.has(job.id)}
           onToggle={() => toggle(job.id)}

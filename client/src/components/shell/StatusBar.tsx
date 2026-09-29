@@ -9,12 +9,14 @@ import {
   backgroundActivityProfileName,
   type BackgroundActivityItem,
 } from "@/hooks/useBackgroundActivity";
+import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
 import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
+import { logTailLines } from "@/lib/format/backgroundActivity";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { getGitStatus } from "@/lib/relay/gitClient";
 import { formatDurationLong, cn } from "@/lib/utils";
-import type { Profile } from "@/lib/profiles/profiles";
+import { findProfile, type Profile } from "@/lib/profiles/profiles";
 
 interface StatusBarProps {
   /** The focused tab's profile — `null` with no tab open at all. */
@@ -66,9 +68,23 @@ function ActivityRow({
 }) {
   const dict = useDict();
   const strings = dict.shell.statusBar.backgroundActivity;
-  const elapsedSeconds = useElapsedSeconds(item.time);
+  const elapsedSeconds = useElapsedSeconds(item.time ?? 0);
   const failed = item.status === "fail";
-  const tail = item.kind === "agent" ? strings.agentTail : item.tail;
+  // Rows only exist while the tray is open, so a running job's log is read
+  // exactly while someone is looking at it — see `useBackgroundJobLog`.
+  const liveLog = useBackgroundJobLog(
+    findProfile(item.profileId),
+    item.tabId,
+    item.id,
+    item.kind === "proc" && item.status === "run",
+  );
+  const tailLines =
+    item.kind === "agent"
+      ? [item.tail || strings.agentTail]
+      : failed
+        ? logTailLines(item.tail, 1)
+        : logTailLines(liveLog ?? "", 2);
+  const duration = item.time === null ? null : formatDurationLong(elapsedSeconds);
 
   return (
     <div className="group relative flex items-start gap-2.5 py-2.5 pr-2.5 pl-3.5 transition-colors hover:bg-bg-elevated">
@@ -97,11 +113,21 @@ function ActivityRow({
             {item.kind === "agent" ? strings.agentBadge : strings.procBadge}
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-foreground">{item.name}</span>
-          <span className="shrink-0 font-mono text-[10.5px] text-text-faint">
-            {failed ? strings.timeAgo.replace("{time}", formatDurationLong(elapsedSeconds)) : formatDurationLong(elapsedSeconds)}
-          </span>
+          {duration !== null && (
+            <span className="shrink-0 font-mono text-[10.5px] text-text-faint">
+              {failed ? strings.timeAgo.replace("{time}", duration) : duration}
+            </span>
+          )}
         </div>
-        {tail && <div className={cn("truncate font-mono text-[10.5px]", failed ? "text-destructive" : "text-text-faint")}>{tail}</div>}
+        {tailLines.map((line, index) => (
+          <div
+            key={index}
+            title={line}
+            className={cn("truncate font-mono text-[10.5px]", failed ? "text-destructive" : "text-text-faint")}
+          >
+            {line}
+          </div>
+        ))}
         <div className="flex items-center gap-1.5">
           <span
             className="max-w-24 shrink-0 truncate border-l-2 pl-1.5 font-mono text-[10px] text-muted-foreground"
