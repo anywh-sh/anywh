@@ -43,9 +43,11 @@ interface ModelButtonProps {
  *
  * Every name comes from the session's agent's own CLI (`catalog`) and is
  * shown the way that CLI's own picker shows it — one entry per model, its
- * display name, version included, and its own blurb muted beside it — so
+ * display name, version included — so
  * which model and which release is running is readable here instead of
- * only in the CLI. Nothing in this component knows which agent that is:
+ * only in the CLI. The CLI's blurb for each model is only a tooltip: shown
+ * inline it made the menu too wide for the toolbar it opens from. Nothing
+ * in this component knows which agent that is:
  * a new agent gets a picker by its runtime def declaring a catalog.
  */
 export function ModelButton({ model, catalog, onChange, disabled, locked }: ModelButtonProps) {
@@ -94,15 +96,10 @@ export function ModelButton({ model, catalog, onChange, disabled, locked }: Mode
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="max-w-96 min-w-53">
+      <DropdownMenuContent align="start" className="min-w-53">
         {catalog?.options.map((option) => (
-          <DropdownMenuItem key={option.id} onSelect={() => onChange(option.id)} className="gap-3">
-            {/* A fixed-width name column so the blurbs line up the way the
-                CLI's own picker lays them out. */}
-            <span className="min-w-28 shrink-0 text-left">{option.label}</span>
-            <span className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground" title={option.description}>
-              {option.description}
-            </span>
+          <DropdownMenuItem key={option.id} onSelect={() => onChange(option.id)} className="gap-3" title={option.description}>
+            <span className="flex-1 truncate text-left">{option.label}</span>
             <Check className={cn("size-3.5 shrink-0 text-primary!", option.id !== current && "opacity-0")} />
           </DropdownMenuItem>
         ))}

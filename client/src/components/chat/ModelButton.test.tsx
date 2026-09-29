@@ -40,17 +40,14 @@ describe("ModelButton", () => {
     expect(screen.getByRole("button")).toBeDisabled();
   });
 
-  it("lists each model once, by its own name, with the CLI's blurb beside it and the running one checked", async () => {
+  it("lists each model once, by its own name alone, with the CLI's blurb only as a tooltip", async () => {
     const user = userEvent.setup();
     render(<ModelButton model={null} catalog={CLAUDE} onChange={vi.fn()} disabled={false} locked={false} />);
 
     await user.click(screen.getByRole("button"));
     const items = await screen.findAllByRole("menuitem");
-    expect(items.map((item) => item.textContent)).toEqual([
-      "Opus 5.5For complex work and everyday tasks",
-      "Sonnet 5.5Most efficient for simpler tasks",
-      "Opus 4.8",
-    ]);
+    expect(items.map((item) => item.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5", "Opus 4.8"]);
+    expect(items[0]).toHaveAttribute("title", "For complex work and everyday tasks");
   });
 
   it("works the same for any agent — nothing in it knows which one", async () => {
