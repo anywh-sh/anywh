@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
@@ -56,9 +56,20 @@ interface MessageLogProps {
    * only signal telling this instance it just came back into view. See the
    * re-pin effect below for why that matters. */
   isActiveTab: boolean;
+  /** Rendered as the log's last item, right after the latest message — the
+   * in-flight turn indicator and the background work this conversation
+   * launched. In the scrolling flow rather than pinned above the composer,
+   * so it reads as part of the conversation and scrolls away with it. The
+   * caller memoizes it: a fresh element on every render would defeat this
+   * component's `memo`. */
+  trailing?: ReactNode;
 }
 
+/** Key of the synthetic last item holding `trailing`. */
+const TRAILING_KEY = "__trailing";
+
 type RenderItem =
+  | { kind: "trailing" }
   | { kind: "single"; entry: LogEntry }
   | ({ kind: "tool" } & ToolPair)
   | { kind: "tool-group"; items: ToolPair[] };
@@ -125,6 +136,7 @@ function buildRenderItems(entries: LogEntry[], attributionByToolUseId: Record<st
 }
 
 function itemKey(item: RenderItem): string {
+  if (item.kind === "trailing") return TRAILING_KEY;
   if (item.kind === "tool") return item.use.id;
   if (item.kind === "tool-group") return `group-${item.items[0].use.id}`;
   return item.entry.id;
@@ -140,7 +152,7 @@ interface UserActionHandlers {
   cwd: string | null;
 }
 
-function renderItem(item: RenderItem, userActions: UserActionHandlers, dict: Dictionary) {
+function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions: UserActionHandlers, dict: Dictionary) {
   if (item.kind === "tool") {
     return (
       <LogEntryRow key={item.use.id}>
@@ -246,6 +258,7 @@ export const MessageLog = memo(function MessageLog({
   onOpenPath,
   cwd,
   isActiveTab,
+  trailing,
 }: MessageLogProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
@@ -257,9 +270,14 @@ export const MessageLog = memo(function MessageLog({
   // when only `streamingEntries` changes.
   const items = useMemo(() => buildRenderItems(entries, attributionByToolUseId), [entries, attributionByToolUseId]);
 
+  const hasTrailing = trailing !== undefined && trailing !== null && trailing !== false;
   const allItems = useMemo<RenderItem[]>(
-    () => [...items, ...streamingEntries.map((entry): RenderItem => ({ kind: "single", entry }))],
-    [items, streamingEntries],
+    () => [
+      ...items,
+      ...streamingEntries.map((entry): RenderItem => ({ kind: "single", entry })),
+      ...(hasTrailing ? [{ kind: "trailing" } as const] : []),
+    ],
+    [items, streamingEntries, hasTrailing],
   );
 
   const getItemKey = useCallback((index: number) => itemKey(allItems[index]), [allItems]);
@@ -479,7 +497,7 @@ export const MessageLog = memo(function MessageLog({
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              {renderItem(item, userActions, dict)}
+              {item.kind === "trailing" ? trailing : renderItem(item, userActions, dict)}
             </div>
           );
         })}

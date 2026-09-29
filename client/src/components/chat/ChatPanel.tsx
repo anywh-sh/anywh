@@ -527,6 +527,50 @@ export function ChatPanel({
     onTurnProgressChangeRef.current?.(turnStartedAt === null ? null : { startedAt: turnStartedAt, latestToolCall });
   }, [turnStartedAt, latestToolCall]);
 
+  // Desktop: the background work this conversation launched and the turn
+  // indicator sit right after the latest message, inside the scrolling log —
+  // not pinned above the composer — so they read as the tail of the
+  // conversation and scroll with it. Memoized because `MessageLog` is `memo`'d
+  // and this would otherwise be a new element on every `ChatPanel` render;
+  // the indicator's own clock ticks inside it, not through here. iOS keeps its
+  // floating indicator (see the composer block below).
+  const hasLaunchedInBackground = backgroundJobs.length > 0 || runningTaskCall !== undefined;
+  const logTrailing = useMemo(
+    () =>
+      isIOS() || (turnStartedAt === null && !hasLaunchedInBackground) ? null : (
+        <div className="flex flex-col gap-2 pt-1 pb-2.5">
+          {hasLaunchedInBackground && (
+            <LaunchedInBackground
+              profile={profile}
+              sessionId={sessionId}
+              live={isActiveTab}
+              jobs={backgroundJobs}
+              onCancelJob={cancelBackgroundJob}
+              runningTaskCall={runningTaskCall}
+              subagentToolCalls={subagentToolCalls}
+              onStopAgent={stopTurn}
+            />
+          )}
+          {turnStartedAt !== null && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
+        </div>
+      ),
+    // `profile` is a fresh object on most renders; its id is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      hasLaunchedInBackground,
+      turnStartedAt,
+      toolCallsThisTurn,
+      profile.id,
+      sessionId,
+      isActiveTab,
+      backgroundJobs,
+      cancelBackgroundJob,
+      runningTaskCall,
+      subagentToolCalls,
+      stopTurn,
+    ],
+  );
+
   // Registers this tab's own background-job actions once (all three are
   // `useCallback`'d with no deps in `useRelayClient`, so their identity is
   // stable across reconnects — no need to re-register on every change) and
@@ -664,6 +708,7 @@ export function ChatPanel({
           onOpenPath={onOpenPath}
           cwd={cwd}
           isActiveTab={isActiveTab}
+          trailing={logTrailing}
         />
       ) : (
         <MessageLogSkeleton />
@@ -751,26 +796,6 @@ export function ChatPanel({
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
           <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-3xl flex-col")}>
-            {!isIOS() && (backgroundJobs.length > 0 || runningTaskCall) && (
-              <div className="mb-2">
-                <LaunchedInBackground
-                  profile={profile}
-                  sessionId={sessionId}
-                  live={isActiveTab}
-                  jobs={backgroundJobs}
-                  onCancelJob={cancelBackgroundJob}
-                  runningTaskCall={runningTaskCall}
-                  subagentToolCalls={subagentToolCalls}
-                  onStopAgent={stopTurn}
-                />
-              </div>
-            )}
-
-            {/* Always mounted on desktop — see `TurnIndicator`'s
-             * own doc comment for why this can't be conditional on
-             * `turnStartedAt !== null` like the iOS one below. */}
-            {!isIOS() && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
-
             {choicePrompt && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}

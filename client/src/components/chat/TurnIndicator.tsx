@@ -15,12 +15,10 @@ interface TurnIndicatorProps {
    * it's always "now" for that tab — the difference only shows up for
    * whoever didn't start it.
    *
-   * `null` when idle — on desktop this doesn't unmount the component:
-   * it goes `invisible` instead, keeping its rendered height
-   * permanently reserved so `MessageLog`'s `flex-1` area never resizes when
-   * a turn starts or ends. It used to mount/unmount, which shrank that area
-   * an instant before the scroll container's `ResizeObserver` caught up,
-   * clipping the last bubble under this indicator for a frame. */
+   * `null` when idle renders an `invisible` placeholder of the same height.
+   * Nothing mounts it idle today — both callers render it only mid-turn — but
+   * it was how desktop held this row's space open back when the indicator
+   * sat above the composer, outside the scrolling log. */
   startedAt: number | null;
   /** Tools the agent has reached for since the user's last message — the
    * bar's way of saying what the wait is made of. */
@@ -29,8 +27,9 @@ interface TurnIndicatorProps {
 
 /** Indicator for a turn in progress — from the moment of sending until the
  * response finishes (covers network latency + the model's reasoning time,
- * which often doesn't expose real thinking text). Sits above the composer,
- * outside the scrollable log.
+ * which often doesn't expose real thinking text). On desktop it is the last
+ * item of the scrolling log, right after the latest message (`ChatPanel`'s
+ * `logTrailing`); on iOS it floats above the composer.
  */
 export function TurnIndicator({ startedAt, toolCount }: TurnIndicatorProps) {
   const dict = useDict();
