@@ -1,5 +1,6 @@
 import { useMemo, useReducer } from "react";
 import type { AgentEvent, HistoryMessage, HistoryPageMessage, StructuredPatchHunk, ToolInput } from "@/lib/relay/relay-types";
+import type { SubagentStatus } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 
 export type LogEntry =
@@ -46,10 +47,36 @@ export interface AttributionState {
   estimated: boolean;
 }
 
+/** How many of a subagent's own tool calls are kept — the card shows a
+ * handful of the latest, never the whole run. */
+const SUBAGENT_TOOL_CALLS_KEPT = 20;
+
+/**
+ * A subagent spawned by an `Agent`/`Task` call, keyed by that call's
+ * `toolUseId` — the latest of its `subagent` events, plus its own recent tool
+ * calls. Never a `LogEntry`: its work happens beside the conversation, not in
+ * it, so its events (`parentToolUseId` set) are kept out of `entries`
+ * altogether and only surface through the background cards.
+ */
+export interface SubagentState {
+  toolUseId: string;
+  status: SubagentStatus;
+  /** epoch ms of the first event seen for it. */
+  startedAt: number;
+  background: boolean;
+  description?: string;
+  activity?: string;
+  toolUses?: number;
+  totalTokens?: number;
+  summary?: string;
+  toolCalls: { name: string; input: ToolInput }[];
+}
+
 interface MessageLogState {
   entries: LogEntry[];
   streamingText: StreamingTextBlock[];
   attributionByToolUseId: Record<string, AttributionState>;
+  subagents: Record<string, SubagentState>;
   /** Whether there are turns older than `historyCursor` to fetch via
    * `load_older_history`. `false` until the initial
    * tail arrives (`HYDRATE`) — same default value as before this feature
@@ -96,6 +123,7 @@ const initialState: MessageLogState = {
   entries: [],
   streamingText: [],
   attributionByToolUseId: {},
+  subagents: {},
   hasMoreHistory: false,
   historyCursor: null,
   loadingOlderHistory: false,
@@ -116,7 +144,28 @@ function newId(): string {
  * feature (a thinking bubble, live tool-argument streaming, a todo-list
  * widget) is what would give one of these its own branch.
  */
+function upsertSubagent(
+  state: MessageLogState,
+  toolUseId: string,
+  at: number,
+  update: (subagent: SubagentState) => SubagentState,
+): MessageLogState {
+  const current = state.subagents[toolUseId] ?? { toolUseId, status: "running", startedAt: at, background: false, toolCalls: [] };
+  return { ...state, subagents: { ...state.subagents, [toolUseId]: update(current) } };
+}
+
 function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogState {
+  // A subagent's own work: its tool calls feed its card, everything else it
+  // says or does stays out of the conversation (see `SubagentState`).
+  if ("parentToolUseId" in event && event.parentToolUseId) {
+    if (event.type !== "tool_started" && event.type !== "plan") return state;
+    const call = event.type === "plan" ? { name: "TodoWrite", input: { todos: event.todos } } : { name: event.name, input: event.input };
+    return upsertSubagent(state, event.parentToolUseId, Date.now(), (subagent) => ({
+      ...subagent,
+      toolCalls: [...subagent.toolCalls, call].slice(-SUBAGENT_TOOL_CALLS_KEPT),
+    }));
+  }
+
   switch (event.type) {
     case "turn_started":
     case "session_id":
@@ -218,7 +267,13 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
         if (block.text.length > 0) entries.push({ kind: "text", id: newId(), text: block.text, streaming: false, sentAt: Date.now() });
       }
       if (event.stopped) entries.push({ kind: "stopped", id: newId() });
-      return { ...state, entries, streamingText: [] };
+      // A subagent can't outlive the turn process that ran it — one still
+      // "running" here never got its final notification (the turn was
+      // stopped or crashed first).
+      const subagents = Object.fromEntries(
+        Object.entries(state.subagents).map(([id, subagent]) => [id, subagent.status === "running" ? { ...subagent, status: "stopped" as const } : subagent]),
+      );
+      return { ...state, entries, streamingText: [], subagents };
     }
 
     case "error":
@@ -227,6 +282,24 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
         entries: [...state.entries, { kind: "error", id: newId(), message: event.message }],
         streamingText: [],
       };
+
+    case "subagent": {
+      const { toolUseId, status, at, description, background, activity, toolUses, totalTokens, summary } = event;
+      // The relay forwards every `task_notification`, including ones for a
+      // subagent's own backgrounded shell command — only ever apply an end to
+      // a subagent this log actually saw start.
+      if (status !== "running" && !(toolUseId in state.subagents)) return state;
+      return upsertSubagent(state, toolUseId, at, (subagent) => ({
+        ...subagent,
+        status,
+        ...(description !== undefined ? { description } : {}),
+        ...(background !== undefined ? { background } : {}),
+        ...(activity !== undefined ? { activity } : {}),
+        ...(toolUses !== undefined ? { toolUses } : {}),
+        ...(totalTokens !== undefined ? { totalTokens } : {}),
+        ...(summary !== undefined ? { summary } : {}),
+      }));
+    }
 
     case "context_attribution": {
       const attributionByToolUseId = { ...state.attributionByToolUseId };
@@ -315,6 +388,7 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
         // (newer) state already has for a toolUseId that somehow appears
         // in both (shouldn't happen in practice, ids don't repeat).
         attributionByToolUseId: { ...prefix.attributionByToolUseId, ...state.attributionByToolUseId },
+        subagents: { ...prefix.subagents, ...state.subagents },
         hasMoreHistory: action.hasMore,
         historyCursor: action.cursor,
         loadingOlderHistory: false,
@@ -334,6 +408,9 @@ export interface UseMessageLogResult {
    * this lives in state instead of being derived from `entries` the way
    * `resultByToolUseId` is. */
   attributionByToolUseId: Record<string, AttributionState>;
+  /** Every subagent seen so far, by the `toolUseId` that spawned it — see
+   * `SubagentState`. */
+  subagents: Record<string, SubagentState>;
   /** Whether there are turns older than `historyCursor` to fetch —
    * UI uses this to know whether it still reacts to scrolling
    * to the top. */
@@ -387,6 +464,7 @@ export function useMessageLog(): UseMessageLogResult {
     entries: state.entries,
     streamingEntries,
     attributionByToolUseId: state.attributionByToolUseId,
+    subagents: state.subagents,
     hasMoreHistory: state.hasMoreHistory,
     historyCursor: state.historyCursor,
     loadingOlderHistory: state.loadingOlderHistory,

@@ -17,7 +17,14 @@ import { computeContextBreakdown } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
-import { toBackgroundJobSummary, type BackgroundJobSummary, type FinishedBackgroundJob, type WatchedJob } from "../host/backgroundJobs.js";
+import {
+  toBackgroundJobSummary,
+  toFailedBackgroundJobSummary,
+  type BackgroundJobSummary,
+  type FailedBackgroundJobSummary,
+  type FinishedBackgroundJob,
+  type WatchedJob,
+} from "../host/backgroundJobs.js";
 import { ChoiceMachine } from "./choiceMachine.js";
 import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
 import {
@@ -263,6 +270,16 @@ export class SharedSession implements SessionDriverHost {
    * survives (or not) between restarts — this list is just a mirror of
    * what it knows RIGHT NOW. */
   private backgroundJobs: BackgroundJobSummary[] = [];
+  /** Jobs `submitBackgroundJobResult` saw finish with a non-zero exit code,
+   * kept here until `dismissFailedBackgroundJob` clears one — unlike
+   * `backgroundJobs` above, `BackgroundJobTracker` stops watching a job the
+   * moment it finishes, so nothing else remembers a failure happened.
+   * In-memory only (same as `contextUsage`/`suggestion`): a relay restart
+   * loses whichever failures the user hadn't acted on yet, same tradeoff as
+   * losing the synthetic follow-up turn that reports failures. Capped to
+   * the most recent 20 — a session that keeps failing shouldn't grow this
+   * without bound. */
+  private failedBackgroundJobs: FailedBackgroundJobSummary[] = [];
   /** Owns `pendingApproval`/`pendingChoice` — the two pending-question slots
    * a session can have open at once — as explicit state instead of fields
    * here. See the class doc comment on `ChoiceMachine` for the full
@@ -781,8 +798,22 @@ export class SharedSession implements SessionDriverHost {
    * synthetic prompt to everyone connected, not just "to the others". */
   submitBackgroundJobResult(job: FinishedBackgroundJob): void {
     this.clearSuggestion();
+    if (job.exitCode !== 0) {
+      this.failedBackgroundJobs = [...this.failedBackgroundJobs, toFailedBackgroundJobSummary(job)].slice(-20);
+      this.broadcastBackgroundJobs();
+    }
     const text = buildBackgroundJobFollowupPrompt(job);
     this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, { label: job.label, kind: "background_job" }));
+  }
+
+  /** Cancellation from the UI's failed-job row ("descartar") — pure local
+   * state, unlike `cancelBackgroundJob`: the job already finished, there's
+   * no process left to signal and no `BackgroundJobTracker` involved. */
+  dismissFailedBackgroundJob(id: string): void {
+    const next = this.failedBackgroundJobs.filter((job) => job.id !== id);
+    if (next.length === this.failedBackgroundJobs.length) return;
+    this.failedBackgroundJobs = next;
+    this.broadcastBackgroundJobs();
   }
 
   /** Fired by `WakeupScheduler` (via `SessionManager`) when a
@@ -1177,11 +1208,11 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private sendBackgroundJobs(target: WebSocket): void {
-    sendBackgroundJobs(target, this.backgroundJobs);
+    sendBackgroundJobs(target, this.backgroundJobs, this.failedBackgroundJobs);
   }
 
   private broadcastBackgroundJobs(): void {
-    broadcastBackgroundJobs(this.clients, this.backgroundJobs);
+    broadcastBackgroundJobs(this.clients, this.backgroundJobs, this.failedBackgroundJobs);
   }
 
   private sendTurnState(target: WebSocket): void {

@@ -9,8 +9,10 @@ import { SessionSearch } from "@/components/shell/SessionSearch";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { TabGroupLayout } from "@/components/shell/TabGroupLayout";
 import { TabPanel } from "@/components/shell/TabPanel";
+import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { MobileShell } from "@/components/shell/MobileShell";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
@@ -204,6 +206,14 @@ function AppShell() {
   // already connected, since its `connected` value wasn't changing anymore
   // to trigger another update.
   const [connectedByTab, setConnectedByTab] = useState<Record<string, boolean>>({});
+  // Each open tab's own `anywh-bg` jobs, lifted here for the global
+  // background-activity tray (StatusBar) — see `useTabPanelActions`'s
+  // `onBackgroundJobsChange`.
+  const [backgroundActivityByTab, setBackgroundActivityByTab] = useState<Record<string, BackgroundActivityEntry>>({});
+  // Not React state (see `useTabPanelActions`'s own comment on this type) —
+  // a tab's cancel/dismiss/stop functions, registered by its own `ChatPanel`
+  // so the tray can act on a tab that isn't focused right now.
+  const backgroundActionsRef = useRef<Map<string, BackgroundJobActions>>(new Map());
 
   useEffect(() => {
     void ensureNotificationPermission();
@@ -266,6 +276,20 @@ function AppShell() {
   useEffect(() => {
     const openIds = new Set(tabsState.tabs.map((tab) => tab.id));
     setConnectedByTab((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([id]) => openIds.has(id)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [tabsState.tabs]);
+
+  // Same sweep as `connectedByTab` above, for the background-activity
+  // registry — belt and suspenders alongside `onDeleted`'s own cleanup,
+  // covering any path that removes a tab without going through it.
+  useEffect(() => {
+    const openIds = new Set(tabsState.tabs.map((tab) => tab.id));
+    for (const id of backgroundActionsRef.current.keys()) {
+      if (!openIds.has(id)) backgroundActionsRef.current.delete(id);
+    }
+    setBackgroundActivityByTab((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([id]) => openIds.has(id)));
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
@@ -377,6 +401,36 @@ function AppShell() {
     [tabsState.tabs],
   );
 
+  // The status bar's tray — see `useBackgroundActivity`'s own doc comment
+  // for what counts as "agent" vs "proc" and why the focused tab's own
+  // `isRunning` is excluded.
+  const backgroundActivity = useBackgroundActivity({
+    tabs: tabsState.tabs,
+    activeTabId,
+    byTab: backgroundActivityByTab,
+    dict,
+  });
+  const openBackgroundActivityItem = useCallback(
+    (item: BackgroundActivityItem) => {
+      tabsState.setActiveTab(item.tabId);
+    },
+    [tabsState.setActiveTab],
+  );
+  const stopBackgroundActivityItem = useCallback((item: BackgroundActivityItem) => {
+    const jobActions = backgroundActionsRef.current.get(item.tabId);
+    if (!jobActions) return;
+    if (item.kind === "agent") jobActions.stopTurn();
+    else jobActions.cancelBackgroundJob(item.id);
+  }, []);
+  const dismissBackgroundActivityItem = useCallback((item: BackgroundActivityItem) => {
+    backgroundActionsRef.current.get(item.tabId)?.dismissFailedBackgroundJob(item.id);
+  }, []);
+  const stopAllBackgroundActivity = useCallback(() => {
+    for (const item of backgroundActivity) {
+      if (item.status === "run") stopBackgroundActivityItem(item);
+    }
+  }, [backgroundActivity, stopBackgroundActivityItem]);
+
   // Stable identities for the sidebar's callbacks. `Sidebar` is memoized and
   // it renders one row per session across every profile — a few hundred of
   // them for a real install — so a single prop rebuilt per render is enough
@@ -448,6 +502,8 @@ function AppShell() {
     onOpenFilePath: handleOpenFilePath,
     onOpenTerminalAt: handleOpenTerminalAt,
     setConnectedByTab,
+    setBackgroundActivityByTab,
+    backgroundActionsRef,
   });
 
   // A tab can belong to any profile — each one's `ChatPanel` uses
@@ -663,6 +719,11 @@ function AppShell() {
         isRunning={activeTab?.isRunning ?? false}
         windowFocused={windowFocused}
         onOpenUpdateModal={() => setUpdateModalOpen(true)}
+        backgroundActivity={backgroundActivity}
+        onOpenBackgroundActivityItem={openBackgroundActivityItem}
+        onStopBackgroundActivityItem={stopBackgroundActivityItem}
+        onDismissBackgroundActivityItem={dismissBackgroundActivityItem}
+        onStopAllBackgroundActivity={stopAllBackgroundActivity}
       />
     </div>
   );

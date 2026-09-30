@@ -10,6 +10,7 @@ import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreferenc
 import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { countToolCallsInCurrentTurn } from "@/lib/format/turnActivity";
+import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { MessageLog } from "@/components/chat/MessageLog";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
@@ -23,7 +24,8 @@ import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
 import { BackgroundJobIndicator } from "@/components/chat/BackgroundJobIndicator";
-import type { BackgroundJobSummary } from "@/lib/relay/relayClient";
+import { LaunchedInBackground } from "@/components/chat/LaunchedInBackground";
+import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import { isIOS } from "@/lib/platform/platform";
 import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import { cn } from "@/lib/utils";
@@ -31,6 +33,28 @@ import { parseSlashCommand } from "@/lib/composer/slashCommands";
 import { catalogHasModel } from "@/lib/composer/modelCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
+
+/** See `ChatPanelProps.onBackgroundActionsReady`. */
+export interface BackgroundJobActions {
+  cancelBackgroundJob: (id: string) => void;
+  dismissFailedBackgroundJob: (id: string) => void;
+  stopTurn: () => void;
+}
+
+/** See `ChatPanelProps.onTurnProgressChange`. */
+export interface TurnProgress {
+  startedAt: number;
+  latestToolCall: string | null;
+  /** Subagents this turn has running — the tray lists each one. */
+  subagents: TraySubagent[];
+}
+
+export interface TraySubagent {
+  toolUseId: string;
+  description: string | null;
+  activity: string | null;
+  startedAt: number | null;
+}
 
 interface ChatPanelProps {
   profile: Profile;
@@ -57,7 +81,21 @@ interface ChatPanelProps {
    * changes — same pattern as `onTurnActiveChange`: `App`
    * uses this to feed the tab/sidebar badge, which needs to know even with
    * the tab out of focus (it stays mounted, WS alive). */
-  onBackgroundJobsChange?: (jobs: BackgroundJobSummary[]) => void;
+  onBackgroundJobsChange?: (jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
+  /** The in-flight turn's real start instant and its latest tool call, as
+   * one line — `null` between turns. Same "report up via ref" pattern as
+   * `onBackgroundJobsChange`: the background-activity tray lists this tab as
+   * a running agent while it isn't focused, and needs both to say for how
+   * long and doing what. */
+  onTurnProgressChange?: (progress: TurnProgress | null) => void;
+  /** Registers this session's own `cancelBackgroundJob`/
+   * `dismissFailedBackgroundJob`/`stopTurn` for the global background-activity
+   * tray (`StatusBar`) to call into from OUTSIDE this tab — the tray shows
+   * activity from every open tab, not just the focused one, and each tab's
+   * `RelayClient`/WebSocket only exists inside that tab's own `ChatPanel`.
+   * Called once on mount with the (stable, `useCallback`'d) functions, and
+   * again with `null` on unmount to deregister. */
+  onBackgroundActionsReady?: (actions: BackgroundJobActions | null) => void;
   /** Session deleted, by this device or another one — see
    * sharedSession.ts::closeAllClients. */
   onDeleted?: () => void;
@@ -140,6 +178,8 @@ export function ChatPanel({
   onTurnComplete,
   onTurnActiveChange,
   onBackgroundJobsChange,
+  onTurnProgressChange,
+  onBackgroundActionsReady,
   onTitle,
   onActivity,
   onDeleted,
@@ -176,6 +216,10 @@ export function ChatPanel({
   onTurnActiveChangeRef.current = onTurnActiveChange;
   const onBackgroundJobsChangeRef = useRef(onBackgroundJobsChange);
   onBackgroundJobsChangeRef.current = onBackgroundJobsChange;
+  const onTurnProgressChangeRef = useRef(onTurnProgressChange);
+  onTurnProgressChangeRef.current = onTurnProgressChange;
+  const onBackgroundActionsReadyRef = useRef(onBackgroundActionsReady);
+  onBackgroundActionsReadyRef.current = onBackgroundActionsReady;
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
   const onDeletedRef = useRef(onDeleted);
@@ -338,6 +382,8 @@ export function ChatPanel({
     loadOlderHistory,
     backgroundJobs,
     cancelBackgroundJob,
+    failedBackgroundJobs,
+    dismissFailedBackgroundJob,
     editMessage,
     draft,
     setDraft,
@@ -475,8 +521,84 @@ export function ChatPanel({
   // background tabs stay mounted, so this also covers a job
   // finishing outside the currently visible tab/profile.
   useEffect(() => {
-    onBackgroundJobsChangeRef.current?.(backgroundJobs);
-  }, [backgroundJobs]);
+    onBackgroundJobsChangeRef.current?.(backgroundJobs, failedBackgroundJobs);
+  }, [backgroundJobs, failedBackgroundJobs]);
+
+  // Only the latest call, and only as a string: the effect below then fires
+  // once per tool call rather than once per log append, so a busy turn in a
+  // background tab doesn't re-render `App` more than the tray needs.
+  const latestToolCall = useMemo(
+    () => (turnStartedAt === null ? null : (recentToolCallLines(log.entries, cwd, { limit: 1 })[0] ?? null)),
+    [turnStartedAt, log.entries, cwd],
+  );
+  const subagents = useMemo(() => runningSubagents(log.entries, log.subagents, cwd), [log.entries, log.subagents, cwd]);
+
+  // Keyed on the serialized list so the effect below only reports a change
+  // the tray can actually show — not every `log.entries` identity change.
+  const traySubagentsKey = JSON.stringify(
+    subagents.map(({ toolUseId, description, activity, startedAt }): TraySubagent => ({ toolUseId, description, activity, startedAt })),
+  );
+
+  useEffect(() => {
+    onTurnProgressChangeRef.current?.(
+      turnStartedAt === null
+        ? null
+        : { startedAt: turnStartedAt, latestToolCall, subagents: JSON.parse(traySubagentsKey) as TraySubagent[] },
+    );
+  }, [turnStartedAt, latestToolCall, traySubagentsKey]);
+
+  // Desktop: the background work this conversation launched and the turn
+  // indicator sit right after the latest message, inside the scrolling log —
+  // not pinned above the composer — so they read as the tail of the
+  // conversation and scroll with it. Memoized because `MessageLog` is `memo`'d
+  // and this would otherwise be a new element on every `ChatPanel` render;
+  // the indicator's own clock ticks inside it, not through here. iOS keeps its
+  // floating indicator (see the composer block below).
+  const hasLaunchedInBackground = backgroundJobs.length > 0 || subagents.length > 0;
+  const logTrailing = useMemo(
+    () =>
+      isIOS() || (turnStartedAt === null && !hasLaunchedInBackground) ? null : (
+        <div className="flex flex-col gap-2 pt-1 pb-2.5">
+          {hasLaunchedInBackground && (
+            <LaunchedInBackground
+              profile={profile}
+              sessionId={sessionId}
+              live={isActiveTab}
+              jobs={backgroundJobs}
+              onCancelJob={cancelBackgroundJob}
+              agents={subagents}
+              onStopAgent={stopTurn}
+            />
+          )}
+          {turnStartedAt !== null && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
+        </div>
+      ),
+    // `profile` is a fresh object on most renders; its id is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      hasLaunchedInBackground,
+      turnStartedAt,
+      toolCallsThisTurn,
+      profile.id,
+      sessionId,
+      isActiveTab,
+      backgroundJobs,
+      cancelBackgroundJob,
+      subagents,
+      stopTurn,
+    ],
+  );
+
+  // Registers this tab's own background-job actions once (all three are
+  // `useCallback`'d with no deps in `useRelayClient`, so their identity is
+  // stable across reconnects — no need to re-register on every change) and
+  // deregisters on unmount, so the global tray never holds a stale entry for
+  // a closed tab.
+  useEffect(() => {
+    onBackgroundActionsReadyRef.current?.({ cancelBackgroundJob, dismissFailedBackgroundJob, stopTurn });
+    return () => onBackgroundActionsReadyRef.current?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onConnectedChangeRef = useRef(onConnectedChange);
   onConnectedChangeRef.current = onConnectedChange;
@@ -604,6 +726,7 @@ export function ChatPanel({
           onOpenPath={onOpenPath}
           cwd={cwd}
           isActiveTab={isActiveTab}
+          trailing={logTrailing}
         />
       ) : (
         <MessageLogSkeleton />
@@ -691,11 +814,6 @@ export function ChatPanel({
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
           <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-3xl flex-col")}>
-            {/* Always mounted on desktop — see `TurnIndicator`'s
-             * own doc comment for why this can't be conditional on
-             * `turnStartedAt !== null` like the iOS one below. */}
-            {!isIOS() && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
-
             {choicePrompt && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
@@ -765,18 +883,6 @@ export function ChatPanel({
                 onActivity?.();
               }}
             />
-
-            {!isIOS() && (
-              <div className="mb-3 flex min-w-0 items-center gap-1.5">
-                {/* The working directory itself lives in the title bar now
-                 * (see the portal below); the files/terminal toggles moved to
-                 * the tab group strip, next to its `+` — what stays here is
-                 * the job indicator, which belongs next to the composer
-                 * because it is about the turn being typed, not about the
-                 * window. */}
-                <BackgroundJobIndicator jobs={backgroundJobs} onCancel={cancelBackgroundJob} />
-              </div>
-            )}
           </div>
         </div>
       </div>

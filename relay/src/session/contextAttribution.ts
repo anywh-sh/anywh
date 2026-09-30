@@ -126,6 +126,9 @@ export class ContextAttributor {
       return undefined;
     }
     if (event.type === "tool_ended") {
+      // A subagent's tool results land in its own isolated context, never the
+      // main thread's — they can't be what grew the next main-thread `usage`.
+      if (event.parentToolUseId) return undefined;
       if (event.toolUseId) this.pendingBatch.push({ toolUseId: event.toolUseId, contentLength: event.content.length });
       return undefined;
     }

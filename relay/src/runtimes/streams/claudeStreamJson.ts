@@ -1,5 +1,5 @@
 import { isMainThreadEvent, type ClaudeEvent } from "../defs/claude/index.js";
-import type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind } from "../../protocol/agent-event.js";
+import type { AgentEvent, PlanTodo, StructuredPatchHunk, SubagentStatus, ToolInput, ToolKind } from "../../protocol/agent-event.js";
 
 /**
  * Maps one raw `ClaudeEvent` — a single stream-json line the CLI printed, or
@@ -18,11 +18,11 @@ import type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind } f
  * Callers are expected to have already applied the CLI's own filtering
  * before calling this: a `"user"` event only ever reaches here when it's
  * tool-result-only (`isToolResultOnly` — both call sites already enforce
- * this upstream, for their own separate reasons), and a subagent's events
- * (`parent_tool_use_id` set) are NOT filtered out here, matching the
- * pre-existing behavior of the code this replaces — only `usage` extraction
- * cares about main-thread vs. subagent, for the reason `session.ts`'s own
- * `extractContextUsage` doc comment already gives.
+ * this upstream, for their own separate reasons). A subagent's events
+ * (`parent_tool_use_id` set) are NOT filtered out here: they are tagged with
+ * `parentToolUseId` so a consumer can keep them out of the main conversation.
+ * Only `usage` extraction drops them outright, for the reason `session.ts`'s
+ * own `extractContextUsage` doc comment already gives.
  */
 export function mapClaudeEvent(event: ClaudeEvent): AgentEvent[] {
   switch (event.type) {
@@ -103,6 +103,8 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
   const content = message?.content;
   if (!Array.isArray(content)) return results;
   const timestamp = typeof event.timestamp === "string" ? event.timestamp : undefined;
+  // Set on everything a subagent produces — see `AgentEvent`'s `text` doc.
+  const parent = typeof event.parent_tool_use_id === "string" ? { parentToolUseId: event.parent_tool_use_id } : {};
 
   for (const raw of content as RawContentBlock[]) {
     if (!raw || typeof raw !== "object") continue;
@@ -114,9 +116,9 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
       // session's own `turn_ended.stopped` already covers this notice, so
       // committing this too would duplicate the message on screen.
       if (raw.text.startsWith("[Request interrupted")) continue;
-      results.push({ type: "text", text: raw.text, ...(timestamp ? { timestamp } : {}) });
+      results.push({ type: "text", text: raw.text, ...(timestamp ? { timestamp } : {}), ...parent });
     } else if (raw.type === "thinking" && typeof raw.thinking === "string") {
-      results.push({ type: "thinking", thinking: raw.thinking, ...(timestamp ? { timestamp } : {}) });
+      results.push({ type: "thinking", thinking: raw.thinking, ...(timestamp ? { timestamp } : {}), ...parent });
     } else if (raw.type === "tool_use") {
       const name = typeof raw.name === "string" ? raw.name : "tool";
       const toolUseId = typeof raw.id === "string" ? raw.id : undefined;
@@ -124,9 +126,9 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
       // TodoWrite carries structured planning data, not an arbitrary tool
       // call — see `AgentEvent`'s `plan` variant doc comment.
       if (name === "TodoWrite") {
-        results.push({ type: "plan", toolUseId, todos: parseTodos(input.todos) });
+        results.push({ type: "plan", toolUseId, todos: parseTodos(input.todos), ...parent });
       } else {
-        results.push({ type: "tool_started", toolUseId, name, kind: classifyToolKind(name), input });
+        results.push({ type: "tool_started", toolUseId, name, kind: classifyToolKind(name), input, ...parent });
       }
     } else if (raw.type === "tool_result") {
       const toolUseResult = event.tool_use_result as { structuredPatch?: StructuredPatchHunk[] } | undefined;
@@ -136,6 +138,7 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
         content: flattenToolResultContent(raw.content),
         isError: raw.is_error === true,
         ...(toolUseResult?.structuredPatch ? { structuredPatch: toolUseResult.structuredPatch } : {}),
+        ...parent,
       });
     }
     // Other block types (redacted_thinking, ...) have no representation
@@ -199,7 +202,9 @@ function classifyToolKind(name: string): ToolKind {
     case "Grep":
     case "Glob":
       return "search";
+    // `Task` was renamed `Agent` in newer Claude Code releases — same tool.
     case "Task":
+    case "Agent":
       return "task";
     default:
       if (!loggedUnknownTools.has(name)) {
@@ -274,5 +279,78 @@ function mapSystemEvent(event: ClaudeEvent): AgentEvent[] {
     results.push({ type: "status", permissionMode: event.permissionMode });
   }
 
+  const subagent = mapSubagentEvent(event);
+  if (subagent) results.push(subagent);
+
   return results;
+}
+
+interface RawTaskUsage {
+  total_tokens?: number;
+  tool_uses?: number;
+}
+
+/**
+ * The CLI's own subagent lifecycle (`task_started` → `task_progress`… →
+ * `task_notification`), verified against real `claude -p` output (2.1.284)
+ * for both a foreground and a `run_in_background` subagent. This, not the
+ * spawning tool call, is what says whether a subagent is still running: a
+ * background one's `Agent` call returns "launched" immediately.
+ *
+ * The CLI tracks other kinds of tasks the same way (a subagent's own
+ * backgrounded Bash is `task_type: "local_bash"`), so starts and progress
+ * are only mapped when they are an agent's. `task_notification` carries no
+ * type at all — it is mapped regardless; a consumer only ever applies it to
+ * a `toolUseId` it already saw a subagent start for.
+ */
+function mapSubagentEvent(event: ClaudeEvent): AgentEvent | undefined {
+  const toolUseId = event.tool_use_id;
+  if (typeof toolUseId !== "string") return undefined;
+  const at = Date.now();
+  const usage = (event.usage ?? {}) as RawTaskUsage;
+  const totals = {
+    ...(typeof usage.tool_uses === "number" ? { toolUses: usage.tool_uses } : {}),
+    ...(typeof usage.total_tokens === "number" ? { totalTokens: usage.total_tokens } : {}),
+  };
+
+  if (event.subtype === "task_started" && event.task_type === "local_agent") {
+    return {
+      type: "subagent",
+      toolUseId,
+      status: "running",
+      at,
+      ...(typeof event.description === "string" ? { description: event.description } : {}),
+      background: event.is_backgrounded === true,
+    };
+  }
+  if (event.subtype === "task_progress" && typeof event.subagent_type === "string") {
+    return {
+      type: "subagent",
+      toolUseId,
+      status: "running",
+      at,
+      ...(typeof event.description === "string" ? { activity: event.description } : {}),
+      ...totals,
+    };
+  }
+  if (event.subtype === "task_notification") {
+    return {
+      type: "subagent",
+      toolUseId,
+      status: subagentStatus(event.status),
+      at,
+      ...(typeof event.summary === "string" ? { summary: event.summary } : {}),
+      ...totals,
+    };
+  }
+  return undefined;
+}
+
+/** Only `"completed"` has been observed live; the failure and cancellation
+ * spellings are the CLI's other terminal states, and anything unrecognized
+ * still ends the run rather than leaving it "running" forever. */
+function subagentStatus(status: unknown): SubagentStatus {
+  if (status === "completed") return "completed";
+  if (status === "failed" || status === "error") return "failed";
+  return "stopped";
 }
