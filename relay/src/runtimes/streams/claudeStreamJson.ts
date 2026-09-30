@@ -1,5 +1,5 @@
 import { isMainThreadEvent, type ClaudeEvent } from "../defs/claude/index.js";
-import type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput } from "../../protocol/agent-event.js";
+import type { AgentEvent, PlanTodo, ToolInput } from "../../protocol/agent-event.js";
 import { classifyToolKind, deriveOutcome, deriveSubject, type ToolCallMemo } from "./claudeToolMapping.js";
 
 /**
@@ -155,14 +155,11 @@ function mapMessageContent(event: ClaudeEvent, memos: Map<string, ToolCallMemo> 
       const isError = raw.is_error === true;
       const memo = raw.tool_use_id ? memos?.get(raw.tool_use_id) : undefined;
       const outcome = deriveOutcome(toolUseResult, resultContent, isError, memo);
-      const patch = (toolUseResult as { structuredPatch?: unknown } | undefined)?.structuredPatch;
       results.push({
         type: "tool_ended",
         toolUseId: raw.tool_use_id,
         content: resultContent,
         isError,
-        // Kept next to `outcome.diff` until the client stops reading it.
-        ...(Array.isArray(patch) ? { structuredPatch: patch as StructuredPatchHunk[] } : {}),
         ...(outcome ? { outcome } : {}),
       });
     }

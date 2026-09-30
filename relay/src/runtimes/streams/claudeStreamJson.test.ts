@@ -181,14 +181,16 @@ test("user: tool_result with is_error true is reported as an error result", () =
   assert.deepEqual(mapClaudeEvent(event), [{ type: "tool_ended", toolUseId: "t1", content: "boom", isError: true }]);
 });
 
-test("user: tool_result carries structuredPatch from the event's tool_use_result, not the block itself", () => {
+test("user: tool_result's diff comes from the event's tool_use_result, not the block itself", () => {
   const patch = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }];
   const event: ClaudeEvent = {
     type: "user",
     message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
-    tool_use_result: { structuredPatch: patch },
+    tool_use_result: { filePath: "/a.ts", structuredPatch: patch },
   };
-  assert.deepEqual(mapClaudeEvent(event), [{ type: "tool_ended", toolUseId: "t1", content: "ok", isError: false, structuredPatch: patch }]);
+  assert.deepEqual(mapClaudeEvent(event), [
+    { type: "tool_ended", toolUseId: "t1", content: "ok", isError: false, outcome: { kind: "diff", path: "/a.ts", hunks: patch, added: 1, removed: 1 } },
+  ]);
 });
 
 // ---- stream_event -----------------------------------------------------------

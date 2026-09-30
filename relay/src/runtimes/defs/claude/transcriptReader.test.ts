@@ -178,7 +178,6 @@ test("a replayed turn gets the outcome, batch and timing a live one has", () => 
         toolUseId: "e1",
         content: "edited",
         isError: false,
-        structuredPatch: [patch],
         outcome: { kind: "diff", path: "/a.ts", hunks: [patch], added: 1, removed: 1 },
         endedAt: T0 + 4_500,
       });

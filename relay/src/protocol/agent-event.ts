@@ -30,8 +30,8 @@
  */
 export type ToolKind = "shell" | "edit" | "write" | "read" | "search" | "task" | "mcp" | "web" | "other";
 
-/** A `structuredPatch` hunk the CLI already computed for an edit — kept
- * ready-made so nothing downstream needs to diff file contents itself. */
+/** One hunk of a diff, ready-made so nothing downstream needs to diff file
+ * contents itself — carried by a `diff` outcome. */
 export interface StructuredPatchHunk {
   oldStart: number;
   oldLines: number;
@@ -176,7 +176,6 @@ export type AgentEvent =
       toolUseId?: string;
       content: string;
       isError: boolean;
-      structuredPatch?: StructuredPatchHunk[];
       outcome?: ToolOutcome;
       endedAt?: number;
     }
