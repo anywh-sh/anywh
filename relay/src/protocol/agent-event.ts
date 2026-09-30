@@ -54,6 +54,44 @@ export interface ToolInput {
   [key: string]: unknown;
 }
 
+/** What a tool call is doing, already interpreted by the def that mapped it
+ * — the verb and the target a UI shows come from here, never from the raw
+ * tool name. Every def maps into this same shape (Claude's `Read` and a
+ * Codex `sed -n 1,80p` that its own `commandActions` flags as a read both
+ * become `{ kind: "read", path }`), which is what lets a UI stay
+ * agent-agnostic. Optional on the wire: a def that can't interpret a call
+ * leaves it out, and the UI falls back to `name`/`input`.
+ *
+ * `mcp` carries the server name on purpose: the relay's own MCP bridges
+ * (the structured-question and approval servers) are recognized by it and
+ * hidden from the log — they already have their own UI. */
+export type ToolSubject =
+  | { kind: "read"; path: string; range?: { start: number; end?: number } }
+  | { kind: "edit" | "write"; path: string }
+  | { kind: "shell"; command: string }
+  | { kind: "search"; mode: "files" | "content"; pattern: string; path?: string }
+  | { kind: "web"; mode: "search"; query: string }
+  | { kind: "web"; mode: "fetch"; url: string }
+  | { kind: "mcp"; server: string; tool: string }
+  | { kind: "task" | "other"; label: string };
+
+/** A tool call's result, already in the shape a UI draws it — a def does
+ * the parsing once, so no consumer needs to know what a CLI's raw result
+ * looked like. `tool_ended.content` stays the plain-text form next to it:
+ * it's the fallback rendering and what a "copy" action copies.
+ * `startLine` is optional because some reads have no known offset (a shell
+ * `cat` of a whole file does, a piped command doesn't) — absent means "don't
+ * number the lines", never "start at 1". */
+export type ToolOutcome =
+  | { kind: "code"; path: string; lines: string[]; startLine?: number; totalLines?: number }
+  | { kind: "diff"; path: string; hunks: StructuredPatchHunk[]; added: number; removed: number; created?: boolean }
+  | { kind: "terminal"; output: string; exitCode?: number }
+  | { kind: "files"; paths: string[]; total?: number }
+  | { kind: "matches"; matches: { path: string; line?: number; text: string }[]; total?: number }
+  | { kind: "links"; results: { title: string; url: string }[] }
+  | { kind: "payload"; request: string; response: string }
+  | { kind: "text" };
+
 /** One item of a `TodoWrite`-shaped plan. `activeForm` is optional because
  * it only makes sense for the item currently `"in_progress"`. */
 export interface PlanTodo {
@@ -64,12 +102,15 @@ export interface PlanTodo {
 
 export type AgentEvent =
   /** Synthesized by the session, not mapped from CLI output — see the file
-   * doc comment. Fires once, before anything else for this turn. */
-  | { type: "turn_started" }
+   * doc comment. Fires once, before anything else for this turn. `startedAt`
+   * (epoch ms) is the relay's own clock. */
+  | { type: "turn_started"; startedAt?: number }
   /** Synthesized by the session — replaces `turn_complete`. `stopped` is
    * `true` only when the turn ended because the user asked to stop it, never
-   * because the CLI genuinely finished or errored. */
-  | { type: "turn_ended"; stopped: boolean }
+   * because the CLI genuinely finished or errored. `durationMs` is the whole
+   * turn as the relay measured it live, or as the source recorded it on
+   * replay. */
+  | { type: "turn_ended"; stopped: boolean; durationMs?: number }
   /** A human message — sent live by whoever's device submitted it (so OTHER
    * devices see the question that prompted the response), or reconstructed
    * from an on-disk transcript. `synthetic: "background_job"` marks an
@@ -81,19 +122,45 @@ export type AgentEvent =
   | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup"; label?: string }
   /** Live streaming preview of a growing text block — `index` correlates
    * multiple chunks (and, in principle, multiple concurrently-streaming
-   * blocks) to the same block before it commits as `text`. */
-  | { type: "text_delta"; index: number; text: string }
+   * blocks) to the same block before it commits as `text`. A number for a
+   * def whose CLI correlates blocks by position (Claude), a string for one
+   * that correlates by item id (Codex) — only ever compared for equality. */
+  | { type: "text_delta"; index: number | string; text: string }
   /** The committed, final form of a text block. */
   | { type: "text"; text: string; timestamp?: string }
+  /** A reasoning block began — lets a UI show it as in progress before any
+   * of its text (which is often empty, see `thinking`) arrives. Reasoning
+   * blocks never run concurrently, so the next `thinking` closes the most
+   * recent one: no id needed. */
+  | { type: "thinking_started"; startedAt?: number }
   /** Same relationship to `thinking` as `text_delta` has to `text`. */
-  | { type: "thinking_delta"; index: number; thinking: string }
-  | { type: "thinking"; thinking: string; timestamp?: string }
+  | { type: "thinking_delta"; index: number | string; thinking: string }
+  /** A committed reasoning block. `thinking` may be empty: some models
+   * report that reasoning happened without exposing its text, and the block
+   * still matters for its timing. */
+  | { type: "thinking"; thinking: string; timestamp?: string; startedAt?: number; endedAt?: number }
   /** A tool call beginning — `toolUseId` pairs it with the `tool_ended` that
    * eventually closes it (or never arrives, if the turn was interrupted
    * first). `kind` is the def's own classification (see `ToolKind`); `name`
-   * is the CLI's raw tool name, kept for display and for a future def's own
-   * bridges to key off of. */
-  | { type: "tool_started"; toolUseId?: string; name: string; kind: ToolKind; input: ToolInput }
+   * is the CLI's raw tool name, kept as the fallback label when `subject` is
+   * absent. `batchId` is shared by calls the agent issued together (parallel
+   * calls) — absent when the def has no such signal, never guessed.
+   *
+   * Timestamps (`startedAt` here, `endedAt` on `tool_ended`, and the ones on
+   * `thinking`/`turn_*`) are epoch ms. A def fills them in when its CLI
+   * reports real ones; whatever it leaves out, the session stamps with its
+   * own clock as the event arrives — so a consumer can rely on them being
+   * present on anything the relay broadcast live. */
+  | {
+      type: "tool_started";
+      toolUseId?: string;
+      name: string;
+      kind: ToolKind;
+      input: ToolInput;
+      subject?: ToolSubject;
+      startedAt?: number;
+      batchId?: string;
+    }
   /** Live streaming preview of a tool call's arguments as they're being
    * generated — no current def emits this yet (nothing renders it either),
    * here for the def that will. */
@@ -104,7 +171,15 @@ export type AgentEvent =
   /** A tool call's result — `content` is already flattened to a plain
    * string (never the raw content-block array a CLI might use internally),
    * so nothing downstream needs to know that shape existed. */
-  | { type: "tool_ended"; toolUseId?: string; content: string; isError: boolean; structuredPatch?: StructuredPatchHunk[] }
+  | {
+      type: "tool_ended";
+      toolUseId?: string;
+      content: string;
+      isError: boolean;
+      structuredPatch?: StructuredPatchHunk[];
+      outcome?: ToolOutcome;
+      endedAt?: number;
+    }
   /** A plan/todo-list update (`TodoWrite` on Claude) — carries structured
    * `todos` instead of opaque `input` because, unlike an arbitrary tool call,
    * the shape is part of the contract, not private to one CLI. `toolUseId`

@@ -29,7 +29,7 @@ export type LogEntry =
   | { kind: "wakeup-note"; id: string };
 
 interface StreamingTextBlock {
-  index: number;
+  index: number | string;
   text: string;
 }
 
@@ -123,6 +123,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "usage":
     case "status":
     case "compact_boundary":
+    case "thinking_started":
     case "thinking":
     case "thinking_delta":
     case "tool_input_delta":
