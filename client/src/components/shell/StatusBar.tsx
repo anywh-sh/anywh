@@ -1,12 +1,18 @@
-import { useEffect, useState } from "react";
-import { ArrowUpCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowUpCircle, X } from "lucide-react";
 
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { LanguageControl } from "@/components/shell/LanguageControl";
 import { useAppUpdate, useDownloadedUpdate } from "@/hooks/platform/useAppUpdate";
+import { backgroundActivityProfileColor, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
+import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
+import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
+import { logTailLines } from "@/lib/format/backgroundActivity";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { getGitStatus } from "@/lib/relay/gitClient";
-import type { Profile } from "@/lib/profiles/profiles";
+import { formatDurationLong, cn } from "@/lib/utils";
+import { findProfile, type Profile } from "@/lib/profiles/profiles";
 
 interface StatusBarProps {
   /** The focused tab's profile — `null` with no tab open at all. */
@@ -20,6 +26,16 @@ interface StatusBarProps {
   /** Opens `UpdateModal` — only reachable from here while an update is
    * actually available; the version slot is plain text otherwise. */
   onOpenUpdateModal: () => void;
+  /** Cross-session background activity — see `useBackgroundActivity`. */
+  backgroundActivity: BackgroundActivityItem[];
+  /** "abrir" — jumps to the item's tab, closes the panel. */
+  onOpenBackgroundActivityItem: (item: BackgroundActivityItem) => void;
+  /** "parar" — cancels the `anywh-bg` job, or stops the other tab's turn. */
+  onStopBackgroundActivityItem: (item: BackgroundActivityItem) => void;
+  /** "descartar" — drops a failed item from the list. */
+  onDismissBackgroundActivityItem: (item: BackgroundActivityItem) => void;
+  /** Footer "parar tudo". */
+  onStopAllBackgroundActivity: () => void;
 }
 
 /** What the left half renders when there is anything to render. A folder
@@ -33,6 +49,130 @@ type RepoState = { branch: string; detached: boolean; changes: number } | null;
 function sameRepo(a: RepoState, b: RepoState): boolean {
   if (a === null || b === null) return a === b;
   return a.branch === b.branch && a.detached === b.detached && a.changes === b.changes;
+}
+
+function ActivityRow({
+  item,
+  onOpen,
+  onStop,
+  onDismiss,
+}: {
+  item: BackgroundActivityItem;
+  onOpen: () => void;
+  onStop: () => void;
+  onDismiss: () => void;
+}) {
+  const dict = useDict();
+  const strings = dict.shell.statusBar.backgroundActivity;
+  const elapsedSeconds = useElapsedSeconds(item.time ?? 0);
+  const failed = item.status === "fail";
+  // Rows only exist while the tray is open, so a running job's log is read
+  // exactly while someone is looking at it — see `useBackgroundJobLog`.
+  const liveLog = useBackgroundJobLog(
+    findProfile(item.profileId),
+    item.tabId,
+    item.id,
+    item.kind === "proc" && item.status === "run",
+  );
+  const tailLines =
+    item.kind === "agent"
+      ? [item.tail || strings.agentTail]
+      : failed
+        ? logTailLines(item.tail, 1)
+        : logTailLines(liveLog.tail ?? "", 2);
+  const duration = item.time === null ? null : formatDurationLong(elapsedSeconds);
+  // The last line is the row's fixed slot (it also holds the actions), so it
+  // never renders blank: with no output to show it says why instead.
+  const placeholder =
+    tailLines.length > 0
+      ? null
+      : failed
+        ? strings.noOutput
+        : liveLog.status === "loading"
+          ? strings.logLoading
+          : liveLog.status === "unavailable"
+            ? strings.logUnavailable
+            : strings.noOutput;
+  const lastLine = placeholder ?? tailLines[tailLines.length - 1];
+  const tailClassName = cn("font-mono text-[10.5px]", failed && placeholder === null ? "text-destructive" : "text-text-faint");
+
+  return (
+    <div className="group relative flex items-start gap-[9px] py-[9px] pr-[9px] pl-[13px] transition-colors hover:bg-bg-elevated">
+      <span
+        className="absolute top-[9px] bottom-[9px] left-1 w-0.5 opacity-80"
+        style={{ background: backgroundActivityProfileColor(item) }}
+        aria-hidden="true"
+      />
+      {item.status === "run" ? (
+        item.kind === "agent" ? (
+          <span className="mt-0.5 size-3 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary" />
+        ) : (
+          <span className="mt-1 size-2.5 shrink-0 bg-diff-add" />
+        )
+      ) : (
+        <span className="mt-1 size-2.5 shrink-0 bg-destructive" />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              "shrink-0 border px-1 py-px font-mono text-[9px] font-medium tracking-wider",
+              item.kind === "agent" ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-text-faint",
+            )}
+          >
+            {item.kind === "agent" ? strings.agentBadge : strings.procBadge}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-foreground">{item.name}</span>
+          {duration !== null && (
+            <span className="shrink-0 font-mono text-[10.5px] text-text-faint">
+              {failed ? strings.timeAgo.replace("{time}", duration) : duration}
+            </span>
+          )}
+        </div>
+        {tailLines.slice(0, -1).map((line, index) => (
+          <div key={index} title={line} className={cn("truncate", tailClassName)}>
+            {line}
+          </div>
+        ))}
+        {/* The last line doubles as the actions' fixed slot: every row keeps
+         * the same shape, the actions never cover text, and there is no line
+         * left empty just to hold buttons that only show on hover. */}
+        <div className="flex items-center gap-2">
+          <span title={lastLine} className={cn("min-w-0 flex-1 truncate", tailClassName, placeholder !== null && "italic opacity-70")}>
+            {lastLine}
+          </span>
+          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            {failed ? (
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="cursor-pointer border border-border px-1.5 py-px font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+              >
+                {strings.dismiss}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onOpen}
+                  className="cursor-pointer border border-border px-1.5 py-px font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+                >
+                  {strings.open}
+                </button>
+                <button
+                  type="button"
+                  onClick={onStop}
+                  className="cursor-pointer border border-destructive px-1.5 py-px font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                >
+                  {strings.stop}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -52,12 +192,32 @@ function sameRepo(a: RepoState, b: RepoState): boolean {
  * that in the background for a folder nobody is looking at is exactly the
  * kind of cost this redesign is not allowed to add.
  */
-export function StatusBar({ profile, sessionId, isRunning, windowFocused, onOpenUpdateModal }: StatusBarProps) {
+export function StatusBar({
+  profile,
+  sessionId,
+  isRunning,
+  windowFocused,
+  onOpenUpdateModal,
+  backgroundActivity,
+  onOpenBackgroundActivityItem,
+  onStopBackgroundActivityItem,
+  onDismissBackgroundActivityItem,
+  onStopAllBackgroundActivity,
+}: StatusBarProps) {
   const dict = useDict();
   const update = useAppUpdate();
   const downloaded = useDownloadedUpdate();
   const profileId = profile?.id ?? null;
   const key = profileId && sessionId ? `${profileId}:${sessionId}` : null;
+
+  const [activityOpen, setActivityOpen] = useState(false);
+  const activityTriggerRef = useRef<HTMLButtonElement>(null);
+  const activityStrings = dict.shell.statusBar.backgroundActivity;
+  const runCount = backgroundActivity.filter((item) => item.status === "run").length;
+  const failCount = backgroundActivity.filter((item) => item.status === "fail").length;
+  const activitySummary =
+    (runCount > 0 ? activityStrings.running.replace("{count}", String(runCount)) : activityStrings.none) +
+    (failCount > 0 ? ` · ${activityStrings.failedSuffix.replace("{count}", String(failCount))}` : "");
 
   const [repo, setRepo] = useState<RepoState>(null);
   const [shownKey, setShownKey] = useState<string | null>(key);
@@ -108,6 +268,95 @@ export function StatusBar({ profile, sessionId, isRunning, windowFocused, onOpen
 
   return (
     <div className="flex h-[26px] shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome px-3 font-mono text-[10.5px] text-text-faint">
+      <DropdownMenu
+        modal={false}
+        open={activityOpen}
+        onOpenChange={(next) => {
+          setActivityOpen(next);
+          if (!next) activityTriggerRef.current?.blur();
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <button
+            ref={activityTriggerRef}
+            type="button"
+            title={activityStrings.chipTitle}
+            // Same pill as `LanguageControl` on the other end of this bar —
+            // the two are the bar's only menus and should read as one kind
+            // of control.
+            className={cn(
+              "flex shrink-0 cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 outline-hidden transition-colors hover:border-border hover:text-foreground",
+              activityOpen ? "border-border text-foreground" : "border-transparent text-text-faint",
+            )}
+          >
+            {runCount > 0 ? (
+              <span className="size-2.5 shrink-0 animate-spin rounded-full border border-border border-t-primary" />
+            ) : (
+              <span className="size-2 shrink-0 rounded-full border border-text-faint" />
+            )}
+            <span className="whitespace-nowrap">{activitySummary}</span>
+            {failCount > 0 && <span className="size-[5px] shrink-0 bg-destructive" aria-hidden="true" />}
+            <span className="text-[8px] opacity-60">{activityOpen ? "▾" : "▴"}</span>
+          </button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-[416px] p-0">
+          <div className="flex items-center gap-2 border-b border-border-soft px-[11px] py-[10px]">
+            <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
+              {activityStrings.heading}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setActivityOpen(false);
+                activityTriggerRef.current?.blur();
+              }}
+              aria-label={activityStrings.close}
+              className="flex size-5 shrink-0 cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground"
+            >
+              <X className="size-3" aria-hidden="true" />
+            </button>
+          </div>
+
+          {backgroundActivity.length > 0 ? (
+            <div className="max-h-[326px] overflow-y-auto px-[5px] pt-1 pb-1.5">
+              {backgroundActivity.map((item) => (
+                <ActivityRow
+                  key={item.id}
+                  item={item}
+                  onOpen={() => {
+                    onOpenBackgroundActivityItem(item);
+                    setActivityOpen(false);
+                  }}
+                  onStop={() => onStopBackgroundActivityItem(item)}
+                  onDismiss={() => onDismissBackgroundActivityItem(item)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 px-4 py-7 text-center">
+              <span className="flex size-[30px] items-center justify-center border border-dashed border-border font-mono text-xs text-text-faint">
+                ○
+              </span>
+              <span className="font-mono text-[11.5px] text-muted-foreground">{activityStrings.emptyTitle}</span>
+            </div>
+          )}
+
+          {runCount > 0 && (
+            <div className="flex items-center justify-end border-t border-border-soft px-[9px] py-2">
+              <button
+                type="button"
+                onClick={onStopAllBackgroundActivity}
+                className="cursor-pointer border border-destructive px-1.5 py-1 font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
+              >
+                {activityStrings.stopAll}
+              </button>
+            </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <span className="h-3 w-px shrink-0 bg-border" aria-hidden="true" />
+
       {repo && (
         <span className="truncate" title={repo.detached ? dict.shell.statusBar.detachedHead : undefined}>
           {repo.branch} · {changes}

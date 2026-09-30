@@ -63,6 +63,18 @@
 //                        same "fake only the model's decision, keep
 //                        everything downstream real" shape as
 //                        FAKE_CLAUDE_PRESENT_CHOICE above.
+//   FAKE_CLAUDE_BACKGROUND_JOB - if set (the already-serialized
+//                        `{"anywh_bg":"started",...}` marker JSON the real
+//                        `anywh-bg` wrapper prints), emits it as a `Bash`
+//                        tool call's own `tool_result`, then a normal
+//                        assistant reply and a successful `result`. Lets an
+//                        integration test exercise
+//                        `BackgroundJobTracker.observeEvent`
+//                        (host/backgroundJobs.ts) against the REAL
+//                        `tool_started`/`tool_ended` shape, with the test
+//                        itself owning the log/exit files the marker points
+//                        at (same "fake only the model's decision" shape as
+//                        FAKE_CLAUDE_SCHEDULE_WAKEUP above).
 //   FAKE_CLAUDE_STATUS_PERMISSION_MODE - if set (a permission mode string),
 //                        emits a `{"type":"system","subtype":"status",
 //                        "permissionMode":...}` event right after `init` —
@@ -325,6 +337,40 @@ if (args[0] === "--version") {
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
     process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_BACKGROUND_JOB && outputFormat === "stream-json") {
+    const toolUseId = "toolu_fake_bg_job";
+    const marker = process.env.FAKE_CLAUDE_BACKGROUND_JOB;
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: "anywh-bg start -- pnpm dev" } }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "user",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "tool_result", tool_use_id: toolUseId, content: marker, is_error: false }],
+      },
+    });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: {
+        content: [{ type: "text", text: replyText }],
+        usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+    });
+    emit({
+      type: "result",
+      session_id: sessionId,
+      is_error: false,
+      result: replyText,
+      modelUsage: { [model]: { contextWindow: 200000 } },
+    });
+    process.exit(0);
   } else if (process.env.FAKE_CLAUDE_TWO_USAGE_EVENTS && outputFormat === "stream-json") {
     // Two main-thread assistant events with distinct prefixes, before the
     // turn ends — exercises the live chip (SharedSession.runTurn's
@@ -354,6 +400,71 @@ if (args[0] === "--version") {
       result: replyText,
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
+    process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_BACKGROUND_SUBAGENT && outputFormat === "stream-json") {
+    // A `run_in_background` subagent, in the shape and order real `claude -p`
+    // (2.1.284) printed it: the `Agent` call returns "launched" at once, the
+    // main thread keeps talking, then the subagent's own events (tagged with
+    // `parent_tool_use_id`) interleave with `task_*` system lifecycle events.
+    const agentId = "toolu_bg_agent";
+    const readId = "toolu_bg_read";
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      message: { content: [{ type: "tool_use", id: agentId, name: "Agent", input: { description: "Read a.txt", run_in_background: true } }] },
+    });
+    emit({
+      type: "system",
+      subtype: "task_started",
+      session_id: sessionId,
+      task_id: "a1",
+      tool_use_id: agentId,
+      description: "Read a.txt",
+      subagent_type: "general-purpose",
+      is_backgrounded: true,
+      task_type: "local_agent",
+    });
+    emit({
+      type: "user",
+      session_id: sessionId,
+      message: { content: [{ type: "tool_result", tool_use_id: agentId, content: "Async agent launched successfully." }] },
+    });
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: "Launched it." }] } });
+    emit({
+      type: "assistant",
+      session_id: sessionId,
+      parent_tool_use_id: agentId,
+      message: { content: [{ type: "tool_use", id: readId, name: "Read", input: { file_path: "/w/a.txt" } }] },
+    });
+    emit({
+      type: "system",
+      subtype: "task_progress",
+      session_id: sessionId,
+      task_id: "a1",
+      tool_use_id: agentId,
+      description: "Reading a.txt",
+      subagent_type: "general-purpose",
+      usage: { total_tokens: 100, tool_uses: 1, duration_ms: 10 },
+    });
+    emit({
+      type: "user",
+      session_id: sessionId,
+      parent_tool_use_id: agentId,
+      message: { content: [{ type: "tool_result", tool_use_id: readId, content: "alpha" }] },
+    });
+    emit({ type: "assistant", session_id: sessionId, parent_tool_use_id: agentId, message: { content: [{ type: "text", text: "a.txt says alpha" }] } });
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      session_id: sessionId,
+      task_id: "a1",
+      tool_use_id: agentId,
+      status: "completed",
+      summary: "a.txt says alpha",
+      usage: { total_tokens: 120, tool_uses: 1, duration_ms: 20 },
+    });
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: replyText }] } });
+    emit({ type: "result", session_id: sessionId, is_error: false, result: replyText, modelUsage: { [model]: { contextWindow: 200000 } } });
     process.exit(0);
   } else if (process.env.FAKE_CLAUDE_PARALLEL_TOOLS && outputFormat === "stream-json") {
     // Two tool_use blocks in ONE assistant message (real parallel tool

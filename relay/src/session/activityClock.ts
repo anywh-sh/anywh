@@ -70,6 +70,7 @@ export class ActivityClock {
       case "tool_input_delta":
       case "tool_progress":
       case "plan":
+      case "subagent":
       case "session_id":
       case "usage":
       case "status":

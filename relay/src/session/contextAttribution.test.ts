@@ -163,3 +163,12 @@ test("non-usage, non-tool_ended, non-compact_boundary events are observed as a n
   assert.equal(attributor.observe({ type: "text", text: "hi" }), undefined);
   assert.equal(attributor.observe({ type: "session_id", sessionId: "s1" }), undefined);
 });
+
+test("a subagent's tool results are never attributed to the main thread's context growth", () => {
+  const attributor = new ContextAttributor({ hasPriorConversation: false });
+  attributor.observe(usage(1000, 0));
+  attributor.observe(toolEnded("main", "x".repeat(10)));
+  attributor.observe({ type: "tool_ended", toolUseId: "sub", content: "y".repeat(1000), isError: false, parentToolUseId: "agent-call" });
+  const step = attributor.observe(usage(1400, 0));
+  assert.deepEqual(step?.attribution?.bySource, [{ toolUseId: "main", tokens: 400 }]);
+});

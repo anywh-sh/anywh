@@ -237,6 +237,18 @@ export function isCancelBackgroundJobMessage(value: unknown): value is { type: "
   );
 }
 
+/** Dismissal of a failed `anywh-bg` job requested by the UI ("descartar") —
+ * distinct from `isCancelBackgroundJobMessage`, which targets a still-running
+ * one. */
+export function isDismissFailedBackgroundJobMessage(value: unknown): value is { type: "dismiss_failed_background_job"; id: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "dismiss_failed_background_job" &&
+    typeof (value as { id?: unknown }).id === "string"
+  );
+}
+
 export function isChoiceAnswerMessage(value: unknown): value is { type: "choice_answer"; promptId: string; answers: ChoiceAnswer[] } {
   return (
     typeof value === "object" &&

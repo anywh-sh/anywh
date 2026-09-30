@@ -7,6 +7,7 @@ import type {
   ContextUsage,
   CreatedProfile,
   EditMessageErrorCode,
+  FailedBackgroundJobSummary,
   HistoryPageMessage,
   ModelCatalog,
   ModelChoice,
@@ -38,6 +39,7 @@ export type {
   ContextUsage,
   CreatedProfile,
   EditMessageErrorCode,
+  FailedBackgroundJobSummary,
   HistoryMessage,
   HistoryPageMessage,
   McpAuthStatus,
@@ -432,8 +434,9 @@ export interface RelayClientCallbacks {
   onOlderHistory?: (page: HistoryPageMessage) => void;
   /** `anywh-bg` jobs currently observed in the session — sent right on connection
    * (even an empty array, if there are none) and again whenever the list
-   * changes, from any device. */
-  onBackgroundJobState?: (jobs: BackgroundJobSummary[]) => void;
+   * changes, from any device. `failedJobs` carries jobs that finished with a
+   * non-zero exit code, kept by the relay until dismissed. */
+  onBackgroundJobState?: (jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
   /** Message edit — arrives only on the OTHER devices
    * connected to the session, syncing the cut point before the
    * edited turn starts streaming. Same handling as `onReconnecting` +
@@ -666,7 +669,12 @@ export class RelayClient {
       } else if (parsed.type === "older_history") {
         this.callbacks.onOlderHistory?.(parsed);
       } else if (parsed.type === "background_job_state") {
-        this.callbacks.onBackgroundJobState?.(parsed.jobs);
+        // `failedJobs` is undefined on the wire from a relay that predates
+        // it (`npm run build` not yet re-run there — the systemd services
+        // run compiled `dist/`, not `src/`) — `?? []` here is what keeps
+        // that version skew from crashing every consumer downstream instead
+        // of just showing no failed jobs.
+        this.callbacks.onBackgroundJobState?.(parsed.jobs, parsed.failedJobs ?? []);
       } else if (parsed.type === "history_truncated") {
         this.callbacks.onHistoryTruncated?.(parsed);
       } else if (parsed.type === "edit_message_error") {
@@ -779,6 +787,13 @@ export class RelayClient {
   cancelBackgroundJob(id: string): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     this.socket.send(JSON.stringify({ type: "cancel_background_job", id }));
+  }
+
+  /** Dismisses a failed `anywh-bg` job from the UI ("descartar") — same
+   * reasoning as `cancelBackgroundJob` about the socket already being open. */
+  dismissFailedBackgroundJob(id: string): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(JSON.stringify({ type: "dismiss_failed_background_job", id }));
   }
 
   /** Answers a pending `present_choice` prompt. Same reasoning as

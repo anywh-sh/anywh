@@ -45,15 +45,45 @@ export interface WatchedJob {
 
 /** Subset of `WatchedJob` safe to expose to the client —
  * without `logPath`/`exitPath` (server-side file paths, internal detail)
- * nor `sessionId` (already implicit in the session's WS connection). */
+ * nor `sessionId` (already implicit in the session's WS connection). `pid`
+ * is safe (unlike the paths) — it's already shown to the user as a way to
+ * recognize which process a job is. */
 export interface BackgroundJobSummary {
   id: string;
   label: string;
   startedAt: number;
+  pid: number;
 }
 
 export function toBackgroundJobSummary(job: WatchedJob): BackgroundJobSummary {
-  return { id: job.id, label: job.label, startedAt: job.startedAt };
+  return { id: job.id, label: job.label, startedAt: job.startedAt, pid: job.pid };
+}
+
+/** A finished job that didn't exit cleanly, kept around (client-side
+ * concern — see `SharedSession.failedBackgroundJobs`) until the user
+ * dismisses it, instead of vanishing the instant `BackgroundJobTracker`
+ * stops watching it. Subset of `FinishedBackgroundJob` — same reasoning as
+ * `BackgroundJobSummary` above, no server-side paths. */
+export interface FailedBackgroundJobSummary {
+  id: string;
+  label: string;
+  pid: number;
+  exitCode: number;
+  logTail: string;
+  finishedAt: number;
+  terminated?: true;
+}
+
+export function toFailedBackgroundJobSummary(job: FinishedBackgroundJob): FailedBackgroundJobSummary {
+  return {
+    id: job.id,
+    label: job.label,
+    pid: job.pid,
+    exitCode: job.exitCode,
+    logTail: job.logTail,
+    finishedAt: Date.now(),
+    ...(job.terminated ? { terminated: true as const } : {}),
+  };
 }
 
 export interface FinishedBackgroundJob extends WatchedJob {
@@ -404,6 +434,23 @@ export class BackgroundJobTracker {
     if (this.jobs.size === 0 && this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;
+    }
+  }
+
+  /** The last `maxBytes` of a job still being watched — what the client's
+   * background cards show while the job runs, so "it's running" comes with
+   * what it's actually printing. `undefined` for a job this tracker isn't
+   * watching (finished, cancelled, never existed) — a finished one already
+   * carries its own tail in `FailedBackgroundJobSummary`. A log that can't
+   * be read yet (the wrapper hasn't created it) is an empty tail, not an
+   * error. */
+  readLiveLogTail(sessionId: string, jobId: string, maxBytes = this.logTailBytes): string | undefined {
+    const job = this.jobs.get(`${sessionId}:${jobId}`);
+    if (!job) return undefined;
+    try {
+      return readLogTail(job.logPath, maxBytes);
+    } catch {
+      return "";
     }
   }
 

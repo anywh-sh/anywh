@@ -20,7 +20,23 @@ const copy = en.shell.statusBar;
 // The status bar's default locale context (no LocaleProvider in these
 // tests) is `defaultLocale`, and the locale control prints its tag inline.
 const versionAndLocale = `v${APP_VERSION}${defaultLocale}`;
+// The activity chip is always the first thing in the bar now (before the
+// divider and the git status) — with no items, it reads "nothing running"
+// plus the closed chevron, and nothing else.
+const activityChipText = `${copy.backgroundActivity.none}▴`;
 const profile: Profile = { id: "p1", label: "Pessoal", host: "127.0.0.1", relayPort: 8765 };
+
+// Spread into every render below — none of these tests exercise the
+// background-activity tray itself (see StatusBar.backgroundActivity.test.tsx
+// for that), so an empty list and no-op callbacks keep them focused on what
+// they actually assert on.
+const backgroundActivityProps = {
+  backgroundActivity: [],
+  onOpenBackgroundActivityItem: () => {},
+  onStopBackgroundActivityItem: () => {},
+  onDismissBackgroundActivityItem: () => {},
+  onStopAllBackgroundActivity: () => {},
+};
 
 function jsonResponse(body: unknown): Response {
   return { ok: true, json: () => Promise.resolve(body) } as unknown as Response;
@@ -43,7 +59,7 @@ afterEach(() => {
 
 describe("StatusBar", () => {
   it("always prints the running version, even with no session open", async () => {
-    render(<StatusBar profile={null} sessionId={null} isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    render(<StatusBar profile={null} sessionId={null} isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     expect(screen.getByText(`v${APP_VERSION}`)).toBeInTheDocument();
     // No session means nothing to ask the relay about — the bar must not
@@ -53,7 +69,7 @@ describe("StatusBar", () => {
   });
 
   it("prints the branch and the change count of the focused session's folder", async () => {
-    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     expect(await screen.findByText(`main · ${copy.changes.replace("{count}", "3")}`)).toBeInTheDocument();
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/git/status?session=s1");
@@ -61,21 +77,21 @@ describe("StatusBar", () => {
 
   it("says a folder with no pending work is clean, not '0 changes'", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ repo: true, branch: "redesign/f8-status-bar", detached: false, changes: 0 }));
-    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     expect(await screen.findByText(`redesign/f8-status-bar · ${copy.clean}`)).toBeInTheDocument();
   });
 
   it("reads a single change in the singular", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ repo: true, branch: "main", detached: false, changes: 1 }));
-    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     expect(await screen.findByText(`main · ${copy.changesOne}`)).toBeInTheDocument();
   });
 
   it("explains a detached HEAD, whose left slot shows a commit and not a branch", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ repo: true, branch: "8a6732a", detached: true, changes: 0 }));
-    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     const slot = await screen.findByText(`8a6732a · ${copy.clean}`);
     expect(slot).toHaveAttribute("title", copy.detachedHead);
@@ -83,36 +99,36 @@ describe("StatusBar", () => {
 
   it("shows nothing but the version and locale control when the folder is not a repository", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ repo: false }));
-    const { container } = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    const { container } = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    expect(container.textContent?.trim()).toBe(versionAndLocale);
+    expect(container.textContent?.trim()).toBe(`${activityChipText}${versionAndLocale}`);
   });
 
   it("stays quiet when the relay can't be reached at all", async () => {
     // A profile whose machine is asleep is the normal case, not an error
     // worth a message in a strip the user can't dismiss.
     fetchMock.mockRejectedValue(new Error("connection refused"));
-    const { container } = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    const { container } = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalled();
     });
-    expect(container.textContent?.trim()).toBe(versionAndLocale);
+    expect(container.textContent?.trim()).toBe(`${activityChipText}${versionAndLocale}`);
   });
 
   it("asks again when the turn ends and when the window comes back", async () => {
-    const view = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    const view = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     // The agent is the main reason the count moves: a turn that just ended
     // is the single most likely moment for the folder to look different.
-    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning windowFocused onOpenUpdateModal={() => {}} />);
-    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
+    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
     });
@@ -121,8 +137,8 @@ describe("StatusBar", () => {
     // is invisible here until the window is looked at again. Losing focus
     // asks nothing — a window nobody is looking at must not keep spawning
     // git processes on the host.
-    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused={false} onOpenUpdateModal={() => {}} />);
-    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused={false} onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
+    view.rerender(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(4);
     });
@@ -131,13 +147,13 @@ describe("StatusBar", () => {
   it("does not ask again on a re-render that changes nothing it depends on", async () => {
     // `App` re-renders this on every sidebar toggle and every tab switch;
     // each of those must not cost a git process on the host.
-    const view = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    const view = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    view.rerender(<StatusBar profile={{ ...profile }} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
-    view.rerender(<StatusBar profile={{ ...profile }} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    view.rerender(<StatusBar profile={{ ...profile }} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
+    view.rerender(<StatusBar profile={{ ...profile }} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
     await Promise.resolve();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -153,7 +169,7 @@ describe("StatusBar", () => {
     });
 
     const onOpenUpdateModal = vi.fn();
-    render(<StatusBar profile={null} sessionId={null} isRunning={false} windowFocused onOpenUpdateModal={onOpenUpdateModal} />);
+    render(<StatusBar profile={null} sessionId={null} isRunning={false} windowFocused onOpenUpdateModal={onOpenUpdateModal} {...backgroundActivityProps} />);
 
     const button = screen.getByRole("button", { name: copy.updateReady.replace("{version}", "999.0.0") });
     expect(button).toBeInTheDocument();
@@ -170,8 +186,8 @@ describe("StatusBar", () => {
     fetchMock.mockReturnValueOnce(slow);
     fetchMock.mockResolvedValue(jsonResponse({ repo: true, branch: "current", detached: false, changes: 0 }));
 
-    const view = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
-    view.rerender(<StatusBar profile={profile} sessionId="s2" isRunning={false} windowFocused onOpenUpdateModal={() => {}} />);
+    const view = render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
+    view.rerender(<StatusBar profile={profile} sessionId="s2" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 
     expect(await screen.findByText(`current · ${copy.clean}`)).toBeInTheDocument();
     await slow;

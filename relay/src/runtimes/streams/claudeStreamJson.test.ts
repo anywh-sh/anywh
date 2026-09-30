@@ -76,7 +76,7 @@ test("assistant: usage is NOT extracted from a subagent event (parent_tool_use_i
     parent_tool_use_id: "toolu_task",
     message: { content: [{ type: "text", text: "hi" }], usage: { input_tokens: 999 } },
   };
-  assert.deepEqual(mapClaudeEvent(event), [{ type: "text", text: "hi" }]);
+  assert.deepEqual(mapClaudeEvent(event), [{ type: "text", text: "hi", parentToolUseId: "toolu_task" }]);
 });
 
 test("assistant: missing usage fields default to 0 rather than throwing", () => {
@@ -289,4 +289,102 @@ test("stream_event: the start of a thinking block is reported so it can show as 
   assert.deepEqual(mapClaudeEvent(event), [{ type: "thinking_started" }]);
   const text: ClaudeEvent = { type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } } };
   assert.deepEqual(mapClaudeEvent(text), []);
+});
+
+// ---- subagents -----------------------------------------------------------
+// Shapes trimmed from real `claude -p` 2.1.284 output: one foreground and one
+// `run_in_background` subagent, each reading two files.
+
+test("a subagent's own events carry the spawning call's id as parentToolUseId", () => {
+  const toolUse: ClaudeEvent = {
+    type: "assistant",
+    parent_tool_use_id: "toolu_agent",
+    message: { content: [{ type: "tool_use", id: "toolu_read", name: "Read", input: { file_path: "/w/a.txt" } }] },
+  };
+  const result: ClaudeEvent = {
+    type: "user",
+    parent_tool_use_id: "toolu_agent",
+    message: { content: [{ type: "tool_result", tool_use_id: "toolu_read", content: "1\talpha" }] },
+  };
+  const text: ClaudeEvent = { type: "assistant", parent_tool_use_id: "toolu_agent", message: { content: [{ type: "text", text: "Done." }] } };
+  assert.deepEqual(mapClaudeEvent(toolUse), [
+    { type: "tool_started", toolUseId: "toolu_read", name: "Read", kind: "read", input: { file_path: "/w/a.txt" }, subject: { kind: "read", path: "/w/a.txt" }, parentToolUseId: "toolu_agent" },
+  ]);
+  assert.deepEqual(mapClaudeEvent(result), [
+    { type: "tool_ended", toolUseId: "toolu_read", content: "1\talpha", isError: false, parentToolUseId: "toolu_agent" },
+  ]);
+  assert.deepEqual(mapClaudeEvent(text), [{ type: "text", text: "Done.", parentToolUseId: "toolu_agent" }]);
+});
+
+test("the Agent tool (Task's newer name) is classified as a task", () => {
+  const event: ClaudeEvent = {
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id: "toolu_agent", name: "Agent", input: { description: "audit", run_in_background: true } }] },
+  };
+  const [started] = mapClaudeEvent(event);
+  assert.equal(started.type === "tool_started" && started.kind, "task");
+});
+
+function withoutAt(events: ReturnType<typeof mapClaudeEvent>): unknown[] {
+  return events.map((event) => {
+    if (event.type !== "subagent") return event;
+    assert.equal(typeof event.at, "number");
+    const { at: _at, ...rest } = event;
+    return rest;
+  });
+}
+
+test("task_started/task_progress/task_notification of an agent map to its subagent lifecycle", () => {
+  const started: ClaudeEvent = {
+    type: "system",
+    subtype: "task_started",
+    task_id: "a1",
+    tool_use_id: "toolu_agent",
+    description: "Read a.txt and b.txt",
+    subagent_type: "general-purpose",
+    is_backgrounded: true,
+    task_type: "local_agent",
+  };
+  const progress: ClaudeEvent = {
+    type: "system",
+    subtype: "task_progress",
+    task_id: "a1",
+    tool_use_id: "toolu_agent",
+    description: "Reading a.txt",
+    subagent_type: "general-purpose",
+    usage: { total_tokens: 18440, tool_uses: 1, duration_ms: 2388 },
+    last_tool_name: "Read",
+  };
+  const done: ClaudeEvent = {
+    type: "system",
+    subtype: "task_notification",
+    task_id: "a1",
+    tool_use_id: "toolu_agent",
+    status: "completed",
+    summary: "alpha, beta",
+    usage: { total_tokens: 21377, tool_uses: 2, duration_ms: 4294 },
+  };
+  assert.deepEqual(withoutAt(mapClaudeEvent(started)), [
+    { type: "subagent", toolUseId: "toolu_agent", status: "running", description: "Read a.txt and b.txt", background: true },
+  ]);
+  assert.deepEqual(withoutAt(mapClaudeEvent(progress)), [
+    { type: "subagent", toolUseId: "toolu_agent", status: "running", activity: "Reading a.txt", toolUses: 1, totalTokens: 18440 },
+  ]);
+  assert.deepEqual(withoutAt(mapClaudeEvent(done)), [
+    { type: "subagent", toolUseId: "toolu_agent", status: "completed", summary: "alpha, beta", toolUses: 2, totalTokens: 21377 },
+  ]);
+});
+
+test("a non-agent task (a subagent's own backgrounded Bash) never starts a subagent", () => {
+  const event: ClaudeEvent = {
+    type: "system",
+    subtype: "task_started",
+    task_id: "b1",
+    owned_by_subagent: true,
+    tool_use_id: "toolu_bash",
+    description: "Sleep for 8 seconds",
+    is_backgrounded: false,
+    task_type: "local_bash",
+  };
+  assert.deepEqual(mapClaudeEvent(event), []);
 });

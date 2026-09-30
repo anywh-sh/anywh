@@ -38,7 +38,9 @@ export function classifyToolKind(name: string): ToolKind {
     case "WebSearch":
     case "WebFetch":
       return "web";
+    // `Task` was renamed `Agent` in newer Claude Code releases — same tool.
     case "Task":
+    case "Agent":
       return "task";
     default:
       if (!loggedUnknownTools.has(name)) {
@@ -114,6 +116,7 @@ export function deriveSubject(name: string, input: ToolInput): ToolSubject | und
       return url ? { kind: "web", mode: "fetch", url } : undefined;
     }
     case "Task":
+    case "Agent":
       return { kind: "task", label: str(input.description) ?? str(input.subagent_type) ?? name };
     default:
       return { kind: "other", label: name };

@@ -165,8 +165,11 @@ export type RelayMessage =
    * (same reasoning as `cwd_state`/`turn_state`), sent again on every new
    * connection and whenever the list changes (a job starting, ending or
    * expiring — see relay/src/sessionManager.ts::syncBackgroundJobState).
-   * Empty array (not omitted) when there are none. */
-  | { type: "background_job_state"; jobs: BackgroundJobSummary[] }
+   * Empty array (not omitted) when there are none. `failedJobs` rides along
+   * in the same message — jobs that finished with a non-zero exit code, kept
+   * by the relay until dismissed (`dismiss_failed_background_job`) instead
+   * of vanishing the instant they stop being watched. */
+  | { type: "background_job_state"; jobs: BackgroundJobSummary[]; failedJobs: FailedBackgroundJobSummary[] }
   /** Message editing — sent only to the OTHER devices connected to
    * the session (whoever edited already self-truncated optimistically, like
    * a normal send); syncs the cut-off point before the new turn starts
@@ -239,6 +242,20 @@ export interface BackgroundJobSummary {
   id: string;
   label: string;
   startedAt: number;
+  pid: number;
+}
+
+/** A finished `anywh-bg` job that didn't exit cleanly, kept by the relay
+ * until dismissed. Mirrors the relay's `FailedBackgroundJobSummary`
+ * (relay/src/host/backgroundJobs.ts). */
+export interface FailedBackgroundJobSummary {
+  id: string;
+  label: string;
+  pid: number;
+  exitCode: number;
+  logTail: string;
+  finishedAt: number;
+  terminated?: true;
 }
 
 /** A session as the relay exposes it on `GET /sessions` — `id` is stable

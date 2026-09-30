@@ -162,11 +162,11 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
       // the composer below rather than a second floating box the same size
       // as either. No bottom border, and a negative margin overlapping the
       // composer's own top border by 1px (`z-10` keeps this tab painted over
-      // that border despite Composer following it in the DOM) — the
-      // negative amount is the composer's own spacing toward it canceled
-      // out plus that 1px: desktop's is `my-3` on Composer's own box
-      // (Composer.tsx), iOS's is the parent stack's `gap-2` (ChatPanel.tsx).
-      <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0 -mb-[9px]" : "mx-3 mt-3 -mb-[13px]")}>
+      // that border despite Composer following it in the DOM) — desktop's
+      // Composer has no top spacing of its own (`mb-3` only, Composer.tsx),
+      // so this 1px is the whole overlap; iOS's is the parent stack's
+      // `gap-2` (ChatPanel.tsx).
+      <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0 -mb-[9px]" : "mx-3 mt-3 -mb-[1px]")}>
         <button
           type="button"
           onClick={() => setCollapsed(false)}

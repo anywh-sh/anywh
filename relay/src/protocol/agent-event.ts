@@ -100,6 +100,10 @@ export interface PlanTodo {
   activeForm?: string;
 }
 
+/** How a subagent's run ended, or that it is still going — see the
+ * `subagent` variant. */
+export type SubagentStatus = "running" | "completed" | "failed" | "stopped";
+
 export type AgentEvent =
   /** Synthesized by the session, not mapped from CLI output — see the file
    * doc comment. Fires once, before anything else for this turn. `startedAt`
@@ -126,8 +130,14 @@ export type AgentEvent =
    * def whose CLI correlates blocks by position (Claude), a string for one
    * that correlates by item id (Codex) — only ever compared for equality. */
   | { type: "text_delta"; index: number | string; text: string }
-  /** The committed, final form of a text block. */
-  | { type: "text"; text: string; timestamp?: string }
+  /** The committed, final form of a text block. `parentToolUseId` (here and
+   * on `thinking`/`tool_started`/`tool_ended`/`plan`) marks an event a
+   * subagent produced rather than the main conversation: the `toolUseId` of
+   * the call that spawned it. Absent for the main thread. A subagent's
+   * events arrive interleaved with the main thread's — with a background
+   * subagent, while the main agent keeps talking — so this is the only way
+   * to keep its work out of the conversation itself. */
+  | { type: "text"; text: string; timestamp?: string; parentToolUseId?: string }
   /** A reasoning block began — lets a UI show it as in progress before any
    * of its text (which is often empty, see `thinking`) arrives. Reasoning
    * blocks never run concurrently, so the next `thinking` closes the most
@@ -138,7 +148,14 @@ export type AgentEvent =
   /** A committed reasoning block. `thinking` may be empty: some models
    * report that reasoning happened without exposing its text, and the block
    * still matters for its timing. */
-  | { type: "thinking"; thinking: string; timestamp?: string; startedAt?: number; endedAt?: number }
+  | {
+      type: "thinking";
+      thinking: string;
+      timestamp?: string;
+      startedAt?: number;
+      endedAt?: number;
+      parentToolUseId?: string;
+    }
   /** A tool call beginning — `toolUseId` pairs it with the `tool_ended` that
    * eventually closes it (or never arrives, if the turn was interrupted
    * first). `kind` is the def's own classification (see `ToolKind`); `name`
@@ -160,6 +177,7 @@ export type AgentEvent =
       subject?: ToolSubject;
       startedAt?: number;
       batchId?: string;
+      parentToolUseId?: string;
     }
   /** Live streaming preview of a tool call's arguments as they're being
    * generated — no current def emits this yet (nothing renders it either),
@@ -178,13 +196,36 @@ export type AgentEvent =
       isError: boolean;
       outcome?: ToolOutcome;
       endedAt?: number;
+      parentToolUseId?: string;
     }
   /** A plan/todo-list update (`TodoWrite` on Claude) — carries structured
    * `todos` instead of opaque `input` because, unlike an arbitrary tool call,
    * the shape is part of the contract, not private to one CLI. `toolUseId`
    * still pairs this with its own `tool_ended` (the tool's ack), so a def
    * doesn't need a second lifecycle just for plans. */
-  | { type: "plan"; toolUseId?: string; todos: PlanTodo[] }
+  | { type: "plan"; toolUseId?: string; todos: PlanTodo[]; parentToolUseId?: string }
+  /** A subagent's lifecycle, keyed by the `toolUseId` of the call that
+   * spawned it — started, a progress update, finished. Each event carries the
+   * full current picture it knows (not a diff), so a consumer can simply keep
+   * the latest per `toolUseId`; fields a given update doesn't know are
+   * absent, never reset. `background` is whether the main agent went on
+   * without waiting for it — its own tool call returns immediately then, so
+   * this event is the only signal it is still running. `activity` is the
+   * CLI's own one-line summary of what it is doing right now; `toolUses`/
+   * `totalTokens` are its running totals; `summary` its final report. `at`
+   * is epoch ms, stamped by the relay when the update was seen. */
+  | {
+      type: "subagent";
+      toolUseId: string;
+      status: SubagentStatus;
+      at: number;
+      description?: string;
+      background?: boolean;
+      activity?: string;
+      toolUses?: number;
+      totalTokens?: number;
+      summary?: string;
+    }
   /** The CLI's own identifier for this conversation, whenever the def learns
    * it (may fire more than once in a turn; the value never changes within a
    * turn) — the seam a future rewind/persisted-log feature needs, unused by
