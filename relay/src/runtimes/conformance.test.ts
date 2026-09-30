@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentEvent, ToolOutcome, ToolSubject } from "../protocol/agent-event.js";
 import type { ClaudeEvent } from "./defs/claude/index.js";
 import { mapClaudeEvent } from "./streams/claudeStreamJson.js";
+import { mapCodexNotification } from "./streams/codexAppServer.js";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
 
 /**
@@ -84,4 +85,42 @@ test("claude: the relay's own bridge is identifiable as such from the subject al
   const bridge = events.filter((event) => event.type === "tool_started" && BRIDGE_TOOL.test(event.name));
   assert.equal(bridge.length, 1);
   assert.deepEqual(bridge[0]?.type === "tool_started" && bridge[0].subject, { kind: "mcp", server: "anywh-choice", tool: "present_choice" });
+});
+
+/** Notifications as `codex app-server` (0.154) sends them — item shapes from
+ * the generated bindings, the outputs from a real run. */
+const CODEX_TURN: [string, unknown][] = [
+  ["item/started", { startedAtMs: 1, item: { type: "reasoning", id: "rs", summary: [], content: [] } }],
+  ["item/completed", { completedAtMs: 2, item: { type: "reasoning", id: "rs", summary: ["Plan"], content: [] } }],
+  ["item/started", { startedAtMs: 3, item: { type: "commandExecution", id: "rd", command: "/usr/bin/bash -lc 'sed -n 2,3p f.txt'", status: "inProgress", commandActions: [{ type: "read", command: "sed -n 2,3p f.txt", name: "f.txt", path: "/w/f.txt" }], aggregatedOutput: null, exitCode: null } }],
+  ["item/completed", { completedAtMs: 4, item: { type: "commandExecution", id: "rd", command: "/usr/bin/bash -lc 'sed -n 2,3p f.txt'", status: "completed", commandActions: [{ type: "read", command: "sed -n 2,3p f.txt", name: "f.txt", path: "/w/f.txt" }], aggregatedOutput: "two\nthree\n", exitCode: 0 } }],
+  ["item/started", { startedAtMs: 5, item: { type: "commandExecution", id: "sh", command: "/usr/bin/bash -lc 'npm test'", status: "inProgress", commandActions: [{ type: "unknown", command: "npm test" }], aggregatedOutput: null, exitCode: null } }],
+  ["item/completed", { completedAtMs: 6, item: { type: "commandExecution", id: "sh", command: "/usr/bin/bash -lc 'npm test'", status: "failed", commandActions: [{ type: "unknown", command: "npm test" }], aggregatedOutput: "1 failing", exitCode: 1 } }],
+  ["item/started", { startedAtMs: 7, item: { type: "fileChange", id: "fc", status: "inProgress", changes: [{ path: "/w/f.txt", kind: { type: "update", move_path: null }, diff: "@@ -1 +1 @@\n-one\n+ONE\n" }, { path: "/w/g.txt", kind: { type: "add" }, diff: "hello\n" }] } }],
+  ["item/completed", { completedAtMs: 8, item: { type: "fileChange", id: "fc", status: "completed", changes: [{ path: "/w/f.txt", kind: { type: "update", move_path: null }, diff: "@@ -1 +1 @@\n-one\n+ONE\n" }, { path: "/w/g.txt", kind: { type: "add" }, diff: "hello\n" }] } }],
+  ["item/started", { startedAtMs: 9, item: { type: "webSearch", id: "ws", query: "q", action: { type: "search", query: "q", queries: null }, results: null } }],
+  ["item/completed", { completedAtMs: 10, item: { type: "webSearch", id: "ws", query: "q", action: { type: "search", query: "q", queries: null }, results: [{ title: "T", url: "https://t.dev" }] } }],
+  ["item/started", { startedAtMs: 11, item: { type: "mcpToolCall", id: "mc", server: "linear", tool: "get_issue", status: "inProgress", arguments: { id: "X-1" }, result: null, error: null } }],
+  ["item/completed", { completedAtMs: 12, item: { type: "mcpToolCall", id: "mc", server: "linear", tool: "get_issue", status: "completed", arguments: { id: "X-1" }, result: { content: [] }, error: null } }],
+  ["item/started", { startedAtMs: 13, item: { type: "mcpToolCall", id: "pc", server: "anywh-choice", tool: "present_choice", status: "inProgress", arguments: {}, result: null, error: null } }],
+];
+
+test("codex: a real turn fulfils the tool display contract", () => {
+  assertToolContract(CODEX_TURN.flatMap(([method, params]) => mapCodexNotification(method, params)));
+});
+
+test("codex: shell-run reads and edits reach the display as reads and diffs, and every timed call carries the daemon's own times", () => {
+  const events = CODEX_TURN.flatMap(([method, params]) => mapCodexNotification(method, params));
+  const outcomes = new Set(events.flatMap((event) => (event.type === "tool_ended" && event.outcome ? [event.outcome.kind] : [])));
+  assert.deepEqual([...outcomes].sort(), ["code", "diff", "links", "payload", "terminal"]);
+  for (const event of events) {
+    if (event.type === "tool_started") assert.equal(typeof event.startedAt, "number");
+    if (event.type === "tool_ended") assert.equal(typeof event.endedAt, "number");
+  }
+});
+
+test("codex: the relay's own bridge is identifiable as such from the subject alone", () => {
+  const events = CODEX_TURN.flatMap(([method, params]) => mapCodexNotification(method, params));
+  const bridge = events.filter((event) => event.type === "tool_started" && event.subject?.kind === "mcp" && event.subject.server === "anywh-choice");
+  assert.equal(bridge.length, 1);
 });
