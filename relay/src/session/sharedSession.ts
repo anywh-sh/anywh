@@ -11,6 +11,7 @@ import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { ActivityClock } from "./activityClock.js";
+import { BridgeToolFilter } from "./bridgeToolFilter.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
@@ -619,12 +620,10 @@ export class SharedSession implements SessionDriverHost {
    * `agent-event.ts`'s own comment on why the wire variant's `toolUseIds`
    * is an array but every synthesized event carries exactly one). Consumed
    * by `ToolCallCard`'s per-call token badge in the chat transcript. */
-  private emitContextAttribution(attribution: Attribution): void {
+  private emitContextAttribution(attribution: Attribution, bridgeFilter: BridgeToolFilter): void {
     for (const source of attribution.bySource) {
-      this.broadcast({
-        type: "agent_event",
-        event: { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated },
-      });
+      const event: AgentEvent = { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated };
+      if (!bridgeFilter.shouldHide(event)) this.broadcast({ type: "agent_event", event });
     }
   }
 
@@ -746,7 +745,8 @@ export class SharedSession implements SessionDriverHost {
   private ensureHistoryLoaded(): void {
     if (this.history.length > 0 || this.historyCleared || !this.options.initialSessionId) return;
     const home = defaultCwd(this.homeOverride); // where the child process's ~/.claude/projects/ lives
-    this.history.push(...readHistoryFromTranscript(home, this.cwd, this.options.initialSessionId));
+    const filter = new BridgeToolFilter();
+    this.history.push(...readHistoryFromTranscript(home, this.cwd, this.options.initialSessionId).filter((entry) => !filter.shouldHide(entry.event)));
   }
 
   /** `origin` is the socket that sent this message — used only to know who
@@ -1000,6 +1000,7 @@ export class SharedSession implements SessionDriverHost {
     // device's timer — or a third device connecting mid-turn — count from
     // the real start, not from when it found out.
     const clock = new ActivityClock(Date.now);
+    const bridgeFilter = new BridgeToolFilter();
     this.turnStartedAt = clock.startedAt;
     this.broadcastTurnState();
 
@@ -1099,9 +1100,11 @@ export class SharedSession implements SessionDriverHost {
             this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
             this.broadcastContextUsage();
           }
-          if (step.attribution) this.emitContextAttribution(step.attribution);
+          if (step.attribution) this.emitContextAttribution(step.attribution, bridgeFilter);
         }
-        this.broadcast({ type: "agent_event", event: agentEvent });
+        // The relay's own bridge calls have their own UI; hiding them here
+        // leaves the job tracker below, which sees everything, unaffected.
+        if (!bridgeFilter.shouldHide(agentEvent)) this.broadcast({ type: "agent_event", event: agentEvent });
         // Lets the `anywh-bg` job tracker (owned by
         // `SessionManager`) see every event of every turn, looking for
         // the start marker. Purely observational: never throws nor
