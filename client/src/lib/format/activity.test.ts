@@ -53,6 +53,11 @@ describe("summarizeGroup", () => {
     expect(s.running).toBe(false);
   });
 
+  it("counts a run of different finished commands instead of quoting them, and names the one still running", () => {
+    expect(summarizeGroup([shell("ls -d /a/*"), shell("cd /a; cat b")], en).text).toBe("Ran 2 commands");
+    expect(summarizeGroup([shell("ls"), shell("pwd"), shell("npm test", { done: false })], en).text).toBe("Ran 2 commands, running npm test…");
+  });
+
   it("uses the gerund and an ellipsis for a call still running", () => {
     const s = summarizeGroup([read("/w/socket.ts"), shell("npm test", { done: false })], en);
     expect(s.text).toBe("Read socket.ts, running npm test…");

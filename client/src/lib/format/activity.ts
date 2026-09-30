@@ -132,6 +132,32 @@ function collapseRepeats(phrases: string[]): string[] {
   return out.map(({ phrase, count }) => (count > 1 ? `${phrase} ${count}×` : phrase));
 }
 
+/** One phrase per call, except that a run of different finished commands
+ * is counted, not quoted — a command line is noise in a sentence once it has
+ * run, and the expanded row keeps it in full. A command repeated as it was
+ * ("npm test", "npm test") is still named, so it can collapse to "2×";
+ * one still running is always named. */
+function detailPhrases(calls: ToolCallEntry[], dict: ActivityDict): string[] {
+  const phrases: string[] = [];
+  let run: ToolCallEntry[] = [];
+  const flush = () => {
+    const commands = new Set(run.map(callTarget));
+    if (commands.size > 1) phrases.push(plural(dict.counts.shell, run.length));
+    else phrases.push(...run.map((call) => phraseFor(call, dict)));
+    run = [];
+  };
+  for (const call of calls) {
+    if (call.done && countKey(call) === "shell") {
+      run.push(call);
+      continue;
+    }
+    flush();
+    phrases.push(phraseFor(call, dict));
+  }
+  flush();
+  return phrases;
+}
+
 /** A group longer than this is described by counts, not call by call. */
 export const GROUP_DETAIL_LIMIT = 4;
 
@@ -150,7 +176,7 @@ export function summarizeGroup(calls: ToolCallEntry[], dict: ActivityDict): Grou
   let phrases: string[];
 
   if (calls.length <= GROUP_DETAIL_LIMIT) {
-    phrases = collapseRepeats(calls.map((call) => phraseFor(call, dict)));
+    phrases = collapseRepeats(detailPhrases(calls, dict));
   } else {
     const order: CountKey[] = [];
     const counts = new Map<CountKey, number>();
