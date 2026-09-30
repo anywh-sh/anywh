@@ -203,7 +203,6 @@ export const en: Dictionary = {
     },
     composer: {
       placeholder: "Write a message…",
-      sendShortcut: "↵",
       attach: "Attach image or video",
       attachmentUploading: "uploading attachment…",
       removeAttachment: "Remove attachment",

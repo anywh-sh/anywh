@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
 import { contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
@@ -22,13 +23,11 @@ interface BreakdownSegment {
 }
 
 /**
- * Ring + token count as one chip, third control on the composer's toolbar,
- * with the full detail a click away. The count reads on the chip itself
- * rather than only inside the popover: it is the reason the turn indicator
- * doesn't carry a second one, and a number nobody can see doesn't settle
- * that argument. Written compactly (`128k/200k`) with the window size a
- * shade fainter than what's been spent — the part that moves is the part
- * that reads first.
+ * The ring alone, borderless, as the last control on the composer's toolbar,
+ * with the full detail a click away. The token count lives only in the
+ * popover: the ring already says how full the window is at a glance, and the
+ * exact numbers are one click behind it (the `aria-label` carries the
+ * percentage for assistive tech).
  *
  * The popover renders one of two shapes, depending on whether
  * `usage.breakdown` has arrived yet (it's requested on open, see `onOpen`,
@@ -52,7 +51,7 @@ interface BreakdownSegment {
  * restoration fails on Tauri's WKWebView on macOS) and blurs the trigger on
  * close (otherwise a neighboring button's Tooltip would get "stuck" open by
  * inheriting the focus). `usage` null (session with no turn yet) hides the
- * whole chip, same as the ring alone already did.
+ * whole control.
  */
 export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -115,13 +114,9 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
           type="button"
           aria-label={copy.ariaLabel.replace("{percent}", String(Math.round(pct)))}
           title={copy.label}
-          className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 border border-border bg-bg-sidebar pr-2 pl-1.5 font-mono text-[10.5px] text-muted-foreground transition-colors hover:border-text-faint hover:text-foreground"
+          className={toolbarTriggerClass}
         >
           <ContextUsageRing usage={usage} />
-          <span className="whitespace-nowrap">
-            {formatTokenCount(usage.usedTokens)}
-            <span className="text-text-faint">/{formatTokenCount(usage.contextWindowSize)}</span>
-          </span>
         </button>
       </DropdownMenuTrigger>
 

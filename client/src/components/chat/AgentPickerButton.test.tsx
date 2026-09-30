@@ -17,7 +17,7 @@ const profile: Profile = { id: "p1", label: "Perfil", host: "localhost", relayPo
 describe("AgentPickerButton", () => {
   it("renders nothing with zero or one selectable agent", async () => {
     vi.mocked(getHostInfo).mockResolvedValue({ hostname: "host", platform: "linux", editor: null, agents: [{ id: "claude", capabilities: {} }] });
-    const { container } = render(<AgentPickerButton profile={profile} agentId="claude" onChange={vi.fn()} />);
+    const { container } = render(<AgentPickerButton profile={profile} agentId="claude" onChange={vi.fn()} locked={false} />);
 
     await vi.waitFor(() => expect(getHostInfo).toHaveBeenCalledWith(profile));
     expect(container).toBeEmptyDOMElement();
@@ -25,7 +25,7 @@ describe("AgentPickerButton", () => {
 
   it("renders nothing when /host-info omits agents (older relay)", () => {
     vi.mocked(getHostInfo).mockResolvedValue({ hostname: "host", platform: "linux", editor: null });
-    const { container } = render(<AgentPickerButton profile={profile} agentId="claude" onChange={vi.fn()} />);
+    const { container } = render(<AgentPickerButton profile={profile} agentId="claude" onChange={vi.fn()} locked={false} />);
 
     expect(container).toBeEmptyDOMElement();
   });
@@ -42,13 +42,13 @@ describe("AgentPickerButton", () => {
     });
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<AgentPickerButton profile={profile} agentId="claude" onChange={onChange} />);
+    render(<AgentPickerButton profile={profile} agentId="claude" onChange={onChange} locked={false} />);
 
-    const button = await screen.findByRole("button");
-    expect(button).toHaveTextContent(en.chat.composer.agentNames.claude);
+    const button = await screen.findByRole("button", { name: en.chat.composer.agentNames.claude });
+    expect(button.querySelector("svg")).not.toBeNull();
 
     await user.click(button);
-    await user.click(await screen.findByRole("menuitem", { name: en.chat.composer.agentNames.codex }));
+    await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${en.chat.composer.agentNames.codex}`) }));
 
     expect(onChange).toHaveBeenCalledWith("codex");
   });
@@ -63,7 +63,7 @@ describe("AgentPickerButton", () => {
         { id: "codex", capabilities: {} },
       ],
     });
-    render(<AgentPickerButton profile={profile} agentId={null} onChange={vi.fn()} />);
+    render(<AgentPickerButton profile={profile} agentId={null} onChange={vi.fn()} locked={false} />);
 
     expect(await screen.findByRole("button")).toBeDisabled();
   });
@@ -78,8 +78,50 @@ describe("AgentPickerButton", () => {
         { id: "some-future-agent", capabilities: {} },
       ],
     });
-    render(<AgentPickerButton profile={profile} agentId="some-future-agent" onChange={vi.fn()} />);
+    render(<AgentPickerButton profile={profile} agentId="some-future-agent" onChange={vi.fn()} locked={false} />);
 
-    expect(await screen.findByRole("button")).toHaveTextContent("some-future-agent");
+    expect(await screen.findByRole("button", { name: "some-future-agent" })).toBeInTheDocument();
+  });
+
+  it("shows vendor and CLI version under each name, omitting the line when neither exists", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue({
+      hostname: "host",
+      platform: "linux",
+      editor: null,
+      agents: [
+        { id: "claude", capabilities: {}, version: "2.1.3" },
+        { id: "some-future-agent", capabilities: {} },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<AgentPickerButton profile={profile} agentId="claude" onChange={vi.fn()} locked={false} />);
+
+    await user.click(await screen.findByRole("button"));
+
+    expect(await screen.findByText("Anthropic · claude v2.1.3")).toBeInTheDocument();
+    const unknown = screen.getByRole("menuitem", { name: "some-future-agent" });
+    expect(unknown).toHaveTextContent(/^some-future-agent$/);
+  });
+
+  it("locked: the menu still opens, but choosing the other agent does not call onChange", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue({
+      hostname: "host",
+      platform: "linux",
+      editor: null,
+      agents: [
+        { id: "claude", capabilities: {} },
+        { id: "codex", capabilities: {} },
+      ],
+    });
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<AgentPickerButton profile={profile} agentId="claude" onChange={onChange} locked />);
+
+    const button = await screen.findByRole("button");
+    expect(button).not.toHaveTextContent("▾");
+    await user.click(button);
+    await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${en.chat.composer.agentNames.codex}`) }));
+
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

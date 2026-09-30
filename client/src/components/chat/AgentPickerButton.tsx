@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+import { AgentLogo, agentVendor } from "@/components/chat/AgentLogo";
+import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
 import { getHostInfo, type SelectableAgentInfo } from "@/lib/relay/filesClient";
@@ -23,6 +24,11 @@ interface AgentPickerButtonProps {
    * session this button belongs to. */
   agentId: string | null;
   onChange: (agentId: string) => void;
+  /** `true` once the conversation has had its first turn (same signal as
+   * `ModelButton`'s `locked`): the session's agent can't change after that.
+   * Unlike the model button the menu still opens — it shows which agent is
+   * fixed — but the other entries are dimmed and choosing one does nothing. */
+  locked: boolean;
 }
 
 /** Same id-switch-with-literal-fallback shape as `PermissionModeButton`'s
@@ -39,7 +45,7 @@ export function agentName(agentNames: Record<KnownAgentId, string>, id: string):
  * entirely when there's zero or one entry, same as before this had a real
  * dropdown: a relay without a second agent installed shows nothing extra.
  */
-export function AgentPickerButton({ profile, agentId, onChange }: AgentPickerButtonProps) {
+export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentPickerButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [agents, setAgents] = useState<SelectableAgentInfo[]>([]);
   const agentNames = useDict().chat.composer.agentNames;
@@ -66,20 +72,47 @@ export function AgentPickerButton({ profile, agentId, onChange }: AgentPickerBut
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button ref={triggerRef} type="button" variant="outline" size="sm" disabled={agentId === null} className="min-w-0 gap-1.5 px-2">
-          <Bot className="size-3" />
-          <span className="truncate">{agentId !== null ? agentName(agentNames, agentId) : "…"}</span>
-          <ChevronDown className="size-2.5 opacity-60" />
-        </Button>
+        <button
+          ref={triggerRef}
+          type="button"
+          disabled={agentId === null}
+          title={agentId !== null ? agentName(agentNames, agentId) : undefined}
+          aria-label={agentId !== null ? agentName(agentNames, agentId) : undefined}
+          className={toolbarTriggerClass}
+        >
+          {agentId !== null && <AgentLogo agentId={agentId} className="size-3.5" />}
+          {!locked && (
+            <span aria-hidden="true" className="text-[9px] opacity-55">
+              ▾
+            </span>
+          )}
+        </button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-40">
-        {agents.map((agent) => (
-          <DropdownMenuItem key={agent.id} onSelect={() => onChange(agent.id)} className="gap-3">
-            <span className="flex-1 truncate text-left">{agentName(agentNames, agent.id)}</span>
-            <Check className={cn("size-3.5 text-primary!", agent.id !== agentId && "opacity-0")} />
-          </DropdownMenuItem>
-        ))}
+        {agents.map((agent) => {
+          const vendor = agentVendor(agent.id);
+          const detail = [vendor, agent.version !== undefined ? `${agent.id} v${agent.version}` : undefined].filter(Boolean).join(" · ");
+          const current = agent.id === agentId;
+          return (
+            <DropdownMenuItem
+              key={agent.id}
+              onSelect={() => {
+                if (!locked) onChange(agent.id);
+              }}
+              className={cn("items-start gap-3 py-2", current && "bg-primary-soft", locked && !current && "opacity-50")}
+            >
+              <span className="flex size-6 shrink-0 items-center justify-center border border-border-soft">
+                <AgentLogo agentId={agent.id} className="size-3.5" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                <span className="truncate">{agentName(agentNames, agent.id)}</span>
+                {detail !== "" && <span className="truncate font-sans text-[11px] text-muted-foreground">{detail}</span>}
+              </span>
+              <Check className={cn("mt-1 size-3.5 text-primary!", !current && "opacity-0")} />
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
