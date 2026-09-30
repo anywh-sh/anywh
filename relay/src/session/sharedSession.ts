@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { readHistoryFromTranscript, buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
@@ -254,6 +254,10 @@ export class SharedSession implements SessionDriverHost {
    * after the clear (its normal guard only looks at `history.length`,
    * which we deliberately zero out on clear). */
   private historyCleared = false;
+  /** Set once history recovery starts, so a session with nothing to recover
+   * is not asked again on every connection (for Codex, each ask is a daemon
+   * round trip). */
+  private historyLoad: Promise<void> | undefined;
   /** `null` outside of a turn — timestamp (epoch ms) of when the current
    * turn started, while one is running. "Current" state (like `cwd`),
    * doesn't go into `history`: a client connecting (or reconnecting) picks
@@ -689,7 +693,19 @@ export class SharedSession implements SessionDriverHost {
     this.sendBackgroundJobs(socket);
     this.choiceMachine.sendPendingTo(socket);
 
-    this.ensureHistoryLoaded();
+    const loading = this.ensureHistoryLoaded();
+    if (loading) {
+      // The log is being recovered from the agent's own storage. This device
+      // joins once it's in, so its first page already has everything.
+      void loading.then(() => {
+        if (socket.readyState === socket.OPEN) this.sendHistoryAndJoin(socket);
+      });
+    } else {
+      this.sendHistoryAndJoin(socket);
+    }
+  }
+
+  private sendHistoryAndJoin(socket: WebSocket): void {
     // Only the recent tail (`INITIAL_HISTORY_TAIL_TURNS`
     // turns), not the whole `history`: long sessions (a real finding, "IVT
     // Fix" — 1670 reconstructed lines) used to stall the connection by
@@ -742,11 +758,31 @@ export class SharedSession implements SessionDriverHost {
    * once per process: once loaded, `history` is never empty again for this
    * session. Without `initialSessionId` there's nothing to read (new session).
    */
-  private ensureHistoryLoaded(): void {
-    if (this.history.length > 0 || this.historyCleared || !this.options.initialSessionId) return;
-    const home = defaultCwd(this.homeOverride); // where the child process's ~/.claude/projects/ lives
+  private ensureHistoryLoaded(): Promise<void> | undefined {
+    if (this.historyLoad === undefined && !this.needsHistoryLoad()) return undefined;
+    this.historyLoad ??= this.loadHistory();
+    return this.historyLoad;
+  }
+
+  private needsHistoryLoad(): boolean {
+    return this.history.length === 0 && !this.historyCleared && this.options.initialSessionId !== undefined && this.driver.readHistory !== undefined;
+  }
+
+  private async loadHistory(): Promise<void> {
+    let events: AgentEvent[];
+    try {
+      events = (await this.driver.readHistory?.(this.cwd)) ?? [];
+    } catch (error) {
+      // A reopened session that can't recover its log still works: a fresh
+      // conversation view beats a connection that never completes.
+      console.error(`[relay] could not read session history: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (this.historyCleared) return;
     const filter = new BridgeToolFilter();
-    this.history.push(...readHistoryFromTranscript(home, this.cwd, this.options.initialSessionId).filter((entry) => !filter.shouldHide(entry.event)));
+    // Anything broadcast while this was reading is already in `history` and
+    // happened after what was read — the recovered part goes in front of it.
+    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event })));
   }
 
   /** `origin` is the socket that sent this message — used only to know who
