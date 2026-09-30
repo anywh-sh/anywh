@@ -74,6 +74,7 @@ export const ptBr: Dictionary = {
       stopAgent: "parar agente",
       logLoading: "lendo o log…",
       logEmpty: "nenhuma saída ainda",
+      logUnavailable: "log indisponível neste relay",
       agentNoToolCalls: "nenhuma chamada de ferramenta ainda",
       agentOneToolUse: "1 ferramenta",
       agentToolUses: "{count} ferramentas",
@@ -350,6 +351,9 @@ export const ptBr: Dictionary = {
         procBadge: "PROC",
         agentTail: "turno em andamento",
         timeAgo: "há {time}",
+        logLoading: "lendo o log…",
+        logUnavailable: "log indisponível neste relay",
+        noOutput: "nenhuma saída ainda",
       },
     },
     sidebar: {

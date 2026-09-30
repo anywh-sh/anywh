@@ -109,7 +109,8 @@ function ProcCard({
   const strings = dict.chat.launchedInBackground;
   const elapsedSeconds = useElapsedSeconds(job.startedAt);
   const log = useBackgroundJobLog(profile, sessionId, job.id, live);
-  const lines = logTailLines(log ?? "", EXPANDED_LOG_LINES);
+  const lines = logTailLines(log.tail ?? "", EXPANDED_LOG_LINES);
+  const emptyLog = log.status === "loading" ? strings.logLoading : log.status === "unavailable" ? strings.logUnavailable : strings.logEmpty;
 
   return (
     <CardShell
@@ -122,7 +123,7 @@ function ProcCard({
       meta={formatDurationLong(elapsedSeconds)}
       latest={lines[lines.length - 1] ?? null}
     >
-      <CardLines lines={lines} empty={log === null ? strings.logLoading : strings.logEmpty} />
+      <CardLines lines={lines} empty={emptyLog} />
       <div className="flex items-center gap-1.5 border-t border-border-soft px-2.5 py-2 pl-8">
         <button
           type="button"

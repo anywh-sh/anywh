@@ -479,6 +479,9 @@ export interface Dictionary {
       logLoading: string;
       /** Expanded process card whose job hasn't printed anything yet. */
       logEmpty: string;
+      /** Expanded process card when the relay can't serve the job's log
+       * (one predating the log route, or unreachable). */
+      logUnavailable: string;
       /** Expanded subagent card before the subagent has called any tool. */
       agentNoToolCalls: string;
       /** Running subagent card meta, after its elapsed time: how many tools
@@ -884,6 +887,13 @@ export interface Dictionary {
         agentTail: string;
         /** `{time}` — a failed item's row, how long ago it finished. */
         timeAgo: string;
+        /** A running process row's log line before the first read answers. */
+        logLoading: string;
+        /** A running process row's log line when the relay can't serve the
+         * log (one predating the log route, or unreachable). */
+        logUnavailable: string;
+        /** A process row whose job hasn't printed anything. */
+        noOutput: string;
       };
     };
     sidebar: {

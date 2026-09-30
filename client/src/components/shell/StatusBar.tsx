@@ -79,10 +79,22 @@ function ActivityRow({
       ? [item.tail || strings.agentTail]
       : failed
         ? logTailLines(item.tail, 1)
-        : logTailLines(liveLog ?? "", 2);
+        : logTailLines(liveLog.tail ?? "", 2);
   const duration = item.time === null ? null : formatDurationLong(elapsedSeconds);
-  const lastLine = tailLines[tailLines.length - 1] ?? "";
-  const tailClassName = cn("font-mono text-[10.5px]", failed ? "text-destructive" : "text-text-faint");
+  // The last line is the row's fixed slot (it also holds the actions), so it
+  // never renders blank: with no output to show it says why instead.
+  const placeholder =
+    tailLines.length > 0
+      ? null
+      : failed
+        ? strings.noOutput
+        : liveLog.status === "loading"
+          ? strings.logLoading
+          : liveLog.status === "unavailable"
+            ? strings.logUnavailable
+            : strings.noOutput;
+  const lastLine = placeholder ?? tailLines[tailLines.length - 1];
+  const tailClassName = cn("font-mono text-[10.5px]", failed && placeholder === null ? "text-destructive" : "text-text-faint");
 
   return (
     <div className="group relative flex items-start gap-[9px] py-[9px] pr-[9px] pl-[13px] transition-colors hover:bg-bg-elevated">
@@ -126,7 +138,7 @@ function ActivityRow({
          * the same shape, the actions never cover text, and there is no line
          * left empty just to hold buttons that only show on hover. */}
         <div className="flex items-center gap-2">
-          <span title={lastLine} className={cn("min-w-0 flex-1 truncate", tailClassName)}>
+          <span title={lastLine} className={cn("min-w-0 flex-1 truncate", tailClassName, placeholder !== null && "italic opacity-70")}>
             {lastLine}
           </span>
           <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
