@@ -10,6 +10,7 @@ import { type McpPermissionBridge, type PermissionDecision } from "../bridges/pe
 import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
+import { ActivityClock } from "./activityClock.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
@@ -998,7 +999,8 @@ export class SharedSession implements SessionDriverHost {
     // clicked "Send". `startedAt` (not just a boolean) lets another
     // device's timer — or a third device connecting mid-turn — count from
     // the real start, not from when it found out.
-    this.turnStartedAt = Date.now();
+    const clock = new ActivityClock(Date.now);
+    this.turnStartedAt = clock.startedAt;
     this.broadcastTurnState();
 
     // First thing in the log for this turn — see `AgentEvent`'s own doc
@@ -1006,7 +1008,7 @@ export class SharedSession implements SessionDriverHost {
     // rather than mapped from anything the CLI emits. Sent to every device,
     // origin included: unlike `user_message` below, no device has already
     // rendered this locally.
-    this.broadcast({ type: "agent_event", event: { type: "turn_started" } });
+    this.broadcast({ type: "agent_event", event: clock.turnStarted() });
 
     // Syncs the question to the OTHER devices connected to this same
     // session — a real finding: without this, whoever didn't send the
@@ -1064,7 +1066,10 @@ export class SharedSession implements SessionDriverHost {
     let planChoiceText: string | undefined;
     try {
       const ctx: TurnContext = { cwd: this.cwd, prompt: text, modelId: this.model, permissionModeId: this.permissionMode };
-      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (agentEvent) => {
+      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
+        // Timing first, so every consumer below (the log, the job tracker)
+        // sees the same stamped event — see `ActivityClock`.
+        const agentEvent = clock.stamp(rawEvent);
         // Must run BEFORE the broadcast below: a device reconnecting
         // mid-turn right as this arrives should see the updated mode, not a
         // stale one from before this same event was processed. Checked
@@ -1120,7 +1125,7 @@ export class SharedSession implements SessionDriverHost {
         this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
       }
-      this.broadcast({ type: "agent_event", event: { type: "turn_ended", stopped } });
+      this.broadcast({ type: "agent_event", event: clock.turnEnded(stopped) });
       // Only suggests a follow-up for a turn that genuinely finished (not
       // interrupted) — fire-and-forget, doesn't delay `turn_ended`
       // above. Speed isn't a priority here (it's a convenience, not part
