@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import type WebSocket from "ws";
-import { collectUntil, connectSession, connectSessionListWatch, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionListWatch, findAgentEvent, isTurnEnded, sendUserMessage, assertTurnEnded } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md), continuing where
 // sessionLifecycle.test.ts leaves off: the "Stop" button (interrupt) and the
@@ -49,7 +49,7 @@ test("stop_turn interrupts an in-flight turn (stopped: true) without losing sess
 
   const messages = await collectUntil(socket, isTurnEnded);
   const turnEnded = messages.at(-1);
-  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: true } });
+  assertTurnEnded(turnEnded, true);
 
   const sessionIdEvent = findAgentEvent(messages, "session_id");
   const sessionId = (sessionIdEvent!.event as { sessionId?: string }).sessionId;

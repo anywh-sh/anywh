@@ -406,7 +406,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     presentChoice: "native",
     approvalPrompt: "native",
     rewindTurn: "none",
-    replayHistory: "none",
+    replayHistory: "native",
     // Unverified against the real binary yet — conservative "none" rather
     // than a claim this def can't back up.
     backgroundJobs: "none",
@@ -482,6 +482,8 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     framing: "ndjson",
     thread: { start: startThread },
     turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
+    // Stored turns of a thread, read back over the same daemon.
+    replayHistoryMethod: "thread/turns/list",
     mapNotification: mapCodexNotification,
     handleServerRequest,
   },

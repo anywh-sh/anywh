@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { readHistoryFromTranscript, buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
@@ -10,6 +10,8 @@ import { type McpPermissionBridge, type PermissionDecision } from "../bridges/pe
 import { defaultCwd } from "../host/paths.js";
 import { formatPlanChoiceAnswerText, parsePlanChoiceMarkers } from "../bridges/planChoiceMarker.js";
 import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
+import { ActivityClock } from "./activityClock.js";
+import { BridgeToolFilter } from "./bridgeToolFilter.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
@@ -259,6 +261,10 @@ export class SharedSession implements SessionDriverHost {
    * after the clear (its normal guard only looks at `history.length`,
    * which we deliberately zero out on clear). */
   private historyCleared = false;
+  /** Set once history recovery starts, so a session with nothing to recover
+   * is not asked again on every connection (for Codex, each ask is a daemon
+   * round trip). */
+  private historyLoad: Promise<void> | undefined;
   /** `null` outside of a turn — timestamp (epoch ms) of when the current
    * turn started, while one is running. "Current" state (like `cwd`),
    * doesn't go into `history`: a client connecting (or reconnecting) picks
@@ -635,12 +641,10 @@ export class SharedSession implements SessionDriverHost {
    * `agent-event.ts`'s own comment on why the wire variant's `toolUseIds`
    * is an array but every synthesized event carries exactly one). Consumed
    * by `ToolCallCard`'s per-call token badge in the chat transcript. */
-  private emitContextAttribution(attribution: Attribution): void {
+  private emitContextAttribution(attribution: Attribution, bridgeFilter: BridgeToolFilter): void {
     for (const source of attribution.bySource) {
-      this.broadcast({
-        type: "agent_event",
-        event: { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated },
-      });
+      const event: AgentEvent = { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated };
+      if (!bridgeFilter.shouldHide(event)) this.broadcast({ type: "agent_event", event });
     }
   }
 
@@ -706,7 +710,19 @@ export class SharedSession implements SessionDriverHost {
     this.sendBackgroundJobs(socket);
     this.choiceMachine.sendPendingTo(socket);
 
-    this.ensureHistoryLoaded();
+    const loading = this.ensureHistoryLoaded();
+    if (loading) {
+      // The log is being recovered from the agent's own storage. This device
+      // joins once it's in, so its first page already has everything.
+      void loading.then(() => {
+        if (socket.readyState === socket.OPEN) this.sendHistoryAndJoin(socket);
+      });
+    } else {
+      this.sendHistoryAndJoin(socket);
+    }
+  }
+
+  private sendHistoryAndJoin(socket: WebSocket): void {
     // Only the recent tail (`INITIAL_HISTORY_TAIL_TURNS`
     // turns), not the whole `history`: long sessions (a real finding, "IVT
     // Fix" — 1670 reconstructed lines) used to stall the connection by
@@ -759,10 +775,31 @@ export class SharedSession implements SessionDriverHost {
    * once per process: once loaded, `history` is never empty again for this
    * session. Without `initialSessionId` there's nothing to read (new session).
    */
-  private ensureHistoryLoaded(): void {
-    if (this.history.length > 0 || this.historyCleared || !this.options.initialSessionId) return;
-    const home = defaultCwd(this.homeOverride); // where the child process's ~/.claude/projects/ lives
-    this.history.push(...readHistoryFromTranscript(home, this.cwd, this.options.initialSessionId));
+  private ensureHistoryLoaded(): Promise<void> | undefined {
+    if (this.historyLoad === undefined && !this.needsHistoryLoad()) return undefined;
+    this.historyLoad ??= this.loadHistory();
+    return this.historyLoad;
+  }
+
+  private needsHistoryLoad(): boolean {
+    return this.history.length === 0 && !this.historyCleared && this.options.initialSessionId !== undefined && this.driver.readHistory !== undefined;
+  }
+
+  private async loadHistory(): Promise<void> {
+    let events: AgentEvent[];
+    try {
+      events = (await this.driver.readHistory?.(this.cwd)) ?? [];
+    } catch (error) {
+      // A reopened session that can't recover its log still works: a fresh
+      // conversation view beats a connection that never completes.
+      console.error(`[relay] could not read session history: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (this.historyCleared) return;
+    const filter = new BridgeToolFilter();
+    // Anything broadcast while this was reading is already in `history` and
+    // happened after what was read — the recovered part goes in front of it.
+    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event })));
   }
 
   /** `origin` is the socket that sent this message — used only to know who
@@ -1029,7 +1066,9 @@ export class SharedSession implements SessionDriverHost {
     // clicked "Send". `startedAt` (not just a boolean) lets another
     // device's timer — or a third device connecting mid-turn — count from
     // the real start, not from when it found out.
-    this.turnStartedAt = Date.now();
+    const clock = new ActivityClock(Date.now);
+    const bridgeFilter = new BridgeToolFilter();
+    this.turnStartedAt = clock.startedAt;
     this.broadcastTurnState();
 
     // First thing in the log for this turn — see `AgentEvent`'s own doc
@@ -1037,7 +1076,7 @@ export class SharedSession implements SessionDriverHost {
     // rather than mapped from anything the CLI emits. Sent to every device,
     // origin included: unlike `user_message` below, no device has already
     // rendered this locally.
-    this.broadcast({ type: "agent_event", event: { type: "turn_started" } });
+    this.broadcast({ type: "agent_event", event: clock.turnStarted() });
 
     // Syncs the question to the OTHER devices connected to this same
     // session — a real finding: without this, whoever didn't send the
@@ -1095,7 +1134,10 @@ export class SharedSession implements SessionDriverHost {
     let planChoiceText: string | undefined;
     try {
       const ctx: TurnContext = { cwd: this.cwd, prompt: text, modelId: this.model, permissionModeId: this.permissionMode };
-      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (agentEvent) => {
+      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
+        // Timing first, so every consumer below (the log, the job tracker)
+        // sees the same stamped event — see `ActivityClock`.
+        const agentEvent = clock.stamp(rawEvent);
         // Must run BEFORE the broadcast below: a device reconnecting
         // mid-turn right as this arrives should see the updated mode, not a
         // stale one from before this same event was processed. Checked
@@ -1125,9 +1167,11 @@ export class SharedSession implements SessionDriverHost {
             this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
             this.broadcastContextUsage();
           }
-          if (step.attribution) this.emitContextAttribution(step.attribution);
+          if (step.attribution) this.emitContextAttribution(step.attribution, bridgeFilter);
         }
-        this.broadcast({ type: "agent_event", event: agentEvent });
+        // The relay's own bridge calls have their own UI; hiding them here
+        // leaves the job tracker below, which sees everything, unaffected.
+        if (!bridgeFilter.shouldHide(agentEvent)) this.broadcast({ type: "agent_event", event: agentEvent });
         // Lets the `anywh-bg` job tracker (owned by
         // `SessionManager`) see every event of every turn, looking for
         // the start marker. Purely observational: never throws nor
@@ -1151,7 +1195,7 @@ export class SharedSession implements SessionDriverHost {
         this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
       }
-      this.broadcast({ type: "agent_event", event: { type: "turn_ended", stopped } });
+      this.broadcast({ type: "agent_event", event: clock.turnEnded(stopped) });
       // Only suggests a follow-up for a turn that genuinely finished (not
       // interrupted) — fire-and-forget, doesn't delay `turn_ended`
       // above. Speed isn't a priority here (it's a convenience, not part

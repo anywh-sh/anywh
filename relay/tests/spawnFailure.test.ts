@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage, assertTurnEnded } from "./helpers/wsClient.js";
 
 function isAgentError(message: Record<string, unknown>): boolean {
   return message.type === "agent_event" && (message.event as { type?: string } | undefined)?.type === "error";
@@ -55,6 +55,6 @@ test("cwd removed out from under a locked session: an agent_event error, not a d
   const control = await connectSession(server.port, "session-control");
   sendUserMessage(control, "hello");
   const controlMessages = await collectUntil(control, isTurnEnded);
-  assert.deepEqual(controlMessages.at(-1), { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(controlMessages.at(-1), false);
   control.close();
 });

@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, findAgentEvent, isTurnEnded, sendUserMessage, assertTurnEnded } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): exercises
 // `WakeupScheduler` end to end over the real WebSocket protocol and the real
@@ -76,7 +76,7 @@ test("a successful ScheduleWakeup call fires on its own, resuming the same sessi
   assert.equal(syntheticPrompt.event.synthetic, "wakeup");
 
   const turnEnded = wakeupTurnMessages.at(-1);
-  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(turnEnded, false);
 
   socket.close();
 });

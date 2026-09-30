@@ -8,7 +8,7 @@ import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
 import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format/relativeTime";
 import { useDict, useLocale } from "@/i18n";
-import { cn } from "@/lib/utils";
+import { cn, formatDurationLong } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
@@ -244,7 +244,6 @@ export const UserBubble = memo(function UserBubble({
 
 interface AssistantTextProps {
   text: string;
-  sentAt: number;
   streaming: boolean;
   onCopy: (text: string) => void;
   /** Opens a path mentioned in inline code in the work dir file panel —
@@ -259,47 +258,64 @@ interface AssistantTextProps {
  * `memo`, this would run again for every old message on every new token
  * streamed in ANY message in the conversation.
  *
- * Timestamp/copy action strip, same interaction as `UserBubble` — minus
- * edit, which makes no sense on the assistant's own words. Hidden while
- * `streaming` is true: the response isn't final yet, and `sentAt` is only a
- * placeholder until the block actually commits (see `useMessageLog.ts`). */
-export const AssistantText = memo(function AssistantText({ text, sentAt, streaming, onCopy, onOpenPath }: AssistantTextProps) {
+ * No action strip of its own: a reply is often several text blocks with
+ * tool calls between them, and the time/copy actions belong to the turn as a
+ * whole (`TurnFooter`). Long-press on iOS still copies the block. */
+export const AssistantText = memo(function AssistantText({ text, streaming, onCopy, onOpenPath }: AssistantTextProps) {
   const dict = useDict();
-  const [copied, setCopied] = useState(false);
 
-  function handleCopy(): void {
-    onCopy(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
-
-  // Long-press (iOS) — same pattern as `UserBubble`, just "Copiar" only.
   const longPress = useLongPress({
     onLongPress: (point) => {
       void showNativeContextMenu([{ id: "copy", label: dict.common.copy, systemIcon: "doc.on.doc" }], point).then((selectedId) => {
-        if (selectedId === "copy") handleCopy();
+        if (selectedId === "copy") onCopy(text);
       });
     },
   });
 
   return (
-    <div className="group flex flex-col items-start" {...(isIOS() && !streaming ? longPress : undefined)}>
+    <div className="flex flex-col items-start" {...(isIOS() && !streaming ? longPress : undefined)}>
       <div className="prose-chat min-w-0 max-w-full text-sm text-foreground">
         <MarkdownContent text={stripPlanChoiceMarkers(text)} onOpenPath={onOpenPath} />
       </div>
-      {!streaming && !isIOS() && (
-        <div className="mt-1 flex h-6 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-          <TimestampLabel sentAt={sentAt} />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            onClick={handleCopy}
-            aria-label={copied ? dict.chat.message.copied : dict.chat.message.copyResponse}
-          >
-            {copied ? <Check /> : <Copy />}
-          </Button>
-        </div>
+    </div>
+  );
+});
+
+interface TurnFooterProps {
+  sentAt: number;
+  durationMs?: number;
+  /** Everything the agent said in the turn, what "copy" copies. */
+  text: string;
+  onCopy: (text: string) => void;
+}
+
+/** Closes a turn: when it finished, how long the agent worked, and a copy
+ * button for the whole reply — the button appears on hover on desktop; on
+ * iOS the reply is copied by long-press instead. */
+export const TurnFooter = memo(function TurnFooter({ sentAt, durationMs, text, onCopy }: TurnFooterProps) {
+  const dict = useDict();
+  const [copied, setCopied] = useState(false);
+  const worked = durationMs !== undefined ? dict.chat.activity.workedFor.replace("{time}", formatDurationLong(Math.round(durationMs / 1000))) : undefined;
+
+  return (
+    <div className="group/footer mt-1 flex h-6 items-center gap-0.5">
+      <TimestampLabel sentAt={sentAt} />
+      {worked && <span className="px-1.5 font-mono text-[10.5px] text-text-faint select-none">· {worked}</span>}
+      {!isIOS() && text !== "" && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="opacity-0 transition-opacity group-hover/footer:opacity-100"
+          onClick={() => {
+            onCopy(text);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          aria-label={copied ? dict.chat.message.copied : dict.chat.message.copyResponse}
+        >
+          {copied ? <Check /> : <Copy />}
+        </Button>
       )}
     </div>
   );

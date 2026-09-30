@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage, assertTurnEnded } from "./helpers/wsClient.js";
 import type { ChoiceQuestion } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): exercises the
@@ -58,7 +58,7 @@ test("a plan-mode marker becomes a choice_prompt, and answering it enqueues the 
   const firstTurnMessages = await collectUntil(socket, (message) => message.type === "choice_prompt");
 
   const turnEnded = firstTurnMessages.find(isTurnEnded);
-  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(turnEnded, false);
 
   const choicePrompt = firstTurnMessages.at(-1) as { type: string; promptId: string; questions: ChoiceQuestion[]; kind: string };
   assert.equal(choicePrompt.type, "choice_prompt");
@@ -101,7 +101,7 @@ test("a plan-mode marker becomes a choice_prompt, and answering it enqueues the 
   assert.equal((syntheticPrompt!.event as { text?: string }).text, "Rewrite from scratch");
 
   const secondTurnEnded = secondTurnMessages.at(-1);
-  assert.deepEqual(secondTurnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(secondTurnEnded, false);
 
   socket.close();
 });

@@ -2,7 +2,6 @@ import type { LogEntry, SubagentState } from "@/hooks/relay/useMessageLog";
 import type { ToolInput } from "@/lib/relay/agent-event";
 import { relativeToCwd } from "@/lib/relay/toolCallSummary";
 
-const SUBAGENT_TOOLS = new Set(["Agent", "Task"]);
 /** How many of a subagent's latest tool calls its card lists. */
 const SUBAGENT_TOOL_CALLS_SHOWN = 6;
 
@@ -50,12 +49,11 @@ export function runningSubagents(entries: LogEntry[], subagents: Record<string, 
       };
     });
 
-  const answered = new Set(entries.flatMap((entry) => (entry.kind === "tool-result" && entry.toolUseId ? [entry.toolUseId] : [])));
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
     if (entry.kind === "user") break;
-    if (entry.kind !== "tool-use" || !SUBAGENT_TOOLS.has(entry.name) || !entry.toolUseId) continue;
-    if (answered.has(entry.toolUseId) || entry.toolUseId in subagents) continue;
+    if (entry.kind !== "tool-call" || entry.toolKind !== "task" || !entry.toolUseId) continue;
+    if (entry.done || entry.toolUseId in subagents) continue;
     running.push({
       toolUseId: entry.toolUseId,
       description: typeof entry.input.description === "string" ? entry.input.description : null,
@@ -98,7 +96,7 @@ export function recentToolCallLines(entries: LogEntry[], cwd: string | null, { l
   for (let i = entries.length - 1; i >= 0 && lines.length < limit; i -= 1) {
     const entry = entries[i];
     if (entry.kind === "user") break;
-    if (entry.kind === "tool-use") lines.push(toolCallLine(entry, cwd));
+    if (entry.kind === "tool-call" && entry.plan === undefined) lines.push(toolCallLine(entry, cwd));
   }
   return lines.reverse();
 }

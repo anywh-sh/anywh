@@ -1,4 +1,13 @@
 import type { AgentEvent, ToolInput } from "../../protocol/agent-event.js";
+import {
+  commandOutcome,
+  commandSubject,
+  fileChangeOutcome,
+  fileChangeSubject,
+  webSearchOutcome,
+  webSearchSubject,
+  type FileChange,
+} from "./codexToolMapping.js";
 
 /**
  * Maps one already-decoded Codex `app-server` notification — `method` and
@@ -27,18 +36,18 @@ export function mapCodexNotification(method: string, params: unknown): AgentEven
       return mapItemStarted(params as ItemLifecycleParams);
     case "item/completed":
       return mapItemCompleted(params as ItemLifecycleParams);
-    case "item/agentMessage/delta":
-      // No AgentEvent produced: `text_delta.index` is a number correlating
-      // concurrently-streaming content blocks by position, a shape that
-      // came from Anthropic's Messages API — Codex correlates by `itemId`
-      // (a string) instead, and there's no honest way to turn one into the
-      // other without either faking a number or extending `AgentEvent`
-      // itself (a `protocol/agent-event.ts` change with a client-side
-      // mirror to keep in sync, out of scope here). Only the item's final,
-      // committed text (`item/completed`'s `agentMessage`) is reported for
-      // now — live-preview streaming for Codex is a known gap, not a
-      // silent one.
-      return [];
+    case "item/agentMessage/delta": {
+      // Codex correlates streaming blocks by `itemId`, hence the string index.
+      const delta = params as ItemDeltaParams;
+      return typeof delta?.itemId === "string" && typeof delta.delta === "string" ? [{ type: "text_delta", index: delta.itemId, text: delta.delta }] : [];
+    }
+    case "item/reasoning/summaryTextDelta":
+    case "item/reasoning/textDelta": {
+      const delta = params as ItemDeltaParams;
+      return typeof delta?.itemId === "string" && typeof delta.delta === "string"
+        ? [{ type: "thinking_delta", index: delta.itemId, thinking: delta.delta }]
+        : [];
+    }
     case "thread/tokenUsage/updated":
       return mapTokenUsageUpdated(params as ThreadTokenUsageUpdatedParams);
     default:
@@ -61,6 +70,7 @@ interface AgentMessageItem {
 interface ReasoningItem {
   type: "reasoning";
   id: string;
+  summary?: string[];
   content: string[];
 }
 
@@ -70,6 +80,7 @@ interface CommandExecutionItem {
   command: string;
   cwd?: string;
   status: "inProgress" | "completed" | "failed" | "declined";
+  commandActions?: unknown;
   aggregatedOutput: string | null;
   exitCode: number | null;
 }
@@ -77,7 +88,7 @@ interface CommandExecutionItem {
 interface FileChangeItem {
   type: "fileChange";
   id: string;
-  changes: unknown[];
+  changes: FileChange[];
   status: "inProgress" | "completed" | "failed" | "declined";
 }
 
@@ -90,6 +101,14 @@ interface McpToolCallItem {
   arguments: unknown;
   result: unknown;
   error: unknown;
+}
+
+interface WebSearchItem {
+  type: "webSearch";
+  id: string;
+  query: string;
+  action: unknown;
+  results: unknown;
 }
 
 interface PlanItem {
@@ -106,12 +125,29 @@ interface PlanItem {
 
 /** Every other `ThreadItem` variant (`userMessage`, `hookPrompt`,
  * `functionCallOutput`, `dynamicToolCall`, `imageGeneration`, `sleep`, the
- * realtime/collab-agent items, ...) — not mapped for Tier 0, falls through
- * to the unrecognized-item log. */
-type ThreadItemSubset = AgentMessageItem | ReasoningItem | CommandExecutionItem | FileChangeItem | McpToolCallItem | PlanItem | { type: string };
+ * realtime/collab-agent items, ...) — not mapped yet, falls through to the
+ * unrecognized-item log. */
+type ThreadItemSubset =
+  | AgentMessageItem
+  | ReasoningItem
+  | CommandExecutionItem
+  | FileChangeItem
+  | McpToolCallItem
+  | WebSearchItem
+  | PlanItem
+  | { type: string };
 
+/** `startedAtMs`/`completedAtMs` are the daemon's own clock for the item —
+ * epoch ms, carried on the notification rather than on the item. */
 interface ItemLifecycleParams {
   item: ThreadItemSubset;
+  startedAtMs?: number;
+  completedAtMs?: number;
+}
+
+interface ItemDeltaParams {
+  itemId?: string;
+  delta?: string;
 }
 
 interface ThreadTokenUsageUpdatedParams {
@@ -126,28 +162,81 @@ interface ThreadTokenUsageUpdatedParams {
   };
 }
 
+function timed<K extends string>(key: K, value: unknown): { [P in K]?: number } {
+  return (typeof value === "number" && Number.isFinite(value) ? { [key]: value } : {}) as { [P in K]?: number };
+}
+
 function mapItemStarted(params: ItemLifecycleParams): AgentEvent[] {
   const item = params?.item;
   if (!item) return [];
+  const startedAt = timed("startedAt", params.startedAtMs);
   switch (item.type) {
     case "commandExecution": {
       const commandItem = item as CommandExecutionItem;
-      return [{ type: "tool_started", toolUseId: commandItem.id, name: "commandExecution", kind: "shell", input: { command: commandItem.command } }];
+      const subject = commandSubject(commandItem.command, commandItem.commandActions);
+      return [
+        {
+          type: "tool_started",
+          toolUseId: commandItem.id,
+          name: "commandExecution",
+          kind: subject.kind === "read" || subject.kind === "search" ? subject.kind : "shell",
+          input: { command: commandItem.command },
+          subject,
+          ...startedAt,
+        },
+      ];
     }
     case "fileChange": {
+      // One call per file: a single patch can touch several, and the display
+      // shows each as its own edit or write.
       const fileChangeItem = item as FileChangeItem;
-      return [{ type: "tool_started", toolUseId: fileChangeItem.id, name: "fileChange", kind: "edit", input: {} }];
+      return (fileChangeItem.changes ?? []).map((change, index) => {
+        const subject = fileChangeSubject(change);
+        return {
+          type: "tool_started" as const,
+          toolUseId: `${fileChangeItem.id}#${index}`,
+          name: "fileChange",
+          kind: subject.kind === "write" ? ("write" as const) : ("edit" as const),
+          input: { file_path: change.path },
+          subject,
+          ...startedAt,
+        };
+      });
     }
     case "mcpToolCall": {
       const mcpItem = item as McpToolCallItem;
-      return [{ type: "tool_started", toolUseId: mcpItem.id, name: `${mcpItem.server}:${mcpItem.tool}`, kind: "mcp", input: toolInputFrom(mcpItem.arguments) }];
+      return [
+        {
+          type: "tool_started",
+          toolUseId: mcpItem.id,
+          name: `${mcpItem.server}:${mcpItem.tool}`,
+          kind: "mcp",
+          input: toolInputFrom(mcpItem.arguments),
+          subject: { kind: "mcp", server: mcpItem.server, tool: mcpItem.tool },
+          ...startedAt,
+        },
+      ];
     }
-    // agentMessage/reasoning/plan starting is a no-op here — their content
-    // arrives whole at item/completed (or, for agentMessage, would arrive
-    // incrementally via item/agentMessage/delta if that were mapped — see
-    // mapCodexNotification's own comment on why it isn't yet).
-    case "agentMessage":
+    case "webSearch": {
+      const searchItem = item as WebSearchItem;
+      const subject = webSearchSubject(searchItem.query, searchItem.action);
+      return [
+        {
+          type: "tool_started",
+          toolUseId: searchItem.id,
+          name: "webSearch",
+          kind: "web",
+          input: { query: searchItem.query },
+          ...(subject ? { subject } : {}),
+          ...startedAt,
+        },
+      ];
+    }
     case "reasoning":
+      return [{ type: "thinking_started", ...startedAt }];
+    // agentMessage/plan starting is a no-op — their text arrives at
+    // item/completed (and, for agentMessage, incrementally as deltas).
+    case "agentMessage":
     case "plan":
       return [];
     default:
@@ -159,45 +248,74 @@ function mapItemStarted(params: ItemLifecycleParams): AgentEvent[] {
 function mapItemCompleted(params: ItemLifecycleParams): AgentEvent[] {
   const item = params?.item;
   if (!item) return [];
+  const endedAt = timed("endedAt", params.completedAtMs);
   switch (item.type) {
     case "agentMessage":
       return [{ type: "text", text: (item as AgentMessageItem).text }];
     case "reasoning": {
       const reasoningItem = item as ReasoningItem;
-      return reasoningItem.content.length > 0 ? [{ type: "thinking", thinking: reasoningItem.content.join("\n") }] : [];
+      // The raw reasoning text is often empty while the model still reports
+      // a summary — the summary is what's worth showing then. Emitted even
+      // when both are empty: the block still matters for its timing.
+      const content = reasoningItem.content ?? [];
+      const source = content.length > 0 ? content : (reasoningItem.summary ?? []);
+      return [{ type: "thinking", thinking: source.join("\n"), ...endedAt }];
     }
     case "plan":
       return [{ type: "text", text: (item as PlanItem).text }];
     case "commandExecution": {
       const commandItem = item as CommandExecutionItem;
+      const output = commandItem.aggregatedOutput ?? "";
+      const isError = commandItem.status !== "completed";
+      const subject = commandSubject(commandItem.command, commandItem.commandActions);
       return [
         {
           type: "tool_ended",
           toolUseId: commandItem.id,
-          content: commandItem.aggregatedOutput ?? "",
-          isError: commandItem.status !== "completed",
+          content: output,
+          isError,
+          outcome: commandOutcome(subject, output, commandItem.exitCode ?? undefined, isError),
+          ...endedAt,
         },
       ];
     }
     case "fileChange": {
       const fileChangeItem = item as FileChangeItem;
-      return [
-        {
-          type: "tool_ended",
-          toolUseId: fileChangeItem.id,
-          content: JSON.stringify(fileChangeItem.changes),
-          isError: fileChangeItem.status !== "completed",
-        },
-      ];
+      const isError = fileChangeItem.status !== "completed";
+      return (fileChangeItem.changes ?? []).map((change, index) => ({
+        type: "tool_ended" as const,
+        toolUseId: `${fileChangeItem.id}#${index}`,
+        content: typeof change.diff === "string" ? change.diff : "",
+        isError,
+        outcome: fileChangeOutcome(change),
+        ...endedAt,
+      }));
     }
     case "mcpToolCall": {
       const mcpItem = item as McpToolCallItem;
+      const content = JSON.stringify(mcpItem.error ?? mcpItem.result ?? null);
       return [
         {
           type: "tool_ended",
           toolUseId: mcpItem.id,
-          content: JSON.stringify(mcpItem.error ?? mcpItem.result ?? null),
+          content,
           isError: mcpItem.status !== "completed",
+          outcome: { kind: "payload", request: JSON.stringify(mcpItem.arguments ?? {}, null, 2), response: content },
+          ...endedAt,
+        },
+      ];
+    }
+    case "webSearch": {
+      const searchItem = item as WebSearchItem;
+      const outcome = webSearchOutcome(searchItem.results);
+      return [
+        {
+          type: "tool_ended",
+          toolUseId: searchItem.id,
+          content: outcome.kind === "links" ? outcome.results.map((link) => `${link.title}\n${link.url}`).join("\n\n") : "",
+          isError: false,
+          outcome,
+          ...endedAt,
         },
       ];
     }

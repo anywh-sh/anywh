@@ -3,7 +3,7 @@
 // verbatim from the relay — this file is everything else: the other message
 // types, and the wrappers that carry an AgentEvent around.
 import type { AgentEvent } from "@/lib/relay/agent-event";
-export type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind } from "@/lib/relay/agent-event";
+export type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/agent-event";
 
 /** Mirrors the relay's `PermissionMode` (relay/src/session/sessionStore.ts)
  * — no cross-package import here, both sides only agree by convention.

@@ -61,38 +61,145 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "text", text: "hello", streaming: false }]);
   });
 
-  it("tool_started then tool_ended produce a paired tool-use/tool-result entry", () => {
-    const { result } = renderHook(() => useMessageLog());
-    act(() => result.current.handleEvent({ type: "tool_started", toolUseId: "t1", name: "Bash", kind: "shell", input: { command: "ls" } }));
-    act(() => result.current.handleEvent({ type: "tool_ended", toolUseId: "t1", content: "ok", isError: false }));
-
-    expect(stripVolatile(result.current.entries)).toEqual([
-      { kind: "tool-use", toolUseId: "t1", name: "Bash", input: { command: "ls" } },
-      { kind: "tool-result", toolUseId: "t1", content: "ok", isError: false },
-    ]);
-  });
-
-  it("tool_ended carries structuredPatch through to the tool-result entry", () => {
-    const patch = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }];
-    const { result } = renderHook(() => useMessageLog());
-    act(() => result.current.handleEvent({ type: "tool_ended", toolUseId: "t1", content: "ok", isError: false, structuredPatch: patch }));
-
-    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "tool-result", toolUseId: "t1", content: "ok", isError: false, structuredPatch: patch }]);
-  });
-
-  it("plan (TodoWrite) folds back into a generic tool-use entry, not a dedicated widget", () => {
+  it("tool_started then tool_ended fold into one tool-call entry, in place", () => {
     const { result } = renderHook(() => useMessageLog());
     act(() =>
       result.current.handleEvent({
-        type: "plan",
+        type: "tool_started",
         toolUseId: "t1",
-        todos: [{ content: "write tests", status: "in_progress" }],
+        name: "Bash",
+        kind: "shell",
+        input: { command: "ls" },
+        subject: { kind: "shell", command: "ls" },
+        startedAt: 1000,
+        batchId: "m1",
       }),
     );
-
     expect(stripVolatile(result.current.entries)).toEqual([
-      { kind: "tool-use", toolUseId: "t1", name: "TodoWrite", input: { todos: [{ content: "write tests", status: "in_progress" }] } },
+      { kind: "tool-call", toolUseId: "t1", name: "Bash", toolKind: "shell", input: { command: "ls" }, subject: { kind: "shell", command: "ls" }, isError: false, done: false, startedAt: 1000, batchId: "m1" },
     ]);
+
+    act(() => result.current.handleEvent({ type: "tool_ended", toolUseId: "t1", content: "ok", isError: false, outcome: { kind: "terminal", output: "ok" }, endedAt: 2500 }));
+    expect(stripVolatile(result.current.entries)).toEqual([
+      {
+        kind: "tool-call",
+        toolUseId: "t1",
+        name: "Bash",
+        toolKind: "shell",
+        input: { command: "ls" },
+        subject: { kind: "shell", command: "ls" },
+        isError: false,
+        done: true,
+        content: "ok",
+        outcome: { kind: "terminal", output: "ok" },
+        startedAt: 1000,
+        endedAt: 2500,
+        batchId: "m1",
+      },
+    ]);
+  });
+
+  it("a result pairs with its own call even when calls run in parallel and finish out of order", () => {
+    const { result } = renderHook(() => useMessageLog());
+    for (const id of ["a", "b"]) act(() => result.current.handleEvent({ type: "tool_started", toolUseId: id, name: "Read", kind: "read", input: {} }));
+    act(() => result.current.handleEvent({ type: "tool_ended", toolUseId: "b", content: "B", isError: true }));
+
+    const [a, b] = result.current.entries;
+    expect(a).toMatchObject({ toolUseId: "a", done: false });
+    expect(b).toMatchObject({ toolUseId: "b", done: true, content: "B", isError: true });
+  });
+
+  it("a result with no matching call is dropped", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "tool_ended", toolUseId: "ghost", content: "ok", isError: false }));
+    expect(result.current.entries).toEqual([]);
+  });
+
+  it("a plan becomes a tool-call carrying its todos, closed by its own ack", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "plan", toolUseId: "t1", todos: [{ content: "write tests", status: "in_progress" }] }));
+    act(() => result.current.handleEvent({ type: "tool_ended", toolUseId: "t1", content: "ok", isError: false }));
+
+    expect(result.current.entries[0]).toMatchObject({ kind: "tool-call", plan: [{ content: "write tests", status: "in_progress" }], done: true });
+  });
+
+  it("thinking_started opens a running block that the committed thinking closes, keeping its start", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "thinking_started", startedAt: 100 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: true, startedAt: 100 }]);
+
+    act(() => result.current.handleEvent({ type: "thinking", thinking: "hmm", startedAt: 100, endedAt: 4100 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "hmm", running: false, startedAt: 100, endedAt: 4100 }]);
+  });
+
+  it("turn_started shows thinking at once and the first reasoning block adopts it, counting the wait", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "turn_started", startedAt: 100 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: true, pending: true, startedAt: 100 }]);
+
+    act(() => result.current.handleEvent({ type: "thinking_started", startedAt: 3100 }));
+    expect(result.current.entries).toHaveLength(1);
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: true, startedAt: 100 }]);
+
+    act(() => result.current.handleEvent({ type: "thinking", thinking: "", startedAt: 3100, endedAt: 5100 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: false, startedAt: 100, endedAt: 5100 }]);
+  });
+
+  it("the placeholder goes away when the agent answers or calls a tool without reasoning first", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "turn_started", startedAt: 100 }));
+    act(() => result.current.handleEvent({ type: "tool_started", toolUseId: "t1", name: "Bash", kind: "shell", input: {} }));
+    expect(result.current.entries.map((entry) => entry.kind)).toEqual(["tool-call"]);
+
+    act(() => result.current.handleEvent({ type: "turn_started", startedAt: 200 }));
+    act(() => result.current.handleTurnComplete(false));
+    expect(result.current.entries.some((entry) => entry.kind === "thinking")).toBe(false);
+  });
+
+  it("a thinking block never announced (a replay) is added already finished", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "thinking", thinking: "", startedAt: 1, endedAt: 3001 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: false, startedAt: 1, endedAt: 3001 }]);
+  });
+
+  it("a turn that ends with calls and reasoning still open closes them instead of leaving them spinning", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "thinking_started" }));
+    act(() => result.current.handleEvent({ type: "tool_started", toolUseId: "t1", name: "Bash", kind: "shell", input: {} }));
+    act(() => result.current.handleTurnComplete(true));
+
+    const [thinking, call] = result.current.entries;
+    expect(thinking).toMatchObject({ kind: "thinking", running: false });
+    expect(call).toMatchObject({ kind: "tool-call", done: true, aborted: true });
+  });
+
+  it("a finished turn gets a footer with its duration and everything the agent said", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "user_message", text: "go" }));
+    act(() => result.current.handleEvent({ type: "text", text: "first" }));
+    act(() => result.current.handleEvent({ type: "text", text: "second" }));
+    act(() => result.current.handleTurnComplete(false, 12_000));
+
+    const footer = result.current.entries[result.current.entries.length - 1];
+    expect(footer).toMatchObject({ kind: "turn-footer", durationMs: 12_000, text: "first\n\nsecond" });
+  });
+
+  it("the footer covers only its own turn's text", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "user_message", text: "one" }));
+    act(() => result.current.handleEvent({ type: "text", text: "A" }));
+    act(() => result.current.handleTurnComplete(false, 1000));
+    act(() => result.current.handleEvent({ type: "user_message", text: "two" }));
+    act(() => result.current.handleEvent({ type: "text", text: "B" }));
+    act(() => result.current.handleTurnComplete(false, 2000));
+
+    expect(result.current.entries[result.current.entries.length - 1]).toMatchObject({ kind: "turn-footer", text: "B", durationMs: 2000 });
+  });
+
+  it("a turn that put nothing on screen gets no footer", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleTurnComplete(false, 500));
+    expect(result.current.entries).toEqual([]);
   });
 
   it("a synthetic background_job user_message becomes a system note, never a user bubble", () => {
@@ -116,18 +223,16 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "user", text: "oi de outro device" }]);
   });
 
-  it("session_id, usage, status, compact_boundary, thinking(_delta), tool_input_delta and tool_progress have no visual representation yet", () => {
+  it("session_id, usage, status, compact_boundary, thinking_delta, tool_input_delta and tool_progress have no visual representation yet", () => {
     const { result } = renderHook(() => useMessageLog());
     const noopEvents: AgentEvent[] = [
       { type: "session_id", sessionId: "s1" },
       { type: "usage", inputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, prefixTokens: 1, outputTokens: 1 },
       { type: "status", permissionMode: "acceptEdits" },
       { type: "compact_boundary", trigger: "auto", preTokens: 100 },
-      { type: "thinking", thinking: "hmm" },
       { type: "thinking_delta", index: 0, thinking: "hm" },
       { type: "tool_input_delta", toolUseId: "t1", partialJson: "{" },
       { type: "tool_progress", toolUseId: "t1", text: "50%" },
-      { type: "turn_started" },
     ];
     for (const event of noopEvents) act(() => result.current.handleEvent(event));
 
@@ -140,7 +245,7 @@ describe("useMessageLog", () => {
     act(() => result.current.handleEvent({ type: "text_delta", index: 0, text: "partial" }));
     act(() => result.current.handleTurnComplete(true));
 
-    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "text", text: "partial", streaming: false }, { kind: "stopped" }]);
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "text", text: "partial", streaming: false }, { kind: "stopped" }, { kind: "turn-footer", text: "partial" }]);
     expect(result.current.streamingEntries).toEqual([]);
   });
 
@@ -149,7 +254,7 @@ describe("useMessageLog", () => {
     act(() => result.current.handleEvent({ type: "text", text: "done" }));
     act(() => result.current.handleTurnComplete(false));
 
-    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "text", text: "done", streaming: false }]);
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "text", text: "done", streaming: false }, { kind: "turn-footer", text: "done" }]);
   });
 
   it("handleTurnError appends an error entry", () => {
@@ -233,6 +338,7 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([
       { kind: "user", text: "oi" },
       { kind: "text", text: "hello!", streaming: false },
+      { kind: "turn-footer", text: "hello!" },
     ]);
     expect(result.current.hasMoreHistory).toBe(false);
     expect(result.current.historyCursor).toBe(0);
@@ -274,7 +380,7 @@ describe("useMessageLog", () => {
       for (const event of events) result.current.handleEvent(event);
     });
 
-    expect(result.current.entries.map((entry) => entry.kind)).toEqual(["tool-use", "tool-result", "text"]);
+    expect(result.current.entries.map((entry) => entry.kind)).toEqual(["tool-call", "text"]);
     expect(result.current.subagents.agent).toMatchObject({
       status: "running",
       startedAt: 1000,

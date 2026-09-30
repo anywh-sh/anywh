@@ -9,13 +9,11 @@ import { getDefaultPath } from "@/hooks/useDefaultPaths";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
 import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
-import { countToolCallsInCurrentTurn } from "@/lib/format/turnActivity";
 import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { MessageLog } from "@/components/chat/MessageLog";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
-import { TurnIndicator } from "@/components/chat/TurnIndicator";
 import { Composer, type ComposerHandle } from "@/components/chat/Composer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
@@ -196,7 +194,6 @@ export function ChatPanel({
   // Recomputed only when an entry is actually appended — `log.entries` keeps
   // its identity while text streams in (that lands in `streamingText`), so
   // this doesn't walk the log once per token.
-  const toolCallsThisTurn = useMemo(() => countToolCallsInCurrentTurn(log.entries), [log.entries]);
   const logRef = useRef(log);
   logRef.current = log;
   // Same pattern as `logRef`: the drop handler and the copy callback are
@@ -419,8 +416,8 @@ export function ChatPanel({
       caughtUpRef.current = true;
       setReady(true);
     },
-    onTurnComplete: (stopped) => {
-      logRef.current.handleTurnComplete(stopped);
+    onTurnComplete: (stopped, durationMs) => {
+      logRef.current.handleTurnComplete(stopped, durationMs);
       setTurnStartedAt(null);
       if (!caughtUpRef.current) return;
       const entries = [...logRef.current.entries].reverse();
@@ -547,38 +544,31 @@ export function ChatPanel({
     );
   }, [turnStartedAt, latestToolCall, traySubagentsKey]);
 
-  // Desktop: the background work this conversation launched and the turn
-  // indicator sit right after the latest message, inside the scrolling log —
-  // not pinned above the composer — so they read as the tail of the
-  // conversation and scroll with it. Memoized because `MessageLog` is `memo`'d
-  // and this would otherwise be a new element on every `ChatPanel` render;
-  // the indicator's own clock ticks inside it, not through here. iOS keeps its
-  // floating indicator (see the composer block below).
+  // Desktop: the background work this conversation launched sits right after
+  // the latest message, inside the scrolling log — not pinned above the
+  // composer — so it reads as the tail of the conversation and scrolls with
+  // it. Memoized because `MessageLog` is `memo`'d and this would otherwise be
+  // a new element on every `ChatPanel` render.
   const hasLaunchedInBackground = backgroundJobs.length > 0 || subagents.length > 0;
   const logTrailing = useMemo(
     () =>
-      isIOS() || (turnStartedAt === null && !hasLaunchedInBackground) ? null : (
+      isIOS() || !hasLaunchedInBackground ? null : (
         <div className="flex flex-col gap-2 pt-1 pb-2.5">
-          {hasLaunchedInBackground && (
-            <LaunchedInBackground
-              profile={profile}
-              sessionId={sessionId}
-              live={isActiveTab}
-              jobs={backgroundJobs}
-              onCancelJob={cancelBackgroundJob}
-              agents={subagents}
-              onStopAgent={stopTurn}
-            />
-          )}
-          {turnStartedAt !== null && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
+          <LaunchedInBackground
+            profile={profile}
+            sessionId={sessionId}
+            live={isActiveTab}
+            jobs={backgroundJobs}
+            onCancelJob={cancelBackgroundJob}
+            agents={subagents}
+            onStopAgent={stopTurn}
+          />
         </div>
       ),
     // `profile` is a fresh object on most renders; its id is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       hasLaunchedInBackground,
-      turnStartedAt,
-      toolCallsThisTurn,
       profile.id,
       sessionId,
       isActiveTab,
@@ -801,13 +791,6 @@ export function ChatPanel({
           </div>
         )}
 
-        {/* On iOS the turn indicator lives in here (not in normal document
-         * flow, like on desktop) — this whole block is `absolute bottom-0`
-         * (see comment above), so an element outside it would leak out of
-         * the floating area and end up rendering below the composer (near
-         * the keyboard) instead of above it. */}
-        {isIOS() && turnStartedAt !== null && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
-
         {/* Caps the composer column at the same width as MessageLog's content
          * — `contents` on iOS keeps these two wrapper divs out of
          * the box tree entirely, so the phone layout (which never hits the
@@ -828,6 +811,7 @@ export function ChatPanel({
               profile={profile}
               disabled={!connected}
               turnInFlight={turnInFlight}
+              turnStartedAt={turnStartedAt}
               onStop={stopTurn}
               pendingImages={images.pending}
               uploadingImage={images.uploading}

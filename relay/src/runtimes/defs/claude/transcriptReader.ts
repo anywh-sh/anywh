@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { isToolResultOnly, type ClaudeEvent } from "./session.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
+import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
 
 /** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
@@ -111,12 +112,31 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   if (!existsSync(path)) return [];
 
   const messages: HistoryEntry[] = [];
+  const memos = new Map<string, ToolCallMemo>();
   let turnOpen = false;
+  // Epoch ms of the open turn's prompt and of the last line seen since — the
+  // transcript is the only clock a replay has.
+  let turnStartMs: number | undefined;
+  let lastLineMs: number | undefined;
+  // The previous line's time, used as the start of a reasoning block: the
+  // transcript writes a block only once it is complete, so the moment the
+  // model began it is the moment the line before it landed. An
+  // approximation (the gap also covers time spent before the block began),
+  // good enough for "thought for Ns".
+  let previousLineMs: number | undefined;
+
+  function closeTurn(): void {
+    const durationMs = turnStartMs !== undefined && lastLineMs !== undefined ? Math.max(0, lastLineMs - turnStartMs) : undefined;
+    messages.push({ type: "agent_event", event: { type: "turn_ended", stopped: false, ...(durationMs !== undefined ? { durationMs } : {}) } });
+  }
 
   // Runs a raw (synthetic or real) `ClaudeEvent` through the same mapper the
-  // live turn uses, pushing zero or more resulting `AgentEvent`s.
-  function pushMapped(event: ClaudeEvent): void {
-    for (const agentEvent of mapClaudeEvent(event)) messages.push({ type: "agent_event", event: agentEvent });
+  // live turn uses, pushing zero or more resulting `AgentEvent`s. `lineMs` is
+  // the transcript line's own time, applied to what the mapper left untimed.
+  function pushMapped(event: ClaudeEvent, lineMs?: number, previousMs?: number): void {
+    for (const agentEvent of mapClaudeEvent(event, memos)) {
+      messages.push({ type: "agent_event", event: lineMs === undefined ? agentEvent : withReplayTiming(agentEvent, lineMs, previousMs) });
+    }
   }
 
   for (const rawLine of readFileSync(path, "utf8").split("\n")) {
@@ -131,7 +151,14 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       continue;
     }
 
+    const lineMs = typeof line.timestamp === "string" && !Number.isNaN(Date.parse(line.timestamp)) ? Date.parse(line.timestamp) : undefined;
+    const previousMs = previousLineMs;
+    if ((line.type === "assistant" || line.type === "user") && lineMs !== undefined) {
+      previousLineMs = lineMs;
+    }
+
     if (line.type === "assistant") {
+      if (turnOpen && lineMs !== undefined) lastLineMs = lineMs;
       // Real timestamp of the line (same as `user_prompt` below) —
       // the client shows it on the assistant bubble's action strip. Omitted
       // when absent, same reasoning as the `user_prompt` case.
@@ -139,7 +166,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
         type: "assistant",
         message: line.message,
         ...(typeof line.timestamp === "string" ? { timestamp: line.timestamp } : {}),
-      });
+      }, lineMs, previousMs);
       continue;
     }
 
@@ -152,8 +179,10 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       // as a closed, followed-by-another-turn conversation didn't end on a
       // stop. Mirrors `turn_started`/`turn_ended`'s live ordering in
       // `sharedSession.ts::runTurn`.
-      if (turnOpen) messages.push({ type: "agent_event", event: { type: "turn_ended", stopped: false } });
-      messages.push({ type: "agent_event", event: { type: "turn_started" } });
+      if (turnOpen) closeTurn();
+      turnStartMs = lineMs;
+      lastLineMs = lineMs;
+      messages.push({ type: "agent_event", event: { type: "turn_started", ...(lineMs !== undefined ? { startedAt: lineMs } : {}) } });
       // Real timestamp of the line — the client uses this to show
       // "X min ago" on messages reconstructed from disk; whoever sends it
       // live already knows the click's own time, doesn't depend on this.
@@ -170,7 +199,18 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
     }
 
     if (isToolResultOnly(line.message?.content)) {
-      pushMapped({ type: "user", message: line.message });
+      if (turnOpen && lineMs !== undefined) lastLineMs = lineMs;
+      pushMapped(
+        {
+          type: "user",
+          message: line.message,
+          // Same field the live stream carries: what lets a replayed result
+          // produce the same outcome (a diff, numbered code) as a live one.
+          ...(line.toolUseResult !== undefined ? { tool_use_result: line.toolUseResult } : {}),
+        },
+        lineMs,
+        previousMs,
+      );
     }
     // `isMeta` or unexpected format: ignore, no visual representation.
   }
@@ -180,4 +220,13 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   // is harmless: `turnInFlight` on the client is local only, unaffected by
   // replay.
   return messages;
+}
+
+/** Fills the timing a live turn would have got from the session's clock, from
+ * the transcript line's own time instead. */
+function withReplayTiming(event: AgentEvent, lineMs: number, previousMs: number | undefined): AgentEvent {
+  if (event.type === "tool_started") return { ...event, startedAt: lineMs };
+  if (event.type === "tool_ended") return { ...event, endedAt: lineMs };
+  if (event.type === "thinking") return { ...event, startedAt: previousMs ?? lineMs, endedAt: lineMs };
+  return event;
 }

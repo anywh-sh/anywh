@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { SessionStore } from "../src/session/sessionStore.js";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, findAgentEvent, isTurnEnded, sendUserMessage, assertTurnEnded } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): boots the actual
 // relay server, talks to it over a real WebSocket, and only fakes the one
@@ -28,7 +28,7 @@ test("a turn streams agent_event(s) ending in text, then turn_ended", async () =
   assert.ok(textEvent, `expected an agent_event carrying text, got: ${JSON.stringify(messages)}`);
 
   const turnEnded = messages.at(-1);
-  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(turnEnded, false);
 
   socket.close();
 });
