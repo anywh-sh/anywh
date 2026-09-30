@@ -97,13 +97,18 @@ test("assistant: tool_use classifies known tool names into their ToolKind", () =
     ["Grep", "search"],
     ["Glob", "search"],
     ["Task", "task"],
+    ["MultiEdit", "edit"],
+    ["WebSearch", "web"],
+    ["WebFetch", "web"],
+    ["mcp__linear__get", "mcp"],
   ];
   for (const [name, kind] of cases) {
     const event: ClaudeEvent = {
       type: "assistant",
       message: { content: [{ type: "tool_use", id: "t1", name, input: { foo: "bar" } }] },
     };
-    assert.deepEqual(mapClaudeEvent(event), [{ type: "tool_started", toolUseId: "t1", name, kind, input: { foo: "bar" } }]);
+    const [started] = mapClaudeEvent(event);
+    assert.equal(started?.type === "tool_started" && started.kind, kind, name);
   }
 });
 
@@ -112,7 +117,7 @@ test("assistant: tool_use with an unrecognized name maps to ToolKind \"other\" i
     type: "assistant",
     message: { content: [{ type: "tool_use", id: "t1", name: "SomeFutureTool", input: {} }] },
   };
-  assert.deepEqual(mapClaudeEvent(event), [{ type: "tool_started", toolUseId: "t1", name: "SomeFutureTool", kind: "other", input: {} }]);
+  assert.deepEqual(mapClaudeEvent(event), [{ type: "tool_started", toolUseId: "t1", name: "SomeFutureTool", kind: "other", input: {}, subject: { kind: "other", label: "SomeFutureTool" } }]);
 });
 
 test("assistant: TodoWrite emits plan instead of tool_started, with structured todos", () => {
@@ -247,4 +252,39 @@ test("result: no session_id maps to nothing", () => {
 test("an unrecognized top-level event type maps to nothing instead of throwing", () => {
   const event: ClaudeEvent = { type: "some-future-event-type" };
   assert.deepEqual(mapClaudeEvent(event), []);
+});
+
+// ---- normalized tool calls -------------------------------------------------
+
+test("assistant: a tool_use carries its subject and the message id as batch", () => {
+  const event: ClaudeEvent = {
+    type: "assistant",
+    message: {
+      id: "msg_1",
+      content: [
+        { type: "tool_use", id: "t1", name: "Read", input: { file_path: "/a.ts" } },
+        { type: "tool_use", id: "t2", name: "Bash", input: { command: "ls" } },
+      ],
+    },
+  };
+  const [first, second] = mapClaudeEvent(event);
+  assert.deepEqual(first, { type: "tool_started", toolUseId: "t1", name: "Read", kind: "read", input: { file_path: "/a.ts" }, subject: { kind: "read", path: "/a.ts" }, batchId: "msg_1" });
+  assert.equal(second?.type === "tool_started" && second.batchId, "msg_1");
+});
+
+test("a replayed tool result is interpreted with the input of the call it answers", () => {
+  const memos = new Map();
+  mapClaudeEvent({ type: "assistant", message: { id: "m", content: [{ type: "tool_use", id: "t", name: "mcp__linear__get", input: { id: "X-1" } }] } }, memos);
+  const [ended] = mapClaudeEvent(
+    { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t", content: "{}" }] }, tool_use_result: [{ type: "text", text: "{}" }] },
+    memos,
+  );
+  assert.deepEqual(ended, { type: "tool_ended", toolUseId: "t", content: "{}", isError: false, outcome: { kind: "payload", request: JSON.stringify({ id: "X-1" }, null, 2), response: "{}" } });
+});
+
+test("stream_event: the start of a thinking block is reported so it can show as running", () => {
+  const event: ClaudeEvent = { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } } };
+  assert.deepEqual(mapClaudeEvent(event), [{ type: "thinking_started" }]);
+  const text: ClaudeEvent = { type: "stream_event", event: { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } } };
+  assert.deepEqual(mapClaudeEvent(text), []);
 });
