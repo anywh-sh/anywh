@@ -10,7 +10,7 @@ export type LogEntry =
   /** A reasoning block — running until the relay says it ended. `text` is
    * often empty (some models don't expose it); the block still matters for
    * its timing. */
-  | { kind: "thinking"; id: string; text: string; running: boolean; startedAt?: number; endedAt?: number }
+  | { kind: "thinking"; id: string; text: string; running: boolean; pending?: boolean; startedAt?: number; endedAt?: number }
   | { kind: "error"; id: string; message: string }
   | { kind: "stopped"; id: string }
   /** Automatic follow-up turn from an `anywh-bg` job that finished —
@@ -166,6 +166,13 @@ function turnStart(entries: LogEntry[]): number {
   return lastIndexWhere(entries, (entry) => entry.kind === "user" || entry.kind === "turn-footer") + 1;
 }
 
+/** The placeholder a turn opens with, standing in for reasoning the agent
+ * hasn't started yet. Whatever comes first settles it: a reasoning block
+ * adopts it (keeping its start time), anything else removes it. */
+function dropPending(entries: LogEntry[]): LogEntry[] {
+  return entries.some((entry) => entry.kind === "thinking" && entry.pending) ? entries.filter((entry) => !(entry.kind === "thinking" && entry.pending)) : entries;
+}
+
 /** A turn that ends (stopped, or failed) leaves calls and reasoning that
  * never got their close: without this they would spin forever. */
 function closeOpenActivity(entries: LogEntry[]): LogEntry[] {
@@ -239,7 +246,16 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
   }
 
   switch (event.type) {
-    case "turn_started":
+    // Shows "thinking" at once: the agent's first token takes a while, and
+    // the wait is part of the time the user is waiting.
+    case "turn_started": {
+      if (state.entries.some((entry) => entry.kind === "thinking" && entry.pending)) return state;
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "thinking", id: newId(), text: "", running: true, pending: true, startedAt: event.startedAt ?? Date.now() }],
+      };
+    }
+
     case "session_id":
     case "usage":
     case "status":
@@ -269,7 +285,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "text_delta": {
       const existing = state.streamingText.find((b) => b.index === event.index);
       const merged = { index: event.index, text: (existing?.text ?? "") + event.text };
-      return { ...state, streamingText: [...state.streamingText.filter((b) => b.index !== event.index), merged] };
+      return { ...state, entries: dropPending(state.entries), streamingText: [...state.streamingText.filter((b) => b.index !== event.index), merged] };
     }
 
     case "text": {
@@ -288,16 +304,24 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
       return {
         ...state,
-        entries: [...state.entries, { kind: "text", id: newId(), text: event.text, streaming: false, sentAt }],
+        entries: [...dropPending(state.entries), { kind: "text", id: newId(), text: event.text, streaming: false, sentAt }],
         streamingText: [],
       };
     }
 
-    case "thinking_started":
+    case "thinking_started": {
+      const pending = lastIndexWhere(state.entries, (entry) => entry.kind === "thinking" && entry.pending === true);
+      if (pending !== -1) {
+        const entries = state.entries.slice();
+        const { pending: _pending, ...adopted } = entries[pending] as Extract<LogEntry, { kind: "thinking" }>;
+        entries[pending] = adopted;
+        return { ...state, entries };
+      }
       return {
         ...state,
         entries: [...state.entries, { kind: "thinking", id: newId(), text: "", running: true, ...(event.startedAt !== undefined ? { startedAt: event.startedAt } : {}) }],
       };
+    }
 
     // Blocks never overlap, so a committed `thinking` closes the most recent
     // running one; one that was never announced (a replay, an older relay)
@@ -311,9 +335,12 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       if (index === -1) {
         return { ...state, entries: [...state.entries, { kind: "thinking", id: newId(), text: event.thinking, running: false, ...times }] };
       }
-      const running = state.entries[index] as Extract<LogEntry, { kind: "thinking" }>;
+      const { pending: _pending, ...running } = state.entries[index] as Extract<LogEntry, { kind: "thinking" }>;
       const entries = state.entries.slice();
-      entries[index] = { ...running, text: event.thinking, running: false, ...times, ...(times.startedAt === undefined && running.startedAt !== undefined ? { startedAt: running.startedAt } : {}) };
+      // The earlier start wins: a block that adopted the turn's placeholder
+      // counts the wait for the first token, which its own start doesn't.
+      const startedAt = running.startedAt !== undefined && times.startedAt !== undefined ? Math.min(running.startedAt, times.startedAt) : (running.startedAt ?? times.startedAt);
+      entries[index] = { ...running, text: event.thinking, running: false, ...times, ...(startedAt !== undefined ? { startedAt } : {}) };
       return { ...state, entries };
     }
 
@@ -321,7 +348,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       return {
         ...state,
         entries: [
-          ...state.entries,
+          ...dropPending(state.entries),
           {
             kind: "tool-call",
             id: newId(),
@@ -344,7 +371,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       return {
         ...state,
         entries: [
-          ...state.entries,
+          ...dropPending(state.entries),
           { kind: "tool-call", id: newId(), toolUseId: event.toolUseId, name: "plan", toolKind: "other", input: {}, isError: false, done: false, plan: event.todos },
         ],
       };
@@ -373,7 +400,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     // partial text (which only existed in `streamingText`) would simply
     // vanish from the screen when the turn ends.
     case "turn_ended": {
-      let entries = [...state.entries];
+      let entries = [...dropPending(state.entries)];
       for (const block of state.streamingText) {
         // No `timestamp` to fall back on here — this is a stop/interrupt
         // cutting the stream short, not a real `text` event.
@@ -395,7 +422,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "error":
       return {
         ...state,
-        entries: [...state.entries, { kind: "error", id: newId(), message: event.message }],
+        entries: [...dropPending(state.entries), { kind: "error", id: newId(), message: event.message }],
         streamingText: [],
       };
 

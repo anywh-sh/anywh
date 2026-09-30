@@ -132,6 +132,30 @@ describe("useMessageLog", () => {
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "hmm", running: false, startedAt: 100, endedAt: 4100 }]);
   });
 
+  it("turn_started shows thinking at once and the first reasoning block adopts it, counting the wait", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "turn_started", startedAt: 100 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: true, pending: true, startedAt: 100 }]);
+
+    act(() => result.current.handleEvent({ type: "thinking_started", startedAt: 3100 }));
+    expect(result.current.entries).toHaveLength(1);
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: true, startedAt: 100 }]);
+
+    act(() => result.current.handleEvent({ type: "thinking", thinking: "", startedAt: 3100, endedAt: 5100 }));
+    expect(stripVolatile(result.current.entries)).toEqual([{ kind: "thinking", text: "", running: false, startedAt: 100, endedAt: 5100 }]);
+  });
+
+  it("the placeholder goes away when the agent answers or calls a tool without reasoning first", () => {
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "turn_started", startedAt: 100 }));
+    act(() => result.current.handleEvent({ type: "tool_started", toolUseId: "t1", name: "Bash", kind: "shell", input: {} }));
+    expect(result.current.entries.map((entry) => entry.kind)).toEqual(["tool-call"]);
+
+    act(() => result.current.handleEvent({ type: "turn_started", startedAt: 200 }));
+    act(() => result.current.handleTurnComplete(false));
+    expect(result.current.entries.some((entry) => entry.kind === "thinking")).toBe(false);
+  });
+
   it("a thinking block never announced (a replay) is added already finished", () => {
     const { result } = renderHook(() => useMessageLog());
     act(() => result.current.handleEvent({ type: "thinking", thinking: "", startedAt: 1, endedAt: 3001 }));
@@ -209,7 +233,6 @@ describe("useMessageLog", () => {
       { type: "thinking_delta", index: 0, thinking: "hm" },
       { type: "tool_input_delta", toolUseId: "t1", partialJson: "{" },
       { type: "tool_progress", toolUseId: "t1", text: "50%" },
-      { type: "turn_started" },
     ];
     for (const event of noopEvents) act(() => result.current.handleEvent(event));
 
