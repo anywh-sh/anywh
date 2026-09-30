@@ -7,6 +7,7 @@ import { LocaleProvider } from "@/i18n";
 import App from "@/App";
 import { installFakeRelay, type FakeRelay } from "../ui/helpers/fakeRelay";
 import { en } from "@/i18n/en";
+import { seedShellProfile } from "../ui/helpers/seedProfile";
 
 /**
  * Render-cost baseline for the interactions a user performs constantly:
@@ -50,6 +51,8 @@ let relay: FakeRelay;
 
 beforeEach(() => {
   localStorage.clear();
+  // Without a profile the app shows the first-run screen, not the shell.
+  seedShellProfile();
   relay = installFakeRelay("perf reply");
 });
 
