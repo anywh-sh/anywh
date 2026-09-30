@@ -9,6 +9,7 @@ import type {
   EditMessageErrorCode,
   FailedBackgroundJobSummary,
   HistoryPageMessage,
+  ModelCatalog,
   ModelChoice,
   PermissionMode,
   PermissionModeOption,
@@ -24,7 +25,7 @@ import type {
   SetCwdErrorCode,
 } from "@/lib/relay/relay-types";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
-import { recordAvailableModels } from "@/lib/composer/modelCatalog";
+import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
 import { authHeaders } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
@@ -42,6 +43,7 @@ export type {
   HistoryMessage,
   HistoryPageMessage,
   McpAuthStatus,
+  ModelCatalog,
   ModelChoice,
   PermissionMode,
   PermissionModeOption,
@@ -375,10 +377,10 @@ export interface RelayClientCallbacks {
    * sharedSession.ts::setModel. `null` is a valid final state ("never
    * chosen via /model, uses the CLI default"), not "still loading". */
   onModelState: (model: ModelChoice | null) => void;
-  /** This profile's account's actual default model — sent
-   * as soon as the relay finishes probing at boot (may arrive before or after
-   * the connection opens), doesn't change after that for the life of the process. */
-  onDefaultModelState?: (label: string, available: ModelChoice[]) => void;
+  /** Every installed agent's model catalog, keyed by agent id — sent as
+   * soon as the relay's boot probes land (may arrive before or after the
+   * connection opens), again as each further agent's lands. */
+  onModelCatalogs?: (catalogs: Record<string, ModelCatalog>) => void;
   /** Sent right on connection (if there's already a completed turn in this
    * session) and again at the end of every turn that produced context usage —
    * see sharedSession.ts::broadcastContextUsage. `null` after a
@@ -647,9 +649,13 @@ export class RelayClient {
         this.callbacks.onPermissionModeState(parsed.mode, parsed.available ?? []);
       } else if (parsed.type === "model_state") {
         this.callbacks.onModelState(parsed.model);
+      } else if (parsed.type === "model_catalogs_state") {
+        recordModelCatalogs(parsed.catalogs);
+        this.callbacks.onModelCatalogs?.(parsed.catalogs);
       } else if (parsed.type === "default_model_state") {
-        recordAvailableModels(parsed.available);
-        this.callbacks.onDefaultModelState?.(parsed.label, parsed.available);
+        const catalogs = catalogsFromLegacyDefaultModelState(parsed.label, parsed.available);
+        recordModelCatalogs(catalogs);
+        this.callbacks.onModelCatalogs?.(catalogs);
       } else if (parsed.type === "context_usage_state") {
         this.callbacks.onContextUsageState?.(parsed.usage);
       } else if (parsed.type === "turn_state") {

@@ -225,16 +225,9 @@ export const en: Dictionary = {
         startFailed: "Couldn't start recording: {reason}",
         transcriptionFailed: "Transcription failed: {reason}",
       },
-      modelAliases: {
-        default: "Default",
-        best: "Best available",
-      },
       commands: {
         clear: "Clears this conversation's history",
         modelDefault: "Uses the CLI's own default model",
-        modelOpus: "Uses Opus — more capable, slower",
-        modelHaiku: "Uses Haiku — faster",
-        modelGeneric: "Uses {model}",
       },
     },
     protocolMismatch: {

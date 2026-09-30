@@ -1,6 +1,5 @@
-import { getKnownModels, labelForModel } from "@/lib/composer/modelCatalog";
 import type { Dictionary } from "@/i18n/dictionary";
-import type { ModelChoice } from "@/lib/relay/relay-types";
+import type { ModelCatalog, ModelChoice } from "@/lib/relay/relay-types";
 
 export type SlashCommand = { name: "model"; model: ModelChoice } | { name: "clear" };
 
@@ -18,16 +17,22 @@ export type SlashCommand = { name: "model"; model: ModelChoice } | { name: "clea
  * (e.g. `/model gpt4`) — in this second case the text passes through as a
  * normal message and the CLI itself responds with its own error, without us
  * needing to duplicate validation/error messages here.
+ *
+ * "Curate" means the session's agent's own catalog (`catalog`, whatever its
+ * CLI lists), matched case-insensitively and returned with the catalog's
+ * own casing — no model name is known to this file.
  */
-export function parseSlashCommand(text: string): SlashCommand | null {
+export function parseSlashCommand(text: string, catalog: ModelCatalog | null): SlashCommand | null {
   const trimmed = text.trim();
 
   if (/^\/clear$/i.test(trimmed)) return { name: "clear" };
 
   const modelMatch = /^\/model\s+(\S+)$/i.exec(trimmed);
   if (modelMatch) {
-    const model = modelMatch[1].toLowerCase();
-    if (model === "default" || getKnownModels().includes(model)) return { name: "model", model };
+    const typed = modelMatch[1].toLowerCase();
+    if (typed === "default") return { name: "model", model: "default" };
+    const option = catalog?.options.find((candidate) => candidate.id.toLowerCase() === typed);
+    if (option) return { name: "model", model: option.id };
   }
 
   return null;
@@ -107,33 +112,25 @@ export interface SlashCommandEntry {
   description: string;
 }
 
-/** The composer slice as a whole, not just `commands`: a model entry needs
- * both its blurb and the label of the model it names. */
 type CommandCopy = Dictionary["chat"]["composer"];
 
-/** Blurbs for the aliases we know about, straight from the dictionary — any
- * other choice (a new alias the CLI ships later) falls back to a generic
- * "Uses X" built from `labelForModel`, so a new model shows up in the menu
- * without a copy change in two languages. */
-function descriptionFor(choice: string, copy: CommandCopy): string {
-  if (choice === "default") return copy.commands.modelDefault;
-  if (choice === "opus") return copy.commands.modelOpus;
-  if (choice === "haiku") return copy.commands.modelHaiku;
-  return copy.commands.modelGeneric.replace("{model}", labelForModel(choice, copy.modelAliases));
-}
-
 /** Catalog for the autocomplete menu (SlashCommandMenu) — one entry per
- * combination already ready to send (including each model the CLI reports
- * as available), not just the two command names. Discovering "which models
- * exist" via free typing would be worse UX than already listing all of them
- * ready to go. Computed on every call (not a static list) since the model
- * catalog itself is dynamic (`@/lib/composer/modelCatalog`) and the copy follows the
- * selected language. */
-function getSlashCommandEntries(copy: CommandCopy): SlashCommandEntry[] {
+ * combination already ready to send (including each model the session's
+ * agent's CLI lists), not just the two command names. Discovering "which
+ * models exist" via free typing would be worse UX than already listing all
+ * of them ready to go. A model's blurb is the CLI's own display name plus
+ * its own description, never copy written here — a curated line per model
+ * went stale the day the CLI shipped the next one. Computed on every call
+ * (not a static list) since the catalog is per agent and the copy follows
+ * the selected language. */
+function getSlashCommandEntries(copy: CommandCopy, catalog: ModelCatalog | null): SlashCommandEntry[] {
   return [
     { command: "/clear", description: copy.commands.clear },
-    { command: "/model default", description: descriptionFor("default", copy) },
-    ...getKnownModels().map((choice) => ({ command: `/model ${choice}`, description: descriptionFor(choice, copy) })),
+    { command: "/model default", description: copy.commands.modelDefault },
+    ...(catalog?.options ?? []).map((option) => ({
+      command: `/model ${option.id}`,
+      description: option.description ? `${option.label} · ${option.description}` : option.label,
+    })),
   ];
 }
 
@@ -143,8 +140,8 @@ function getSlashCommandEntries(copy: CommandCopy): SlashCommandEntry[] {
  * declared. The copy arrives as an argument rather than being read from a
  * hook: this runs inside Tiptap's `Suggestion`, outside React's render
  * cycle (see `Composer.tsx`). */
-export function filterSlashCommands(query: string, copy: CommandCopy): SlashCommandEntry[] {
-  const entries = getSlashCommandEntries(copy);
+export function filterSlashCommands(query: string, copy: CommandCopy, catalog: ModelCatalog | null): SlashCommandEntry[] {
+  const entries = getSlashCommandEntries(copy, catalog);
   const q = query.trim().toLowerCase();
   if (!q) return entries;
   return entries.filter(

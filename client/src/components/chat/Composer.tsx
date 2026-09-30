@@ -42,7 +42,7 @@ import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/compos
 import { filterSlashCommands, parseSlashCommand, suggestSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
 import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import type { Dictionary } from "@/i18n/dictionary";
-import type { ContextUsage, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
+import type { ContextUsage, ModelCatalog, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface ComposerProps {
@@ -57,21 +57,20 @@ interface ComposerProps {
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveImage: (path: string) => void;
   /** `null` only in the brief window before the first `agent_state` arrives
-   * — see `useRelayClient`. Drives `AgentPickerButton`'s selection and gates
-   * `ModelButton` (its catalog is Claude's `/model` probe, meaningless for
-   * any other agent — `defs/codex.ts` ignores `--model` entirely). */
+   * — see `useRelayClient`. Drives `AgentPickerButton`'s selection. */
   agentId: string | null;
   onChangeAgent: (agentId: string) => void;
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
   onChangePermissionMode: (mode: PermissionMode) => void;
   /** `null` until the session's first explicit switch (now via
-   * `ModelButton` in addition to typing `/model`) — in that case
-   * `ModelButton` falls back to `defaultModel`. */
+   * `ModelButton` in addition to typing `/model`) — in that case the
+   * catalog's own `defaultId` is what runs. */
   model: ModelChoice | null;
-  /** This profile's actual default account model — `ModelButton`'s
-   * fallback when `model` is `null`. */
-  defaultModel: string | null;
+  /** The session's agent's model catalog (`useRelayClient`) — drives
+   * `ModelButton` and `/model`'s autocomplete. `null` hides the picker: an
+   * agent whose def declares no catalog has nothing to pick from. */
+  modelCatalog: ModelCatalog | null;
   onChangeModel: (model: ModelChoice) => void;
   /** Same signal as `cwdLocked` (`WorkingDirectoryButton`) — true as soon as
    * the conversation has had its first turn. Switching the model at that
@@ -316,13 +315,13 @@ function hardBreakAnchorPlugin() {
  * user request. Pure decoration (`Decoration.inline`), doesn't
  * touch the document — the text that goes to `onSend` remains the usual
  * plain text. */
-function slashCommandDecorationPlugin() {
+function slashCommandDecorationPlugin(catalogRef: MutableRefObject<ModelCatalog | null>) {
   return new Plugin({
     key: new PluginKey("slashCommandDecoration"),
     props: {
       decorations(state) {
         const text = state.doc.textBetween(0, state.doc.content.size, "\n", "\n");
-        if (!parseSlashCommand(text)) return DecorationSet.empty;
+        if (!parseSlashCommand(text, catalogRef.current)) return DecorationSet.empty;
         const match = /^(\/\S+)(\s+\S+)?$/.exec(text);
         if (!match) return DecorationSet.empty;
         // Start of the first (only) paragraph's text — see the composer's
@@ -357,6 +356,7 @@ function slashCommandDecorationPlugin() {
 function createSlashCommandExtension(
   activeRef: MutableRefObject<boolean>,
   commandsRef: MutableRefObject<Dictionary["chat"]["composer"]>,
+  catalogRef: MutableRefObject<ModelCatalog | null>,
 ) {
   return Extension.create({
     name: "slashCommand",
@@ -385,7 +385,7 @@ function createSlashCommandExtension(
       }
 
       return [
-        slashCommandDecorationPlugin(),
+        slashCommandDecorationPlugin(catalogRef),
         Suggestion<SlashCommandEntry, SlashCommandEntry>({
           editor: this.editor,
           char: "/",
@@ -397,8 +397,8 @@ function createSlashCommandExtension(
           // just itself as the option. Only shows while the text isn't yet a
           // complete, valid command — same check as `onSend` (ChatPanel) and
           // the visual decoration above.
-          shouldShow: ({ text }) => parseSlashCommand(text) === null,
-          items: ({ query }) => filterSlashCommands(query, commandsRef.current),
+          shouldShow: ({ text }) => parseSlashCommand(text, catalogRef.current) === null,
+          items: ({ query }) => filterSlashCommands(query, commandsRef.current, catalogRef.current),
           command: ({ editor, range, props }) => {
             editor.chain().focus().insertContentAt(range, props.command).run();
           },
@@ -475,7 +475,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     permissionModes,
     onChangePermissionMode,
     model,
-    defaultModel,
+    modelCatalog,
     onChangeModel,
     modelLocked,
     contextUsage,
@@ -555,7 +555,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // has no way to read a hook.
   const slashCopyRef = useRef(copy);
   slashCopyRef.current = copy;
-  const [slashCommandExtension] = useState(() => createSlashCommandExtension(slashMenuActiveRef, slashCopyRef));
+  // Same channel for the session's agent's catalog, which `/model` is
+  // validated and autocompleted against.
+  const modelCatalogRef = useRef(modelCatalog);
+  modelCatalogRef.current = modelCatalog;
+  const [slashCommandExtension] = useState(() => createSlashCommandExtension(slashMenuActiveRef, slashCopyRef, modelCatalogRef));
   // Channel back to the dynamic placeholder (see `createPlaceholderExtension`)
   // and to the `Tab` handler below — both live outside Tiptap's render
   // cycle, so they don't see the `suggestion` prop update on their own.
@@ -741,7 +745,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     // reconfirming (second Enter, or the "send anyway" button below) — only
     // block on a *new* typo-shaped text, not the one already surfaced.
     if (typoConfirm?.text !== text) {
-      const suggestion = parseSlashCommand(text) === null ? suggestSlashCommand(text) : null;
+      const suggestion = parseSlashCommand(text, modelCatalog) === null ? suggestSlashCommand(text) : null;
       if (suggestion) {
         setTypoConfirm({ text, suggestion });
         return;
@@ -913,14 +917,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
               <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} />
               <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
-              {/* The model catalog (`getKnownModels`) comes from Claude's own
-                  `/model` probe (`default_model_state`) — offering it in a
-                  Codex session would be a list the engine doesn't recognize
-                  at all, since `defs/codex.ts` never reads `--model`. */}
-              {(agentId === null || agentId === "claude") && (
+              {modelCatalog && (
                 <ModelButton
                   model={model}
-                  defaultModel={defaultModel}
+                  catalog={modelCatalog}
                   onChange={onChangeModel}
                   disabled={disabled ?? false}
                   locked={modelLocked}

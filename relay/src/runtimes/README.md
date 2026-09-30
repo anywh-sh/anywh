@@ -65,7 +65,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `identity` | which binary, which env vars to strip/set, which file it reads for project instructions | data |
 | `capabilities` | what this agent can do, at what level (`native`/`bridged`/`none`) | data |
 | `continuity` | who owns conversation history across turns | data |
-| `models` | where to find the model list — a probe's args + a pure parser, or "ask the daemon" | data + a pure function |
+| `models` | where to find the model catalog the CLI's own picker shows — a probe's args, optional stdin, and a pure parser (`probes/modelCatalog.ts` runs it), a static catalog, or "ask the daemon" | data + a pure function |
 | `auth` | login status: a probe's args + a pure parser over everything the CLI emitted (stdout, stderr, exit code), or "ask the daemon" | data + a pure function |
 | `permissions` | a function from host platform to available modes, and which one is default | a pure function |
 | `bridges` | which of today's three bridge files this agent uses, if any | data |
@@ -219,11 +219,11 @@ account logged in anywhere.
 
 The one rule that keeps this honest: **every recorded fixture states the
 exact CLI version that produced it**, in the fixture file itself or its
-directory name. `runtimes/probes/defaultModel.ts`'s comment already tells the
-story of what happens without this — a CLI update silently changed its
-output format (wrapping a value in markdown backticks) and a probe broke
-without anyone noticing, because nothing pinned the fixture to a version that
-could go stale. A fixture with no version is folklore, not a test.
+directory name. The model probe that preceded `probes/modelCatalog.ts`
+tells the story of what happens without this — a CLI update silently changed
+its output format (wrapping a value in markdown backticks) and the probe
+broke without anyone noticing, because nothing pinned the fixture to a
+version that could go stale. A fixture with no version is folklore, not a test.
 
 ## §9 — checklist for a new def
 
@@ -255,6 +255,15 @@ could go stale. A fixture with no version is folklore, not a test.
       the exit code, with unrelated warning lines mixed into that stderr
       whenever `$HOME` isn't writable. Version noted next to the parser, as
       §8 requires of any fixture.
+- [ ] If `models` is a `cli-probe`, its catalog matches, entry for entry,
+      what the CLI's own interactive model picker shows on the same account
+      — display names verbatim (the client shows `label` as-is, there is no
+      dictionary behind it), the default marked through `defaultId`, no
+      alias that the picker itself hides. A CLI that answers over a
+      request/response protocol may exit on stdin EOF before replying
+      (codex-cli 0.154.0's app-server does); the engine holds stdin open
+      until `parse` recognizes the answer, so `parse` must return
+      `undefined` for a partial stdout rather than an empty catalog.
 - [ ] `portability.authoredPaths` lists every path under this CLI's config
       home that is the *user's* work, and nothing that is reinstallable or
       secret. Erring long is cheap (a path that doesn't exist is skipped);

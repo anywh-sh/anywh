@@ -225,16 +225,9 @@ export const ptBr: Dictionary = {
         startFailed: "Não foi possível iniciar a gravação: {reason}",
         transcriptionFailed: "Falha na transcrição: {reason}",
       },
-      modelAliases: {
-        default: "Padrão",
-        best: "Melhor disponível",
-      },
       commands: {
         clear: "Limpa o histórico desta conversa",
         modelDefault: "Usa o modelo padrão da própria CLI",
-        modelOpus: "Usa o Opus — mais capaz, mais lento",
-        modelHaiku: "Usa o Haiku — mais rápido",
-        modelGeneric: "Usa o {model}",
       },
     },
     protocolMismatch: {

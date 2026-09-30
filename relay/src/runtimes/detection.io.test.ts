@@ -46,7 +46,7 @@ function fixtureDef(overrides: Partial<AgentRuntimeDef["identity"]> = {}): Agent
     identity: { id: "fixture", bin: "fixture-cli", env: { strip: [] }, projectInstructionsFile: "AGENTS.md", ...overrides },
     capabilities: ALL_NONE,
     continuity: { kind: "relay-transcript" },
-    models: { kind: "static", options: [] },
+    models: { kind: "static", catalog: { options: [] } },
     auth: { kind: "none" },
     permissions: { defaultModeId: "default", modesFor: () => [{ id: "default", labelKey: "mode.default", settings: undefined, pausesForApproval: false }] },
     bridges: [],

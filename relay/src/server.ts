@@ -8,7 +8,8 @@ import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { detectRuntimes } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
-import { detectDefaultModel, type DefaultModelInfo } from "./runtimes/probes/defaultModel.js";
+import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
+import type { ModelCatalog } from "./runtimes/types.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
@@ -137,25 +138,22 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
   return false;
 }
 
-// Probing this profile's account default model — runs once at
-// boot, in parallel with everything else (doesn't block `httpServer.listen`
-// below). `defaultModelClients` covers the obvious race: the first client's
-// WS connection almost always arrives before the probe resolves. Also
-// carries the full model catalog (`available`) straight from the CLI's own
-// usage text, replacing what used to be a hardcoded list.
-let defaultModelInfo: DefaultModelInfo | undefined;
-const defaultModelClients = new Set<WebSocket>();
-detectDefaultModel(HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
-  .then((info) => {
-    defaultModelInfo = info;
-    if (!info) return;
-    for (const client of defaultModelClients) {
-      client.send(JSON.stringify({ type: "default_model_state", label: info.label, available: info.available }));
-    }
-  })
-  .catch((error: unknown) => {
-    console.error("[relay] failed to detect default model:", error);
-  });
+// Each installed agent's model catalog, exactly as its own CLI's picker
+// lists it (`probes/modelCatalog.ts`, driven by each def's `models`) —
+// probed once at boot, after `detectRuntimes` below says which agents are
+// installed, in parallel with everything else (doesn't block
+// `httpServer.listen`). Sent per connection rather than per session: the
+// client picks the entry for whichever agent the session runs, so a
+// session switching agents needs no extra round trip. `modelCatalogClients`
+// covers the obvious race — the first client's WS connection almost always
+// arrives before the probes resolve — and each catalog is re-sent as it
+// lands, so a slow CLI never holds back a fast one.
+const modelCatalogs: Record<string, ModelCatalog> = {};
+const modelCatalogClients = new Set<WebSocket>();
+function sendModelCatalogs(client: WebSocket): void {
+  if (Object.keys(modelCatalogs).length === 0) return;
+  client.send(JSON.stringify({ type: "model_catalogs_state", catalogs: modelCatalogs }));
+}
 
 // Every agent id a client may pick for a session. `detectRuntimes` below
 // filters further on `installed`, so a relay without the `codex` binary
@@ -166,9 +164,20 @@ const SELECTABLE_AGENT_IDS = ["claude", "codex"];
 
 detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
   .then((detections) => {
-    setSelectableAgents(
-      detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id)).map((detection) => ({ id: detection.id, capabilities: detection.capabilities })),
-    );
+    const selectable = detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id));
+    setSelectableAgents(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities })));
+    for (const def of [claudeRuntimeDef, codexRuntimeDef]) {
+      if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
+      probeModelCatalog(def, HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
+        .then((catalog) => {
+          if (!catalog) return;
+          modelCatalogs[def.identity.id] = catalog;
+          for (const client of modelCatalogClients) sendModelCatalogs(client);
+        })
+        .catch((error: unknown) => {
+          console.error(`[relay] failed to probe ${def.identity.id} model catalog:`, error);
+        });
+    }
   })
   .catch((error: unknown) => {
     // detectRuntimes itself never rejects (detection.ts's own contract) —
@@ -303,12 +312,8 @@ wss.on("connection", (socket: WebSocket, request) => {
   const session = sessionManager.getOrCreate(sessionId);
   session.addClient(socket);
 
-  defaultModelClients.add(socket);
-  if (defaultModelInfo) {
-    socket.send(
-      JSON.stringify({ type: "default_model_state", label: defaultModelInfo.label, available: defaultModelInfo.available }),
-    );
-  }
+  modelCatalogClients.add(socket);
+  sendModelCatalogs(socket);
 
   socket.on("message", (raw: Buffer) => {
     let parsed: unknown;
@@ -322,7 +327,7 @@ wss.on("connection", (socket: WebSocket, request) => {
 
   socket.on("close", () => {
     session.removeClient(socket);
-    defaultModelClients.delete(socket);
+    modelCatalogClients.delete(socket);
     console.log(`[relay] client disconnected (session: ${sessionId})`);
   });
 });

@@ -671,23 +671,12 @@ export interface Dictionary {
         startFailed: string;
         transcriptionFailed: string;
       };
-      /** Two of the CLI's model aliases are words rather than product names,
-       * so only those two are translated — `labelForModel` prints every
-       * other alias (Sonnet, Opus, `sonnet[1m]`) exactly as the CLI reports
-       * it, including ones shipped after this build. */
-      modelAliases: {
-        default: string;
-        best: string;
-      };
-      /** Blurbs for the autocomplete menu. A model alias the CLI ships later
-       * falls back to `modelGeneric`, so it shows up in the menu without a
-       * copy change — same reasoning as `labelForModel`. */
+      /** Blurbs for the autocomplete menu. Each model entry's blurb is the
+       * agent CLI's own display name and description (`slashCommands.ts`),
+       * so only the two non-model commands need copy here. */
       commands: {
         clear: string;
         modelDefault: string;
-        modelOpus: string;
-        modelHaiku: string;
-        modelGeneric: string;
       };
     };
     /** The relay this session is connected to speaks a WebSocket protocol

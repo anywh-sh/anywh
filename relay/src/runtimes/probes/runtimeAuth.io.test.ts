@@ -29,7 +29,7 @@ function defWith(bin: string, auth: AuthSource): AgentRuntimeDef {
     identity: { id: "fixture", bin, env: { strip: ["FIXTURE_API_KEY"] }, projectInstructionsFile: "AGENTS.md" },
     capabilities: ALL_NONE,
     continuity: { kind: "relay-transcript" },
-    models: { kind: "static", options: [] },
+    models: { kind: "static", catalog: { options: [] } },
     auth,
     permissions: { defaultModeId: "default", modesFor: () => [DEFAULT_MODE] },
     bridges: [],

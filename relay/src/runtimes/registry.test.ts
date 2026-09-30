@@ -28,7 +28,7 @@ function baseDef(): AgentRuntimeDef {
     },
     capabilities: ALL_NONE,
     continuity: { kind: "relay-transcript" },
-    models: { kind: "static", options: [] },
+    models: { kind: "static", catalog: { options: [] } },
     auth: { kind: "none" },
     permissions: {
       defaultModeId: "default",
