@@ -26,8 +26,8 @@ interface AgentPickerButtonProps {
   onChange: (agentId: string) => void;
   /** `true` once the conversation has had its first turn (same signal as
    * `ModelButton`'s `locked`): the session's agent can't change after that.
-   * Unlike the model button the menu still opens — it shows which agent is
-   * fixed — but the other entries are dimmed and choosing one does nothing. */
+   * The trigger stays enabled so its tooltip still names the agent in use,
+   * but it no longer opens the menu or shows the chevron. */
   locked: boolean;
 }
 
@@ -47,6 +47,7 @@ export function agentName(agentNames: Record<KnownAgentId, string>, id: string):
  */
 export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentPickerButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const [agents, setAgents] = useState<SelectableAgentInfo[]>([]);
   const agentNames = useDict().chat.composer.agentNames;
 
@@ -67,8 +68,13 @@ export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentP
   return (
     <DropdownMenu
       modal={false}
-      onOpenChange={(open) => {
-        if (!open) triggerRef.current?.blur();
+      // Controlled for the same reason as `ModelButton`: locking has to stop
+      // the menu from opening whichever low-level event the WebView fires.
+      open={open}
+      onOpenChange={(next) => {
+        if (next && locked) return;
+        setOpen(next);
+        if (!next) triggerRef.current?.blur();
       }}
     >
       <DropdownMenuTrigger asChild>
@@ -78,7 +84,7 @@ export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentP
           disabled={agentId === null}
           title={agentId !== null ? agentName(agentNames, agentId) : undefined}
           aria-label={agentId !== null ? agentName(agentNames, agentId) : undefined}
-          className={toolbarTriggerClass}
+          className={cn(toolbarTriggerClass, locked && "cursor-default hover:text-muted-foreground")}
         >
           {agentId !== null && <AgentLogo agentId={agentId} className="size-3.5" />}
           {!locked && (
@@ -97,10 +103,8 @@ export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentP
           return (
             <DropdownMenuItem
               key={agent.id}
-              onSelect={() => {
-                if (!locked) onChange(agent.id);
-              }}
-              className={cn("items-start gap-3 py-2", current && "bg-primary-soft", locked && !current && "opacity-50")}
+              onSelect={() => onChange(agent.id)}
+              className={cn("items-start gap-3 py-2", current && "bg-primary-soft")}
             >
               <span className="flex size-6 shrink-0 items-center justify-center border border-border-soft">
                 <AgentLogo agentId={agent.id} className="size-3.5" />

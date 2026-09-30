@@ -103,7 +103,7 @@ describe("AgentPickerButton", () => {
     expect(unknown).toHaveTextContent(/^some-future-agent$/);
   });
 
-  it("locked: the menu still opens, but choosing the other agent does not call onChange", async () => {
+  it("locked: no chevron, the menu does not open, and the tooltip still names the agent", async () => {
     vi.mocked(getHostInfo).mockResolvedValue({
       hostname: "host",
       platform: "linux",
@@ -114,14 +114,13 @@ describe("AgentPickerButton", () => {
       ],
     });
     const user = userEvent.setup();
-    const onChange = vi.fn();
-    render(<AgentPickerButton profile={profile} agentId="claude" onChange={onChange} locked />);
+    render(<AgentPickerButton profile={profile} agentId="claude" onChange={vi.fn()} locked />);
 
-    const button = await screen.findByRole("button");
+    const button = await screen.findByRole("button", { name: en.chat.composer.agentNames.claude });
+    expect(button).toHaveAttribute("title", en.chat.composer.agentNames.claude);
     expect(button).not.toHaveTextContent("▾");
     await user.click(button);
-    await user.click(await screen.findByRole("menuitem", { name: new RegExp(`^${en.chat.composer.agentNames.codex}`) }));
 
-    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
   });
 });
