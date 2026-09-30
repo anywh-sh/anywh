@@ -913,7 +913,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             {turnInFlight ? (
               <>
                 <Square className="size-3.5" fill="currentColor" />
-                {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} whole className="font-mono text-[11px]" />}
+                {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
               </>
             ) : (
               <ArrowUp className="size-5" />
@@ -1032,7 +1032,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 // the clock beside it is the turn's only running counter.
                 <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
                   <span className="size-2 bg-current" />
-                  {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} whole className="font-mono text-[11px]" />}
+                  {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
                 </Button>
               ) : (
                 // The shortcut glyph is decoration for the eye only: it is

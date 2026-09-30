@@ -23,7 +23,7 @@ export const ThinkingRow = memo(function ThinkingRow({ entry }: { entry: Thinkin
   // flicker under the reader.
   const [word] = useState(() => pickThinkingWord(dict.chat.turn.workingWords));
   const hasText = entry.text.trim() !== "";
-  const seconds = entry.startedAt !== undefined && entry.endedAt !== undefined ? Math.max(0, Math.round((entry.endedAt - entry.startedAt) / 1000)) : undefined;
+  const seconds = entry.startedAt !== undefined && entry.endedAt !== undefined ? Math.max(0, Math.floor((entry.endedAt - entry.startedAt) / 1000)) : undefined;
 
   const label = entry.running
     ? `${word}…`

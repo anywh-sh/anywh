@@ -133,15 +133,22 @@ describe("Elapsed", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const { container, rerender } = render(<Elapsed startedAt={0} />);
-    expect(container.textContent).toBe("1.0s");
+    expect(container.textContent).toBe("1s");
     act(() => void vi.advanceTimersByTime(2_000));
-    expect(container.textContent).toBe("3.0s");
+    expect(container.textContent).toBe("3s");
     rerender(<Elapsed startedAt={0} endedAt={3_500} />);
     act(() => void vi.advanceTimersByTime(5_000));
-    expect(container.textContent).toBe("3.5s");
+    expect(container.textContent).toBe("3s");
   });
 
-  it("moves to whole seconds and minutes past ten seconds", () => {
+  it("starts at 0s, never a decimal", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(200);
+    const { container } = render(<Elapsed startedAt={0} />);
+    expect(container.textContent).toBe("0s");
+  });
+
+  it("moves to minutes past sixty seconds", () => {
     vi.useFakeTimers();
     vi.setSystemTime(75_000);
     const { container } = render(<Elapsed startedAt={0} />);
