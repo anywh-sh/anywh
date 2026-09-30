@@ -51,6 +51,9 @@ interface FixtureBehavior {
    * `turn/start` with a `threadId` the daemon doesn't recognize rejects
    * with `{code: -32600, message: "thread not found: <id>"}`. */
   turnStartError?: { code: number; message: string };
+  /** Pages `thread/turns/list` answers with, in order — the cursor the
+   * request carries picks the page (absent = the first). */
+  historyPages?: { data: unknown[]; nextCursor: string | null }[];
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -103,6 +106,13 @@ process.stdin.on("data", (chunk) => {
           });
         }, behavior.completionDelayMs || 5);
       }
+      continue;
+    }
+    if (msg.method === "thread/turns/list") {
+      const pages = behavior.historyPages || [{ data: [], nextCursor: null }];
+      const index = msg.params.cursor ? Number(msg.params.cursor) : 0;
+      if (behavior.logFile) fs.appendFileSync(behavior.logFile, "params:" + JSON.stringify(msg.params) + "\\n");
+      send({ jsonrpc: "2.0", id: msg.id, result: pages[index] });
       continue;
     }
     if (msg.method === "turn/interrupt") {
@@ -327,4 +337,58 @@ test("dispose(): kills the real daemon process", async () => {
 
 test("constructor: throws for a def whose exec plan isn't jsonRpcDaemon — never silently drives the wrong protocol", () => {
   assert.throws(() => new CodexSessionDriver(claudeRuntimeDef, { host: noopHost }), /no jsonRpcDaemon exec plan/);
+});
+
+// ---- readHistory ------------------------------------------------------------
+
+const storedTurn = (id: string, prompt: string, reply: string) => ({
+  id,
+  status: "completed",
+  startedAt: 1_700_000_000,
+  durationMs: 1500,
+  items: [
+    { type: "userMessage", id: `${id}-u`, content: [{ type: "text", text: prompt }] },
+    { type: "agentMessage", id: `${id}-a`, text: reply },
+  ],
+});
+
+test("readHistory: pages through the thread's stored turns, oldest first, and replays them as events", async () => {
+  await withTmpDir(async (dir) => {
+    const logFile = join(dir, "log");
+    writeFileSync(logFile, "");
+    const bin = writeFixture(dir, {
+      logFile,
+      historyPages: [
+        { data: [storedTurn("t1", "first", "one")], nextCursor: "1" },
+        { data: [storedTurn("t2", "second", "two")], nextCursor: null },
+      ],
+    });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost, initialSessionId: "thread-9" });
+    try {
+      const events = await driver.readHistory(dir);
+      assert.deepEqual(
+        events.map((e) => (e.type === "user_message" || e.type === "text" ? e.text : e.type)),
+        ["turn_started", "first", "one", "turn_ended", "turn_started", "second", "two", "turn_ended"],
+      );
+      const requests = readFileSync(logFile, "utf8").split("\n").filter((line) => line.startsWith("params:"));
+      assert.equal(requests.length, 2);
+      assert.deepEqual(JSON.parse(requests[0].slice("params:".length)), { threadId: "thread-9", itemsView: "full", sortDirection: "asc", limit: 100 });
+    } finally {
+      driver.dispose();
+    }
+  });
+});
+
+test("readHistory: a session with no thread yet has nothing to replay, and never starts a daemon", async () => {
+  await withTmpDir(async (dir) => {
+    const pidFile = join(dir, "pid");
+    const bin = writeFixture(dir, { pidFile });
+    const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
+    try {
+      assert.deepEqual(await driver.readHistory(dir), []);
+      assert.throws(() => readFileSync(pidFile), /ENOENT/);
+    } finally {
+      driver.dispose();
+    }
+  });
 });
