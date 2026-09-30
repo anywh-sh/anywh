@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { en } from "@/i18n/en";
 import type { BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
-import { addProfile, type Profile } from "@/lib/profiles/profiles";
+import { addProfile } from "@/lib/profiles/profiles";
 
 const { getBackgroundJobLog } = vi.hoisted(() => ({ getBackgroundJobLog: vi.fn() }));
 vi.mock("@/lib/relay/backgroundJobClient", () => ({ getBackgroundJobLog }));
@@ -201,7 +201,7 @@ describe("StatusBar background activity chip", () => {
 
   it("never leaves a running process row's log line blank — it says the relay can't serve the log", async () => {
     const user = userEvent.setup();
-    addProfile({ id: "p1", label: "p1", host: "127.0.0.1", relayPort: 1 } as Profile);
+    addProfile({ id: "p1", label: "p1", host: "127.0.0.1", relayPort: 1 });
     getBackgroundJobLog.mockRejectedValue(new Error("HTTP 404"));
     const runningProc: BackgroundActivityItem = { ...failedProc, id: "j2", status: "run", tail: "" };
     render(
