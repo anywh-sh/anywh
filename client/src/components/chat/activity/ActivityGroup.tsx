@@ -45,18 +45,18 @@ export const ActivityGroup = memo(function ActivityGroup({ id, calls, attributio
         {summary.running && <span className="relative top-0.5 size-3 shrink-0 animate-spin self-start rounded-full border-2 border-border border-t-primary" aria-hidden />}
         <span className="min-w-0">
           <span>{summary.text}</span>
-          {summary.parallel > 0 && <span className="font-mono text-[11px]"> · {fill(activity.parallelSuffix, summary.parallel)}</span>}
+          {summary.parallel > 0 && <span className="whitespace-nowrap font-mono text-[11px]"> · {fill(activity.parallelSuffix, summary.parallel)}</span>}
           {summary.failed > 0 && (
-            <span className="font-mono text-[11px] text-destructive"> · {summary.failed === 1 ? activity.failedOne : fill(activity.failedMany, summary.failed)}</span>
+            <span className="whitespace-nowrap font-mono text-[11px] text-destructive"> · {summary.failed === 1 ? activity.failedOne : fill(activity.failedMany, summary.failed)}</span>
           )}
         </span>
         <ChevronRight className={cn("relative top-0.5 size-3 shrink-0 self-start transition-transform", open && "rotate-90")} />
       </button>
 
       {open && (
-        <div className="mt-1 border-t border-border-soft">
+        <div className="mt-1.5 flex flex-col gap-px border border-border bg-border-soft">
           {batch && (
-            <div className="flex items-baseline justify-between py-1 font-mono text-[10.5px] text-text-faint">
+            <div className="flex items-baseline justify-between bg-card px-3 py-1.5 font-mono text-[10.5px] tracking-wide text-text-faint">
               <span>{fill(activity.batchHeader, batch.count)}</span>
               {batch.durationMs !== undefined ? (
                 <span>{formatElapsed(batch.durationMs)}</span>

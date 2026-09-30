@@ -107,7 +107,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
   }
 
   return (
-    <div className="border-t border-border-soft first:border-t-0">
+    <div className="bg-background">
       {/* A `div` acting as the toggle: the target inside it is a second
           action (open the file) and a button can't sit inside a button. */}
       <div
@@ -116,26 +116,30 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
         aria-expanded={open}
         onClick={toggle}
         onKeyDown={onKey}
-        className="flex cursor-pointer items-baseline gap-2 py-1.5 text-xs transition-colors hover:bg-surface-hover"
+        className="flex cursor-pointer items-center gap-2.5 px-3 py-[9px] text-[13.5px] leading-snug transition-colors hover:bg-surface-hover"
       >
-        {failed ? <span className="mt-1 size-[7px] shrink-0 self-start bg-destructive" aria-hidden /> : <ChevronRight className={cn("size-3 shrink-0 self-center text-text-faint transition-transform", open && "rotate-90")} />}
-        <span className="shrink-0 text-text-faint">{verb}</span>
-        {openablePath && onOpenPath ? (
-          <button
-            type="button"
-            title={dict.chat.activity.openFile}
-            className="min-w-0 cursor-pointer truncate font-mono text-[11.5px] text-foreground hover:underline"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenPath(openablePath);
-            }}
-          >
-            {target}
-          </button>
-        ) : (
-          <span className="min-w-0 truncate font-mono text-[11.5px] text-foreground">{target}</span>
-        )}
-        <span className="ml-auto flex shrink-0 items-baseline gap-2 pl-2 font-mono text-[10.5px] text-text-faint">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          {!call.done && <span className="size-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-primary" aria-hidden />}
+          {failed && <span className="size-[7px] shrink-0 bg-destructive" aria-hidden />}
+          <span className="shrink-0 whitespace-nowrap text-text-faint">{verb}</span>
+          {openablePath && onOpenPath ? (
+            <button
+              type="button"
+              title={dict.chat.activity.openFile}
+              className="min-w-0 cursor-pointer truncate font-mono text-[12.5px] text-foreground hover:underline"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenPath(openablePath);
+              }}
+            >
+              {target}
+            </button>
+          ) : (
+            <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">{target}</span>
+          )}
+          <ChevronRight className={cn("size-3 shrink-0 text-text-faint transition-transform", open && "rotate-90")} />
+        </span>
+        <span className="flex shrink-0 items-center gap-[7px] font-mono text-[11px] text-text-faint">
           {meta?.kind === "diff" && (
             <span className="flex gap-1.5 font-medium">
               {meta.added > 0 && <span className="text-diff-add">+{meta.added}</span>}
@@ -155,9 +159,9 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
       </div>
 
       {open && (
-        <div className="flex flex-col gap-2 pb-2 pl-5">
+        <div className="flex flex-col gap-2 px-3 pb-3">
           {input && (
-            <div className="flex items-start gap-2 font-mono text-[11px]">
+            <div className="flex min-h-6 items-center gap-2 font-mono text-[11px]">
               <span className="shrink-0 text-text-faint">{input.label}</span>
               <span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-foreground">{input.value}</span>
               {call.content !== undefined && <CopyResult text={call.content} onCopy={onCopy} />}
