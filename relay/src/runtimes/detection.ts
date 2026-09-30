@@ -9,13 +9,22 @@ export interface AgentDetection {
   readonly id: string;
   readonly installed: boolean;
   /** `stdout.trim()` of `--version`, whatever shape that takes for this
-   * particular CLI — this file doesn't parse it, only proves the binary
-   * runs. `undefined` when not installed or when the probe timed out. */
+   * particular CLI — `parseCliVersion` extracts the number for display;
+   * detection itself only proves the binary runs. `undefined` when not installed or when the probe timed out. */
   readonly version?: string;
   /** Pass-through of the def's own declared capabilities, never inferred
    * from the binary — a def states what it supports, detection only says
    * whether that def's binary is actually present and runs. */
   readonly capabilities: Capabilities;
+}
+
+/**
+ * Pulls the first `major.minor[.patch]` out of a raw `--version` line, since
+ * every CLI wraps it differently (`2.1.3 (Claude Code)`, `codex-cli 0.46.0`).
+ * `undefined` when there is nothing version-shaped to show.
+ */
+export function parseCliVersion(raw: string | undefined): string | undefined {
+  return raw?.match(/\d+\.\d+(?:\.\d+)?/)?.[0];
 }
 
 /**
