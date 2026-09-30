@@ -927,7 +927,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <EditorContent editor={editor} className="composer-editor" />
 
           <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-3 px-1">
+            <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
               <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
               <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
               {modelCatalog && (
