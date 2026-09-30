@@ -18,6 +18,7 @@ import Suggestion from "@tiptap/suggestion";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Button } from "@/components/ui/button";
+import { Elapsed } from "@/components/chat/activity/Elapsed";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +52,8 @@ interface ComposerProps {
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
   turnInFlight: boolean;
+  /** Epoch ms of the turn's start, for the clock on the stop button. */
+  turnStartedAt?: number | null;
   onStop: () => void;
   pendingImages: PendingAttachment[];
   uploadingImage: boolean;
@@ -464,6 +467,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onSend,
     disabled,
     turnInFlight,
+    turnStartedAt,
     onStop,
     pendingImages,
     uploadingImage,
@@ -898,15 +902,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             disabled={!turnInFlight && !canSend}
             aria-label={turnInFlight ? dict.common.stop : dict.common.send}
             className={cn(
-              "flex size-11 shrink-0 cursor-pointer items-center justify-center transition-colors",
+              "flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center transition-colors",
               turnInFlight
-                ? "bg-destructive text-destructive-foreground"
+                ? "gap-1.5 border border-border px-3 text-muted-foreground hover:bg-surface-hover"
                 : canSend
                   ? "bg-primary text-primary-foreground"
                   : "bg-border text-text-faint",
             )}
           >
-            {turnInFlight ? <Square className="size-4" fill="currentColor" /> : <ArrowUp className="size-5" />}
+            {turnInFlight ? (
+              <>
+                <Square className="size-3.5" fill="currentColor" />
+                {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} whole className="font-mono text-[11px]" />}
+              </>
+            ) : (
+              <ArrowUp className="size-5" />
+            )}
           </button>
         </div>
       ) : (
@@ -1017,9 +1028,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 )}
               </div>
               {turnInFlight ? (
-                <Button type="button" size="sm" variant="destructive" onClick={onStop}>
+                // Neutral, not red: stopping is an ordinary action here, and
+                // the clock beside it is the turn's only running counter.
+                <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
                   <span className="size-2 bg-current" />
-                  {dict.common.stop}
+                  {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} whole className="font-mono text-[11px]" />}
                 </Button>
               ) : (
                 // The shortcut glyph is decoration for the eye only: it is

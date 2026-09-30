@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ImagePlus, X } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -9,12 +9,10 @@ import { getDefaultPath } from "@/hooks/useDefaultPaths";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
 import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
-import { countToolCallsInCurrentTurn } from "@/lib/format/turnActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
 import { MessageLog } from "@/components/chat/MessageLog";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
-import { TurnIndicator } from "@/components/chat/TurnIndicator";
 import { Composer, type ComposerHandle } from "@/components/chat/Composer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
@@ -156,7 +154,6 @@ export function ChatPanel({
   // Recomputed only when an entry is actually appended — `log.entries` keeps
   // its identity while text streams in (that lands in `streamingText`), so
   // this doesn't walk the log once per token.
-  const toolCallsThisTurn = useMemo(() => countToolCallsInCurrentTurn(log.entries), [log.entries]);
   const logRef = useRef(log);
   logRef.current = log;
   // Same pattern as `logRef`: the drop handler and the copy callback are
@@ -373,8 +370,8 @@ export function ChatPanel({
       caughtUpRef.current = true;
       setReady(true);
     },
-    onTurnComplete: (stopped) => {
-      logRef.current.handleTurnComplete(stopped);
+    onTurnComplete: (stopped, durationMs) => {
+      logRef.current.handleTurnComplete(stopped, durationMs);
       setTurnStartedAt(null);
       if (!caughtUpRef.current) return;
       const entries = [...logRef.current.entries].reverse();
@@ -678,24 +675,12 @@ export function ChatPanel({
           </div>
         )}
 
-        {/* On iOS the turn indicator lives in here (not in normal document
-         * flow, like on desktop) — this whole block is `absolute bottom-0`
-         * (see comment above), so an element outside it would leak out of
-         * the floating area and end up rendering below the composer (near
-         * the keyboard) instead of above it. */}
-        {isIOS() && turnStartedAt !== null && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
-
         {/* Caps the composer column at the same width as MessageLog's content
          * — `contents` on iOS keeps these two wrapper divs out of
          * the box tree entirely, so the phone layout (which never hits the
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
           <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-3xl flex-col")}>
-            {/* Always mounted on desktop — see `TurnIndicator`'s
-             * own doc comment for why this can't be conditional on
-             * `turnStartedAt !== null` like the iOS one below. */}
-            {!isIOS() && <TurnIndicator startedAt={turnStartedAt} toolCount={toolCallsThisTurn} />}
-
             {choicePrompt && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
@@ -710,6 +695,7 @@ export function ChatPanel({
               profile={profile}
               disabled={!connected}
               turnInFlight={turnInFlight}
+              turnStartedAt={turnStartedAt}
               onStop={stopTurn}
               pendingImages={images.pending}
               uploadingImage={images.uploading}

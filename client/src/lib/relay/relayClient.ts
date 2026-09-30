@@ -351,7 +351,7 @@ export interface RelayClientCallbacks {
    * come through here — nothing distinguishes it from any other event this
    * callback doesn't act on yet. */
   onEvent: (event: AgentEvent) => void;
-  onTurnComplete: (stopped: boolean) => void;
+  onTurnComplete: (stopped: boolean, durationMs?: number) => void;
   onTurnError: (message: string) => void;
   /** End of this session's history replay — completed turns received
    * after this are truly new, not reconstruction (see sharedSession.ts). */
@@ -622,7 +622,7 @@ export class RelayClient {
         }
       } else if (parsed.type === "agent_event") {
         if (parsed.event.type === "turn_ended") {
-          this.callbacks.onTurnComplete(parsed.event.stopped);
+          this.callbacks.onTurnComplete(parsed.event.stopped, parsed.event.durationMs);
         } else if (parsed.event.type === "error") {
           this.callbacks.onTurnError(parsed.event.message);
         } else {

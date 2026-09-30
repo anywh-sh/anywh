@@ -2,9 +2,12 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "r
 import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
-import { UserBubble, AssistantText } from "@/components/chat/Message";
+import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
-import { ToolCallGroup, type ToolPair } from "@/components/chat/ToolCallGroup";
+import { ActivityGroup } from "@/components/chat/activity/ActivityGroup";
+import { ThinkingRow } from "@/components/chat/activity/ThinkingRow";
+import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
+import { OpenState, OpenStateContext } from "@/lib/format/openState";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
 import { cn } from "@/lib/utils";
 import { useDict, type Dictionary } from "@/i18n";
@@ -58,76 +61,8 @@ interface MessageLogProps {
   isActiveTab: boolean;
 }
 
-type RenderItem =
-  | { kind: "single"; entry: LogEntry }
-  | ({ kind: "tool" } & ToolPair)
-  | { kind: "tool-group"; items: ToolPair[] };
-
-// Tools that never go into a collapsed group — each one deserves its own
-// spotlight: Edit/Write mutate disk (the diff wants to be seen), TodoWrite
-// is a planning signal, and Task delegates to a subagent whose sub-tool-calls
-// are invisible in the protocol (they don't arrive as separate events), so
-// the card is the only window into that work — it can't stay buried in a
-// "Used N tools".
-const UNGROUPABLE_TOOLS = new Set(["Edit", "Write", "TodoWrite", "Task"]);
-
-function isGroupable(pair: ToolPair): boolean {
-  if (pair.result?.isError) return false;
-  return !UNGROUPABLE_TOOLS.has(pair.use.name);
-}
-
-/** Joins tool-use with its corresponding tool-result (by toolUseId), and
- * groups contiguous sequences of "silent" tool calls (no text between them)
- * into a single collapsible item — reflects how Claude actually behaves
- * (several queued actions) instead of turning into a list of loose,
- * identical cards. The CLI protocol doesn't expose "turn" as a unit (only
- * `assistant`/`user` messages), and replaying a saved session also doesn't
- * reconstruct internal turn boundaries — that's why grouping is by
- * adjacency in the log (contiguous = no text/error block in between), not
- * by turn: it works identically live and on replay, without needing a
- * concept the protocol doesn't provide. */
-function buildRenderItems(entries: LogEntry[], attributionByToolUseId: Record<string, AttributionState>): RenderItem[] {
-  const resultByToolUseId = new Map<string, Extract<LogEntry, { kind: "tool-result" }>>();
-  for (const entry of entries) {
-    if (entry.kind === "tool-result" && entry.toolUseId) resultByToolUseId.set(entry.toolUseId, entry);
-  }
-
-  const items: RenderItem[] = [];
-  let buffer: ToolPair[] = [];
-
-  const flushBuffer = () => {
-    if (buffer.length === 1) items.push({ kind: "tool", ...buffer[0] });
-    else if (buffer.length > 1) items.push({ kind: "tool-group", items: buffer });
-    buffer = [];
-  };
-
-  for (const entry of entries) {
-    if (entry.kind === "tool-result") continue;
-    if (entry.kind === "tool-use") {
-      const pair: ToolPair = {
-        use: entry,
-        result: entry.toolUseId ? resultByToolUseId.get(entry.toolUseId) : undefined,
-        attribution: entry.toolUseId ? attributionByToolUseId[entry.toolUseId] : undefined,
-      };
-      if (isGroupable(pair)) {
-        buffer.push(pair);
-      } else {
-        flushBuffer();
-        items.push({ kind: "tool", ...pair });
-      }
-      continue;
-    }
-    flushBuffer();
-    items.push({ kind: "single", entry });
-  }
-  flushBuffer();
-  return items;
-}
-
-function itemKey(item: RenderItem): string {
-  if (item.kind === "tool") return item.use.id;
-  if (item.kind === "tool-group") return `group-${item.items[0].use.id}`;
-  return item.entry.id;
+function itemKey(item: TimelineItem): string {
+  return item.kind === "group" ? `group-${item.id}` : item.entry.id;
 }
 
 interface UserActionHandlers {
@@ -140,19 +75,18 @@ interface UserActionHandlers {
   cwd: string | null;
 }
 
-function renderItem(item: RenderItem, userActions: UserActionHandlers, dict: Dictionary) {
-  if (item.kind === "tool") {
+function renderItem(item: TimelineItem, userActions: UserActionHandlers, attributionByToolUseId: Record<string, AttributionState>, dict: Dictionary) {
+  if (item.kind === "group") {
     return (
-      <LogEntryRow key={item.use.id}>
-        <ToolCallCard use={item.use} result={item.result} attribution={item.attribution} cwd={userActions.cwd} onOpenPath={userActions.onOpenPath} />
-      </LogEntryRow>
-    );
-  }
-
-  if (item.kind === "tool-group") {
-    return (
-      <LogEntryRow key={`group-${item.items[0].use.id}`}>
-        <ToolCallGroup items={item.items} cwd={userActions.cwd} onOpenPath={userActions.onOpenPath} />
+      <LogEntryRow key={`group-${item.id}`}>
+        <ActivityGroup
+          id={item.id}
+          calls={item.calls}
+          attributionByToolUseId={attributionByToolUseId}
+          cwd={userActions.cwd}
+          onCopy={userActions.onCopy}
+          onOpenPath={userActions.onOpenPath}
+        />
       </LogEntryRow>
     );
   }
@@ -179,11 +113,28 @@ function renderItem(item: RenderItem, userActions: UserActionHandlers, dict: Dic
         <LogEntryRow key={entry.id}>
           <AssistantText
             text={entry.text}
-            sentAt={entry.sentAt}
             streaming={entry.streaming}
             onCopy={userActions.onCopy}
             onOpenPath={userActions.onOpenPath}
           />
+        </LogEntryRow>
+      );
+    case "tool-call":
+      return (
+        <LogEntryRow key={entry.id}>
+          <ToolCallCard call={entry} />
+        </LogEntryRow>
+      );
+    case "thinking":
+      return (
+        <LogEntryRow key={entry.id}>
+          <ThinkingRow entry={entry} />
+        </LogEntryRow>
+      );
+    case "turn-footer":
+      return (
+        <LogEntryRow key={entry.id} className="py-0">
+          <TurnFooter sentAt={entry.sentAt} durationMs={entry.durationMs} text={entry.text} onCopy={userActions.onCopy} />
         </LogEntryRow>
       );
     case "error":
@@ -251,14 +202,18 @@ export const MessageLog = memo(function MessageLog({
   const dict = useDict();
   const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, cwd };
 
+  // Which rows are expanded, for this tab — held here, above the virtualized
+  // list, so a row that scrolls out of view keeps its state.
+  const [openState] = useState(() => new OpenState());
+
   // `entries` only gets a new reference when something is actually
   // committed (see reducer in useMessageLog) — memoizing here avoids
-  // recomputing the tool-use/tool-result pairing on every streaming token,
-  // when only `streamingEntries` changes.
-  const items = useMemo(() => buildRenderItems(entries, attributionByToolUseId), [entries, attributionByToolUseId]);
+  // regrouping on every streaming token, when only `streamingEntries`
+  // changes.
+  const items = useMemo(() => buildTimeline(entries), [entries]);
 
-  const allItems = useMemo<RenderItem[]>(
-    () => [...items, ...streamingEntries.map((entry): RenderItem => ({ kind: "single", entry }))],
+  const allItems = useMemo<TimelineItem[]>(
+    () => [...items, ...streamingEntries.map((entry): TimelineItem => ({ kind: "single", entry }))],
     [items, streamingEntries],
   );
 
@@ -440,6 +395,7 @@ export const MessageLog = memo(function MessageLog({
     // it (or any ancestor between it and the blurred element) is
     // `position: static`. The whole chain up to `.mobile-canvas` needs this
     // — see App.tsx (tab wrappers) and MobileShell.tsx. Do not remove.
+    <OpenStateContext.Provider value={openState}>
     <div
       ref={parentRef}
       onScroll={handleScroll}
@@ -479,11 +435,12 @@ export const MessageLog = memo(function MessageLog({
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
-              {renderItem(item, userActions, dict)}
+              {renderItem(item, userActions, attributionByToolUseId, dict)}
             </div>
           );
         })}
       </div>
     </div>
+    </OpenStateContext.Provider>
   );
 });
