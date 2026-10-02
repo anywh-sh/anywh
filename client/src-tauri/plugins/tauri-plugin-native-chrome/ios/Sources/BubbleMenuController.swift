@@ -37,6 +37,11 @@ struct BubbleSelectEvent: Encodable {
 @MainActor
 final class BubbleMenuController: NSObject, UIContextMenuInteractionDelegate {
   private weak var webview: WKWebView?
+  /// A picture of the bubble, laid over it while the menu is up: the piece
+  /// that lifts. A real view of exactly the bubble's size, so the system never
+  /// has to guess which part of the web view to preview.
+  private var lift: UIImageView?
+  private(set) var interaction: UIContextMenuInteraction?
   private var target: (id: String, rect: CGRect, items: [BubbleItemArgs])?
 
   /// Called with the target id and the picked item id.
@@ -44,7 +49,9 @@ final class BubbleMenuController: NSObject, UIContextMenuInteractionDelegate {
 
   func install(on webview: WKWebView) {
     self.webview = webview
-    webview.addInteraction(UIContextMenuInteraction(delegate: self))
+    let interaction = UIContextMenuInteraction(delegate: self)
+    self.interaction = interaction
+    webview.addInteraction(interaction)
   }
 
   func setTarget(_ args: BubbleTargetArgs) {
@@ -60,6 +67,7 @@ final class BubbleMenuController: NSObject, UIContextMenuInteractionDelegate {
     configurationForMenuAtLocation location: CGPoint
   ) -> UIContextMenuConfiguration? {
     guard let target, target.rect.contains(location) else { return nil }
+    makeLift(for: target.rect)
     let targetId = target.id
     let items = target.items
     return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
@@ -91,11 +99,44 @@ final class BubbleMenuController: NSObject, UIContextMenuInteractionDelegate {
     preview()
   }
 
-  /// The web view clipped to the bubble's rectangle: that is the piece that lifts.
+  func contextMenuInteraction(
+    _ interaction: UIContextMenuInteraction,
+    willEndFor configuration: UIContextMenuConfiguration,
+    animator: UIContextMenuInteractionAnimating?
+  ) {
+    if let animator {
+      animator.addCompletion { [weak self] in self?.removeLift() }
+    } else {
+      removeLift()
+    }
+  }
+
+  /// Draws the bubble's rectangle of the web view into an image view placed
+  /// exactly over it.
+  private func makeLift(for rect: CGRect) {
+    removeLift()
+    guard let webview, rect.width > 0, rect.height > 0 else { return }
+    let renderer = UIGraphicsImageRenderer(size: rect.size)
+    let image = renderer.image { context in
+      context.cgContext.translateBy(x: -rect.minX, y: -rect.minY)
+      webview.drawHierarchy(in: webview.bounds, afterScreenUpdates: true)
+    }
+    let view = UIImageView(image: image)
+    view.frame = rect
+    webview.addSubview(view)
+    lift = view
+  }
+
+  private func removeLift() {
+    lift?.removeFromSuperview()
+    lift = nil
+  }
+
   private func preview() -> UITargetedPreview? {
-    guard let webview, let target else { return nil }
+    guard let lift else { return nil }
     let parameters = UIPreviewParameters()
-    parameters.visiblePath = UIBezierPath(rect: target.rect)
-    return UITargetedPreview(view: webview, parameters: parameters)
+    parameters.backgroundColor = .clear
+    parameters.visiblePath = UIBezierPath(rect: lift.bounds)
+    return UITargetedPreview(view: lift, parameters: parameters)
   }
 }
