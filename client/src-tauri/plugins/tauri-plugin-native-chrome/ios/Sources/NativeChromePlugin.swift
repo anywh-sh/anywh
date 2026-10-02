@@ -98,6 +98,7 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       // sugere (`init(identifier:sourcePoint:)`, sempre os dois argumentos)
       // — `nil` é o valor correto quando não precisamos rastrear/comparar
       // configurações entre chamadas.
+      UIImpactFeedbackGenerator(style: .medium).impactOccurred()
       interaction.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
     }
   }
