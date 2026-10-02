@@ -32,6 +32,6 @@ export interface NativeMenuItem {
  * iOS reuses the same command.
  */
 export async function showNativeContextMenu(items: NativeMenuItem[], point: { x: number; y: number }): Promise<string | null> {
-  const result = await invoke<{ selectedId: string | null }>("plugin:native-chrome|show_context_menu", { items, point });
+  const result = await invoke<{ selectedId: string | null }>("plugin:native-chrome|show_context_menu", { payload: { items, point } });
   return result.selectedId;
 }
