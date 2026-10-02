@@ -6,7 +6,7 @@ import { defaultCwd } from "./host/paths.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
-import { detectRuntimes } from "./runtimes/detection.js";
+import { detectRuntimes, parseCliVersion } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
 import type { ModelCatalog } from "./runtimes/types.js";
@@ -165,7 +165,7 @@ const SELECTABLE_AGENT_IDS = ["claude", "codex"];
 detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
   .then((detections) => {
     const selectable = detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id));
-    setSelectableAgents(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities })));
+    setSelectableAgents(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities, version: parseCliVersion(detection.version) })));
     for (const def of [claudeRuntimeDef, codexRuntimeDef]) {
       if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
       probeModelCatalog(def, HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))

@@ -76,9 +76,11 @@ interface ComposerProps {
   modelCatalog: ModelCatalog | null;
   onChangeModel: (model: ModelChoice) => void;
   /** Same signal as `cwdLocked` (`WorkingDirectoryButton`) — true as soon as
-   * the conversation has had its first turn. Switching the model at that
-   * point would require rereading the whole history for the CLI to rebuild
-   * context in the new model, so `ModelButton` locks along with the folder. */
+   * the conversation has had its first turn, i.e. "the conversation is
+   * locked". Switching the model at that point would require rereading the
+   * whole history for the CLI to rebuild context in the new model, so
+   * `ModelButton` locks along with the folder; `AgentPickerButton` locks for
+   * the same reason. */
   modelLocked: boolean;
   /** Desktop-only for now — the iOS layout (single attach/text/send line,
    * see isIOS() below) has no toolbar for this to go into. */
@@ -925,8 +927,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <EditorContent editor={editor} className="composer-editor" />
 
           <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
-              <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} />
+            <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
+              <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
               <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
               {modelCatalog && (
                 <ModelButton
@@ -1035,14 +1037,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
                 </Button>
               ) : (
-                // The shortcut glyph is decoration for the eye only: it is
-                // the button's own label that a screen reader should read,
-                // not the name of a key it can't press.
-                <Button type="submit" size="sm" disabled={!canSend} aria-label={dict.common.send}>
-                  {dict.common.send}
-                  <span aria-hidden="true" className="text-[10px] opacity-65">
-                    {copy.sendShortcut}
-                  </span>
+                <Button type="submit" size="icon" disabled={!canSend} aria-label={dict.common.send} className="size-[26px]">
+                  <ArrowUp className="size-3.5" />
                 </Button>
               )}
             </div>

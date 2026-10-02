@@ -7,7 +7,7 @@ import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import type { Profile } from "@/lib/profiles/profiles";
-import type { ModelCatalog } from "@/lib/relay/relay-types";
+import type { ContextUsage, ModelCatalog } from "@/lib/relay/relay-types";
 
 // AgentPickerButton (mounted inside Composer) fetches /host-info — mocked
 // here the same way FileTree.test.tsx does, so this suite stays about the
@@ -33,7 +33,15 @@ const CLAUDE_CATALOG: ModelCatalog = { options: [{ id: "sonnet", label: "Sonnet 
 
 /** A language switch with no Settings dialog in the way — what's under test
  * is the composer's reaction to it, not the picker that triggers it. */
-function Harness({ agentId = "claude", modelCatalog = CLAUDE_CATALOG }: { agentId?: string; modelCatalog?: ModelCatalog | null }) {
+function Harness({
+  agentId = "claude",
+  modelCatalog = CLAUDE_CATALOG,
+  contextUsage = null,
+}: {
+  agentId?: string;
+  modelCatalog?: ModelCatalog | null;
+  contextUsage?: ContextUsage | null;
+}) {
   const { setLocale } = useLocale();
   return (
     <>
@@ -63,7 +71,7 @@ function Harness({ agentId = "claude", modelCatalog = CLAUDE_CATALOG }: { agentI
         modelCatalog={modelCatalog}
         onChangeModel={vi.fn()}
         modelLocked={false}
-        contextUsage={null}
+        contextUsage={contextUsage}
         onRequestContextBreakdown={vi.fn()}
         compactBoundary={null}
         suggestion={null}
@@ -124,5 +132,17 @@ describe("Composer", () => {
       </LocaleProvider>,
     );
     expect(screen.queryByRole("button", { name: "GPT-5.5" })).not.toBeInTheDocument();
+  });
+
+  it("shows the context chip as a ring only, and send as an arrow-only button", () => {
+    render(
+      <LocaleProvider>
+        <Harness contextUsage={{ model: "claude-opus-5", contextWindowSize: 200_000, usedTokens: 128_000 }} />
+      </LocaleProvider>,
+    );
+
+    const chip = screen.getByRole("button", { name: en.chat.composer.context.ariaLabel.replace("{percent}", "64") });
+    expect(chip.textContent).not.toContain("k/");
+    expect(screen.getByRole("button", { name: en.common.send })).toHaveTextContent("");
   });
 });

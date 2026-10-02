@@ -180,6 +180,8 @@ export async function renameFile(profile: Profile, sessionId: string, path: stri
 export interface SelectableAgentInfo {
   id: string;
   capabilities: Record<string, string>;
+  /** CLI version for display (`0.46.0`); an older relay omits it. */
+  version?: string;
 }
 
 export interface HostInfo {

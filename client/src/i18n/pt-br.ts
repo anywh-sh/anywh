@@ -203,7 +203,6 @@ export const ptBr: Dictionary = {
     },
     composer: {
       placeholder: "Escreva uma mensagem…",
-      sendShortcut: "↵",
       attach: "Anexar imagem ou vídeo",
       attachmentUploading: "enviando anexo…",
       removeAttachment: "Remover anexo",

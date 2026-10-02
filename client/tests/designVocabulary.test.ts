@@ -149,7 +149,10 @@ describe("color and type", () => {
           // The brand mark's two colors are fixed regardless of theme (same
           // two hexes as the static `assets/logo.svg`) — a token would imply
           // they're themeable, which is exactly what they must not be.
-          file.path === "components/shell/AnywhLogo.tsx",
+          file.path === "components/shell/AnywhLogo.tsx" ||
+          // Claude's mark keeps its fixed brand orange for the same reason:
+          // it identifies a vendor's product and must not follow the theme.
+          file.path === "components/chat/AgentLogo.tsx",
       ),
     ).toEqual([]);
   });

@@ -629,11 +629,6 @@ export interface Dictionary {
      */
     composer: {
       placeholder: string;
-      /** Drawn next to `Send`. Not translated in either language — it names
-       * a physical key. It says Enter (not the design's `⌘↵`) because Enter
-       * is what actually sends here: Shift+Enter breaks the line and there
-       * is no modifier variant to advertise. */
-      sendShortcut: string;
       attach: string;
       attachmentUploading: string;
       removeAttachment: string;
