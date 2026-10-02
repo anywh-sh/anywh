@@ -206,6 +206,9 @@ function AppShell() {
   // already connected, since its `connected` value wasn't changing anymore
   // to trigger another update.
   const [connectedByTab, setConnectedByTab] = useState<Record<string, boolean>>({});
+  // Same shape and lifecycle as `connectedByTab`, for the active model's label
+  // (the native iOS top bar shows it).
+  const [, setModelLabelByTab] = useState<Record<string, string | null>>({});
   // Each open tab's own `anywh-bg` jobs, lifted here for the global
   // background-activity tray (StatusBar) — see `useTabPanelActions`'s
   // `onBackgroundJobsChange`.
@@ -276,6 +279,10 @@ function AppShell() {
   useEffect(() => {
     const openIds = new Set(tabsState.tabs.map((tab) => tab.id));
     setConnectedByTab((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([id]) => openIds.has(id)));
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setModelLabelByTab((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([id]) => openIds.has(id)));
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
@@ -502,6 +509,7 @@ function AppShell() {
     onOpenFilePath: handleOpenFilePath,
     onOpenTerminalAt: handleOpenTerminalAt,
     setConnectedByTab,
+    setModelLabelByTab,
     setBackgroundActivityByTab,
     backgroundActionsRef,
   });
