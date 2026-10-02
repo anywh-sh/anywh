@@ -38,6 +38,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
   private let reporter = SafeAreaReporterView()
   private let drawerHost: UIHostingController<SessionDrawerView>
   private let topBarHost: UIHostingController<TopBarView>
+  private let composer: ComposerController
   /// Two distinct taps, fired the moment the finger lets go (or a tap/button
   /// decides), not when the spring lands: one for opening, another for closing.
   /// Closing by picking a conversation therefore feels the same as dragging shut.
@@ -57,7 +58,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
   var gestureBlocked = false
   var isOpen: Bool { progress > 0.5 }
 
-  init?(webview: WKWebView, topBar: TopBarStore, drawer: DrawerStore) {
+  init?(webview: WKWebView, topBar: TopBarStore, drawer: DrawerStore, composer: ComposerController) {
     guard let window = webview.window else { return nil }
     // The canvas is whatever sits directly under the window on the way up
     // from the webview; it is moved as one piece, never reparented.
@@ -70,6 +71,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     self.canvas = top
     self.drawerHost = UIHostingController(rootView: SessionDrawerView(store: drawer))
     self.topBarHost = UIHostingController(rootView: TopBarView(store: topBar))
+    self.composer = composer
     super.init()
 
     installDrawer()
@@ -145,6 +147,10 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     dim.isUserInteractionEnabled = false
     pin(dim)
 
+    // Below the dim, so the composer fades and is blocked with the rest of the
+    // canvas while the drawer is open.
+    composer.install(in: canvas, below: dim, webview: webview)
+
     blocker.backgroundColor = .clear
     pin(blocker)
     blocker.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleBlockerTap)))
@@ -186,6 +192,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     blur.setWash(UIColor(hex: theme.background))
     blur.overrideUserInterfaceStyle = style
     topBarHost.view.overrideUserInterfaceStyle = style
+    composer.applyTheme(theme)
     apply(progress: progress)
   }
 
@@ -226,6 +233,13 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     return velocity.x > 0 && abs(velocity.x) > 2 * abs(velocity.y) && !gestureBlocked
   }
 
+  /// A touch that starts in the composer or on the scroll-to-end arrow never
+  /// feeds the drawer's pan: dragging the cursor or a selection in the field
+  /// must not open it.
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    !composer.owns(touch.view)
+  }
+
   func gestureRecognizer(
     _ gestureRecognizer: UIGestureRecognizer,
     shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
@@ -242,6 +256,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
       closeHaptic.prepare()
       if progress == 0 {
         // Opening: dismiss the keyboard so it does not stay over the drawer.
+        composer.resign()
         webview?.evaluateJavaScript("document.activeElement && document.activeElement.blur()", completionHandler: nil)
       }
     case .changed:

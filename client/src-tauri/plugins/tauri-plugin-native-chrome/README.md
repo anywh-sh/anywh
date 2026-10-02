@@ -26,6 +26,41 @@ Corner radius follows the device: `containerConcentric` on iOS 26, the
 display's corner radius (private `_displayCornerRadius` key) with a safe
 default on iOS 18–25.
 
+## Composer
+
+The message composer is native too: a glass surface (Liquid Glass on iOS 26,
+a material on iOS 18–25) with a plain `UITextView`, the attach menu, and
+send/stop. Everything it shows arrives in one payload; the text itself lives
+only in the field.
+
+- `set_composer` — the full payload (strings, `canSend`, `turnInFlight`,
+  attachment chips, edit/typo banners, `hidden`, theme). Sent when it changes,
+  not on every keystroke.
+- `set_composer_text` — imperative text replacement (draft restore, edit
+  start/cancel, clear after send). Never part of the payload, so it can't
+  overwrite what the user is typing; the cursor goes to the end and no
+  `composerTextChange` echoes back.
+- `focus_composer` / `blur_composer`, `set_composer_elapsed` (the turn clock's
+  label, formatted by the web side), `set_scroll_to_end` (visibility of the
+  round arrow, plus the height of the web stack floating above the composer).
+- `read_attachment` — Rust only: reads and deletes a file the Photos / Files
+  pickers copied into `<tmp>/anywh-attachments/`, returning raw bytes. It
+  accepts only UUID-named files directly inside that folder (symlinks and `..`
+  are resolved first), so it can't read arbitrary paths. The upload itself
+  stays on the web side.
+
+The composer sits above the web view, pinned to `keyboardLayoutGuide`, with a
+strip under it (the theme background at about 35%, fading out above the
+composer) so text scrolling underneath recedes. The room the strip and the
+composer take, keyboard included, is pushed to the page as the
+`--native-bottom-inset` CSS variable (removed while the composer is hidden).
+Touches that begin in the composer or on the arrow never feed the drawer pan.
+
+Events back to JS: `composerTextChange`, `composerFocusChange`,
+`composerSubmit`, `composerStop`, `composerAttach`, `composerRemoveAttachment`,
+`composerCancelEdit`, `composerTypoUse`, `composerTypoSendAnyway`,
+`composerScrollToEnd`.
+
 ## `show_context_menu`
 
 Long-press menu on chat messages via `UIEditMenuInteraction` (public since iOS
