@@ -8,8 +8,9 @@ captures gestures, then reports intent back as plugin events.
 
 - `set_drawer` — the conversation list (SwiftUI) that sits behind the web
   canvas. The canvas (the view holding the `WKWebView`) slides right under a
-  native pan that can start anywhere on screen; release settles with a spring
-  and a haptic.
+  native pan that can start anywhere on screen; release settles with a spring.
+  Opening and closing each have their own haptic, fired on release (not on
+  landing) and also when a conversation is picked and the drawer closes.
 - `set_top_bar` — the single-pill top bar (title, model, connection dot, new
   conversation) over the web content, with a blur strip fading out below it.
   Liquid Glass on iOS 26, a material on iOS 18–25. The bar's height is pushed

@@ -38,7 +38,14 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
   private let reporter = SafeAreaReporterView()
   private let drawerHost: UIHostingController<SessionDrawerView>
   private let topBarHost: UIHostingController<TopBarView>
-  private let haptic = UIImpactFeedbackGenerator(style: .soft)
+  /// Two distinct taps, fired the moment the finger lets go (or a tap/button
+  /// decides), not when the spring lands: one for opening, another for closing.
+  /// Closing by picking a conversation therefore feels the same as dragging shut.
+  private let openHaptic = UIImpactFeedbackGenerator(style: .medium)
+  private let closeHaptic = UIImpactFeedbackGenerator(style: .rigid)
+  /// The state the drawer last settled toward, so a release that falls back to
+  /// where it started does not tap.
+  private var targetOpen = false
 
   private var progress: CGFloat = 0
   private var panStartProgress: CGFloat = 0
@@ -231,7 +238,8 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     case .began:
       stopSpring()
       panStartProgress = progress
-      haptic.prepare()
+      openHaptic.prepare()
+      closeHaptic.prepare()
       if progress == 0 {
         // Opening: dismiss the keyboard so it does not stay over the drawer.
         webview?.evaluateJavaScript("document.activeElement && document.activeElement.blur()", completionHandler: nil)
@@ -258,9 +266,13 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
   }
 
   /// Settles on the open or closed position with a spring, seeded with the
-  /// release velocity (points/second), and taps a haptic when it lands.
+  /// release velocity (points/second). Taps the open or close haptic right
+  /// away when this changes the state.
   func setOpen(_ open: Bool, velocity: CGFloat = 0) {
-    haptic.prepare()
+    if open != targetOpen {
+      targetOpen = open
+      (open ? openHaptic : closeHaptic).impactOccurred()
+    }
     spring = (target: open ? 1 : 0, velocity: velocity / drawerWidth)
     guard displayLink == nil else { return }
     let link = CADisplayLink(target: self, selector: #selector(step(_:)))
@@ -286,7 +298,6 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     if abs(next - state.target) < 0.0015 && abs(state.velocity) < 0.02 {
       stopSpring()
       apply(progress: state.target)
-      haptic.impactOccurred()
     } else {
       apply(progress: next)
     }

@@ -170,7 +170,6 @@ struct SessionDrawerView: View {
 
   private func row(_ session: DrawerSession, _ args: DrawerArgs, _ theme: ShellTheme) -> some View {
     Button {
-      UISelectionFeedbackGenerator().selectionChanged()
       store.onSelect(session)
     } label: {
       HStack(spacing: 8) {
