@@ -788,7 +788,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         // buttons inside it do.
         "flex flex-col gap-1.5 border p-2 transition-colors",
         isIOS()
-          ? // Same blur intensity as MobileTopBar — on the physical device
+          ? // Same blur intensity as the native top bar — on the physical device
             // the blur itself was imperceptible (possible WKWebView
             // limitation with backdrop-filter), so opacity dropped a lot
             // more (45%) to guarantee visible contrast behind it even if the

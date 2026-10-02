@@ -36,7 +36,7 @@ export function TitleBar({
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onCheckForUpdates: () => void;
-  /** Unlike `MobileTopBar`, only rendered when `false` — desktop had no
+  /** Unlike the native iOS top bar, only rendered when `false` — desktop had no
    * connection feedback at all: a relay that's unreachable from the start
    * (wrong profile host/port, nothing running there) looked identical to
    * "the app is just loading", with every panel (folder picker, model/mode,

@@ -10,14 +10,6 @@ import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 
 interface SessionListItemProps {
   session: MergedSession;
-  /** The profile's label, resolved by the list — the row only carries an id,
-   * and looking the label up per row would walk the profiles array once for
-   * every session on screen. */
-  profileLabel: string;
-  /** Whether the profile name is worth the second line at all: with a single
-   * profile in view it is the same word on every row. The colour bar stays
-   * either way, since it also reads as the selection indicator. */
-  showProfile: boolean;
   selected: boolean;
   running: boolean;
   /** `anywh-bg` job currently observed on this session
@@ -38,8 +30,6 @@ interface SessionListItemProps {
  */
 export const SessionListItem = memo(function SessionListItem({
   session,
-  profileLabel,
-  showProfile,
   selected,
   running,
   hasBackgroundJob,
@@ -53,8 +43,8 @@ export const SessionListItem = memo(function SessionListItem({
   const menu = useContextMenu();
   const indicatorLabel = running ? dict.shell.sidebar.agentWorking : dict.shell.sidebar.backgroundJob;
   // A relay too old to report when the session was last used leaves the row
-  // without a time rather than with a made-up one — the meta line then only
-  // exists if the profile name is on it.
+  // without a time rather than with a made-up one — the meta line is then
+  // left out. The profile is told apart by the colour bar, not by name.
   const lastActive = session.lastActiveAt === null ? null : formatRelativeTime(session.lastActiveAt, locale);
 
   return (
@@ -109,12 +99,8 @@ export const SessionListItem = memo(function SessionListItem({
             )
           )}
         </span>
-        {(showProfile || lastActive !== null) && (
-          <span className="flex min-w-0 items-center gap-1.5 font-mono text-[length:calc(10.5px*var(--font-scale-ratio))] text-text-faint">
-            {showProfile && <span className="max-w-22 shrink-0 truncate">{profileLabel}</span>}
-            {showProfile && lastActive !== null && <span aria-hidden="true">·</span>}
-            {lastActive !== null && <span className="truncate">{lastActive}</span>}
-          </span>
+        {lastActive !== null && (
+          <span className="truncate font-mono text-[length:calc(10.5px*var(--font-scale-ratio))] text-text-faint">{lastActive}</span>
         )}
       </button>
       <SessionDeleteMenu menu={menu} title={session.title} onRename={() => onRename(session)} onDelete={() => onDelete(session)} />

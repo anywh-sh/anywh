@@ -360,6 +360,7 @@ export const en: Dictionary = {
       restore: "Restore",
       close: "Close",
       reconnecting: "Reconnecting…",
+      connected: "Connected",
     },
     statusBar: {
       changes: "{count} changes",
@@ -393,6 +394,7 @@ export const en: Dictionary = {
     sidebar: {
       label: "Sidebar",
       newConversation: "New conversation",
+      allChats: "All chats",
       filterByProfile: "Filter by profile",
       filterHeading: "filter profiles",
       allProfiles: "all",

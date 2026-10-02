@@ -28,7 +28,7 @@ import { isIOS } from "@/lib/platform/platform";
 import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import { cn } from "@/lib/utils";
 import { parseSlashCommand } from "@/lib/composer/slashCommands";
-import { catalogHasModel } from "@/lib/composer/modelCatalog";
+import { activeModelLabel, catalogHasModel } from "@/lib/composer/modelCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 
@@ -100,6 +100,9 @@ interface ChatPanelProps {
   /** This session's connection state — `App` uses this to feed iOS's
    * consolidated top bar, which lives outside ChatPanel. */
   onConnectedChange?: (connected: boolean) => void;
+  /** Label of the model the session is on (`null` until known) — for chrome
+   * that lives outside the panel, like the iOS native top bar. */
+  onModelLabelChange?: (label: string | null) => void;
   /** This tab's group, for portaling the files/terminal toggle pair into
    * that group's strip (see `usePanelTogglesSlot`) — `null` on compact/iOS,
    * where panels aren't available and nothing is portaled regardless. */
@@ -182,6 +185,7 @@ export function ChatPanel({
   onActivity,
   onDeleted,
   onConnectedChange,
+  onModelLabelChange,
   groupId = null,
   terminal,
   files,
@@ -596,6 +600,13 @@ export function ChatPanel({
     onConnectedChangeRef.current?.(connected);
   }, [connected]);
 
+  const onModelLabelChangeRef = useRef(onModelLabelChange);
+  onModelLabelChangeRef.current = onModelLabelChange;
+  const modelLabel = activeModelLabel(modelCatalog, model);
+  useEffect(() => {
+    onModelLabelChangeRef.current?.(modelLabel);
+  }, [modelLabel]);
+
   // Message editing: truncates locally (optimistic, like a normal
   // send) and sends `edit_message` — the relay stops the current turn (if
   // any), cuts the real transcript at the right point and runs a new turn.
@@ -704,7 +715,7 @@ export function ChatPanel({
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}
-          className={isIOS() ? "pt-[calc(env(safe-area-inset-top)+64px)] pb-32" : undefined}
+          className={isIOS() ? "pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))] pb-32" : undefined}
           // On iOS editing never turns into an inline `<textarea>`
           // — `ChatPanel` never passes an id along on that platform, even
           // with `editTarget` set (see warning in the composer below).

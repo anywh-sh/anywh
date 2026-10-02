@@ -411,8 +411,8 @@ export const MessageLog = memo(function MessageLog({
     // (reproduced via real WebKit Playwright, not Chromium):
     // `backdrop-filter` on an ancestor doesn't sample this div's content if
     // it (or any ancestor between it and the blurred element) is
-    // `position: static`. The whole chain up to `.mobile-canvas` needs this
-    // — see App.tsx (tab wrappers) and MobileShell.tsx. Do not remove.
+    // `position: static`. The whole chain up to the root needs this
+    // — see App.tsx (tab wrappers). Do not remove.
     <OpenStateContext.Provider value={openState}>
     <div
       ref={parentRef}

@@ -22,6 +22,7 @@ interface UseTabPanelActionsArgs {
   onOpenFilePath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
   setConnectedByTab: Dispatch<SetStateAction<Record<string, boolean>>>;
+  setModelLabelByTab: Dispatch<SetStateAction<Record<string, string | null>>>;
   setBackgroundActivityByTab: Dispatch<SetStateAction<Record<string, BackgroundActivityEntry>>>;
   /** Not React state on purpose — a tab's cancel/dismiss/stop functions are
    * only ever read at the moment the global tray's user clicks something,
@@ -58,6 +59,7 @@ export function useTabPanelActions({
   onOpenFilePath,
   onOpenTerminalAt,
   setConnectedByTab,
+  setModelLabelByTab,
   setBackgroundActivityByTab,
   backgroundActionsRef,
 }: UseTabPanelActionsArgs): TabPanelActions {
@@ -122,6 +124,9 @@ export function useTabPanelActions({
       onConnectedChange: (tabId, connected) => {
         setConnectedByTab((prev) => (prev[tabId] === connected ? prev : { ...prev, [tabId]: connected }));
       },
+      onModelLabelChange: (tabId, label) => {
+        setModelLabelByTab((prev) => (prev[tabId] === label ? prev : { ...prev, [tabId]: label }));
+      },
       onTogglePane: (tabId, kind) => sessionDock.togglePane(tabId, kind),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
@@ -148,6 +153,7 @@ export function useTabPanelActions({
       terminalTabs.removeSession,
       fileTabs.removeSession,
       setConnectedByTab,
+      setModelLabelByTab,
       setBackgroundActivityByTab,
       backgroundActionsRef,
     ],
