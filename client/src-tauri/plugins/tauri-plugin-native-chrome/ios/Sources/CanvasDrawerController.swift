@@ -17,7 +17,7 @@ private enum Tuning {
   static let springOmega: CGFloat = 22
   static let springDamping: CGFloat = 0.9
   static let fallbackCornerRadius: CGFloat = 44
-  static let blurExtra: CGFloat = 24
+  static let blurExtra: CGFloat = 0
 }
 
 /// Turns the app window into a drawer shell: the web canvas (the Tauri view

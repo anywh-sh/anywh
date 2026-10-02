@@ -74,46 +74,93 @@ private extension View {
   }
 }
 
-/// Blur strip under the status bar and the pill, fading out downward, so
-/// messages scrolling beneath the bar blur and dissolve instead of cutting off.
+/// Progressive blur under the status bar and the pill: the blur radius is
+/// strongest at the top edge and falls to nothing lower down, with no material
+/// tint, so content scrolling underneath stays visible (blurred). A faint wash
+/// of the theme's background color over the same area, fading the same way,
+/// mutes what is underneath so it reads as receding. The fall-off lives only in
+/// the filter's own radius mask: fading the view's opacity instead would
+/// cross-fade sharp and blurred content into a ghosted, weakly blurred look.
 final class TopEdgeBlurView: UIVisualEffectView {
-  private let fade = CAGradientLayer()
-  /// Theme-colored wash over the material, so on a dark theme the strip does
-  /// not read as a gray band.
+  private var maskedHeight: CGFloat = 0
   private let wash = CAGradientLayer()
 
+  /// Blur radius at the top edge, in points. Kept small on purpose: content
+  /// under the bar should stay readable as softened text, not a smear.
+  private static let maxRadius: CGFloat = 4
+  /// Fall-off exponents (`alpha = (1 - t)^gamma`) of the blur radius mask, and
+  /// the opacity of the theme-colored wash at the top edge.
+  private static let blurGamma: CGFloat = 1.2
+  private static let washOpacity: CGFloat = 0.3
+
   init() {
-    super.init(effect: UIBlurEffect(style: .dark))
+    super.init(effect: UIBlurEffect(style: .regular))
     isUserInteractionEnabled = false
-    fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
-    fade.locations = [0, 0.55, 1]
-    fade.startPoint = CGPoint(x: 0.5, y: 0)
-    fade.endPoint = CGPoint(x: 0.5, y: 1)
-    layer.mask = fade
     wash.startPoint = CGPoint(x: 0.5, y: 0)
     wash.endPoint = CGPoint(x: 0.5, y: 1)
-    contentView.layer.addSublayer(wash)
-  }
-
-  func setWash(_ color: UIColor) {
-    // The dark blur style already sits on the theme's background tone (the
-    // system materials lift it to a light gray); this wash only evens out the
-    // remaining difference, so content underneath stays visible, blurred.
-    wash.colors = [
-      color.withAlphaComponent(0.3).cgColor,
-      color.withAlphaComponent(0.18).cgColor,
-      color.withAlphaComponent(0).cgColor,
-    ]
-    wash.locations = [0, 0.5, 1]
+    wash.zPosition = 10
+    layer.addSublayer(wash)
   }
 
   @available(*, unavailable)
   required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+  /// The theme background at a low opacity, fading toward the bottom.
+  func setWash(_ color: UIColor) {
+    let ramp = Self.ramp(gamma: 1)
+    wash.colors = ramp.map { color.withAlphaComponent(Self.washOpacity * $0.alpha).cgColor }
+    wash.locations = ramp.map { NSNumber(value: Double($0.t)) }
+  }
+
+  /// `alpha = (1 - t)^gamma` sampled along the strip (1 at the top, 0 at the bottom).
+  private static func ramp(gamma: CGFloat, steps: Int = 48) -> [(t: CGFloat, alpha: CGFloat)] {
+    (0...steps).map { i in
+      let t = CGFloat(i) / CGFloat(steps)
+      return (t, pow(1 - t, gamma))
+    }
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
-    fade.frame = bounds
     wash.frame = bounds
+    guard bounds.height > 0, bounds.height != maskedHeight else { return }
+    maskedHeight = bounds.height
+    applyVariableBlur()
+  }
+
+  private func applyVariableBlur() {
+    guard
+      let filterClass = NSClassFromString("CAFilter") as? NSObject.Type,
+      let filter = filterClass.perform(NSSelectorFromString("filterWithType:"), with: "variableBlur")?
+        .takeUnretainedValue() as? NSObject,
+      let backdrop = subviews.first(where: { String(describing: type(of: $0)).contains("Backdrop") })
+    else {
+      NSLog("[native-chrome] variable blur unavailable; falling back to the plain material")
+      return
+    }
+    filter.setValue(Self.maxRadius, forKey: "inputRadius")
+    filter.setValue(maskImage(height: bounds.height), forKey: "inputMaskImage")
+    filter.setValue(true, forKey: "inputNormalizeEdges")
+    backdrop.layer.filters = [filter]
+    // Everything but the backdrop is the material's tint/vibrancy; drop it.
+    for view in subviews where view !== backdrop { view.alpha = 0 }
+  }
+
+  /// Opaque at the top, transparent at the bottom: the filter reads this as
+  /// "how much of the radius applies here".
+  private func maskImage(height: CGFloat) -> CGImage? {
+    let size = CGSize(width: 1, height: max(height, 1))
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let image = renderer.image { context in
+      let ramp = Self.ramp(gamma: Self.blurGamma)
+      guard let gradient = CGGradient(
+        colorsSpace: CGColorSpaceCreateDeviceRGB(),
+        colors: ramp.map { UIColor.black.withAlphaComponent($0.alpha).cgColor } as CFArray,
+        locations: ramp.map { $0.t }
+      ) else { return }
+      context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+    }
+    return image.cgImage
   }
 }
 
