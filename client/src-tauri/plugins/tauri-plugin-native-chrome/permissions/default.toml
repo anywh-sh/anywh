@@ -5,6 +5,13 @@ permissions = [
   "allow-set-top-bar",
   "allow-set-drawer",
   "allow-set-gesture-hint",
+  "allow-set-composer",
+  "allow-set-composer-text",
+  "allow-focus-composer",
+  "allow-blur-composer",
+  "allow-set-composer-elapsed",
+  "allow-set-scroll-to-end",
+  "allow-read-attachment",
   "allow-register-listener",
   "allow-remove-listener",
 ]

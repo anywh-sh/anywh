@@ -31,3 +31,45 @@ pub(crate) async fn set_drawer<R: Runtime>(app: AppHandle<R>, payload: DrawerReq
 pub(crate) async fn set_gesture_hint<R: Runtime>(app: AppHandle<R>, payload: GestureHintRequest) -> Result<()> {
     app.native_chrome().set_gesture_hint(payload)
 }
+
+#[command]
+pub(crate) async fn set_composer<R: Runtime>(app: AppHandle<R>, payload: ComposerRequest) -> Result<()> {
+    app.native_chrome().set_composer(payload)
+}
+
+#[command]
+pub(crate) async fn set_composer_text<R: Runtime>(app: AppHandle<R>, payload: ComposerTextRequest) -> Result<()> {
+    app.native_chrome().set_composer_text(payload)
+}
+
+#[command]
+pub(crate) async fn focus_composer<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    app.native_chrome().focus_composer()
+}
+
+#[command]
+pub(crate) async fn blur_composer<R: Runtime>(app: AppHandle<R>) -> Result<()> {
+    app.native_chrome().blur_composer()
+}
+
+#[command]
+pub(crate) async fn set_composer_elapsed<R: Runtime>(app: AppHandle<R>, payload: ComposerElapsedRequest) -> Result<()> {
+    app.native_chrome().set_composer_elapsed(payload)
+}
+
+#[command]
+pub(crate) async fn set_scroll_to_end<R: Runtime>(app: AppHandle<R>, payload: ScrollToEndRequest) -> Result<()> {
+    app.native_chrome().set_scroll_to_end(payload)
+}
+
+/// Reads a file the native picker copied into the attachments directory and
+/// deletes it. Raw bytes (not JSON) so a long video doesn't get base64'd.
+#[command]
+pub(crate) async fn read_attachment(payload: ReadAttachmentRequest) -> Result<tauri::ipc::Response> {
+    let allowed_root = std::env::temp_dir().join(crate::attachments::ATTACHMENTS_DIR);
+    let path = crate::attachments::validate_attachment_path(&allowed_root, std::path::Path::new(&payload.path))?;
+    let bytes = std::fs::read(&path)?;
+    // Best effort: a leftover file is swept on the next launch.
+    let _ = std::fs::remove_file(&path);
+    Ok(tauri::ipc::Response::new(bytes))
+}

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-scroll-to-end"
+description = "Enables the set_scroll_to_end command without any pre-configured scope."
+commands.allow = ["set_scroll_to_end"]
+
+[[permission]]
+identifier = "deny-set-scroll-to-end"
+description = "Denies the set_scroll_to_end command without any pre-configured scope."
+commands.deny = ["set_scroll_to_end"]
