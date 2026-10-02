@@ -715,7 +715,7 @@ export function ChatPanel({
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}
-          className={isIOS() ? "pt-[calc(env(safe-area-inset-top)+64px)] pb-32" : undefined}
+          className={isIOS() ? "pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))] pb-32" : undefined}
           // On iOS editing never turns into an inline `<textarea>`
           // — `ChatPanel` never passes an id along on that platform, even
           // with `editTarget` set (see warning in the composer below).
