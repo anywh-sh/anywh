@@ -867,6 +867,8 @@ export interface Dictionary {
       restore: string;
       close: string;
       reconnecting: string;
+      /** Accessibility label of the connection dot while the session is connected. */
+      connected: string;
     };
     /** The strip along the bottom of the window: what the focused session's
      * folder looks like to git, and which version of the app is running.

@@ -361,6 +361,7 @@ export const ptBr: Dictionary = {
       restore: "Restaurar",
       close: "Fechar",
       reconnecting: "Reconectando…",
+      connected: "Conectado",
     },
     statusBar: {
       changes: "{count} alterações",

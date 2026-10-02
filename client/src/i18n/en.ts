@@ -361,6 +361,7 @@ export const en: Dictionary = {
       restore: "Restore",
       close: "Close",
       reconnecting: "Reconnecting…",
+      connected: "Connected",
     },
     statusBar: {
       changes: "{count} changes",
