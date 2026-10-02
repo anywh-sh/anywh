@@ -78,6 +78,9 @@ private extension View {
 /// messages scrolling beneath the bar blur and dissolve instead of cutting off.
 final class TopEdgeBlurView: UIVisualEffectView {
   private let fade = CAGradientLayer()
+  /// Theme-colored wash over the material, so on a dark theme the strip does
+  /// not read as a gray band.
+  private let wash = CAGradientLayer()
 
   init() {
     super.init(effect: UIBlurEffect(style: .systemUltraThinMaterial))
@@ -87,6 +90,13 @@ final class TopEdgeBlurView: UIVisualEffectView {
     fade.startPoint = CGPoint(x: 0.5, y: 0)
     fade.endPoint = CGPoint(x: 0.5, y: 1)
     layer.mask = fade
+    wash.startPoint = CGPoint(x: 0.5, y: 0)
+    wash.endPoint = CGPoint(x: 0.5, y: 1)
+    contentView.layer.addSublayer(wash)
+  }
+
+  func setWash(_ color: UIColor) {
+    wash.colors = [color.withAlphaComponent(0.7).cgColor, color.withAlphaComponent(0).cgColor]
   }
 
   @available(*, unavailable)
@@ -95,6 +105,7 @@ final class TopEdgeBlurView: UIVisualEffectView {
   override func layoutSubviews() {
     super.layoutSubviews()
     fade.frame = bounds
+    wash.frame = bounds
   }
 }
 

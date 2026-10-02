@@ -639,7 +639,7 @@ function AppShell() {
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} onSelectSession={handleSearchSelectSession} />
         {/* `relative` keeps the composer's backdrop-filter working (see the
          * comment on the desktop branch); the drawer and top bar are native. */}
-        <div className="relative min-h-0 flex-1">{tabsContent}</div>
+        <div className="relative flex min-h-0 flex-1 flex-col">{tabsContent}</div>
       </div>
     );
   }

@@ -176,6 +176,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     tint = UIColor(hex: theme.tint)
     // System materials follow the trait collection, so match it to the theme.
     let style: UIUserInterfaceStyle = UIColor(hex: theme.background).isDark ? .dark : .light
+    blur.setWash(UIColor(hex: theme.background))
     blur.overrideUserInterfaceStyle = style
     topBarHost.view.overrideUserInterfaceStyle = style
     apply(progress: progress)
