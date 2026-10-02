@@ -139,21 +139,11 @@ struct SessionDrawerView: View {
         }
       }
       .scrollIndicators(.hidden)
-      // Run under the home indicator area down to the screen edge, with a
-      // little room after the last row.
-      .contentMargins(.bottom, 24, for: .scrollContent)
+      // Run under the home indicator area down to the screen edge; the margin
+      // only shows once scrolled to the very end, so the last row is not
+      // glued to the bottom.
+      .contentMargins(.bottom, 32, for: .scrollContent)
       .ignoresSafeArea(.container, edges: .bottom)
-      .overlay(alignment: .bottom) {
-        // Short and deliberately partial (0 -> ~65%, never fully opaque), the
-        // soft counterpart of the top bar's fade without the blur.
-        LinearGradient(
-          colors: [Color(hex: theme.sidebar).opacity(0), Color(hex: theme.sidebar).opacity(0.65)],
-          startPoint: .top, endPoint: .bottom
-        )
-        .frame(height: 56)
-        .ignoresSafeArea(.container, edges: .bottom)
-        .allowsHitTesting(false)
-      }
     }
   }
 

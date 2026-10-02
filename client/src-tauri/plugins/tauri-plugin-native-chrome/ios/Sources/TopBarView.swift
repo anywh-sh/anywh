@@ -96,11 +96,11 @@ final class TopEdgeBlurView: UIVisualEffectView {
   }
 
   func setWash(_ color: UIColor) {
-    // Nearly opaque at the top so the material's own gray cannot show there;
-    // it only comes through as the wash fades out toward the content.
+    // Only enough of the theme color to cancel the material's gray: content
+    // scrolling underneath must stay readable as blurred shapes, not vanish.
     wash.colors = [
-      color.withAlphaComponent(0.96).cgColor,
-      color.withAlphaComponent(0.88).cgColor,
+      color.withAlphaComponent(0.6).cgColor,
+      color.withAlphaComponent(0.35).cgColor,
       color.withAlphaComponent(0).cgColor,
     ]
     wash.locations = [0, 0.5, 1]
