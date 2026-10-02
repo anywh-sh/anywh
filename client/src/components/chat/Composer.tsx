@@ -41,6 +41,7 @@ import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/composerLinks";
+import { attachmentName } from "@/lib/composer/attachmentName";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
 import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
@@ -188,13 +189,6 @@ const EXTENSIONS = [
   ComposerLink,
   HardBreakCaretAnchor,
 ];
-
-/** Last path segment of an attachment, for the chip that stands in for a
- * thumbnail that couldn't be produced. The relay hands back POSIX paths
- * regardless of the machine it runs on, so splitting on "/" is enough. */
-function attachmentName(path: string, fallback: string): string {
-  return path.split("/").filter(Boolean).pop() ?? fallback;
-}
 
 /** Rebuilds the Tiptap doc from plain text (editing via composer on
  * iOS) — via JSON, not an interpolated HTML string: the text may have

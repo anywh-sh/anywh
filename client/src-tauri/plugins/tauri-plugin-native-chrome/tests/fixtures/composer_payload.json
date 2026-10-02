@@ -1,6 +1,6 @@
 {
   "hidden": false,
-  "placeholder": "Message anywh",
+  "placeholder": "Write a message…",
   "canSend": true,
   "turnInFlight": false,
   "attachEnabled": true,
@@ -9,20 +9,20 @@
     { "path": "/uploads/a.png", "kind": "image", "thumbnail": "data:image/jpeg;base64,AAAA", "name": "a.png" },
     { "path": "/uploads/b.mov", "kind": "video", "thumbnail": null, "name": "b.mov" }
   ],
-  "editBanner": { "text": "Editing a message", "cancelLabel": "Cancel" },
+  "editBanner": { "text": "Editing this message restarts the conversation from that point.", "cancelLabel": "Cancel editing" },
   "typo": {
-    "before": "Did you mean ",
+    "before": "Unknown command — did you mean ",
     "command": "/clear",
     "after": "?",
     "useLabel": "Use it",
     "sendAnywayLabel": "Send anyway"
   },
   "strings": {
-    "attach": "Attach",
+    "attach": "Attach image or video",
     "attachPhotos": "Photos",
     "attachFiles": "Files",
     "removeAttachment": "Remove attachment",
-    "uploading": "Uploading attachment…",
+    "uploading": "uploading attachment…",
     "send": "Send",
     "stop": "Stop",
     "scrollToEnd": "Scroll to bottom"
