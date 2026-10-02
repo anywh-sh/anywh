@@ -1,7 +1,7 @@
 import { test, before, after, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
-import { collectUntil, connectSession, connectSessionAndCollectUntil, findAgentEvent, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionAndCollectUntil, findAgentEvent, isTurnEnded, sendUserMessage, assertTurnEnded } from "./helpers/wsClient.js";
 import { CHOICE_DEFERRED_RESPONSE_TEXT } from "../src/bridges/mcpBridge.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md) for the
@@ -54,7 +54,7 @@ test("present_choice replies immediately (not blocked on a human), the turn comp
   const turnMessages = await collectUntil(socket, isTurnEnded);
 
   const turnEnded = turnMessages.find(isTurnEnded);
-  assert.deepEqual(turnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(turnEnded, false);
 
   const choicePrompt = turnMessages.find((message) => message.type === "choice_prompt") as
     | { type: string; promptId: string; questions: { question: string; options: { label: string }[] }[]; kind: string }
@@ -130,7 +130,7 @@ test("answering a deferred present_choice prompt enqueues the answer as a real f
   assert.equal((syntheticPrompt!.event as { text?: string }).text, "Rewrite from scratch");
 
   const secondTurnEnded = secondTurnMessages.at(-1);
-  assert.deepEqual(secondTurnEnded, { type: "agent_event", event: { type: "turn_ended", stopped: false } });
+  assertTurnEnded(secondTurnEnded, false);
 
   delete process.env.FAKE_CLAUDE_REPLY;
   socket.close();

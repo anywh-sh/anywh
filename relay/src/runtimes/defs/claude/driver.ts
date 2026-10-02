@@ -11,10 +11,11 @@ import type { AgentEvent } from "../../../protocol/agent-event.js";
 import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../../sessionDriver.js";
 import type { TurnContext } from "../../types.js";
 import { ClaudeSession, toClaudeMode } from "./session.js";
-import { transcriptPath } from "./transcriptReader.js";
+import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { forkTruncatedTranscript } from "./transcriptFork.js";
 import { buildMcpSpawnConfig } from "./mcpSpawnConfig.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
+import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 
 /** Bridge wiring shared by every `SharedSession` in the process (mirrors
  * what `SharedSessionOptions` already carried) — `undefined` fields mean
@@ -114,6 +115,8 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
       blockAskUserQuestion: permissionMode === "plan" || choiceRegistration !== undefined,
     });
 
+    // Per turn: a tool result is interpreted with the input of the call it answers.
+    const memos = new Map<string, ToolCallMemo>();
     try {
       const { stopped, contextUsage, lastAssistantText } = await this.claudeSession.sendTurn(
         ctx.prompt,
@@ -121,7 +124,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
         permissionMode,
         ctx.modelId,
         (event) => {
-          for (const agentEvent of mapClaudeEvent(event)) onEvent(agentEvent);
+          for (const agentEvent of mapClaudeEvent(event, memos)) onEvent(agentEvent);
         },
         mcpConfig,
       );
@@ -130,6 +133,13 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
       choiceRegistration?.unregister();
       permissionRegistration?.unregister();
     }
+  }
+
+  readHistory(cwd: string): Promise<AgentEvent[]> {
+    const sessionId = this.claudeSession.getSessionId();
+    if (!sessionId) return Promise.resolve([]);
+    const entries = readHistoryFromTranscript(defaultCwd(this.homeOverride), cwd, sessionId);
+    return Promise.resolve(entries.map((entry) => entry.event));
   }
 
   /** `SharedSession.editMessage` only calls this when `getSessionId()` is

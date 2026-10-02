@@ -45,7 +45,7 @@ export interface PendingChoice {
 
 export interface UseRelayClientOptions {
   onEvent?: (event: AgentEvent) => void;
-  onTurnComplete?: (stopped: boolean) => void;
+  onTurnComplete?: (stopped: boolean, durationMs?: number) => void;
   onTurnError?: (message: string) => void;
   onCaughtUp?: () => void;
   onSetCwdError?: (code: SetCwdErrorCode) => void;
@@ -254,7 +254,7 @@ export function useRelayClient(
         }
         optionsRef.current.onEvent?.(event);
       },
-      onTurnComplete: (stopped) => optionsRef.current.onTurnComplete?.(stopped),
+      onTurnComplete: (stopped, durationMs) => optionsRef.current.onTurnComplete?.(stopped, durationMs),
       onTurnError: (message) => optionsRef.current.onTurnError?.(message),
       onCaughtUp: () => optionsRef.current.onCaughtUp?.(),
       onCwdState: (newCwd, locked) => {

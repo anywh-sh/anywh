@@ -5,19 +5,24 @@ import { useDict } from "@/i18n";
 
 export interface CodeLine {
   text: string;
-  kind: "add" | "del" | "context" | "gap";
+  /** `hunk` is a diff's `@@ -a,b +c,d @@` header, drawn dim and unhighlighted. */
+  kind: "add" | "del" | "context" | "hunk";
 }
 
 interface CodeLinesProps {
   language: string;
   lines: CodeLine[];
+  /** Number of the first line: draws a gutter with line numbers. Absent =
+   * no gutter — some code has no known offset, and numbering it from 1 would
+   * be a lie. */
+  startLine?: number;
 }
 
 const MARKER_BY_KIND: Record<CodeLine["kind"], string> = {
   add: "+",
   del: "-",
   context: " ",
-  gap: "",
+  hunk: "",
 };
 
 // Only the first slice shows up right away — the rest sits behind "show
@@ -25,10 +30,11 @@ const MARKER_BY_KIND: Record<CodeLine["kind"], string> = {
 // instead of dumping the whole file/diff into the card.
 const PREVIEW_LINE_COUNT = 14;
 
-/** List of code lines colored by language (Edit/Write in `ToolCallCard`) —
- * reused both for the Edit diff (`DiffView`) and for Write's new content
- * (treated as "everything added"). */
-export function CodeLines({ language, lines }: CodeLinesProps) {
+/** List of code lines colored by language — a read's content, a diff
+ * (`DiffView`) or a new file (all added). The preview stops at a few lines
+ * and the rest is one click away; even opened, the list scrolls inside a
+ * bounded box, so a 2000-line read never takes over the conversation. */
+export function CodeLines({ language, lines, startLine }: CodeLinesProps) {
   const dict = useDict();
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? lines : lines.slice(0, PREVIEW_LINE_COUNT);
@@ -38,16 +44,17 @@ export function CodeLines({ language, lines }: CodeLinesProps) {
   // state — e.g. "still inside a /* */ block comment" — carries across line
   // breaks; see `highlightLines`.
   const highlighted = useMemo(
-    () => highlightLines(language, visible.map((line) => line.text)),
+    () => highlightLines(language, visible.map((line) => (line.kind === "hunk" ? "" : line.text))),
     [language, visible],
   );
+  const gutterWidth = startLine === undefined ? 0 : String(startLine + lines.length).length;
 
   return (
-    <div className="overflow-x-auto border border-border bg-card font-mono text-xs">
+    <div className={cn("overflow-x-auto border border-border bg-card font-mono text-xs", expanded && "max-h-96 overflow-y-auto")}>
       {visible.map((line, index) =>
-        line.kind === "gap" ? (
-          <div key={index} className="border-t border-border-soft px-2 py-0.5 text-muted-foreground/60">
-            ⋯
+        line.kind === "hunk" ? (
+          <div key={index} className="border-t border-border-soft px-2 py-0.5 text-text-faint first:border-t-0">
+            {line.text}
           </div>
         ) : (
           <div
@@ -58,6 +65,11 @@ export function CodeLines({ language, lines }: CodeLinesProps) {
               line.kind === "del" && "bg-destructive/10",
             )}
           >
+            {startLine !== undefined && (
+              <span className="mr-3 shrink-0 select-none text-right text-text-faint" style={{ minWidth: `${gutterWidth}ch` }}>
+                {startLine + index}
+              </span>
+            )}
             <span
               className={cn(
                 "mr-1 shrink-0 select-none",

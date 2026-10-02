@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-top-bar"
+description = "Enables the set_top_bar command without any pre-configured scope."
+commands.allow = ["set_top_bar"]
+
+[[permission]]
+identifier = "deny-set-top-bar"
+description = "Denies the set_top_bar command without any pre-configured scope."
+commands.deny = ["set_top_bar"]

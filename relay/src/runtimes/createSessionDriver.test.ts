@@ -42,3 +42,10 @@ test("createSessionDriver: a custom def throws", () => {
   const def: AgentRuntimeDef = { ...claudeRuntimeDef, exec: { kind: "custom", note: "not a real transport" } };
   assert.throws(() => createSessionDriver(def, { host: noopHost }), /custom/);
 });
+
+test("createSessionDriver: a driver reads history exactly when its def declares replayHistory", () => {
+  for (const def of [claudeRuntimeDef, codexRuntimeDef]) {
+    const driver = createSessionDriver(def, { host: noopHost });
+    assert.equal(typeof driver.readHistory === "function", def.capabilities.replayHistory !== "none", def.identity.id);
+  }
+});

@@ -1,12 +1,12 @@
 import { useRef } from "react";
-import { Check, ChevronDown, ShieldAlert } from "lucide-react";
+import { Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
 import type { Dictionary, KnownPermissionModeId } from "@/i18n/dictionary";
 import type { PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
@@ -41,7 +41,7 @@ function modeCopy(composer: Dictionary["chat"]["composer"], id: PermissionMode):
  * focus/pointer-events on the body while a modal dropdown is open, and
  * restoration fails on Tauri's WKWebView on macOS.
  *
- * The accent tint marks the one concept every agent's mode set shares: "this
+ * The accent tint (text only, no chip) marks the one concept every agent's mode set shares: "this
  * mode never asks for approval" (`pausesForApproval: false` — Claude's
  * `bypassPermissions`, Codex's `full-access`), not a specific literal id.
  */
@@ -58,22 +58,15 @@ export function PermissionModeButton({ mode, available, onChange }: PermissionMo
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button
+        <button
           ref={triggerRef}
           type="button"
-          variant="outline"
-          size="sm"
           disabled={mode === null}
-          className={cn(
-            "min-w-0 gap-1.5 px-2",
-            neverAsks &&
-              "border-primary bg-primary-soft text-primary-ink hover:border-primary hover:bg-primary-soft hover:text-primary-ink",
-          )}
+          className={cn(toolbarTriggerClass, neverAsks && "text-primary-ink hover:text-primary-ink data-[state=open]:text-primary-ink")}
         >
-          <ShieldAlert className="size-3" />
           <span className="truncate">{mode !== null ? modeCopy(copy, mode).label : copy.pending}</span>
-          <ChevronDown className="size-2.5 opacity-60" />
-        </Button>
+          <span aria-hidden="true" className="text-[9px] opacity-55">▾</span>
+        </button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-59">

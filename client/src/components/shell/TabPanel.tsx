@@ -38,6 +38,7 @@ export interface TabPanelActions {
   onActivity: (tab: Tab) => void;
   onDeleted: (tab: Tab) => void;
   onConnectedChange: (tabId: string, connected: boolean) => void;
+  onModelLabelChange: (tabId: string, label: string | null) => void;
   onTogglePane: (tabId: string, kind: "terminal" | "files") => void;
   onClosePane: (tabId: string, kind: "terminal" | "files") => void;
   onToggleMaximized: (tabId: string, kind: "terminal" | "files") => void;
@@ -109,6 +110,7 @@ const TabChat = memo(function TabChat({
       onActivity={() => actions.onActivity(tab)}
       onDeleted={() => actions.onDeleted(tab)}
       onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
+      onModelLabelChange={(label) => actions.onModelLabelChange(tab.id, label)}
       groupId={noPanes ? null : groupId}
       terminal={noPanes ? undefined : { open: terminalOpen, onToggle: () => actions.onTogglePane(tab.id, "terminal") }}
       files={noPanes ? undefined : { open: filesOpen, onToggle: () => actions.onTogglePane(tab.id, "files") }}

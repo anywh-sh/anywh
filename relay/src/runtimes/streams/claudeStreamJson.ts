@@ -1,5 +1,6 @@
 import { isMainThreadEvent, type ClaudeEvent } from "../defs/claude/index.js";
-import type { AgentEvent, PlanTodo, StructuredPatchHunk, SubagentStatus, ToolInput, ToolKind } from "../../protocol/agent-event.js";
+import type { AgentEvent, PlanTodo, SubagentStatus, ToolInput } from "../../protocol/agent-event.js";
+import { classifyToolKind, deriveOutcome, deriveSubject, type ToolCallMemo } from "./claudeToolMapping.js";
 
 /**
  * Maps one raw `ClaudeEvent` — a single stream-json line the CLI printed, or
@@ -23,14 +24,20 @@ import type { AgentEvent, PlanTodo, StructuredPatchHunk, SubagentStatus, ToolInp
  * `parentToolUseId` so a consumer can keep them out of the main conversation.
  * Only `usage` extraction drops them outright, for the reason `session.ts`'s
  * own `extractContextUsage` doc comment already gives.
+ *
+ * `memos` remembers each `tool_use` (by id) so its result can be interpreted
+ * with the call's own input — an MCP result is only a payload once the
+ * request that produced it is known. The caller owns the map, one per turn
+ * (live) or per replay, keeping this function itself free of state; without
+ * one, a result is still mapped from its own shape, just less richly.
  */
-export function mapClaudeEvent(event: ClaudeEvent): AgentEvent[] {
+export function mapClaudeEvent(event: ClaudeEvent, memos?: Map<string, ToolCallMemo>): AgentEvent[] {
   switch (event.type) {
     case "user_prompt":
       return mapUserPrompt(event);
     case "assistant":
     case "user":
-      return mapMessageContent(event);
+      return mapMessageContent(event, memos);
     case "stream_event":
       return mapStreamEvent(event);
     case "system":
@@ -57,6 +64,7 @@ interface RawContentBlock {
 }
 
 interface RawMessage {
+  id?: string;
   content?: unknown;
   usage?: {
     input_tokens?: number;
@@ -66,7 +74,7 @@ interface RawMessage {
   };
 }
 
-function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
+function mapMessageContent(event: ClaudeEvent, memos: Map<string, ToolCallMemo> | undefined): AgentEvent[] {
   const results: AgentEvent[] = [];
   const message = event.message as RawMessage | undefined;
 
@@ -103,6 +111,9 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
   const content = message?.content;
   if (!Array.isArray(content)) return results;
   const timestamp = typeof event.timestamp === "string" ? event.timestamp : undefined;
+  // Every `tool_use` of one assistant message was issued together, which is
+  // what makes them a parallel batch.
+  const batchId = event.type === "assistant" && typeof message?.id === "string" ? message.id : undefined;
   // Set on everything a subagent produces — see `AgentEvent`'s `text` doc.
   const parent = typeof event.parent_tool_use_id === "string" ? { parentToolUseId: event.parent_tool_use_id } : {};
 
@@ -128,16 +139,31 @@ function mapMessageContent(event: ClaudeEvent): AgentEvent[] {
       if (name === "TodoWrite") {
         results.push({ type: "plan", toolUseId, todos: parseTodos(input.todos), ...parent });
       } else {
-        results.push({ type: "tool_started", toolUseId, name, kind: classifyToolKind(name), input, ...parent });
+        if (toolUseId) memos?.set(toolUseId, { name, input });
+        const subject = deriveSubject(name, input);
+        results.push({
+          type: "tool_started",
+          toolUseId,
+          name,
+          kind: classifyToolKind(name),
+          input,
+          ...(subject ? { subject } : {}),
+          ...(batchId ? { batchId } : {}),
+          ...parent,
+        });
       }
     } else if (raw.type === "tool_result") {
-      const toolUseResult = event.tool_use_result as { structuredPatch?: StructuredPatchHunk[] } | undefined;
+      const toolUseResult = event.tool_use_result;
+      const resultContent = flattenToolResultContent(raw.content);
+      const isError = raw.is_error === true;
+      const memo = raw.tool_use_id ? memos?.get(raw.tool_use_id) : undefined;
+      const outcome = deriveOutcome(toolUseResult, resultContent, isError, memo);
       results.push({
         type: "tool_ended",
         toolUseId: raw.tool_use_id,
-        content: flattenToolResultContent(raw.content),
-        isError: raw.is_error === true,
-        ...(toolUseResult?.structuredPatch ? { structuredPatch: toolUseResult.structuredPatch } : {}),
+        content: resultContent,
+        isError,
+        ...(outcome ? { outcome } : {}),
         ...parent,
       });
     }
@@ -184,37 +210,6 @@ function parseTodos(value: unknown): PlanTodo[] {
   return todos;
 }
 
-// Logged once per name, not per occurrence — a tool called repeatedly in a
-// long session shouldn't spam stderr, but a genuinely new/unrecognized name
-// (a CLI update, an MCP tool) is worth knowing about at least once.
-const loggedUnknownTools = new Set<string>();
-
-function classifyToolKind(name: string): ToolKind {
-  switch (name) {
-    case "Bash":
-      return "shell";
-    case "Edit":
-      return "edit";
-    case "Write":
-      return "write";
-    case "Read":
-      return "read";
-    case "Grep":
-    case "Glob":
-      return "search";
-    // `Task` was renamed `Agent` in newer Claude Code releases — same tool.
-    case "Task":
-    case "Agent":
-      return "task";
-    default:
-      if (!loggedUnknownTools.has(name)) {
-        loggedUnknownTools.add(name);
-        console.error(`[relay] unrecognized tool name "${name}", mapping to ToolKind "other"`);
-      }
-      return "other";
-  }
-}
-
 function mapUserPrompt(event: ClaudeEvent): AgentEvent[] {
   const message = event.message as RawMessage | undefined;
   const content = message?.content;
@@ -238,17 +233,20 @@ interface RawStreamEvent {
   type?: string;
   index?: number;
   delta?: { type?: string; text?: string; thinking?: string };
+  content_block?: { type?: string };
 }
 
 /**
- * Only the two live-preview deltas the client actually renders today
- * (`text_delta`/`thinking_delta`) — `message_start`/`content_block_start`/
- * `content_block_stop`/`message_delta`/`message_stop`, and a `content_block_delta`
- * of any other kind (`input_json_delta`, tool argument streaming), have no
- * consumer yet, dropped the same way they're silently dropped today.
+ * The two live-preview deltas (`text_delta`/`thinking_delta`) and the start
+ * of a reasoning block (`thinking_started`, so it can show as running before
+ * any text) — `message_start`/`content_block_stop`/`message_delta`/
+ * `message_stop`, a `content_block_start` of any other kind, and a
+ * `content_block_delta` of any other kind (`input_json_delta`, tool argument
+ * streaming), have no consumer yet and are dropped.
  */
 function mapStreamEvent(event: ClaudeEvent): AgentEvent[] {
   const se = event.event as RawStreamEvent | undefined;
+  if (se?.type === "content_block_start" && se.content_block?.type === "thinking") return [{ type: "thinking_started" }];
   if (!se || se.type !== "content_block_delta" || typeof se.index !== "number" || !se.delta) return [];
   if (se.delta.type === "text_delta" && typeof se.delta.text === "string") {
     return [{ type: "text_delta", index: se.index, text: se.delta.text }];

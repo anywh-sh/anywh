@@ -225,6 +225,35 @@ its output format (wrapping a value in markdown backticks) and the probe
 broke without anyone noticing, because nothing pinned the fixture to a
 version that could go stale. A fixture with no version is folklore, not a test.
 
+## §8b — mapping tool calls for display
+
+The chat draws every agent's tool calls from one normalized shape, never from
+a CLI's own tool names, so a def's mapper owes the event stream three things
+beyond "a call started, a call ended":
+
+- **`subject`** on every `tool_started` — what the call is doing, already
+  interpreted: `read`/`edit`/`write` with a path, `shell` with a command,
+  `search` with a pattern, `web`, `mcp` with `server` and `tool`. Map a call
+  to the *thing it really is*, not the tool that carried it: Codex has no
+  read tool, but its app-server labels a command as a read in
+  `commandActions`, and the def turns that into `{ kind: "read" }`.
+- **`outcome`** on every `tool_ended` where the result has a shape worth
+  drawing — `code`, `diff`, `terminal`, `files`, `matches`, `links`,
+  `payload` — falling back to none (the plain `content` shows). A field the
+  CLI doesn't report (an exit code, a start line) is left out, never
+  guessed; the display degrades that detail, not the runtime.
+- **Timing and batches**, when the CLI has them: `startedAt`/`endedAt` in
+  epoch ms, a `batchId` shared by calls issued together, `thinking_started`
+  before a reasoning block. Anything left out the session stamps itself, so
+  a CLI with no timing still works.
+
+An MCP call must map to `subject: { kind: "mcp", server, tool }`: the
+session hides the relay's own bridge servers by that field, with no
+declaration from the def.
+
+`runtimes/conformance.test.ts` is the gate: add a recorded turn of the new
+CLI (version noted, §8) and run it through `assertToolContract`.
+
 ## §9 — checklist for a new def
 
 - [ ] `identity.env.strip` names every credential this CLI could bill through
@@ -243,6 +272,8 @@ version that could go stale. A fixture with no version is folklore, not a test.
       whichever existing def looks closest.
 - [ ] Every function on the def is pure — no `child_process`, `fs`, `net`,
       or `http`, per §2's derived rule.
+- [ ] A recorded turn of the CLI passes `assertToolContract`
+      (`conformance.test.ts`, §8b).
 - [ ] A characterization test exists for every pure function, against a
       fixture that names the exact CLI version it was captured from (§8).
 - [ ] If `auth` is a `cli-probe`, the probe was **run**, logged in and

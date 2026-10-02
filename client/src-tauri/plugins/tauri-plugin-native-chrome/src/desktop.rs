@@ -16,16 +16,24 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct NativeChrome<R: Runtime>(AppHandle<R>);
 
 impl<R: Runtime> NativeChrome<R> {
-  pub fn set_connection_indicator(&self, _payload: ConnectionIndicatorRequest) -> crate::Result<()> {
-    Ok(())
-  }
-
-  /// No native menu outside iOS — same reasoning as `set_connection_indicator`
-  /// above. `selected_id: None` (equivalent to "user dismissed the menu")
-  /// instead of an error: the real app never calls this outside of
+  /// No native menu outside iOS. `selected_id: None` (equivalent to "user
+  /// dismissed the menu") instead of an error: the real app never calls this
+  /// outside of
   /// `isIOS()`, but returning a harmless result is safer than a
   /// generic error in case that changes in the future.
   pub fn show_context_menu(&self, _payload: ShowContextMenuRequest) -> crate::Result<ShowContextMenuResponse> {
     Ok(ShowContextMenuResponse { selected_id: None })
+  }
+
+  pub fn set_top_bar(&self, _payload: TopBarRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_drawer(&self, _payload: DrawerRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_gesture_hint(&self, _payload: GestureHintRequest) -> crate::Result<()> {
+    Ok(())
   }
 }

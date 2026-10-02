@@ -25,17 +25,22 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct NativeChrome<R: Runtime>(PluginHandle<R>);
 
 impl<R: Runtime> NativeChrome<R> {
-  pub fn set_connection_indicator(&self, payload: ConnectionIndicatorRequest) -> crate::Result<()> {
-    self
-      .0
-      .run_mobile_plugin("setConnectionIndicator", payload)
-      .map_err(Into::into)
-  }
-
   pub fn show_context_menu(&self, payload: ShowContextMenuRequest) -> crate::Result<ShowContextMenuResponse> {
     self
       .0
       .run_mobile_plugin("showContextMenu", payload)
       .map_err(Into::into)
+  }
+
+  pub fn set_top_bar(&self, payload: TopBarRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setTopBar", payload).map_err(Into::into)
+  }
+
+  pub fn set_drawer(&self, payload: DrawerRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setDrawer", payload).map_err(Into::into)
+  }
+
+  pub fn set_gesture_hint(&self, payload: GestureHintRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setGestureHint", payload).map_err(Into::into)
   }
 }

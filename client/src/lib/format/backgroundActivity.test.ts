@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { logTailLines, recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
-import type { LogEntry, SubagentState } from "@/hooks/relay/useMessageLog";
+import type { LogEntry, SubagentState, ToolCallEntry } from "@/hooks/relay/useMessageLog";
+
+function call(id: string, name: string, input: Record<string, unknown>, overrides: Partial<ToolCallEntry> = {}): ToolCallEntry {
+  const toolKind = name === "Agent" || name === "Task" ? "task" : name === "Bash" ? "shell" : "read";
+  return { kind: "tool-call", id, toolUseId: id, name, toolKind, input, isError: false, done: false, ...overrides };
+}
 
 function subagent(overrides: Partial<SubagentState> = {}): SubagentState {
   return { toolUseId: "agent", status: "running", startedAt: 1000, background: true, toolCalls: [], ...overrides };
@@ -10,8 +15,7 @@ describe("runningSubagents", () => {
   it("lists running subagents from their own state, even once the spawning call has returned", () => {
     const entries: LogEntry[] = [
       { kind: "user", id: "u1", text: "go", sentAt: 1 },
-      { kind: "tool-use", id: "t1", toolUseId: "agent", name: "Agent", input: { description: "audit", run_in_background: true } },
-      { kind: "tool-result", id: "r1", toolUseId: "agent", content: "Async agent launched successfully.", isError: false },
+      call("agent", "Agent", { description: "audit", run_in_background: true }, { done: true, content: "Async agent launched successfully." }),
     ];
     const subagents = {
       agent: subagent({ description: "audit", toolUses: 2, toolCalls: [{ name: "Read", input: { file_path: "/repo/a.ts" } }] }),
@@ -31,9 +35,8 @@ describe("runningSubagents", () => {
   it("falls back to an unanswered Agent/Task call when the relay sends no subagent state", () => {
     const entries: LogEntry[] = [
       { kind: "user", id: "u1", text: "go", sentAt: 1 },
-      { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: { description: "reviewing tests" } },
-      { kind: "tool-use", id: "t2", toolUseId: "tu2", name: "Agent", input: {} },
-      { kind: "tool-result", id: "r2", toolUseId: "tu2", content: "done", isError: false },
+      call("tu1", "Task", { description: "reviewing tests" }),
+      call("tu2", "Agent", {}, { done: true, content: "done" }),
     ];
     expect(runningSubagents(entries, {}, null)).toEqual([
       { toolUseId: "tu1", description: "reviewing tests", startedAt: null, activity: null, toolCalls: [], toolUses: null },
@@ -43,11 +46,11 @@ describe("runningSubagents", () => {
 
 describe("recentToolCallLines", () => {
   const entries: LogEntry[] = [
-    { kind: "tool-use", id: "old", toolUseId: "old", name: "Bash", input: { command: "previous turn" } },
+    call("old", "Bash", { command: "previous turn" }),
     { kind: "user", id: "u1", text: "go", sentAt: 1 },
-    { kind: "tool-use", id: "t1", toolUseId: "tu1", name: "Task", input: { description: "audit" } },
-    { kind: "tool-use", id: "t2", toolUseId: "tu2", name: "Read", input: { file_path: "/repo/src/app.ts" } },
-    { kind: "tool-use", id: "t3", toolUseId: "tu3", name: "Bash", input: { command: "npm test\n--watch" } },
+    call("tu1", "Task", { description: "audit" }),
+    call("tu2", "Read", { file_path: "/repo/src/app.ts" }),
+    call("tu3", "Bash", { command: "npm test\n--watch" }),
   ];
 
   it("lists the current turn's latest calls, oldest first, paths relative to cwd", () => {

@@ -106,17 +106,10 @@ describe("SessionList", () => {
     expect(screen.queryByText(copy.groups.yesterday)).not.toBeInTheDocument();
   });
 
-  it("names each row's profile only when more than one is in view", () => {
+  it("never names the row's profile — its colour bar says which it is", () => {
     const sessions = [session({ id: "s1", title: "Work item", profileId: "work" })];
-
-    const single = renderList({ sessions, selectedProfileCount: 1 });
-    expect(screen.queryByText("Work")).not.toBeInTheDocument();
-    single.unmount();
-
     renderList({ sessions, selectedProfileCount: 2 });
-    // With every profile merged into one list, the row would otherwise not
-    // say which machine it belongs to.
-    expect(screen.getByText("Work")).toBeInTheDocument();
+    expect(screen.queryByText("Work")).not.toBeInTheDocument();
   });
 
   it("hands the whole session back on select, so the caller knows its profile", async () => {

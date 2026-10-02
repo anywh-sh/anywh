@@ -96,10 +96,6 @@ describe("unified session list", () => {
     expect(screen.getByText(en.shell.sidebar.groups.today)).toBeInTheDocument();
     expect(screen.getByText(en.shell.sidebar.groups.week)).toBeInTheDocument();
     expect(screen.queryByText(en.shell.sidebar.groups.yesterday)).not.toBeInTheDocument();
-
-    // With more than one profile in view, each row names its own.
-    expect(screen.getAllByText("Profile A").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Profile B").length).toBeGreaterThan(0);
   });
 
   it("keeps the other profiles' rows on screen while a profile switch is still loading", async () => {

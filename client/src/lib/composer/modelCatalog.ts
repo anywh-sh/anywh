@@ -33,6 +33,13 @@ export function effectiveModel(catalog: ModelCatalog | null | undefined, model: 
   return model ?? catalog?.defaultId ?? null;
 }
 
+/** The label of the model a session is actually on, or `null` while neither
+ * an explicit pick nor a catalog default is known yet. */
+export function activeModelLabel(catalog: ModelCatalog | null | undefined, model: ModelChoice | null): string | null {
+  const effective = effectiveModel(catalog, model);
+  return effective ? labelForModel(catalog, effective) : null;
+}
+
 export function catalogHasModel(catalog: ModelCatalog | null | undefined, model: ModelChoice): boolean {
   return catalog?.options.some((option) => option.id === model) ?? false;
 }

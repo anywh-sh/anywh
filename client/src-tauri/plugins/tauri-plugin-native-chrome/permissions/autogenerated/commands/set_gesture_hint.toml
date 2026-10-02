@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-gesture-hint"
+description = "Enables the set_gesture_hint command without any pre-configured scope."
+commands.allow = ["set_gesture_hint"]
+
+[[permission]]
+identifier = "deny-set-gesture-hint"
+description = "Denies the set_gesture_hint command without any pre-configured scope."
+commands.deny = ["set_gesture_hint"]

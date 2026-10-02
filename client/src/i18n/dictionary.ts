@@ -32,6 +32,18 @@ import type { ThemeValidationCode } from "@/lib/theme/theme";
 import type { FirstRunScreen } from "@/lib/profiles/firstRun";
 import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/install/localInstall";
 
+/** Two tenses of one kind of call — see `Dictionary["chat"]["activity"]`. */
+export interface ActivityVerb {
+  past: string;
+  ing: string;
+}
+
+/** Singular/plural pair; `{count}` in the plural. */
+export interface ActivityCount {
+  one: string;
+  many: string;
+}
+
 export interface Dictionary {
   common: {
     add: string;
@@ -411,14 +423,68 @@ export interface Dictionary {
       editWithAttachment: string;
     };
     toolCall: {
-      viewFile: string;
-      running: string;
-      usingTools: string;
-      usedTools: string;
       /** Tooltip on the context-cost badge (`+13.5k`) when it was divided
        * proportionally across a parallel batch of tool calls, rather than
        * being this one call's own exact number. */
       attributionEstimatedHint: string;
+    };
+    /** The interleaved activity flow: a group of tool calls summarized in one
+     * line, the rows inside it, and what an expanded call shows. Verbs come
+     * per kind of call in two tenses (`{target}` is the file, command,
+     * pattern or query, which is data); past for what finished, `ing` for
+     * what still runs. Counts have a singular/plural pair per convention. */
+    activity: {
+      verbs: {
+        read: ActivityVerb;
+        edit: ActivityVerb;
+        write: ActivityVerb;
+        shell: ActivityVerb;
+        searchFiles: ActivityVerb;
+        searchContent: ActivityVerb;
+        webSearch: ActivityVerb;
+        webFetch: ActivityVerb;
+        mcp: ActivityVerb;
+        task: ActivityVerb;
+        other: ActivityVerb;
+      };
+      /** The aggregated form of a long group: "Read 7 files, ran 3 commands". */
+      counts: {
+        read: ActivityCount;
+        edit: ActivityCount;
+        write: ActivityCount;
+        shell: ActivityCount;
+        search: ActivityCount;
+        web: ActivityCount;
+        mcp: ActivityCount;
+        task: ActivityCount;
+        other: ActivityCount;
+      };
+      /** `{count}` calls the agent issued at once. */
+      parallelSuffix: string;
+      failedOne: string;
+      failedMany: string;
+      /** `{count}` calls in one parallel batch. */
+      batchHeader: string;
+      thinking: string;
+      thoughtFor: string;
+      thought: string;
+      /** `{time}` — the whole turn's duration, in the reply's footer. */
+      workedFor: string;
+      /** What the expanded call's input line is labelled with. */
+      inputLabels: { path: string; pattern: string; regex: string; query: string; url: string; mcp: string };
+      meta: {
+        lines: ActivityCount;
+        files: ActivityCount;
+        matches: ActivityCount;
+        results: ActivityCount;
+        exit: string;
+      };
+      copyResult: string;
+      resultCopied: string;
+      showAll: string;
+      openFile: string;
+      running: string;
+      noOutput: string;
     };
     code: {
       copy: string;
@@ -525,8 +591,6 @@ export interface Dictionary {
        * and shouldn't: these are jokes, and a joke that survives a literal
        * translation is the exception. */
       workingWords: readonly string[];
-      oneToolUsed: string;
-      toolsUsed: string;
     };
     log: {
       loading: string;
@@ -565,11 +629,6 @@ export interface Dictionary {
      */
     composer: {
       placeholder: string;
-      /** Drawn next to `Send`. Not translated in either language — it names
-       * a physical key. It says Enter (not the design's `⌘↵`) because Enter
-       * is what actually sends here: Shift+Enter breaks the line and there
-       * is no modifier variant to advertise. */
-      sendShortcut: string;
       attach: string;
       attachmentUploading: string;
       removeAttachment: string;
@@ -803,6 +862,8 @@ export interface Dictionary {
       restore: string;
       close: string;
       reconnecting: string;
+      /** Accessibility label of the connection dot while the session is connected. */
+      connected: string;
     };
     /** The strip along the bottom of the window: what the focused session's
      * folder looks like to git, and which version of the app is running.
@@ -888,6 +949,7 @@ export interface Dictionary {
     sidebar: {
       label: string;
       newConversation: string;
+      allChats: string;
       filterByProfile: string;
       filterHeading: string;
       allProfiles: string;

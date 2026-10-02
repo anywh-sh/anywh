@@ -1,20 +1,16 @@
 import { useMemo, useReducer } from "react";
-import type { AgentEvent, HistoryMessage, HistoryPageMessage, StructuredPatchHunk, ToolInput } from "@/lib/relay/relay-types";
+import type { AgentEvent, HistoryMessage, HistoryPageMessage, PlanTodo, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/relay-types";
 import type { SubagentStatus } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 
 export type LogEntry =
   | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number }
   | { kind: "text"; id: string; text: string; streaming: boolean; sentAt: number }
-  | { kind: "tool-use"; id: string; toolUseId?: string; name: string; input: ToolInput }
-  | {
-      kind: "tool-result";
-      id: string;
-      toolUseId?: string;
-      content: string;
-      isError: boolean;
-      structuredPatch?: StructuredPatchHunk[];
-    }
+  | ToolCallEntry
+  /** A reasoning block — running until the relay says it ended. `text` is
+   * often empty (some models don't expose it); the block still matters for
+   * its timing. */
+  | { kind: "thinking"; id: string; text: string; running: boolean; pending?: boolean; startedAt?: number; endedAt?: number }
   | { kind: "error"; id: string; message: string }
   | { kind: "stopped"; id: string }
   /** Automatic follow-up turn from an `anywh-bg` job that finished —
@@ -27,10 +23,40 @@ export type LogEntry =
    * with no human involved this turn — same "system note, no bubble"
    * pattern as `background-job-note`, but with no per-instance label: unlike
    * an `anywh-bg` job, a wakeup carries no name of its own. */
-  | { kind: "wakeup-note"; id: string };
+  | { kind: "wakeup-note"; id: string }
+  /** Closes a turn: how long the agent worked and everything it said, for
+   * the copy button. `sentAt` is when the turn's last text landed (or now). */
+  | { kind: "turn-footer"; id: string; sentAt: number; durationMs?: number; text: string };
+
+/** One tool call, its start and its result folded into a single entry the
+ * moment the result arrives — so nothing downstream pairs them at render
+ * time. Everything a display needs is the normalized `subject`/`outcome`;
+ * `name`/`input`/`content` are the fallback when a runtime couldn't interpret
+ * the call. `done` is false while it runs. `aborted` marks a call the turn
+ * ended without ever getting a result for (the user stopped it). */
+export interface ToolCallEntry {
+  kind: "tool-call";
+  id: string;
+  toolUseId?: string;
+  name: string;
+  toolKind: ToolKind;
+  input: ToolInput;
+  subject?: ToolSubject;
+  outcome?: ToolOutcome;
+  content?: string;
+  isError: boolean;
+  done: boolean;
+  aborted?: boolean;
+  startedAt?: number;
+  endedAt?: number;
+  batchId?: string;
+  /** Set on a plan/todo-list update, which is drawn as a checklist card
+   * rather than as an activity row. */
+  plan?: PlanTodo[];
+}
 
 interface StreamingTextBlock {
-  index: number;
+  index: number | string;
   text: string;
 }
 
@@ -108,7 +134,7 @@ type Action =
    * reconstruct the same event shape `applyAgentEvent` expects, so live
    * dispatch and history replay share one code path. */
   | { type: "TURN_ERROR"; message: string }
-  | { type: "TURN_COMPLETE"; stopped: boolean }
+  | { type: "TURN_COMPLETE"; stopped: boolean; durationMs?: number }
   | { type: "RESET" }
   /** Initial tail received via `history_page` — swaps
    * the old replay (one dispatch per event, O(n²) `entries` copying) for a
@@ -128,6 +154,59 @@ const initialState: MessageLogState = {
   historyCursor: null,
   loadingOlderHistory: false,
 };
+
+function lastIndexWhere<T>(items: T[], test: (item: T) => boolean): number {
+  for (let i = items.length - 1; i >= 0; i -= 1) if (test(items[i])) return i;
+  return -1;
+}
+
+/** Index where the current turn's entries begin: just past the last user
+ * message or turn footer. */
+function turnStart(entries: LogEntry[]): number {
+  return lastIndexWhere(entries, (entry) => entry.kind === "user" || entry.kind === "turn-footer") + 1;
+}
+
+/** The placeholder a turn opens with, standing in for reasoning the agent
+ * hasn't started yet. Whatever comes first settles it: a reasoning block
+ * adopts it (keeping its start time), anything else removes it. */
+function dropPending(entries: LogEntry[]): LogEntry[] {
+  return entries.some((entry) => entry.kind === "thinking" && entry.pending) ? entries.filter((entry) => !(entry.kind === "thinking" && entry.pending)) : entries;
+}
+
+/** A turn that ends (stopped, or failed) leaves calls and reasoning that
+ * never got their close: without this they would spin forever. */
+function closeOpenActivity(entries: LogEntry[]): LogEntry[] {
+  const start = turnStart(entries);
+  let changed = false;
+  const next = entries.map((entry, index) => {
+    if (index < start) return entry;
+    if (entry.kind === "tool-call" && !entry.done) {
+      changed = true;
+      return { ...entry, done: true, aborted: true };
+    }
+    if (entry.kind === "thinking" && entry.running) {
+      changed = true;
+      return { ...entry, running: false };
+    }
+    return entry;
+  });
+  return changed ? next : entries;
+}
+
+/** The footer that closes a turn — `undefined` for a turn that left nothing
+ * on screen. */
+function turnFooter(entries: LogEntry[], durationMs: number | undefined): LogEntry | undefined {
+  const turn = entries.slice(turnStart(entries));
+  if (turn.length === 0) return undefined;
+  const texts = turn.filter((entry): entry is Extract<LogEntry, { kind: "text" }> => entry.kind === "text");
+  return {
+    kind: "turn-footer",
+    id: newId(),
+    sentAt: texts.length > 0 ? texts[texts.length - 1].sentAt : Date.now(),
+    text: texts.map((entry) => entry.text).join("\n\n"),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+  };
+}
 
 function newId(): string {
   return crypto.randomUUID();
@@ -167,12 +246,20 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
   }
 
   switch (event.type) {
-    case "turn_started":
+    // Shows "thinking" at once: the agent's first token takes a while, and
+    // the wait is part of the time the user is waiting.
+    case "turn_started": {
+      if (state.entries.some((entry) => entry.kind === "thinking" && entry.pending)) return state;
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "thinking", id: newId(), text: "", running: true, pending: true, startedAt: event.startedAt ?? Date.now() }],
+      };
+    }
+
     case "session_id":
     case "usage":
     case "status":
     case "compact_boundary":
-    case "thinking":
     case "thinking_delta":
     case "tool_input_delta":
     case "tool_progress":
@@ -198,7 +285,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "text_delta": {
       const existing = state.streamingText.find((b) => b.index === event.index);
       const merged = { index: event.index, text: (existing?.text ?? "") + event.text };
-      return { ...state, streamingText: [...state.streamingText.filter((b) => b.index !== event.index), merged] };
+      return { ...state, entries: dropPending(state.entries), streamingText: [...state.streamingText.filter((b) => b.index !== event.index), merged] };
     }
 
     case "text": {
@@ -217,56 +304,112 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
       return {
         ...state,
-        entries: [...state.entries, { kind: "text", id: newId(), text: event.text, streaming: false, sentAt }],
+        entries: [...dropPending(state.entries), { kind: "text", id: newId(), text: event.text, streaming: false, sentAt }],
         streamingText: [],
       };
+    }
+
+    case "thinking_started": {
+      const pending = lastIndexWhere(state.entries, (entry) => entry.kind === "thinking" && entry.pending === true);
+      if (pending !== -1) {
+        const entries = state.entries.slice();
+        const { pending: _pending, ...adopted } = entries[pending] as Extract<LogEntry, { kind: "thinking" }>;
+        entries[pending] = adopted;
+        return { ...state, entries };
+      }
+      return {
+        ...state,
+        entries: [...state.entries, { kind: "thinking", id: newId(), text: "", running: true, ...(event.startedAt !== undefined ? { startedAt: event.startedAt } : {}) }],
+      };
+    }
+
+    // Blocks never overlap, so a committed `thinking` closes the most recent
+    // running one; one that was never announced (a replay, an older relay)
+    // is simply added, already finished.
+    case "thinking": {
+      const times = {
+        ...(event.startedAt !== undefined ? { startedAt: event.startedAt } : {}),
+        ...(event.endedAt !== undefined ? { endedAt: event.endedAt } : {}),
+      };
+      const index = lastIndexWhere(state.entries, (entry) => entry.kind === "thinking" && entry.running);
+      if (index === -1) {
+        return { ...state, entries: [...state.entries, { kind: "thinking", id: newId(), text: event.thinking, running: false, ...times }] };
+      }
+      const { pending: _pending, ...running } = state.entries[index] as Extract<LogEntry, { kind: "thinking" }>;
+      const entries = state.entries.slice();
+      // The earlier start wins: a block that adopted the turn's placeholder
+      // counts the wait for the first token, which its own start doesn't.
+      const startedAt = running.startedAt !== undefined && times.startedAt !== undefined ? Math.min(running.startedAt, times.startedAt) : (running.startedAt ?? times.startedAt);
+      entries[index] = { ...running, text: event.thinking, running: false, ...times, ...(startedAt !== undefined ? { startedAt } : {}) };
+      return { ...state, entries };
     }
 
     case "tool_started":
       return {
         ...state,
-        entries: [...state.entries, { kind: "tool-use", id: newId(), toolUseId: event.toolUseId, name: event.name, input: event.input }],
-      };
-
-    // TodoWrite's plan carries structured `todos` on the wire, but renders
-    // through the exact same generic tool-use card as any other tool for
-    // now (ToolCallCard's fallback branch already shows key/value pairs) —
-    // a dedicated todo-list widget is future work, not required to close
-    // out the wire-format debt this event exists to pay down.
-    case "plan":
-      return {
-        ...state,
-        entries: [...state.entries, { kind: "tool-use", id: newId(), toolUseId: event.toolUseId, name: "TodoWrite", input: { todos: event.todos } }],
-      };
-
-    case "tool_ended":
-      return {
-        ...state,
         entries: [
-          ...state.entries,
+          ...dropPending(state.entries),
           {
-            kind: "tool-result",
+            kind: "tool-call",
             id: newId(),
             toolUseId: event.toolUseId,
-            content: event.content,
-            isError: event.isError,
-            ...(event.structuredPatch ? { structuredPatch: event.structuredPatch } : {}),
+            name: event.name,
+            toolKind: event.kind,
+            input: event.input,
+            isError: false,
+            done: false,
+            ...(event.subject ? { subject: event.subject } : {}),
+            ...(event.startedAt !== undefined ? { startedAt: event.startedAt } : {}),
+            ...(event.batchId ? { batchId: event.batchId } : {}),
           },
         ],
       };
+
+    // A plan is a checklist, not an activity row — it carries its todos and
+    // stays a call of its own (its ack `tool_ended` pairs like any other).
+    case "plan":
+      return {
+        ...state,
+        entries: [
+          ...dropPending(state.entries),
+          { kind: "tool-call", id: newId(), toolUseId: event.toolUseId, name: "plan", toolKind: "other", input: {}, isError: false, done: false, plan: event.todos },
+        ],
+      };
+
+    case "tool_ended": {
+      // The call this result answers, searched from the end: results arrive
+      // shortly after their start. An orphan (no matching start) has nothing
+      // to attach to and is dropped, as it always was.
+      const index = event.toolUseId ? lastIndexWhere(state.entries, (entry) => entry.kind === "tool-call" && entry.toolUseId === event.toolUseId) : -1;
+      if (index === -1) return state;
+      const call = state.entries[index] as ToolCallEntry;
+      const entries = state.entries.slice();
+      entries[index] = {
+        ...call,
+        done: true,
+        content: event.content,
+        isError: event.isError,
+        ...(event.outcome ? { outcome: event.outcome } : {}),
+        ...(event.endedAt !== undefined ? { endedAt: event.endedAt } : {}),
+      };
+      return { ...state, entries };
+    }
 
     // Stopping mid-stream cuts off before the final `text` event that
     // normally commits the live preview into `entries` — without this the
     // partial text (which only existed in `streamingText`) would simply
     // vanish from the screen when the turn ends.
     case "turn_ended": {
-      const entries = [...state.entries];
+      let entries = [...dropPending(state.entries)];
       for (const block of state.streamingText) {
         // No `timestamp` to fall back on here — this is a stop/interrupt
         // cutting the stream short, not a real `text` event.
         if (block.text.length > 0) entries.push({ kind: "text", id: newId(), text: block.text, streaming: false, sentAt: Date.now() });
       }
+      entries = closeOpenActivity(entries);
       if (event.stopped) entries.push({ kind: "stopped", id: newId() });
+      const footer = turnFooter(entries, event.durationMs);
+      if (footer) entries.push(footer);
       // A subagent can't outlive the turn process that ran it — one still
       // "running" here never got its final notification (the turn was
       // stopped or crashed first).
@@ -279,7 +422,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
     case "error":
       return {
         ...state,
-        entries: [...state.entries, { kind: "error", id: newId(), message: event.message }],
+        entries: [...dropPending(state.entries), { kind: "error", id: newId(), message: event.message }],
         streamingText: [],
       };
 
@@ -353,7 +496,7 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
       return applyAgentEvent(state, { type: "error", message: action.message });
 
     case "TURN_COMPLETE":
-      return applyAgentEvent(state, { type: "turn_ended", stopped: action.stopped });
+      return applyAgentEvent(state, { type: "turn_ended", stopped: action.stopped, ...(action.durationMs !== undefined ? { durationMs: action.durationMs } : {}) });
 
     // Reconnection — the relay resends the history
     // tail on every new connection, so the log needs to go back to empty
@@ -429,7 +572,7 @@ export interface UseMessageLogResult {
   editUserMessage: (id: string, text: string) => void;
   handleEvent: (event: AgentEvent) => void;
   handleTurnError: (message: string) => void;
-  handleTurnComplete: (stopped?: boolean) => void;
+  handleTurnComplete: (stopped?: boolean, durationMs?: number) => void;
   reset: () => void;
   /** Hydrates the log with the initial tail received via `history_page`
    * — called once per connection, in place of the old
@@ -472,7 +615,7 @@ export function useMessageLog(): UseMessageLogResult {
     editUserMessage: (id, text) => dispatch({ type: "EDIT_USER_MESSAGE", id, text, sentAt: Date.now() }),
     handleEvent: (event) => dispatch({ type: "AGENT_EVENT", event }),
     handleTurnError: (message) => dispatch({ type: "TURN_ERROR", message }),
-    handleTurnComplete: (stopped) => dispatch({ type: "TURN_COMPLETE", stopped: stopped === true }),
+    handleTurnComplete: (stopped, durationMs) => dispatch({ type: "TURN_COMPLETE", stopped: stopped === true, durationMs }),
     reset: () => dispatch({ type: "RESET" }),
     hydrate: (page) => dispatch({ type: "HYDRATE", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }),
     beginLoadingOlderHistory: () => dispatch({ type: "REQUEST_OLDER_HISTORY" }),

@@ -86,8 +86,7 @@
      ask for that with the color hardcoded in the component. */
   --overlay: rgb(0 0 0 / 0.5);
 
-  /* Highlight over a translucent surface (iOS's "glass": MobileTopBar and
-     the floating Composer) — the hairline border and the touch feedback.
+  /* Highlight over a translucent surface (iOS's "glass": the composer) — the hairline border and the touch feedback.
      This was `white/8`/`white/10`: white only works over a dark background,
      so on a light theme the highlight disappears. Always consumed with an
      alpha modifier (`border-glass-tint/8`), so the full color lives here. */
@@ -101,10 +100,7 @@
   --media-scrim: rgb(0 0 0 / 0.6);
   --media-scrim-foreground: #ffffff;
 
-  /* Shadow cast by the canvas in iOS's "reveal" drawer — the same color in
-     the settled state (.mobile-canvas.pushed) and during the live drag
-     (useRevealDrawer.ts), which used to repeat the literal on each side and
-     could drift apart. */
+  /* Shadow color for popovers (`--shadow-popover`); each theme sets its own. */
   --shadow-color: rgb(0 0 0 / 0.5);
 
   /* Syntax highlighting (hljs). Before: `--primary` for keywords, a literal
@@ -461,34 +457,6 @@ body {
  * component exposes through props. */
 [data-radix-scroll-area-viewport] > div {
   display: block !important;
-}
-
-/* iOS "reveal" drawer for the session list — the agent's whole screen
- * slides right to uncover the sidebar behind it, instead of an overlay with
- * a scrim on top. The settled state (the `.pushed` class) transitions in
- * CSS; the live drag (useRevealDrawer.ts) writes the same styles directly
- * through a ref, with no re-render per pixel.
- */
-.mobile-canvas {
-  border: 1px solid transparent;
-  /* border-radius and box-shadow would normally be banned here as
-   * uncompositable (iOS shell, not redesigned) — affordable only because
-   * this runs once, when the finger lifts, and never per frame. */
-  transition:
-    transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
-    border-radius 0.32s ease,
-    box-shadow 0.32s ease,
-    opacity 0.32s ease,
-    border-color 0.32s ease;
-}
-.mobile-canvas.pushed {
-  transform: translateX(var(--push));
-  border-radius: 30px;
-  border-color: color-mix(in srgb, var(--glass-tint) 16%, transparent);
-  opacity: 0.55;
-  box-shadow:
-    -18px 26px 60px -24px var(--shadow-color),
-    0 0 0 1px color-mix(in srgb, var(--glass-tint) 5%, transparent);
 }
 
 /* Thin, custom scrollbars (sidebar + message log). */

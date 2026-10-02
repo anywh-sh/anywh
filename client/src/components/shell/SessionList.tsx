@@ -74,7 +74,6 @@ export function SessionList({
   const groups = useMemo(() => groupSessionsByRecency(sessions), [sessions]);
   // One pass instead of a lookup per row: the list can hold every session of
   // every profile now, and this renders on each sidebar render.
-  const labels = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile.label])), [profiles]);
   const rows = useMemo<Row[]>(
     () =>
       groups.flatMap((group) => [
@@ -92,7 +91,6 @@ export function SessionList({
     getItemKey: (index) => rowKey(rows[index]),
     overscan: 6,
   });
-  const showProfile = selectedProfileCount > 1;
   // "Nothing here" and "nothing here *because of the filter*" are different
   // answers, and conflating them is how someone concludes their history is
   // gone when they have narrowed the view down to a profile with nothing in
@@ -172,8 +170,6 @@ export function SessionList({
                 ) : (
                   <SessionListItem
                     session={row.session}
-                    profileLabel={labels.get(row.session.profileId) ?? row.session.profileId}
-                    showProfile={showProfile}
                     selected={selected === row.session.id}
                     running={running.has(row.session.id)}
                     hasBackgroundJob={backgroundJobSessions.has(row.session.id)}

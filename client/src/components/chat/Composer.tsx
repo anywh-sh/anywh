@@ -18,6 +18,7 @@ import Suggestion from "@tiptap/suggestion";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Button } from "@/components/ui/button";
+import { Elapsed } from "@/components/chat/activity/Elapsed";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +52,8 @@ interface ComposerProps {
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
   turnInFlight: boolean;
+  /** Epoch ms of the turn's start, for the clock on the stop button. */
+  turnStartedAt?: number | null;
   onStop: () => void;
   pendingImages: PendingAttachment[];
   uploadingImage: boolean;
@@ -73,9 +76,11 @@ interface ComposerProps {
   modelCatalog: ModelCatalog | null;
   onChangeModel: (model: ModelChoice) => void;
   /** Same signal as `cwdLocked` (`WorkingDirectoryButton`) — true as soon as
-   * the conversation has had its first turn. Switching the model at that
-   * point would require rereading the whole history for the CLI to rebuild
-   * context in the new model, so `ModelButton` locks along with the folder. */
+   * the conversation has had its first turn, i.e. "the conversation is
+   * locked". Switching the model at that point would require rereading the
+   * whole history for the CLI to rebuild context in the new model, so
+   * `ModelButton` locks along with the folder; `AgentPickerButton` locks for
+   * the same reason. */
   modelLocked: boolean;
   /** Desktop-only for now — the iOS layout (single attach/text/send line,
    * see isIOS() below) has no toolbar for this to go into. */
@@ -464,6 +469,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onSend,
     disabled,
     turnInFlight,
+    turnStartedAt,
     onStop,
     pendingImages,
     uploadingImage,
@@ -782,7 +788,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         // buttons inside it do.
         "flex flex-col gap-1.5 border p-2 transition-colors",
         isIOS()
-          ? // Same blur intensity as MobileTopBar — on the physical device
+          ? // Same blur intensity as the native top bar — on the physical device
             // the blur itself was imperceptible (possible WKWebView
             // limitation with backdrop-filter), so opacity dropped a lot
             // more (45%) to guarantee visible contrast behind it even if the
@@ -898,15 +904,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             disabled={!turnInFlight && !canSend}
             aria-label={turnInFlight ? dict.common.stop : dict.common.send}
             className={cn(
-              "flex size-11 shrink-0 cursor-pointer items-center justify-center transition-colors",
+              "flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center transition-colors",
               turnInFlight
-                ? "bg-destructive text-destructive-foreground"
+                ? "gap-1.5 border border-border px-3 text-muted-foreground hover:bg-surface-hover"
                 : canSend
                   ? "bg-primary text-primary-foreground"
                   : "bg-border text-text-faint",
             )}
           >
-            {turnInFlight ? <Square className="size-4" fill="currentColor" /> : <ArrowUp className="size-5" />}
+            {turnInFlight ? (
+              <>
+                <Square className="size-3.5" fill="currentColor" />
+                {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
+              </>
+            ) : (
+              <ArrowUp className="size-5" />
+            )}
           </button>
         </div>
       ) : (
@@ -914,8 +927,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <EditorContent editor={editor} className="composer-editor" />
 
           <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
-              <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} />
+            <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
+              <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
               <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
               {modelCatalog && (
                 <ModelButton
@@ -1017,19 +1030,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 )}
               </div>
               {turnInFlight ? (
-                <Button type="button" size="sm" variant="destructive" onClick={onStop}>
+                // Neutral, not red: stopping is an ordinary action here, and
+                // the clock beside it is the turn's only running counter.
+                <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
                   <span className="size-2 bg-current" />
-                  {dict.common.stop}
+                  {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
                 </Button>
               ) : (
-                // The shortcut glyph is decoration for the eye only: it is
-                // the button's own label that a screen reader should read,
-                // not the name of a key it can't press.
-                <Button type="submit" size="sm" disabled={!canSend} aria-label={dict.common.send}>
-                  {dict.common.send}
-                  <span aria-hidden="true" className="text-[10px] opacity-65">
-                    {copy.sendShortcut}
-                  </span>
+                <Button type="submit" size="icon" disabled={!canSend} aria-label={dict.common.send} className="size-[26px]">
+                  <ArrowUp className="size-3.5" />
                 </Button>
               )}
             </div>

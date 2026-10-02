@@ -19,5 +19,12 @@
  * has a trailing `return state;`), but that only protects a FUTURE version
  * skew — it does nothing for clients already installed when this shipped,
  * which is why the bump itself still has to happen.
+ *
+ * 2 -> 3: tool calls, reasoning and turns started carrying timing and an
+ * interpreted `subject`/`outcome`, plus the new `thinking_started` variant.
+ * An older client wouldn't crash on any of it (the trailing `return state;`
+ * above), but it would silently render a turn without the parts it doesn't
+ * know — a client that looks fine while missing what the relay sent is
+ * exactly the skew this number exists to surface as "update the app".
  */
-export const WS_PROTOCOL_VERSION = 2;
+export const WS_PROTOCOL_VERSION = 3;

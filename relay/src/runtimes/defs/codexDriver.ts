@@ -20,6 +20,7 @@
 // comment holds itself to, just for the piece that file didn't need yet.
 import { spawnCodexDaemon, type CodexDaemon } from "../transports/codexDaemon.js";
 import type { AgentEvent, AgentRuntimeDef, JsonRpcDaemonPlan, TurnContext } from "../types.js";
+import { codexTurnsToEvents } from "../streams/codexHistory.js";
 import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../sessionDriver.js";
 // Same known reverse-direction dependency `defs/claude/session.ts` already
 // has on this file for the same three types — see its own comment on why
@@ -66,6 +67,13 @@ interface TurnCompletedParams {
  * `turn_started`/`turn_ended` structurally instead). Forwarding either of
  * these into `mapNotification` would only earn a spurious "unrecognized
  * notification" log line from its `default` branch. */
+const HISTORY_PAGE_SIZE = 100;
+
+interface StoredTurnsPage {
+  readonly data: Parameters<typeof codexTurnsToEvents>[0];
+  readonly nextCursor: string | null;
+}
+
 const TURN_LIFECYCLE_METHODS = new Set(["turn/started", "turn/completed"]);
 
 /**
@@ -226,6 +234,30 @@ export class CodexSessionDriver implements AgentSessionDriver {
       this.pendingTurn = undefined;
       this.pendingOnEvent = undefined;
     }
+  }
+
+  /** Asks the daemon for the thread's stored turns (oldest first, every item
+   * in full) and replays them through the same mapper a live turn uses. Costs
+   * a daemon spawn for a session reopened after a relay restart, once — the
+   * daemon then stays for the session's next turn. */
+  async readHistory(cwd: string): Promise<AgentEvent[]> {
+    const method = this.def.exec.replayHistoryMethod;
+    if (!this.threadId || !method) return [];
+    const daemon = await this.ensureDaemon(cwd);
+    const turns: StoredTurnsPage["data"] = [];
+    let cursor: string | null = null;
+    do {
+      const page = (await daemon.request(method, {
+        threadId: this.threadId,
+        itemsView: "full",
+        sortDirection: "asc",
+        limit: HISTORY_PAGE_SIZE,
+        ...(cursor ? { cursor } : {}),
+      })) as StoredTurnsPage;
+      turns.push(...page.data);
+      cursor = page.nextCursor;
+    } while (cursor);
+    return codexTurnsToEvents(turns);
   }
 
   /** Fire-and-forget, same shape as `ClaudeSession`'s SIGINT: the in-flight

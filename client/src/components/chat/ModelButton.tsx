@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
-import { Check, ChevronDown, Lock, Target } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
 import type { ModelCatalog, ModelChoice } from "@/lib/relay/relayClient";
 import { effectiveModel, labelForModel } from "@/lib/composer/modelCatalog";
@@ -78,22 +78,22 @@ export function ModelButton({ model, catalog, onChange, disabled, locked }: Mode
       }}
     >
       <DropdownMenuTrigger asChild disabled={isDisabled}>
-        <Button
+        <button
           ref={triggerRef}
           type="button"
-          variant="outline"
-          size="sm"
           disabled={isDisabled}
           title={locked ? dict.chat.composer.modelLocked : undefined}
-          // A locked model is still information worth reading, so it keeps a
-          // surface instead of fading out with the rest of the disabled
-          // controls.
-          className={cn("min-w-0 gap-1.5 px-2", locked && "bg-bg-sidebar text-muted-foreground opacity-100")}
+          // A locked model is still information worth reading, so it stays
+          // at full opacity instead of fading out with the disabled controls.
+          className={cn(toolbarTriggerClass, locked && "opacity-100")}
         >
-          <Target className="size-3" />
           <span className="truncate">{label}</span>
-          {locked ? <Lock className="size-2.5 opacity-60" /> : <ChevronDown className="size-2.5 opacity-60" />}
-        </Button>
+          {locked ? (
+            <Lock className="size-2.5 opacity-60" />
+          ) : (
+            <span aria-hidden="true" className="text-[9px] opacity-55">▾</span>
+          )}
+        </button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-53">

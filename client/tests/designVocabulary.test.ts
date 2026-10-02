@@ -25,14 +25,6 @@ import { describe, expect, it } from "vitest";
 // lives) — same reasoning as builtinThemes.test.ts's read of index.css.
 const SRC = resolve(process.cwd(), "src");
 
-/** The two files that are nothing but iOS shell. Removing one from this list
- * (because it got redesigned) is fine; adding one needs a reason that isn't
- * "the test failed". */
-const MOBILE_EXCEPTIONS = new Set([
-  "components/shell/MobileSidebar.tsx",
-  "components/shell/MobileTopBar.tsx",
-]);
-
 interface SourceFile {
   path: string;
   text: string;
@@ -96,10 +88,6 @@ describe("motion budget", () => {
   });
 
   it("never transitions a layout property in CSS either", () => {
-    // The one waiver is `.mobile-canvas` (the iOS reveal drawer), which takes
-    // MOBILE_PRAGMA in index.css itself: its box-shadow/border-radius
-    // transition is the settled half of a gesture whose live drag is written
-    // through a ref, so it runs once when the finger lifts, not per frame.
     const banned =
       /transition(-property)?:\s*[^;]*\b(width|height|top|left|right|bottom|margin|padding|box-shadow|filter|all)\b|^\s*(width|height|top|left|right|bottom|margin|padding|box-shadow|filter)\s+[\d.]+m?s/;
     expect(hits(CSS, banned)).toEqual([]);
@@ -128,7 +116,7 @@ describe("shape vocabulary", () => {
     // `--radius: 0` is the whole visual identity. `rounded-full` survives
     // only where the shape is genuinely a circle — a status dot, a spinner.
     const rounded = /\brounded-(?!full\b)[a-z0-9[]/;
-    expect(hits(COMPONENTS, rounded, (file) => MOBILE_EXCEPTIONS.has(file.path))).toEqual([]);
+    expect(hits(COMPONENTS, rounded)).toEqual([]);
   });
 
   it("has exactly one elevation", () => {
@@ -138,7 +126,7 @@ describe("shape vocabulary", () => {
     // isn't elevation at all — it's how the app draws an accent rule on one
     // edge (active profile, selected tab) without a border reserving space.
     const shadow = /\bshadow-(?!popover\b|\[inset)[a-z0-9[]/;
-    expect(hits(COMPONENTS, shadow, (file) => MOBILE_EXCEPTIONS.has(file.path))).toEqual([]);
+    expect(hits(COMPONENTS, shadow)).toEqual([]);
   });
 });
 
@@ -161,7 +149,10 @@ describe("color and type", () => {
           // The brand mark's two colors are fixed regardless of theme (same
           // two hexes as the static `assets/logo.svg`) — a token would imply
           // they're themeable, which is exactly what they must not be.
-          file.path === "components/shell/AnywhLogo.tsx",
+          file.path === "components/shell/AnywhLogo.tsx" ||
+          // Claude's mark keeps its fixed brand orange for the same reason:
+          // it identifies a vendor's product and must not follow the theme.
+          file.path === "components/chat/AgentLogo.tsx",
       ),
     ).toEqual([]);
   });

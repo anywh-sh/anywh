@@ -1,3 +1,10 @@
 [default]
 description = "Default permissions for the plugin"
-permissions = ["allow-set-connection-indicator", "allow-show-context-menu"]
+permissions = [
+  "allow-show-context-menu",
+  "allow-set-top-bar",
+  "allow-set-drawer",
+  "allow-set-gesture-hint",
+  "allow-register-listener",
+  "allow-remove-listener",
+]

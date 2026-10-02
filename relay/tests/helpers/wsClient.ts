@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import WebSocket from "ws";
 
 /** Connects to the relay's chat WebSocket for one session and collects every
@@ -111,6 +112,17 @@ export function collectUntil(
  * replaced the old top-level `turn_complete`/`turn_error` messages. */
 export function isTurnEnded(message: Record<string, unknown>): boolean {
   return message.type === "agent_event" && (message.event as { type?: string } | undefined)?.type === "turn_ended";
+}
+
+/** A live turn's `turn_ended` with the given `stopped` — asserted this way
+ * rather than by deep equality because a live one always also carries the
+ * turn's `durationMs`, whose value depends on how fast the machine ran it. */
+export function assertTurnEnded(message: Record<string, unknown> | undefined, stopped: boolean): void {
+  const event = message?.event as { type?: string; stopped?: boolean; durationMs?: unknown } | undefined;
+  assert.equal(message?.type, "agent_event", `expected an agent_event, got ${JSON.stringify(message)}`);
+  assert.equal(event?.type, "turn_ended", `expected turn_ended, got ${JSON.stringify(message)}`);
+  assert.equal(event?.stopped, stopped);
+  assert.equal(typeof event?.durationMs, "number", `turn_ended without durationMs: ${JSON.stringify(message)}`);
 }
 
 /** Finds a specific `agent_event` variant among collected messages — the

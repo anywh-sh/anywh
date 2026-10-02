@@ -1,36 +1,33 @@
 # Tauri Plugin native-chrome
 
-Camada de chrome nativo do port iOS do anywh — promovido de um spike inicial
-de UI nativa (`manager.viewController` +
-`UIHostingController` inserida como subview do webview via
-`addChild`/`addSubview`, material Liquid Glass real do iOS 26).
+Native iOS chrome around the web app. The web side owns all state, logic and
+copy and sends pre-formatted payloads; the native side only draws and
+captures gestures, then reports intent back as plugin events.
 
-Comando real: `setConnectionIndicator(connected: boolean)` — atualiza (não
-recria) a mesma view SwiftUI, refletindo o estado de conexão do
-`RelayClient` (`useRelayClient.ts` chama isso a cada `onConnectionChange`).
-A view observa um `ConnectionIndicatorState` (`ObservableObject`) que o
-comando só atualiza via `@Published` — é o mecanismo que faltava validar no
-spike 2, que só criava a view uma vez e nunca mais mexia nela.
+## Shell: drawer, top bar, blur strip
 
-**Escopo deliberadamente limitado**: isto é só o mecanismo (view nativa
-persistente + update via `invoke`), não o desenho final da UI mobile — onde
-o indicador mora, tamanho/cor definitiva, comportamento em rotação de tela,
-múltiplas views nativas simultâneas ficam para quando a sessão de design
-dedicada começar.
+- `set_drawer` — the conversation list (SwiftUI) that sits behind the web
+  canvas. The canvas (the view holding the `WKWebView`) slides right under a
+  native pan that can start anywhere on screen; release settles with a spring.
+  Opening and closing each have their own haptic, fired on release (not on
+  landing) and also when a conversation is picked and the drawer closes.
+- `set_top_bar` — the single-pill top bar (title, model, connection dot, new
+  conversation) over the web content, with a blur strip fading out below it.
+  Liquid Glass on iOS 26, a material on iOS 18–25. The bar's height is pushed
+  to the page as the `--native-top-inset` CSS variable.
+- `set_gesture_hint` — sent on `touchstart`: whether the touch began inside a
+  horizontal scroller that has been scrolled, so the drawer pan stands down.
 
-## `showContextMenu`
+Events back to JS (`addPluginListener("native-chrome", …)`): `drawerSelect`,
+`drawerProfileChange`, `drawerRetry`, `drawerRename`,
+`drawerDelete`, `topBarNewConversation`.
 
-Menu de contexto nativo pro long-press em mensagens do chat (Copiar/Editar),
-via `UIEditMenuInteraction` (API pública desde iOS 16) — mesmo visual
-arredondado do menu de seleção de texto do sistema, apresentado num ponto
-arbitrário (`presentEditMenu(with:)`, imperativo, acionado a partir do
-long-press detectado em JS via `useLongPress`). Superfície genérica de
-propósito: qualquer feature futura que precise de menu nativo no iOS
-reaproveita o mesmo comando, não é específico de mensagem de chat.
+Corner radius follows the device: `containerConcentric` on iOS 26, the
+display's corner radius (private `_displayCornerRadius` key) with a safe
+default on iOS 18–25.
 
-**Ainda não validado em dispositivo real** — escrito a partir da API pública
-documentada da Apple, sem acesso a Mac/iPhone físico nesta sessão de
-trabalho. Ver comentário no topo de `NativeChromePlugin.swift` pros pontos
-específicos que precisam de confirmação (posição do menu, thread, descarte
-sem escolha) antes de considerar essa parte concluída — usar o
-fluxo do Mac remoto pra validar.
+## `show_context_menu`
+
+Long-press menu on chat messages via `UIEditMenuInteraction` (public since iOS
+16), presented at an arbitrary point from the long-press detected in JS.
+Deliberately generic: any feature that needs a native menu reuses it.

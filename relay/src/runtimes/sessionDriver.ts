@@ -59,6 +59,13 @@ export interface AgentSessionDriver {
    * the caller (`SharedSession`) always knows the session's current `cwd`,
    * the driver doesn't need to remember it too. */
   rewind?(turnsBefore: number, cwd: string): Promise<string>;
+  /** Rebuilds what happened in the session so far as the same `AgentEvent`s a
+   * live turn produces — how a session reopened after a relay restart gets
+   * its log back. Present exactly when the def's `capabilities.replayHistory`
+   * is not `"none"` (a test holds the two together). Claude reads the
+   * transcript the CLI keeps on disk; Codex asks its daemon for the thread's
+   * stored turns. Resolves with nothing for a session with no id yet. */
+  readHistory?(cwd: string): Promise<AgentEvent[]>;
   dispose(): void;
 }
 
