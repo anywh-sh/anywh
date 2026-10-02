@@ -5,10 +5,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type MutableRefObject,
 } from "react";
-import { ArrowUp, Check, ChevronDown, FileText, Mic, Paperclip, Square, Video, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, FileText, Mic, Paperclip, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -29,7 +28,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDuration } from "@/lib/utils";
 import { useDict } from "@/i18n";
-import { isIOS } from "@/lib/platform/platform";
 import { useDraftSync } from "@/hooks/composer/useDraftSync";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
@@ -85,8 +83,7 @@ export interface ComposerProps {
    * `ModelButton` locks along with the folder; `AgentPickerButton` locks for
    * the same reason. */
   modelLocked: boolean;
-  /** Desktop-only for now — the iOS layout (single attach/text/send line,
-   * see isIOS() below) has no toolbar for this to go into. */
+  /** Shown in the toolbar's context-usage button. */
   contextUsage: ContextUsage | null;
   /** Sent once, the first time the context usage popover opens — see
    * `ContextUsageButton`. */
@@ -106,9 +103,7 @@ export interface ComposerProps {
 
 export interface ComposerHandle {
   focus: () => void;
-  /** Message editing via composer (iOS) — replaces the content with
-   * the original text of the edited message (or clears it, with `""`, on
-   * cancel). Plain text, no markdown/HTML: the same shape `onSend` delivers
+  /** Replaces the content with plain text (draft restore), or clears it with `""`. Plain text, no markdown/HTML: the same shape `onSend` delivers
    * outward, just in the opposite direction. */
   setContent: (text: string) => void;
 }
@@ -190,8 +185,7 @@ const EXTENSIONS = [
   HardBreakCaretAnchor,
 ];
 
-/** Rebuilds the Tiptap doc from plain text (editing via composer on
- * iOS) — via JSON, not an interpolated HTML string: the text may have
+/** Rebuilds the Tiptap doc from plain text (draft restore) — via JSON, not an interpolated HTML string: the text may have
  * `<`/`&`/etc that would break a naive HTML parse. A single paragraph with
  * `hardBreak` between lines: the composer's schema never produces more than
  * one paragraph anyway (Enter without shift always sends, never
@@ -225,7 +219,7 @@ function createPlaceholderExtension(
  * Real bug, confirmed by testing on Chromium via Playwright (not just
  * theory): a cursor position between two adjacent `<br>`s with no text at
  * all — a genuinely empty line, created by 2+ consecutive `hardBreak`s
- * (Shift+Enter on desktop, Enter on iOS — see `handleKeyDown` below) without
+ * (Shift+Enter — see `handleKeyDown` below) without
  * typing anything between them — has no layout box of its own:
  * `Range.getClientRects()`/`getBoundingClientRect()` return `(0,0,0,0)` at
  * that position, and the browser falls back to drawing the cursor on the
@@ -243,10 +237,8 @@ function createPlaceholderExtension(
  * `composerLinks.tsx` — `U+FEFF`, not `U+200B`) as real text in the
  * document, not just in the view.
  *
- * `appendTransaction` (not a Shift+Enter-specific command) because iOS's
- * Enter doesn't go through the `setHardBreak` command — it falls into
- * ProseMirror's default fallback for `schema.linebreakReplacement` when the
- * doc's schema doesn't allow a second paragraph (see `buildComposerDoc`'s
+ * `appendTransaction` (not a Shift+Enter-specific command) because it
+ * must also cover paste, undo/redo and `setContent` (see `buildComposerDoc`'s
  * comment). Running this as a post-transaction normalization covers both
  * paths (plus paste, undo/redo, `setContent` from composer editing) with a
  * single piece of logic. No infinite loop: inserting the anchor itself makes
@@ -492,38 +484,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const copy = dict.chat.composer;
   const [focused, setFocused] = useState(false);
   const [isEmpty, setIsEmpty] = useState(true);
-  // Only used on iOS — the container morphs from a pill (one line)
-  // into a rounded rectangle (several lines), like the prototype. Measured
-  // by the editor's real height instead of counting text line breaks: one
-  // line can occupy two visual ones from wrapping with no "\n" at all.
-  const [isMultiline, setIsMultiline] = useState(false);
-  // Maximum cap for the text field when content exceeds what fits on a
-  // screen (`.composer-editor .ProseMirror` in the CSS) — on iOS a fixed px
-  // value overflows the visible area as soon as the keyboard opens, because
-  // `vh`/`dvh` don't shrink with the keyboard (only with browser chrome).
-  // `visualViewport.height` is the only source that reflects the space
-  // actually available above the keyboard, and fires `resize` when it
-  // opens/closes — that's why the cap is recalculated on that event, not
-  // fixed. `null` (desktop, or iOS before the first layout) falls back to
-  // the fixed CSS value.
-  const [composerMaxHeight, setComposerMaxHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!isIOS() || !vv) return;
-    // Reserved for what sits above the composer within the visible area (top
-    // bar with safe-area-inset-top, see `ChatPanel.tsx`) and for the pill's
-    // own padding/height (attach/send line + paddings) — without this margin
-    // the text grows until it touches the top of the screen instead of
-    // stopping before it.
-    const RESERVED_PX = 180;
-    const MIN_PX = 72;
-    function update() {
-      setComposerMaxHeight(Math.max(MIN_PX, vv!.height - RESERVED_PX));
-    }
-    update();
-    vv.addEventListener("resize", update);
-    return () => vv.removeEventListener("resize", update);
-  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<() => void>(() => {});
   const { schedule: scheduleDraftSync, flush: flushDraftSync } = useDraftSync(onChangeDraft);
@@ -532,8 +492,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // `emitUpdate` defaults to `true`) — without this flag, restoring a draft
   // or populating the composer with a message being edited would
   // immediately overwrite the persisted draft with that other text. Doesn't
-  // touch `emitUpdate` itself because `isEmpty`/`isMultiline` below still
-  // need `onUpdate` to fire for those programmatic changes.
+  // touch `emitUpdate` itself because `isEmpty` below still
+  // needs `onUpdate` to fire for those programmatic changes.
   const suppressDraftRef = useRef(false);
   // Suggestion's only channel back (outside React) to the editorProps below
   // — see the comment on `createSlashCommandExtension`.
@@ -568,11 +528,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // `EditorContent`). Cleared on the next edit (`onUpdate`) since any further
   // typing invalidates the suggestion it was computed from.
   const [typoConfirm, setTypoConfirm] = useState<{ text: string; suggestion: string } | null>(null);
-  // No autocomplete menu on iOS: `/model`/`/clear` still work when typed in
-  // full (see the `parseSlashCommand` call in `ChatPanel.tsx`), just without
-  // the popup — the desktop-only convenience this extension adds.
   const extensions = useMemo(
-    () => [...EXTENSIONS, placeholderExtension, ...(isIOS() ? [] : [slashCommandExtension])],
+    () => [...EXTENSIONS, placeholderExtension, slashCommandExtension],
     [placeholderExtension, slashCommandExtension],
   );
 
@@ -586,7 +543,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onUpdate: ({ editor: current }) => {
       setIsEmpty(current.isEmpty);
       setTypoConfirm(null);
-      if (isIOS()) setIsMultiline(current.view.dom.scrollHeight > 34);
       if (suppressDraftRef.current) {
         suppressDraftRef.current = false;
       } else {
@@ -626,30 +582,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             }
           }
         }
-        // On iOS the keyboard has no practical way to do "Shift+Enter" —
-        // Enter becomes a line break, sending is only via the button
-        // Desktop doesn't change: Enter still sends, Shift+Enter
-        // is still the only way to break a line there.
-        if (event.key === "Enter" && !event.shiftKey && isIOS()) {
-          // Explicit dispatch (same technique as the `setHardBreak` command
-          // desktop's Shift+Enter uses), not ProseMirror's default fallback
-          // for a plain Enter (`return false`, letting the browser handle it
-          // natively via `schema.linebreakReplacement`) — real bug confirmed
-          // in the iOS Simulator: that native fallback
-          // didn't reliably preserve the anchor that
-          // `hardBreakAnchorPlugin` inserts right after via
-          // `appendTransaction`, so the cursor ended up one line above where
-          // expected after 2+ consecutive Enters — the same bug that already
-          // worked fine on Chromium (where Shift+Enter already went through
-          // an explicit command). Dispatching the break ourselves, within
-          // the same synchronous dispatch cycle, makes `appendTransaction`
-          // run reliably on both platforms.
-          event.preventDefault();
-          const hardBreak = view.state.schema.nodes.hardBreak.create();
-          view.dispatch(view.state.tr.replaceSelectionWith(hardBreak).scrollIntoView());
-          return true;
-        }
-        if (event.key === "Enter" && !event.shiftKey && !isIOS()) {
+        if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
           if (!disabledRef.current) submitRef.current();
           return true;
@@ -769,18 +702,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         // frame, and it firms up under the pointer the way the outline
         // buttons inside it do.
         "flex flex-col gap-1.5 border p-2 transition-colors",
-        isIOS()
-          ? // Same blur intensity as the native top bar — on the physical device
-            // the blur itself was imperceptible (possible WKWebView
-            // limitation with backdrop-filter), so opacity dropped a lot
-            // more (45%) to guarantee visible contrast behind it even if the
-            // blur doesn't render. The lift under it is Tailwind's own
-            // shadow rather than the app's single `shadow-popover` elevation
-            // (iOS shell, not redesigned) — here the glass chrome floats over
-            // the content instead of sitting in a frame with it.
-            "bg-bg-elevated/45 shadow-lg backdrop-blur-lg backdrop-saturate-150"
-          : "mb-3 bg-bg-sidebar",
-        focused ? "border-primary" : isIOS() ? "border-glass-tint/8" : "border-border hover:border-text-faint",
+        "mb-3 bg-bg-sidebar",
+        focused ? "border-primary" : "border-border hover:border-text-faint",
       )}
     >
       <ComposerLinkHoverCard editor={editor} />
@@ -847,186 +770,125 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </div>
       )}
 
-      {isIOS() ? (
-        // A single line (attach | text | send), like the prototype — not
-        // desktop's text-on-top/buttons-below, which left the composer
-        // tall/misaligned instead of the approved compact bar.
-        <div className={cn("flex gap-1", isMultiline ? "items-end" : "items-center")}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            className="hidden"
-            onChange={(event) => {
-              if (event.target.files) onAddFiles(event.target.files);
-              event.target.value = "";
-              editor?.commands.focus();
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label={copy.attach}
-            disabled={uploadingImage}
-            className="flex size-11 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Paperclip className="size-5" />
-          </button>
+      <EditorContent editor={editor} className="composer-editor" />
 
-          <EditorContent
-            editor={editor}
-            className={cn("composer-editor ios min-w-0 flex-1")}
-            style={composerMaxHeight !== null ? ({ "--composer-max-height": `${composerMaxHeight}px` } as CSSProperties) : undefined}
-          />
-
-          <button
-            type={turnInFlight ? "button" : "submit"}
-            onClick={turnInFlight ? onStop : undefined}
-            disabled={!turnInFlight && !canSend}
-            aria-label={turnInFlight ? dict.common.stop : dict.common.send}
-            className={cn(
-              "flex h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center transition-colors",
-              turnInFlight
-                ? "gap-1.5 border border-border px-3 text-muted-foreground hover:bg-surface-hover"
-                : canSend
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-border text-text-faint",
-            )}
-          >
-            {turnInFlight ? (
-              <>
-                <Square className="size-3.5" fill="currentColor" />
-                {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
-              </>
-            ) : (
-              <ArrowUp className="size-5" />
-            )}
-          </button>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
+          <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
+          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
+          {modelCatalog && (
+            <ModelButton
+              model={model}
+              catalog={modelCatalog}
+              onChange={onChangeModel}
+              disabled={disabled ?? false}
+              locked={modelLocked}
+            />
+          )}
+          <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
+          <CompactBoundaryToast event={compactBoundary} />
+          {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
+          {uploadingImage && !isRecording && !isTranscribing && (
+            <span className="font-mono text-[11px] text-muted-foreground">{copy.attachmentUploading}</span>
+          )}
         </div>
-      ) : (
-        <>
-          <EditorContent editor={editor} className="composer-editor" />
 
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
-              <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
-              <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
-              {modelCatalog && (
-                <ModelButton
-                  model={model}
-                  catalog={modelCatalog}
-                  onChange={onChangeModel}
-                  disabled={disabled ?? false}
-                  locked={modelLocked}
-                />
-              )}
-              <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
-              <CompactBoundaryToast event={compactBoundary} />
-              {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
-              {uploadingImage && !isRecording && !isTranscribing && (
-                <span className="font-mono text-[11px] text-muted-foreground">{copy.attachmentUploading}</span>
-              )}
-            </div>
+        <div className="flex items-center gap-1.5">
+          {!isRecording && !isTranscribing && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  if (event.target.files) onAddFiles(event.target.files);
+                  event.target.value = "";
+                  editor?.commands.focus();
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label={copy.attach}
+              >
+                <Paperclip className="size-3.5" />
+              </Button>
+            </>
+          )}
 
-            <div className="flex items-center gap-1.5">
-              {!isRecording && !isTranscribing && (
+          {isRecording && (
+            <Button type="button" variant="ghost" size="icon-sm" onClick={voice.cancel} aria-label={copy.cancelRecording}>
+              <X className="size-3.5" />
+            </Button>
+          )}
+
+          <div className="flex items-center">
+            {/* Recording turns the button itself into the state: a stop
+                square and the elapsed time, in place of the microphone.
+                The waveform that used to sit in the toolbar is gone —
+                it animated nothing real (a generic loop, never the
+                captured audio), and the timer next to a red button
+                already says "this is live". */}
+            <Button
+              type="button"
+              variant={isRecording ? "destructive" : "ghost"}
+              size={isRecording ? "sm" : "icon-sm"}
+              onClick={() => (isRecording ? void voice.stop() : void voice.start())}
+              disabled={isTranscribing || (!isRecording && voice.devices.length === 0)}
+              aria-label={isRecording ? copy.stopRecording : copy.record}
+            >
+              {isRecording ? (
                 <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    multiple
-                    className="hidden"
-                    onChange={(event) => {
-                      if (event.target.files) onAddFiles(event.target.files);
-                      event.target.value = "";
-                      editor?.commands.focus();
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    aria-label={copy.attach}
-                  >
-                    <Paperclip className="size-3.5" />
-                  </Button>
-                </>
-              )}
-
-              {isRecording && (
-                <Button type="button" variant="ghost" size="icon-sm" onClick={voice.cancel} aria-label={copy.cancelRecording}>
-                  <X className="size-3.5" />
-                </Button>
-              )}
-
-              <div className="flex items-center">
-                {/* Recording turns the button itself into the state: a stop
-                    square and the elapsed time, in place of the microphone.
-                    The waveform that used to sit in the toolbar is gone —
-                    it animated nothing real (a generic loop, never the
-                    captured audio), and the timer next to a red button
-                    already says "this is live". */}
-                <Button
-                  type="button"
-                  variant={isRecording ? "destructive" : "ghost"}
-                  size={isRecording ? "sm" : "icon-sm"}
-                  onClick={() => (isRecording ? void voice.stop() : void voice.start())}
-                  disabled={isTranscribing || (!isRecording && voice.devices.length === 0)}
-                  aria-label={isRecording ? copy.stopRecording : copy.record}
-                >
-                  {isRecording ? (
-                    <>
-                      <span className="size-2 bg-current" />
-                      {formatDuration(voice.elapsedSeconds)}
-                    </>
-                  ) : (
-                    <Mic className="size-3.5" />
-                  )}
-                </Button>
-
-                {voice.devices.length > 1 && !isRecording && !isTranscribing && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={copy.selectMicrophone}
-                        className="flex h-7 w-3.5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <ChevronDown className="size-3" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      {voice.devices.map((name) => (
-                        <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)}>
-                          <Check className={cn("size-3.5", name !== voice.selectedDevice && "opacity-0")} />
-                          <span className="max-w-48 truncate">{name}</span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-              {turnInFlight ? (
-                // Neutral, not red: stopping is an ordinary action here, and
-                // the clock beside it is the turn's only running counter.
-                <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
                   <span className="size-2 bg-current" />
-                  {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
-                </Button>
+                  {formatDuration(voice.elapsedSeconds)}
+                </>
               ) : (
-                <Button type="submit" size="icon" disabled={!canSend} aria-label={dict.common.send} className="size-[26px]">
-                  <ArrowUp className="size-3.5" />
-                </Button>
+                <Mic className="size-3.5" />
               )}
-            </div>
+            </Button>
+
+            {voice.devices.length > 1 && !isRecording && !isTranscribing && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={copy.selectMicrophone}
+                    className="flex h-7 w-3.5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronDown className="size-3" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {voice.devices.map((name) => (
+                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)}>
+                      <Check className={cn("size-3.5", name !== voice.selectedDevice && "opacity-0")} />
+                      <span className="max-w-48 truncate">{name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
-        </>
-      )}
+          {turnInFlight ? (
+            // Neutral, not red: stopping is an ordinary action here, and
+            // the clock beside it is the turn's only running counter.
+            <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
+              <span className="size-2 bg-current" />
+              {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
+            </Button>
+          ) : (
+            <Button type="submit" size="icon" disabled={!canSend} aria-label={dict.common.send} className="size-[26px]">
+              <ArrowUp className="size-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
     </form>
   );
 });

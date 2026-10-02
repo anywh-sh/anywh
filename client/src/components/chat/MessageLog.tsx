@@ -474,9 +474,9 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   return (
     // `relative` isn't about layout — it's the fix for a real WebKit bug
     // (reproduced via real WebKit Playwright, not Chromium):
-    // `backdrop-filter` on an ancestor doesn't sample this div's content if
-    // it (or any ancestor between it and the blurred element) is
-    // `position: static`. The whole chain up to the root needs this
+    // `backdrop-filter` on an ancestor (the desktop composer's glass) doesn't
+    // sample this div's content if it (or any ancestor between it and the
+    // blurred element) is `position: static`. The whole chain up to the root needs this
     // — see App.tsx (tab wrappers). Do not remove.
     <OpenStateContext.Provider value={openState}>
     <div
