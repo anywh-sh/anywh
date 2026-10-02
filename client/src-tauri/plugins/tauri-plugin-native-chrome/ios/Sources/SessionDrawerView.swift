@@ -50,7 +50,6 @@ struct SessionDrawerView: View {
     }
     .padding(.horizontal, 16)
     .padding(.top, 8)
-    .padding(.bottom, 12)
   }
 
   private func header(_ theme: ShellTheme) -> some View {
@@ -140,6 +139,21 @@ struct SessionDrawerView: View {
         }
       }
       .scrollIndicators(.hidden)
+      // Run under the home indicator area down to the screen edge, with a
+      // little room after the last row.
+      .contentMargins(.bottom, 24, for: .scrollContent)
+      .ignoresSafeArea(.container, edges: .bottom)
+      .overlay(alignment: .bottom) {
+        // Short and deliberately partial (0 -> ~65%, never fully opaque), the
+        // soft counterpart of the top bar's fade without the blur.
+        LinearGradient(
+          colors: [Color(hex: theme.sidebar).opacity(0), Color(hex: theme.sidebar).opacity(0.65)],
+          startPoint: .top, endPoint: .bottom
+        )
+        .frame(height: 56)
+        .ignoresSafeArea(.container, edges: .bottom)
+        .allowsHitTesting(false)
+      }
     }
   }
 
@@ -165,7 +179,7 @@ struct SessionDrawerView: View {
       HStack(spacing: 8) {
         VStack(alignment: .leading, spacing: 2) {
           Text(session.title)
-            .font(.system(size: 16, weight: session.selected ? .medium : .regular))
+            .font(.system(size: 16, weight: session.selected ? .semibold : .regular))
             .foregroundStyle(Color(hex: session.selected ? theme.foreground : theme.muted))
             .lineLimit(1)
           if !session.meta.isEmpty {
@@ -190,13 +204,16 @@ struct SessionDrawerView: View {
       .padding(.vertical, 10)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
-        Rectangle().fill(session.selected ? Color(hex: theme.elevated) : .clear)
+        Rectangle().fill(session.selected ? Color(hex: session.color).opacity(0.18) : .clear)
       )
       .overlay(alignment: .leading) {
-        Rectangle().fill(Color(hex: session.color)).frame(width: 2).opacity(session.selected ? 1 : 0.55)
+        Rectangle()
+          .fill(Color(hex: session.color))
+          .frame(width: session.selected ? 3 : 2)
+          .opacity(session.selected ? 1 : 0.55)
       }
       .overlay(
-        Rectangle().strokeBorder(session.selected ? Color(hex: theme.border) : .clear, lineWidth: 1)
+        Rectangle().strokeBorder(session.selected ? Color(hex: session.color).opacity(0.45) : .clear, lineWidth: 1)
       )
       .contentShape(Rectangle())
     }
