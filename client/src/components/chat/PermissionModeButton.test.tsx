@@ -59,7 +59,7 @@ describe("PermissionModeButton", () => {
 
   it("accents the trigger when the CURRENT mode never pauses for approval (Claude's bypassPermissions)", () => {
     render(<PermissionModeButton mode="bypassPermissions" available={CLAUDE_MODES} onChange={vi.fn()} />);
-    expect(screen.getByRole("button").className).toMatch(/border-primary/);
+    expect(screen.getByRole("button").className).toMatch(/text-primary-ink/);
   });
 
   it("accents the trigger the same way for a different agent's never-asks mode (Codex's full-access) — the concept generalizes, not the literal", () => {
@@ -69,11 +69,11 @@ describe("PermissionModeButton", () => {
       { id: "full-access", pausesForApproval: false },
     ];
     render(<PermissionModeButton mode="full-access" available={codexModes} onChange={vi.fn()} />);
-    expect(screen.getByRole("button").className).toMatch(/border-primary/);
+    expect(screen.getByRole("button").className).toMatch(/text-primary-ink/);
   });
 
   it("does not accent the trigger for a mode that does pause for approval", () => {
     render(<PermissionModeButton mode="default" available={CLAUDE_MODES} onChange={vi.fn()} />);
-    expect(screen.getByRole("button").className).not.toMatch(/border-primary/);
+    expect(screen.getByRole("button").className).not.toMatch(/text-primary-ink/);
   });
 });

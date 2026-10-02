@@ -69,7 +69,7 @@ test("GET /host-info: ANYWH_EDITOR_SSH describes the ssh target", async () => {
 // same "no arbitrary sleep" rule as everywhere else this doctrine applies.
 async function waitForAgents(): Promise<{ id: string; capabilities: Record<string, string> }[]> {
   for (let attempt = 0; attempt < 50; attempt++) {
-    const body = (await (await fetch(httpUrl("/host-info"))).json()) as { agents: { id: string; capabilities: Record<string, string> }[] };
+    const body = (await (await fetch(httpUrl("/host-info"))).json()) as { agents: { id: string; version?: string; capabilities: Record<string, string> }[] };
     if (body.agents.length > 0) return body.agents;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -92,4 +92,6 @@ test("GET /host-info: agents lists claude (detected against the fake binary), wi
   // infers from the binary.
   assert.equal(claude.capabilities.approvalPrompt, "bridged");
   assert.equal(claude.capabilities.thinking, "native");
+  // fake-claude's `--version` prints "2.1.0 (Claude Code)".
+  assert.equal(claude.version, "2.1.0");
 });

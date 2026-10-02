@@ -11,15 +11,14 @@ const USAGE: ContextUsage = { model: "claude-opus-5", contextWindowSize: 200_000
 const USAGE_WITH_BASELINE: ContextUsage = { ...USAGE, baselineTokens: 45_448 };
 
 describe("ContextUsageButton", () => {
-  it("reads the spend and the window on the chip itself, not only in the popover", () => {
+  it("shows the ring only on the chip — the token counts stay in the popover", () => {
     render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
 
-    // The reason the turn indicator carries no token count of its own — so
-    // the number has to be legible without opening anything.
-    expect(screen.getByRole("button")).toHaveTextContent("128k/200k");
+    expect(screen.getByRole("button")).toHaveTextContent("");
+    expect(screen.getByRole("button").querySelector("svg")).not.toBeNull();
   });
 
-  it("announces the percentage, which the compact label never spells out", () => {
+  it("announces the percentage, which the ring alone never spells out", () => {
     render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
 
     expect(screen.getByRole("button")).toHaveAccessibleName(en.chat.composer.context.ariaLabel.replace("{percent}", "64"));

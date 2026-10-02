@@ -12,6 +12,9 @@ import type { RouteHandler } from "./context.js";
 export interface SelectableAgentInfo {
   readonly id: string;
   readonly capabilities: Capabilities;
+  /** Parsed CLI version (`0.46.0`), for display only — absent when the probe
+   * output had nothing version-shaped. */
+  readonly version?: string;
 }
 
 // Set once at boot (server.ts, after runtimes/detection.ts's probe
