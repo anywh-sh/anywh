@@ -25,13 +25,6 @@ pub fn init<R: Runtime, C: DeserializeOwned>(
 pub struct NativeChrome<R: Runtime>(PluginHandle<R>);
 
 impl<R: Runtime> NativeChrome<R> {
-  pub fn set_connection_indicator(&self, payload: ConnectionIndicatorRequest) -> crate::Result<()> {
-    self
-      .0
-      .run_mobile_plugin("setConnectionIndicator", payload)
-      .map_err(Into::into)
-  }
-
   pub fn show_context_menu(&self, payload: ShowContextMenuRequest) -> crate::Result<ShowContextMenuResponse> {
     self
       .0

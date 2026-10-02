@@ -295,18 +295,6 @@
       "type": "string",
       "oneOf": [
         {
-          "description": "Enables the set_connection_indicator command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-set-connection-indicator",
-          "markdownDescription": "Enables the set_connection_indicator command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the set_connection_indicator command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-set-connection-indicator",
-          "markdownDescription": "Denies the set_connection_indicator command without any pre-configured scope."
-        },
-        {
           "description": "Enables the show_context_menu command without any pre-configured scope.",
           "type": "string",
           "const": "allow-show-context-menu",
@@ -319,10 +307,10 @@
           "markdownDescription": "Denies the show_context_menu command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-set-connection-indicator`\n- `allow-show-context-menu`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-set-connection-indicator`\n- `allow-show-context-menu`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`"
         }
       ]
     }

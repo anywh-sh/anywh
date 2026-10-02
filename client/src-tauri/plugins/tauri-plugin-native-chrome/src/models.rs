@@ -1,11 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectionIndicatorRequest {
-  pub connected: bool,
-}
-
 /// Native context menu item — `system_icon` is the name of an
 /// SF Symbol (e.g. `"doc.on.doc"`, `"pencil"`), resolved on the Swift side.
 /// `disabled_reason` becomes the `UIAction`'s `subtitle` when `disabled` —
