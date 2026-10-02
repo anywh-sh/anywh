@@ -24,4 +24,16 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn show_context_menu(&self, _payload: ShowContextMenuRequest) -> crate::Result<ShowContextMenuResponse> {
     Ok(ShowContextMenuResponse { selected_id: None })
   }
+
+  pub fn set_top_bar(&self, _payload: TopBarRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_drawer(&self, _payload: DrawerRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_gesture_hint(&self, _payload: GestureHintRequest) -> crate::Result<()> {
+    Ok(())
+  }
 }

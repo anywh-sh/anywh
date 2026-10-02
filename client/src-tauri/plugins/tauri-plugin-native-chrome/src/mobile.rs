@@ -31,4 +31,16 @@ impl<R: Runtime> NativeChrome<R> {
       .run_mobile_plugin("showContextMenu", payload)
       .map_err(Into::into)
   }
+
+  pub fn set_top_bar(&self, payload: TopBarRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setTopBar", payload).map_err(Into::into)
+  }
+
+  pub fn set_drawer(&self, payload: DrawerRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setDrawer", payload).map_err(Into::into)
+  }
+
+  pub fn set_gesture_hint(&self, payload: GestureHintRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setGestureHint", payload).map_err(Into::into)
+  }
 }

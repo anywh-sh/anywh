@@ -16,3 +16,18 @@ pub(crate) async fn show_context_menu<R: Runtime>(
 ) -> Result<ShowContextMenuResponse> {
     app.native_chrome().show_context_menu(payload)
 }
+
+#[command]
+pub(crate) async fn set_top_bar<R: Runtime>(app: AppHandle<R>, payload: TopBarRequest) -> Result<()> {
+    app.native_chrome().set_top_bar(payload)
+}
+
+#[command]
+pub(crate) async fn set_drawer<R: Runtime>(app: AppHandle<R>, payload: DrawerRequest) -> Result<()> {
+    app.native_chrome().set_drawer(payload)
+}
+
+#[command]
+pub(crate) async fn set_gesture_hint<R: Runtime>(app: AppHandle<R>, payload: GestureHintRequest) -> Result<()> {
+    app.native_chrome().set_gesture_hint(payload)
+}
