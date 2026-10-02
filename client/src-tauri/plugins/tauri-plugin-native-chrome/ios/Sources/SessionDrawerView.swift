@@ -67,27 +67,32 @@ struct SessionDrawerView: View {
     .padding(.top, 6)
   }
 
+  /// A dropdown of the profiles: the trigger shows the active one, the menu is
+  /// the system's (Liquid Glass on iOS 26) with the active profile checked.
   private func profilePicker(_ args: DrawerArgs, _ theme: ShellTheme) -> some View {
-    HStack(spacing: 2) {
-      ForEach(args.profiles) { profile in
-        let active = profile.id == args.activeProfileId
-        Button {
-          store.onProfileChange(profile.id)
-        } label: {
-          HStack(spacing: 6) {
-            Circle().fill(Color(hex: profile.color)).frame(width: 6, height: 6)
-            Text(profile.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-          }
-          .foregroundStyle(Color(hex: active ? theme.foreground : theme.muted))
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 8)
-          .background(RoundedRectangle(cornerRadius: 10).fill(active ? Color(hex: theme.card) : .clear))
+    let active = args.profiles.first { $0.id == args.activeProfileId }
+    return Menu {
+      Picker(selection: Binding(get: { args.activeProfileId }, set: { store.onProfileChange($0) })) {
+        ForEach(args.profiles) { profile in
+          Text(profile.label).tag(profile.id)
         }
-        .buttonStyle(.plain)
+      } label: { EmptyView() }
+    } label: {
+      HStack(spacing: 8) {
+        Circle().fill(Color(hex: active?.color ?? theme.muted)).frame(width: 8, height: 8)
+        Text(active?.label ?? "")
+          .font(.system(size: 14, weight: .semibold))
+          .lineLimit(1)
+        Spacer(minLength: 0)
+        Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
       }
+      .foregroundStyle(Color(hex: theme.foreground))
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .contentShape(Capsule())
+      .profilePillBackground(border: Color(hex: theme.tint))
     }
-    .padding(2)
-    .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: theme.elevated)))
+    .buttonStyle(.plain)
   }
 
   private func searchButton(_ args: DrawerArgs, _ theme: ShellTheme) -> some View {
@@ -257,6 +262,20 @@ private struct DrawerSkeleton: View {
     .opacity(dimmed ? 0.45 : 1)
     .onAppear {
       withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dimmed = true }
+    }
+  }
+}
+
+private extension View {
+  /// Liquid Glass on iOS 26, a blurred material with a hairline before it.
+  @ViewBuilder
+  func profilePillBackground(border: Color) -> some View {
+    if #available(iOS 26, *) {
+      self.glassEffect(.regular.interactive(), in: Capsule())
+    } else {
+      self
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(border.opacity(0.08), lineWidth: 1))
     }
   }
 }
