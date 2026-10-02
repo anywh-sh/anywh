@@ -30,6 +30,7 @@ import {
 import { cn, formatDuration } from "@/lib/utils";
 import { useDict } from "@/i18n";
 import { isIOS } from "@/lib/platform/platform";
+import { useDraftSync } from "@/hooks/composer/useDraftSync";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
@@ -531,21 +532,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<() => void>(() => {});
-  // Prompt-draft feature: `onChangeDraft` runs outside React's render cycle
-  // (inside Tiptap's `onUpdate`), same reason as `submitRef`.
-  const onChangeDraftRef = useRef(onChangeDraft);
-  onChangeDraftRef.current = onChangeDraft;
-  const draftTimerRef = useRef<number | undefined>(undefined);
-  const DRAFT_DEBOUNCE_MS = 400;
-  function scheduleDraftSync(text: string): void {
-    window.clearTimeout(draftTimerRef.current);
-    draftTimerRef.current = window.setTimeout(() => onChangeDraftRef.current?.(text), DRAFT_DEBOUNCE_MS);
-  }
-  function flushDraftSync(text: string): void {
-    window.clearTimeout(draftTimerRef.current);
-    onChangeDraftRef.current?.(text);
-  }
-  useEffect(() => () => window.clearTimeout(draftTimerRef.current), []);
+  const { schedule: scheduleDraftSync, flush: flushDraftSync } = useDraftSync(onChangeDraft);
   // `setContent` (edit-message flow, and the draft restoration in
   // ChatPanel) fires `onUpdate` just like real typing does (Tiptap's
   // `emitUpdate` defaults to `true`) — without this flag, restoring a draft
