@@ -40,7 +40,8 @@ import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/composerLinks";
-import { filterSlashCommands, parseSlashCommand, suggestSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
+import { decideSubmit } from "@/lib/composer/composerSubmit";
+import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
 import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import type { Dictionary } from "@/i18n/dictionary";
 import type { ContextUsage, ModelCatalog, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
@@ -746,16 +747,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   function submit(): void {
     if (!editor) return;
     const text = serializeEditorContent(editor.getJSON()).trim();
-    if (!text && pendingImages.length === 0) return;
-    // Same text as an already-shown confirmation means the user is
-    // reconfirming (second Enter, or the "send anyway" button below) — only
-    // block on a *new* typo-shaped text, not the one already surfaced.
-    if (typoConfirm?.text !== text) {
-      const suggestion = parseSlashCommand(text, modelCatalog) === null ? suggestSlashCommand(text) : null;
-      if (suggestion) {
-        setTypoConfirm({ text, suggestion });
-        return;
-      }
+    const decision = decideSubmit({
+      text,
+      attachmentCount: pendingImages.length,
+      confirmedTypoText: typoConfirm?.text ?? null,
+      catalog: modelCatalog,
+    });
+    if (decision.kind === "empty") return;
+    if (decision.kind === "typo") {
+      setTypoConfirm({ text, suggestion: decision.suggestion });
+      return;
     }
     performSend(text);
   }
