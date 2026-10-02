@@ -56,11 +56,7 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     for _ in 0..<50 where webview.window == nil {
       try? await Task.sleep(nanoseconds: 100_000_000)
     }
-    guard let parent = manager.viewController ?? Self.owningViewController(of: webview) else {
-      NSLog("[native-chrome] no view controller for the web view; native shell disabled")
-      return
-    }
-    guard let controller = CanvasDrawerController(webview: webview, parent: parent, topBar: topBarStore, drawer: drawerStore) else {
+    guard let controller = CanvasDrawerController(webview: webview, topBar: topBarStore, drawer: drawerStore) else {
       NSLog("[native-chrome] web view never joined a window; native shell disabled")
       return
     }
@@ -89,16 +85,6 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
     controller.applyTheme(lastTheme)
     controller.reportTopInset()
-  }
-
-  @MainActor
-  private static func owningViewController(of view: UIView) -> UIViewController? {
-    var responder: UIResponder? = view
-    while let next = responder?.next {
-      if let controller = next as? UIViewController { return controller }
-      responder = next
-    }
-    return nil
   }
 
   @objc func setTopBar(_ invoke: Invoke) throws {

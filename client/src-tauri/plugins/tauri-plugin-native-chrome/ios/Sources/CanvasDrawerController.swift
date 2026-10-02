@@ -50,7 +50,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
   var gestureBlocked = false
   var isOpen: Bool { progress > 0.5 }
 
-  init?(webview: WKWebView, parent: UIViewController, topBar: TopBarStore, drawer: DrawerStore) {
+  init?(webview: WKWebView, topBar: TopBarStore, drawer: DrawerStore) {
     guard let window = webview.window else { return nil }
     // The canvas is whatever sits directly under the window on the way up
     // from the webview; it is moved as one piece, never reparented.
@@ -65,8 +65,8 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     self.topBarHost = UIHostingController(rootView: TopBarView(store: topBar))
     super.init()
 
-    installDrawer(parent: parent)
-    installCanvasLayers(parent: parent)
+    installDrawer()
+    installCanvasLayers()
     installGestures()
     applyCorners()
     apply(progress: 0)
@@ -74,13 +74,15 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
 
   // MARK: Setup
 
-  private func installDrawer(parent: UIViewController) {
-    parent.addChild(drawerHost)
+  // The hosting controllers are deliberately not added as children of Tauri's
+  // view controller: their views live in the window and in the transition
+  // view above that controller's own view, and UIKit raises when a child's
+  // view sits outside its parent's. They stay retained here instead.
+  private func installDrawer() {
     drawerHost.view.backgroundColor = .clear
     drawerHost.view.frame = CGRect(x: 0, y: 0, width: drawerWidth, height: window.bounds.height)
     drawerHost.view.autoresizingMask = [.flexibleHeight, .flexibleRightMargin]
     window.insertSubview(drawerHost.view, at: 0)
-    drawerHost.didMove(toParent: parent)
 
     shadow.isUserInteractionEnabled = false
     // Opaque so the layer casts a shadow in its own (rounded) shape; the
@@ -95,7 +97,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     window.insertSubview(shadow, belowSubview: canvas)
   }
 
-  private func installCanvasLayers(parent: UIViewController) {
+  private func installCanvasLayers() {
     func pin(_ view: UIView) {
       view.translatesAutoresizingMaskIntoConstraints = false
       canvas.addSubview(view)
@@ -122,7 +124,6 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
         constant: topBarTopGap + topBarHeight + Tuning.blurExtra),
     ])
 
-    parent.addChild(topBarHost)
     let bar = topBarHost.view!
     bar.backgroundColor = .clear
     bar.translatesAutoresizingMaskIntoConstraints = false
@@ -133,7 +134,6 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
       bar.topAnchor.constraint(equalTo: canvas.safeAreaLayoutGuide.topAnchor, constant: topBarTopGap),
       bar.heightAnchor.constraint(equalToConstant: topBarHeight),
     ])
-    topBarHost.didMove(toParent: parent)
 
     dim.isUserInteractionEnabled = false
     pin(dim)
