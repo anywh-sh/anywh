@@ -30,8 +30,9 @@ const THEME_VARS: Record<keyof NativeShellTheme, string> = {
 };
 
 export function buildShellTheme(resolve: ResolveColor): NativeShellTheme {
-  const entries = Object.entries(THEME_VARS).map(([slot, name]) => [slot, resolve(`var(${name})`)]);
-  return Object.fromEntries(entries);
+  const theme = {} as Record<keyof NativeShellTheme, string>;
+  for (const slot of Object.keys(THEME_VARS) as (keyof NativeShellTheme)[]) theme[slot] = resolve(`var(${THEME_VARS[slot]})`);
+  return theme;
 }
 
 export interface DrawerModelInput {
