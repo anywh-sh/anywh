@@ -4,7 +4,7 @@ import UIKit
 /// Decoded thumbnails, keyed by attachment id, so a re-render never decodes the
 /// same data URL twice.
 private enum ThumbnailCache {
-  private static let cache = NSCache<NSString, UIImage>()
+  nonisolated(unsafe) private static let cache = NSCache<NSString, UIImage>()
 
   static func image(for attachment: ComposerAttachment) -> UIImage? {
     guard let dataURL = attachment.thumbnail else { return nil }

@@ -29,7 +29,7 @@ private final class FileCollector: @unchecked Sendable {
 /// copy disappears once the callback returns) and handed to `onFiles`; the web
 /// side reads the bytes from there and does the upload.
 @MainActor
-final class AttachmentPicker: NSObject, @preconcurrency PHPickerViewControllerDelegate, @preconcurrency UIDocumentPickerDelegate {
+final class AttachmentPicker: NSObject, PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
   var onFiles: ([AttachedFile]) -> Void = { _ in }
 
   func presentPhotos(from presenter: UIViewController) {
