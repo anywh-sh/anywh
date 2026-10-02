@@ -699,7 +699,7 @@ export function ChatPanel({
   useEffect(() => {
     if (!showingLog) setScrollToEndVisible(false);
   }, [showingLog]);
-  const logBottomPadding = nativeBottomInset + 16 + floatingStackHeight;
+  const logBottomPadding = nativeBottomInset + 8 + floatingStackHeight;
 
   const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
     // Editing via composer (iOS) — the normal send (slash

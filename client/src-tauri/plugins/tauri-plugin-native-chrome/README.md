@@ -50,7 +50,7 @@ only in the field.
   stays on the web side.
 
 The composer sits above the web view, pinned to `keyboardLayoutGuide`, with a
-strip under it (the theme background at about 35%, fading out above the
+strip under it (the theme background at about 18%, fading out above the
 composer) so text scrolling underneath recedes. The room the strip and the
 composer take, keyboard included, is pushed to the page as the
 `--native-bottom-inset` CSS variable (removed while the composer is hidden).

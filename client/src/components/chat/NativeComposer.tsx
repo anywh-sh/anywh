@@ -124,9 +124,16 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
   }, [payload]);
 
   // Single owner of the native composer: hides it once the last panel is gone.
+  // There is only one native field, so it still holds whatever the previous
+  // conversation left in it: clear it on taking over (a saved draft is applied
+  // by `ChatPanel` right after), and save this conversation's text on the way out.
   useEffect(() => {
     owner.claim(id);
-    return () => owner.release(id);
+    void setNativeComposerText("").catch(() => {});
+    return () => {
+      draftRef.current.flush(textRef.current.trim());
+      owner.release(id);
+    };
   }, [id]);
 
   // The turn clock, formatted here so native holds no formatting.
