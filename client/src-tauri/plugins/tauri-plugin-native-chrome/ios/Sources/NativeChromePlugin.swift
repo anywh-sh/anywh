@@ -28,6 +28,9 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
   @MainActor private let topBarStore = TopBarStore()
   @MainActor private let drawerStore = DrawerStore()
+  @MainActor private let bubbleMenu = BubbleMenuController()
+  @MainActor private let composerStore = ComposerStore()
+  @MainActor private var composer: ComposerController?
   @MainActor private var shell: CanvasDrawerController?
   @MainActor private var lastTheme = ShellTheme.fallback
 
@@ -36,6 +39,11 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       let interaction = UIEditMenuInteraction(delegate: self)
       webview.addInteraction(interaction)
       self.editMenuInteraction = interaction
+
+      self.bubbleMenu.install(on: webview)
+      self.bubbleMenu.onSelect = { [weak self] targetId, itemId in
+        try? self?.trigger("contextMenuSelect", data: BubbleSelectEvent(targetId: targetId, itemId: itemId))
+      }
 
       // The WKWebView's own outer scroll view auto-scrolls the page to bring a
       // focused input above the keyboard, which `body { position: fixed }`
@@ -56,7 +64,9 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     for _ in 0..<50 where webview.window == nil {
       try? await Task.sleep(nanoseconds: 100_000_000)
     }
-    guard let controller = CanvasDrawerController(webview: webview, topBar: topBarStore, drawer: drawerStore) else {
+    let composer = ComposerController(store: composerStore, presenter: { [weak self] in self?.manager.viewController })
+    self.composer = composer
+    guard let controller = CanvasDrawerController(webview: webview, topBar: topBarStore, drawer: drawerStore, composer: composer) else {
       NSLog("[native-chrome] web view never joined a window; native shell disabled")
       return
     }
@@ -79,8 +89,85 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       try? self?.trigger("drawerDelete", data: SessionEvent(sessionId: session.id, profileId: session.profileId))
     }
 
+    wireComposer(composer)
+
     controller.applyTheme(lastTheme)
     controller.reportTopInset()
+  }
+
+  /// Routes what the composer reports to events for the web side.
+  @MainActor
+  private func wireComposer(_ composer: ComposerController) {
+    let store = composerStore
+    store.onTextChange = { [weak self] text in try? self?.trigger("composerTextChange", data: ComposerTextEvent(text: text)) }
+    store.onFocusChange = { [weak self] focused in try? self?.trigger("composerFocusChange", data: ComposerFocusEvent(focused: focused)) }
+    store.onSubmit = { [weak self] text in try? self?.trigger("composerSubmit", data: ComposerTextEvent(text: text)) }
+    store.onStop = { [weak self] in self?.trigger("composerStop", data: JSObject()) }
+    store.onRemoveAttachment = { [weak self] path in try? self?.trigger("composerRemoveAttachment", data: ComposerRemoveEvent(path: path)) }
+    store.onCancelEdit = { [weak self] in self?.trigger("composerCancelEdit", data: JSObject()) }
+    store.onTypoUse = { [weak self] in self?.trigger("composerTypoUse", data: JSObject()) }
+    store.onTypoSendAnyway = { [weak self] in self?.trigger("composerTypoSendAnyway", data: JSObject()) }
+    store.onScrollToEnd = { [weak self] in self?.trigger("composerScrollToEnd", data: JSObject()) }
+    let attach: ([AttachedFile]) -> Void = { [weak self] files in
+      try? self?.trigger("composerAttach", data: ComposerAttachEvent(files: files))
+    }
+    composer.onAttach = attach
+    store.onPastedImages = attach
+  }
+
+  @objc func setContextTarget(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(BubbleTargetArgs.self)
+    Task { @MainActor in
+      self.bubbleMenu.setTarget(args)
+      invoke.resolve()
+    }
+  }
+
+  @objc func setComposer(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ComposerArgs.self)
+    Task { @MainActor in
+      self.composerStore.args = args
+      self.composer?.apply(args)
+      invoke.resolve()
+    }
+  }
+
+  @objc func setComposerText(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ComposerTextArgs.self)
+    Task { @MainActor in
+      self.composer?.setText(args.text)
+      invoke.resolve()
+    }
+  }
+
+  @objc func focusComposer(_ invoke: Invoke) throws {
+    Task { @MainActor in
+      self.composer?.focus()
+      invoke.resolve()
+    }
+  }
+
+  @objc func blurComposer(_ invoke: Invoke) throws {
+    Task { @MainActor in
+      self.composer?.blur()
+      invoke.resolve()
+    }
+  }
+
+  @objc func setComposerElapsed(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ComposerElapsedArgs.self)
+    Task { @MainActor in
+      self.composer?.setElapsed(args.label)
+      invoke.resolve()
+    }
+  }
+
+  @objc func setScrollToEnd(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ScrollToEndArgs.self)
+    Task { @MainActor in
+      self.composer?.setScrollToEnd(visible: args.visible, accessoryHeight: CGFloat(args.accessoryHeight))
+      invoke.resolve()
+    }
   }
 
   @objc func setTopBar(_ invoke: Invoke) throws {

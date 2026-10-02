@@ -39,7 +39,7 @@ struct TopBarView: View {
       }
       .padding(.horizontal, 6)
       .frame(height: topBarHeight)
-      .pillBackground(tint: Color(hex: theme.tint))
+      .glassBackground(Capsule(), tint: Color(hex: theme.tint))
       .onAppear {
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
       }
@@ -56,21 +56,6 @@ struct TopBarView: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel(label)
-  }
-}
-
-private extension View {
-  /// Liquid Glass on iOS 26, a blurred material with a hairline before it.
-  @ViewBuilder
-  func pillBackground(tint: Color) -> some View {
-    if #available(iOS 26, *) {
-      self.glassEffect(.regular, in: Capsule())
-    } else {
-      self
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(tint.opacity(0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-    }
   }
 }
 

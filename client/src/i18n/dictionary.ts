@@ -632,6 +632,12 @@ export interface Dictionary {
       attach: string;
       attachmentUploading: string;
       removeAttachment: string;
+      /** iOS attach menu: the photo library and the Files app. */
+      attachPhotos: string;
+      attachFiles: string;
+      /** iOS: the round button that jumps back to the end of a conversation
+       * the user has scrolled away from. */
+      scrollToEnd: string;
       /** Shown over the whole conversation while a file is dragged across it. */
       dropzone: string;
       /** `{reason}` — whatever the relay or the network said, which is

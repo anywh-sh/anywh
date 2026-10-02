@@ -164,9 +164,10 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
       // composer's own top border by 1px (`z-10` keeps this tab painted over
       // that border despite Composer following it in the DOM) — desktop's
       // Composer has no top spacing of its own (`mb-3` only, Composer.tsx),
-      // so this 1px is the whole overlap; iOS's is the parent stack's
-      // `gap-2` (ChatPanel.tsx).
-      <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0 -mb-[9px]" : "mx-3 mt-3 -mb-[1px]")}>
+      // so this 1px is the whole overlap. On iOS the composer is native and
+      // sits below the stack with its own strip between them, so the tab just
+      // sits at the end of the stack with the stack's normal `gap-2`.
+      <div className={cn("relative z-10 flex justify-center", isIOS() ? "shrink-0" : "mx-3 mt-3 -mb-[1px]")}>
         <button
           type="button"
           onClick={() => setCollapsed(false)}

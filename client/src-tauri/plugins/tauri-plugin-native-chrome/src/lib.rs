@@ -10,6 +10,7 @@ mod desktop;
 #[cfg(mobile)]
 mod mobile;
 
+mod attachments;
 mod commands;
 mod error;
 mod models;
@@ -39,7 +40,15 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::show_context_menu,
       commands::set_top_bar,
       commands::set_drawer,
-      commands::set_gesture_hint
+      commands::set_gesture_hint,
+      commands::set_context_target,
+      commands::set_composer,
+      commands::set_composer_text,
+      commands::focus_composer,
+      commands::blur_composer,
+      commands::set_composer_elapsed,
+      commands::set_scroll_to_end,
+      commands::read_attachment
     ])
     .setup(|app, api| {
       #[cfg(mobile)]

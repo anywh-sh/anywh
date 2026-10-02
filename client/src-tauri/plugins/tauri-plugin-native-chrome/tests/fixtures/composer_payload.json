@@ -1,0 +1,45 @@
+{
+  "hidden": false,
+  "placeholder": "Write a message…",
+  "canSend": true,
+  "turnInFlight": false,
+  "attachEnabled": true,
+  "uploading": false,
+  "attachments": [
+    { "path": "/uploads/a.png", "kind": "image", "thumbnail": "data:image/jpeg;base64,AAAA", "name": "a.png" },
+    { "path": "/uploads/b.mov", "kind": "video", "thumbnail": null, "name": "b.mov" }
+  ],
+  "editBanner": { "text": "Editing this message restarts the conversation from that point.", "cancelLabel": "Cancel editing" },
+  "typo": {
+    "before": "Unknown command — did you mean ",
+    "command": "/clear",
+    "after": "?",
+    "useLabel": "Use it",
+    "sendAnywayLabel": "Send anyway"
+  },
+  "strings": {
+    "attach": "Attach image or video",
+    "attachPhotos": "Photos",
+    "attachFiles": "Files",
+    "removeAttachment": "Remove attachment",
+    "uploading": "uploading attachment…",
+    "send": "Send",
+    "stop": "Stop",
+    "scrollToEnd": "Scroll to bottom"
+  },
+  "theme": {
+    "background": "#111111",
+    "sidebar": "#161616",
+    "elevated": "#1c1c1c",
+    "card": "#202020",
+    "foreground": "#eeeeee",
+    "muted": "#999999",
+    "faint": "#666666",
+    "border": "#2a2a2a",
+    "primary": "#e0642a",
+    "primaryForeground": "#ffffff",
+    "destructive": "#dc6f5c",
+    "tint": "#eceae4",
+    "success": "#e0642a"
+  }
+}

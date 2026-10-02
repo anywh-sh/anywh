@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { isIOS } from "@/lib/platform/platform";
 import { Check, Copy, Folder } from "lucide-react";
 import {
   DropdownMenu,
@@ -128,6 +129,9 @@ export function WorkingDirectoryButton({
 
         <DropdownMenuContent
           align="start"
+          // The native composer sits below this stack on iOS and would cover a
+          // menu that opens downward.
+          side={isIOS() ? "top" : undefined}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             onFocusComposer();

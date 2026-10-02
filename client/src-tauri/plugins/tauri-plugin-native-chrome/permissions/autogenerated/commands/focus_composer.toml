@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-focus-composer"
+description = "Enables the focus_composer command without any pre-configured scope."
+commands.allow = ["focus_composer"]
+
+[[permission]]
+identifier = "deny-focus-composer"
+description = "Denies the focus_composer command without any pre-configured scope."
+commands.deny = ["focus_composer"]

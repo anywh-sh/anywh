@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, X } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { guessMimeFromExtension } from "@/lib/mimeTypes";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { getDefaultPath } from "@/hooks/useDefaultPaths";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
-import { useKeyboardInset } from "@/hooks/platform/useKeyboardInset";
+import { useNativeBottomInset } from "@/hooks/platform/useNativeBottomInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
-import { MessageLog } from "@/components/chat/MessageLog";
+import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog";
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
-import { Composer, type ComposerHandle } from "@/components/chat/Composer";
+import { Composer } from "@/components/chat/Composer";
+import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
 import { useTitleBarSlot } from "@/hooks/useTitleBarSlot";
@@ -241,7 +242,24 @@ export function ChatPanel({
   const [ready, setReady] = useState(false);
 
   const images = useImageUpload(profile, (message) => window.alert(message));
-  const composerRef = useRef<ComposerHandle>(null);
+  // Either composer answers to the same handle; only the native one can close
+  // the keyboard on its own (`blurIfFocused`).
+  const composerRef = useRef<NativeComposerHandle>(null);
+  const messageLogRef = useRef<MessageLogHandle>(null);
+  // iOS: the "jump to end" arrow is native, the log tells us when to show it.
+  const [scrollToEndVisible, setScrollToEndVisible] = useState(false);
+  // iOS: the web stack floating above the native composer (cwd row,
+  // `ChoiceCard`). Its height pads the log and lifts the native arrow above it.
+  const floatingStackRef = useRef<HTMLDivElement>(null);
+  const [floatingStackHeight, setFloatingStackHeight] = useState(0);
+  const nativeBottomInset = useNativeBottomInset();
+  useEffect(() => {
+    const el = floatingStackRef.current;
+    if (!isIOS() || !el) return;
+    const observer = new ResizeObserver(() => setFloatingStackHeight(Math.round(el.getBoundingClientRect().height)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Message editing. `fromEnd` is computed once, at the moment of
   // clicking "edit" (`computeFromEnd`), and stored here instead of
@@ -676,7 +694,48 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const keyboardInfo = useKeyboardInset();
+  // The message log itself is on screen (not the idle state or the skeleton).
+  const showingLog = ready && !((isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0);
+  useEffect(() => {
+    if (!showingLog) setScrollToEndVisible(false);
+  }, [showingLog]);
+  const logBottomPadding = nativeBottomInset + 8 + floatingStackHeight;
+
+  const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
+    // Editing via composer (iOS) — the normal send (slash
+    // commands, `addUserMessage`+`sendMessage`) doesn't apply here:
+    // the text goes to `edit_message`, not `user_message`. Images
+    // attached in this state are ignored on purpose (editing a
+    // message with an image is out of scope for v1).
+    if (editTargetRef.current) {
+      performEditRef.current(editTargetRef.current.id, text);
+      return;
+    }
+    // `/model`/`/clear`: recognized here, before becoming
+    // a turn — neither one gets passed as text to `claude -p` (see
+    // slashCommands.ts for the reason behind each). A command with
+    // an uncurated argument (`/model gpt4`) falls into the `else`,
+    // becomes a normal message and the CLI itself responds with its
+    // own error. Still recognized on iOS even without the
+    // autocomplete menu (see Composer.tsx) — there's no toolbar
+    // button there to change model/permission mode, so typing the
+    // command is the only way to do it on that platform.
+    const command = parseSlashCommand(text, modelCatalog);
+    if (command?.name === "clear") {
+      clearConversation();
+      return;
+    }
+    if (command?.name === "model") {
+      setModel(command.model);
+      return;
+    }
+    log.addUserMessage(text, sentImages);
+    sendMessage(buildWireMessage(text, sentImages));
+    images.clearWithoutRevoke();
+    setTurnStartedAt(Date.now());
+    dismissSuggestion();
+    onActivity?.();
+  };
 
   return (
     <div ref={containerRef} className="relative flex h-full flex-col">
@@ -709,13 +768,21 @@ export function ChatPanel({
         <ChatIdleState />
       ) : ready ? (
         <MessageLog
+          ref={messageLogRef}
           entries={log.entries}
           streamingEntries={log.streamingEntries}
           attributionByToolUseId={log.attributionByToolUseId}
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}
-          className={isIOS() ? "pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))] pb-32" : undefined}
+          className={isIOS() ? "pt-[var(--native-top-inset,calc(env(safe-area-inset-top)+64px))]" : undefined}
+          // The native composer floats over the log: pad by its measured
+          // strip, a little air, and the web stack above it.
+          style={isIOS() ? { paddingBottom: logBottomPadding } : undefined}
+          endInsetKey={isIOS() ? logBottomPadding : undefined}
+          onScrollToEndVisibleChange={isIOS() ? setScrollToEndVisible : undefined}
+          // Scrolling the log closes the keyboard, as tapping out of the web editor used to.
+          onUserScrollStart={isIOS() ? () => composerRef.current?.blurIfFocused?.() : undefined}
           // On iOS editing never turns into an inline `<textarea>`
           // — `ChatPanel` never passes an id along on that platform, even
           // with `editTarget` set (see warning in the composer below).
@@ -733,30 +800,16 @@ export function ChatPanel({
         <MessageLogSkeleton />
       )}
 
-      {/* iOS: cwd + composer float above the log, out of normal
-       * flow — the log keeps scrolling, visible (blurred) beneath the
-       * composer's glass, instead of stopping above a fixed block. `bottom`
-       * shifts by `keyboardInfo.shift` (`useKeyboardInset.ts`) instead of
-       * staying fixed at `bottom-0` — without this an unwanted gap remains
-       * between the composer and the keyboard (a real finding:
-       * reproduced again on the physical device even with the fix validated
-       * in the Simulator). The `safe-area-inset-bottom` padding is for the
-       * home indicator area, which stops existing (replaced by the keyboard)
-       * as soon as it opens, so it switches to a fixed `12px` in that state —
-       * decided by `keyboardInfo.isOpen`, not by `shift > 0`: the two can
-       * diverge if the layout shrinks along with the keyboard (not confirmed
-       * whether this happens on the physical device), in which case `shift`
-       * correctly goes to zero but the keyboard stays open. */}
+      {/* iOS: the composer is native (and so is the strip under it). What stays
+       * web — the cwd row and `ChoiceCard` — floats above that strip, out of
+       * normal flow, so the log keeps scrolling visibly beneath it. `bottom`
+       * follows the inset the native side publishes (`--native-bottom-inset`),
+       * keyboard included; the CSS variable jumps to its final value while the
+       * keyboard animates natively, so a short transition covers the gap. */}
       <div
-        className={cn(
-          isIOS()
-            ? cn(
-                "absolute inset-x-0 z-20 flex flex-col gap-2 px-3.5 pt-2",
-                keyboardInfo.isOpen ? "pb-3" : "pb-[calc(env(safe-area-inset-bottom)+12px)]",
-              )
-            : "contents",
-        )}
-        style={isIOS() ? { bottom: keyboardInfo.shift } : undefined}
+        ref={floatingStackRef}
+        className={cn(isIOS() ? "absolute inset-x-0 z-20 flex flex-col gap-2 px-3.5 pb-2" : "contents")}
+        style={isIOS() ? { bottom: "var(--native-bottom-inset, 96px)", transition: "bottom 250ms ease-out" } : undefined}
       >
         {/* iOS keeps this row above the composer (unchanged) — on desktop it
          * moved below (see after `Composer`) to make room for `ChoiceCard`
@@ -779,29 +832,6 @@ export function ChatPanel({
           </div>
         )}
 
-        {/* iOS: editing doesn't turn into an inline `<textarea>`
-         * in the bubble (see `editingMessageId` above) — fills the normal
-         * composer with the original text and shows this warning, since
-         * sending from here will discard the original response and
-         * everything that came after it.
-         *
-         * Rounded on purpose (iOS shell, not redesigned): it sits against the
-         * iOS composer's own rounded glass, so squaring this one alone would
-         * put the only hard corner on that screen. */}
-        {isIOS() && editTarget && (
-          <div className="flex items-center justify-between gap-2 rounded-xl bg-bg-elevated/80 px-3 py-2 text-xs text-muted-foreground backdrop-blur-lg">
-            <span>{dict.chat.message.editWarning}</span>
-            <button
-              type="button"
-              onClick={onCancelEdit}
-              aria-label={dict.chat.message.cancelEdit}
-              className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* Caps the composer column at the same width as MessageLog's content
          * — `contents` on iOS keeps these two wrapper divs out of
          * the box tree entirely, so the phone layout (which never hits the
@@ -817,67 +847,55 @@ export function ChatPanel({
               />
             )}
 
-            <Composer
-              ref={composerRef}
-              profile={profile}
-              disabled={!connected}
-              turnInFlight={turnInFlight}
-              turnStartedAt={turnStartedAt}
-              onStop={stopTurn}
-              pendingImages={images.pending}
-              uploadingImage={images.uploading}
-              onAddFiles={(files) => void images.addFiles(files)}
-              onRemoveImage={images.remove}
-              agentId={agentId}
-              onChangeAgent={setAgent}
-              permissionMode={permissionMode}
-              permissionModes={permissionModes}
-              onChangePermissionMode={setPermissionMode}
-              model={model}
-              modelCatalog={modelCatalog}
-              onChangeModel={setModel}
-              modelLocked={cwdLocked}
-              contextUsage={contextUsage}
-              onRequestContextBreakdown={requestContextBreakdown}
-              compactBoundary={compactBoundary}
-              suggestion={isIOS() ? null : suggestion}
-              onChangeDraft={setDraft}
-              onSend={(text, sentImages) => {
-                // Editing via composer (iOS) — the normal send (slash
-                // commands, `addUserMessage`+`sendMessage`) doesn't apply here:
-                // the text goes to `edit_message`, not `user_message`. Images
-                // attached in this state are ignored on purpose (editing a
-                // message with an image is out of scope for v1).
-                if (editTargetRef.current) {
-                  performEditRef.current(editTargetRef.current.id, text);
-                  return;
-                }
-                // `/model`/`/clear`: recognized here, before becoming
-                // a turn — neither one gets passed as text to `claude -p` (see
-                // slashCommands.ts for the reason behind each). A command with
-                // an uncurated argument (`/model gpt4`) falls into the `else`,
-                // becomes a normal message and the CLI itself responds with its
-                // own error. Still recognized on iOS even without the
-                // autocomplete menu (see Composer.tsx) — there's no toolbar
-                // button there to change model/permission mode, so typing the
-                // command is the only way to do it on that platform.
-                const command = parseSlashCommand(text, modelCatalog);
-                if (command?.name === "clear") {
-                  clearConversation();
-                  return;
-                }
-                if (command?.name === "model") {
-                  setModel(command.model);
-                  return;
-                }
-                log.addUserMessage(text, sentImages);
-                sendMessage(buildWireMessage(text, sentImages));
-                images.clearWithoutRevoke();
-                setTurnStartedAt(Date.now());
-                dismissSuggestion();
-                onActivity?.();
-              }}
-            />
+            {isIOS() ? (
+              <NativeComposer
+                ref={composerRef}
+                disabled={!connected}
+                turnInFlight={turnInFlight}
+                turnStartedAt={turnStartedAt}
+                onStop={stopTurn}
+                pendingImages={images.pending}
+                uploadingImage={images.uploading}
+                onAddFiles={(files) => void images.addFiles(files)}
+                onRemoveImage={images.remove}
+                modelCatalog={modelCatalog}
+                onChangeDraft={setDraft}
+                onSend={handleSend}
+                editBannerText={editTarget ? dict.chat.message.editWarning : null}
+                onCancelEdit={onCancelEdit}
+                onScrollToEnd={() => messageLogRef.current?.scrollToEnd()}
+                scrollToEndVisible={scrollToEndVisible && showingLog}
+                accessoryHeight={floatingStackHeight}
+              />
+            ) : (
+              <Composer
+                ref={composerRef}
+                profile={profile}
+                disabled={!connected}
+                turnInFlight={turnInFlight}
+                turnStartedAt={turnStartedAt}
+                onStop={stopTurn}
+                pendingImages={images.pending}
+                uploadingImage={images.uploading}
+                onAddFiles={(files) => void images.addFiles(files)}
+                onRemoveImage={images.remove}
+                agentId={agentId}
+                onChangeAgent={setAgent}
+                permissionMode={permissionMode}
+                permissionModes={permissionModes}
+                onChangePermissionMode={setPermissionMode}
+                model={model}
+                modelCatalog={modelCatalog}
+                onChangeModel={setModel}
+                modelLocked={cwdLocked}
+                contextUsage={contextUsage}
+                onRequestContextBreakdown={requestContextBreakdown}
+                compactBoundary={compactBoundary}
+                suggestion={suggestion}
+                onChangeDraft={setDraft}
+                onSend={handleSend}
+              />
+            )}
           </div>
         </div>
       </div>

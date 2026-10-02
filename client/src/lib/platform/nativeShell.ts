@@ -12,6 +12,8 @@ export interface NativeShellTheme {
   faint: string;
   border: string;
   primary: string;
+  /** Ink drawn on top of `primary` (the send button's arrow). */
+  primaryForeground: string;
   destructive: string;
   tint: string;
   success: string;
@@ -89,6 +91,7 @@ export interface NativeShellHandlers {
   drawerRename: (event: { sessionId: string; profileId: string; title: string }) => void;
   drawerDelete: (event: { sessionId: string; profileId: string }) => void;
   topBarNewConversation: () => void;
+  contextMenuSelect: (event: { targetId: string; itemId: string }) => void;
 }
 
 export function setNativeTopBar(payload: NativeTopBarPayload): Promise<void> {

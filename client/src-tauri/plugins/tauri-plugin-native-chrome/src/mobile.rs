@@ -43,4 +43,32 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn set_gesture_hint(&self, payload: GestureHintRequest) -> crate::Result<()> {
     self.0.run_mobile_plugin("setGestureHint", payload).map_err(Into::into)
   }
+
+  pub fn set_context_target(&self, payload: ContextTargetRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setContextTarget", payload).map_err(Into::into)
+  }
+
+  pub fn set_composer(&self, payload: ComposerRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setComposer", payload).map_err(Into::into)
+  }
+
+  pub fn set_composer_text(&self, payload: ComposerTextRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setComposerText", payload).map_err(Into::into)
+  }
+
+  pub fn focus_composer(&self) -> crate::Result<()> {
+    self.0.run_mobile_plugin("focusComposer", ()).map_err(Into::into)
+  }
+
+  pub fn blur_composer(&self) -> crate::Result<()> {
+    self.0.run_mobile_plugin("blurComposer", ()).map_err(Into::into)
+  }
+
+  pub fn set_composer_elapsed(&self, payload: ComposerElapsedRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setComposerElapsed", payload).map_err(Into::into)
+  }
+
+  pub fn set_scroll_to_end(&self, payload: ScrollToEndRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setScrollToEnd", payload).map_err(Into::into)
+  }
 }

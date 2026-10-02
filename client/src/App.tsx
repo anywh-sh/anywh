@@ -545,11 +545,10 @@ function AppShell() {
   // is just the surrounding chrome (TitleBar+Sidebar vs. the native iOS shell), not
   // how each session gets mounted.
   //
-  // `relative` down here isn't about layout — without it, iOS's
-  // composer `backdrop-filter` doesn't sample the message log
-  // on real WebKit (real bug, reproduced via Playwright WebKit).
-  // Any `position: static` div in this chain up to the root breaks
-  // the blur. Don't remove it even though it looks redundant — harmless for
+  // `relative` down here isn't about layout — `backdrop-filter` on real
+  // WebKit doesn't sample content under a `position: static` ancestor (real
+  // bug, reproduced via Playwright WebKit), and the desktop composer's
+  // glass relies on that. Don't remove it even though it looks redundant — harmless for
   // desktop (doesn't change position/size of anything).
   const tabsContent = (
     <div className="relative min-h-0 flex-1">
@@ -636,8 +635,9 @@ function AppShell() {
         <RevokedProfileBanners />
         {profileSetupDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} onSelectSession={handleSearchSelectSession} />
-        {/* `relative` keeps the composer's backdrop-filter working (see the
-         * comment on the desktop branch); the drawer and top bar are native. */}
+        {/* `relative` stays for the web stack floating above the native
+         * composer (see the comment on the desktop branch); the drawer, top
+         * bar and composer are native. */}
         <div className="relative flex min-h-0 flex-1 flex-col">{tabsContent}</div>
       </div>
     );

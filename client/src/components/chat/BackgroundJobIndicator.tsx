@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isIOS } from "@/lib/platform/platform";
 import { Loader2, X } from "lucide-react";
 import {
   DropdownMenu,
@@ -86,7 +87,7 @@ export function BackgroundJobIndicator({ jobs, onCancel }: BackgroundJobIndicato
           </button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuContent align="start" side={isIOS() ? "top" : undefined} className="w-64">
           <div className="flex items-center justify-between gap-2 py-1 pr-2 pl-2">
             <DropdownMenuLabel className="p-0">{strings.heading}</DropdownMenuLabel>
             {jobs.length > 1 ? (

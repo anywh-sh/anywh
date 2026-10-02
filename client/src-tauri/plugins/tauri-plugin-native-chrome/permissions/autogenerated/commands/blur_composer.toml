@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-blur-composer"
+description = "Enables the blur_composer command without any pre-configured scope."
+commands.allow = ["blur_composer"]
+
+[[permission]]
+identifier = "deny-blur-composer"
+description = "Denies the blur_composer command without any pre-configured scope."
+commands.deny = ["blur_composer"]

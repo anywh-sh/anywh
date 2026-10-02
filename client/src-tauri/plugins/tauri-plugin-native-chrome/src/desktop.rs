@@ -36,4 +36,32 @@ impl<R: Runtime> NativeChrome<R> {
   pub fn set_gesture_hint(&self, _payload: GestureHintRequest) -> crate::Result<()> {
     Ok(())
   }
+
+  pub fn set_context_target(&self, _payload: ContextTargetRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_composer(&self, _payload: ComposerRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_composer_text(&self, _payload: ComposerTextRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn focus_composer(&self) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn blur_composer(&self) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_composer_elapsed(&self, _payload: ComposerElapsedRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn set_scroll_to_end(&self, _payload: ScrollToEndRequest) -> crate::Result<()> {
+    Ok(())
+  }
 }

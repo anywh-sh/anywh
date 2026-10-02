@@ -49,9 +49,8 @@ const COMPONENTS = FILES.filter((file) => file.path.endsWith(".tsx"));
 const CSS = FILES.filter((file) => file.path.endsWith(".css"));
 
 /**
- * Some files are only partly iOS: ChatPanel renders one mobile-only warning,
- * Composer one mobile-only branch, index.css one mobile-only rule, and
- * everything else in all three is desktop. Naming this phrase in the comment
+ * A file that is only partly iOS can waive a rule on a mobile-only line
+ * (none do today: the iOS composer, banners and chrome are native). Naming this phrase in the comment
  * just above the exempt line is the opt-out, so a waiver costs a sentence
  * saying which rule is being waived and why. The window is six lines: enough
  * to clear the `{isIOS() && …}` line that usually separates the comment from

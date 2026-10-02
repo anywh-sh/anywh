@@ -58,6 +58,7 @@ pub struct ShellTheme {
   pub faint: String,
   pub border: String,
   pub primary: String,
+  pub primary_foreground: String,
   pub destructive: String,
   pub tint: String,
   pub success: String,
@@ -146,4 +147,140 @@ pub struct DrawerRequest {
 #[serde(rename_all = "camelCase")]
 pub struct GestureHintRequest {
   pub blocked: bool,
+}
+
+/// One pending attachment shown in the composer. The native side only draws
+/// it; `path` is the id handed back on removal.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerAttachment {
+  pub path: String,
+  /// `"image"` or `"video"`.
+  pub kind: String,
+  /// `data:image/jpeg;base64,…`, or `None` to draw a name chip instead.
+  pub thumbnail: Option<String>,
+  pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerEditBanner {
+  pub text: String,
+  pub cancel_label: String,
+}
+
+/// A mistyped slash command, already split around the suggested command so the
+/// native side can set it in mono without parsing anything.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerTypo {
+  pub before: String,
+  pub command: String,
+  pub after: String,
+  pub use_label: String,
+  pub send_anyway_label: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerStrings {
+  pub attach: String,
+  pub attach_photos: String,
+  pub attach_files: String,
+  pub remove_attachment: String,
+  pub uploading: String,
+  pub send: String,
+  pub stop: String,
+  pub scroll_to_end: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerRequest {
+  /// A web modal is open (or there is no chat tab): the composer hides.
+  pub hidden: bool,
+  pub placeholder: String,
+  pub can_send: bool,
+  pub turn_in_flight: bool,
+  pub attach_enabled: bool,
+  pub uploading: bool,
+  pub attachments: Vec<ComposerAttachment>,
+  pub edit_banner: Option<ComposerEditBanner>,
+  pub typo: Option<ComposerTypo>,
+  pub strings: ComposerStrings,
+  pub theme: ShellTheme,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerTextRequest {
+  pub text: String,
+}
+
+/// `None` clears the clock (the turn ended).
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposerElapsedRequest {
+  pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScrollToEndRequest {
+  pub visible: bool,
+  /// Height of the web stack floating above the composer, in points.
+  pub accessory_height: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadAttachmentRequest {
+  pub path: String,
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// Shared with the web side's `nativeComposerModel.test.ts`, which asserts its
+  /// own output equals this file: the camelCase convention can't drift.
+  const FIXTURE: &str = include_str!("../tests/fixtures/composer_payload.json");
+
+  #[test]
+  fn composer_payload_fixture_deserializes() {
+    let request: ComposerRequest = serde_json::from_str(FIXTURE).unwrap();
+    assert!(request.can_send);
+    assert_eq!(request.attachments.len(), 2);
+    assert_eq!(request.attachments[1].thumbnail, None);
+    assert_eq!(request.typo.as_ref().unwrap().send_anyway_label, "Send anyway");
+    assert_eq!(request.strings.scroll_to_end, "Scroll to bottom");
+    assert_eq!(request.theme.primary_foreground, "#ffffff");
+  }
+
+  #[test]
+  fn composer_payload_round_trips_to_the_same_json() {
+    let request: ComposerRequest = serde_json::from_str(FIXTURE).unwrap();
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(FIXTURE).unwrap());
+  }
+}
+
+/// Where a long-press opens the lifted-preview menu: the bubble's rectangle in
+/// web view points, and the items its menu offers.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextTargetRect {
+  pub x: f64,
+  pub y: f64,
+  pub width: f64,
+  pub height: f64,
+}
+
+/// `rect: None` disarms: a long-press anywhere opens nothing.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextTargetRequest {
+  pub id: String,
+  pub rect: Option<ContextTargetRect>,
+  pub items: Vec<ContextMenuItem>,
 }
