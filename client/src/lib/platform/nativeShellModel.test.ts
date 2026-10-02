@@ -6,9 +6,9 @@ import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "./nativ
 
 const NOW = new Date(2026, 8, 20, 12, 0, 0).getTime();
 const theme = buildShellTheme(() => "#112233");
-const profile = (id: string, label: string): Profile => ({ id, label, host: "h", relayPort: 1 }) as Profile;
+const profile = (id: string, label: string): Profile => ({ id, label, host: "h", relayPort: 1 });
 const session = (id: string, profileId: string, minutesAgo: number | null): MergedSession =>
-  ({ id, profileId, title: `title ${id}`, lastActiveAt: minutesAgo === null ? null : NOW - minutesAgo * 60_000 }) as MergedSession;
+  ({ id, profileId, title: `title ${id}`, lastActiveAt: minutesAgo === null ? null : NOW - minutesAgo * 60_000 });
 
 function build(over: Partial<Parameters<typeof buildDrawerPayload>[0]> = {}) {
   return buildDrawerPayload({
