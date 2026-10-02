@@ -8,6 +8,7 @@ Default permissions for the plugin
 - `allow-set-top-bar`
 - `allow-set-drawer`
 - `allow-set-gesture-hint`
+- `allow-set-context-target`
 - `allow-set-composer`
 - `allow-set-composer-text`
 - `allow-focus-composer`
@@ -231,6 +232,32 @@ Enables the set_composer_text command without any pre-configured scope.
 <td>
 
 Denies the set_composer_text command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:allow-set-context-target`
+
+</td>
+<td>
+
+Enables the set_context_target command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-set-context-target`
+
+</td>
+<td>
+
+Denies the set_context_target command without any pre-configured scope.
 
 </td>
 </tr>

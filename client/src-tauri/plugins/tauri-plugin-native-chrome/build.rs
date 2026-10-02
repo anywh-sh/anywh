@@ -3,6 +3,7 @@ const COMMANDS: &[&str] = &[
   "set_top_bar",
   "set_drawer",
   "set_gesture_hint",
+  "set_context_target",
   "set_composer",
   "set_composer_text",
   "focus_composer",

@@ -3,6 +3,7 @@ import { useDict, useLocale } from "@/i18n";
 import { parseColor } from "@/lib/theme/color";
 import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
+import { bubbleMenu } from "@/lib/platform/bubbleMenu";
 import { blocksDrawerGesture } from "@/lib/platform/drawerGestureHint";
 import { listenNativeShell, setNativeDrawer, setNativeGestureHint, setNativeTopBar } from "@/lib/platform/nativeShell";
 import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "@/lib/platform/nativeShellModel";
@@ -118,6 +119,7 @@ export function useNativeShell(args: UseNativeShellArgs): void {
       drawerRename: ({ sessionId, profileId, title: next }) => argsRef.current.onRenameSession(profileId, sessionId, next),
       drawerDelete: ({ sessionId, profileId }) => argsRef.current.onDeleteSession(profileId, sessionId),
       topBarNewConversation: () => argsRef.current.onNewConversation(),
+      contextMenuSelect: (event) => bubbleMenu.dispatch(event),
     })
       .then((off) => {
         if (disposed) off();
@@ -134,6 +136,7 @@ export function useNativeShell(args: UseNativeShellArgs): void {
     if (!enabled) return;
     let last: boolean | null = null;
     const onTouchStart = (event: TouchEvent): void => {
+      if (!(event.target instanceof Element && event.target.closest("[data-native-menu]"))) bubbleMenu.disarm();
       const blocked = blocksDrawerGesture(event.target);
       if (blocked === last) return;
       last = blocked;

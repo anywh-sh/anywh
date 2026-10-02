@@ -28,6 +28,7 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
   @MainActor private let topBarStore = TopBarStore()
   @MainActor private let drawerStore = DrawerStore()
+  @MainActor private let bubbleMenu = BubbleMenuController()
   @MainActor private let composerStore = ComposerStore()
   @MainActor private var composer: ComposerController?
   @MainActor private var shell: CanvasDrawerController?
@@ -38,6 +39,11 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       let interaction = UIEditMenuInteraction(delegate: self)
       webview.addInteraction(interaction)
       self.editMenuInteraction = interaction
+
+      self.bubbleMenu.install(on: webview)
+      self.bubbleMenu.onSelect = { [weak self] targetId, itemId in
+        try? self?.trigger("contextMenuSelect", data: BubbleSelectEvent(targetId: targetId, itemId: itemId))
+      }
 
       // The WKWebView's own outer scroll view auto-scrolls the page to bring a
       // focused input above the keyboard, which `body { position: fixed }`
@@ -107,6 +113,14 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     }
     composer.onAttach = attach
     store.onPastedImages = attach
+  }
+
+  @objc func setContextTarget(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(BubbleTargetArgs.self)
+    Task { @MainActor in
+      self.bubbleMenu.setTarget(args)
+      invoke.resolve()
+    }
   }
 
   @objc func setComposer(_ invoke: Invoke) throws {

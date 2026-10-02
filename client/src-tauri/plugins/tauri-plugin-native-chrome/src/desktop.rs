@@ -37,6 +37,10 @@ impl<R: Runtime> NativeChrome<R> {
     Ok(())
   }
 
+  pub fn set_context_target(&self, _payload: ContextTargetRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
   pub fn set_composer(&self, _payload: ComposerRequest) -> crate::Result<()> {
     Ok(())
   }

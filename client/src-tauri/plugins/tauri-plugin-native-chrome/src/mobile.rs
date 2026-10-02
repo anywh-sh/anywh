@@ -44,6 +44,10 @@ impl<R: Runtime> NativeChrome<R> {
     self.0.run_mobile_plugin("setGestureHint", payload).map_err(Into::into)
   }
 
+  pub fn set_context_target(&self, payload: ContextTargetRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setContextTarget", payload).map_err(Into::into)
+  }
+
   pub fn set_composer(&self, payload: ComposerRequest) -> crate::Result<()> {
     self.0.run_mobile_plugin("setComposer", payload).map_err(Into::into)
   }

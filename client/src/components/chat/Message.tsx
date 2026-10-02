@@ -6,6 +6,7 @@ import { renderTextWithLinks } from "@/lib/composer/composerLinks";
 import { isIOS } from "@/lib/platform/platform";
 import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
 import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
+import { bubbleMenu } from "@/lib/platform/bubbleMenu";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format/relativeTime";
 import { useDict, useLocale } from "@/i18n";
 import { cn, formatDurationLong } from "@/lib/utils";
@@ -101,30 +102,32 @@ export const UserBubble = memo(function UserBubble({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  // Long-press (iOS) — opens the native menu
-  // (`UIEditMenuInteraction`) at the touch point, with Copy/Edit. Only
-  // makes sense to call on iOS; on desktop the interaction is hover + click
-  // on the icons below the bubble (see `!isIOS()` in the JSX).
-  const longPress = useLongPress({
-    onLongPress: (point) => {
-      void showNativeContextMenu(
-        [
-          { id: "copy", label: dict.common.copy, systemIcon: "doc.on.doc" },
-          {
-            id: "edit",
-            label: dict.common.edit,
-            systemIcon: "pencil",
-            disabled: editDisabled,
-            disabledReason: editDisabled ? dict.chat.message.editWithAttachment : undefined,
-          },
-        ],
-        point,
-      ).then((selectedId) => {
-        if (selectedId === "copy") handleCopy();
-        else if (selectedId === "edit" && !editDisabled) onStartEdit(id, text);
-      });
-    },
-  });
+  // Long-press (iOS) — the system's own lifted-bubble menu with Copy/Edit.
+  // It runs natively, so the bubble arms it on `touchstart` with its rectangle
+  // and items (see `bubbleMenu`); the pick comes back through `onSelect`. On
+  // desktop the interaction is hover + click on the icons below the bubble
+  // (see `!isIOS()` in the JSX).
+  function armNativeMenu(event: React.TouchEvent<HTMLDivElement>): void {
+    const box = event.currentTarget.getBoundingClientRect();
+    bubbleMenu.arm({
+      id,
+      rect: { x: box.x, y: box.y, width: box.width, height: box.height },
+      items: [
+        { id: "copy", label: dict.common.copy, systemIcon: "doc.on.doc" },
+        {
+          id: "edit",
+          label: dict.common.edit,
+          systemIcon: "pencil",
+          disabled: editDisabled,
+          disabledReason: editDisabled ? dict.chat.message.editWithAttachment : undefined,
+        },
+      ],
+      onSelect: (itemId) => {
+        if (itemId === "copy") handleCopy();
+        else if (itemId === "edit" && !editDisabled) onStartEdit(id, text);
+      },
+    });
+  }
 
   return (
     <div className="group flex flex-col items-end">
@@ -140,7 +143,7 @@ export const UserBubble = memo(function UserBubble({
           // the native Copy/Edit menu never opens. The menu has Copy.
           isIOS() && !isEditing && "select-none [-webkit-touch-callout:none]",
         )}
-        {...(isIOS() && !isEditing ? longPress : undefined)}
+        {...(isIOS() && !isEditing ? { onTouchStart: armNativeMenu, "data-native-menu": "" } : undefined)}
       >
         {isEditing ? (
           <textarea

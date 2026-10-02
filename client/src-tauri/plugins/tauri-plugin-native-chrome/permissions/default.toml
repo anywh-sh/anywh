@@ -5,6 +5,7 @@ permissions = [
   "allow-set-top-bar",
   "allow-set-drawer",
   "allow-set-gesture-hint",
+  "allow-set-context-target",
   "allow-set-composer",
   "allow-set-composer-text",
   "allow-focus-composer",

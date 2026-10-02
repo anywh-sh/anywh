@@ -33,6 +33,11 @@ pub(crate) async fn set_gesture_hint<R: Runtime>(app: AppHandle<R>, payload: Ges
 }
 
 #[command]
+pub(crate) async fn set_context_target<R: Runtime>(app: AppHandle<R>, payload: ContextTargetRequest) -> Result<()> {
+    app.native_chrome().set_context_target(payload)
+}
+
+#[command]
 pub(crate) async fn set_composer<R: Runtime>(app: AppHandle<R>, payload: ComposerRequest) -> Result<()> {
     app.native_chrome().set_composer(payload)
 }

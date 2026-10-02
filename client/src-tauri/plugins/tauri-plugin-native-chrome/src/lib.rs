@@ -41,6 +41,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::set_top_bar,
       commands::set_drawer,
       commands::set_gesture_hint,
+      commands::set_context_target,
       commands::set_composer,
       commands::set_composer_text,
       commands::focus_composer,

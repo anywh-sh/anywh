@@ -5,7 +5,7 @@ import WebKit
 /// Tunables for the composer and its surroundings, in one place for on-device tuning.
 private enum Tuning {
   /// Opacity of the theme background strip behind the composer.
-  static let bottomWashOpacity: CGFloat = 0.18
+  static let bottomWashOpacity: CGFloat = 0.6
   /// Height of the fade above the composer, from the strip's opacity to nothing.
   static let bottomWashFade: CGFloat = 16
   /// Gap between the composer and the keyboard / the bottom safe area.

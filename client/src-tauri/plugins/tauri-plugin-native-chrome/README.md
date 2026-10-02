@@ -50,7 +50,7 @@ only in the field.
   stays on the web side.
 
 The composer sits above the web view, pinned to `keyboardLayoutGuide`, with a
-strip under it (the theme background at about 18%, fading out above the
+strip under it (the theme background at about 60%, fading out above the
 composer) so text scrolling underneath recedes. The room the strip and the
 composer take, keyboard included, is pushed to the page as the
 `--native-bottom-inset` CSS variable (removed while the composer is hidden).
@@ -60,6 +60,15 @@ Events back to JS: `composerTextChange`, `composerFocusChange`,
 `composerSubmit`, `composerStop`, `composerAttach`, `composerRemoveAttachment`,
 `composerCancelEdit`, `composerTypoUse`, `composerTypoSendAnyway`,
 `composerScrollToEnd`.
+
+## `set_context_target`
+
+The long-press menu on a user bubble: the system's own, with the bubble lifting
+and scaling and the options appearing around it (`UIContextMenuInteraction` on
+the web view). The content is web, so the page arms it on `touchstart` with the
+bubble's rectangle and its items; native finds no target for a long-press
+anywhere else and opens nothing. A pick comes back as `contextMenuSelect`
+(`{ targetId, itemId }`). `rect: null` disarms.
 
 ## `show_context_menu`
 

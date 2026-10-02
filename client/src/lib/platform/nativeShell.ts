@@ -91,6 +91,7 @@ export interface NativeShellHandlers {
   drawerRename: (event: { sessionId: string; profileId: string; title: string }) => void;
   drawerDelete: (event: { sessionId: string; profileId: string }) => void;
   topBarNewConversation: () => void;
+  contextMenuSelect: (event: { targetId: string; itemId: string }) => void;
 }
 
 export function setNativeTopBar(payload: NativeTopBarPayload): Promise<void> {

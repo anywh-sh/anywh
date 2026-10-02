@@ -264,3 +264,23 @@ mod tests {
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(FIXTURE).unwrap());
   }
 }
+
+/// Where a long-press opens the lifted-preview menu: the bubble's rectangle in
+/// web view points, and the items its menu offers.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextTargetRect {
+  pub x: f64,
+  pub y: f64,
+  pub width: f64,
+  pub height: f64,
+}
+
+/// `rect: None` disarms: a long-press anywhere opens nothing.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextTargetRequest {
+  pub id: String,
+  pub rect: Option<ContextTargetRect>,
+  pub items: Vec<ContextMenuItem>,
+}
