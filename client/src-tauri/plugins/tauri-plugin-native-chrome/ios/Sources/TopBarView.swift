@@ -82,22 +82,8 @@ final class TopEdgeBlurView: UIVisualEffectView {
   /// not read as a gray band.
   private let wash = CAGradientLayer()
 
-  // TEMP-TUNING: style picked by `-NCBlur <name>` launch argument.
-  static func debugStyle() -> UIBlurEffect.Style {
-    switch UserDefaults.standard.string(forKey: "NCBlur") ?? "" {
-    case "dark": return .dark
-    case "thinDark": return .systemThinMaterialDark
-    case "ultraDark": return .systemUltraThinMaterialDark
-    case "chromeDark": return .systemChromeMaterialDark
-    case "materialDark": return .systemMaterialDark
-    case "thickDark": return .systemThickMaterialDark
-    case "regular": return .regular
-    default: return .systemUltraThinMaterial
-    }
-  }
-
   init() {
-    super.init(effect: UIBlurEffect(style: TopEdgeBlurView.debugStyle()))
+    super.init(effect: UIBlurEffect(style: .dark))
     isUserInteractionEnabled = false
     fade.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
     fade.locations = [0, 0.55, 1]
@@ -110,12 +96,12 @@ final class TopEdgeBlurView: UIVisualEffectView {
   }
 
   func setWash(_ color: UIColor) {
-    // Only enough of the theme color to cancel the material's gray: content
-    // scrolling underneath must stay readable as blurred shapes, not vanish.
-    let top = CGFloat(UserDefaults.standard.object(forKey: "NCWashTop") as? Double ?? 0.6)  // TEMP-TUNING
+    // The dark blur style already sits on the theme's background tone (the
+    // system materials lift it to a light gray); this wash only evens out the
+    // remaining difference, so content underneath stays visible, blurred.
     wash.colors = [
-      color.withAlphaComponent(top).cgColor,
-      color.withAlphaComponent(top * 0.6).cgColor,
+      color.withAlphaComponent(0.3).cgColor,
+      color.withAlphaComponent(0.18).cgColor,
       color.withAlphaComponent(0).cgColor,
     ]
     wash.locations = [0, 0.5, 1]
