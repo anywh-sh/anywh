@@ -13,7 +13,6 @@ import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
-import { MobileShell } from "@/components/shell/MobileShell";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
@@ -25,6 +24,7 @@ import { useNavigationHistory } from "@/hooks/useNavigationHistory";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useLayoutCommands } from "@/hooks/useLayoutCommands";
 import { useProfileSwitching } from "@/hooks/useProfileSwitching";
+import { useNativeShell } from "@/hooks/platform/useNativeShell";
 import { useSessionActions } from "@/hooks/useSessionActions";
 import { useTabPanelActions } from "@/hooks/useTabPanelActions";
 import { useSessionNames } from "@/hooks/relay/useSessionNames";
@@ -208,7 +208,7 @@ function AppShell() {
   const [connectedByTab, setConnectedByTab] = useState<Record<string, boolean>>({});
   // Same shape and lifecycle as `connectedByTab`, for the active model's label
   // (the native iOS top bar shows it).
-  const [, setModelLabelByTab] = useState<Record<string, string | null>>({});
+  const [modelLabelByTab, setModelLabelByTab] = useState<Record<string, string | null>>({});
   // Each open tab's own `anywh-bg` jobs, lifted here for the global
   // background-activity tray (StatusBar) — see `useTabPanelActions`'s
   // `onBackgroundJobsChange`.
@@ -604,6 +604,28 @@ function AppShell() {
     />
   );
 
+  useNativeShell({
+    enabled: isIOS(),
+    sessions,
+    profiles,
+    activeProfileId: activeProfile.id,
+    selectedSessionId: activeTabId,
+    running: runningSessions,
+    backgroundJobSessions,
+    sessionsLoading,
+    sessionsError,
+    title: activeTab?.title ?? dict.common.untitledSession,
+    modelLabel: activeTabId ? (modelLabelByTab[activeTabId] ?? null) : null,
+    connected: activeConnected,
+    onSelectSession: handleSelectSession,
+    onProfileChange: handleProfileChange,
+    onOpenSearch: () => setSearchOpen(true),
+    onRetrySessions: reloadSessions,
+    onRenameSession: handleRenameSession,
+    onDeleteSession: handleDeleteSession,
+    onNewConversation: handleNewConversation,
+  });
+
   if (isIOS()) {
     return (
       // `h-full`, not `h-screen`/`h-dvh` — both are independent viewport-height
@@ -615,27 +637,9 @@ function AppShell() {
         <RevokedProfileBanners />
         {profileSetupDialog}
         <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} onSelectSession={handleSearchSelectSession} />
-        <MobileShell
-          activeProfile={activeProfile}
-          profiles={profiles}
-          onProfileChange={handleProfileChange}
-          sessions={sessions}
-          sessionsLoading={sessionsLoading}
-          sessionsError={sessionsError}
-          onRetrySessions={reloadSessions}
-          selectedSession={activeTabId}
-          runningSessions={runningSessions}
-          backgroundJobSessions={backgroundJobSessions}
-          onSelectSession={handleSelectSession}
-          onRenameSession={(session, title) => handleRenameSession(session.profileId, session.id, title)}
-          onDeleteSession={(session) => handleDeleteSession(session.profileId, session.id)}
-          onOpenSearch={() => setSearchOpen(true)}
-          title={activeTab?.title ?? dict.common.untitledSession}
-          connected={activeConnected}
-          onNewConversation={handleNewConversation}
-        >
-          {tabsContent}
-        </MobileShell>
+        {/* `relative` keeps the composer's backdrop-filter working (see the
+         * comment on the desktop branch); the drawer and top bar are native. */}
+        <div className="relative min-h-0 flex-1">{tabsContent}</div>
       </div>
     );
   }

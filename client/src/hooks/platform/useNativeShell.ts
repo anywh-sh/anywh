@@ -8,6 +8,8 @@ import { listenNativeShell, setNativeDrawer, setNativeGestureHint, setNativeTopB
 import { buildDrawerPayload, buildShellTheme, buildTopBarPayload } from "@/lib/platform/nativeShellModel";
 
 interface UseNativeShellArgs {
+  /** Only iOS has the native shell; elsewhere the hook does nothing. */
+  enabled: boolean;
   sessions: MergedSession[];
   profiles: Profile[];
   activeProfileId: string;
@@ -72,9 +74,10 @@ export function useNativeShell(args: UseNativeShellArgs): void {
     () => buildTopBarPayload({ title, modelLabel, connected, dict, theme }),
     [title, modelLabel, connected, dict, theme],
   );
+  const { enabled } = args;
   useEffect(() => {
-    void setNativeTopBar(topBar).catch(() => {});
-  }, [topBar]);
+    if (enabled) void setNativeTopBar(topBar).catch(() => {});
+  }, [enabled, topBar]);
 
   const { sessions, profiles, activeProfileId, selectedSessionId, running, backgroundJobSessions, sessionsLoading, sessionsError } = args;
   const drawer = useMemo(
@@ -97,14 +100,15 @@ export function useNativeShell(args: UseNativeShellArgs): void {
     [sessions, profiles, activeProfileId, selectedSessionId, running, backgroundJobSessions, sessionsLoading, sessionsError, dict, locale, theme],
   );
   useEffect(() => {
-    void setNativeDrawer(drawer).catch(() => {});
-  }, [drawer]);
+    if (enabled) void setNativeDrawer(drawer).catch(() => {});
+  }, [enabled, drawer]);
 
   // The native side calls these long after render; reading through a ref
   // keeps the subscription from being torn down on every app render.
   const argsRef = useRef(args);
   argsRef.current = args;
   useEffect(() => {
+    if (!enabled) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listenNativeShell({
@@ -128,9 +132,10 @@ export function useNativeShell(args: UseNativeShellArgs): void {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     let last: boolean | null = null;
     const onTouchStart = (event: TouchEvent): void => {
       const blocked = blocksDrawerGesture(event.target);
@@ -140,5 +145,5 @@ export function useNativeShell(args: UseNativeShellArgs): void {
     };
     document.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
     return () => document.removeEventListener("touchstart", onTouchStart, { capture: true });
-  }, []);
+  }, [enabled]);
 }
