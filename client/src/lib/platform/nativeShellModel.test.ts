@@ -38,11 +38,28 @@ describe("buildDrawerPayload", () => {
     expect(payload.groups[0].sessions.map((s) => s.id)).toEqual(["1", "2"]);
   });
 
-  it("names the profile in the meta line only with more than one profile", () => {
-    const one = build({ sessions: [session("1", "a", 5)] });
-    expect(one.groups[0].sessions[0].meta).not.toContain("Personal");
-    const two = build({ sessions: [session("1", "a", 5)], profiles: [profile("a", "Personal"), profile("b", "Work")] });
-    expect(two.groups[0].sessions[0].meta.startsWith("Personal · ")).toBe(true);
+  it("never puts the profile name in the meta line", () => {
+    const payload = build({ sessions: [session("1", "a", 5)], profiles: [profile("a", "Personal"), profile("b", "Work")] });
+    expect(payload.groups[0].sessions[0].meta).not.toContain("Personal");
+  });
+
+  it("lists only the active profile's sessions", () => {
+    const payload = build({
+      sessions: [session("1", "a", 5), session("2", "b", 6), session("3", "a", 7)],
+      profiles: [profile("a", "Personal"), profile("b", "Work")],
+      activeProfileId: "b",
+    });
+    expect(payload.groups.flatMap((g) => g.sessions.map((s) => s.id))).toEqual(["2"]);
+    expect(payload.hasMore).toBe(false);
+  });
+
+  it("caps the list at the latest ten and flags the rest", () => {
+    const sessions = Array.from({ length: 12 }, (_, i) => session(String(i), "a", i + 1));
+    const payload = build({ sessions });
+    const ids = payload.groups.flatMap((g) => g.sessions.map((s) => s.id));
+    expect(ids).toEqual(sessions.slice(0, 10).map((s) => s.id));
+    expect(payload.hasMore).toBe(true);
+    expect(build({ sessions: sessions.slice(0, 10) }).hasMore).toBe(false);
   });
 
   it("leaves the time out when the session has no timestamp", () => {

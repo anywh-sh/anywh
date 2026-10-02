@@ -35,7 +35,7 @@ struct TopBarArgs: Decodable {
 }
 
 struct DrawerStrings: Decodable {
-  let searchSessions: String
+  let allChats: String
   let loadFailed: String
   let retry: String
   let emptyTitle: String
@@ -84,6 +84,7 @@ struct DrawerArgs: Decodable {
   let activeProfileId: String
   let loading: Bool
   let error: Bool
+  let hasMore: Bool
   let groups: [DrawerGroup]
 }
 
@@ -153,7 +154,7 @@ final class DrawerStore: ObservableObject {
   @Published var args: DrawerArgs?
   var onSelect: (DrawerSession) -> Void = { _ in }
   var onProfileChange: (String) -> Void = { _ in }
-  var onSearch: () -> Void = {}
+  var onAllChats: () -> Void = {}
   var onRetry: () -> Void = {}
   var onRename: (DrawerSession, String) -> Void = { _, _ in }
   var onDelete: (DrawerSession) -> Void = { _ in }

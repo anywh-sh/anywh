@@ -45,7 +45,6 @@ struct SessionDrawerView: View {
     VStack(alignment: .leading, spacing: 14) {
       header(theme)
       if args.profiles.count > 1 { profilePicker(args, theme) }
-      searchButton(args, theme)
       list(args, theme)
     }
     .padding(.horizontal, 16)
@@ -95,23 +94,6 @@ struct SessionDrawerView: View {
     .buttonStyle(.plain)
   }
 
-  private func searchButton(_ args: DrawerArgs, _ theme: ShellTheme) -> some View {
-    Button {
-      store.onSearch()
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "magnifyingglass").font(.system(size: 13))
-        Text(args.strings.searchSessions).font(.system(size: 14))
-        Spacer(minLength: 0)
-      }
-      .foregroundStyle(Color(hex: theme.muted))
-      .padding(.horizontal, 12)
-      .padding(.vertical, 10)
-      .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: theme.elevated)))
-    }
-    .buttonStyle(.plain)
-  }
-
   @ViewBuilder
   private func list(_ args: DrawerArgs, _ theme: ShellTheme) -> some View {
     if args.loading {
@@ -141,6 +123,7 @@ struct SessionDrawerView: View {
               row(session, args, theme)
             }
           }
+          if args.hasMore && !args.error { allChatsButton(args, theme) }
         }
       }
       .scrollIndicators(.hidden)
@@ -150,6 +133,25 @@ struct SessionDrawerView: View {
       .contentMargins(.bottom, 32, for: .scrollContent)
       .ignoresSafeArea(.container, edges: .bottom)
     }
+  }
+
+  /// Shown after the latest sessions when there are more. No action yet.
+  private func allChatsButton(_ args: DrawerArgs, _ theme: ShellTheme) -> some View {
+    Button {
+      store.onAllChats()
+    } label: {
+      HStack(spacing: 4) {
+        Text(args.strings.allChats).font(.system(size: 14, weight: .medium))
+        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
+        Spacer(minLength: 0)
+      }
+      .foregroundStyle(Color(hex: theme.muted))
+      .padding(.horizontal, 12)
+      .padding(.vertical, 12)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .padding(.top, 8)
   }
 
   private func emptyState(_ args: DrawerArgs, _ theme: ShellTheme) -> some View {

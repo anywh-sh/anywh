@@ -78,7 +78,8 @@ pub struct TopBarRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrawerStrings {
-  pub search_sessions: String,
+  /// Label of the button after the list, shown when `has_more`.
+  pub all_chats: String,
   pub load_failed: String,
   pub retry: String,
   pub empty_title: String,
@@ -110,7 +111,7 @@ pub struct DrawerSession {
   pub id: String,
   pub profile_id: String,
   pub title: String,
-  /// Pre-formatted second line (profile label and/or relative time); empty when there is none.
+  /// Pre-formatted second line (the relative time); empty when there is none.
   pub meta: String,
   pub color: String,
   pub running: bool,
@@ -134,6 +135,7 @@ pub struct DrawerRequest {
   pub profiles: Vec<DrawerProfile>,
   pub active_profile_id: String,
   pub loading: bool,
+  pub has_more: bool,
   pub error: bool,
   pub groups: Vec<DrawerGroup>,
 }

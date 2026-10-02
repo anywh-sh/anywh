@@ -954,6 +954,7 @@ export interface Dictionary {
     sidebar: {
       label: string;
       newConversation: string;
+      allChats: string;
       filterByProfile: string;
       filterHeading: string;
       allProfiles: string;

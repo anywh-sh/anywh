@@ -18,7 +18,7 @@ captures gestures, then reports intent back as plugin events.
   horizontal scroller that has been scrolled, so the drawer pan stands down.
 
 Events back to JS (`addPluginListener("native-chrome", …)`): `drawerSelect`,
-`drawerProfileChange`, `drawerSearch`, `drawerRetry`, `drawerRename`,
+`drawerProfileChange`, `drawerRetry`, `drawerRename`,
 `drawerDelete`, `topBarNewConversation`.
 
 Corner radius follows the device: `containerConcentric` on iOS 26, the

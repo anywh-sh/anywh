@@ -35,6 +35,9 @@ export function buildShellTheme(resolve: ResolveColor): NativeShellTheme {
   return theme;
 }
 
+/** How many sessions the drawer lists before the "All chats" button. */
+export const DRAWER_SESSION_LIMIT = 10;
+
 export interface DrawerModelInput {
   sessions: MergedSession[];
   profiles: Profile[];
@@ -55,16 +58,18 @@ export interface DrawerModelInput {
 
 /**
  * Everything the native drawer renders, formatted here so the native side
- * holds no logic and no copy. Mirrors the rules of the list it replaces: the
- * profile name joins the meta line only when there is more than one profile,
- * a row shows at most one indicator (a running turn wins over a background
- * job), and a missing timestamp leaves the time out rather than inventing one.
+ * holds no logic and no copy. The drawer lists the active profile's sessions
+ * only (the profile picker is how the others are reached), capped at the
+ * latest `DRAWER_SESSION_LIMIT` with `hasMore` flagging the rest. A row shows
+ * at most one indicator (a running turn wins over a background job), and a
+ * missing timestamp leaves the time out rather than inventing one. The meta
+ * line is the time alone: the row's colour already says which profile it is.
  */
 export function buildDrawerPayload(input: DrawerModelInput): NativeDrawerPayload {
   const { dict, locale, profiles } = input;
   const sidebar = dict.shell.sidebar;
-  const showProfile = profiles.length > 1;
-  const labels = new Map(profiles.map((profile) => [profile.id, profile.label]));
+  const profileSessions = input.sessions.filter((session) => session.profileId === input.activeProfileId);
+  const visible = profileSessions.slice(0, DRAWER_SESSION_LIMIT);
   const colors = new Map<string, string>();
   const colorOf = (profileId: string): string => {
     let color = colors.get(profileId);
@@ -76,15 +81,12 @@ export function buildDrawerPayload(input: DrawerModelInput): NativeDrawerPayload
   };
 
   const toRow = (session: MergedSession): NativeDrawerSession => {
-    const parts: string[] = [];
-    if (showProfile) parts.push(labels.get(session.profileId) ?? session.profileId);
-    if (session.lastActiveAt !== null) parts.push(formatRelativeTime(session.lastActiveAt, locale));
     const running = input.running.has(session.id);
     return {
       id: session.id,
       profileId: session.profileId,
       title: session.title,
-      meta: parts.join(" · "),
+      meta: session.lastActiveAt === null ? "" : formatRelativeTime(session.lastActiveAt, locale),
       color: colorOf(session.profileId),
       running,
       backgroundJob: !running && input.backgroundJobSessions.has(session.id),
@@ -95,7 +97,7 @@ export function buildDrawerPayload(input: DrawerModelInput): NativeDrawerPayload
   return {
     theme: input.theme,
     strings: {
-      searchSessions: dict.shell.titleBar.searchSessions,
+      allChats: sidebar.allChats,
       loadFailed: sidebar.loadFailed,
       retry: dict.common.retry,
       emptyTitle: sidebar.emptyTitle,
@@ -115,8 +117,9 @@ export function buildDrawerPayload(input: DrawerModelInput): NativeDrawerPayload
     activeProfileId: input.activeProfileId,
     // Skeleton only while there is nothing to show yet; a refresh keeps the list.
     loading: input.loading && input.sessions.length === 0,
+    hasMore: profileSessions.length > visible.length,
     error: input.error,
-    groups: groupSessionsByRecency(input.sessions, input.now).map((group) => ({
+    groups: groupSessionsByRecency(visible, input.now).map((group) => ({
       id: group.id,
       label: `${sidebar.groups[group.id]} ${String(group.sessions.length)}`,
       sessions: group.sessions.map(toRow),

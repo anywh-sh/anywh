@@ -71,10 +71,6 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     drawerStore.onProfileChange = { [weak self] profileId in
       try? self?.trigger("drawerProfileChange", data: ProfileEvent(profileId: profileId))
     }
-    drawerStore.onSearch = { [weak self, weak controller] in
-      self?.trigger("drawerSearch", data: JSObject())
-      controller?.setOpen(false)
-    }
     drawerStore.onRetry = { [weak self] in self?.trigger("drawerRetry", data: JSObject()) }
     drawerStore.onRename = { [weak self] session, title in
       try? self?.trigger("drawerRename", data: RenameEvent(sessionId: session.id, profileId: session.profileId, title: title))

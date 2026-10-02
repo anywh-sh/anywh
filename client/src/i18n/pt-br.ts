@@ -395,6 +395,7 @@ export const ptBr: Dictionary = {
     sidebar: {
       label: "Barra lateral",
       newConversation: "Nova conversa",
+      allChats: "Todos os chats",
       filterByProfile: "Filtrar por perfil",
       filterHeading: "filtrar perfis",
       allProfiles: "todos",

@@ -395,6 +395,7 @@ export const en: Dictionary = {
     sidebar: {
       label: "Sidebar",
       newConversation: "New conversation",
+      allChats: "All chats",
       filterByProfile: "Filter by profile",
       filterHeading: "filter profiles",
       allProfiles: "all",

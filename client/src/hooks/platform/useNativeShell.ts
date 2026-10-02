@@ -23,7 +23,6 @@ interface UseNativeShellArgs {
   connected: boolean;
   onSelectSession: (session: MergedSession) => void;
   onProfileChange: (profileId: string) => void;
-  onOpenSearch: () => void;
   onRetrySessions: () => void;
   onRenameSession: (profileId: string, sessionId: string, title: string) => void;
   onDeleteSession: (profileId: string, sessionId: string) => void;
@@ -115,7 +114,6 @@ export function useNativeShell(args: UseNativeShellArgs): void {
         if (session) argsRef.current.onSelectSession(session);
       },
       drawerProfileChange: ({ profileId }) => argsRef.current.onProfileChange(profileId),
-      drawerSearch: () => argsRef.current.onOpenSearch(),
       drawerRetry: () => argsRef.current.onRetrySessions(),
       drawerRename: ({ sessionId, profileId, title: next }) => argsRef.current.onRenameSession(profileId, sessionId, next),
       drawerDelete: ({ sessionId, profileId }) => argsRef.current.onDeleteSession(profileId, sessionId),

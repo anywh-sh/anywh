@@ -30,7 +30,8 @@ export interface NativeTopBarPayload {
 }
 
 export interface NativeDrawerStrings {
-  searchSessions: string;
+  /** Label of the button after the list, shown when there are more sessions. */
+  allChats: string;
   loadFailed: string;
   retry: string;
   emptyTitle: string;
@@ -74,6 +75,8 @@ export interface NativeDrawerPayload {
   activeProfileId: string;
   loading: boolean;
   error: boolean;
+  /** More sessions exist than the groups carry. */
+  hasMore: boolean;
   groups: NativeDrawerGroup[];
 }
 
@@ -82,7 +85,6 @@ export interface NativeDrawerPayload {
 export interface NativeShellHandlers {
   drawerSelect: (event: { sessionId: string; profileId: string }) => void;
   drawerProfileChange: (event: { profileId: string }) => void;
-  drawerSearch: () => void;
   drawerRetry: () => void;
   drawerRename: (event: { sessionId: string; profileId: string; title: string }) => void;
   drawerDelete: (event: { sessionId: string; profileId: string }) => void;

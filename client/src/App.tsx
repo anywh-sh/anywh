@@ -619,7 +619,6 @@ function AppShell() {
     connected: activeConnected,
     onSelectSession: handleSelectSession,
     onProfileChange: handleProfileChange,
-    onOpenSearch: () => setSearchOpen(true),
     onRetrySessions: reloadSessions,
     onRenameSession: handleRenameSession,
     onDeleteSession: handleDeleteSession,
