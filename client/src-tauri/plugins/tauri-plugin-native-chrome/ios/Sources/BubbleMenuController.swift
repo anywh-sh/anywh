@@ -59,7 +59,15 @@ final class BubbleMenuController: NSObject, UIContextMenuInteractionDelegate {
       target = nil
       return
     }
-    target = (args.id, CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height), args.items)
+    // The page reports viewport coordinates; the view's own differ by however
+    // far the web view's scroll view has shifted the page (a safe-area inset
+    // that is applied automatically, when it is).
+    let offset = webview?.scrollView.contentOffset ?? .zero
+    target = (
+      args.id,
+      CGRect(x: rect.x - offset.x, y: rect.y - offset.y, width: rect.width, height: rect.height),
+      args.items
+    )
   }
 
   func contextMenuInteraction(
