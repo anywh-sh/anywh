@@ -26,7 +26,7 @@ export interface KeyboardInsetInfo {
    * stops the DOM's own document-scroll machinery). Any `position:
    * fixed`/`absolute` element keeps its coordinates in the layout viewport,
    * so once this is nonzero it visually slides up and off the top of the
-   * screen unless compensated (`MobileTopBar`) — a known WebKit limitation
+   * screen unless compensated (the top bar) — a known WebKit limitation
    * (`position: fixed` isn't kept pinned to the visual viewport while a
    * keyboard offsets it), same class of bug `shift` above already works
    * around for the composer. */

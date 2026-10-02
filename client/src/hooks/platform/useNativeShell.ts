@@ -30,11 +30,9 @@ interface UseNativeShellArgs {
   onNewConversation: () => void;
 }
 
-const FALLBACK_COLOR = "#000000";
-
 function toHex(css: string): string {
-  const rgba = parseColor(css);
-  if (!rgba) return FALLBACK_COLOR;
+  // An unresolvable color becomes fully transparent rather than a wrong one.
+  const rgba = parseColor(css) ?? { r: 0, g: 0, b: 0, a: 0 };
   const byte = (n: number): string => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, "0");
   return `#${byte(rgba.r)}${byte(rgba.g)}${byte(rgba.b)}${rgba.a < 1 ? byte(rgba.a * 255) : ""}`;
 }

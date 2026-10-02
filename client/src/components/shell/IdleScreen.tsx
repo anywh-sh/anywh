@@ -9,7 +9,7 @@ interface IdleScreenProps {
  * text), reused both for "no tab open" (EmptyState) and "new tab, no
  * messages yet" (ChatIdleState). */
 export function IdleScreen({ heading, subtitle }: IdleScreenProps) {
-  // Counters the same WebKit visual-viewport pan `MobileTopBar` compensates
+  // Counters the same WebKit visual-viewport pan the old web top bar compensated
   // for — this content is normal document flow, not
   // `position: fixed`, so it isn't anchored to the layout viewport the way
   // the header is, but it's still meant to read as a still background behind

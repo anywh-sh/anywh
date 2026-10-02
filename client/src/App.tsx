@@ -195,7 +195,7 @@ function AppShell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  // Connection state per tab — used by TitleBar/MobileTopBar, which
+  // Connection state per tab — used by TitleBar and the native iOS top bar, which
   // live outside ChatPanel. Fed by `renderPanel`'s `onConnectedChange` below.
   // Keyed by tab id (not a single flag) because desktop's TabGroupLayout keeps
   // every tab's ChatPanel mounted at once (its flat panel layer, see the
@@ -542,13 +542,13 @@ function AppShell() {
   );
 
   // Shared between the desktop shell and iOS — what changes between the two
-  // is just the surrounding chrome (TitleBar+Sidebar vs. MobileShell), not
+  // is just the surrounding chrome (TitleBar+Sidebar vs. the native iOS shell), not
   // how each session gets mounted.
   //
   // `relative` down here isn't about layout — without it, iOS's
-  // MobileTopBar/composer `backdrop-filter` doesn't sample the message log
+  // composer `backdrop-filter` doesn't sample the message log
   // on real WebKit (real bug, reproduced via Playwright WebKit).
-  // Any `position: static` div in this chain up to `.mobile-canvas` breaks
+  // Any `position: static` div in this chain up to the root breaks
   // the blur. Don't remove it even though it looks redundant — harmless for
   // desktop (doesn't change position/size of anything).
   const tabsContent = (
