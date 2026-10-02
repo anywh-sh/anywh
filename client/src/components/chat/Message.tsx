@@ -135,6 +135,10 @@ export const UserBubble = memo(function UserBubble({
           // over from the scaffold's visual language.
           "flex max-w-[88%] flex-col gap-2 border border-border px-3.5 py-3 text-sm text-foreground",
           isEditing ? "w-[88%] bg-bg-elevated" : "bg-bubble-user",
+          // The log is text-selectable, so on iOS a held finger starts the
+          // system's word selection before the long-press timer fires and
+          // the native Copy/Edit menu never opens. The menu has Copy.
+          isIOS() && !isEditing && "select-none [-webkit-touch-callout:none]",
         )}
         {...(isIOS() && !isEditing ? longPress : undefined)}
       >
