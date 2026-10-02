@@ -24,6 +24,7 @@ const THEME_VARS: Record<keyof NativeShellTheme, string> = {
   faint: "--text-faint",
   border: "--border",
   primary: "--primary",
+  primaryForeground: "--primary-foreground",
   destructive: "--destructive",
   tint: "--glass-tint",
   success: "--primary",

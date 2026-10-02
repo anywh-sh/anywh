@@ -14,6 +14,7 @@ struct ShellTheme: Decodable {
   let faint: String
   let border: String
   let primary: String
+  let primaryForeground: String
   let destructive: String
   let tint: String
   let success: String
@@ -21,7 +22,7 @@ struct ShellTheme: Decodable {
   static let fallback = ShellTheme(
     background: "#1b1a18", sidebar: "#222120", elevated: "#2a2826", card: "#222120",
     foreground: "#eceae4", muted: "#b1aba2", faint: "#9d978f", border: "#332f2c",
-    primary: "#e0642a", destructive: "#dc6f5c", tint: "#eceae4", success: "#e0642a")
+    primary: "#e0642a", primaryForeground: "#ffffff", destructive: "#dc6f5c", tint: "#eceae4", success: "#e0642a")
 }
 
 struct TopBarArgs: Decodable {

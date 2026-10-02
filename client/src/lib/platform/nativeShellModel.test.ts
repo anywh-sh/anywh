@@ -10,6 +10,19 @@ const profile = (id: string, label: string): Profile => ({ id, label, host: "h",
 const session = (id: string, profileId: string, minutesAgo: number | null): MergedSession =>
   ({ id, profileId, title: `title ${id}`, lastActiveAt: minutesAgo === null ? null : NOW - minutesAgo * 60_000 });
 
+describe("buildShellTheme", () => {
+  it("resolves every slot from its CSS variable, including the ink on primary", () => {
+    const seen: string[] = [];
+    const built = buildShellTheme((css) => {
+      seen.push(css);
+      return css;
+    });
+    expect(built.primary).toBe("var(--primary)");
+    expect(built.primaryForeground).toBe("var(--primary-foreground)");
+    expect(seen).toHaveLength(Object.keys(built).length);
+  });
+});
+
 function build(over: Partial<Parameters<typeof buildDrawerPayload>[0]> = {}) {
   return buildDrawerPayload({
     sessions: [],

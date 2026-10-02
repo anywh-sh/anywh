@@ -12,6 +12,8 @@ export interface NativeShellTheme {
   faint: string;
   border: string;
   primary: string;
+  /** Ink drawn on top of `primary` (the send button's arrow). */
+  primaryForeground: string;
   destructive: string;
   tint: string;
   success: string;
