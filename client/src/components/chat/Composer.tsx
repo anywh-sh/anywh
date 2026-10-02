@@ -49,7 +49,7 @@ import type { Dictionary } from "@/i18n/dictionary";
 import type { ContextUsage, ModelCatalog, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
 import type { Profile } from "@/lib/profiles/profiles";
 
-interface ComposerProps {
+export interface ComposerProps {
   /** Also threaded to `AgentPickerButton`'s own `getHostInfo` fetch. */
   profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;

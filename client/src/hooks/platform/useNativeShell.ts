@@ -29,7 +29,7 @@ interface UseNativeShellArgs {
   onNewConversation: () => void;
 }
 
-function toHex(css: string): string {
+export function toHex(css: string): string {
   // An unresolvable color becomes fully transparent rather than a wrong one.
   const rgba = parseColor(css) ?? { r: 0, g: 0, b: 0, a: 0 };
   const byte = (n: number): string => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, "0");
@@ -38,7 +38,7 @@ function toHex(css: string): string {
 
 /** Bumps whenever the root element's inline style changes, which is where a
  * theme is applied (`applyResolvedTheme`) — the native colors follow it. */
-function useThemeVersion(): number {
+export function useThemeVersion(): number {
   const [version, setVersion] = useState(0);
   useEffect(() => {
     const observer = new MutationObserver(() => setVersion((v) => v + 1));

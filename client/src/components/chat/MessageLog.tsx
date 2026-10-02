@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
@@ -10,6 +10,7 @@ import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
 import { OpenState, OpenStateContext } from "@/lib/format/openState";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
 import { cn } from "@/lib/utils";
+import { nextScrollToEndVisible } from "@/lib/platform/scrollToEndVisibility";
 import { useDict, type Dictionary } from "@/i18n";
 import type { LogEntry, AttributionState } from "@/hooks/relay/useMessageLog";
 
@@ -36,6 +37,17 @@ interface MessageLogProps {
    * so the content needs extra breathing room to avoid ending up
    * hidden behind it. */
   className?: string;
+  /** Inline style on the scroller — iOS pads the bottom by the native
+   * composer's measured height. */
+  style?: CSSProperties;
+  /** When this changes while the log is pinned to the end, the log re-pins:
+   * a taller composer or an opening keyboard would otherwise cover the last lines. */
+  endInsetKey?: number;
+  /** Fires only when the "jump to end" arrow should appear or disappear (see
+   * `nextScrollToEndVisible`) — a few calls per scroll, not one per frame. */
+  onScrollToEndVisibleChange?: (visible: boolean) => void;
+  /** A finger starts dragging the log. */
+  onUserScrollStart?: () => void;
   /** Message editing — `id` of the `kind: "user"` entry that's
    * currently turning into a `<textarea>` (desktop only; on iOS `ChatPanel`
    * never sets this, editing there happens via the composer, not inline).
@@ -65,6 +77,11 @@ interface MessageLogProps {
    * caller memoizes it: a fresh element on every render would defeat this
    * component's `memo`. */
   trailing?: ReactNode;
+}
+
+export interface MessageLogHandle {
+  /** Smooth-scrolls to the end of the conversation and re-pins it there. */
+  scrollToEnd: () => void;
 }
 
 /** Key of the synthetic last item holding `trailing`. */
@@ -193,7 +210,7 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
 // syntax highlighting in every row) bail out instead of re-rendering along
 // with `ChatPanel`. `TabPanel`'s own `memo` is the outer half of this: it
 // keeps App-level state changes from reaching `ChatPanel` at all.
-export const MessageLog = memo(function MessageLog({
+export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(function MessageLog({
   entries,
   streamingEntries,
   attributionByToolUseId,
@@ -201,6 +218,10 @@ export const MessageLog = memo(function MessageLog({
   loadingOlderHistory,
   onLoadOlderHistory,
   className,
+  style,
+  endInsetKey,
+  onScrollToEndVisibleChange,
+  onUserScrollStart,
   editingMessageId,
   onStartEdit,
   onCancelEdit,
@@ -210,7 +231,7 @@ export const MessageLog = memo(function MessageLog({
   cwd,
   isActiveTab,
   trailing,
-}: MessageLogProps) {
+}: MessageLogProps, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
   const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, cwd };
@@ -267,6 +288,11 @@ export const MessageLog = memo(function MessageLog({
   // scrolled all the way back down by hand.
   const userScrollingRef = useRef(false);
   const userScrollingTimeoutRef = useRef<number | undefined>(undefined);
+  const onUserScrollStartRef = useRef(onUserScrollStart);
+  onUserScrollStartRef.current = onUserScrollStart;
+  const onScrollToEndVisibleChangeRef = useRef(onScrollToEndVisibleChange);
+  onScrollToEndVisibleChangeRef.current = onScrollToEndVisibleChange;
+  const scrollToEndVisibleRef = useRef(false);
 
   useLayoutEffect(() => {
     const el = parentRef.current;
@@ -278,11 +304,15 @@ export const MessageLog = memo(function MessageLog({
         userScrollingRef.current = false;
       }, 150);
     };
+    const onTouchMove = () => {
+      markUserScrolling();
+      onUserScrollStartRef.current?.();
+    };
     el.addEventListener("wheel", markUserScrolling, { passive: true });
-    el.addEventListener("touchmove", markUserScrolling, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: true });
     return () => {
       el.removeEventListener("wheel", markUserScrolling);
-      el.removeEventListener("touchmove", markUserScrolling);
+      el.removeEventListener("touchmove", onTouchMove);
       window.clearTimeout(userScrollingTimeoutRef.current);
     };
   }, []);
@@ -347,6 +377,35 @@ export const MessageLog = memo(function MessageLog({
     el.scrollTop = el.scrollHeight;
   }, [isActiveTab]);
 
+  // The composer grew or the keyboard moved: keep the end in view if that is
+  // where the user was. Next frame, so the new padding has been laid out.
+  useLayoutEffect(() => {
+    if (endInsetKey === undefined || !pinnedToBottomRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      const el = parentRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [endInsetKey]);
+
+  const scrollToEndSettleRef = useRef<number | undefined>(undefined);
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToEnd: () => {
+        const el = parentRef.current;
+        if (!el) return;
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        // Row heights can still correct themselves on the way down; once the
+        // smooth scroll has landed, let the virtualizer land the last stretch.
+        window.clearTimeout(scrollToEndSettleRef.current);
+        scrollToEndSettleRef.current = window.setTimeout(() => virtualizer.scrollToEnd(), 400);
+      },
+    }),
+    [virtualizer],
+  );
+  useLayoutEffect(() => () => window.clearTimeout(scrollToEndSettleRef.current), []);
+
   // Reverse scroll: stores the total height at the
   // instant the request for older turns fires — there's no way to know in
   // advance when the response arrives, so this is the only reliable moment
@@ -367,6 +426,12 @@ export const MessageLog = memo(function MessageLog({
     } else if (!pinnedToBottomRef.current && distanceFromEnd <= 4) {
       pinnedToBottomRef.current = true;
       setPinnedToBottom(true);
+    }
+
+    const showArrow = nextScrollToEndVisible(scrollToEndVisibleRef.current, { distanceFromEnd, viewportHeight: el.clientHeight });
+    if (showArrow !== scrollToEndVisibleRef.current) {
+      scrollToEndVisibleRef.current = showArrow;
+      onScrollToEndVisibleChangeRef.current?.(showArrow);
     }
 
     if (scrollTop > 120 || loadingOlderHistory || !hasMoreHistory) return;
@@ -417,6 +482,7 @@ export const MessageLog = memo(function MessageLog({
     <div
       ref={parentRef}
       onScroll={handleScroll}
+      style={style}
       // Explicit `overflow-x-hidden`, not just its absence: without this the
       // X axis inherits the computed `auto` value (overflow spec rule — a
       // non-`visible` `overflow-y` forces the other axis to `auto` too),
@@ -461,4 +527,4 @@ export const MessageLog = memo(function MessageLog({
     </div>
     </OpenStateContext.Provider>
   );
-});
+}));
