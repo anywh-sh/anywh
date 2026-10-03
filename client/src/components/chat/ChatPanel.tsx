@@ -15,6 +15,7 @@ import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog"
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
 import { Composer } from "@/components/chat/Composer";
+import { NativeModelMenu } from "@/components/chat/NativeModelMenu";
 import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
@@ -848,25 +849,28 @@ export function ChatPanel({
             )}
 
             {isIOS() ? (
-              <NativeComposer
-                ref={composerRef}
-                disabled={!connected}
-                turnInFlight={turnInFlight}
-                turnStartedAt={turnStartedAt}
-                onStop={stopTurn}
-                pendingImages={images.pending}
-                uploadingImage={images.uploading}
-                onAddFiles={(files) => void images.addFiles(files)}
-                onRemoveImage={images.remove}
-                modelCatalog={modelCatalog}
-                onChangeDraft={setDraft}
-                onSend={handleSend}
-                editBannerText={editTarget ? dict.chat.message.editWarning : null}
-                onCancelEdit={onCancelEdit}
-                onScrollToEnd={() => messageLogRef.current?.scrollToEnd()}
-                scrollToEndVisible={scrollToEndVisible && showingLog}
-                accessoryHeight={floatingStackHeight}
+              <>
+                <NativeModelMenu catalog={modelCatalog} model={model} locked={cwdLocked} connected={connected} onChangeModel={setModel} />
+                <NativeComposer
+                  ref={composerRef}
+                  disabled={!connected}
+                  turnInFlight={turnInFlight}
+                  turnStartedAt={turnStartedAt}
+                  onStop={stopTurn}
+                  pendingImages={images.pending}
+                  uploadingImage={images.uploading}
+                  onAddFiles={(files) => void images.addFiles(files)}
+                  onRemoveImage={images.remove}
+                  modelCatalog={modelCatalog}
+                  onChangeDraft={setDraft}
+                  onSend={handleSend}
+                  editBannerText={editTarget ? dict.chat.message.editWarning : null}
+                  onCancelEdit={onCancelEdit}
+                  onScrollToEnd={() => messageLogRef.current?.scrollToEnd()}
+                  scrollToEndVisible={scrollToEndVisible && showingLog}
+                  accessoryHeight={floatingStackHeight}
               />
+              </>
             ) : (
               <Composer
                 ref={composerRef}

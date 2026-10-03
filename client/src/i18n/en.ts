@@ -349,6 +349,7 @@ export const en: Dictionary = {
   },
   shell: {
     titleBar: {
+      model: "Model",
       menu: "Menu",
       settings: "Settings",
       back: "Back",
