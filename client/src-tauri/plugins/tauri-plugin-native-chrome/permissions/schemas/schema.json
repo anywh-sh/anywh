@@ -451,6 +451,18 @@
           "markdownDescription": "Denies the set_top_bar command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_top_bar_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-top-bar-menu",
+          "markdownDescription": "Enables the set_top_bar_menu command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_top_bar_menu command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-top-bar-menu",
+          "markdownDescription": "Denies the set_top_bar_menu command without any pre-configured scope."
+        },
+        {
           "description": "Enables the show_context_menu command without any pre-configured scope.",
           "type": "string",
           "const": "allow-show-context-menu",
@@ -463,10 +475,10 @@
           "markdownDescription": "Denies the show_context_menu command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-top-bar-menu`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-top-bar-menu`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

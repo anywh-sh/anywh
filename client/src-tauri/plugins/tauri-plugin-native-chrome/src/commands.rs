@@ -23,6 +23,11 @@ pub(crate) async fn set_top_bar<R: Runtime>(app: AppHandle<R>, payload: TopBarRe
 }
 
 #[command]
+pub(crate) async fn set_top_bar_menu<R: Runtime>(app: AppHandle<R>, payload: TopBarMenuRequest) -> Result<()> {
+    app.native_chrome().set_top_bar_menu(payload)
+}
+
+#[command]
 pub(crate) async fn set_drawer<R: Runtime>(app: AppHandle<R>, payload: DrawerRequest) -> Result<()> {
     app.native_chrome().set_drawer(payload)
 }

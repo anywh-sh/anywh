@@ -15,35 +15,75 @@ struct TopBarView: View {
       let theme = args.theme
       HStack(spacing: 4) {
         iconButton("line.3.horizontal", label: args.openSidebarLabel, theme: theme) { store.onMenu() }
-        VStack(spacing: 2) {
-          Text(args.title)
-            .font(.system(size: 14.5, weight: .semibold))
-            .foregroundStyle(Color(hex: theme.foreground))
-            .lineLimit(1)
-            .frame(maxWidth: .infinity)
-          if let model = args.modelLabel {
-            HStack(spacing: 6) {
-              Circle()
-                .fill(Color(hex: args.connected ? theme.success : theme.destructive))
-                .frame(width: 6, height: 6)
-                .opacity(args.connected ? 1 : (pulse ? 0.3 : 1))
-                .accessibilityLabel(args.connectionLabel)
-              Text(model)
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(Color(hex: args.connected ? theme.muted : theme.destructive))
-                .lineLimit(1)
-            }
-          }
-        }
+        titleMenu(args, theme)
         iconButton("plus", label: args.newConversationLabel, theme: theme) { store.onNewConversation() }
       }
       .padding(.horizontal, 6)
       .frame(height: topBarHeight)
-      .glassBackground(Capsule(), tint: Color(hex: theme.tint))
+      // The glass is a background layer, not a modifier on the content: with the
+      // `Menu` inside the glass'd view, dismissing the menu flashed the pill black.
+      .background { Color.clear.glassBackground(Capsule(), tint: Color(hex: theme.tint)) }
       .onAppear {
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
       }
     }
+  }
+
+  /// The pill's center. With a menu payload it is the trigger of the system
+  /// dropdown (Liquid Glass on iOS 26); without one it stays a plain label.
+  @ViewBuilder
+  private func titleMenu(_ args: TopBarArgs, _ theme: ShellTheme) -> some View {
+    if let model = store.menu?.model {
+      Menu {
+        Menu {
+          Picker(selection: Binding(get: { model.currentId ?? "" }, set: { store.onModelSelect($0) })) {
+            ForEach(model.options) { Text($0.label).tag($0.id) }
+          } label: { EmptyView() }
+        } label: {
+          Label {
+            Text(model.currentLabel)
+            Text(model.locked ? model.lockedHint : model.label)
+          } icon: {
+            Image(systemName: model.locked ? "lock" : "cpu")
+          }
+        }
+        .disabled(!model.enabled)
+      } label: {
+        titleLabel(args, theme, chevron: true)
+      }
+      .buttonStyle(.plain)
+    } else {
+      titleLabel(args, theme, chevron: false)
+    }
+  }
+
+  private func titleLabel(_ args: TopBarArgs, _ theme: ShellTheme, chevron: Bool) -> some View {
+    VStack(spacing: 2) {
+      Text(args.title)
+        .font(.system(size: 14.5, weight: .semibold))
+        .foregroundStyle(Color(hex: theme.foreground))
+        .lineLimit(1)
+        .frame(maxWidth: .infinity)
+      if let model = args.modelLabel {
+        HStack(spacing: 6) {
+          Circle()
+            .fill(Color(hex: args.connected ? theme.success : theme.destructive))
+            .frame(width: 6, height: 6)
+            .opacity(args.connected ? 1 : (pulse ? 0.3 : 1))
+            .accessibilityLabel(args.connectionLabel)
+          Text(model)
+            .font(.system(size: 11.5, design: .monospaced))
+            .foregroundStyle(Color(hex: args.connected ? theme.muted : theme.destructive))
+            .lineLimit(1)
+          if chevron {
+            Image(systemName: "chevron.down")
+              .font(.system(size: 8, weight: .semibold))
+              .foregroundStyle(Color(hex: theme.muted))
+          }
+        }
+      }
+    }
+    .contentShape(Rectangle())
   }
 
   private func iconButton(_ systemName: String, label: String, theme: ShellTheme, action: @escaping () -> Void) -> some View {

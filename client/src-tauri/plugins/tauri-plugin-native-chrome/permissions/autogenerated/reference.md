@@ -6,6 +6,7 @@ Default permissions for the plugin
 
 - `allow-show-context-menu`
 - `allow-set-top-bar`
+- `allow-set-top-bar-menu`
 - `allow-set-drawer`
 - `allow-set-gesture-hint`
 - `allow-set-context-target`
@@ -362,6 +363,32 @@ Enables the set_top_bar command without any pre-configured scope.
 <td>
 
 Denies the set_top_bar command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:allow-set-top-bar-menu`
+
+</td>
+<td>
+
+Enables the set_top_bar_menu command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-set-top-bar-menu`
+
+</td>
+<td>
+
+Denies the set_top_bar_menu command without any pre-configured scope.
 
 </td>
 </tr>
