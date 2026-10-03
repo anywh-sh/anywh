@@ -20,7 +20,9 @@ struct TopBarView: View {
       }
       .padding(.horizontal, 6)
       .frame(height: topBarHeight)
-      .glassBackground(Capsule(), tint: Color(hex: theme.tint))
+      // The glass is a background layer, not a modifier on the content: with the
+      // `Menu` inside the glass'd view, dismissing the menu flashed the pill black.
+      .background { Color.clear.glassBackground(Capsule(), tint: Color(hex: theme.tint)) }
       .onAppear {
         withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
       }
