@@ -48,6 +48,7 @@ final class ComposerController {
   private let presenter: () -> UIViewController?
   private var arrowBottom: NSLayoutConstraint?
   private var lastInset: Int?
+  private var positionObservation: NSKeyValueObservation?
 
   /// Fires with the files chosen in the Photos / Files pickers.
   var onAttach: ([AttachedFile]) -> Void = { _ in }
@@ -87,6 +88,12 @@ final class ComposerController {
     container.isUserInteractionEnabled = false
     container.translatesAutoresizingMaskIntoConstraints = false
     container.onLayout = { [weak self] in self?.layoutDidChange() }
+    // The keyboard only moves the container (same size), which never calls its
+    // `layoutSubviews`: without this the web layout kept the closed-keyboard
+    // inset until the next resize, e.g. the first keystroke.
+    positionObservation = container.layer.observe(\.position) { [weak self] _, _ in
+      MainActor.assumeIsolated { self?.reportInset() }
+    }
     canvas.insertSubview(container, belowSubview: dim)
 
     host.sizingOptions = [.intrinsicContentSize]
