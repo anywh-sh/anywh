@@ -1,6 +1,7 @@
 const COMMANDS: &[&str] = &[
   "show_context_menu",
   "set_top_bar",
+  "set_top_bar_menu",
   "set_drawer",
   "set_gesture_hint",
   "set_context_target",

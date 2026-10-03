@@ -74,6 +74,9 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
     topBarStore.onMenu = { [weak controller] in controller?.toggle() }
     topBarStore.onNewConversation = { [weak self] in self?.trigger("topBarNewConversation", data: JSObject()) }
+    topBarStore.onModelSelect = { [weak self] modelId in
+      try? self?.trigger("topBarModelSelect", data: ModelEvent(modelId: modelId))
+    }
     drawerStore.onSelect = { [weak self, weak controller] session in
       try? self?.trigger("drawerSelect", data: SessionEvent(sessionId: session.id, profileId: session.profileId))
       controller?.setOpen(false)
@@ -178,6 +181,14 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       self.shell?.applyTheme(args.theme)
       // The page may have reloaded since the inset was last injected.
       self.shell?.reportTopInset()
+      invoke.resolve()
+    }
+  }
+
+  @objc func setTopBarMenu(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(TopBarMenuArgs.self)
+    Task { @MainActor in
+      self.topBarStore.menu = args
       invoke.resolve()
     }
   }

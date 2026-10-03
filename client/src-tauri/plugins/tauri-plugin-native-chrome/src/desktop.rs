@@ -41,6 +41,10 @@ impl<R: Runtime> NativeChrome<R> {
     Ok(())
   }
 
+  pub fn set_top_bar_menu(&self, _payload: TopBarMenuRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
   pub fn set_composer(&self, _payload: ComposerRequest) -> crate::Result<()> {
     Ok(())
   }

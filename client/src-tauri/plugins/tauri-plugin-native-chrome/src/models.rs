@@ -78,6 +78,33 @@ pub struct TopBarRequest {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TopBarMenuOption {
+  pub id: String,
+  pub label: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarModelMenu {
+  pub label: String,
+  pub current_id: Option<String>,
+  pub current_label: String,
+  pub options: Vec<TopBarMenuOption>,
+  pub locked: bool,
+  pub locked_hint: String,
+  pub enabled: bool,
+}
+
+/// Contents of the dropdown the top bar's center opens. `model: None` means
+/// there is nothing to offer, so the bar stays a plain label.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarMenuRequest {
+  pub model: Option<TopBarModelMenu>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DrawerStrings {
   /// Label of the button after the list, shown when `has_more`.
   pub all_chats: String,
@@ -255,6 +282,18 @@ mod tests {
     assert_eq!(request.typo.as_ref().unwrap().send_anyway_label, "Send anyway");
     assert_eq!(request.strings.scroll_to_end, "Scroll to bottom");
     assert_eq!(request.theme.primary_foreground, "#ffffff");
+  }
+
+  const MENU_FIXTURE: &str = include_str!("../tests/fixtures/top_bar_menu_payload.json");
+
+  #[test]
+  fn top_bar_menu_fixture_round_trips_to_the_same_json() {
+    let request: TopBarMenuRequest = serde_json::from_str(MENU_FIXTURE).unwrap();
+    let model = request.model.as_ref().unwrap();
+    assert_eq!(model.options.len(), 2);
+    assert_eq!(model.current_id.as_deref(), Some("opus"));
+    let again = serde_json::to_value(&request).unwrap();
+    assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
   }
 
   #[test]
