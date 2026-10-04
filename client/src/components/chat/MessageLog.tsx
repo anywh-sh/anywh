@@ -407,6 +407,16 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
     const el = parentRef.current;
     if (!el) return;
 
+    // A smooth scroll (the jump-to-end arrow) keeps heading for the end it was
+    // aimed at. If the bottom padding shrinks meanwhile (the keyboard closing),
+    // WebKit lets it land past the new end and leaves a blank gap there. Pull it
+    // back; the margin leaves a finger's rubber band alone.
+    const maxScrollTop = el.scrollHeight - el.clientHeight;
+    if (el.scrollTop > maxScrollTop + 24 && !userScrollingRef.current) {
+      el.scrollTo({ top: maxScrollTop, behavior: "instant" });
+      return;
+    }
+
     const scrollTop = el.scrollTop;
     const scrolledUp = scrollTop < prevScrollTopRef.current - 1;
     prevScrollTopRef.current = scrollTop;
