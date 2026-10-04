@@ -37,6 +37,21 @@ struct TopBarView: View {
     let mode = store.menu?.mode
     if model != nil || mode != nil {
       Menu {
+        if let model {
+          Menu {
+            Picker(selection: Binding(get: { model.currentId ?? "" }, set: { store.onModelSelect($0) })) {
+              ForEach(model.options) { Text($0.label).tag($0.id) }
+            } label: { EmptyView() }
+          } label: {
+            Label {
+              Text(model.currentLabel)
+              Text(model.locked ? model.lockedHint : model.label)
+            } icon: {
+              Image(systemName: model.locked ? "lock" : "cpu")
+            }
+          }
+          .disabled(!model.enabled)
+        }
         if let mode {
           Menu {
             ForEach(mode.options) { option in
@@ -60,21 +75,6 @@ struct TopBarView: View {
             }
           }
           .disabled(!mode.enabled)
-        }
-        if let model {
-          Menu {
-            Picker(selection: Binding(get: { model.currentId ?? "" }, set: { store.onModelSelect($0) })) {
-              ForEach(model.options) { Text($0.label).tag($0.id) }
-            } label: { EmptyView() }
-          } label: {
-            Label {
-              Text(model.currentLabel)
-              Text(model.locked ? model.lockedHint : model.label)
-            } icon: {
-              Image(systemName: model.locked ? "lock" : "cpu")
-            }
-          }
-          .disabled(!model.enabled)
         }
       } label: {
         titleLabel(args, theme, chevron: true)
