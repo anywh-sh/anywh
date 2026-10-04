@@ -33,21 +33,49 @@ struct TopBarView: View {
   /// dropdown (Liquid Glass on iOS 26); without one it stays a plain label.
   @ViewBuilder
   private func titleMenu(_ args: TopBarArgs, _ theme: ShellTheme) -> some View {
-    if let model = store.menu?.model {
+    let model = store.menu?.model
+    let mode = store.menu?.mode
+    if model != nil || mode != nil {
       Menu {
-        Menu {
-          Picker(selection: Binding(get: { model.currentId ?? "" }, set: { store.onModelSelect($0) })) {
-            ForEach(model.options) { Text($0.label).tag($0.id) }
-          } label: { EmptyView() }
-        } label: {
-          Label {
-            Text(model.currentLabel)
-            Text(model.locked ? model.lockedHint : model.label)
-          } icon: {
-            Image(systemName: model.locked ? "lock" : "cpu")
+        if let mode {
+          Menu {
+            ForEach(mode.options) { option in
+              Button {
+                store.onModeSelect(option.id)
+              } label: {
+                Label {
+                  Text(option.label)
+                  if !option.hint.isEmpty { Text(option.hint) }
+                } icon: {
+                  if option.id == mode.currentId { Image(systemName: "checkmark") }
+                }
+              }
+            }
+          } label: {
+            Label {
+              Text(mode.currentLabel)
+              Text(mode.label)
+            } icon: {
+              Image(systemName: "checklist")
+            }
           }
+          .disabled(!mode.enabled)
         }
-        .disabled(!model.enabled)
+        if let model {
+          Menu {
+            Picker(selection: Binding(get: { model.currentId ?? "" }, set: { store.onModelSelect($0) })) {
+              ForEach(model.options) { Text($0.label).tag($0.id) }
+            } label: { EmptyView() }
+          } label: {
+            Label {
+              Text(model.currentLabel)
+              Text(model.locked ? model.lockedHint : model.label)
+            } icon: {
+              Image(systemName: model.locked ? "lock" : "cpu")
+            }
+          }
+          .disabled(!model.enabled)
+        }
       } label: {
         titleLabel(args, theme, chevron: true)
       }

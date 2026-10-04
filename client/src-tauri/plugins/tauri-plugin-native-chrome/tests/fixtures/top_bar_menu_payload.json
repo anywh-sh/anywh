@@ -4,11 +4,35 @@
     "currentId": "opus",
     "currentLabel": "Opus 4.1",
     "options": [
-      { "id": "opus", "label": "Opus 4.1" },
-      { "id": "sonnet", "label": "Sonnet 4.5" }
+      {
+        "id": "opus",
+        "label": "Opus 4.1"
+      },
+      {
+        "id": "sonnet",
+        "label": "Sonnet 4.5"
+      }
     ],
     "locked": false,
     "lockedHint": "The model is fixed after the first message",
+    "enabled": true
+  },
+  "mode": {
+    "label": "Mode",
+    "currentId": "default",
+    "currentLabel": "Manual",
+    "options": [
+      {
+        "id": "default",
+        "label": "Manual",
+        "hint": "Asks before every edit or command"
+      },
+      {
+        "id": "plan",
+        "label": "Plan mode",
+        "hint": "Plans the work without touching anything"
+      }
+    ],
     "enabled": true
   }
 }
