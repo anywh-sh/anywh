@@ -30,11 +30,16 @@ describe("buildTimeline", () => {
     expect(items).toHaveLength(1);
   });
 
-  it("leaves tasks and plans out of groups, splitting the run around them", () => {
+  it("leaves plans out of groups, splitting the run around them", () => {
     const plan = call({ name: "plan", toolKind: "other", plan: [] });
+    const items = buildTimeline([read("/a.ts"), plan, read("/b.ts")]);
+    expect(items.map((i) => i.kind)).toEqual(["group", "single", "group"]);
+  });
+
+  it("does not draw a task at all — its subagent has a card of its own — and does not split a run", () => {
     const task = call({ toolKind: "task", subject: { kind: "task", label: "explore" } });
-    const items = buildTimeline([read("/a.ts"), plan, read("/b.ts"), task, read("/c.ts")]);
-    expect(items.map((i) => i.kind)).toEqual(["group", "single", "group", "single", "group"]);
+    const items = buildTimeline([read("/a.ts"), task, read("/b.ts")]);
+    expect(items.map((i) => (i.kind === "group" ? i.calls.length : i.kind))).toEqual([2]);
   });
 
   it("gives a group the id of its first call, stable as the group grows", () => {

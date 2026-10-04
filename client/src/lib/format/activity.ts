@@ -7,12 +7,15 @@ type ActivityDict = Dictionary["chat"]["activity"];
  * run of consecutive tool calls drawn as one summarized line. */
 export type TimelineItem = { kind: "single"; entry: LogEntry } | { kind: "group"; id: string; calls: ToolCallEntry[] };
 
-/** Whether a call is part of the flowing activity, as opposed to the two
- * kinds that keep a card of their own: a delegated task (its work happens
- * out of sight, the card is the only window into it) and a plan (a
- * checklist, not an action). */
+/** Whether a call is part of the flowing activity, as opposed to a plan,
+ * which keeps a card of its own (a checklist, not an action). A delegated
+ * task is not drawn in the log at all — see `buildTimeline`. */
 export function isActivityCall(entry: LogEntry): entry is ToolCallEntry {
   return entry.kind === "tool-call" && entry.plan === undefined && entry.toolKind !== "task";
+}
+
+function isTaskCall(entry: LogEntry): boolean {
+  return entry.kind === "tool-call" && entry.toolKind === "task";
 }
 
 /**
@@ -21,6 +24,10 @@ export function isActivityCall(entry: LogEntry): entry is ToolCallEntry {
  * it. A call that failed stays in its group (the group says how many did).
  * Adjacency in the log, not turn boundaries, is the rule: it reads the same
  * live and on replay, without a concept the wire doesn't carry.
+ *
+ * A delegated task is left out: the subagent it spawned has its own card at
+ * the end of the conversation (`LaunchedInBackground`), and drawing it here
+ * too showed the same agent twice. It neither joins nor splits a group.
  */
 export function buildTimeline(entries: LogEntry[]): TimelineItem[] {
   const items: TimelineItem[] = [];
@@ -30,6 +37,7 @@ export function buildTimeline(entries: LogEntry[]): TimelineItem[] {
     run = [];
   };
   for (const entry of entries) {
+    if (isTaskCall(entry)) continue;
     if (isActivityCall(entry)) {
       run.push(entry);
       continue;
