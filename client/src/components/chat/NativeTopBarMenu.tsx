@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useDict } from "@/i18n";
 import { catalogHasModel } from "@/lib/composer/modelCatalog";
-import { listenTopBarModeSelect, listenTopBarModelSelect, setNativeTopBarMenu } from "@/lib/platform/nativeShell";
-import { buildTopBarMenuPayload } from "@/lib/platform/nativeTopBarMenuModel";
+import { effortsFor, effectiveModelOption } from "@/lib/composer/effortCatalog";
+import { listenTopBarEffortSelect, listenTopBarModeSelect, listenTopBarModelSelect, setNativeTopBarMenu } from "@/lib/platform/nativeShell";
+import { buildTopBarMenuPayload, EFFORT_DEFAULT_ROW_ID } from "@/lib/platform/nativeTopBarMenuModel";
 import type { ModelCatalog, ModelChoice, PermissionMode, PermissionModeOption } from "@/lib/relay/relay-types";
 
 interface NativeTopBarMenuProps {
@@ -14,15 +15,30 @@ interface NativeTopBarMenuProps {
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
   onChangePermissionMode: (mode: PermissionMode) => void;
+  effort: string | null;
+  onChangeEffort: (effort: string | null) => void;
 }
 
 /** Headless: feeds the iOS top bar dropdown the session's models and
  * permission modes and applies the pick. Renders nothing. */
 export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   const dict = useDict();
-  const { catalog, model, locked, connected, permissionMode, permissionModes } = props;
-  const payload = useMemo(() => buildTopBarMenuPayload({ catalog, model, locked, connected, permissionMode, permissionModes, dict }),
-    [catalog, model, locked, connected, permissionMode, permissionModes, dict],);
+  const { catalog, model, locked, connected, permissionMode, permissionModes, effort } = props;
+  const payload = useMemo(
+    () =>
+      buildTopBarMenuPayload({
+        catalog,
+        model,
+        locked,
+        connected,
+        permissionMode,
+        permissionModes,
+        effort,
+        effortCatalogOption: effectiveModelOption(catalog, model),
+        dict,
+      }),
+    [catalog, model, locked, connected, permissionMode, permissionModes, effort, dict],
+  );
 
   const lastSentRef = useRef<string | null>(null);
   useEffect(() => {
@@ -36,7 +52,7 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   useEffect(
     () => () => {
       lastSentRef.current = null;
-      void setNativeTopBarMenu({ model: null, mode: null }).catch(() => {});
+      void setNativeTopBarMenu({ model: null, mode: null, effort: null }).catch(() => {});
     },
     [],
   );
@@ -65,6 +81,18 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
         const current = propsRef.current;
         if (!current.permissionModes.some((option) => option.id === modeId)) return;
         current.onChangePermissionMode(modeId);
+      }),
+    );
+    void track(
+      listenTopBarEffortSelect(({ effortId }) => {
+        const current = propsRef.current;
+        const levels = effortsFor(current.catalog, current.model);
+        if (effortId === EFFORT_DEFAULT_ROW_ID) {
+          // Only a model that reports no default of its own has that row.
+          if (effectiveModelOption(current.catalog, current.model)?.defaultEffort === undefined && levels.length > 0) current.onChangeEffort(null);
+          return;
+        }
+        if (levels.some((level) => level.id === effortId)) current.onChangeEffort(effortId);
       }),
     );
     return () => {

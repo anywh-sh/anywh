@@ -84,4 +84,23 @@ describe("reasoning effort in the composer", () => {
     relay.emit({ type: "model_state", model: "haiku" });
     await vi.waitFor(() => expect(screen.queryByRole("button", { name: en.chat.composer.effortAriaLabel })).toBeNull());
   });
+
+  it("a new conversation resumes the last-used effort", async () => {
+    cleanup();
+    relay.uninstall();
+    localStorage.setItem("anywh:last-effort", JSON.stringify({ "default:claude": "max" }));
+    relay = installFakeRelay("fake relay reply", { agentId: "claude", catalogs: CLAUDE_CATALOGS });
+    await openConversation();
+    await vi.waitFor(() => expect(relay.sent).toContainEqual({ type: "set_effort", effort: "max" }));
+  });
+
+  it("doesn't resume a last-used effort the model doesn't list", async () => {
+    cleanup();
+    relay.uninstall();
+    localStorage.setItem("anywh:last-effort", JSON.stringify({ "default:claude": "xhigh" }));
+    relay = installFakeRelay("fake relay reply", { agentId: "claude", catalogs: CLAUDE_CATALOGS });
+    const trigger = await openConversation();
+    await vi.waitFor(() => expect(trigger).toBeEnabled());
+    expect(relay.sent.some((m) => m.type === "set_effort")).toBe(false);
+  });
 });

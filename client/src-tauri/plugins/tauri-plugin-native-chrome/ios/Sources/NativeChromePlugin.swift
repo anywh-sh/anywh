@@ -80,6 +80,9 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     topBarStore.onModeSelect = { [weak self] modeId in
       try? self?.trigger("topBarModeSelect", data: ModeEvent(modeId: modeId))
     }
+    topBarStore.onEffortSelect = { [weak self] effortId in
+      try? self?.trigger("topBarEffortSelect", data: EffortEvent(effortId: effortId))
+    }
     drawerStore.onSelect = { [weak self, weak controller] session in
       try? self?.trigger("drawerSelect", data: SessionEvent(sessionId: session.id, profileId: session.profileId))
       controller?.setOpen(false)

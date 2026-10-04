@@ -35,7 +35,8 @@ struct TopBarView: View {
   private func titleMenu(_ args: TopBarArgs, _ theme: ShellTheme) -> some View {
     let model = store.menu?.model
     let mode = store.menu?.mode
-    if model != nil || mode != nil {
+    let effort = store.menu?.effort
+    if model != nil || mode != nil || effort != nil {
       Menu {
         if let model {
           Menu {
@@ -75,6 +76,21 @@ struct TopBarView: View {
             }
           }
           .disabled(!mode.enabled)
+        }
+        if let effort {
+          Menu {
+            Picker(selection: Binding(get: { effort.currentId ?? "" }, set: { store.onEffortSelect($0) })) {
+              ForEach(effort.options) { Text($0.label).tag($0.id) }
+            } label: { EmptyView() }
+          } label: {
+            Label {
+              Text(effort.currentLabel)
+              Text(effort.label)
+            } icon: {
+              Image(systemName: "gauge.with.dots.needle.67percent")
+            }
+          }
+          .disabled(!effort.enabled)
         }
       } label: {
         titleLabel(args, theme, chevron: true)

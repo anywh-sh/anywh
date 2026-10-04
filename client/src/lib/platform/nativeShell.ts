@@ -51,6 +51,16 @@ export interface NativeTopBarMenuPayload {
     options: { id: string; label: string; hint: string }[];
     enabled: boolean;
   } | null;
+  /** Same `null` rule as `model` (none when the effective model takes no
+   * effort). Never locked. When the CLI reports no default effort, the first
+   * option is the "no pick" row (id `default`). */
+  effort: {
+    label: string;
+    currentId: string | null;
+    currentLabel: string;
+    options: { id: string; label: string }[];
+    enabled: boolean;
+  } | null;
 }
 
 export interface NativeDrawerStrings {
@@ -147,6 +157,12 @@ export function setNativeTopBarMenu(payload: NativeTopBarMenuPayload): Promise<v
 /** Fires when the user picks a model in the top bar dropdown. */
 export async function listenTopBarModelSelect(handler: (event: { modelId: string }) => void): Promise<() => void> {
   const listener = await addPluginListener("native-chrome", "topBarModelSelect", handler);
+  return () => void listener.unregister();
+}
+
+/** Fires when the user picks a reasoning effort in the top bar dropdown. */
+export async function listenTopBarEffortSelect(handler: (event: { effortId: string }) => void): Promise<() => void> {
+  const listener = await addPluginListener("native-chrome", "topBarEffortSelect", handler);
   return () => void listener.unregister();
 }
 

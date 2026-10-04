@@ -71,8 +71,42 @@ describe("buildTopBarMenuPayload", () => {
     expect(mode?.currentLabel).toBe(en.chat.composer.pending);
   });
 
+  describe("effort", () => {
+    const claudeOption = { id: "opus", label: "Opus", efforts: [{ id: "low" }, { id: "high" }, { id: "max" }] };
+    const codexOption = { id: "gpt", label: "GPT", defaultEffort: "medium", efforts: [{ id: "low" }, { id: "medium" }] };
+
+    it("is null when the effective model takes no effort", () => {
+      expect(build().effort).toBeNull();
+      expect(build({ effortCatalogOption: { id: "haiku", label: "Haiku" } }).effort).toBeNull();
+    });
+
+    it("leads with a Default row, current while nothing is picked, when the CLI reports no default (Claude)", () => {
+      const { effort } = build({ effortCatalogOption: claudeOption });
+      expect(effort?.currentId).toBe("default");
+      expect(effort?.currentLabel).toBe(en.chat.composer.effortDefault);
+      expect(effort?.options.map((o) => o.id)).toEqual(["default", "low", "high", "max"]);
+      expect(build({ effortCatalogOption: claudeOption, effort: "high" }).effort?.currentId).toBe("high");
+    });
+
+    it("preselects the model's own default and has no Default row (Codex)", () => {
+      const { effort } = build({ effortCatalogOption: codexOption });
+      expect(effort?.currentId).toBe("medium");
+      expect(effort?.currentLabel).toBe("Medium");
+      expect(effort?.options.map((o) => o.id)).toEqual(["low", "medium"]);
+    });
+
+    it("is never locked: only the connection disables it", () => {
+      expect(build({ effortCatalogOption: codexOption, locked: true }).effort?.enabled).toBe(true);
+      expect(build({ effortCatalogOption: codexOption, connected: false }).effort?.enabled).toBe(false);
+    });
+  });
+
   it("matches the shared fixture the native side decodes", () => {
-    const payload = build({ permissionMode: "default" });
+    const payload = build({
+      permissionMode: "default",
+      effort: "high",
+      effortCatalogOption: { id: "opus", label: "Opus", efforts: [{ id: "low" }, { id: "high" }, { id: "max" }] },
+    });
     expect(payload.model).toMatchObject({ currentId: "opus", enabled: true, locked: false });
     expect({ ...payload, model: { ...payload.model, lockedHint: en.chat.composer.modelLocked } }).toEqual({
       ...fixture,

@@ -34,5 +34,29 @@
       }
     ],
     "enabled": true
+  },
+  "effort": {
+    "label": "Effort",
+    "currentId": "high",
+    "currentLabel": "High",
+    "options": [
+      {
+        "id": "default",
+        "label": "Default"
+      },
+      {
+        "id": "low",
+        "label": "Low"
+      },
+      {
+        "id": "high",
+        "label": "High"
+      },
+      {
+        "id": "max",
+        "label": "Max"
+      }
+    ],
+    "enabled": true
   }
 }
