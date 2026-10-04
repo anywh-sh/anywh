@@ -61,8 +61,8 @@ export function isSetPermissionModeMessage(value: unknown): value is { type: "se
   );
 }
 
-// No fixed enum here on purpose — the model catalog is now whatever the
-// CLI's own `/model` probe reports (defaultModel.ts), which can grow without
+// No fixed enum here on purpose — the model catalog is whatever the
+// CLI's own model probe reports (`probes/modelCatalog.ts`), which can grow without
 // a relay change. A garbage value just makes the CLI itself reject the turn
 // with its own error, same reasoning as the composer's `/model` parsing
 // (client/src/lib/composer/slashCommands.ts).
@@ -74,6 +74,14 @@ export function isSetModelMessage(value: unknown): value is { type: "set_model";
     typeof (value as { model?: unknown }).model === "string" &&
     (value as { model: string }).model.length > 0
   );
+}
+
+/** Opaque level id, same reasoning as `isSetModelMessage`; `null` clears the
+ * pick. The session itself refuses a level the current model doesn't list. */
+export function isSetEffortMessage(value: unknown): value is { type: "set_effort"; effort: string | null } {
+  if (typeof value !== "object" || value === null || (value as { type?: unknown }).type !== "set_effort") return false;
+  const effort = (value as { effort?: unknown }).effort;
+  return effort === null || (typeof effort === "string" && effort.length > 0);
 }
 
 /** No fixed enum here either, same reasoning as `isSetPermissionModeMessage`

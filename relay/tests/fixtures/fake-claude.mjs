@@ -198,8 +198,8 @@ if (args[0] === "--version") {
           response: {
             models: [
               { value: "default", resolvedModel: "claude-fake-opus-9", displayName: "Default (recommended)", description: "Fake Opus 9 · Best for everyday tasks" },
-              { value: "fake-sonnet", resolvedModel: "claude-fake-sonnet-9", displayName: "Fake Sonnet 9", description: "Efficient" },
-              { value: "fake-opus", resolvedModel: "claude-fake-opus-9", displayName: "Fake Opus 9", description: "For complex work" },
+              { value: "fake-sonnet", resolvedModel: "claude-fake-sonnet-9", displayName: "Fake Sonnet 9", description: "Efficient", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"] },
+              { value: "fake-opus", resolvedModel: "claude-fake-opus-9", displayName: "Fake Opus 9", description: "For complex work", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
               { value: "claude-fake-opus-8", resolvedModel: "claude-fake-opus-8", displayName: "Fake Opus 8" },
             ],
           },
@@ -213,7 +213,11 @@ if (args[0] === "--version") {
   const resumeId = flagValue("--resume");
   const sessionId = resumeId ?? randomUUID();
 
-  const replyText = process.env.FAKE_CLAUDE_REPLY ?? "ok";
+  // A turn that was handed `--effort` says so in its reply, so a test can
+  // assert the flag reached the CLI without a side channel. No other
+  // fixture-driven test passes the flag, so their replies are unchanged.
+  const effortArg = flagValue("--effort");
+  const replyText = `${process.env.FAKE_CLAUDE_REPLY ?? "ok"}${effortArg ? ` [effort=${effortArg}]` : ""}`;
   const errorMessage = process.env.FAKE_CLAUDE_ERROR;
   const model = "claude-fake-5";
 

@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentEvent, ToolOutcome, ToolSubject } from "../protocol/agent-event.js";
 import type { ClaudeEvent } from "./defs/claude/index.js";
+import { claudeRuntimeDef } from "./defs/claude/index.js";
+import { parseClaudeModelCatalog } from "./defs/claude/modelCatalog.js";
+import { codexRuntimeDef, parseCodexModelList } from "./defs/codex.js";
 import { mapClaudeEvent } from "./streams/claudeStreamJson.js";
 import { mapCodexNotification } from "./streams/codexAppServer.js";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
@@ -123,4 +126,30 @@ test("codex: the relay's own bridge is identifiable as such from the subject alo
   const events = CODEX_TURN.flatMap(([method, params]) => mapCodexNotification(method, params));
   const bridge = events.filter((event) => event.type === "tool_started" && event.subject?.kind === "mcp" && event.subject.server === "anywh-choice");
   assert.equal(bridge.length, 1);
+});
+
+// Effort contract: a def whose catalog lists efforts for a model must put
+// `TurnContext.effortId` into its turn invocation, or the dropdown would be a
+// placebo. Catalog fixtures are trimmed real replies (Claude Code 2.1.289,
+// codex-cli 0.154.0).
+test("claude: effortId reaches the spawn as --effort", () => {
+  const catalog = parseClaudeModelCatalog(
+    JSON.stringify({ type: "control_response", response: { response: { models: [{ value: "opus", displayName: "Opus 5.5", supportsEffort: true, supportedEffortLevels: ["low", "max"] }] } } }),
+  );
+  const effortId = catalog?.options[0]?.efforts?.[0]?.id;
+  assert.ok(effortId);
+  if (claudeRuntimeDef.exec.kind !== "spawnPerTurn") throw new Error("expected spawnPerTurn");
+  const args = claudeRuntimeDef.exec.buildArgs({ cwd: "/tmp", prompt: "hi", permissionModeId: "default", effortId });
+  assert.equal(args[args.indexOf("--effort") + 1], effortId);
+});
+
+test("codex: effortId reaches turn/start", () => {
+  const catalog = parseCodexModelList(
+    JSON.stringify({ id: 2, result: { data: [{ id: "gpt-5.5", displayName: "GPT-5.5", hidden: false, defaultReasoningEffort: "medium", supportedReasoningEfforts: [{ reasoningEffort: "low", description: "" }] }] } }),
+  );
+  const effortId = catalog?.options[0]?.efforts?.[0]?.id;
+  assert.ok(effortId);
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const spec = codexRuntimeDef.exec.turn.start({ cwd: "/tmp", prompt: "hi", permissionModeId: "read-only", effortId }, "t1");
+  assert.equal((spec.params as { effort?: unknown }).effort, effortId);
 });

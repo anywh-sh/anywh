@@ -3,7 +3,7 @@ import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../r
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
-import type { AgentRuntimeDef, ApprovalRequest, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
+import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -40,6 +40,7 @@ import {
   broadcastCwdState,
   broadcastDraftState,
   broadcastExcept,
+  broadcastEffortState,
   broadcastModelState,
   broadcastPermissionMode,
   broadcastSuggestion,
@@ -50,6 +51,7 @@ import {
   sendContextUsage,
   sendCwdState,
   sendDraftState,
+  sendEffortState,
   sendModelState,
   sendPermissionMode,
   sendSuggestion,
@@ -132,6 +134,15 @@ export interface SharedSessionOptions {
   /** Called whenever the model changes — same pattern as
    * `onPermissionModeChange`, can fire at any moment. */
   onModelChange?: (model: ModelChoice) => void;
+  /** Reasoning effort already persisted for this session's agent, if any. */
+  initialEffort?: string;
+  /** Called whenever the effort pick changes (`null` = cleared). */
+  onEffortChange?: (effort: string | null) => void;
+  /** The probed model catalog of an agent, if it has arrived yet. Lets the
+   * session know which efforts the effective model accepts: an effort the
+   * model doesn't list is never sent (Claude silently ignores bad values,
+   * Codex may reject them) and is cleared when a model change makes it stale. */
+  getModelCatalog?: (agentId: string) => ModelCatalog | undefined;
   /** Called with every `AgentEvent` of every turn (real or a background
    * follow-up) — this is how `SessionManager` wires up the
    * `BackgroundJobTracker` without `SharedSession` needing to know anything
@@ -236,6 +247,11 @@ export class SharedSession implements SessionDriverHost {
   private permissionModes: readonly PermissionModeOption[];
   private permissionMode: PermissionMode;
   private model: ModelChoice | undefined;
+  private effort: string | undefined;
+  /** Whether the last turn this session ran carried an explicit effort —
+   * Codex's `turn/start.effort` is sticky, so going back to "no pick" has to
+   * re-send the model's default once. */
+  private lastTurnSentEffort = false;
   private draft: string;
   private contextUsage: ContextUsage | undefined;
   /** Next-message suggestion (generated asynchronously at the end of every
@@ -319,6 +335,7 @@ export class SharedSession implements SessionDriverHost {
     this.permissionModes = availableModes(this.def, toHostPlatform());
     this.permissionMode = resolveInitialMode(this.permissionModes, options.initialPermissionMode, this.def.permissions.defaultModeId);
     this.model = options.initialModel;
+    this.effort = options.initialEffort;
     this.contextUsage = options.initialContextUsage;
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
@@ -383,7 +400,7 @@ export class SharedSession implements SessionDriverHost {
    * new choice to `SessionStore`, so the picker will show it correctly on
    * this session's NEXT connection, just not this one, mid-turn.
    */
-  switchAgent(next: { def: AgentRuntimeDef; initialSessionId?: string; initialPermissionMode: string; initialModel?: string }): void {
+  switchAgent(next: { def: AgentRuntimeDef; initialSessionId?: string; initialPermissionMode: string; initialModel?: string; initialEffort?: string }): void {
     if (this.turnStartedAt !== null) return;
     this.driver.dispose();
     this.def = next.def;
@@ -391,6 +408,8 @@ export class SharedSession implements SessionDriverHost {
     this.permissionModes = availableModes(next.def, toHostPlatform());
     this.permissionMode = resolveInitialMode(this.permissionModes, next.initialPermissionMode, next.def.permissions.defaultModeId);
     this.model = next.initialModel;
+    this.effort = next.initialEffort;
+    this.lastTurnSentEffort = false;
     // The previous agent's usage — Codex and Claude don't share a context
     // window, so there's nothing honest to translate it to. The indicator
     // simply won't show anything until this agent's next turn.
@@ -407,6 +426,7 @@ export class SharedSession implements SessionDriverHost {
     this.broadcastAgentState();
     this.broadcastPermissionMode();
     this.broadcastModelState();
+    this.broadcastEffortState();
   }
 
   getPermissionMode(): PermissionMode {
@@ -423,6 +443,34 @@ export class SharedSession implements SessionDriverHost {
 
   getModel(): ModelChoice | undefined {
     return this.model;
+  }
+
+  getEffort(): string | undefined {
+    return this.effort;
+  }
+
+  /** The catalog entry of the model a turn would run on now: the explicit
+   * pick, else the CLI's own default. `undefined` while the catalog hasn't
+   * been probed or doesn't know the model. */
+  private effectiveModelOption(): ModelOption | undefined {
+    const catalog = this.options.getModelCatalog?.(this.def.identity.id);
+    const id = this.model ?? catalog?.defaultId;
+    return id === undefined ? undefined : catalog?.options.find((option) => option.id === id);
+  }
+
+  /** The effort a turn carries: only one the effective model lists. With no
+   * pick after a turn that sent one, the model's default is sent explicitly,
+   * because Codex keeps the last `turn/start.effort` for later turns. */
+  private effortForTurn(): string | undefined {
+    const option = this.effectiveModelOption();
+    let sent: string | undefined;
+    if (this.effort !== undefined) {
+      if (option?.efforts?.some((entry) => entry.id === this.effort)) sent = this.effort;
+    } else if (this.lastTurnSentEffort) {
+      sent = option?.defaultEffort;
+    }
+    this.lastTurnSentEffort = sent !== undefined && this.effort !== undefined;
+    return sent;
   }
 
   getContextUsage(): ContextUsage | undefined {
@@ -471,12 +519,34 @@ export class SharedSession implements SessionDriverHost {
   }
 
   /** Same pattern as `setPermissionMode` — takes effect from the next turn
-   * on, no lock or value validation (the WS handler already validates
-   * against `MODEL_CHOICES` before it gets here). */
+   * on, no lock or value validation (the model id is opaque; a bad one makes
+   * the CLI itself reject the turn). An effort the new model doesn't accept
+   * is cleared, back to that model's default. */
   setModel(model: ModelChoice): void {
     this.model = model;
     this.options.onModelChange?.(model);
     this.broadcastModelState();
+    if (this.effort !== undefined) {
+      const efforts = this.effectiveModelOption()?.efforts;
+      // An unknown catalog keeps the pick: `runTurn` still gates what is sent.
+      if (efforts && !efforts.some((entry) => entry.id === this.effort)) this.setEffort(null);
+    }
+  }
+
+  /** Never locked: changes at any turn. A level the effective model doesn't
+   * list is refused (the client gets the real state back, so a stale dropdown
+   * snaps back, as with `setPermissionMode`). */
+  setEffort(effort: string | null): void {
+    if (effort !== null) {
+      const efforts = this.effectiveModelOption()?.efforts;
+      if (!efforts?.some((entry) => entry.id === effort)) {
+        this.broadcastEffortState();
+        return;
+      }
+    }
+    this.effort = effort ?? undefined;
+    this.options.onEffortChange?.(effort);
+    this.broadcastEffortState();
   }
 
   getDraft(): string {
@@ -702,6 +772,7 @@ export class SharedSession implements SessionDriverHost {
     this.sendAgentState(socket);
     this.sendPermissionMode(socket);
     this.sendModelState(socket);
+    this.sendEffortState(socket);
     if (this.title !== null) this.sendTitle(socket, this.title);
     this.sendContextUsage(socket);
     this.sendDraftState(socket);
@@ -1133,7 +1204,14 @@ export class SharedSession implements SessionDriverHost {
     let turnStopped = false;
     let planChoiceText: string | undefined;
     try {
-      const ctx: TurnContext = { cwd: this.cwd, prompt: text, modelId: this.model, permissionModeId: this.permissionMode };
+      const effortId = this.effortForTurn();
+      const ctx: TurnContext = {
+        cwd: this.cwd,
+        prompt: text,
+        modelId: this.model,
+        ...(effortId !== undefined ? { effortId } : {}),
+        permissionModeId: this.permissionMode,
+      };
       const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
@@ -1297,6 +1375,14 @@ export class SharedSession implements SessionDriverHost {
 
   private broadcastModelState(): void {
     broadcastModelState(this.clients, this.model);
+  }
+
+  private sendEffortState(target: WebSocket): void {
+    sendEffortState(target, this.effort);
+  }
+
+  private broadcastEffortState(): void {
+    broadcastEffortState(this.clients, this.effort);
   }
 
   private sendDraftState(target: WebSocket): void {

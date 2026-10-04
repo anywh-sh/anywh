@@ -11,6 +11,7 @@ import {
   isSetAgentMessage,
   isSetCwdMessage,
   isSetDraftMessage,
+  isSetEffortMessage,
   isSetModelMessage,
   isSetPermissionModeMessage,
   isStopTurnMessage,
@@ -50,6 +51,10 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
   }
   if (isSetModelMessage(parsed)) {
     session.setModel(parsed.model);
+    return;
+  }
+  if (isSetEffortMessage(parsed)) {
+    session.setEffort(parsed.effort);
     return;
   }
   if (isSetDraftMessage(parsed)) {

@@ -127,6 +127,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
           for (const agentEvent of mapClaudeEvent(event, memos)) onEvent(agentEvent);
         },
         mcpConfig,
+        ctx.effortId,
       );
       return { stopped, contextUsage, lastAssistantText };
     } finally {
