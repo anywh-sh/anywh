@@ -38,6 +38,10 @@ struct ComposerView: View {
       }
       .padding(.horizontal, 6)
       .padding(.vertical, 4)
+      // The field is shorter than the pill: without this, taps above or below
+      // the line (or on the padding) did nothing. Buttons keep their own taps.
+      .contentShape(Rectangle())
+      .onTapGesture { store.textView?.becomeFirstResponder() }
       .glassBackground(
         RoundedRectangle(cornerRadius: expanded ? 22 : 26, style: .continuous),
         tint: Color(hex: theme.tint)
