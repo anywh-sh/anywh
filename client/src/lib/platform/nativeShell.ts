@@ -43,6 +43,14 @@ export interface NativeTopBarMenuPayload {
     lockedHint: string;
     enabled: boolean;
   } | null;
+  /** Same `null` rule as `model`. */
+  mode: {
+    label: string;
+    currentId: string | null;
+    currentLabel: string;
+    options: { id: string; label: string; hint: string }[];
+    enabled: boolean;
+  } | null;
 }
 
 export interface NativeDrawerStrings {
@@ -139,5 +147,11 @@ export function setNativeTopBarMenu(payload: NativeTopBarMenuPayload): Promise<v
 /** Fires when the user picks a model in the top bar dropdown. */
 export async function listenTopBarModelSelect(handler: (event: { modelId: string }) => void): Promise<() => void> {
   const listener = await addPluginListener("native-chrome", "topBarModelSelect", handler);
+  return () => void listener.unregister();
+}
+
+/** Fires when the user picks a permission mode in the top bar dropdown. */
+export async function listenTopBarModeSelect(handler: (event: { modeId: string }) => void): Promise<() => void> {
+  const listener = await addPluginListener("native-chrome", "topBarModeSelect", handler);
   return () => void listener.unregister();
 }

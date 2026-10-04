@@ -350,6 +350,7 @@ export const ptBr: Dictionary = {
   shell: {
     titleBar: {
       model: "Modelo",
+      mode: "Modo",
       menu: "Menu",
       settings: "Configurações",
       back: "Voltar",

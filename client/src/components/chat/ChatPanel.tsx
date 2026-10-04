@@ -15,7 +15,7 @@ import { MessageLog, type MessageLogHandle } from "@/components/chat/MessageLog"
 import { MessageLogSkeleton } from "@/components/chat/MessageLogSkeleton";
 import { ChatIdleState } from "@/components/chat/ChatIdleState";
 import { Composer } from "@/components/chat/Composer";
-import { NativeModelMenu } from "@/components/chat/NativeModelMenu";
+import { NativeTopBarMenu } from "@/components/chat/NativeTopBarMenu";
 import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
@@ -848,7 +848,16 @@ export function ChatPanel({
 
             {isIOS() ? (
               <>
-                <NativeModelMenu catalog={modelCatalog} model={model} locked={cwdLocked} connected={connected} onChangeModel={setModel} />
+                <NativeTopBarMenu
+                  catalog={modelCatalog}
+                  model={model}
+                  locked={cwdLocked}
+                  connected={connected}
+                  onChangeModel={setModel}
+                  permissionMode={permissionMode}
+                  permissionModes={permissionModes}
+                  onChangePermissionMode={setPermissionMode}
+                />
                 <NativeComposer
                   ref={composerRef}
                   disabled={!connected}

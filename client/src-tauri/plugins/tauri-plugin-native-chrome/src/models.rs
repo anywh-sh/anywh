@@ -95,12 +95,33 @@ pub struct TopBarModelMenu {
   pub enabled: bool,
 }
 
-/// Contents of the dropdown the top bar's center opens. `model: None` means
-/// there is nothing to offer, so the bar stays a plain label.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarModeOption {
+  pub id: String,
+  pub label: String,
+  /// One-line explanation shown under the label; empty when there is none.
+  pub hint: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarModeMenu {
+  pub label: String,
+  pub current_id: Option<String>,
+  pub current_label: String,
+  pub options: Vec<TopBarModeOption>,
+  pub enabled: bool,
+}
+
+/// Contents of the dropdown the top bar's center opens. Each entry is `None`
+/// when there is nothing to offer for it; with both `None` the bar stays a
+/// plain label.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TopBarMenuRequest {
   pub model: Option<TopBarModelMenu>,
+  pub mode: Option<TopBarModeMenu>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -292,6 +313,7 @@ mod tests {
     let model = request.model.as_ref().unwrap();
     assert_eq!(model.options.len(), 2);
     assert_eq!(model.current_id.as_deref(), Some("opus"));
+    assert_eq!(request.mode.as_ref().unwrap().options.len(), 2);
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
   }

@@ -856,6 +856,8 @@ export interface Dictionary {
     titleBar: {
       /** Row of the iOS top bar dropdown that opens the model list. */
       model: string;
+      /** Row of the same dropdown that opens the permission-mode list. */
+      mode: string;
       menu: string;
       settings: string;
       back: string;

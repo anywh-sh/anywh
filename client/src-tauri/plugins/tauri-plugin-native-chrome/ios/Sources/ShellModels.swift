@@ -50,8 +50,23 @@ struct TopBarModelMenuArgs: Decodable {
   let enabled: Bool
 }
 
+struct TopBarModeOption: Decodable, Identifiable {
+  let id: String
+  let label: String
+  let hint: String
+}
+
+struct TopBarModeMenuArgs: Decodable {
+  let label: String
+  let currentId: String?
+  let currentLabel: String
+  let options: [TopBarModeOption]
+  let enabled: Bool
+}
+
 struct TopBarMenuArgs: Decodable {
   let model: TopBarModelMenuArgs?
+  let mode: TopBarModeMenuArgs?
 }
 
 struct DrawerStrings: Decodable {
@@ -129,6 +144,10 @@ struct ModelEvent: Encodable {
   let modelId: String
 }
 
+struct ModeEvent: Encodable {
+  let modeId: String
+}
+
 struct ProfileEvent: Encodable {
   let profileId: String
 }
@@ -169,6 +188,7 @@ final class TopBarStore: ObservableObject {
   @Published var args: TopBarArgs?
   @Published var menu: TopBarMenuArgs?
   var onModelSelect: (String) -> Void = { _ in }
+  var onModeSelect: (String) -> Void = { _ in }
   var onMenu: () -> Void = {}
   var onNewConversation: () -> Void = {}
 }

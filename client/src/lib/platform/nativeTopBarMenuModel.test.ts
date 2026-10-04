@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getDictionary } from "@/i18n";
-import type { ModelCatalog } from "@/lib/relay/relay-types";
+import type { ModelCatalog, PermissionModeOption } from "@/lib/relay/relay-types";
 import { buildTopBarMenuPayload } from "./nativeTopBarMenuModel";
 import fixture from "../../../src-tauri/plugins/tauri-plugin-native-chrome/tests/fixtures/top_bar_menu_payload.json";
 
@@ -13,13 +13,18 @@ const catalog: ModelCatalog = {
   defaultId: "opus",
 };
 
+const permissionModes: PermissionModeOption[] = [
+  { id: "default", pausesForApproval: true },
+  { id: "plan", pausesForApproval: true },
+];
+
 const build = (over: Partial<Parameters<typeof buildTopBarMenuPayload>[0]> = {}) =>
-  buildTopBarMenuPayload({ catalog, model: null, locked: false, connected: true, dict: en, ...over });
+  buildTopBarMenuPayload({ catalog, model: null, locked: false, connected: true, permissionMode: "plan", permissionModes, dict: en, ...over });
 
 describe("buildTopBarMenuPayload", () => {
   it("is null without a catalog", () => {
-    expect(build({ catalog: null })).toEqual({ model: null });
-    expect(build({ catalog: { options: [] } })).toEqual({ model: null });
+    expect(build({ catalog: null }).model).toBeNull();
+    expect(build({ catalog: { options: [] } }).model).toBeNull();
   });
 
   it("falls back to the catalog default when no model is picked", () => {
@@ -44,10 +49,33 @@ describe("buildTopBarMenuPayload", () => {
     expect(model?.currentLabel).toBe(en.chat.composer.pending);
   });
 
+  it("offers the session's permission modes with their copy", () => {
+    const { mode } = build();
+    expect(mode?.currentId).toBe("plan");
+    expect(mode?.currentLabel).toBe(en.chat.composer.mode.plan.label);
+    expect(mode?.options).toEqual([
+      { id: "default", ...en.chat.composer.mode.default },
+      { id: "plan", ...en.chat.composer.mode.plan },
+    ]);
+    expect(mode?.enabled).toBe(true);
+  });
+
+  it("has no mode entry before the relay reports the modes", () => {
+    expect(build({ permissionModes: [], permissionMode: null }).mode).toBeNull();
+  });
+
+  it("disables the mode entry while disconnected or before a mode is known", () => {
+    expect(build({ connected: false }).mode?.enabled).toBe(false);
+    const { mode } = build({ permissionMode: null });
+    expect(mode?.enabled).toBe(false);
+    expect(mode?.currentLabel).toBe(en.chat.composer.pending);
+  });
+
   it("matches the shared fixture the native side decodes", () => {
-    const payload = build();
+    const payload = build({ permissionMode: "default" });
     expect(payload.model).toMatchObject({ currentId: "opus", enabled: true, locked: false });
-    expect({ model: { ...payload.model, lockedHint: en.chat.composer.modelLocked } }).toEqual({
+    expect({ ...payload, model: { ...payload.model, lockedHint: en.chat.composer.modelLocked } }).toEqual({
+      ...fixture,
       model: { ...fixture.model, lockedHint: en.chat.composer.modelLocked },
     });
   });
