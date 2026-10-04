@@ -27,7 +27,7 @@ export interface SessionCwdState {
 export type PermissionMode = string;
 
 /** Opaque `claude --model` value — no fixed union anymore: the real catalog
- * is fetched from the CLI itself (defaultModel.ts's `/model` probe) instead
+ * is fetched from the CLI itself (`probes/modelCatalog.ts`) instead
  * of curated by hand, so it can include aliases we haven't special-cased
  * (`sonnet[1m]`, `opusplan`, a full model ID, ...) without a relay change. */
 export type ModelChoice = string;
@@ -119,6 +119,10 @@ export interface SessionEntry {
    * default behavior. Same "doesn't lock after the first turn" rule as
    * `permissionMode`, and the same per-`agentId` keying as `sessionId`. */
   model?: Record<AgentId, ModelChoice>;
+  /** The explicit reasoning-effort pick, per `agentId`. Absent means none
+   * (the model's own default). Optional, so records written before this
+   * existed need no migration. Never locks, unlike the model. */
+  effort?: Record<AgentId, string>;
   /** Optional for the same reason as `permissionMode`: tolerates records
    * written before this feature existed. Never rebuilt from Claude Code's
    * `.jsonl` on a restart — the `result` event (the only source of the real
@@ -512,6 +516,23 @@ export class SessionStore {
     this.ensureEntry(id);
     this.records[id].model ??= {};
     this.records[id].model[agentId] = model;
+    this.persist();
+  }
+
+  getEffort(id: string, agentId: AgentId): string | undefined {
+    return this.records[id]?.effort?.[agentId];
+  }
+
+  /** `null` clears the pick (back to the model's default). */
+  setEffort(id: string, agentId: AgentId, effort: string | null): void {
+    this.ensureEntry(id);
+    if (effort === null) {
+      if (this.records[id].effort?.[agentId] === undefined) return;
+      delete this.records[id].effort[agentId];
+    } else {
+      this.records[id].effort ??= {};
+      this.records[id].effort[agentId] = effort;
+    }
     this.persist();
   }
 

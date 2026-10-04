@@ -39,6 +39,13 @@ test("exec.turn.start: a picked model rides along as TurnStartParams.model, and 
   assert.equal("model" in (unpicked.params as object), false);
 });
 
+test("exec.turn.start: a picked effort rides along as TurnStartParams.effort, and is absent otherwise", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const picked = codexRuntimeDef.exec.turn.start(turnContext({ effortId: "high" }), "t1");
+  assert.equal((picked.params as { effort?: unknown }).effort, "high");
+  assert.equal("effort" in (codexRuntimeDef.exec.turn.start(turnContext(), "t1").params as object), false);
+});
+
 // `model/list`'s reply as the real app-server interleaves it on stdout
 // (codex-cli 0.154.0): the `initialize` reply and an unsolicited
 // notification first, fields this parser ignores cut.

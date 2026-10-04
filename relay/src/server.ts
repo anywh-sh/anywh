@@ -102,6 +102,8 @@ const sessionManager = new SessionManager(
     }
   },
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
+  // `modelCatalogs` is filled by the boot probes below, after this runs.
+  (agentId) => modelCatalogs[agentId],
 );
 
 const routeContext: RouteContext = {

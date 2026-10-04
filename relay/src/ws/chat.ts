@@ -12,6 +12,7 @@ import {
   isSetAgentMessage,
   isSetCwdMessage,
   isSetDraftMessage,
+  isSetEffortMessage,
   isSetModelMessage,
   isSetPermissionModeMessage,
   isStopTurnMessage,
@@ -55,6 +56,10 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
   }
   if (isPresenceMessage(parsed)) {
     session.setPresence(socket, parsed.visible);
+    return;
+  }
+  if (isSetEffortMessage(parsed)) {
+    session.setEffort(parsed.effort);
     return;
   }
   if (isSetDraftMessage(parsed)) {

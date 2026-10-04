@@ -184,6 +184,12 @@ test("buildTurnArgs: --model is only present when a model was chosen", () => {
   assert.ok(!withoutModel.includes("--model"));
 });
 
+test("buildTurnArgs: --effort is only present when an effort was chosen", () => {
+  const withEffort = buildTurnArgs("hi", "default", undefined, undefined, "xhigh");
+  assert.equal(withEffort[withEffort.indexOf("--effort") + 1], "xhigh");
+  assert.ok(!buildTurnArgs("hi", "default", undefined).includes("--effort"));
+});
+
 test("buildTurnArgs: plan mode folds the plan-mode choice marker into --append-system-prompt", () => {
   const planValue = appendSystemPromptValue(buildTurnArgs("hi", "plan", undefined));
   const defaultValue = appendSystemPromptValue(buildTurnArgs("hi", "default", undefined));

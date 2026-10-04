@@ -143,6 +143,10 @@ function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
       // means the thread keeps whatever it already runs — the account's
       // default on a fresh one.
       ...(ctx.modelId ? { model: ctx.modelId } : {}),
+      // `TurnStartParams.effort`: "override the reasoning effort for this turn
+      // and subsequent turns" (same bindings) — sticky, which is why the
+      // session re-sends the model's default when a pick is cleared.
+      ...(ctx.effortId ? { effort: ctx.effortId } : {}),
     },
   };
 }
