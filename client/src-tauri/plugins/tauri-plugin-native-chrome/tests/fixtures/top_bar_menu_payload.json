@@ -1,0 +1,14 @@
+{
+  "model": {
+    "label": "Model",
+    "currentId": "opus",
+    "currentLabel": "Opus 4.1",
+    "options": [
+      { "id": "opus", "label": "Opus 4.1" },
+      { "id": "sonnet", "label": "Sonnet 4.5" }
+    ],
+    "locked": false,
+    "lockedHint": "The model is fixed after the first message",
+    "enabled": true
+  }
+}

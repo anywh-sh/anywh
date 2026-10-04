@@ -39,6 +39,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     .invoke_handler(tauri::generate_handler![
       commands::show_context_menu,
       commands::set_top_bar,
+      commands::set_top_bar_menu,
       commands::set_drawer,
       commands::set_gesture_hint,
       commands::set_context_target,

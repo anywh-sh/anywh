@@ -31,6 +31,20 @@ export interface NativeTopBarPayload {
   theme: NativeShellTheme;
 }
 
+/** Contents of the dropdown the top bar's center opens. */
+export interface NativeTopBarMenuPayload {
+  /** `null` = nothing to offer: the bar stays a plain label. */
+  model: {
+    label: string;
+    currentId: string | null;
+    currentLabel: string;
+    options: { id: string; label: string }[];
+    locked: boolean;
+    lockedHint: string;
+    enabled: boolean;
+  } | null;
+}
+
 export interface NativeDrawerStrings {
   /** Label of the button after the list, shown when there are more sessions. */
   allChats: string;
@@ -116,4 +130,14 @@ export async function listenNativeShell(handlers: NativeShellHandlers): Promise<
   return () => {
     for (const listener of listeners) void listener.unregister();
   };
+}
+
+export function setNativeTopBarMenu(payload: NativeTopBarMenuPayload): Promise<void> {
+  return invoke("plugin:native-chrome|set_top_bar_menu", { payload });
+}
+
+/** Fires when the user picks a model in the top bar dropdown. */
+export async function listenTopBarModelSelect(handler: (event: { modelId: string }) => void): Promise<() => void> {
+  const listener = await addPluginListener("native-chrome", "topBarModelSelect", handler);
+  return () => void listener.unregister();
 }

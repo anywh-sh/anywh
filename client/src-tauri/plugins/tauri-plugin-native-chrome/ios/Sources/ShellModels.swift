@@ -35,6 +35,25 @@ struct TopBarArgs: Decodable {
   let theme: ShellTheme
 }
 
+struct TopBarMenuOption: Decodable, Identifiable {
+  let id: String
+  let label: String
+}
+
+struct TopBarModelMenuArgs: Decodable {
+  let label: String
+  let currentId: String?
+  let currentLabel: String
+  let options: [TopBarMenuOption]
+  let locked: Bool
+  let lockedHint: String
+  let enabled: Bool
+}
+
+struct TopBarMenuArgs: Decodable {
+  let model: TopBarModelMenuArgs?
+}
+
 struct DrawerStrings: Decodable {
   let allChats: String
   let loadFailed: String
@@ -106,6 +125,10 @@ struct RenameEvent: Encodable {
   let title: String
 }
 
+struct ModelEvent: Encodable {
+  let modelId: String
+}
+
 struct ProfileEvent: Encodable {
   let profileId: String
 }
@@ -144,6 +167,8 @@ extension Color {
 @MainActor
 final class TopBarStore: ObservableObject {
   @Published var args: TopBarArgs?
+  @Published var menu: TopBarMenuArgs?
+  var onModelSelect: (String) -> Void = { _ in }
   var onMenu: () -> Void = {}
   var onNewConversation: () -> Void = {}
 }

@@ -854,6 +854,8 @@ export interface Dictionary {
    * bar) doesn't drag its key along with it. */
   shell: {
     titleBar: {
+      /** Row of the iOS top bar dropdown that opens the model list. */
+      model: string;
       menu: string;
       settings: string;
       back: string;
