@@ -551,6 +551,11 @@ export function ChatPanel({
     () => (turnStartedAt === null ? null : (recentToolCallLines(log.entries, cwd, { limit: 1 })[0] ?? null)),
     [turnStartedAt, log.entries, cwd],
   );
+  // Which calls have a subagent behind them. Keyed by the ids, not the record:
+  // the record gets a new reference on every progress update, and the log only
+  // cares about which calls it names.
+  const spawnedKey = Object.keys(log.subagents).join(",");
+  const spawnedSubagentIds = useMemo(() => new Set(spawnedKey === "" ? [] : spawnedKey.split(",")), [spawnedKey]);
   const subagents = useMemo(() => runningSubagents(log.entries, log.subagents, cwd), [log.entries, log.subagents, cwd]);
 
   // Keyed on the serialized list so the effect below only reports a change
@@ -773,6 +778,7 @@ export function ChatPanel({
           entries={log.entries}
           streamingEntries={log.streamingEntries}
           attributionByToolUseId={log.attributionByToolUseId}
+          spawnedSubagentIds={spawnedSubagentIds}
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}

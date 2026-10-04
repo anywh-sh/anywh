@@ -13,10 +13,10 @@ interface ToolCallCardProps {
 const STATUS_MARK = { completed: "✓", in_progress: "▸", pending: "○" } as const;
 
 /**
- * The card for the two kinds of call that don't flow with the rest of the
- * activity: a plan (a checklist that updates) and a delegated task (its work
- * happens out of sight, so the card is the only window into it). Everything
- * else is drawn as an activity row from its normalized `subject`/`outcome`.
+ * The card for a call that doesn't flow with the rest of the activity: a
+ * plan, a checklist that updates. Everything else is drawn as an activity row
+ * from its normalized `subject`/`outcome`, and a delegated task is not drawn
+ * in the log at all (its subagent has a card at the end of the conversation).
  */
 export const ToolCallCard = memo(function ToolCallCard({ call }: ToolCallCardProps) {
   const dict = useDict();
