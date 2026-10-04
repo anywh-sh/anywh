@@ -9,6 +9,7 @@ import {
   isSetAgentMessage,
   isSetPermissionModeMessage,
   isSetModelMessage,
+  isSetEffortMessage,
   isSetDraftMessage,
   isRenameBody,
   isIdBody,
@@ -99,6 +100,15 @@ test("isSetModelMessage", () => {
   assert.equal(isSetModelMessage({ type: "set_model", model: "" }), false, "empty model string");
   assert.equal(isSetModelMessage({ type: "set_model", model: 5 }), false, "wrong type for model");
   for (const v of NON_OBJECTS) assert.equal(isSetModelMessage(v), false);
+});
+
+test("isSetEffortMessage", () => {
+  assert.equal(isSetEffortMessage({ type: "set_effort", effort: "high" }), true);
+  assert.equal(isSetEffortMessage({ type: "set_effort", effort: null }), true, "null clears the pick");
+  assert.equal(isSetEffortMessage({ type: "set_effort" }), false, "missing effort");
+  assert.equal(isSetEffortMessage({ type: "set_effort", effort: "" }), false, "empty effort string");
+  assert.equal(isSetEffortMessage({ type: "set_effort", effort: 5 }), false, "wrong type for effort");
+  for (const v of NON_OBJECTS) assert.equal(isSetEffortMessage(v), false);
 });
 
 test("isSetDraftMessage", () => {

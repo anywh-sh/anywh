@@ -199,6 +199,20 @@ test("setAgentId creates the entry if it doesn't exist yet, same as the other se
   });
 });
 
+test("effort is scoped per agentId, null clears it, and a record without one reads undefined", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("s1");
+    assert.equal(store.getEffort("s1", "claude"), undefined);
+    store.setEffort("s1", "claude", "high");
+    store.setEffort("s1", "codex", "ultra");
+    assert.equal(new SessionStore(filePath, DEFAULT_CWD).getEffort("s1", "claude"), "high");
+    store.setEffort("s1", "claude", null);
+    assert.equal(store.getEffort("s1", "claude"), undefined);
+    assert.equal(store.getEffort("s1", "codex"), "ultra");
+  });
+});
+
 test("sessionId/permissionMode/model are scoped per agentId — a second agent never clobbers the first's", () => {
   withStoreFile(undefined, (filePath) => {
     const store = new SessionStore(filePath, DEFAULT_CWD);

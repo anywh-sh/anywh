@@ -7,6 +7,7 @@ import { guessMimeFromExtension } from "@/lib/mimeTypes";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { getDefaultPath } from "@/hooks/useDefaultPaths";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
+import { getLastEffort, setLastEffort } from "@/hooks/relay/useEffortPreference";
 import { useNativeBottomInset } from "@/hooks/platform/useNativeBottomInset";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
@@ -31,6 +32,7 @@ import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import { cn } from "@/lib/utils";
 import { parseSlashCommand } from "@/lib/composer/slashCommands";
 import { activeModelLabel, catalogHasModel } from "@/lib/composer/modelCatalog";
+import { effortChoicesFor, modelAcceptsEffort } from "@/lib/composer/effortCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 
@@ -397,6 +399,8 @@ export function ChatPanel({
     setAgent,
     setPermissionMode,
     setModel,
+    effort,
+    setEffort,
     clearConversation,
     requestContextBreakdown,
     loadOlderHistory,
@@ -525,8 +529,15 @@ export function ChatPanel({
     if (!isNewConversation || appliedModelPreferenceRef.current || !ready || !agentId || !modelCatalog) return;
     appliedModelPreferenceRef.current = true;
     const preferredModel = getPreferredModel(profile.id, agentId);
-    if (preferredModel && preferredModel !== model && catalogHasModel(modelCatalog, preferredModel)) setModel(preferredModel);
-  }, [isNewConversation, ready, agentId, modelCatalog, model, profile.id, setModel]);
+    const applyModel = preferredModel !== null && preferredModel !== model && catalogHasModel(modelCatalog, preferredModel);
+    if (applyModel) setModel(preferredModel);
+    // The last-used effort rides along, but only if the model this
+    // conversation ends up on lists it (the relay refuses it otherwise). Sent
+    // after `set_model` on the same socket, so it's judged against that model.
+    const lastEffort = getLastEffort(profile.id, agentId);
+    const targetModel = applyModel ? preferredModel : model;
+    if (lastEffort !== null && lastEffort !== effort && modelAcceptsEffort(modelCatalog, targetModel, lastEffort)) setEffort(lastEffort);
+  }, [isNewConversation, ready, agentId, modelCatalog, model, effort, profile.id, setModel, setEffort]);
 
   // Records the model in use as the profile's "last used" whenever
   // it changes to a concrete value — covers manual switching (`ModelButton`,
@@ -536,6 +547,12 @@ export function ChatPanel({
   useEffect(() => {
     if (model && agentId) setLastModel(profile.id, agentId, model);
   }, [model, agentId, profile.id]);
+
+  // Same as above for the effort: remembered on every concrete change (a
+  // reset to the default isn't one, so a model switch can't erase the pick).
+  useEffect(() => {
+    if (effort && agentId) setLastEffort(profile.id, agentId, effort);
+  }, [effort, agentId, profile.id]);
 
   // Same pattern as `onTurnActiveChange` above: reports to the Tab via ref —
   // background tabs stay mounted, so this also covers a job
@@ -721,13 +738,17 @@ export function ChatPanel({
     // autocomplete menu (see Composer.tsx) — there's no toolbar
     // button there to change model/permission mode, so typing the
     // command is the only way to do it on that platform.
-    const command = parseSlashCommand(text, modelCatalog);
+    const command = parseSlashCommand(text, modelCatalog, effortChoicesFor(modelCatalog, model));
     if (command?.name === "clear") {
       clearConversation();
       return;
     }
     if (command?.name === "model") {
       setModel(command.model);
+      return;
+    }
+    if (command?.name === "effort") {
+      setEffort(command.effort);
       return;
     }
     log.addUserMessage(text, sentImages);
@@ -857,6 +878,8 @@ export function ChatPanel({
                   permissionMode={permissionMode}
                   permissionModes={permissionModes}
                   onChangePermissionMode={setPermissionMode}
+                  effort={effort}
+                  onChangeEffort={setEffort}
                 />
                 <NativeComposer
                   ref={composerRef}
@@ -898,6 +921,8 @@ export function ChatPanel({
                 model={model}
                 modelCatalog={modelCatalog}
                 onChangeModel={setModel}
+                effort={effort}
+                onChangeEffort={setEffort}
                 modelLocked={cwdLocked}
                 contextUsage={contextUsage}
                 onRequestContextBreakdown={requestContextBreakdown}

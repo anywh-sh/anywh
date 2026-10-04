@@ -90,6 +90,8 @@ const sessionManager = new SessionManager(
       if (watcher.readyState === watcher.OPEN) watcher.send(payload);
     }
   },
+  // `modelCatalogs` is filled by the boot probes below, after this runs.
+  (agentId) => modelCatalogs[agentId],
 );
 
 const routeContext: RouteContext = {

@@ -185,7 +185,7 @@ export interface McpSpawnConfig {
  * file's comment for the gap this leaves (a real engine would need
  * `TurnContext` to carry MCP config and `extraSystemPrompt` too).
  */
-export function buildTurnArgs(text: string, permissionMode: ClaudePermissionMode, model: ModelChoice | undefined, extraSystemPrompt?: string): string[] {
+export function buildTurnArgs(text: string, permissionMode: ClaudePermissionMode, model: ModelChoice | undefined, extraSystemPrompt?: string, effort?: string): string[] {
   return [
     "-p",
     text,
@@ -206,6 +206,7 @@ export function buildTurnArgs(text: string, permissionMode: ClaudePermissionMode
       .filter(Boolean)
       .join("\n\n"),
     ...(model ? ["--model", model] : []),
+    ...(effort ? ["--effort", effort] : []),
     // `bypassPermissions` is the historical default mode (the only one
     // that existed before the mode became selectable) — it
     // stays on the dedicated flag because that's the way, tested against
@@ -397,10 +398,11 @@ export class ClaudeSession {
     model: ModelChoice | undefined,
     onEvent: (event: ClaudeEvent) => void,
     mcp?: McpSpawnConfig,
+    effort?: string,
   ): Promise<SendTurnResult> {
     this.stopRequested = false;
     const args = [
-      ...buildTurnArgs(text, permissionMode, model, mcp?.extraSystemPrompt),
+      ...buildTurnArgs(text, permissionMode, model, mcp?.extraSystemPrompt, effort),
       // `mcp` combines whichever of the two independent bridges
       // `SharedSession.runTurn` decided to register for this turn's mode:
       // `allowedTools` for the `present_choice` tool outside `plan` mode

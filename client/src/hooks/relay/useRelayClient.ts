@@ -103,6 +103,8 @@ export interface UseRelayClientResult {
    * and in the final "never chosen via /model" state — the two
    * behave the same for the UI (uses the CLI default), no need to distinguish. */
   model: ModelChoice | null;
+  /** The explicit reasoning-effort pick; `null` = none (the model's default). */
+  effort: string | null;
   /** The session's agent's model catalog, exactly as that agent's CLI
    * lists it — also where `model === null` resolves to (`defaultId`).
    * `null` before `agentId` is known, in the brief window before the
@@ -137,6 +139,7 @@ export interface UseRelayClientResult {
   setAgent: (agentId: string) => void;
   setPermissionMode: (mode: PermissionMode) => void;
   setModel: (model: ModelChoice) => void;
+  setEffort: (effort: string | null) => void;
   clearConversation: () => void;
   /** Sent once, when the context usage popover first opens — see
    * `RelayClient.requestContextBreakdown`. */
@@ -196,6 +199,7 @@ export function useRelayClient(
   const [permissionMode, setPermissionModeState] = useState<PermissionMode | null>(null);
   const [permissionModes, setPermissionModes] = useState<PermissionModeOption[]>([]);
   const [model, setModelState] = useState<ModelChoice | null>(null);
+  const [effort, setEffortState] = useState<string | null>(null);
   const [modelCatalogs, setModelCatalogs] = useState<Record<string, ModelCatalog>>(getModelCatalogs);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [protocolMismatch, setProtocolMismatch] = useState<number | null>(null);
@@ -222,6 +226,7 @@ export function useRelayClient(
     setPermissionModeState(null);
     setPermissionModes([]);
     setModelState(null);
+    setEffortState(null);
     setContextUsage(null);
     setProtocolMismatch(null);
     setCompactBoundary(null);
@@ -268,6 +273,7 @@ export function useRelayClient(
         setPermissionModes(available);
       },
       onModelState: setModelState,
+      onEffortState: setEffortState,
       onModelCatalogs: (catalogs) => setModelCatalogs((current) => ({ ...current, ...catalogs })),
       onContextUsageState: setContextUsage,
       onSuggestion: setSuggestion,
@@ -431,6 +437,10 @@ export function useRelayClient(
     clientRef.current?.setModel(newModel);
   }, []);
 
+  const setEffort = useCallback((newEffort: string | null) => {
+    clientRef.current?.setEffort(newEffort);
+  }, []);
+
   const clearConversation = useCallback(() => {
     clientRef.current?.clearConversation();
   }, []);
@@ -482,6 +492,7 @@ export function useRelayClient(
     permissionMode,
     permissionModes,
     model,
+    effort,
     modelCatalog: (agentId !== null ? modelCatalogs[agentId] : undefined) ?? null,
     contextUsage,
     protocolMismatch,
@@ -494,6 +505,7 @@ export function useRelayClient(
     setAgent,
     setPermissionMode,
     setModel,
+    setEffort,
     clearConversation,
     requestContextBreakdown,
     loadOlderHistory,

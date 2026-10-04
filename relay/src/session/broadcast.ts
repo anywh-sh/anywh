@@ -107,6 +107,16 @@ export function sendModelState(target: WebSocket, model: ModelChoice | undefined
   target.send(JSON.stringify({ type: "model_state", model: model ?? null }));
 }
 
+/** Always sends — `null` is a real state (no explicit pick). A new message
+ * type with optional semantics: an older client ignores it. */
+export function sendEffortState(target: WebSocket, effort: string | undefined): void {
+  target.send(JSON.stringify({ type: "effort_state", effort: effort ?? null }));
+}
+
+export function broadcastEffortState(clients: Iterable<WebSocket>, effort: string | undefined): void {
+  for (const client of clients) sendEffortState(client, effort);
+}
+
 export function broadcastModelState(clients: Iterable<WebSocket>, model: ModelChoice | undefined): void {
   for (const client of clients) sendModelState(client, model);
 }

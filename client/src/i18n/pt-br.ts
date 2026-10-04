@@ -247,6 +247,18 @@ export const ptBr: Dictionary = {
       },
       pending: "…",
       modelLocked: "O modelo fica fixo depois do primeiro turno da conversa",
+      effortLabels: {
+        none: "Nenhum",
+        minimal: "Mínimo",
+        low: "Baixo",
+        medium: "Médio",
+        high: "Alto",
+        xhigh: "Extra alto",
+        max: "Máximo",
+        ultra: "Ultra",
+      },
+      effortDefault: "Padrão",
+      effortAriaLabel: "Esforço de raciocínio",
       context: {
         label: "Janela de contexto",
         ariaLabel: "Janela de contexto: {percent}% usada",
@@ -272,6 +284,7 @@ export const ptBr: Dictionary = {
       commands: {
         clear: "Limpa o histórico desta conversa",
         modelDefault: "Usa o modelo padrão da própria CLI",
+        effortDefault: "Usa o esforço padrão do próprio modelo",
       },
     },
     protocolMismatch: {
@@ -351,6 +364,7 @@ export const ptBr: Dictionary = {
     titleBar: {
       model: "Modelo",
       mode: "Modo",
+      effort: "Esforço",
       menu: "Menu",
       settings: "Configurações",
       back: "Voltar",

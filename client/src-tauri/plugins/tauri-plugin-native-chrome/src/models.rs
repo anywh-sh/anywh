@@ -114,14 +114,27 @@ pub struct TopBarModeMenu {
   pub enabled: bool,
 }
 
+/// Reasoning-effort entry of the dropdown. Never locked. When the CLI reports
+/// no default effort, the first option is the "no pick" row (id `default`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TopBarEffortMenu {
+  pub label: String,
+  pub current_id: Option<String>,
+  pub current_label: String,
+  pub options: Vec<TopBarMenuOption>,
+  pub enabled: bool,
+}
+
 /// Contents of the dropdown the top bar's center opens. Each entry is `None`
-/// when there is nothing to offer for it; with both `None` the bar stays a
+/// when there is nothing to offer for it; with all `None` the bar stays a
 /// plain label.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TopBarMenuRequest {
   pub model: Option<TopBarModelMenu>,
   pub mode: Option<TopBarModeMenu>,
+  pub effort: Option<TopBarEffortMenu>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -314,6 +327,9 @@ mod tests {
     assert_eq!(model.options.len(), 2);
     assert_eq!(model.current_id.as_deref(), Some("opus"));
     assert_eq!(request.mode.as_ref().unwrap().options.len(), 2);
+    let effort = request.effort.as_ref().unwrap();
+    assert_eq!(effort.current_id.as_deref(), Some("high"));
+    assert_eq!(effort.options.len(), 4);
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
   }
