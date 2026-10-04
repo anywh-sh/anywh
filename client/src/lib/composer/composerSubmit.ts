@@ -1,5 +1,6 @@
 import { parseSlashCommand, suggestSlashCommand } from "@/lib/composer/slashCommands";
 import type { ModelCatalog } from "@/lib/relay/relayClient";
+import type { EffortChoices } from "@/lib/composer/effortCatalog";
 
 export type SubmitDecision =
   | { kind: "empty" }
@@ -19,11 +20,12 @@ export function decideSubmit(input: {
   attachmentCount: number;
   confirmedTypoText: string | null;
   catalog: ModelCatalog | null;
+  efforts?: EffortChoices | null;
 }): SubmitDecision {
-  const { text, attachmentCount, confirmedTypoText, catalog } = input;
+  const { text, attachmentCount, confirmedTypoText, catalog, efforts = null } = input;
   if (!text && attachmentCount === 0) return { kind: "empty" };
   if (confirmedTypoText !== text) {
-    const suggestion = parseSlashCommand(text, catalog) === null ? suggestSlashCommand(text) : null;
+    const suggestion = parseSlashCommand(text, catalog, efforts) === null ? suggestSlashCommand(text) : null;
     if (suggestion) return { kind: "typo", suggestion };
   }
   return { kind: "send" };

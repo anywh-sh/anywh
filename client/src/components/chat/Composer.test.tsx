@@ -68,6 +68,8 @@ function Harness({
         ]}
         onChangePermissionMode={vi.fn()}
         model={null}
+        effort={null}
+        onChangeEffort={vi.fn()}
         modelCatalog={modelCatalog}
         onChangeModel={vi.fn()}
         modelLocked={false}

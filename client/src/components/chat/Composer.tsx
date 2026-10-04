@@ -34,6 +34,7 @@ import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { ModelButton } from "@/components/chat/ModelButton";
+import { EffortButton } from "@/components/chat/EffortButton";
 import { AgentPickerButton } from "@/components/chat/AgentPickerButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
@@ -41,6 +42,7 @@ import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
+import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
 import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
 import type { CompactBoundaryEvent } from "@/hooks/relay/useRelayClient";
 import type { Dictionary } from "@/i18n/dictionary";
@@ -76,6 +78,11 @@ export interface ComposerProps {
    * agent whose def declares no catalog has nothing to pick from. */
   modelCatalog: ModelCatalog | null;
   onChangeModel: (model: ModelChoice) => void;
+  /** The explicit reasoning-effort pick (`null` = the model's default) and
+   * its setter — drives `EffortButton`, which hides itself for a model with
+   * no efforts. */
+  effort: string | null;
+  onChangeEffort: (effort: string | null) => void;
   /** Same signal as `cwdLocked` (`WorkingDirectoryButton`) — true as soon as
    * the conversation has had its first turn, i.e. "the conversation is
    * locked". Switching the model at that point would require rereading the
@@ -308,13 +315,13 @@ function hardBreakAnchorPlugin() {
  * user request. Pure decoration (`Decoration.inline`), doesn't
  * touch the document — the text that goes to `onSend` remains the usual
  * plain text. */
-function slashCommandDecorationPlugin(catalogRef: MutableRefObject<ModelCatalog | null>) {
+function slashCommandDecorationPlugin(catalogRef: MutableRefObject<ModelCatalog | null>, effortsRef: MutableRefObject<EffortChoices | null>) {
   return new Plugin({
     key: new PluginKey("slashCommandDecoration"),
     props: {
       decorations(state) {
         const text = state.doc.textBetween(0, state.doc.content.size, "\n", "\n");
-        if (!parseSlashCommand(text, catalogRef.current)) return DecorationSet.empty;
+        if (!parseSlashCommand(text, catalogRef.current, effortsRef.current)) return DecorationSet.empty;
         const match = /^(\/\S+)(\s+\S+)?$/.exec(text);
         if (!match) return DecorationSet.empty;
         // Start of the first (only) paragraph's text — see the composer's
@@ -350,6 +357,7 @@ function createSlashCommandExtension(
   activeRef: MutableRefObject<boolean>,
   commandsRef: MutableRefObject<Dictionary["chat"]["composer"]>,
   catalogRef: MutableRefObject<ModelCatalog | null>,
+  effortsRef: MutableRefObject<EffortChoices | null>,
 ) {
   return Extension.create({
     name: "slashCommand",
@@ -378,7 +386,7 @@ function createSlashCommandExtension(
       }
 
       return [
-        slashCommandDecorationPlugin(catalogRef),
+        slashCommandDecorationPlugin(catalogRef, effortsRef),
         Suggestion<SlashCommandEntry, SlashCommandEntry>({
           editor: this.editor,
           char: "/",
@@ -390,8 +398,8 @@ function createSlashCommandExtension(
           // just itself as the option. Only shows while the text isn't yet a
           // complete, valid command — same check as `onSend` (ChatPanel) and
           // the visual decoration above.
-          shouldShow: ({ text }) => parseSlashCommand(text, catalogRef.current) === null,
-          items: ({ query }) => filterSlashCommands(query, commandsRef.current, catalogRef.current),
+          shouldShow: ({ text }) => parseSlashCommand(text, catalogRef.current, effortsRef.current) === null,
+          items: ({ query }) => filterSlashCommands(query, commandsRef.current, catalogRef.current, effortsRef.current),
           command: ({ editor, range, props }) => {
             editor.chain().focus().insertContentAt(range, props.command).run();
           },
@@ -471,6 +479,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     model,
     modelCatalog,
     onChangeModel,
+    effort,
+    onChangeEffort,
     modelLocked,
     contextUsage,
     onRequestContextBreakdown,
@@ -507,7 +517,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // validated and autocompleted against.
   const modelCatalogRef = useRef(modelCatalog);
   modelCatalogRef.current = modelCatalog;
-  const [slashCommandExtension] = useState(() => createSlashCommandExtension(slashMenuActiveRef, slashCopyRef, modelCatalogRef));
+  // And for what `/effort` accepts: the effective model's levels.
+  const effortChoices = effortChoicesFor(modelCatalog, model);
+  const effortChoicesRef = useRef(effortChoices);
+  effortChoicesRef.current = effortChoices;
+  const [slashCommandExtension] = useState(() => createSlashCommandExtension(slashMenuActiveRef, slashCopyRef, modelCatalogRef, effortChoicesRef));
   // Channel back to the dynamic placeholder (see `createPlaceholderExtension`)
   // and to the `Tab` handler below — both live outside Tiptap's render
   // cycle, so they don't see the `suggestion` prop update on their own.
@@ -666,6 +680,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       attachmentCount: pendingImages.length,
       confirmedTypoText: typoConfirm?.text ?? null,
       catalog: modelCatalog,
+      efforts: effortChoices,
     });
     if (decision.kind === "empty") return;
     if (decision.kind === "typo") {
@@ -785,6 +800,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               locked={modelLocked}
             />
           )}
+          <EffortButton effort={effort} model={model} catalog={modelCatalog} onChange={onChangeEffort} disabled={disabled ?? false} />
           <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}

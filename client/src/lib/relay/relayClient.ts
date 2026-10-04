@@ -377,6 +377,10 @@ export interface RelayClientCallbacks {
    * sharedSession.ts::setModel. `null` is a valid final state ("never
    * chosen via /model, uses the CLI default"), not "still loading". */
   onModelState: (model: ModelChoice | null) => void;
+  /** Sent right on connection and on every change (`sharedSession.ts::setEffort`,
+   * or reset by a model change). `null` means no explicit pick: the model's
+   * own default. Optional because a relay from before effort never sends it. */
+  onEffortState?: (effort: string | null) => void;
   /** Every installed agent's model catalog, keyed by agent id — sent as
    * soon as the relay's boot probes land (may arrive before or after the
    * connection opens), again as each further agent's lands. */
@@ -649,6 +653,8 @@ export class RelayClient {
         this.callbacks.onPermissionModeState(parsed.mode, parsed.available ?? []);
       } else if (parsed.type === "model_state") {
         this.callbacks.onModelState(parsed.model);
+      } else if (parsed.type === "effort_state") {
+        this.callbacks.onEffortState?.(parsed.effort);
       } else if (parsed.type === "model_catalogs_state") {
         recordModelCatalogs(parsed.catalogs);
         this.callbacks.onModelCatalogs?.(parsed.catalogs);
@@ -750,6 +756,12 @@ export class RelayClient {
   setModel(model: ModelChoice): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     this.socket.send(JSON.stringify({ type: "set_model", model }));
+  }
+
+  /** Same as `setModel` (no pending queue). `null` clears the pick. */
+  setEffort(effort: string | null): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(JSON.stringify({ type: "set_effort", effort }));
   }
 
   /** `/clear` — same reasoning as `setModel` about not needing

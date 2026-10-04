@@ -304,4 +304,21 @@ describe("RelayClient model catalogs", () => {
 
     expect(onModelCatalogs).toHaveBeenCalledWith(catalogs);
   });
+
+  it("reports effort_state, null included, and tolerates a caller that doesn't listen", () => {
+    const onEffortState = vi.fn();
+    const client = new RelayClient("127.0.0.1", 12345, "session-1", { ...noopCallbacks, onEffortState });
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    receive(socket, { type: "protocol_version", version: WS_PROTOCOL_VERSION });
+    receive(socket, { type: "effort_state", effort: "high" });
+    receive(socket, { type: "effort_state", effort: null });
+    expect(onEffortState.mock.calls).toEqual([["high"], [null]]);
+
+    const quiet = new RelayClient("127.0.0.1", 12346, "session-2", noopCallbacks);
+    quiet.connect();
+    const quietSocket = FakeWebSocket.instances[1];
+    receive(quietSocket, { type: "protocol_version", version: WS_PROTOCOL_VERSION });
+    expect(() => receive(quietSocket, { type: "effort_state", effort: "low" })).not.toThrow();
+  });
 });

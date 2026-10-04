@@ -19,6 +19,11 @@ import type { EditMessageErrorCode, SetCwdErrorCode } from "@/lib/relay/relay-ty
  * defensively at the call site instead (`PermissionModeButton`'s
  * `useModeCopy`) — an id this build doesn't know renders as itself, not a
  * compile error. Claude's four, Codex's three. */
+/** Reasoning-effort ids the dictionary has a label for. The wire id is an
+ * opaque string (each CLI has its own list — Codex adds `ultra`, Claude
+ * `xhigh`/`max`); an id outside this set renders as itself. */
+export type KnownEffortId = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+
 export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
 
 /** Every agent id this build has a display name for — resolved defensively
@@ -693,6 +698,12 @@ export interface Dictionary {
        * session's mode/model. */
       pending: string;
       modelLocked: string;
+      /** Keyed by `KnownEffortId`; an id the CLI lists that isn't here is shown raw. */
+      effortLabels: Record<KnownEffortId, string>;
+      /** The effort dropdown's entry meaning "no explicit pick" (offered only
+       * for a model whose CLI reports no default effort of its own). */
+      effortDefault: string;
+      effortAriaLabel: string;
       context: {
         label: string;
         ariaLabel: string;
@@ -742,6 +753,7 @@ export interface Dictionary {
       commands: {
         clear: string;
         modelDefault: string;
+        effortDefault: string;
       };
     };
     /** The relay this session is connected to speaks a WebSocket protocol
@@ -858,6 +870,8 @@ export interface Dictionary {
       model: string;
       /** Row of the same dropdown that opens the permission-mode list. */
       mode: string;
+      /** Row of the same dropdown that opens the reasoning-effort list. */
+      effort: string;
       menu: string;
       settings: string;
       back: string;
