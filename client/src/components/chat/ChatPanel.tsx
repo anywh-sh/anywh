@@ -782,8 +782,6 @@ export function ChatPanel({
           style={isIOS() ? { paddingBottom: logBottomPadding } : undefined}
           endInsetKey={isIOS() ? logBottomPadding : undefined}
           onScrollToEndVisibleChange={isIOS() ? setScrollToEndVisible : undefined}
-          // Scrolling the log closes the keyboard, as tapping out of the web editor used to.
-          onUserScrollStart={isIOS() ? () => composerRef.current?.blurIfFocused?.() : undefined}
           // On iOS editing never turns into an inline `<textarea>`
           // — `ChatPanel` never passes an id along on that platform, even
           // with `editTarget` set (see warning in the composer below).
