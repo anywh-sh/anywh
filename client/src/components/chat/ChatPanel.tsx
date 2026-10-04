@@ -905,6 +905,8 @@ export function ChatPanel({
                   permissionMode={permissionMode}
                   permissionModes={permissionModes}
                   onChangePermissionMode={setPermissionMode}
+                  effort={effort}
+                  onChangeEffort={setEffort}
                 />
                 <NativeComposer
                   ref={composerRef}
