@@ -34,6 +34,16 @@ export interface ModelOption {
   id: ModelChoice;
   label: string;
   description?: string;
+  /** Absent or empty: the model takes no reasoning effort (no picker). */
+  efforts?: EffortOption[];
+  /** The level the CLI runs when none is picked; absent when it doesn't say. */
+  defaultEffort?: string;
+}
+
+/** Mirrors the relay's `EffortOption`. `id` is opaque; labels are the client's. */
+export interface EffortOption {
+  id: string;
+  description?: string;
 }
 
 export interface ModelCatalog {
@@ -127,6 +137,8 @@ export type RelayMessage =
    * would MISinterpret, not one it simply doesn't know about yet. */
   | { type: "permission_mode_state"; mode: PermissionMode; available?: PermissionModeOption[] }
   | { type: "model_state"; model: ModelChoice | null }
+  /** The explicit reasoning-effort pick (`null` = none, the model's default). */
+  | { type: "effort_state"; effort: string | null }
   | { type: "context_usage_state"; usage: ContextUsage | null }
   /** Composer text not yet sent — "current" state (same reasoning as
    * `cwd_state`/`permission_mode_state`), sent again on every new connection
