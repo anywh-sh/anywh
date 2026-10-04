@@ -8,8 +8,10 @@ private enum Tuning {
   static let bottomWashOpacity: CGFloat = 0.65
   /// Height of the fade above the composer, from the strip's opacity to nothing.
   static let bottomWashFade: CGFloat = 16
-  /// Gap between the composer and the keyboard / the bottom safe area.
+  /// Gap between the composer and the bottom safe area (keyboard closed).
   static let bottomGap: CGFloat = 2
+  /// Gap between the composer and the top of the open keyboard.
+  static let keyboardGap: CGFloat = 8
   /// Gap between the scroll-to-end arrow and whatever sits above the strip.
   static let arrowGap: CGFloat = 4
   /// Room kept above the text field for the top bar, banners, chips and padding.
@@ -103,11 +105,15 @@ final class ComposerController {
     container.addSubview(content)
 
     canvas.keyboardLayoutGuide.followsUndockedKeyboard = false
+    // Closed, the guide's top would sit on the safe area, where the keyboard gap
+    // would override the (smaller) safe-area gap; let it rest on the screen edge
+    // so only the safe-area ceiling below applies until the keyboard opens.
+    canvas.keyboardLayoutGuide.usesBottomSafeArea = false
     let keyboardTop = canvas.keyboardLayoutGuide.topAnchor
     let safeBottom = canvas.safeAreaLayoutGuide.bottomAnchor
     // Rest on the keyboard (or the safe area when it is closed), never below
     // either: two hard ceilings and a softer pull toward the keyboard.
-    let rest = container.bottomAnchor.constraint(equalTo: keyboardTop, constant: -Tuning.bottomGap)
+    let rest = container.bottomAnchor.constraint(equalTo: keyboardTop, constant: -Tuning.keyboardGap)
     rest.priority = .defaultHigh
     let arrowBottom = arrow.bottomAnchor.constraint(
       equalTo: container.topAnchor, constant: -(Tuning.bottomWashFade + Tuning.arrowGap))
@@ -121,7 +127,7 @@ final class ComposerController {
 
       container.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: topBarSideInset),
       container.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -topBarSideInset),
-      container.bottomAnchor.constraint(lessThanOrEqualTo: keyboardTop, constant: -Tuning.bottomGap),
+      container.bottomAnchor.constraint(lessThanOrEqualTo: keyboardTop, constant: -Tuning.keyboardGap),
       container.bottomAnchor.constraint(lessThanOrEqualTo: safeBottom, constant: -Tuning.bottomGap),
       rest,
 
