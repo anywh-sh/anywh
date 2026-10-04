@@ -406,3 +406,34 @@ test("portability.mcp.loginArgs: the subcommand that doesn't start OAuth on its 
   if (codexRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
   assert.deepEqual(codexRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "sentry"]);
 });
+
+// `model/list` effort fields, codex-cli 0.154.0 (trimmed): `ultra` only on
+// the biggest model, a per-model default.
+test("models: parseCodexModelList carries supportedReasoningEfforts and defaultReasoningEffort", () => {
+  const stdout = JSON.stringify({
+    id: 2,
+    result: {
+      data: [
+        {
+          id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", description: "", hidden: false, isDefault: true, defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "low", description: "Fast responses with lighter reasoning" },
+            { reasoningEffort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+            { reasoningEffort: "ultra", description: "" },
+          ],
+        },
+        { id: "plain", displayName: "Plain", description: "", hidden: false, isDefault: false, supportedReasoningEfforts: [], defaultReasoningEffort: "medium" },
+      ],
+    },
+  });
+  const catalog = parseCodexModelList(stdout);
+  assert.deepEqual(catalog?.options[0]?.efforts, [
+    { id: "low", description: "Fast responses with lighter reasoning" },
+    { id: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+    { id: "ultra" },
+  ]);
+  assert.equal(catalog?.options[0]?.defaultEffort, "medium");
+  // A model with no listed efforts takes none, whatever default it claims.
+  assert.equal("efforts" in (catalog?.options[1] ?? {}), false);
+  assert.equal("defaultEffort" in (catalog?.options[1] ?? {}), false);
+});

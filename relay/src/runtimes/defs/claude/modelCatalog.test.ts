@@ -53,3 +53,26 @@ test("parseClaudeModelCatalog: no default pseudo-entry means no defaultId, not a
   });
   assert.deepEqual(parseClaudeModelCatalog(reply), { options: [{ id: "sonnet", label: "Sonnet 5.5" }] });
 });
+
+// Effort fields as Claude Code 2.1.289 reports them: per-model levels (no
+// `max` list difference on 4.6 — it lacks `xhigh`), nothing at all on Haiku,
+// and no default effort anywhere.
+test("parseClaudeModelCatalog: efforts come from supportedEffortLevels when supportsEffort, never a default", () => {
+  const reply = JSON.stringify({
+    type: "control_response",
+    response: {
+      response: {
+        models: [
+          { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+          { value: "claude-opus-4-6", resolvedModel: "claude-opus-4-6", displayName: "Opus 4.6", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"] },
+          { value: "haiku", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" },
+        ],
+      },
+    },
+  });
+  const catalog = parseClaudeModelCatalog(reply);
+  assert.deepEqual(catalog?.options[0]?.efforts?.map((e) => e.id), ["low", "medium", "high", "xhigh", "max"]);
+  assert.deepEqual(catalog?.options[1]?.efforts?.map((e) => e.id), ["low", "medium", "high", "max"]);
+  assert.equal("efforts" in (catalog?.options[2] ?? {}), false);
+  assert.equal(catalog?.options.some((o) => "defaultEffort" in o), false);
+});

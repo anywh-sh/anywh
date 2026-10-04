@@ -41,7 +41,7 @@
 // `initialize`'s capabilities (see `runtimes/transports/codexDaemon.ts`) —
 // without it every `turn/start` in `workspace-write` mode was rejected
 // outright, confirmed live the same way.
-import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
+import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
@@ -156,6 +156,22 @@ interface CodexModel {
   description?: unknown;
   hidden?: unknown;
   isDefault?: unknown;
+  supportedReasoningEfforts?: unknown;
+  defaultReasoningEffort?: unknown;
+}
+
+/** `ReasoningEffortOption[]` (`{reasoningEffort, description}`), codex-cli 0.154.0. */
+function codexEfforts(model: CodexModel): EffortOption[] {
+  if (!Array.isArray(model.supportedReasoningEfforts)) return [];
+  const out: EffortOption[] = [];
+  for (const raw of model.supportedReasoningEfforts as { reasoningEffort?: unknown; description?: unknown }[]) {
+    if (typeof raw?.reasoningEffort !== "string" || raw.reasoningEffort.length === 0) continue;
+    out.push({
+      id: raw.reasoningEffort,
+      ...(typeof raw.description === "string" && raw.description.length > 0 ? { description: raw.description } : {}),
+    });
+  }
+  return out;
 }
 
 /** Picks `model/list`'s reply out of the app-server's JSON-RPC stdout
@@ -175,11 +191,18 @@ export function parseCodexModelList(stdout: string): ModelCatalog | undefined {
       (model): model is CodexModel & { id: string; displayName: string } =>
         typeof model.id === "string" && model.id.length > 0 && typeof model.displayName === "string" && model.hidden !== true,
     );
-    const options: ModelOption[] = models.map((model) => ({
-      id: model.id,
-      label: model.displayName,
-      ...(typeof model.description === "string" && model.description.length > 0 ? { description: model.description } : {}),
-    }));
+    const options: ModelOption[] = models.map((model) => {
+      const efforts = codexEfforts(model);
+      return {
+        id: model.id,
+        label: model.displayName,
+        ...(typeof model.description === "string" && model.description.length > 0 ? { description: model.description } : {}),
+        ...(efforts.length > 0 ? { efforts } : {}),
+        ...(efforts.length > 0 && typeof model.defaultReasoningEffort === "string" && model.defaultReasoningEffort.length > 0
+          ? { defaultEffort: model.defaultReasoningEffort }
+          : {}),
+      };
+    });
     const defaultId = models.find((model) => model.isDefault === true)?.id;
     return { options, ...(defaultId ? { defaultId } : {}) };
   }
