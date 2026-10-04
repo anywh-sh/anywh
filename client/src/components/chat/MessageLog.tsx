@@ -46,8 +46,6 @@ interface MessageLogProps {
   /** Fires only when the "jump to end" arrow should appear or disappear (see
    * `nextScrollToEndVisible`) — a few calls per scroll, not one per frame. */
   onScrollToEndVisibleChange?: (visible: boolean) => void;
-  /** A finger starts dragging the log. */
-  onUserScrollStart?: () => void;
   /** Message editing — `id` of the `kind: "user"` entry that's
    * currently turning into a `<textarea>` (desktop only; on iOS `ChatPanel`
    * never sets this, editing there happens via the composer, not inline).
@@ -221,7 +219,6 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   style,
   endInsetKey,
   onScrollToEndVisibleChange,
-  onUserScrollStart,
   editingMessageId,
   onStartEdit,
   onCancelEdit,
@@ -288,8 +285,6 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   // scrolled all the way back down by hand.
   const userScrollingRef = useRef(false);
   const userScrollingTimeoutRef = useRef<number | undefined>(undefined);
-  const onUserScrollStartRef = useRef(onUserScrollStart);
-  onUserScrollStartRef.current = onUserScrollStart;
   const onScrollToEndVisibleChangeRef = useRef(onScrollToEndVisibleChange);
   onScrollToEndVisibleChangeRef.current = onScrollToEndVisibleChange;
   const scrollToEndVisibleRef = useRef(false);
@@ -304,15 +299,11 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
         userScrollingRef.current = false;
       }, 150);
     };
-    const onTouchMove = () => {
-      markUserScrolling();
-      onUserScrollStartRef.current?.();
-    };
     el.addEventListener("wheel", markUserScrolling, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchmove", markUserScrolling, { passive: true });
     return () => {
       el.removeEventListener("wheel", markUserScrolling);
-      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchmove", markUserScrolling);
       window.clearTimeout(userScrollingTimeoutRef.current);
     };
   }, []);

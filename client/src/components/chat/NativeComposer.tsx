@@ -172,6 +172,17 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
     [putText],
   );
 
+  // Like any text box: the keyboard stays up while the log scrolls and closes
+  // when the user taps somewhere else on the page (the native field itself sits
+  // outside the web view, so a click here is always "elsewhere").
+  useEffect(() => {
+    const dismiss = (): void => {
+      if (focusedRef.current) void blurNativeComposer().catch(() => {});
+    };
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
