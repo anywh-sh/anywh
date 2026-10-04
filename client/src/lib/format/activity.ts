@@ -8,14 +8,32 @@ type ActivityDict = Dictionary["chat"]["activity"];
 export type TimelineItem = { kind: "single"; entry: LogEntry } | { kind: "group"; id: string; calls: ToolCallEntry[] };
 
 /** Whether a call is part of the flowing activity, as opposed to a plan,
- * which keeps a card of its own (a checklist, not an action). A delegated
- * task is not drawn in the log at all — see `buildTimeline`. */
+ * which keeps a card of its own (a checklist, not an action), or a delegated
+ * task — see `isTaskShown`. */
 export function isActivityCall(entry: LogEntry): entry is ToolCallEntry {
   return entry.kind === "tool-call" && entry.plan === undefined && entry.toolKind !== "task";
 }
 
-function isTaskCall(entry: LogEntry): boolean {
+function isTaskCall(entry: LogEntry): entry is ToolCallEntry {
   return entry.kind === "tool-call" && entry.toolKind === "task";
+}
+
+/**
+ * Whether a delegated task is drawn in the log. The subagent it spawns has a
+ * card of its own at the end of the conversation (`LaunchedInBackground`), and
+ * drawing the call too showed one agent twice — but that card only exists
+ * while the subagent runs, and only for a call the CLI reported a subagent
+ * for. So the call stays on screen exactly when nothing else tells its story:
+ * it failed (a spawn error such as an unusable `isolation` has no subagent at
+ * all, and its message is the only explanation), or it ended without the CLI
+ * ever reporting a subagent for it. While it runs, or once it ended well with
+ * a subagent behind it, the subagent card is the one representation — the
+ * call's own result is then just the "launched" acknowledgement, not a report.
+ */
+function isTaskShown(call: ToolCallEntry, spawned: ReadonlySet<string>): boolean {
+  if (!call.done) return false;
+  if (call.isError && !call.aborted) return true;
+  return call.toolUseId === undefined || !spawned.has(call.toolUseId);
 }
 
 /**
@@ -25,11 +43,11 @@ function isTaskCall(entry: LogEntry): boolean {
  * Adjacency in the log, not turn boundaries, is the rule: it reads the same
  * live and on replay, without a concept the wire doesn't carry.
  *
- * A delegated task is left out: the subagent it spawned has its own card at
- * the end of the conversation (`LaunchedInBackground`), and drawing it here
- * too showed the same agent twice. It neither joins nor splits a group.
+ * `spawned` is the `toolUseId`s the CLI reported a subagent for. A task that
+ * isn't shown (`isTaskShown`) is left out — it neither joins nor splits a
+ * group; one that is shown ends the run like any card.
  */
-export function buildTimeline(entries: LogEntry[]): TimelineItem[] {
+export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> = new Set()): TimelineItem[] {
   const items: TimelineItem[] = [];
   let run: ToolCallEntry[] = [];
   const flush = (): void => {
@@ -37,7 +55,7 @@ export function buildTimeline(entries: LogEntry[]): TimelineItem[] {
     run = [];
   };
   for (const entry of entries) {
-    if (isTaskCall(entry)) continue;
+    if (isTaskCall(entry) && !isTaskShown(entry, spawned)) continue;
     if (isActivityCall(entry)) {
       run.push(entry);
       continue;

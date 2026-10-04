@@ -22,6 +22,10 @@ interface MessageLogProps {
    * `AttributionState` for why this is a separate map instead of living on
    * the `tool-result` entry itself. */
   attributionByToolUseId: Record<string, AttributionState>;
+  /** The `toolUseId`s of the calls the CLI reported a subagent for — a task
+   * call with one is drawn by the subagent's own card, not here (see
+   * `buildTimeline`). Stable between subagent progress updates. */
+  spawnedSubagentIds: ReadonlySet<string>;
   /** Whether there are turns older than what's already loaded —
    * controls whether scrolling near the top still triggers a fetch. */
   hasMoreHistory: boolean;
@@ -212,6 +216,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   entries,
   streamingEntries,
   attributionByToolUseId,
+  spawnedSubagentIds,
   hasMoreHistory,
   loadingOlderHistory,
   onLoadOlderHistory,
@@ -241,7 +246,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   // committed (see reducer in useMessageLog) — memoizing here avoids
   // regrouping on every streaming token, when only `streamingEntries`
   // changes.
-  const items = useMemo(() => buildTimeline(entries), [entries]);
+  const items = useMemo(() => buildTimeline(entries, spawnedSubagentIds), [entries, spawnedSubagentIds]);
 
   const hasTrailing = trailing !== undefined && trailing !== null && trailing !== false;
   const allItems = useMemo<RenderItem[]>(
