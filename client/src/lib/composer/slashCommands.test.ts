@@ -82,3 +82,45 @@ describe("filterSlashCommands", () => {
     expect(filterSlashCommands("4.8", en.chat.composer, CLAUDE_CATALOG).map((entry) => entry.command)).toEqual(["/model claude-opus-4-8"]);
   });
 });
+
+const CLAUDE_EFFORTS = { levels: [{ id: "low" }, { id: "high" }, { id: "xhigh" }], offersDefault: true };
+const CODEX_EFFORTS = { levels: [{ id: "low", description: "Fast responses" }, { id: "ultra" }], offersDefault: false };
+
+describe("/effort", () => {
+  it("parses a level the effective model lists, case-insensitively, with the CLI's own casing", () => {
+    expect(parseSlashCommand("/effort XHigh", null, CLAUDE_EFFORTS)).toEqual({ name: "effort", effort: "xhigh" });
+  });
+
+  it("`default` clears the pick only where the CLI reports no default of its own", () => {
+    expect(parseSlashCommand("/effort default", null, CLAUDE_EFFORTS)).toEqual({ name: "effort", effort: null });
+    expect(parseSlashCommand("/effort default", null, CODEX_EFFORTS)).toBeNull();
+  });
+
+  it("an unknown level, or a model with no efforts, falls through like an unknown /model", () => {
+    expect(parseSlashCommand("/effort turbo", null, CLAUDE_EFFORTS)).toBeNull();
+    expect(parseSlashCommand("/effort high", null, null)).toBeNull();
+    expect(parseSlashCommand("/effort high", null)).toBeNull();
+  });
+
+  it("is typo-corrected like the other commands", () => {
+    expect(suggestSlashCommand("/efort high")).toBe("/effort high");
+  });
+
+  it("autocompletes one entry per level of the effective model, plus default only for Claude-like models", () => {
+    const claude = filterSlashCommands("effort", en.chat.composer, null, CLAUDE_EFFORTS);
+    expect(claude).toEqual([
+      { command: "/effort default", description: en.chat.composer.commands.effortDefault },
+      { command: "/effort low", description: "Low" },
+      { command: "/effort high", description: "High" },
+      { command: "/effort xhigh", description: "Extra high" },
+    ]);
+    expect(filterSlashCommands("effort", en.chat.composer, null, CODEX_EFFORTS)).toEqual([
+      { command: "/effort low", description: "Low · Fast responses" },
+      { command: "/effort ultra", description: "Ultra" },
+    ]);
+  });
+
+  it("offers nothing when the model takes no effort", () => {
+    expect(filterSlashCommands("effort", en.chat.composer, null, null)).toEqual([]);
+  });
+});

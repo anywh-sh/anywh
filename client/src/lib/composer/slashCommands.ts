@@ -1,7 +1,11 @@
 import type { Dictionary } from "@/i18n/dictionary";
 import type { ModelCatalog, ModelChoice } from "@/lib/relay/relay-types";
+import { labelForEffort, type EffortChoices } from "@/lib/composer/effortCatalog";
 
-export type SlashCommand = { name: "model"; model: ModelChoice } | { name: "clear" };
+export type SlashCommand =
+  | { name: "model"; model: ModelChoice }
+  | { name: "effort"; effort: string | null }
+  | { name: "clear" };
 
 /**
  * `/model` and `/clear` typed in the composer — recognized here
@@ -21,8 +25,12 @@ export type SlashCommand = { name: "model"; model: ModelChoice } | { name: "clea
  * "Curate" means the session's agent's own catalog (`catalog`, whatever its
  * CLI lists), matched case-insensitively and returned with the catalog's
  * own casing — no model name is known to this file.
+ *
+ * `/effort <level>` follows the same rule against the effective model's levels
+ * (`efforts`; `null` when the model takes none, so it never parses), plus
+ * `default` where the CLI reports no default of its own — which clears the pick.
  */
-export function parseSlashCommand(text: string, catalog: ModelCatalog | null): SlashCommand | null {
+export function parseSlashCommand(text: string, catalog: ModelCatalog | null, efforts: EffortChoices | null = null): SlashCommand | null {
   const trimmed = text.trim();
 
   if (/^\/clear$/i.test(trimmed)) return { name: "clear" };
@@ -35,6 +43,14 @@ export function parseSlashCommand(text: string, catalog: ModelCatalog | null): S
     if (option) return { name: "model", model: option.id };
   }
 
+  const effortMatch = efforts ? /^\/effort\s+(\S+)$/i.exec(trimmed) : null;
+  if (efforts && effortMatch) {
+    const typed = effortMatch[1].toLowerCase();
+    if (typed === "default" && efforts.offersDefault) return { name: "effort", effort: null };
+    const level = efforts.levels.find((candidate) => candidate.id.toLowerCase() === typed);
+    if (level) return { name: "effort", effort: level.id };
+  }
+
   return null;
 }
 
@@ -44,7 +60,7 @@ export function parseSlashCommand(text: string, catalog: ModelCatalog | null): S
  * to the CLI's own error (see `parseSlashCommand`'s doc comment), only the
  * keyword itself is worth flagging before it silently becomes a chat
  * message. */
-const KNOWN_COMMAND_KEYWORDS = ["clear", "model"];
+const KNOWN_COMMAND_KEYWORDS = ["clear", "model", "effort"];
 
 /** Classic Levenshtein (single-character insert/delete/substitute), no
  * transposition — plain substitution already gives adjacent-swap typos
@@ -123,7 +139,7 @@ type CommandCopy = Dictionary["chat"]["composer"];
  * went stale the day the CLI shipped the next one. Computed on every call
  * (not a static list) since the catalog is per agent and the copy follows
  * the selected language. */
-function getSlashCommandEntries(copy: CommandCopy, catalog: ModelCatalog | null): SlashCommandEntry[] {
+function getSlashCommandEntries(copy: CommandCopy, catalog: ModelCatalog | null, efforts: EffortChoices | null): SlashCommandEntry[] {
   return [
     { command: "/clear", description: copy.commands.clear },
     { command: "/model default", description: copy.commands.modelDefault },
@@ -131,6 +147,12 @@ function getSlashCommandEntries(copy: CommandCopy, catalog: ModelCatalog | null)
       command: `/model ${option.id}`,
       description: option.description ? `${option.label} · ${option.description}` : option.label,
     })),
+    // Only for a model that takes effort, one entry per level it lists.
+    ...(efforts?.offersDefault ? [{ command: "/effort default", description: copy.commands.effortDefault }] : []),
+    ...(efforts?.levels ?? []).map((level) => {
+      const label = labelForEffort(copy.effortLabels, level.id);
+      return { command: `/effort ${level.id}`, description: level.description ? `${label} · ${level.description}` : label };
+    }),
   ];
 }
 
@@ -140,8 +162,8 @@ function getSlashCommandEntries(copy: CommandCopy, catalog: ModelCatalog | null)
  * declared. The copy arrives as an argument rather than being read from a
  * hook: this runs inside Tiptap's `Suggestion`, outside React's render
  * cycle (see `Composer.tsx`). */
-export function filterSlashCommands(query: string, copy: CommandCopy, catalog: ModelCatalog | null): SlashCommandEntry[] {
-  const entries = getSlashCommandEntries(copy, catalog);
+export function filterSlashCommands(query: string, copy: CommandCopy, catalog: ModelCatalog | null, efforts: EffortChoices | null = null): SlashCommandEntry[] {
+  const entries = getSlashCommandEntries(copy, catalog, efforts);
   const q = query.trim().toLowerCase();
   if (!q) return entries;
   return entries.filter(

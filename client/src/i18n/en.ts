@@ -248,6 +248,18 @@ export const en: Dictionary = {
       },
       pending: "…",
       modelLocked: "The model is fixed after the conversation's first turn",
+      effortLabels: {
+        none: "None",
+        minimal: "Minimal",
+        low: "Low",
+        medium: "Medium",
+        high: "High",
+        xhigh: "Extra high",
+        max: "Max",
+        ultra: "Ultra",
+      },
+      effortDefault: "Default",
+      effortAriaLabel: "Reasoning effort",
       context: {
         label: "Context window",
         ariaLabel: "Context window: {percent}% used",
@@ -273,6 +285,7 @@ export const en: Dictionary = {
       commands: {
         clear: "Clears this conversation's history",
         modelDefault: "Uses the CLI's own default model",
+        effortDefault: "Uses the model's own default effort",
       },
     },
     protocolMismatch: {
@@ -352,6 +365,7 @@ export const en: Dictionary = {
     titleBar: {
       model: "Model",
       mode: "Mode",
+      effort: "Effort",
       menu: "Menu",
       settings: "Settings",
       back: "Back",
