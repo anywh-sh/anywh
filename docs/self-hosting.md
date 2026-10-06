@@ -281,6 +281,10 @@ npm run ios:device                  # Simulator, or prompts for a connected devi
 npm run ios:device -- "My iPhone"   # a specific physical device
 ```
 
+A physical device needs a signing team: export `APPLE_DEVELOPMENT_TEAM=<your
+Apple team id>` before running it. It is deliberately not part of the committed
+config.
+
 iOS has no DevTools, so the first-run screen (or pairing) is the way to
 point an iOS build at a relay. If you always target the same device, drop a
 gitignored `*.local.sh` wrapper in `client/` instead of retyping the name.
