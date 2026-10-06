@@ -10,6 +10,7 @@ import {
   isSetPermissionModeMessage,
   isSetModelMessage,
   isSetDraftMessage,
+  isPresenceMessage,
   isRenameBody,
   isIdBody,
   isCreateProfileBody,
@@ -107,6 +108,15 @@ test("isSetDraftMessage", () => {
   assert.equal(isSetDraftMessage({ type: "set_draft" }), false, "missing draft");
   assert.equal(isSetDraftMessage({ type: "set_draft", draft: 5 }), false, "wrong type for draft");
   for (const v of NON_OBJECTS) assert.equal(isSetDraftMessage(v), false);
+});
+
+test("isPresenceMessage", () => {
+  assert.equal(isPresenceMessage({ type: "presence", visible: true }), true);
+  assert.equal(isPresenceMessage({ type: "presence", visible: false }), true);
+  assert.equal(isPresenceMessage({ type: "presence" }), false, "missing visible");
+  assert.equal(isPresenceMessage({ type: "presence", visible: "true" }), false, "visible must be a boolean");
+  assert.equal(isPresenceMessage({ type: "stop_turn", visible: true }), false, "wrong type tag");
+  for (const v of NON_OBJECTS) assert.equal(isPresenceMessage(v), false);
 });
 
 test("isRenameBody", () => {

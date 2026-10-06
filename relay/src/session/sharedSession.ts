@@ -27,6 +27,7 @@ import {
   type FinishedBackgroundJob,
   type WatchedJob,
 } from "../host/backgroundJobs.js";
+import { isAnyoneLooking, leaseExpiry } from "../push/presence.js";
 import { ChoiceMachine } from "./choiceMachine.js";
 import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
 import {
@@ -60,6 +61,9 @@ import {
 export type { BroadcastMessage } from "./broadcast.js";
 
 export interface SharedSessionOptions {
+  /** How long a presence claim holds; defaults to `PRESENCE_LEASE_MS`. Only
+   * a test needs to shorten it. */
+  presenceLeaseMs?: number;
   /** session_id already persisted for this session, if any. */
   initialSessionId?: string;
   /** Called with the session_id learned after every successful turn — this
@@ -225,6 +229,9 @@ export class SharedSession implements SessionDriverHost {
   private driver: AgentSessionDriver;
   private readonly history: BroadcastMessage[] = [];
   private readonly clients = new Set<WebSocket>();
+  /** Per socket, when its "I am looking at this session" claim lapses — see
+   * push/presence.ts for why a claim is a lease. */
+  private readonly presenceExpiry = new Map<WebSocket, number>();
   private turnQueue: Promise<void> = Promise.resolve();
   private cwd: string;
   private locked: boolean;
@@ -754,6 +761,20 @@ export class SharedSession implements SessionDriverHost {
 
   removeClient(socket: WebSocket): void {
     this.clients.delete(socket);
+    this.presenceExpiry.delete(socket);
+  }
+
+  /** A client's claim about whether this session is on its screen. Not a
+   * session event: it never reaches `history` or other clients. */
+  setPresence(socket: WebSocket, visible: boolean): void {
+    const expiry = leaseExpiry(visible, Date.now(), this.options.presenceLeaseMs);
+    if (expiry === null) this.presenceExpiry.delete(socket);
+    else this.presenceExpiry.set(socket, expiry);
+  }
+
+  /** Whether any connected client currently claims to be looking. */
+  isAnyoneLooking(): boolean {
+    return isAnyoneLooking(this.presenceExpiry.values(), Date.now());
   }
 
   /** Called when the session is deleted (SessionManager.deleteSession) —
@@ -766,6 +787,7 @@ export class SharedSession implements SessionDriverHost {
       client.close();
     }
     this.clients.clear();
+    this.presenceExpiry.clear();
   }
 
   /**
