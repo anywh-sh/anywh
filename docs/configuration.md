@@ -52,6 +52,8 @@ pay-per-token.
 |---|---|---|
 | `RELAY_SESSIONS_FILE` | per-profile path | Where session and tab state is persisted across restarts. |
 | `RELAY_BACKGROUND_JOBS_FILE` | per-profile path | Where background-job state is persisted. |
+| `RELAY_PUSH_DEVICES_FILE` | per-profile path | Where the push addresses clients registered with this relay are kept (owner-only; they are capabilities). See [Push notifications](./push.md). |
+| `RELAY_PUSH_DISABLED` | unset | `1` turns remote push off for this relay: no registration routes, no delivery. Clients keep their local notifications. |
 | `RELAY_UPLOAD_DIR` | a temporary directory | Where files sent from the client (pasted images and the like) are written. |
 | `RELAY_SHUTDOWN_GRACE_MS` | `240000` (4 minutes) | How long a restart or shutdown waits for in-flight turns to finish before forcing them closed. |
 
