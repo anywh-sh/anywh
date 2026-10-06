@@ -72,6 +72,10 @@ impl<R: Runtime> NativeChrome<R> {
     self.0.run_mobile_plugin("setComposerElapsed", payload).map_err(Into::into)
   }
 
+  pub fn register_for_push(&self) -> crate::Result<PushRegistration> {
+    self.0.run_mobile_plugin("registerForPush", ()).map_err(Into::into)
+  }
+
   pub fn set_scroll_to_end(&self, payload: ScrollToEndRequest) -> crate::Result<()> {
     self.0.run_mobile_plugin("setScrollToEnd", payload).map_err(Into::into)
   }

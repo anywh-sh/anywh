@@ -49,7 +49,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
       commands::blur_composer,
       commands::set_composer_elapsed,
       commands::set_scroll_to_end,
-      commands::read_attachment
+      commands::read_attachment,
+      commands::register_for_push
     ])
     .setup(|app, api| {
       #[cfg(mobile)]

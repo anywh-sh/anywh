@@ -8,6 +8,9 @@ pub enum Error {
   Io(#[from] std::io::Error),
   #[error("attachment path is outside the attachments directory")]
   InvalidAttachmentPath,
+  #[cfg(desktop)]
+  #[error("push registration is only available on iOS")]
+  PushUnsupported,
   #[cfg(mobile)]
   #[error(transparent)]
   PluginInvoke(#[from] tauri::plugin::mobile::PluginInvokeError),

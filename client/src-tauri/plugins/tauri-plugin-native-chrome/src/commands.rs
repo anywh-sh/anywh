@@ -72,6 +72,13 @@ pub(crate) async fn set_scroll_to_end<R: Runtime>(app: AppHandle<R>, payload: Sc
     app.native_chrome().set_scroll_to_end(payload)
 }
 
+/// Asks iOS for an APNs device token and resolves once the system hands it
+/// back (or fails). Idempotent: calling it again just re-registers.
+#[command]
+pub(crate) async fn register_for_push<R: Runtime>(app: AppHandle<R>) -> Result<PushRegistration> {
+    app.native_chrome().register_for_push()
+}
+
 /// Reads a file the native picker copied into the attachments directory and
 /// deletes it. Raw bytes (not JSON) so a long video doesn't get base64'd.
 #[command]

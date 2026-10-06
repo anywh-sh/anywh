@@ -17,6 +17,7 @@ Default permissions for the plugin
 - `allow-set-composer-elapsed`
 - `allow-set-scroll-to-end`
 - `allow-read-attachment`
+- `allow-register-for-push`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -103,6 +104,32 @@ Enables the read_attachment command without any pre-configured scope.
 <td>
 
 Denies the read_attachment command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:allow-register-for-push`
+
+</td>
+<td>
+
+Enables the register_for_push command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-register-for-push`
+
+</td>
+<td>
+
+Denies the register_for_push command without any pre-configured scope.
 
 </td>
 </tr>

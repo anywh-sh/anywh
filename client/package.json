@@ -13,6 +13,7 @@
     "pretauri": "npm run build:sidecar",
     "tauri": "tauri",
     "build:sidecar": "node scripts/build-sidecar.mjs",
+    "ios:init": "npm run tauri -- ios init && node scripts/ios-entitlements.mjs",
     "ios:device": "npm run tauri -- ios dev",
     "tauri:build:win:installer": "npm run tauri -- build --bundles nsis",
     "tauri:build:win:portable": "npm run tauri -- build --no-bundle",
