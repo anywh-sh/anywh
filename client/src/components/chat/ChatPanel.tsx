@@ -8,6 +8,7 @@ import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { getDefaultPath } from "@/hooks/useDefaultPaths";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
 import { useNativeBottomInset } from "@/hooks/platform/useNativeBottomInset";
+import { useUserIdle } from "@/hooks/platform/useUserIdle";
 import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
@@ -26,7 +27,7 @@ import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
 import { BackgroundJobIndicator } from "@/components/chat/BackgroundJobIndicator";
 import { LaunchedInBackground } from "@/components/chat/LaunchedInBackground";
-import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
+import { PRESENCE_IDLE_MS, type BackgroundJobSummary, type FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import { isIOS } from "@/lib/platform/platform";
 import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import { cn } from "@/lib/utils";
@@ -482,7 +483,10 @@ export function ChatPanel({
   // mounted tab says so, not just the visible one: a background tab is the
   // one that has to say "no".
   const windowFocused = useWindowFocus();
-  const watching = isActiveTab && windowFocused;
+  // An open desktop window nobody has touched for two minutes is not being
+  // watched; a phone's screen being on already says someone is there.
+  const idle = useUserIdle(PRESENCE_IDLE_MS, !isIOS());
+  const watching = isActiveTab && windowFocused && !idle;
   useEffect(() => {
     setPresence(watching);
   }, [watching, setPresence]);

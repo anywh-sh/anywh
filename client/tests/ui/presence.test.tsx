@@ -1,5 +1,6 @@
+import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { act, cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
@@ -11,9 +12,31 @@ vi.mock("@tauri-apps/api/webview", () => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.resolve([]) }));
 
+// The idle timer itself has its own unit tests (useUserIdle.test.ts); here the
+// hook is a switch the test throws, so what is checked is ChatPanel's use of it.
+const idleSwitch = {
+  value: false,
+  listeners: new Set<() => void>(),
+  set(next: boolean) {
+    this.value = next;
+    for (const listener of this.listeners) listener();
+  },
+};
+vi.mock("@/hooks/platform/useUserIdle", () => ({
+  useUserIdle: () =>
+    useSyncExternalStore(
+      (listener) => {
+        idleSwitch.listeners.add(listener);
+        return () => idleSwitch.listeners.delete(listener);
+      },
+      () => idleSwitch.value,
+    ),
+}));
+
 let relay: FakeRelay;
 
 beforeEach(() => {
+  idleSwitch.value = false;
   localStorage.clear();
   seedShellProfile();
   relay = installFakeRelay();
@@ -25,6 +48,10 @@ afterEach(() => {
 });
 
 const sessionOf = (url: string) => new URL(url.replace("ws://", "http://")).searchParams.get("session");
+const lastClaim = () => {
+  const claims = presenceBySession();
+  return claims[claims.length - 1];
+};
 const presenceBySession = () =>
   relay.sent
     .filter((m) => m.message.type === "presence")
@@ -56,5 +83,19 @@ describe("telling the relay which conversation is on screen", () => {
       expect(claims).toContainEqual([second, true]);
       expect(claims).toContainEqual([first, false]);
     });
+  });
+
+  it("withdraws the claim while the desktop is idle, and makes it again on the next input", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    await vi.waitFor(() => expect(lastClaim()?.[1]).toBe(true));
+    const session = presenceBySession()[0]?.[0];
+
+    act(() => idleSwitch.set(true));
+    await vi.waitFor(() => expect(lastClaim()).toEqual([session, false]));
+
+    act(() => idleSwitch.set(false));
+    await vi.waitFor(() => expect(lastClaim()).toEqual([session, true]));
   });
 });

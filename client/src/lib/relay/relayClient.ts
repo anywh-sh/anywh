@@ -478,6 +478,11 @@ const ASLEEP_RECONNECT_DELAY_MS = 60_000;
  * tolerated and a client that stops running silences nothing for long. */
 export const PRESENCE_HEARTBEAT_MS = 20_000;
 
+/** On a desktop, this long without input stops counting as looking at the
+ * screen: someone who walked away from an open window should still get the
+ * notification on their phone. */
+export const PRESENCE_IDLE_MS = 120_000;
+
 export class RelayClient {
   private socket?: WebSocket;
   /** Whether this session is currently on screen — see `setPresence`. */
