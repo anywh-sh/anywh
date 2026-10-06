@@ -8,6 +8,7 @@ import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { getDefaultPath } from "@/hooks/useDefaultPaths";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
 import { useNativeBottomInset } from "@/hooks/platform/useNativeBottomInset";
+import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import { recentToolCallLines, runningSubagents } from "@/lib/format/backgroundActivity";
 import { useImageUpload, type PendingAttachment } from "@/hooks/media/useImageUpload";
@@ -407,6 +408,7 @@ export function ChatPanel({
     editMessage,
     draft,
     setDraft,
+    setPresence,
     choicePrompt,
     answerChoice,
   } = useRelayClient(profile, sessionId, {
@@ -474,6 +476,16 @@ export function ChatPanel({
     onSessionTitle: (title) => onTitleRef.current?.(title),
     onSessionDeleted: () => onDeletedRef.current?.(),
   });
+
+  // Tells the relay whether this conversation is in front of the person, so
+  // it can skip the remote push for one they are already reading. Every
+  // mounted tab says so, not just the visible one: a background tab is the
+  // one that has to say "no".
+  const windowFocused = useWindowFocus();
+  const watching = isActiveTab && windowFocused;
+  useEffect(() => {
+    setPresence(watching);
+  }, [watching, setPresence]);
 
   // Applies the profile's default path (Settings) as soon as the new
   // conversation receives its first `cwd_state` — the relay always delivers

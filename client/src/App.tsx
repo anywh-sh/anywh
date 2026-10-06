@@ -40,6 +40,7 @@ import { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
 import { useNotificationClick } from "@/hooks/platform/useNotificationClick";
 import { usePushRegistration } from "@/hooks/platform/usePushRegistration";
+import { useVisibleSession } from "@/hooks/platform/useVisibleSession";
 import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/profiles/useProfileImport";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
@@ -265,6 +266,9 @@ function AppShell() {
   }, []);
 
   const activeTabId = tabsState.activeTabId;
+  // Feeds the native delegate that decides whether a remote notification is
+  // shown over the conversation already on screen (iOS only).
+  useVisibleSession(activeTabId, windowFocused);
   // No active tab means no conversation is trying to connect at all — showing
   // "Reconnecting…" on the idle screen would be reporting a disconnect that
   // doesn't exist, since `false` here used to mean "no tab" as much as "really down".
