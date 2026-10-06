@@ -14,6 +14,7 @@ permissions = [
   "allow-set-composer-elapsed",
   "allow-set-scroll-to-end",
   "allow-read-attachment",
+  "allow-register-for-push",
   "allow-register-listener",
   "allow-remove-listener",
 ]

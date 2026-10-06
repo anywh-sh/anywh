@@ -65,6 +65,10 @@ impl<R: Runtime> NativeChrome<R> {
     Ok(())
   }
 
+  pub fn register_for_push(&self) -> crate::Result<PushRegistration> {
+    Err(crate::Error::PushUnsupported)
+  }
+
   pub fn set_scroll_to_end(&self, _payload: ScrollToEndRequest) -> crate::Result<()> {
     Ok(())
   }

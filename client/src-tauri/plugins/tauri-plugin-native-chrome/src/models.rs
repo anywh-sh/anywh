@@ -286,6 +286,23 @@ pub struct ReadAttachmentRequest {
   pub path: String,
 }
 
+/// The APNs device token (lowercase hex) and the APNs environment it is valid
+/// for. A sandbox token is rejected by the production gateway and vice versa,
+/// so whoever sends the push has to know which one this build got.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRegistration {
+  pub token: String,
+  pub environment: PushEnvironment,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PushEnvironment {
+  Sandbox,
+  Production,
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -316,6 +333,15 @@ mod tests {
     assert_eq!(request.mode.as_ref().unwrap().options.len(), 2);
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn push_registration_matches_the_swift_wire_format() {
+    let parsed: PushRegistration = serde_json::from_str(r#"{"token":"ab12","environment":"sandbox"}"#).unwrap();
+    assert_eq!(parsed.token, "ab12");
+    assert_eq!(parsed.environment, PushEnvironment::Sandbox);
+    let production: PushRegistration = serde_json::from_str(r#"{"token":"cd34","environment":"production"}"#).unwrap();
+    assert_eq!(production.environment, PushEnvironment::Production);
   }
 
   #[test]

@@ -168,6 +168,19 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
     }
   }
 
+  @objc func registerForPush(_ invoke: Invoke) throws {
+    Task { @MainActor in
+      PushRegistration.shared.onToken = { [weak self] payload in
+        try? self?.trigger("pushToken", data: payload)
+      }
+      do {
+        invoke.resolve(try await PushRegistration.shared.register())
+      } catch {
+        invoke.reject(error.localizedDescription)
+      }
+    }
+  }
+
   @objc func setScrollToEnd(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(ScrollToEndArgs.self)
     Task { @MainActor in
