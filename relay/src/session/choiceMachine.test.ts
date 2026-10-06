@@ -132,3 +132,17 @@ test("sendPendingTo: sends nothing to a client when neither slot is open", () =>
   machine.sendPendingTo(other);
   assert.deepEqual(other.sent, []);
 });
+
+test("onPromptShown: fires once per published prompt, for both kinds, and not for a rejected second choice", () => {
+  const shown: { kind: string; questions: string[] }[] = [];
+  const machine = new ChoiceMachine(new Set(), (kind, questions) => shown.push({ kind, questions: questions.map((q) => q.question) }));
+
+  machine.presentChoice([question("which?")]);
+  machine.presentChoice([question("ignored: one is already pending")]);
+  void machine.presentApprovalChoice([question("allow?")]);
+
+  assert.deepEqual(shown, [
+    { kind: "choice", questions: ["which?"] },
+    { kind: "approval", questions: ["allow?"] },
+  ]);
+});

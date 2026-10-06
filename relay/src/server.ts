@@ -19,6 +19,7 @@ import { handlePushRoutes } from "./routes/push.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
+import { PushDispatcher } from "./push/dispatcher.js";
 import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { SessionManager } from "./session/sessionManager.js";
@@ -56,6 +57,7 @@ const WAKEUPS_FILE = process.env.RELAY_WAKEUPS_FILE ?? "./wakeups.local.json";
 const PUSH_DEVICES_FILE = process.env.RELAY_PUSH_DEVICES_FILE ?? "./push-devices.local.json";
 const PUSH_DISABLED = process.env.RELAY_PUSH_DISABLED === "1";
 const pushStore = PUSH_DISABLED ? null : new PushStore(PUSH_DEVICES_FILE);
+const pushDispatcher = pushStore ? new PushDispatcher({ store: pushStore }) : null;
 
 const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
 // Always `127.0.0.1`, never `HOST`: this is the address the
@@ -99,6 +101,7 @@ const sessionManager = new SessionManager(
       if (watcher.readyState === watcher.OPEN) watcher.send(payload);
     }
   },
+  pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
 );
 
 const routeContext: RouteContext = {
