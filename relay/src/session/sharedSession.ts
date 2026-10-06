@@ -67,9 +67,7 @@ export interface SharedSessionOptions {
    * `watched` is whether a client currently claims to be looking at this
    * session — the receiver decides what that means for delivery. */
   onNotifiable?: (draft: PushNotificationDraft, watched: boolean) => void;
-  /** How long a presence claim holds; defaults to `PRESENCE_LEASE_MS`. Only
-   * a test needs to shorten it. */
-  presenceLeaseMs?: number;
+
   /** session_id already persisted for this session, if any. */
   initialSessionId?: string;
   /** Called with the session_id learned after every successful turn — this
@@ -775,7 +773,7 @@ export class SharedSession implements SessionDriverHost {
   /** A client's claim about whether this session is on its screen. Not a
    * session event: it never reaches `history` or other clients. */
   setPresence(socket: WebSocket, visible: boolean): void {
-    const expiry = leaseExpiry(visible, Date.now(), this.options.presenceLeaseMs);
+    const expiry = leaseExpiry(visible, Date.now());
     if (expiry === null) this.presenceExpiry.delete(socket);
     else this.presenceExpiry.set(socket, expiry);
   }
