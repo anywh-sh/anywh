@@ -13,6 +13,8 @@ const COMMANDS: &[&str] = &[
   "set_scroll_to_end",
   "read_attachment",
   "register_for_push",
+  "set_visible_session",
+  "take_pending_push_tap",
   "register_listener",
   "remove_listener",
 ];
