@@ -27,6 +27,7 @@ import {
   type FinishedBackgroundJob,
   type WatchedJob,
 } from "../host/backgroundJobs.js";
+import { promptDraft, turnEndedDraft, turnFailedDraft, type PushNotificationDraft } from "../push/events.js";
 import { isAnyoneLooking, leaseExpiry } from "../push/presence.js";
 import { ChoiceMachine } from "./choiceMachine.js";
 import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
@@ -61,6 +62,11 @@ import {
 export type { BroadcastMessage } from "./broadcast.js";
 
 export interface SharedSessionOptions {
+  /** Called when something happened that a person who has walked away would
+   * want to hear about (a turn ended or failed, a prompt is waiting).
+   * `watched` is whether a client currently claims to be looking at this
+   * session — the receiver decides what that means for delivery. */
+  onNotifiable?: (draft: PushNotificationDraft, watched: boolean) => void;
   /** How long a presence claim holds; defaults to `PRESENCE_LEASE_MS`. Only
    * a test needs to shorten it. */
   presenceLeaseMs?: number;
@@ -330,7 +336,9 @@ export class SharedSession implements SessionDriverHost {
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
-    this.choiceMachine = new ChoiceMachine(this.clients);
+    this.choiceMachine = new ChoiceMachine(this.clients, (kind, questions) =>
+      this.notify(promptDraft({ title: this.title, kind, firstQuestion: questions[0]?.question })),
+    );
   }
 
   /** Tears down anything the driver holds open beyond a single turn (a
@@ -770,6 +778,10 @@ export class SharedSession implements SessionDriverHost {
     const expiry = leaseExpiry(visible, Date.now(), this.options.presenceLeaseMs);
     if (expiry === null) this.presenceExpiry.delete(socket);
     else this.presenceExpiry.set(socket, expiry);
+  }
+
+  private notify(draft: PushNotificationDraft): void {
+    this.options.onNotifiable?.(draft, this.isAnyoneLooking());
   }
 
   /** Whether any connected client currently claims to be looking. */
@@ -1218,6 +1230,7 @@ export class SharedSession implements SessionDriverHost {
         this.broadcastContextUsage();
       }
       this.broadcast({ type: "agent_event", event: clock.turnEnded(stopped) });
+      this.notify(turnEndedDraft({ title: this.title, stopped, lastAssistantText, userText: synthetic ? undefined : text }));
       // Only suggests a follow-up for a turn that genuinely finished (not
       // interrupted) — fire-and-forget, doesn't delay `turn_ended`
       // above. Speed isn't a priority here (it's a convenience, not part
@@ -1240,6 +1253,7 @@ export class SharedSession implements SessionDriverHost {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[relay] turn failed:", message);
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
+      this.notify(turnFailedDraft(this.title));
     } finally {
       // Only `pendingApproval` — `pendingChoice` deliberately survives the
       // turn that created it (see the doc
