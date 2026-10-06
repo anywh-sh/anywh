@@ -39,6 +39,7 @@ import { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
 import { useNotificationClick } from "@/hooks/platform/useNotificationClick";
+import { usePushRegistration } from "@/hooks/platform/usePushRegistration";
 import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/profiles/useProfileImport";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
@@ -141,6 +142,8 @@ function AppShell() {
   // never renders at all — so collapsing the sidebar turned it off and the
   // phone never ran it.
   const { supported: profilesSupported } = useProfileSync(activeProfile);
+  // Inert unless a build installs a push address provider (docs/push.md).
+  usePushRegistration(profiles);
   // Holds the active profile's tailnet-sidecar reference for as long as it's
   // selected — the sidebar/sync hooks above run against it before any chat
   // tab (the only other thing that used to acquire one) ever mounts for it.
