@@ -76,6 +76,14 @@ impl<R: Runtime> NativeChrome<R> {
     self.0.run_mobile_plugin("registerForPush", ()).map_err(Into::into)
   }
 
+  pub fn set_visible_session(&self, payload: VisibleSessionRequest) -> crate::Result<()> {
+    self.0.run_mobile_plugin("setVisibleSession", payload).map_err(Into::into)
+  }
+
+  pub fn take_pending_push_tap(&self) -> crate::Result<PendingPushTap> {
+    self.0.run_mobile_plugin("takePendingPushTap", ()).map_err(Into::into)
+  }
+
   pub fn set_scroll_to_end(&self, payload: ScrollToEndRequest) -> crate::Result<()> {
     self.0.run_mobile_plugin("setScrollToEnd", payload).map_err(Into::into)
   }

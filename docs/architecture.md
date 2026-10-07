@@ -80,6 +80,11 @@ relay/src/
                            state machine, history paging — drives whichever
                            `AgentSessionDriver` `createSessionDriver.ts`
                            handed it, never an agent's identity directly
+  push/                    remote push: the registry of push addresses clients
+                           handed this relay, and turning session events
+                           into notifications sent to those addresses' gateway —
+                           the relay never talks to a push service itself, see
+                           docs/push.md
   bridges/                 MCP servers the relay runs for a turn to call
                            back into (present_choice, permission prompts,
                            plan-mode's text-marker fallback)

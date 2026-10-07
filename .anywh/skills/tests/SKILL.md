@@ -16,13 +16,15 @@ Avoid mock-heavy tests that assert on implementation detail instead of behavior.
 
 Avoid tautological tests (tests that just restate the implementation). Favor tests that pin down an invariant or a boundary case that could plausibly break.
 
-## The sanctioned mock boundaries: the `claude` process, and `systemctl`
+## The sanctioned mock boundaries: the `claude` process, `systemctl`, and the push gateway
 
 The relay's job is to spawn `claude -p ...` per turn and stream its JSON events back over WebSocket. That external process is the one dependency that cannot be exercised for real in a test: it needs a live subscription, it is not deterministic, and it must never run in CI.
 
 For relay integration tests, the sanctioned exception is a fake `claude` executable — a small script that emits canned JSON stream events on stdout — substituted for the real one via `PATH`/spawn override for the duration of the test. Everything else in that test (the HTTP server, the WebSocket layer, session persistence to disk, profile registry) runs for real, unmocked. This is the same shape of exception `mockAiRouter` plays in other coding-agent-desktop-app codebases: one deliberate seam at the LLM boundary, nowhere else.
 
 A second boundary exists for the same reason, added after a real incident (2026-09-07): `DELETE /control/profiles/:id` (server.ts) shells out to the real `systemctl --user disable --now anywh-relay@<id>` to tear down a profile's systemd instance. Unlike every other side effect that route touches (the `.env` file, `profiles.json` — both already sandboxed per-test via `ANYWH_ENV_DIR`), `systemctl --user` talks to the operator's REAL systemd user session — there's no env var that scopes it to a test. A test exercising this route against the real binary disabled and stopped the operator's actual live `anywh-relay@trabalho` service and SIGKILLed an in-flight `claude` conversation running under it. `SYSTEMCTL_BIN` (mirroring `AGENT_BIN`'s existing pattern) now lets tests point this one spawn at `relay/tests/fixtures/fake-systemctl.mjs` (always exits 0, no real action) instead — `relay/tests/helpers/testServer.ts` sets it automatically for every integration test. **Never call `DELETE /control/profiles/:id` (or anything else that shells out to `systemctl --user` against real unit names) in a test without confirming `SYSTEMCTL_BIN`/`process.env.SYSTEMCTL_BIN` is pointed at the fake — the profile `id` used in a test can coincide with a real profile that exists on the machine running the test.**
+
+A third boundary is the **push gateway** (`POST <gatewayUrl>`, contract C of `docs/push.md`), the service that turns the relay's notification into an APNs push. A real one needs a paid Apple account and would buzz a real phone, so the relay's own tests stand a local `node:http` server in for it: `relay/src/push/dispatcher.io.test.ts` drives the real `PushDispatcher` and the real `PushStore` (tmpdir) against it, with only the clock replaced so a backoff can be stepped through, and `relay/tests/push.test.ts` runs the whole path — a real relay and the fake `claude`, registration over HTTP, presence over the real WebSocket, a turn, then the request arriving at the fake gateway. The gateway fake only records what it was sent and answers what the test scripts (`200 {rejected, failed}`, `503`, `429`); nothing the relay itself controls is faked. The relay never talks to Apple, so there is no APNs fake here — that boundary belongs to the gateway's own repo.
 
 ## Where tests live
 
@@ -39,7 +41,7 @@ boundary a new test is allowed to touch:
   function, or the test belongs in the next tier.
 - **`<module>.io.test.ts` — boundary.** Touches a real tmpdir, a real
   child process, or a real socket — but never a *new* mock. This repo has
-  exactly two sanctioned mock boundaries (below); a test that needs a third
+  exactly three sanctioned mock boundaries (below); a test that needs a fourth
   one is a sign the module needs restructuring, not a sign to add a fake.
   `sessionStore.test.ts` (real tmpdir) is this tier's shape today; new test
   files that touch a boundary use the `.io.test.ts` suffix going forward,

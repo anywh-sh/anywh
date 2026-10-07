@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-visible-session"
+description = "Enables the set_visible_session command without any pre-configured scope."
+commands.allow = ["set_visible_session"]
+
+[[permission]]
+identifier = "deny-set-visible-session"
+description = "Denies the set_visible_session command without any pre-configured scope."
+commands.deny = ["set_visible_session"]

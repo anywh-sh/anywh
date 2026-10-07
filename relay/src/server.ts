@@ -15,9 +15,12 @@ import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
+import { handlePushRoutes } from "./routes/push.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
+import { PushDispatcher } from "./push/dispatcher.js";
+import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
@@ -47,6 +50,14 @@ const BACKGROUND_JOBS_FILE = process.env.RELAY_BACKGROUND_JOBS_FILE ?? "./backgr
 // Same reasoning as BACKGROUND_JOBS_FILE — persistence of an armed
 // `ScheduleWakeup` timer (survives a relay restart).
 const WAKEUPS_FILE = process.env.RELAY_WAKEUPS_FILE ?? "./wakeups.local.json";
+
+// Same reasoning as WAKEUPS_FILE — where the push addresses clients have
+// registered live (docs/push.md). `RELAY_PUSH_DISABLED=1` turns the whole
+// feature off: no routes, no delivery, local notifications as before.
+const PUSH_DEVICES_FILE = process.env.RELAY_PUSH_DEVICES_FILE ?? "./push-devices.local.json";
+const PUSH_DISABLED = process.env.RELAY_PUSH_DISABLED === "1";
+const pushStore = PUSH_DISABLED ? null : new PushStore(PUSH_DEVICES_FILE);
+const pushDispatcher = pushStore ? new PushDispatcher({ store: pushStore }) : null;
 
 const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
 // Always `127.0.0.1`, never `HOST`: this is the address the
@@ -90,6 +101,7 @@ const sessionManager = new SessionManager(
       if (watcher.readyState === watcher.OPEN) watcher.send(payload);
     }
   },
+  pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
 );
 
 const routeContext: RouteContext = {
@@ -99,6 +111,7 @@ const routeContext: RouteContext = {
   homeOverride: HOME_OVERRIDE,
   port: PORT,
   defaultSession: DEFAULT_SESSION,
+  pushStore,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -110,6 +123,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleThemeRoutes,
   handleFilesRoutes,
   handleHostRoutes,
+  handlePushRoutes,
 ];
 
 /**

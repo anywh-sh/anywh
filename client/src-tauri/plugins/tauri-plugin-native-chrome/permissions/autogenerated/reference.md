@@ -18,6 +18,8 @@ Default permissions for the plugin
 - `allow-set-scroll-to-end`
 - `allow-read-attachment`
 - `allow-register-for-push`
+- `allow-set-visible-session`
+- `allow-take-pending-push-tap`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -423,6 +425,32 @@ Denies the set_top_bar_menu command without any pre-configured scope.
 <tr>
 <td>
 
+`native-chrome:allow-set-visible-session`
+
+</td>
+<td>
+
+Enables the set_visible_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-set-visible-session`
+
+</td>
+<td>
+
+Denies the set_visible_session command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-chrome:allow-show-context-menu`
 
 </td>
@@ -442,6 +470,32 @@ Enables the show_context_menu command without any pre-configured scope.
 <td>
 
 Denies the show_context_menu command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:allow-take-pending-push-tap`
+
+</td>
+<td>
+
+Enables the take_pending_push_tap command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-chrome:deny-take-pending-push-tap`
+
+</td>
+<td>
+
+Denies the take_pending_push_tap command without any pre-configured scope.
 
 </td>
 </tr>

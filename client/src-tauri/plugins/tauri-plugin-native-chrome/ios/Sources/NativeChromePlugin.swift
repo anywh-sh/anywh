@@ -40,6 +40,8 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       webview.addInteraction(interaction)
       self.editMenuInteraction = interaction
 
+      self.installPushDelegate()
+
       self.bubbleMenu.install(on: webview)
       self.bubbleMenu.onSelect = { [weak self] targetId, itemId in
         try? self?.trigger("contextMenuSelect", data: BubbleSelectEvent(targetId: targetId, itemId: itemId))
@@ -170,6 +172,7 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
 
   @objc func registerForPush(_ invoke: Invoke) throws {
     Task { @MainActor in
+      self.installPushDelegate()
       PushRegistration.shared.onToken = { [weak self] payload in
         try? self?.trigger("pushToken", data: payload)
       }
@@ -178,6 +181,33 @@ class NativeChromePlugin: Plugin, UIEditMenuInteractionDelegate, @unchecked Send
       } catch {
         invoke.reject(error.localizedDescription)
       }
+    }
+  }
+
+  /// Takes the notification-center delegate slot, and keeps the tap event
+  /// pointed at this plugin. Called at load, after the notification plugin
+  /// has set itself as the delegate (it is registered first), and again on
+  /// every push command in case something took the slot since.
+  @MainActor private func installPushDelegate() {
+    PushNotificationDelegate.shared.install()
+    PushNotificationDelegate.shared.onTap = { [weak self] tap in
+      try? self?.trigger("pushNotificationClicked", data: tap)
+    }
+  }
+
+  @objc func setVisibleSession(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(VisibleSessionArgs.self)
+    Task { @MainActor in
+      self.installPushDelegate()
+      PushNotificationDelegate.shared.setVisibleSession(args.sessionId)
+      invoke.resolve()
+    }
+  }
+
+  @objc func takePendingPushTap(_ invoke: Invoke) throws {
+    Task { @MainActor in
+      self.installPushDelegate()
+      invoke.resolve(PendingPushTapPayload(tap: PushNotificationDelegate.shared.takePendingTap()))
     }
   }
 

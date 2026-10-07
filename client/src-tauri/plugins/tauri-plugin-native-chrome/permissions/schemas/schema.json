@@ -475,6 +475,18 @@
           "markdownDescription": "Denies the set_top_bar_menu command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_visible_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-visible-session",
+          "markdownDescription": "Enables the set_visible_session command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_visible_session command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-visible-session",
+          "markdownDescription": "Denies the set_visible_session command without any pre-configured scope."
+        },
+        {
           "description": "Enables the show_context_menu command without any pre-configured scope.",
           "type": "string",
           "const": "allow-show-context-menu",
@@ -487,10 +499,22 @@
           "markdownDescription": "Denies the show_context_menu command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-top-bar-menu`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-for-push`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the take_pending_push_tap command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-take-pending-push-tap",
+          "markdownDescription": "Enables the take_pending_push_tap command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the take_pending_push_tap command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-take-pending-push-tap",
+          "markdownDescription": "Denies the take_pending_push_tap command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-top-bar-menu`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-for-push`\n- `allow-set-visible-session`\n- `allow-take-pending-push-tap`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-top-bar-menu`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-for-push`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the plugin\n#### This default permission set includes:\n\n- `allow-show-context-menu`\n- `allow-set-top-bar`\n- `allow-set-top-bar-menu`\n- `allow-set-drawer`\n- `allow-set-gesture-hint`\n- `allow-set-context-target`\n- `allow-set-composer`\n- `allow-set-composer-text`\n- `allow-focus-composer`\n- `allow-blur-composer`\n- `allow-set-composer-elapsed`\n- `allow-set-scroll-to-end`\n- `allow-read-attachment`\n- `allow-register-for-push`\n- `allow-set-visible-session`\n- `allow-take-pending-push-tap`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

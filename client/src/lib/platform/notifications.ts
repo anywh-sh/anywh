@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import { inTauri } from "@/lib/platform/tauri";
+import { isIOS } from "@/lib/platform/platform";
+import { isPushActive } from "@/lib/platform/pushRegistration";
 import type { Profile } from "@/lib/profiles/profiles";
 
 let permissionGranted: boolean | null = null;
@@ -56,6 +58,15 @@ function fire(tabId: string, profile: Profile, sessionTitle: string, body: strin
   void invoke("notify_turn_complete", { title: sessionTitle, body: cleanBody(body), sessionId: tabId, profileId: profile.id });
 }
 
+/** On iOS, a profile whose relay accepted this device's push address sends
+ * the notification itself, so the local one would be a second copy. Every
+ * other case keeps the local notification: desktop (nothing else tells a
+ * desktop), and a phone whose relay predates push, has it off, or never got
+ * the address. */
+export function shouldNotifyLocally(ios: boolean, pushActiveForProfile: boolean): boolean {
+  return !(ios && pushActiveForProfile);
+}
+
 /** Called (via `App.tsx`) when a turn ends out of focus — fires the OS
  * notification right away (no async wait, no timeout race: the caller
  * already re-checked visibility right before calling this). Interrupted
@@ -71,6 +82,7 @@ export function notifyTurnComplete(
   lastAssistantText: string | null,
   stopped: boolean,
 ): void {
+  if (!shouldNotifyLocally(isIOS(), isPushActive(profile.id))) return;
   if (stopped) {
     fire(tabId, profile, sessionTitle, STOPPED_BODY);
     return;

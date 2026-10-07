@@ -65,17 +65,27 @@ class FakeRelaySocket {
   }
 }
 
+/** One message the app sent, with the socket (hence the session) it went over. */
+export interface SentMessage {
+  url: string;
+  message: Record<string, unknown>;
+}
+
 export interface FakeRelay {
   sockets: FakeRelaySocket[];
+  /** Everything the app has sent, in order, whether or not the fake answers it. */
+  sent: SentMessage[];
   /** Restores the real `WebSocket`/`fetch` globals — call in `afterEach`. */
   uninstall: () => void;
 }
 
 export function installFakeRelay(replyText = "fake relay reply"): FakeRelay {
   const sockets: FakeRelaySocket[] = [];
+  const sent: SentMessage[] = [];
 
   function onSend(socket: FakeRelaySocket, raw: string): void {
     const message = JSON.parse(raw) as { type?: string; text?: string };
+    sent.push({ url: socket.url, message });
     if (message.type !== "user_message") return; // this tier only scripts the send flow so far
     queueMicrotask(() => {
       socket.emitMessage({ type: "agent_event", event: { type: "text", text: replyText } });
@@ -105,6 +115,7 @@ export function installFakeRelay(replyText = "fake relay reply"): FakeRelay {
 
   return {
     sockets,
+    sent,
     uninstall: () => vi.unstubAllGlobals(),
   };
 }
