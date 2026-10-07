@@ -142,7 +142,7 @@ On **Linux** it takes the AppImage:
 |---|---|
 | the app | `~/.local/share/anywh/app/anywh.AppImage` |
 | a launcher on `PATH` | `~/.local/bin/anywh` |
-| the menu entry | `~/.local/share/applications/sh.anywh.client.desktop` |
+| the menu entry | `~/.local/share/applications/<app id>.desktop` — named after the identifier the release publishes as `anywh-app-id.txt` |
 | its icon | `~/.local/share/icons/hicolor/256x256/apps/anywh.png` |
 
 `ANYWH_INSTALL_DIR` moves the first of those, same as for the relay. An

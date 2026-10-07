@@ -402,6 +402,7 @@ jobs:
           FIXTURE
           chmod +x serve/anywh-linux-x64.AppImage
           printf 'fixture icon\n' > serve/anywh-icon.png
+          printf 'test.anywh.fixture\n' > serve/anywh-app-id.txt
           printf '#!/bin/sh\necho "relay installer ran: $*"\n' > serve/install-relay.sh
           (cd serve && sha256sum -- * > SHA256SUMS)
           (cd serve && python3 -m http.server 8791 --bind 127.0.0.1 > /dev/null 2>&1 &)
@@ -433,9 +434,9 @@ jobs:
           grep -q 'relay installer ran:' out.log && exit 1 || true
           [ -x "$HOME/.local/share/anywh/app/anywh.AppImage" ]
           [ -f "$HOME/.local/share/icons/hicolor/256x256/apps/anywh.png" ]
-          desktop-file-validate "$HOME/.local/share/applications/sh.anywh.client.desktop"
-          grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppImage %U\$" "$HOME/.local/share/applications/sh.anywh.client.desktop"
-          grep -q "^Icon=$HOME/.local/share/icons/" "$HOME/.local/share/applications/sh.anywh.client.desktop"
+          desktop-file-validate "$HOME/.local/share/applications/test.anywh.fixture.desktop"
+          grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppImage %U\$" "$HOME/.local/share/applications/test.anywh.fixture.desktop"
+          grep -q "^Icon=$HOME/.local/share/icons/" "$HOME/.local/share/applications/test.anywh.fixture.desktop"
           [ "$(readlink "$HOME/.local/bin/anywh")" = "$HOME/.local/share/anywh/app/anywh.AppImage" ]
 
       # The marker is what the in-app updater (Fase A2) trusts to decide
@@ -466,7 +467,7 @@ jobs:
           cat out.log
           grep -q "libfuse2 isn't installed" out.log
           [ -x "$HOME/.local/share/anywh/app/anywh.AppDir/AppRun" ]
-          grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppDir/AppRun %U\$" "$HOME/.local/share/applications/sh.anywh.client.desktop"
+          grep -q "^Exec=$HOME/.local/share/anywh/app/anywh.AppDir/AppRun %U\$" "$HOME/.local/share/applications/test.anywh.fixture.desktop"
           [ "$(readlink "$HOME/.local/bin/anywh")" = "$HOME/.local/share/anywh/app/anywh.AppDir/AppRun" ]
           marker="$HOME/.local/share/anywh/app/install-source.json"
           [ -f "$marker" ]
@@ -497,6 +498,21 @@ jobs:
           mkdir -p "$HOME/.local/share/anywh/app/.staging.99999" "$HOME/.local/share/anywh/app/.unpack.99999"
           DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app --no-launch > /dev/null 2>&1
           ls -d "$HOME/.local/share/anywh/app"/.staging.* "$HOME/.local/share/anywh/app"/.unpack.* 2>/dev/null && exit 1 || true
+
+      # The identifier becomes a file name, and it comes from a download, so
+      # a value that is not a plain identifier must stop the install rather
+      # than write a desktop entry somewhere the path leads.
+      - name: It refuses an app identifier that is not a plain identifier
+        run: |
+          printf '../../evil\n' > serve/anywh-app-id.txt
+          (cd serve && sha256sum -- * > SHA256SUMS)
+          if DISPLAY=:99 sh "$RUNNER_TEMP/alone/install.sh" --app --no-launch > out.log 2>&1; then
+            cat out.log
+            exit 1
+          fi
+          cat out.log
+          grep -q "valid app identifier" out.log
+          [ ! -e "$HOME/.local/share/evil.desktop" ]
           pkill -x anywh || true
 
       - name: A tampered app bundle never reaches the disk
