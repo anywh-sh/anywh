@@ -664,10 +664,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     const decision = decideSubmit({
       text,
       attachmentCount: pendingImages.length,
+      uploading: uploadingImage,
       confirmedTypoText: typoConfirm?.text ?? null,
       catalog: modelCatalog,
     });
-    if (decision.kind === "empty") return;
+    if (decision.kind === "empty" || decision.kind === "uploading") return;
     if (decision.kind === "typo") {
       setTypoConfirm({ text, suggestion: decision.suggestion });
       return;
@@ -689,7 +690,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const typoQuestion = copy.typo.question.split("{command}");
   const isRecording = voice.state === "recording";
   const isTranscribing = voice.state === "transcribing";
-  const canSend = !disabled && (!isEmpty || pendingImages.length > 0);
+  const canSend = !disabled && !uploadingImage && (!isEmpty || pendingImages.length > 0);
 
   return (
     <form

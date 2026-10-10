@@ -6,6 +6,7 @@ import { LocaleProvider, LOCALE_STORAGE_KEY, useLocale } from "@/i18n";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getHostInfo } from "@/lib/relay/filesClient";
+import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { ContextUsage, ModelCatalog } from "@/lib/relay/relay-types";
 
@@ -37,10 +38,14 @@ function Harness({
   agentId = "claude",
   modelCatalog = CLAUDE_CATALOG,
   contextUsage = null,
+  onSend = vi.fn(),
+  uploadingImage = false,
 }: {
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
   contextUsage?: ContextUsage | null;
+  onSend?: (text: string, images: PendingAttachment[]) => void;
+  uploadingImage?: boolean;
 }) {
   const { setLocale } = useLocale();
   return (
@@ -50,11 +55,11 @@ function Harness({
       </button>
       <Composer
         profile={profile}
-        onSend={vi.fn()}
+        onSend={onSend}
         turnInFlight={false}
         onStop={vi.fn()}
         pendingImages={[]}
-        uploadingImage={false}
+        uploadingImage={uploadingImage}
         onAddFiles={vi.fn()}
         onRemoveImage={vi.fn()}
         agentId={agentId}
@@ -81,6 +86,30 @@ function Harness({
 }
 
 describe("Composer", () => {
+  it("holds the send while an attachment is still uploading, then lets it through", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const { rerender } = render(
+      <LocaleProvider>
+        <Harness onSend={onSend} uploadingImage />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    await user.keyboard("look at this{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: en.common.send })).toBeDisabled();
+
+    rerender(
+      <LocaleProvider>
+        <Harness onSend={onSend} uploadingImage={false} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByRole("button", { name: en.common.send })).toBeEnabled();
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledWith("look at this", []);
+  });
+
   it("follows a language switch even though the editor is never recreated", async () => {
     const user = userEvent.setup();
     render(
