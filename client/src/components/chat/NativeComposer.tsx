@@ -212,10 +212,11 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
         const decision = decideSubmit({
           text,
           attachmentCount: propsRef.current.pendingImages.length,
+          uploading: propsRef.current.uploadingImage,
           confirmedTypoText: typoRef.current?.text ?? null,
           catalog: propsRef.current.modelCatalog,
         });
-        if (decision.kind === "empty") return;
+        if (decision.kind === "empty" || decision.kind === "uploading") return;
         if (decision.kind === "typo") {
           setTypo({ text, suggestion: decision.suggestion });
           return;

@@ -205,6 +205,7 @@ export const en: Dictionary = {
       placeholder: "Write a message…",
       attach: "Attach image or video",
       attachmentUploading: "uploading attachment…",
+      sendWaitingForUpload: "Waiting for the attachment to finish uploading",
       removeAttachment: "Remove attachment",
       attachPhotos: "Photos",
       attachFiles: "Files",
