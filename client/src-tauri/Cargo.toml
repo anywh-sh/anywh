@@ -24,6 +24,12 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [features]
+# On by default so this crate is the app's mobile entry point, as `tauri ios`
+# expects. An embedding crate that calls `run_with` turns it off and exports
+# its own entry point (see `run_with`).
+default = ["mobile-entry"]
+mobile-entry = []
+
 # Off by default in every normal build (`tauri dev`/`tauri build`, no flag
 # needed) — opt-in only via `--features e2e` (client/tests/e2e, WebdriverIO +
 # @wdio/tauri-service's embedded provider). `optional = true` below means
