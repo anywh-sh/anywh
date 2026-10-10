@@ -205,6 +205,7 @@ export const ptBr: Dictionary = {
       placeholder: "Escreva uma mensagem…",
       attach: "Anexar imagem ou vídeo",
       attachmentUploading: "enviando anexo…",
+      sendWaitingForUpload: "Aguardando o anexo terminar de enviar",
       removeAttachment: "Remover anexo",
       attachPhotos: "Fotos",
       attachFiles: "Arquivos",

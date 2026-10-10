@@ -7,7 +7,7 @@ import {
   useState,
   type MutableRefObject,
 } from "react";
-import { ArrowUp, Check, ChevronDown, FileText, Mic, Paperclip, Video, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, FileText, Loader2, Mic, Paperclip, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -17,6 +17,7 @@ import Suggestion from "@tiptap/suggestion";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Elapsed } from "@/components/chat/activity/Elapsed";
 import {
   DropdownMenu,
@@ -709,7 +710,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     >
       <ComposerLinkHoverCard editor={editor} />
 
-      {pendingImages.length > 0 && (
+      {(pendingImages.length > 0 || uploadingImage) && (
         <div className="flex flex-wrap items-center gap-1.5 px-1">
           {pendingImages.map((image) =>
             image.previewUrl ? (
@@ -750,6 +751,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               </span>
             ),
           )}
+          {/* Where the file will land once the relay has it — the send
+              button is held until then, and this is what says why. */}
+          {uploadingImage && (
+            <span
+              role="status"
+              className="flex h-7 items-center gap-2 border border-dashed border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
+            >
+              <Loader2 className="size-3 animate-spin text-primary" />
+              {copy.attachmentUploading}
+            </span>
+          )}
         </div>
       )}
 
@@ -789,9 +801,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
-          {uploadingImage && !isRecording && !isTranscribing && (
-            <span className="font-mono text-[11px] text-muted-foreground">{copy.attachmentUploading}</span>
-          )}
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -883,6 +892,19 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <span className="size-2 bg-current" />
               {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
             </Button>
+          ) : uploadingImage ? (
+            // A disabled button gets no pointer events, so the tooltip hangs
+            // off a focusable wrapper instead.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="inline-flex">
+                  <Button type="submit" size="icon" disabled aria-label={copy.sendWaitingForUpload} className="size-[26px]">
+                    <Loader2 className="size-3.5 animate-spin" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">{copy.sendWaitingForUpload}</TooltipContent>
+            </Tooltip>
           ) : (
             <Button type="submit" size="icon" disabled={!canSend} aria-label={dict.common.send} className="size-[26px]">
               <ArrowUp className="size-3.5" />
