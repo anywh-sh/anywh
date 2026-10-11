@@ -43,8 +43,26 @@ fn read_dropped_file(path: String) -> Result<tauri::ipc::Response, String> {
         .map_err(|e| e.to_string())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg_attr(all(mobile, feature = "mobile-entry"), tauri::mobile_entry_point)]
 pub fn run() {
+    run_with(|builder| builder)
+}
+
+/// Starts the app after handing the builder to `extend`, which is where an
+/// embedding crate registers extra plugins (or `manage`d state) of its own —
+/// the official iOS build adds its private layer this way instead of
+/// patching the generated Xcode project. `extend` runs after every plugin
+/// this crate registers, so it can wrap what they installed, and before
+/// `invoke_handler`, which this function sets last: an app-level handler
+/// installed by `extend` would be replaced, so extensions expose their
+/// commands as plugin commands.
+///
+/// An embedding crate depends on this one with `default-features = false`
+/// and defines the mobile entry point itself; leaving `mobile-entry` on
+/// would link two `start_app` symbols.
+pub fn run_with(
+    extend: impl FnOnce(tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry>,
+) {
     let builder = tauri::Builder::default();
 
     // Must come before every other plugin: the whole job of this one is to
@@ -101,6 +119,8 @@ pub fn run() {
     // Native chrome layer (SwiftUI/Liquid Glass).
     #[cfg(target_os = "ios")]
     let builder = builder.plugin(tauri_plugin_native_chrome::init());
+
+    let builder = extend(builder);
 
     // e2e (client/tests/e2e, .anywh/skills/tests/SKILL.md) — embeds a
     // WebDriver server inside the app itself so WebdriverIO's
