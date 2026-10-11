@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { installHostBridge } from "./hostBridge";
 import { getPushAddressProvider, setPushAddressProvider, type PushAddressProvider } from "./pushAddress";
 
-const provider: PushAddressProvider = { getAddress: async () => null, subscribe: () => () => {} };
+const provider: PushAddressProvider = { getAddress: () => Promise.resolve(null), subscribe: () => () => {} };
 
 afterEach(() => {
   delete window.__anywhHostInit;
