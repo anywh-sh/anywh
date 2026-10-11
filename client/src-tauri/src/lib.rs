@@ -45,11 +45,12 @@ fn read_dropped_file(path: String) -> Result<tauri::ipc::Response, String> {
 
 #[cfg_attr(all(mobile, feature = "mobile-entry"), tauri::mobile_entry_point)]
 pub fn run() {
-    run_with(|builder| builder)
+    run_with(tauri::generate_context!(), |builder| builder)
 }
 
-/// Starts the app after handing the builder to `extend`, which is where an
-/// embedding crate registers extra plugins (or `manage`d state) of its own —
+/// Starts the app with `context` after handing the builder to `extend`, which
+/// is where an embedding crate registers extra plugins (or `manage`d state)
+/// of its own —
 /// the official iOS build adds its private layer this way instead of
 /// patching the generated Xcode project. `extend` runs after every plugin
 /// this crate registers, so it can wrap what they installed, and before
@@ -57,10 +58,16 @@ pub fn run() {
 /// installed by `extend` would be replaced, so extensions expose their
 /// commands as plugin commands.
 ///
+/// `context` is the embedder's own `tauri::generate_context!()`: the config,
+/// the embedded frontend and, above all, the capabilities are compiled into
+/// it, and a plugin's commands are denied unless a capability grants them —
+/// so the context has to come from the crate that owns the plugin.
+///
 /// An embedding crate depends on this one with `default-features = false`
 /// and defines the mobile entry point itself; leaving `mobile-entry` on
 /// would link two `start_app` symbols.
 pub fn run_with(
+    context: tauri::Context,
     extend: impl FnOnce(tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry>,
 ) {
     let builder = tauri::Builder::default();
@@ -229,7 +236,7 @@ pub fn run_with(
 
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running tauri application")
         .run(|_app_handle, _event| {
             // Quitting is the only moment nothing else will collect the
