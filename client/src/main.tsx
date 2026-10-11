@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/i18n";
 import App from "./App";
 import { applyFontSize, readFontSize } from "@/lib/fontSize";
+import { installHostBridge } from "@/lib/platform/hostBridge";
 import { applyCachedTheme } from "@/lib/theme/themeApply";
 import "./index.css";
 
@@ -11,6 +12,9 @@ import "./index.css";
 // lives on the relay, so without a local cache every cold start would paint
 // the built-in theme, mount, sync, and repaint.
 applyCachedTheme();
+// The embedding app, if any, installs its providers before the first render so
+// that nothing renders without them (docs/push.md).
+installHostBridge();
 // Font size is device-local (no relay round trip), but still applied here
 // rather than in a component's effect — otherwise the first frame paints at
 // the default size and snaps to the stored one a tick later.
