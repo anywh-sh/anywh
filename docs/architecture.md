@@ -173,14 +173,20 @@ permission, the update-check interval), and the JSX.
 ### Embedding the app
 
 The Tauri crate (`client/src-tauri`, lib `client_lib`) exposes
-`run_with(extend)` next to `run()`. `extend` receives the `tauri::Builder`
-after every plugin this crate registers and can add plugins or managed state
-of its own; `run()` is `run_with(|builder| builder)`. A downstream build —
-for example a distribution that adds its own sign-in or push provider —
-depends on the crate with `default-features = false` and exports its own
-mobile entry point. The `mobile-entry` feature (on by default) is what makes
-this crate export `start_app`, so leaving it on in an embedding crate would
-link two of them.
+`run_with(context, extend)` next to `run()`. `extend` receives the
+`tauri::Builder` after every plugin this crate registers and can add plugins
+or managed state of its own; `run()` is `run_with(generate_context!(), |b| b)`.
+
+`context` is the embedder's own `tauri::generate_context!()`. The config, the
+embedded frontend and the capabilities are compiled into it, and a plugin's
+commands are denied unless a capability grants them, so the context has to
+come from the crate that owns the plugin.
+
+A downstream build — for example a distribution that adds its own sign-in or
+push provider — depends on the crate with `default-features = false` and
+exports its own mobile entry point. The `mobile-entry` feature (on by
+default) is what makes this crate export `start_app`, so leaving it on in an
+embedding crate would link two of them.
 
 ## Further reading
 
