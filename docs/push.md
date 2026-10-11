@@ -175,6 +175,16 @@ profile if nothing changed), and removes it from each relay before removing
 the profile. On a platform that supports it, a relay that predates push or has
 it disabled leaves local notifications in place for that profile.
 
+The provider has to be installed before the first render. The client is a web
+bundle, so an embedding app cannot import `setPushAddressProvider`; instead it
+sets `window.__anywhHostInit` before the page runs (for example from a Tauri
+plugin's initialization script), and the client calls it once, at startup,
+with an object whose `setPushAddressProvider` is the function above.
+
+```js
+window.__anywhHostInit = (api) => api.setPushAddressProvider(provider);
+```
+
 Where `gatewayUrl` and `pushKey` come from is the provider's business. The
 build of the app published on the App Store obtains them from the anywh
 service after sign-in; nothing in this repository knows how.
