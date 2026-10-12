@@ -90,6 +90,17 @@ export function isSetAgentMessage(value: unknown): value is { type: "set_agent";
   );
 }
 
+/** Whether the person is looking at this session right now. Repeated while
+ * true — the relay treats each `visible: true` as a lease (push/presence.ts). */
+export function isPresenceMessage(value: unknown): value is { type: "presence"; visible: boolean } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "presence" &&
+    typeof (value as { visible?: unknown }).visible === "boolean"
+  );
+}
+
 export function isSetDraftMessage(value: unknown): value is { type: "set_draft"; draft: string } {
   return (
     typeof value === "object" &&

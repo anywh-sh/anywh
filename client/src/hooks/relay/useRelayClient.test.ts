@@ -1,16 +1,17 @@
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Profile } from "@/lib/profiles/profiles";
 
 // `vi.hoisted` because these mocks are read by modules this file imports
 // statically — the `vi.mock` factories run before the top-level bindings.
-const { invokeMock, connectMock, constructedMock } = vi.hoisted(() => ({
+const { invokeMock, connectMock, constructedMock, setPresenceMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(async (cmd: string, _args?: unknown) => {
     if (cmd === "tailnet_sidecar_start") return { addr: "127.0.0.1:12345", nodeKey: "nodekey:abc" };
     return undefined;
   }),
   connectMock: vi.fn(),
   constructedMock: vi.fn(),
+  setPresenceMock: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 vi.mock("@/lib/platform/tauri", () => ({ inTauri: () => true }));
@@ -30,6 +31,7 @@ vi.mock("@/lib/relay/relayClient", () => ({
   RelayClient: class {
     connect = connectMock;
     disconnect = vi.fn();
+    setPresence = setPresenceMock;
     constructor(...args: unknown[]) {
       constructedMock(...args);
     }
@@ -57,6 +59,7 @@ beforeEach(() => {
   invokeMock.mockClear();
   connectMock.mockClear();
   constructedMock.mockClear();
+  setPresenceMock.mockClear();
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
 });
 
@@ -117,5 +120,21 @@ describe("useRelayClient tailnet mode", () => {
     await resolve({ wake: false });
 
     expect(vi.mocked(fetchConnectGrant)).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
+  });
+});
+
+describe("useRelayClient presence", () => {
+  it("hands a claim made before the client existed to the client once it is created, and forwards later ones", async () => {
+    const { result } = renderHook(() => useRelayClient(tailnetProfile, "session-presence"));
+    act(() => result.current.setPresence(true));
+    expect(setPresenceMock).not.toHaveBeenCalled(); // no client yet, nothing to tell
+
+    await vi.runAllTimersAsync();
+    expect(constructedMock).toHaveBeenCalled();
+    expect(setPresenceMock).toHaveBeenCalledWith(true);
+
+    setPresenceMock.mockClear();
+    act(() => result.current.setPresence(false));
+    expect(setPresenceMock).toHaveBeenCalledWith(false);
   });
 });

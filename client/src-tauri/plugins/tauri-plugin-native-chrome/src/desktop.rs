@@ -65,6 +65,18 @@ impl<R: Runtime> NativeChrome<R> {
     Ok(())
   }
 
+  pub fn register_for_push(&self) -> crate::Result<PushRegistration> {
+    Err(crate::Error::PushUnsupported)
+  }
+
+  pub fn set_visible_session(&self, _payload: VisibleSessionRequest) -> crate::Result<()> {
+    Ok(())
+  }
+
+  pub fn take_pending_push_tap(&self) -> crate::Result<PendingPushTap> {
+    Ok(PendingPushTap::default())
+  }
+
   pub fn set_scroll_to_end(&self, _payload: ScrollToEndRequest) -> crate::Result<()> {
     Ok(())
   }

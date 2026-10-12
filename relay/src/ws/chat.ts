@@ -7,6 +7,7 @@ import {
   isDismissFailedBackgroundJobMessage,
   isEditMessageMessage,
   isLoadOlderHistoryMessage,
+  isPresenceMessage,
   isRequestContextBreakdownMessage,
   isSetAgentMessage,
   isSetCwdMessage,
@@ -18,7 +19,7 @@ import {
 } from "../protocol/guards.js";
 import type { EditMessageError, SharedSession } from "../session/sharedSession.js";
 
-/** The chat WS connection's `message` dispatch — the 13 message types a
+/** The chat WS connection's `message` dispatch — the 14 message types a
  * connected client can send once it's attached to a `SharedSession`
  * (terminal/files/sessions-watch connections have their own, simpler
  * protocols, see ws/terminal.ts, ws/files.ts). `onSetAgent` is a callback
@@ -50,6 +51,10 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
   }
   if (isSetModelMessage(parsed)) {
     session.setModel(parsed.model);
+    return;
+  }
+  if (isPresenceMessage(parsed)) {
+    session.setPresence(socket, parsed.visible);
     return;
   }
   if (isSetDraftMessage(parsed)) {

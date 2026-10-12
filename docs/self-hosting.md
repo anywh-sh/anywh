@@ -142,7 +142,7 @@ On **Linux** it takes the AppImage:
 |---|---|
 | the app | `~/.local/share/anywh/app/anywh.AppImage` |
 | a launcher on `PATH` | `~/.local/bin/anywh` |
-| the menu entry | `~/.local/share/applications/sh.anywh.client.desktop` |
+| the menu entry | `~/.local/share/applications/<app id>.desktop` — named after the identifier the release publishes as `anywh-app-id.txt` |
 | its icon | `~/.local/share/icons/hicolor/256x256/apps/anywh.png` |
 
 `ANYWH_INSTALL_DIR` moves the first of those, same as for the relay. An
@@ -280,6 +280,10 @@ cd client
 npm run ios:device                  # Simulator, or prompts for a connected device
 npm run ios:device -- "My iPhone"   # a specific physical device
 ```
+
+A physical device needs a signing team: export `APPLE_DEVELOPMENT_TEAM=<your
+Apple team id>` before running it. It is deliberately not part of the committed
+config.
 
 iOS has no DevTools, so the first-run screen (or pairing) is the way to
 point an iOS build at a relay. If you always target the same device, drop a

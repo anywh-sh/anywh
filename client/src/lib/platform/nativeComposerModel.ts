@@ -61,7 +61,7 @@ export function buildComposerPayload(input: ComposerModelInput): NativeComposerP
   return {
     hidden: input.hidden,
     placeholder: copy.placeholder,
-    canSend: !input.disabled && (!input.isEmpty || input.pendingImages.length > 0),
+    canSend: !input.disabled && !input.uploading && (!input.isEmpty || input.pendingImages.length > 0),
     turnInFlight: input.turnInFlight,
     attachEnabled: !input.uploading,
     uploading: input.uploading,

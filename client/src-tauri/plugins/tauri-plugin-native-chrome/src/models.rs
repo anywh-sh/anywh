@@ -286,6 +286,48 @@ pub struct ReadAttachmentRequest {
   pub path: String,
 }
 
+/// The APNs device token (lowercase hex) and the APNs environment it is valid
+/// for. A sandbox token is rejected by the production gateway and vice versa,
+/// so whoever sends the push has to know which one this build got.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRegistration {
+  pub token: String,
+  pub environment: PushEnvironment,
+}
+
+/// Which session is on screen right now, so a push about it is not shown in
+/// the foreground. `None` when nothing is.
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VisibleSessionRequest {
+  pub session_id: Option<String>,
+}
+
+/// Where a tapped push notification should take the app. `profile_id` is the
+/// profile id on this device, as the app registered it with the relay.
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PushTap {
+  pub session_id: String,
+  pub profile_id: Option<String>,
+}
+
+/// Answer of `take_pending_push_tap`: an object even when empty, so "nothing
+/// pending" is `{"tap": null}` and not a bare null.
+#[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPushTap {
+  pub tap: Option<PushTap>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PushEnvironment {
+  Sandbox,
+  Production,
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -316,6 +358,41 @@ mod tests {
     assert_eq!(request.mode.as_ref().unwrap().options.len(), 2);
     let again = serde_json::to_value(&request).unwrap();
     assert_eq!(again, serde_json::from_str::<serde_json::Value>(MENU_FIXTURE).unwrap());
+  }
+
+  #[test]
+  fn push_registration_matches_the_swift_wire_format() {
+    let parsed: PushRegistration = serde_json::from_str(r#"{"token":"ab12","environment":"sandbox"}"#).unwrap();
+    assert_eq!(parsed.token, "ab12");
+    assert_eq!(parsed.environment, PushEnvironment::Sandbox);
+    let production: PushRegistration = serde_json::from_str(r#"{"token":"cd34","environment":"production"}"#).unwrap();
+    assert_eq!(production.environment, PushEnvironment::Production);
+  }
+
+  #[test]
+  fn push_tap_types_match_the_swift_wire_format() {
+    let tap: PendingPushTap =
+      serde_json::from_str(r#"{"tap":{"sessionId":"s1","profileId":"p1"}}"#).unwrap();
+    assert_eq!(
+      tap.tap,
+      Some(PushTap { session_id: "s1".into(), profile_id: Some("p1".into()) })
+    );
+    let no_profile: PendingPushTap = serde_json::from_str(r#"{"tap":{"sessionId":"s1"}}"#).unwrap();
+    assert_eq!(no_profile.tap.unwrap().profile_id, None);
+    let empty: PendingPushTap = serde_json::from_str(r#"{"tap":null}"#).unwrap();
+    assert_eq!(empty, PendingPushTap::default());
+    assert_eq!(serde_json::to_string(&empty).unwrap(), r#"{"tap":null}"#);
+  }
+
+  #[test]
+  fn visible_session_request_accepts_a_session_or_none() {
+    let some: VisibleSessionRequest = serde_json::from_str(r#"{"sessionId":"s1"}"#).unwrap();
+    assert_eq!(some.session_id.as_deref(), Some("s1"));
+    let none: VisibleSessionRequest = serde_json::from_str(r#"{"sessionId":null}"#).unwrap();
+    assert_eq!(none.session_id, None);
+    let absent: VisibleSessionRequest = serde_json::from_str(r#"{}"#).unwrap();
+    assert_eq!(absent.session_id, None);
+    assert_eq!(serde_json::to_string(&some).unwrap(), r#"{"sessionId":"s1"}"#);
   }
 
   #[test]

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { PushStore } from "../push/pushStore.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
@@ -19,6 +20,9 @@ export interface RouteContext {
   readonly homeOverride: string | undefined;
   readonly port: number;
   readonly defaultSession: string;
+  /** The push-address registry, or `null` when push is switched off for
+   * this relay (`RELAY_PUSH_DISABLED=1`) — its routes then don't exist. */
+  readonly pushStore: PushStore | null;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

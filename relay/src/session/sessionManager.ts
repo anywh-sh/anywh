@@ -1,6 +1,7 @@
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
+import type { PushNotificationDraft } from "../push/events.js";
 import { SharedSession } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
@@ -18,6 +19,9 @@ import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
 export type SessionListEvent =
   | { type: "upsert"; id: string; title: string; lastActiveAt: number }
   | { type: "remove"; id: string };
+
+/** A notification-worthy moment in one session, as `server.ts` receives it. */
+export type SessionPushEvent = PushNotificationDraft & { sessionId: string; ts: number; watched: boolean };
 
 // Multiple sessions identified by id within the same profile (= one relay
 // process) — equivalent to what tmux windows provided in the old
@@ -71,6 +75,9 @@ export class SessionManager {
      * reasoning as `mcpChoiceBridge`; in production `server.ts` always
      * passes it, wired to broadcast to every connected watcher socket. */
     private readonly onListChanged?: (event: SessionListEvent) => void,
+    /** `undefined` when push is off (or in tests that don't exercise it) —
+     * `server.ts` wires it to the push dispatcher. */
+    private readonly onPushNotifiable?: (event: SessionPushEvent) => void,
   ) {
     // `this.sessions` needs to exist BEFORE `BackgroundJobTracker` is
     // constructed: if there are persisted jobs from a session that already
@@ -312,6 +319,7 @@ export class SessionManager {
       mcpPermissionBridge: this.mcpPermissionBridge,
       mcpPermissionBridgeBaseUrl: this.mcpPermissionBridgeBaseUrl,
       onActivity: () => this.sessionStore.touch(id),
+      onNotifiable: (draft, watched) => this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched }),
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);
         this.wakeups.observeEvent(id, event);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RelayClient, type RelayClientCallbacks } from "@/lib/relay/relayClient";
+import { PRESENCE_HEARTBEAT_MS, RelayClient, type RelayClientCallbacks } from "@/lib/relay/relayClient";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 
@@ -10,6 +10,8 @@ class FakeWebSocket {
   static readonly OPEN = 1;
   static readonly CONNECTING = 0;
   readyState = 0;
+  /** Everything sent over this socket, in order. */
+  sent: string[] = [];
   private listeners = new Map<string, ((event: unknown) => void)[]>();
 
   constructor(readonly url: string) {
@@ -21,7 +23,9 @@ class FakeWebSocket {
     this.listeners.set(type, [...existing, listener]);
   }
 
-  send(): void {}
+  send(data: string): void {
+    this.sent.push(data);
+  }
 
   close(): void {
     this.emit("close");
@@ -303,5 +307,67 @@ describe("RelayClient model catalogs", () => {
     receive(socket, { type: "model_catalogs_state", catalogs });
 
     expect(onModelCatalogs).toHaveBeenCalledWith(catalogs);
+  });
+});
+
+describe("RelayClient presence", () => {
+  /** A connected client: the fake socket is opened by hand, the way the
+   * browser would. */
+  function connected(): { client: RelayClient; socket: FakeWebSocket } {
+    const client = new RelayClient("127.0.0.1", 8765, "s1", noopCallbacks);
+    client.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+    return { client, socket };
+  }
+  const presences = (socket: FakeWebSocket) => socket.sent.map((raw) => JSON.parse(raw) as { type: string; visible?: boolean }).filter((m) => m.type === "presence");
+
+  it("says so right away, repeats the claim on the heartbeat, and says so once when it stops", () => {
+    const { client, socket } = connected();
+
+    client.setPresence(true);
+    expect(presences(socket)).toEqual([{ type: "presence", visible: true }]);
+
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 2);
+    expect(presences(socket)).toHaveLength(3);
+
+    client.setPresence(false);
+    const claims = presences(socket);
+    expect(claims[claims.length - 1]).toEqual({ type: "presence", visible: false });
+    const sent = presences(socket).length;
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 3);
+    expect(presences(socket)).toHaveLength(sent);
+  });
+
+  it("sends nothing for a client that was never watching, even when told it still isn't", () => {
+    const { client, socket } = connected();
+    client.setPresence(false);
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 2);
+    expect(presences(socket)).toEqual([]);
+  });
+
+  it("claims again on a new socket, because a reconnection starts with no claim on the relay", () => {
+    const { client } = connected();
+    client.setPresence(true);
+
+    const second = new RelayClient("127.0.0.1", 8765, "s1", noopCallbacks);
+    second.setPresence(true); // set before the socket exists, as the hook does
+    second.connect();
+    const socket = FakeWebSocket.instances[1];
+    expect(presences(socket)).toEqual([]);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+    expect(presences(socket)).toEqual([{ type: "presence", visible: true }]);
+  });
+
+  it("stops the heartbeat when the client disconnects", () => {
+    const { client, socket } = connected();
+    client.setPresence(true);
+    client.disconnect();
+    socket.readyState = 3;
+    const sent = socket.sent.length;
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 3);
+    expect(socket.sent).toHaveLength(sent);
   });
 });

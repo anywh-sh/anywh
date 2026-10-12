@@ -67,7 +67,12 @@ export class ChoiceMachine {
   private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
   private pendingChoice: { promptId: string; questions: ChoiceQuestion[] } | undefined;
 
-  constructor(private readonly clients: Set<WebSocket>) {}
+  /** `onPromptShown` fires once each time a prompt is published, so the
+   * session can tell a person who isn't looking that one is waiting. */
+  constructor(
+    private readonly clients: Set<WebSocket>,
+    private readonly onPromptShown?: (kind: "approval" | "choice", questions: ChoiceQuestion[]) => void,
+  ) {}
 
   /** Called by the MCP bridge
    * (`McpChoiceBridge`, `ChoiceHost.presentChoice`) when the model calls
@@ -99,6 +104,7 @@ export class ChoiceMachine {
     const promptId = randomUUID();
     this.pendingChoice = { promptId, questions };
     broadcastChoicePrompt(this.clients, this.pendingChoice, "choice");
+    this.onPromptShown?.("choice", questions);
     return true;
   }
 
@@ -140,6 +146,7 @@ export class ChoiceMachine {
       const promptId = randomUUID();
       this.pendingApproval = { promptId, questions, resolve };
       broadcastChoicePrompt(this.clients, this.pendingApproval, "approval");
+      this.onPromptShown?.("approval", questions);
     });
   }
 

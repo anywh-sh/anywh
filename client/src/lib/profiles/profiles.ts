@@ -244,8 +244,22 @@ export function markProfileVerified(id: string): void {
   setProfiles(profiles.map((p) => (p.id === id ? verified : p)));
 }
 
+const removalListeners = new Set<(profile: Profile) => void>();
+
+/** Called with a profile just before `removeProfile` drops it, while its
+ * connection details still exist — for the one thing that has to reach the
+ * profile's relay on the way out (taking a push address off it). Not called
+ * for a profile a host sync stops listing: that relay is the one that said
+ * it is gone. */
+export function onProfileRemoving(listener: (profile: Profile) => void): () => void {
+  removalListeners.add(listener);
+  return () => removalListeners.delete(listener);
+}
+
 export function removeProfile(id: string): boolean {
-  if (!profiles.some((p) => p.id === id)) return false;
+  const profile = profiles.find((p) => p.id === id);
+  if (!profile) return false;
+  for (const listener of removalListeners) listener(profile);
   setProfiles(profiles.filter((p) => p.id !== id));
   return true;
 }

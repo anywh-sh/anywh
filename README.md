@@ -133,6 +133,7 @@ This matters more than "no authentication" alone suggests: the relay's default p
 - [Profiles](./docs/profiles.md) — more than one agent login on one machine
 - [Themes](./docs/themes.md) — writing, importing and sharing a theme
 - [Pairing protocol](./docs/pairing.md) — for a relay that is not directly reachable
+- [Push notifications](./docs/push.md) — how the relay notifies a phone, and the contract a gateway implements
 - [Running as a systemd service](./infra/systemd/README.md) — the unit template, and provisioning from the command line
 
 ## Contributing

@@ -473,8 +473,21 @@ const THROTTLED_RECONNECT_DELAY_MS = 60_000;
 // `forceReconnect`, jumping this timer), not the next tick.
 const ASLEEP_RECONNECT_DELAY_MS = 60_000;
 
+/** How often a "this session is on screen" claim is repeated. The relay holds
+ * each claim for 45 s (a lease, see docs/push.md), so one lost message is
+ * tolerated and a client that stops running silences nothing for long. */
+export const PRESENCE_HEARTBEAT_MS = 20_000;
+
+/** On a desktop, this long without input stops counting as looking at the
+ * screen: someone who walked away from an open window should still get the
+ * notification on their phone. */
+export const PRESENCE_IDLE_MS = 120_000;
+
 export class RelayClient {
   private socket?: WebSocket;
+  /** Whether this session is currently on screen — see `setPresence`. */
+  private presenceVisible = false;
+  private presenceTimer: number | undefined;
   /** Folder chosen (e.g. via `WorkingDirectoryButton` on a new conversation)
    * before the socket opens — there's no outgoing queue, only the last choice
    * matters. Sent as soon as the connection opens; see `connect`. */
@@ -603,6 +616,9 @@ export class RelayClient {
         this.pendingDraft = null;
         socket.send(JSON.stringify({ type: "set_draft", draft }));
       }
+      // A new socket starts with no claim on the relay, so one made while
+      // disconnected has to be made again.
+      if (this.presenceVisible) socket.send(JSON.stringify({ type: "presence", visible: true }));
     });
     socket.addEventListener("close", () => {
       // Late event from a socket that `forceReconnect`/automatic reconnection
@@ -735,6 +751,29 @@ export class RelayClient {
     this.socket.send(JSON.stringify({ type: "set_agent", agentId }));
   }
 
+  /** Says whether this session is on screen right now. While true the claim
+   * is repeated every `PRESENCE_HEARTBEAT_MS`: the relay treats it as a lease,
+   * and a relay that hears no claim for a session pushes to the phone when a
+   * turn ends. Sent again after a reconnection; `false` is sent once, on the
+   * change. No queue — only the latest value matters. */
+  setPresence(visible: boolean): void {
+    const was = this.presenceVisible;
+    this.presenceVisible = visible;
+    window.clearInterval(this.presenceTimer);
+    this.presenceTimer = undefined;
+    if (visible) {
+      this.sendPresence(true);
+      this.presenceTimer = window.setInterval(() => this.sendPresence(true), PRESENCE_HEARTBEAT_MS);
+    } else if (was) {
+      this.sendPresence(false);
+    }
+  }
+
+  private sendPresence(visible: boolean): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(JSON.stringify({ type: "presence", visible }));
+  }
+
   setDraft(text: string): void {
     if (this.socket?.readyState !== WebSocket.OPEN) {
       this.pendingDraft = text;
@@ -812,6 +851,8 @@ export class RelayClient {
     // (superseded vs. cancelled) from having to be reasoned about apart.
     this.connectGeneration += 1;
     this.clearReconnectTimer();
+    window.clearInterval(this.presenceTimer);
+    this.presenceTimer = undefined;
     this.socket?.close();
   }
 

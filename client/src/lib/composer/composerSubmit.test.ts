@@ -5,7 +5,7 @@ import type { ModelCatalog } from "@/lib/relay/relay-types";
 const CATALOG: ModelCatalog = { options: [{ id: "opus", label: "Opus" }], defaultId: "opus" };
 
 function decide(text: string, overrides: Partial<Parameters<typeof decideSubmit>[0]> = {}) {
-  return decideSubmit({ text, attachmentCount: 0, confirmedTypoText: null, catalog: CATALOG, ...overrides });
+  return decideSubmit({ text, attachmentCount: 0, uploading: false, confirmedTypoText: null, catalog: CATALOG, ...overrides });
 }
 
 describe("decideSubmit", () => {
@@ -15,6 +15,13 @@ describe("decideSubmit", () => {
 
   it("sends an attachment-only message", () => {
     expect(decide("", { attachmentCount: 1 })).toEqual({ kind: "send" });
+  });
+
+  it("holds the send while an attachment is still uploading", () => {
+    expect(decide("look at this", { uploading: true })).toEqual({ kind: "uploading" });
+    expect(decide("", { attachmentCount: 1, uploading: true })).toEqual({ kind: "uploading" });
+    // Nothing typed and nothing attached yet — the first file is the one in flight.
+    expect(decide("", { uploading: true })).toEqual({ kind: "uploading" });
   });
 
   it("sends plain text", () => {

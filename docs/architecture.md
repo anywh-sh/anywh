@@ -80,6 +80,11 @@ relay/src/
                            state machine, history paging — drives whichever
                            `AgentSessionDriver` `createSessionDriver.ts`
                            handed it, never an agent's identity directly
+  push/                    remote push: the registry of push addresses clients
+                           handed this relay, and turning session events
+                           into notifications sent to those addresses' gateway —
+                           the relay never talks to a push service itself, see
+                           docs/push.md
   bridges/                 MCP servers the relay runs for a turn to call
                            back into (present_choice, permission prompts,
                            plan-mode's text-marker fallback)
@@ -164,6 +169,24 @@ of state (`tabsState`, `sessionDock`, and so on) they act on:
 `App.tsx` itself keeps the state each of these needs, the effects that
 don't belong to any one of them (first-launch tab restore, notification
 permission, the update-check interval), and the JSX.
+
+### Embedding the app
+
+The Tauri crate (`client/src-tauri`, lib `client_lib`) exposes
+`run_with(context, extend)` next to `run()`. `extend` receives the
+`tauri::Builder` after every plugin this crate registers and can add plugins
+or managed state of its own; `run()` is `run_with(generate_context!(), |b| b)`.
+
+`context` is the embedder's own `tauri::generate_context!()`. The config, the
+embedded frontend and the capabilities are compiled into it, and a plugin's
+commands are denied unless a capability grants them, so the context has to
+come from the crate that owns the plugin.
+
+A downstream build — for example a distribution that adds its own sign-in or
+push provider — depends on the crate with `default-features = false` and
+exports its own mobile entry point. The `mobile-entry` feature (on by
+default) is what makes this crate export `start_app`, so leaving it on in an
+embedding crate would link two of them.
 
 ## Further reading
 

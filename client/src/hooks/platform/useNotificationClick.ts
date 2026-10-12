@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { onAction } from "@tauri-apps/plugin-notification";
 import { inTauri } from "@/lib/platform/tauri";
+import { isIOS } from "@/lib/platform/platform";
+import { listenPushNotificationClicked, takePendingPushTap, type PushTap } from "@/lib/platform/nativePush";
 
 export interface NotificationClickPayload {
   sessionId: string;
@@ -30,6 +32,13 @@ export interface NotificationClickPayload {
  *   in the same spirit as what already exists for Windows — not part of
  *   this round.
  *
+ * Remote (push) notifications on iOS arrive on a third channel, owned by the
+ * native-chrome plugin's delegate (it wraps the notification plugin's, which
+ * never reports a tap on a remote notification): a tap while the page is
+ * listening is an event, and one that cold-started the app is held natively
+ * until `takePendingPushTap` collects it right after the listener exists.
+ * Both carry the profile id this device registered with the relay.
+ *
  * Known limitation on any platform: the listener only exists after React
  * mounts. If the app is fully closed (not just minimized/backgrounded)
  * when the notification is clicked, the click reopens the app but the
@@ -38,6 +47,12 @@ export interface NotificationClickPayload {
  * Covers the common case (app running, unfocused); we don't implement a
  * queue/replay for cold reopening.
  */
+export function pushTapToClick(tap: PushTap): NotificationClickPayload | null {
+  // A push is addressed with the profile id this device registered, so a
+  // missing one means a relay or gateway that dropped it: nowhere to go.
+  return tap.profileId === null ? null : { sessionId: tap.sessionId, profileId: tap.profileId };
+}
+
 export function useNotificationClick(onClick: (payload: NotificationClickPayload) => void): void {
   const onClickRef = useRef(onClick);
   onClickRef.current = onClick;
@@ -59,6 +74,34 @@ export function useNotificationClick(onClick: (payload: NotificationClickPayload
     return () => {
       void unlistenPromise.then((unlisten) => unlisten());
       void actionListenerPromise.then((listener) => listener.unregister());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!inTauri() || !isIOS()) return;
+    let cancelled = false;
+    let stopListening: (() => void) | undefined;
+    const route = (tap: PushTap) => {
+      const click = pushTapToClick(tap);
+      if (click) onClickRef.current(click);
+    };
+
+    void (async () => {
+      stopListening = await listenPushNotificationClicked(route);
+      if (cancelled) {
+        stopListening();
+        return;
+      }
+      // After the listener exists, never before: this call is what tells the
+      // native side the page is listening, and it hands over a tap that
+      // arrived first.
+      const pending = await takePendingPushTap();
+      if (!cancelled && pending) route(pending);
+    })().catch((error: unknown) => console.error("push notification tap routing failed:", error));
+
+    return () => {
+      cancelled = true;
+      stopListening?.();
     };
   }, []);
 }

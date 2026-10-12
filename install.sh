@@ -407,6 +407,15 @@ else
   download_verified "$app_asset" "$staging/anywh.AppImage"
   chmod +x "$staging/anywh.AppImage"
   download_verified "anywh-icon.png" "$staging/anywh.png"
+  # The desktop entry is named after the app's identifier, which is how a
+  # shell matches a running window to its launcher. The release publishes it
+  # as an asset instead of this script carrying a copy, so a fork's release
+  # installs under its own identifier. It becomes a file name below, so
+  # anything that isn't a plain reverse-DNS string is refused outright.
+  download_verified "anywh-app-id.txt" "$staging/app-id.txt"
+  app_id="$(head -n 1 "$staging/app-id.txt" | tr -d '\r\n ')"
+  printf '%s' "$app_id" | grep -Eq '^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$' ||
+    err "the release's anywh-app-id.txt doesn't hold a valid app identifier"
 
   mv "$staging/anywh.png" "$icon_dir/anywh.png"
   mv "$staging/anywh.AppImage" "$appimage"
@@ -460,7 +469,7 @@ else
   # every field that matters (the absolute Exec and Icon, the anywh:// scheme
   # the app registers through tauri-plugin-deep-link) has to be rewritten
   # for this machine anyway.
-  cat > "$desktop_dir/sh.anywh.client.desktop" <<DESKTOP
+  cat > "$desktop_dir/$app_id.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=anywh

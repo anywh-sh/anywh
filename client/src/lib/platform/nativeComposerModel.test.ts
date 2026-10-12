@@ -58,6 +58,9 @@ describe("buildComposerPayload", () => {
     it("is false when disconnected, whatever is typed", () => {
       expect(build({ disabled: true, isEmpty: false, pendingImages: [image("/a.png")] }).canSend).toBe(false);
     });
+    it("is false while an attachment is still uploading, whatever is attached", () => {
+      expect(build({ uploading: true, isEmpty: false, pendingImages: [image("/a.png")] }).canSend).toBe(false);
+    });
     it("stays true with text while a turn is running", () => {
       const payload = build({ isEmpty: false, turnInFlight: true });
       expect(payload.canSend).toBe(true);

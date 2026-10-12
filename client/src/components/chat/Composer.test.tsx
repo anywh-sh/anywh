@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Composer } from "./Composer";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider, LOCALE_STORAGE_KEY, useLocale } from "@/i18n";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getHostInfo } from "@/lib/relay/filesClient";
+import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { ContextUsage, ModelCatalog } from "@/lib/relay/relay-types";
 
@@ -37,24 +39,29 @@ function Harness({
   agentId = "claude",
   modelCatalog = CLAUDE_CATALOG,
   contextUsage = null,
+  onSend = vi.fn(),
+  uploadingImage = false,
 }: {
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
   contextUsage?: ContextUsage | null;
+  onSend?: (text: string, images: PendingAttachment[]) => void;
+  uploadingImage?: boolean;
 }) {
   const { setLocale } = useLocale();
+  // The app mounts one at the root (`main.tsx`); the held send button needs it.
   return (
-    <>
+    <TooltipProvider>
       <button type="button" onClick={() => setLocale("pt-BR")}>
         switch
       </button>
       <Composer
         profile={profile}
-        onSend={vi.fn()}
+        onSend={onSend}
         turnInFlight={false}
         onStop={vi.fn()}
         pendingImages={[]}
-        uploadingImage={false}
+        uploadingImage={uploadingImage}
         onAddFiles={vi.fn()}
         onRemoveImage={vi.fn()}
         agentId={agentId}
@@ -76,11 +83,42 @@ function Harness({
         compactBoundary={null}
         suggestion={null}
       />
-    </>
+    </TooltipProvider>
   );
 }
 
 describe("Composer", () => {
+  it("holds the send while an attachment is still uploading, then lets it through", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const { rerender } = render(
+      <LocaleProvider>
+        <Harness onSend={onSend} uploadingImage />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    await user.keyboard("look at this{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+    // Held, and saying why: the button names the wait, and the attachments
+    // row shows the file on its way.
+    expect(screen.getByRole("button", { name: en.chat.composer.sendWaitingForUpload })).toBeDisabled();
+    expect(screen.getByRole("status")).toHaveTextContent(en.chat.composer.attachmentUploading);
+    await user.hover(screen.getByRole("button", { name: en.chat.composer.sendWaitingForUpload }).parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(en.chat.composer.sendWaitingForUpload);
+
+    rerender(
+      <LocaleProvider>
+        <Harness onSend={onSend} uploadingImage={false} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByRole("button", { name: en.common.send })).toBeEnabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledWith("look at this", []);
+  });
+
   it("follows a language switch even though the editor is never recreated", async () => {
     const user = userEvent.setup();
     render(

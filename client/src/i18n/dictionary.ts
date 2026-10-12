@@ -631,6 +631,8 @@ export interface Dictionary {
       placeholder: string;
       attach: string;
       attachmentUploading: string;
+      /** Tooltip and label of the send button while an attachment uploads. */
+      sendWaitingForUpload: string;
       removeAttachment: string;
       /** iOS attach menu: the photo library and the Files app. */
       attachPhotos: string;

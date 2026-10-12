@@ -168,6 +168,8 @@ export interface UseRelayClientResult {
    * arriving, same reasoning as `cwd`/`permissionMode` above. */
   draft: string | null;
   setDraft: (text: string) => void;
+  /** Whether this session is on screen right now — see `RelayClient.setPresence`. */
+  setPresence: (visible: boolean) => void;
   /** A `present_choice` prompt currently blocked waiting for an
    * answer, `null` when there's none. */
   choicePrompt: PendingChoice | null;
@@ -206,6 +208,10 @@ export function useRelayClient(
   const [draft, setDraftState] = useState<string | null>(null);
   const [choicePrompt, setChoicePrompt] = useState<PendingChoice | null>(null);
   const clientRef = useRef<RelayClient | null>(null);
+  /** The latest "is this session on screen" value, kept so a client created
+   * after it was set (a reconnection to a new profile or session) starts out
+   * with it. */
+  const presenceRef = useRef(false);
   const choicePromptRef = useRef(choicePrompt);
   choicePromptRef.current = choicePrompt;
 
@@ -356,6 +362,8 @@ export function useRelayClient(
       }
       const client = new RelayClient(host, port, sessionId, callbacks, wsToken);
       clientRef.current = client;
+      // The claim may have been made before this client existed.
+      client.setPresence(presenceRef.current);
       client.connect();
     }
     // Deferred by a tick, same trick as tailnetSidecar.ts's release delay
@@ -405,6 +413,11 @@ export function useRelayClient(
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  const setPresence = useCallback((visible: boolean) => {
+    presenceRef.current = visible;
+    clientRef.current?.setPresence(visible);
   }, []);
 
   const sendMessage = useCallback((text: string) => {
@@ -490,6 +503,7 @@ export function useRelayClient(
     dismissSuggestion,
     sendMessage,
     stopTurn,
+    setPresence,
     setCwd,
     setAgent,
     setPermissionMode,
