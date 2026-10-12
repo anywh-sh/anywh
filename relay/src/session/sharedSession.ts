@@ -540,9 +540,11 @@ export class SharedSession implements SessionDriverHost {
     this.options.onModelChange?.(model);
     this.broadcastModelState();
     if (this.effort !== undefined) {
-      const efforts = this.effectiveModelOption()?.efforts;
+      const option = this.effectiveModelOption();
       // An unknown catalog keeps the pick: `runTurn` still gates what is sent.
-      if (efforts && !efforts.some((entry) => entry.id === this.effort)) this.setEffort(null);
+      // A known model that lists no efforts at all drops it too, or the stale
+      // pick would still be broadcast and remembered by the client.
+      if (option && !option.efforts?.some((entry) => entry.id === this.effort)) this.setEffort(null);
     }
   }
 

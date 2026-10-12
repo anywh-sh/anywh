@@ -90,6 +90,18 @@ test("changing to a model that doesn't take the picked effort resets it; one tha
   socket.close();
 });
 
+test("changing to a model that lists no efforts at all drops the pick", async () => {
+  const { socket } = await connectWithCatalog("session-effort-reset-none");
+  socket.send(JSON.stringify({ type: "set_model", model: "fake-opus" }));
+  socket.send(JSON.stringify({ type: "set_effort", effort: "high" }));
+  await collectUntil(socket, (message) => message.type === "effort_state" && message.effort === "high");
+
+  socket.send(JSON.stringify({ type: "set_model", model: "claude-fake-opus-8" }));
+  const reset = await collectUntil(socket, (message) => message.type === "effort_state");
+  assert.equal(lastEffortState(reset), null, "claude-fake-opus-8 takes no effort");
+  socket.close();
+});
+
 test("set_effort null clears the pick, and no --effort reaches the CLI", async () => {
   const { socket } = await connectWithCatalog("session-effort-clear");
   socket.send(JSON.stringify({ type: "set_model", model: "fake-opus" }));
