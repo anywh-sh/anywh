@@ -30,11 +30,51 @@ describe("buildTimeline", () => {
     expect(items).toHaveLength(1);
   });
 
-  it("leaves tasks and plans out of groups, splitting the run around them", () => {
+  it("leaves plans out of groups, splitting the run around them", () => {
     const plan = call({ name: "plan", toolKind: "other", plan: [] });
-    const task = call({ toolKind: "task", subject: { kind: "task", label: "explore" } });
-    const items = buildTimeline([read("/a.ts"), plan, read("/b.ts"), task, read("/c.ts")]);
-    expect(items.map((i) => i.kind)).toEqual(["group", "single", "group", "single", "group"]);
+    const items = buildTimeline([read("/a.ts"), plan, read("/b.ts")]);
+    expect(items.map((i) => i.kind)).toEqual(["group", "single", "group"]);
+  });
+
+  describe("a delegated task", () => {
+    const task = (o: Partial<ToolCallEntry> = {}) => call({ name: "Agent", toolKind: "task", subject: { kind: "task", label: "explore" }, ...o });
+    const kinds = (entries: LogEntry[], spawned: string[] = []) => buildTimeline(entries, new Set(spawned)).map((i) => (i.kind === "group" ? i.calls.length : i.kind));
+
+    it("is not drawn while it runs: the subagent card is its one representation", () => {
+      expect(kinds([task({ done: false, toolUseId: "a" })])).toEqual([]);
+      expect(kinds([task({ done: false, toolUseId: "a" })], ["a"])).toEqual([]);
+    });
+
+    it("is not drawn once it ended well with a subagent behind it", () => {
+      expect(kinds([task({ toolUseId: "a" })], ["a"])).toEqual([]);
+    });
+
+    it("is drawn when it failed — a spawn error has no subagent and its message is the only explanation", () => {
+      expect(kinds([task({ toolUseId: "a", isError: true, content: "Cannot create agent worktree" })])).toEqual(["single"]);
+      expect(kinds([task({ toolUseId: "a", isError: true })], ["a"])).toEqual(["single"]);
+    });
+
+    it("is drawn when it ended without the CLI ever reporting a subagent for it", () => {
+      expect(kinds([task({ toolUseId: "a" })])).toEqual(["single"]);
+      expect(kinds([task({ toolUseId: undefined })])).toEqual(["single"]);
+    });
+
+    it("is drawn when the turn was stopped before any subagent was reported, not when one was", () => {
+      expect(kinds([task({ toolUseId: "a", aborted: true, isError: true })])).toEqual(["single"]);
+      expect(kinds([task({ toolUseId: "a", aborted: true, isError: true })], ["a"])).toEqual([]);
+    });
+
+    it("neither joins nor splits a run when hidden, and ends it like any card when shown", () => {
+      const hidden = task({ toolUseId: "a" });
+      expect(kinds([read("/a.ts"), hidden, read("/b.ts")], ["a"])).toEqual([2]);
+      const shown = task({ toolUseId: "b", isError: true });
+      expect(kinds([read("/a.ts"), shown, read("/b.ts")])).toEqual([1, "single", 1]);
+    });
+
+    it("leaves every other call alone: only a task kind is ever dropped", () => {
+      const others = [read("/a.ts"), shell("ls"), call({ toolKind: "mcp", subject: { kind: "mcp", server: "s", tool: "t" } }), call({ toolKind: "other", subject: { kind: "other", label: "x" } })];
+      expect(kinds(others, others.map((o) => o.toolUseId as string))).toEqual([4]);
+    });
   });
 
   it("gives a group the id of its first call, stable as the group grows", () => {

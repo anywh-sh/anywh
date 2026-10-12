@@ -1,0 +1,40 @@
+[
+ {
+  "type": "thinking",
+  "thinking": "",
+  "timestamp": "2026-10-04T23:38:22.489Z"
+ },
+ {
+  "type": "tool_started",
+  "toolUseId": "toolu_01RjbPjNo2RamesjmtBZEyGM",
+  "name": "Agent",
+  "kind": "task",
+  "input": {
+   "description": "probe err",
+   "isolation": "worktree",
+   "subagent_type": "general-purpose",
+   "prompt": "say hi"
+  },
+  "subject": {
+   "kind": "task",
+   "label": "probe err"
+  },
+  "batchId": "msg_011Cfi5Tz6RpkLJmzev6sqog"
+ },
+ {
+  "type": "tool_ended",
+  "toolUseId": "toolu_01RjbPjNo2RamesjmtBZEyGM",
+  "content": "Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured. Configure WorktreeCreate/WorktreeRemove hooks in settings.json to use worktree isolation with other VCS systems.",
+  "isError": true
+ },
+ {
+  "type": "thinking",
+  "thinking": "",
+  "timestamp": "2026-10-04T23:38:25.207Z"
+ },
+ {
+  "type": "text",
+  "text": "The Agent tool call failed. The error: **Cannot create agent worktree: not in a git repository and no WorktreeCreate hooks are configured.**\n\nThe current directory (`/tmp/agentprobe/err`) is not a git repository, and worktree isolation requires either a git repo or custom `WorktreeCreate`/`WorktreeRemove` hooks configured in `settings.json`. Neither exists, so the worktree isolation mode could not be set up.",
+  "timestamp": "2026-10-04T23:38:26.009Z"
+ }
+]
