@@ -570,7 +570,12 @@ export function ChatPanel({
   // Which calls have a subagent behind them. Keyed by the ids, not the record:
   // the record gets a new reference on every progress update, and the log only
   // cares about which calls it names.
-  const spawnedKey = Object.keys(log.subagents).join(",");
+  // A subagent that failed has no card left to tell its story (the card is for
+  // running ones), so its call must stay on screen — see `isTaskShown`.
+  const spawnedKey = Object.values(log.subagents)
+    .filter((subagent) => subagent.status !== "failed")
+    .map((subagent) => subagent.toolUseId)
+    .join(",");
   const spawnedSubagentIds = useMemo(() => new Set(spawnedKey === "" ? [] : spawnedKey.split(",")), [spawnedKey]);
   const subagents = useMemo(() => runningSubagents(log.entries, log.subagents, cwd), [log.entries, log.subagents, cwd]);
 

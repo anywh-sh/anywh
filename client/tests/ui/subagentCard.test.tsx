@@ -182,6 +182,17 @@ describe("a task that cannot be told by a subagent card is still drawn", () => {
     expect(callCards()).toHaveLength(1);
   });
 
+  it("keeps the call of a subagent that failed after it was launched", async () => {
+    // The call itself ended well (the "launched" acknowledgement); only the
+    // later `subagent` event says the run failed, and the card is gone by then.
+    const failed = BG.map((event) => (event.type === "subagent" && event.status === "completed" ? { ...event, status: "failed" as const } : event));
+    await openConversation();
+    send([TURN_START, ...failed, TURN_END]);
+    await screen.findByText(/The agent completed successfully/);
+    expect(agentCards()).toHaveLength(0);
+    expect(callCards()).toHaveLength(1);
+  });
+
   it("keeps the result of a call the CLI never reported a subagent for", async () => {
     // Synthetic on purpose: no CLI version we ran does this, but the wire does
     // not promise a `subagent` event — without one the call's own result is
