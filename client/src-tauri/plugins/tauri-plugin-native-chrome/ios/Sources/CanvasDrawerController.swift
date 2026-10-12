@@ -252,6 +252,7 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
     case .began:
       stopSpring()
       panStartProgress = progress
+      cancelWebScrolling()
       openHaptic.prepare()
       closeHaptic.prepare()
       if progress == 0 {
@@ -267,6 +268,22 @@ final class CanvasDrawerController: NSObject, UIGestureRecognizerDelegate {
       setOpen(projected > drawerWidth / 2, velocity: velocity)
     default:
       break
+    }
+  }
+
+  /// The drawer pan runs alongside the web view's own scroll pans, so without
+  /// this the conversation keeps scrolling vertically while the canvas slides.
+  /// Disabling a recognizer mid-gesture cancels it; it is re-enabled at once
+  /// and stays idle until the next touch.
+  private func cancelWebScrolling() {
+    guard let webview else { return }
+    var pending: [UIView] = [webview]
+    while let view = pending.popLast() {
+      if let scroll = view as? UIScrollView {
+        scroll.panGestureRecognizer.isEnabled = false
+        scroll.panGestureRecognizer.isEnabled = true
+      }
+      pending.append(contentsOf: view.subviews)
     }
   }
 
