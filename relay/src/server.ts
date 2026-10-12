@@ -311,6 +311,32 @@ wss.on("connection", (socket: WebSocket, request) => {
 
   if (url.pathname === "/sessions/watch") {
     sessionListWatchers.add(socket);
+    // The whole list, first thing on every connection: a watcher that was
+    // disconnected for a while (machine asleep, laptop lid closed, tunnel
+    // dropped) missed every upsert/remove in between, and the broadcasts
+    // below only ever carry what changed from now on. Sending it here
+    // rather than leaving the client to follow up with `GET /sessions`
+    // also leaves no gap between the snapshot and the first broadcast.
+    socket.send(JSON.stringify({ type: "session_list_snapshot", sessions: sessionManager.listTitled() }));
+    // The client's liveness probe (useSessionNames.ts). A socket whose
+    // other end vanished without a close frame — the sandbox suspended,
+    // the NAT mapping expired — still reads as OPEN on the client
+    // forever, and only a reply proves otherwise. Client-initiated on
+    // purpose, never a server-side `ws.ping()` on a timer: the pong to
+    // that is a frame towards the relay, which a paid host's idle
+    // detection counts as someone being there, so a timer here would keep
+    // a machine nobody is using awake indefinitely.
+    socket.on("message", (raw: Buffer) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "ping") {
+        socket.send(JSON.stringify({ type: "pong" }));
+      }
+    });
     socket.on("close", () => {
       sessionListWatchers.delete(socket);
     });
