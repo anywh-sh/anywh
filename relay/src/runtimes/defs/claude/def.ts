@@ -23,7 +23,7 @@ function buildArgs(ctx: TurnContext): string[] {
   // never a def concern) — so this never registers a bridge. A real engine
   // consuming this would need TurnContext to grow both before this could
   // replace ClaudeSession.sendTurn's own argv building.
-  const args = buildTurnArgs(ctx.prompt, toClaudeMode(ctx.permissionModeId), ctx.modelId);
+  const args = buildTurnArgs(ctx.prompt, toClaudeMode(ctx.permissionModeId), ctx.modelId, undefined, ctx.effortId);
   if (ctx.resumeSessionId) args.push("--resume", ctx.resumeSessionId);
   return args;
 }

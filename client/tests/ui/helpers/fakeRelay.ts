@@ -27,6 +27,7 @@ class FakeRelaySocket {
   constructor(
     readonly url: string,
     private readonly onSend: (socket: FakeRelaySocket, data: string) => void,
+    options: FakeRelayOptions = {},
   ) {
     queueMicrotask(() => {
       this.readyState = FakeRelaySocket.OPEN;
@@ -35,6 +36,12 @@ class FakeRelaySocket {
       // user's own bubble (useRelayClient.ts's `ready` gate) — without this
       // every test in this tier would hang on the first assertion after a
       // send.
+      if (options.agentId) this.emitMessage({ type: "agent_state", agentId: options.agentId });
+      if (options.catalogs) this.emitMessage({ type: "model_catalogs_state", catalogs: options.catalogs });
+      if (options.agentId) {
+        this.emitMessage({ type: "model_state", model: null });
+        this.emitMessage({ type: "effort_state", effort: null });
+      }
       this.emitMessage({ type: "caught_up" });
     });
   }
@@ -71,15 +78,25 @@ export interface SentMessage {
   message: Record<string, unknown>;
 }
 
+export interface FakeRelayOptions {
+  /** Sent right after `open`, with `agent_state` for `agentId` and the
+   * connection-burst `model_state`/`effort_state` (both `null`): what a real
+   * relay's burst carries and what the composer's pickers render from. */
+  agentId?: string;
+  catalogs?: Record<string, unknown>;
+}
+
 export interface FakeRelay {
   sockets: FakeRelaySocket[];
   /** Everything the app has sent, in order, whether or not the fake answers it. */
   sent: SentMessage[];
+  /** Pushes a relay message to every open socket (only the mounted tab reacts). */
+  emit: (message: unknown) => void;
   /** Restores the real `WebSocket`/`fetch` globals — call in `afterEach`. */
   uninstall: () => void;
 }
 
-export function installFakeRelay(replyText = "fake relay reply"): FakeRelay {
+export function installFakeRelay(replyText = "fake relay reply", options: FakeRelayOptions = {}): FakeRelay {
   const sockets: FakeRelaySocket[] = [];
   const sent: SentMessage[] = [];
 
@@ -97,7 +114,7 @@ export function installFakeRelay(replyText = "fake relay reply"): FakeRelay {
     "WebSocket",
     class extends FakeRelaySocket {
       constructor(url: string) {
-        super(url, onSend);
+        super(url, onSend, options);
         sockets.push(this);
       }
     },
@@ -115,6 +132,9 @@ export function installFakeRelay(replyText = "fake relay reply"): FakeRelay {
 
   return {
     sockets,
+    emit: (message) => {
+      for (const socket of sockets) socket.emitMessage(message);
+    },
     sent,
     uninstall: () => vi.unstubAllGlobals(),
   };

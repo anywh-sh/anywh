@@ -89,6 +89,22 @@ export interface ModelOption {
   readonly label: string;
   /** The CLI's own one-line blurb, when it has one. */
   readonly description?: string;
+  /** The reasoning-effort levels this model accepts, in the CLI's own order.
+   * Absent or empty means the model takes no effort, so the UI shows no
+   * picker. Differs per model (`max` only on some, `ultra` on one). */
+  readonly efforts?: readonly EffortOption[];
+  /** The level the CLI runs when none was picked. Absent when the CLI
+   * doesn't say (Claude), in which case the UI offers an explicit "Default". */
+  readonly defaultEffort?: string;
+}
+
+/** One reasoning-effort level. `id` is opaque to everything but the def's
+ * `exec` (it's whatever the CLI takes back); rendering a label for it is the
+ * client's job, so a level the client has never heard of still shows up. */
+export interface EffortOption {
+  readonly id: string;
+  /** The CLI's own one-line blurb, when it has one. */
+  readonly description?: string;
 }
 
 export interface ModelCatalog {
@@ -297,6 +313,9 @@ export interface TurnContext {
   readonly cwd: string;
   readonly prompt: string;
   readonly modelId?: string;
+  /** A level the effective model lists in `ModelOption.efforts`; absent when
+   * none was picked or the model doesn't take one. */
+  readonly effortId?: string;
   readonly permissionModeId: string;
   /** Set when resuming — absent on a session's first turn. */
   readonly resumeSessionId?: string;

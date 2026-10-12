@@ -66,6 +66,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `capabilities` | what this agent can do, at what level (`native`/`bridged`/`none`) | data |
 | `continuity` | who owns conversation history across turns | data |
 | `models` | where to find the model catalog the CLI's own picker shows — a probe's args, optional stdin, and a pure parser (`probes/modelCatalog.ts` runs it), a static catalog, or "ask the daemon" | data + a pure function |
+|  ↳ `efforts` / `defaultEffort` | optional, per `ModelOption`: the reasoning-effort levels that model accepts (`{id, description?}`, ids opaque to all but `exec`) and the level the CLI runs when none is picked. Absent means no picker | data |
 | `auth` | login status: a probe's args + a pure parser over everything the CLI emitted (stdout, stderr, exit code), or "ask the daemon" | data + a pure function |
 | `permissions` | a function from host platform to available modes, and which one is default | a pure function |
 | `bridges` | which of today's three bridge files this agent uses, if any | data |
@@ -295,6 +296,11 @@ CLI (version noted, §8) and run it through `assertToolContract`.
       (codex-cli 0.154.0's app-server does); the engine holds stdin open
       until `parse` recognizes the answer, so `parse` must return
       `undefined` for a partial stdout rather than an empty catalog.
+- [ ] If the CLI exposes reasoning effort, the catalog parser fills `efforts`
+      per model and `exec` honors `TurnContext.effortId`; otherwise leave both
+      absent and the UI hides the picker. Claude Code 2.1.289 lists levels per
+      model but no default; codex-cli 0.154.0 lists both, and its
+      `turn/start.effort` is sticky for later turns.
 - [ ] `portability.authoredPaths` lists every path under this CLI's config
       home that is the *user's* work, and nothing that is reinstallable or
       secret. Erring long is cheap (a path that doesn't exist is skipped);

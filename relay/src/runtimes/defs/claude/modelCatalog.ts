@@ -1,4 +1,4 @@
-import type { ModelCatalog, ModelOption } from "../../types.js";
+import type { EffortOption, ModelCatalog, ModelOption } from "../../types.js";
 
 /** One entry of the control protocol's `initialize` reply (`models`), the
  * fields this reads — shape measured against Claude Code 2.1.284. */
@@ -7,6 +7,16 @@ interface ClaudeModelInfo {
   displayName?: unknown;
   description?: unknown;
   resolvedModel?: unknown;
+  supportsEffort?: unknown;
+  supportedEffortLevels?: unknown;
+}
+
+/** `supportedEffortLevels` when the model takes effort. Claude reports no
+ * per-model default effort (measured against Claude Code 2.1.289), so
+ * `defaultEffort` is never filled. */
+function effortsOf(entry: ClaudeModelInfo): EffortOption[] {
+  if (entry.supportsEffort !== true || !Array.isArray(entry.supportedEffortLevels)) return [];
+  return entry.supportedEffortLevels.filter((level): level is string => typeof level === "string" && level.length > 0).map((id) => ({ id }));
 }
 
 /**
@@ -41,11 +51,15 @@ export function parseClaudeModelCatalog(stdout: string): ModelCatalog | undefine
     );
     const defaultEntry = entries.find((entry) => entry.value === "default");
     const concrete = entries.filter((entry) => entry !== defaultEntry);
-    const options: ModelOption[] = concrete.map((entry) => ({
-      id: entry.value,
-      label: entry.displayName,
-      ...(typeof entry.description === "string" && entry.description.length > 0 ? { description: entry.description } : {}),
-    }));
+    const options: ModelOption[] = concrete.map((entry) => {
+      const efforts = effortsOf(entry);
+      return {
+        id: entry.value,
+        label: entry.displayName,
+        ...(typeof entry.description === "string" && entry.description.length > 0 ? { description: entry.description } : {}),
+        ...(efforts.length > 0 ? { efforts } : {}),
+      };
+    });
     const defaultId =
       typeof defaultEntry?.resolvedModel === "string"
         ? concrete.find((entry) => entry.resolvedModel === defaultEntry.resolvedModel)?.value

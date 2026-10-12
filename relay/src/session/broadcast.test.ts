@@ -15,12 +15,14 @@ import {
   broadcastDraftState,
   broadcastExcept,
   broadcastModelState,
+  broadcastEffortState,
   broadcastPermissionMode,
   broadcastSuggestion,
   broadcastTitle,
   broadcastTurnState,
   sendContextUsage,
   sendModelState,
+  sendEffortState,
   sendSuggestion,
 } from "./broadcast.js";
 
@@ -114,6 +116,18 @@ test("broadcastModelState: a chosen model carries through as-is", () => {
   const client = fakeSocket();
   broadcastModelState([client], "opus");
   assert.deepEqual(client.sent, [{ type: "model_state", model: "opus" }]);
+});
+
+test("sendEffortState: undefined becomes null on the wire", () => {
+  const client = fakeSocket();
+  sendEffortState(client, undefined);
+  assert.deepEqual(client.sent, [{ type: "effort_state", effort: null }]);
+});
+
+test("broadcastEffortState: a picked level carries through as-is", () => {
+  const client = fakeSocket();
+  broadcastEffortState([client], "high");
+  assert.deepEqual(client.sent, [{ type: "effort_state", effort: "high" }]);
 });
 
 test("sendContextUsage: no usage yet means nothing is sent at all", () => {

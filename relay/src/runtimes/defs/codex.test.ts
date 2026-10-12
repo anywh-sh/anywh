@@ -39,6 +39,13 @@ test("exec.turn.start: a picked model rides along as TurnStartParams.model, and 
   assert.equal("model" in (unpicked.params as object), false);
 });
 
+test("exec.turn.start: a picked effort rides along as TurnStartParams.effort, and is absent otherwise", () => {
+  if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const picked = codexRuntimeDef.exec.turn.start(turnContext({ effortId: "high" }), "t1");
+  assert.equal((picked.params as { effort?: unknown }).effort, "high");
+  assert.equal("effort" in (codexRuntimeDef.exec.turn.start(turnContext(), "t1").params as object), false);
+});
+
 // `model/list`'s reply as the real app-server interleaves it on stdout
 // (codex-cli 0.154.0): the `initialize` reply and an unsolicited
 // notification first, fields this parser ignores cut.
@@ -405,4 +412,35 @@ test("portability.mcp.declaration: a shared file, so only named keys cross", () 
 test("portability.mcp.loginArgs: the subcommand that doesn't start OAuth on its own, unlike `mcp add --url`", () => {
   if (codexRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
   assert.deepEqual(codexRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "sentry"]);
+});
+
+// `model/list` effort fields, codex-cli 0.154.0 (trimmed): `ultra` only on
+// the biggest model, a per-model default.
+test("models: parseCodexModelList carries supportedReasoningEfforts and defaultReasoningEffort", () => {
+  const stdout = JSON.stringify({
+    id: 2,
+    result: {
+      data: [
+        {
+          id: "gpt-5.6-terra", displayName: "GPT-5.6-Terra", description: "", hidden: false, isDefault: true, defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "low", description: "Fast responses with lighter reasoning" },
+            { reasoningEffort: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+            { reasoningEffort: "ultra", description: "" },
+          ],
+        },
+        { id: "plain", displayName: "Plain", description: "", hidden: false, isDefault: false, supportedReasoningEfforts: [], defaultReasoningEffort: "medium" },
+      ],
+    },
+  });
+  const catalog = parseCodexModelList(stdout);
+  assert.deepEqual(catalog?.options[0]?.efforts, [
+    { id: "low", description: "Fast responses with lighter reasoning" },
+    { id: "medium", description: "Balances speed and reasoning depth for everyday tasks" },
+    { id: "ultra" },
+  ]);
+  assert.equal(catalog?.options[0]?.defaultEffort, "medium");
+  // A model with no listed efforts takes none, whatever default it claims.
+  assert.equal("efforts" in (catalog?.options[1] ?? {}), false);
+  assert.equal("defaultEffort" in (catalog?.options[1] ?? {}), false);
 });

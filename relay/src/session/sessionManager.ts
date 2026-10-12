@@ -8,6 +8,7 @@ import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgr
 import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
+import type { ModelCatalog } from "../runtimes/types.js";
 
 /** A change to the sidebar's session list (title assigned/changed, or
  * session removed) — distinct from `SharedSession`'s own `session_title`/
@@ -78,6 +79,9 @@ export class SessionManager {
     /** `undefined` when push is off (or in tests that don't exercise it) —
      * `server.ts` wires it to the push dispatcher. */
     private readonly onPushNotifiable?: (event: SessionPushEvent) => void,
+    /** The probed model catalogs, read at call time (they arrive after boot).
+     * `undefined` in tests that don't exercise effort. */
+    private readonly getModelCatalog?: (agentId: string) => ModelCatalog | undefined,
   ) {
     // `this.sessions` needs to exist BEFORE `BackgroundJobTracker` is
     // constructed: if there are persisted jobs from a session that already
@@ -247,6 +251,7 @@ export class SessionManager {
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
       initialPermissionMode: this.sessionStore.getPermissionMode(id, agentId, def.permissions.defaultModeId),
       initialModel: this.sessionStore.getModel(id, agentId),
+      initialEffort: this.sessionStore.getEffort(id, agentId),
     });
   }
 
@@ -308,6 +313,9 @@ export class SessionManager {
       onPermissionModeChange: (mode) => this.sessionStore.setPermissionMode(id, this.sessionStore.getAgentId(id), mode),
       initialModel: this.sessionStore.getModel(id, agentId),
       onModelChange: (model) => this.sessionStore.setModel(id, this.sessionStore.getAgentId(id), model),
+      initialEffort: this.sessionStore.getEffort(id, agentId),
+      onEffortChange: (effort) => this.sessionStore.setEffort(id, this.sessionStore.getAgentId(id), effort),
+      ...(this.getModelCatalog ? { getModelCatalog: this.getModelCatalog } : {}),
       initialContextUsage: this.sessionStore.getContextUsage(id, agentId),
       onContextUsageChange: (usage) => this.sessionStore.setContextUsage(id, this.sessionStore.getAgentId(id), usage),
       initialDraft: this.sessionStore.getDraft(id),
