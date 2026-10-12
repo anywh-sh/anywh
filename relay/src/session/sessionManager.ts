@@ -303,7 +303,14 @@ export class SessionManager {
       // under Claude's key in SessionStore.
       onSessionIdChange: (sessionId) => this.sessionStore.recordSessionId(id, this.sessionStore.getAgentId(id), sessionId),
       onSessionIdClear: () => this.sessionStore.clearSessionId(id, this.sessionStore.getAgentId(id)),
-      onTitleClear: () => this.sessionStore.clearTitle(id),
+      onTitleClear: () => {
+        // `/clear` (or editing back to the first message) takes the session
+        // out of `listTitled()` until its next prompt gets a fresh title —
+        // every other device has to drop the row too, not just this one.
+        const wasListed = this.sessionStore.getTitle(id) !== null;
+        this.sessionStore.clearTitle(id);
+        if (wasListed) this.onListChanged?.({ type: "remove", id });
+      },
       initialCwd: cwd,
       initialLocked: locked,
       onCwdChange: (newCwd) => this.sessionStore.setCwd(id, newCwd),
@@ -326,7 +333,15 @@ export class SessionManager {
       mcpBridgeBaseUrl: this.mcpBridgeBaseUrl,
       mcpPermissionBridge: this.mcpPermissionBridge,
       mcpPermissionBridgeBaseUrl: this.mcpPermissionBridgeBaseUrl,
-      onActivity: () => this.sessionStore.touch(id),
+      onActivity: () => {
+        this.sessionStore.touch(id);
+        // Once per turn, not per streamed event — cheap enough to fan out,
+        // and what lets another device move the session back to the top
+        // instead of only the one that sent the message. An untitled
+        // session isn't listed yet; its title upsert announces it below.
+        const title = this.sessionStore.getTitle(id);
+        if (title !== null) this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+      },
       onNotifiable: (draft, watched) => this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched }),
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);

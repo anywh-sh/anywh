@@ -73,6 +73,23 @@ export function connectSessionListWatch(port: number): Promise<WebSocket> {
   });
 }
 
+/** Connects to `/sessions/watch` and resolves with the full-list snapshot
+ * the relay sends first. The listener is attached in the same tick the
+ * socket is constructed, for the reason `connectSessionAndCollectUntil`
+ * documents: the snapshot is written inside the server's `connection`
+ * handler and can arrive before an awaited `open` returns. */
+export function connectSessionListWatchWithSnapshot(
+  port: number,
+): Promise<{ socket: WebSocket; snapshot: Record<string, unknown> }> {
+  return new Promise((resolveConn, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/sessions/watch`);
+    socket.once("message", (raw: Buffer) => {
+      resolveConn({ socket, snapshot: JSON.parse(raw.toString()) as Record<string, unknown> });
+    });
+    socket.once("error", reject);
+  });
+}
+
 export function sendUserMessage(socket: WebSocket, text: string): void {
   socket.send(JSON.stringify({ type: "user_message", text }));
 }

@@ -17,9 +17,24 @@ vi.mock("@/lib/profiles/connectionResolver", () => ({ resolveConnection: resolve
  * relayClient.test.ts's own fixture. */
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
+  static readonly CONNECTING = 0;
   static readonly OPEN = 1;
+  static readonly CLOSED = 3;
   readyState = 0;
+  sent: unknown[] = [];
   private listeners = new Map<string, ((event: unknown) => void)[]>();
+
+  send(data: string): void {
+    this.sent.push(JSON.parse(data));
+  }
+
+  /** Opens the socket and delivers `messages` the way a relay would,
+   * snapshot first when there is one. */
+  open(...messages: unknown[]): void {
+    this.readyState = FakeWebSocket.OPEN;
+    this.emit("open");
+    for (const message of messages) this.emit("message", { data: JSON.stringify(message) });
+  }
 
   constructor(readonly url: string) {
     FakeWebSocket.instances.push(this);
@@ -35,6 +50,7 @@ class FakeWebSocket {
   }
 
   close(): void {
+    this.readyState = FakeWebSocket.CLOSED;
     this.emit("close");
   }
 }
@@ -287,5 +303,123 @@ describe("useSessionNames", () => {
     expect(result.current.error).toBe(false);
     expect(result.current.loading).toBe(false);
     consoleErrorSpy.mockRestore();
+  });
+
+  describe("keeping the watch socket honest", () => {
+    // Past `useForegroundSync`'s floor: its mount-time run already counted,
+    // so a focus inside the first minute would be throttled away.
+    async function mountAndSettle(): Promise<void> {
+      await act(async () => {
+        renderHook(() => useSessionNames(tailnetProfile));
+        await vi.runAllTimersAsync();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(61_000);
+      });
+    }
+
+    async function focusWindow(): Promise<void> {
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    const snapshot = (sessions: SessionSummary[]) => ({ type: "session_list_snapshot", sessions });
+
+    it("replaces the cached list with the snapshot every (re)connection opens with", async () => {
+      await mountAndSettle();
+      const missed = { id: "while-away", title: "Created on the phone", lastActiveAt: 9 };
+      act(() => {
+        FakeWebSocket.instances[0].open(snapshot([missed]));
+      });
+      // This is what a reconnect after the machine slept brings back: the
+      // broadcasts only carry changes from now on.
+      expect(getCachedSessions(tailnetProfile.id).sessions).toEqual([missed]);
+    });
+
+    it("reconnects without waking when a focus probe gets no pong", async () => {
+      await mountAndSettle();
+      const dead = FakeWebSocket.instances[0];
+      act(() => {
+        dead.open(snapshot([]));
+      });
+
+      await focusWindow();
+      expect(dead.sent).toEqual([{ type: "ping" }]);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+
+      // A socket whose other end vanished never fires `close` — the probe
+      // timing out is the only way this device ever finds out.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      expect(resolveConnectionMock).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
+    });
+
+    it("keeps a socket that answers the probe", async () => {
+      await mountAndSettle();
+      const live = FakeWebSocket.instances[0];
+      act(() => {
+        live.open(snapshot([]));
+      });
+
+      await focusWindow();
+      act(() => {
+        live.emit("message", { data: JSON.stringify({ type: "pong" }) });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(FakeWebSocket.instances).toHaveLength(1);
+    });
+
+    it("never probes a relay that sent no snapshot, which would never pong either", async () => {
+      await mountAndSettle();
+      const old = FakeWebSocket.instances[0];
+      act(() => {
+        old.open();
+      });
+
+      await focusWindow();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(old.sent).toEqual([]);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+    });
+
+    it("does not restart a loop that stopped because the device was revoked", async () => {
+      resolveConnectionMock.mockReset().mockRejectedValue(new BrokerRevokedError());
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await mountAndSettle();
+      const before = resolveConnectionMock.mock.calls.length;
+
+      await focusWindow();
+      expect(resolveConnectionMock.mock.calls.length).toBe(before);
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("cuts a slow asleep-machine retry short when the user comes back, still without waking", async () => {
+      resolveConnectionMock.mockReset().mockRejectedValue(new BrokerAsleepError());
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      await act(async () => {
+        renderHook(() => useSessionNames(tailnetProfile));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Inside the 60s slow retry, but past the foreground floor relative
+      // to the mount-time run.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(59_000);
+      });
+      const before = resolveConnectionMock.mock.calls.length;
+      vi.setSystemTime(Date.now() + 2_000);
+
+      await focusWindow();
+      expect(resolveConnectionMock.mock.calls.length).toBe(before + 1);
+      expect(resolveConnectionMock).toHaveBeenLastCalledWith(tailnetProfile, { wake: false });
+      consoleErrorSpy.mockRestore();
+    });
   });
 });

@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSessions } from "@/lib/relay/relayClient";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/lib/format/sessionListCache";
 import { markProfileVerified } from "@/lib/profiles/profiles";
+import { useForegroundSync } from "@/hooks/relay/useForegroundSync";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { SessionSummary } from "@/lib/relay/relay-types";
 
 // A broker that answered 429 is telling this account to stop asking — the
 // watch loop's usual 2s retry is the one thing that makes that worse, and
@@ -15,6 +17,12 @@ import type { Profile } from "@/lib/profiles/profiles";
 // so the sidebar reattaches on its own the moment something else brings the
 // machine up, and slow enough not to be a loop anyone would notice.
 const WATCH_SLOW_RETRY_MS = 60_000;
+
+// How long the liveness probe waits for its pong before writing the socket
+// off. A live relay answers in one round-trip; this only has to be longer
+// than a slow tunnel's, since the cost of being wrong is one extra
+// reconnect.
+const PONG_TIMEOUT_MS = 5_000;
 
 interface SyncState {
   /** Which profile `loading`/`error` actually describe — read against
@@ -54,6 +62,7 @@ export function useSessionNames(profile: Profile): {
 } {
   const [state, setState] = useState<SyncState>(() => initialState(profile.id));
   const [reloadTick, setReloadTick] = useState(0);
+  const probeRef = useRef<() => void>(() => undefined);
 
   // Adjusts state during render (React's own sanctioned pattern for "reset
   // when a prop changes") rather than in an effect, so a switch reports the
@@ -125,6 +134,18 @@ export function useSessionNames(profile: Profile): {
     let cancelled = false;
     let socket: WebSocket | undefined;
     let reconnectTimer: number | undefined;
+    let pongTimer: number | undefined;
+    // A resolve is in flight — the window between `connect()` and a socket
+    // existing, where the probe below must not start a second connection.
+    let resolving = false;
+    // Set once this relay has sent a snapshot, which is also how a relay
+    // that answers pings identifies itself: one from before both existed
+    // would never pong, and probing it would tear down a perfectly live
+    // socket every time the window got focus.
+    let speaksProbe = false;
+    // Revoked for good — the loop stops on purpose, and coming back to the
+    // window must not restart it.
+    let revoked = false;
     const profileId = profile.id;
 
     // A tailnet connection needs its own fresh, unspent connect token on
@@ -140,8 +161,10 @@ export function useSessionNames(profile: Profile): {
     // outlives the reason for it.
     function connect(options: { wake: boolean }): void {
       if (cancelled) return;
+      resolving = true;
       resolveConnection(profile, { wake: options.wake })
         .then(({ host, port, token }) => {
+          resolving = false;
           if (cancelled) return;
           const query = token ? `?token=${encodeURIComponent(token)}` : "";
           const ws = new WebSocket(`ws://${host}:${String(port)}/sessions/watch${query}`);
@@ -154,12 +177,29 @@ export function useSessionNames(profile: Profile): {
               return;
             }
             if (typeof parsed !== "object" || parsed === null) return;
-            const { type, id, title, lastActiveAt } = parsed as {
+            const { type, id, title, lastActiveAt, sessions } = parsed as {
               type?: unknown;
               id?: unknown;
               title?: unknown;
               lastActiveAt?: unknown;
+              sessions?: unknown;
             };
+            if (type === "pong") {
+              window.clearTimeout(pongTimer);
+              pongTimer = undefined;
+              return;
+            }
+            // The whole list, sent first on every connection — reconnects
+            // included, which is the point: it covers everything this
+            // device missed while the socket was down, without a separate
+            // `GET /sessions` (and the extra connect grant a tailnet
+            // profile would spend on it).
+            if (type === "session_list_snapshot" && Array.isArray(sessions)) {
+              speaksProbe = true;
+              setCachedSessions(profileId, sessions.filter(isSessionSummary));
+              markProfileVerified(profileId);
+              return;
+            }
             if (typeof id !== "string") return;
             if (type === "session_list_upsert" && typeof title === "string")
               upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined);
@@ -167,16 +207,20 @@ export function useSessionNames(profile: Profile): {
           });
           ws.addEventListener("close", () => {
             if (socket !== ws || cancelled) return;
+            window.clearTimeout(pongTimer);
+            pongTimer = undefined;
             reconnectTimer = window.setTimeout(() => connect({ wake: false }), 2000);
           });
         })
         .catch((error: unknown) => {
+          resolving = false;
           console.error("[anywh] failed to resolve a connection for sessions/watch", error);
           if (cancelled) return;
           // Terminal — this device's connection was deliberately revoked and
           // will never succeed again, unlike every other reason this could
           // fail (network blip, relay down), which are worth retrying.
           if (error instanceof BrokerRevokedError) {
+            revoked = true;
             markProfileRevoked(profile.id);
             return;
           }
@@ -195,9 +239,43 @@ export function useSessionNames(profile: Profile): {
     }
     connect({ wake: true });
 
+    // Run when the app comes back to the foreground (see the hook below).
+    // A socket whose other end vanished without a close frame — the
+    // machine suspended, the laptop slept, the tunnel dropped — reads as
+    // OPEN here forever and never reconnects on its own, so the sidebar
+    // silently stops updating. Never `wake`: someone glancing at the
+    // sidebar is not a reason to resume a sleeping machine, and when one is
+    // asleep there is nothing on it that could have changed anyway.
+    probeRef.current = () => {
+      if (cancelled || revoked || resolving || pongTimer !== undefined) return;
+      if (socket?.readyState === WebSocket.CONNECTING) return;
+      if (socket?.readyState !== WebSocket.OPEN) {
+        // Down and waiting out a retry, possibly the slow one for a machine
+        // that was asleep — the user being back is reason enough to look
+        // again now instead.
+        window.clearTimeout(reconnectTimer);
+        connect({ wake: false });
+        return;
+      }
+      if (!speaksProbe) return;
+      const probed = socket;
+      probed.send(JSON.stringify({ type: "ping" }));
+      pongTimer = window.setTimeout(() => {
+        pongTimer = undefined;
+        if (cancelled || socket !== probed) return;
+        // Detached before closing so its `close` handler (if it ever even
+        // fires on a dead connection) doesn't schedule a second reconnect.
+        socket = undefined;
+        probed.close();
+        connect({ wake: false });
+      }, PONG_TIMEOUT_MS);
+    };
+
     return () => {
       cancelled = true;
+      probeRef.current = () => undefined;
       window.clearTimeout(reconnectTimer);
+      window.clearTimeout(pongTimer);
       socket?.close();
     };
   }, [
@@ -211,5 +289,22 @@ export function useSessionNames(profile: Profile): {
     profile.brokerNodeId,
   ]);
 
+  // Foreground triggers only — focus and visibility, throttled — never the
+  // timer: a ping is a frame towards the relay, which a paid host counts as
+  // someone being there, so it has to come from someone actually being
+  // there.
+  const probe = useCallback(() => probeRef.current(), []);
+  useForegroundSync(probe, { poll: false });
+
   return { loading: state.loading, error: state.error, reload };
+}
+
+function isSessionSummary(value: unknown): value is SessionSummary {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.id === "string" &&
+    typeof entry.title === "string" &&
+    (entry.lastActiveAt === null || typeof entry.lastActiveAt === "number")
+  );
 }
