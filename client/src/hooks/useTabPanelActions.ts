@@ -102,8 +102,10 @@ export function useTabPanelActions({
         // Ungated on the active profile, unlike before: with every profile
         // in one list, a conversation titled in a background tab has to
         // appear under its own profile whether or not that profile is the
-        // one currently selected.
-        upsertCachedSession(tab.profileId, tab.id, title, Date.now());
+        // one currently selected. No timestamp: this also fires for a rename
+        // made on another device, which must not move the row, and a session
+        // not listed yet is stamped "now" by the cache on its own.
+        upsertCachedSession(tab.profileId, tab.id, title);
       },
       onActivity: (tab) => {
         touchCachedSession(tab.profileId, tab.id);

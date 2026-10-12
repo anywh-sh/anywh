@@ -106,19 +106,33 @@ export function setCachedSessions(profileId: string, sessions: SessionSummary[])
 }
 
 /**
- * Mirrors `useSessionNames.upsertTitle`: inserts a newly titled session at
- * the top, or updates the title of one already listed without moving it.
- * Same rule about `lastActiveAt` as there — only consulted when inserting,
- * so a rename doesn't reorder the list or change which recency group the
- * session falls into.
+ * A session the relay announced — newly titled, renamed, or used again on
+ * some device. Inserted at the top when it isn't listed yet; otherwise its
+ * title is updated, and it only moves when `lastActiveAt` is newer than the
+ * one on the row. That last rule is what keeps both kinds of update right:
+ * a rename carries the session's existing timestamp (renaming isn't
+ * activity), so it stays put, while a new turn carries a later one and
+ * takes the row back up to where that timestamp belongs.
  */
 export function upsertCachedSession(profileId: string, id: string, title: string, lastActiveAt?: number): void {
   const existing = cache[profileId] ?? EMPTY;
   const index = existing.sessions.findIndex((session) => session.id === id);
-  const sessions =
-    index === -1
-      ? [{ id, title, lastActiveAt: lastActiveAt ?? Date.now() }, ...existing.sessions]
-      : existing.sessions.map((session, i) => (i === index ? { ...session, title } : session));
+  if (index === -1) {
+    const sessions = [{ id, title, lastActiveAt: lastActiveAt ?? Date.now() }, ...existing.sessions];
+    commit({ ...cache, [profileId]: { ...existing, sessions } });
+    return;
+  }
+  const current = existing.sessions[index];
+  const moved = lastActiveAt !== undefined && (current.lastActiveAt === null || lastActiveAt > current.lastActiveAt);
+  if (!moved) {
+    if (current.title === title) return;
+    const sessions = existing.sessions.map((session, i) => (i === index ? { ...session, title } : session));
+    commit({ ...cache, [profileId]: { ...existing, sessions } });
+    return;
+  }
+  const sessions = existing.sessions.filter((_, i) => i !== index);
+  const at = sessions.findIndex((session) => session.lastActiveAt === null || session.lastActiveAt < lastActiveAt);
+  sessions.splice(at === -1 ? sessions.length : at, 0, { ...current, title, lastActiveAt });
   commit({ ...cache, [profileId]: { ...existing, sessions } });
 }
 

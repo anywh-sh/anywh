@@ -98,13 +98,46 @@ describe("sessionListCache", () => {
         { id: "a", title: "A", lastActiveAt: 200 },
         { id: "b", title: "B", lastActiveAt: 100 },
       ]);
-      cache.upsertCachedSession("work", "b", "B renamed", Date.now());
+      // The relay stamps a rename with the session's existing timestamp —
+      // renaming is not activity; were it stamped "now", an old conversation
+      // would jump into "today" the moment its title was fixed.
+      cache.upsertCachedSession("work", "b", "B renamed", 100);
+      cache.upsertCachedSession("work", "b", "B renamed again");
 
       const { sessions } = cache.getCachedSessions("work");
-      // Renaming is not activity: were the timestamp applied, an old
-      // conversation would jump into "today" the moment its title was fixed.
       expect(sessions.map((s) => s.id)).toEqual(["a", "b"]);
-      expect(sessions[1]).toEqual({ id: "b", title: "B renamed", lastActiveAt: 100 });
+      expect(sessions[1]).toEqual({ id: "b", title: "B renamed again", lastActiveAt: 100 });
+    });
+
+    it("moves a row used again on another device to where its new timestamp belongs", async () => {
+      const cache = await freshModule();
+      cache.setCachedSessions("work", [
+        { id: "a", title: "A", lastActiveAt: 300 },
+        { id: "b", title: "B", lastActiveAt: 200 },
+        { id: "c", title: "C", lastActiveAt: 100 },
+      ]);
+      cache.upsertCachedSession("work", "c", "C", 400);
+      expect(cache.getCachedSessions("work").sessions.map((s) => s.id)).toEqual(["c", "a", "b"]);
+
+      // Not necessarily the top: a broadcast can land after a newer local
+      // touch, and the row still has to sit where its timestamp says.
+      cache.upsertCachedSession("work", "b", "B", 350);
+      const { sessions } = cache.getCachedSessions("work");
+      expect(sessions.map((s) => s.id)).toEqual(["c", "b", "a"]);
+      expect(sessions[1]).toEqual({ id: "b", title: "B", lastActiveAt: 350 });
+    });
+
+    it("never moves a row back for an older timestamp", async () => {
+      const cache = await freshModule();
+      cache.setCachedSessions("work", [
+        { id: "a", title: "A", lastActiveAt: 300 },
+        { id: "b", title: "B", lastActiveAt: 200 },
+      ]);
+      cache.upsertCachedSession("work", "a", "A", 100);
+      expect(cache.getCachedSessions("work").sessions).toEqual([
+        { id: "a", title: "A", lastActiveAt: 300 },
+        { id: "b", title: "B", lastActiveAt: 200 },
+      ]);
     });
 
     it("does not move syncedAt on an incremental write", async () => {
