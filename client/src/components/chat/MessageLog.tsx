@@ -4,8 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
-import { ActivityGroup } from "@/components/chat/activity/ActivityGroup";
-import { ThinkingRow } from "@/components/chat/activity/ThinkingRow";
+import { WorkBlock } from "@/components/chat/activity/WorkBlock";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
 import { OpenState, OpenStateContext } from "@/lib/format/openState";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
@@ -93,7 +92,7 @@ type RenderItem = TimelineItem | { kind: "trailing" };
 
 function itemKey(item: RenderItem): string {
   if (item.kind === "trailing") return TRAILING_KEY;
-  return item.kind === "group" ? `group-${item.id}` : item.entry.id;
+  return item.kind === "work" ? `work-${item.id}` : item.entry.id;
 }
 
 interface UserActionHandlers {
@@ -107,12 +106,11 @@ interface UserActionHandlers {
 }
 
 function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions: UserActionHandlers, attributionByToolUseId: Record<string, AttributionState>, dict: Dictionary) {
-  if (item.kind === "group") {
+  if (item.kind === "work") {
     return (
-      <LogEntryRow key={`group-${item.id}`}>
-        <ActivityGroup
-          id={item.id}
-          calls={item.calls}
+      <LogEntryRow key={`work-${item.id}`}>
+        <WorkBlock
+          item={item}
           attributionByToolUseId={attributionByToolUseId}
           cwd={userActions.cwd}
           onCopy={userActions.onCopy}
@@ -156,16 +154,10 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           <ToolCallCard call={entry} />
         </LogEntryRow>
       );
-    case "thinking":
-      return (
-        <LogEntryRow key={entry.id}>
-          <ThinkingRow entry={entry} />
-        </LogEntryRow>
-      );
     case "turn-footer":
       return (
         <LogEntryRow key={entry.id} className="py-0">
-          <TurnFooter sentAt={entry.sentAt} durationMs={entry.durationMs} text={entry.text} onCopy={userActions.onCopy} />
+          <TurnFooter sentAt={entry.sentAt} text={entry.text} onCopy={userActions.onCopy} />
         </LogEntryRow>
       );
     case "error":
@@ -198,6 +190,8 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           </p>
         </LogEntryRow>
       );
+    // Reasoning is always a step of a work block (`buildTimeline`), never a row.
+    case "thinking":
     default:
       return null;
   }

@@ -444,6 +444,19 @@ body {
   animation: shimmer-text 1.8s linear infinite;
 }
 
+/* A step landing in a running turn's block (`WorkStepRow`): it fades in from a
+ * few pixels above. `opacity` and `transform` only, so nothing is laid out for
+ * it; the reduced-motion override above turns it into a plain appearance. */
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.animate-step-in {
+  animation: step-in 240ms var(--motion-ease) both;
+}
+
 /* Radix's `ScrollArea` injects an inner wrapper with `display:table;
  * min-width:100%` (as an inline style, not a class) around the content — a
  * table grows to the size of its content without wrapping (our `truncate`

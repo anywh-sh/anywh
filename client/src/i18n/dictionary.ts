@@ -433,12 +433,11 @@ export interface Dictionary {
        * being this one call's own exact number. */
       attributionEstimatedHint: string;
     };
-    /** The interleaved activity flow: a group of tool calls counted in one
-     * line, the rows inside it, and what an expanded call shows. Verbs come
-     * per kind of call in two tenses (`{target}` is the file, command,
-     * pattern or query, which is data); past for what finished, `ing` for
-     * what still runs — they name a row, never the group. Counts have a
-     * singular/plural pair per convention. */
+    /** The interleaved activity flow: a turn's work as one block (`work`)
+     * and what an expanded call shows. `verbs` come per kind of call in two
+     * tenses (`{target}` is the file, command, pattern or query, which is
+     * data); past for what finished, `ing` for what still runs. Counts have
+     * a singular/plural pair per convention. */
     activity: {
       verbs: {
         read: ActivityVerb;
@@ -453,21 +452,43 @@ export interface Dictionary {
         task: ActivityVerb;
         other: ActivityVerb;
       };
-      /** The group's line while something in it runs — `{count}` calls so far. */
-      toolsRunning: ActivityCount;
-      /** The group's line once everything in it ended. */
-      toolsUsed: ActivityCount;
-      failedOne: string;
-      failedMany: string;
       /** The state mark of a row whose call failed and reported no exit code. */
       callFailed: string;
-      /** `{count}` calls in one parallel batch. */
-      batchHeader: string;
-      thinking: string;
-      thoughtFor: string;
-      thought: string;
-      /** `{time}` — the whole turn's duration, in the reply's footer. */
-      workedFor: string;
+      /** A turn's work as one block: the line that heads it and the steps
+       * under it. The verbs name what a step did without its target (the
+       * target is a chip beside it), in the present while it runs and the
+       * past once it ended. */
+      work: {
+        /** Heads the block while the turn runs; the clock follows it. */
+        working: string;
+        /** `{time}` — heads the block once the turn ended. */
+        workedFor: string;
+        /** The same, when no timestamps were reported. */
+        worked: string;
+        /** Closes a block whose turn finished (not one that was stopped). */
+        done: string;
+        failedOne: string;
+        /** `{count}` */
+        failedMany: string;
+        /** `{count}` targets left out of a step's chips. */
+        moreTargets: string;
+        showLess: string;
+        /** Opens a step's calls — arguments and results. */
+        stepDetails: string;
+        steps: {
+          read: ActivityVerb;
+          edit: ActivityVerb;
+          write: ActivityVerb;
+          shell: ActivityVerb;
+          searchFiles: ActivityVerb;
+          searchContent: ActivityVerb;
+          webSearch: ActivityVerb;
+          webFetch: ActivityVerb;
+          mcp: ActivityVerb;
+          task: ActivityVerb;
+          other: ActivityVerb;
+        };
+      };
       /** What the expanded call's input line is labelled with. */
       inputLabels: { path: string; pattern: string; regex: string; query: string; url: string; mcp: string };
       meta: {

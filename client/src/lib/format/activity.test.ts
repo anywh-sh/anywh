@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDictionary } from "@/i18n/dictionaries";
 import type { LogEntry, ToolCallEntry } from "@/hooks/relay/useMessageLog";
-import { buildTimeline, callDuration, callMeta, callTarget, groupBatch, groupDuration, groupStatus } from "@/lib/format/activity";
+import { buildTimeline, callDuration, callMeta, callTarget, callTargetChip, failureLine, type TimelineItem, type WorkItem } from "@/lib/format/activity";
 
 const en = getDictionary("en").chat.activity;
 const pt = getDictionary("pt-BR").chat.activity;
@@ -13,32 +13,87 @@ function call(overrides: Partial<ToolCallEntry> = {}): ToolCallEntry {
 }
 const read = (path: string, o: Partial<ToolCallEntry> = {}) => call({ toolKind: "read", subject: { kind: "read", path }, ...o });
 const shell = (command: string, o: Partial<ToolCallEntry> = {}) => call({ subject: { kind: "shell", command }, ...o });
-const text = (id: string): LogEntry => ({ kind: "text", id, text: "hi", streaming: false, sentAt: 0 });
+const text = (id: string, body = "hi"): LogEntry => ({ kind: "text", id, text: body, streaming: false, sentAt: 0 });
+const thinking = (id: string, o: Partial<Extract<LogEntry, { kind: "thinking" }>> = {}): LogEntry => ({ kind: "thinking", id, text: "", running: false, ...o });
+const user = (id: string): LogEntry => ({ kind: "user", id, text: "go", sentAt: 0 });
+const footer = (id: string, durationMs?: number): LogEntry => ({ kind: "turn-footer", id, sentAt: 0, text: "", ...(durationMs !== undefined ? { durationMs } : {}) });
+const works = (items: TimelineItem[]): WorkItem[] => items.filter((item): item is WorkItem => item.kind === "work");
+/** `work:<steps>` / the single's entry kind, to read a timeline at a glance. */
+const shape = (items: TimelineItem[]) => items.map((item) => (item.kind === "work" ? `work:${item.steps.map((step) => (step.kind === "think" ? "think" : step.calls.length)).join("+")}` : item.entry.kind));
 
 describe("buildTimeline", () => {
-  it("groups consecutive calls and breaks the group at text, reasoning and errors", () => {
-    const a = read("/a.ts");
-    const b = read("/b.ts");
-    const c = shell("ls");
-    const d = shell("pwd");
-    const items = buildTimeline([a, b, text("x"), c, { kind: "thinking", id: "th", text: "", running: false }, d, { kind: "error", id: "e", message: "boom" }]);
-    expect(items.map((i) => (i.kind === "group" ? i.calls.length : i.entry.kind))).toEqual([2, "text", 1, "thinking", 1, "error"]);
+  it("draws a turn's reasoning and calls as one block, however they interleave", () => {
+    const items = buildTimeline([user("u"), thinking("t1", { text: "plan" }), read("/a.ts"), thinking("t2", { text: "again" }), shell("ls"), text("answer"), footer("f", 9000)]);
+    expect(shape(items)).toEqual(["user", "work:think+1+think+1", "text", "turn-footer"]);
   });
 
-  it("keeps a failed call inside its group", () => {
-    const items = buildTimeline([read("/a.ts"), shell("false", { isError: true }), read("/b.ts")]);
-    expect(items).toHaveLength(1);
+  it("keeps the answer outside and takes the remarks before more activity in as steps", () => {
+    const items = buildTimeline([user("u"), text("a", "Let me read it first."), read("/a.ts"), text("b", "Now the tests."), shell("npm test"), text("c", "All green."), footer("f")]);
+    expect(shape(items)).toEqual(["user", "work:think+1+think+1", "text", "turn-footer"]);
+    expect(items[2]).toMatchObject({ entry: { id: "c" } });
   });
 
-  it("leaves plans out of groups, splitting the run around them", () => {
+  it("is not a block when the turn is only an answer", () => {
+    expect(shape(buildTimeline([user("u"), text("a"), footer("f")]))).toEqual(["user", "text", "turn-footer"]);
+  });
+
+  it("merges calls of the same kind in a row into one step, and not different ones", () => {
+    const items = buildTimeline([read("/a.ts"), read("/b.ts"), read("/c.ts"), shell("ls"), read("/d.ts")]);
+    expect(shape(items)).toEqual(["work:3+1+1"]);
+  });
+
+  it("leaves out reasoning that said nothing, but still counts its time", () => {
+    const [block] = works(buildTimeline([user("u"), thinking("t", { startedAt: 1000, endedAt: 4000 }), read("/a.ts", { startedAt: 4000, endedAt: 6000 }), footer("f")]));
+    expect(block.steps).toHaveLength(1);
+    expect(block.startedAt).toBe(1000);
+    expect(block.durationMs).toBe(5000);
+  });
+
+  it("counts the failures, and a retry that worked does not take one back", () => {
+    const [block] = works(buildTimeline([shell("npm test", { isError: true }), shell("npm test"), read("/a.ts", { isError: true, aborted: true })]));
+    expect(block.failed).toBe(1);
+    expect(block.steps[0]).toMatchObject({ kind: "tool", failed: true });
+  });
+
+  it("runs until its turn ends, and only the latest block of an open turn", () => {
+    expect(works(buildTimeline([user("u"), read("/a.ts")]))[0].running).toBe(true);
+    expect(works(buildTimeline([user("u"), read("/a.ts"), text("a"), footer("f")]))[0].running).toBe(false);
     const plan = call({ name: "plan", toolKind: "other", plan: [] });
-    const items = buildTimeline([read("/a.ts"), plan, read("/b.ts")]);
-    expect(items.map((i) => i.kind)).toEqual(["group", "single", "group"]);
+    const [first, second] = works(buildTimeline([user("u"), read("/a.ts"), plan, read("/b.ts")]));
+    expect([first.running, second.running]).toEqual([false, true]);
+  });
+
+  it("marks a turn cut short by a stop or an error, not a finished one", () => {
+    expect(works(buildTimeline([user("u"), read("/a.ts"), { kind: "stopped", id: "s" }, footer("f")]))[0]).toMatchObject({ running: false, interrupted: true });
+    expect(works(buildTimeline([user("u"), read("/a.ts"), { kind: "error", id: "e", message: "boom" }]))[0]).toMatchObject({ running: false, interrupted: true });
+    expect(works(buildTimeline([user("u"), read("/a.ts"), text("a"), footer("f")]))[0].interrupted).toBe(false);
+  });
+
+  it("opens a block for a turn that has only started reasoning, with its clock", () => {
+    const [block] = works(buildTimeline([user("u"), thinking("t", { running: true, pending: true, startedAt: 500 })]));
+    expect(block).toMatchObject({ running: true, steps: [], startedAt: 500 });
+  });
+
+  it("falls back to the turn's own duration when a replay carries no timestamps", () => {
+    const [block] = works(buildTimeline([user("u"), read("/a.ts"), text("a"), footer("f", 12_000)]));
+    expect(block.durationMs).toBe(12_000);
+    expect(works(buildTimeline([user("u"), read("/a.ts")]))[0].durationMs).toBeUndefined();
+  });
+
+  it("gives each turn its own block", () => {
+    const items = buildTimeline([user("u1"), read("/a.ts"), text("a"), footer("f1"), user("u2"), shell("ls"), text("b"), footer("f2")]);
+    expect(shape(items)).toEqual(["user", "work:1", "text", "turn-footer", "user", "work:1", "text", "turn-footer"]);
+  });
+
+  it("splits at an error and at a plan, so the turn reads in order around them", () => {
+    const plan = call({ name: "plan", toolKind: "other", plan: [] });
+    expect(shape(buildTimeline([read("/a.ts"), plan, read("/b.ts")]))).toEqual(["work:1", "tool-call", "work:1"]);
+    expect(shape(buildTimeline([read("/a.ts"), { kind: "error", id: "e", message: "boom" }, read("/b.ts")]))).toEqual(["work:1", "error", "work:1"]);
   });
 
   describe("a delegated task", () => {
     const task = (o: Partial<ToolCallEntry> = {}) => call({ name: "Agent", toolKind: "task", subject: { kind: "task", label: "explore" }, ...o });
-    const kinds = (entries: LogEntry[], spawned: string[] = []) => buildTimeline(entries, new Set(spawned)).map((i) => (i.kind === "group" ? i.calls.length : i.kind));
+    const kinds = (entries: LogEntry[], spawned: string[] = []) => buildTimeline(entries, new Set(spawned)).map((i) => (i.kind === "work" ? i.steps.length : i.kind));
 
     it("is not drawn while it runs: the subagent card is its one representation", () => {
       expect(kinds([task({ done: false, toolUseId: "a" })])).toEqual([]);
@@ -66,7 +121,7 @@ describe("buildTimeline", () => {
 
     it("neither joins nor splits a run when hidden, and ends it like any card when shown", () => {
       const hidden = task({ toolUseId: "a" });
-      expect(kinds([read("/a.ts"), hidden, read("/b.ts")], ["a"])).toEqual([2]);
+      expect(kinds([read("/a.ts"), hidden, shell("ls")], ["a"])).toEqual([2]);
       const shown = task({ toolUseId: "b", isError: true });
       expect(kinds([read("/a.ts"), shown, read("/b.ts")])).toEqual([1, "single", 1]);
     });
@@ -77,59 +132,29 @@ describe("buildTimeline", () => {
     });
   });
 
-  it("gives a group the id of its first call, stable as the group grows", () => {
+  it("gives a block the id of its first entry, stable as it grows", () => {
     const first = read("/a.ts");
     const before = buildTimeline([first]);
-    const after = buildTimeline([first, read("/b.ts")]);
+    const after = buildTimeline([first, read("/b.ts"), shell("ls")]);
     expect(before[0]).toMatchObject({ id: first.id });
     expect(after[0]).toMatchObject({ id: first.id });
   });
 });
 
-describe("groupStatus", () => {
-  it("counts every call, running or not", () => {
-    expect(groupStatus([read("/a"), shell("ls"), shell("npm test", { done: false })])).toEqual({ count: 3, running: true, failed: 0 });
-  });
-
-  it("is not running once every call is done, and counts failures", () => {
-    const status = groupStatus([read("/a"), shell("x", { isError: true }), shell("y", { isError: true })]);
-    expect(status).toEqual({ count: 3, running: false, failed: 2 });
-  });
-
-  it("does not count a call the turn aborted as a failure", () => {
-    expect(groupStatus([shell("x", { isError: true, aborted: true })]).failed).toBe(0);
-  });
-});
-
-describe("the group line", () => {
-  // The line is `toolsRunning`/`toolsUsed` with `{count}` filled in: a pair per
-  // language, and a placeholder in the plural form is what keeps the number
-  // from being lost in translation.
+describe("the work block's words", () => {
+  // `{time}` and `{count}` are what keeps a number from being lost in translation.
   it.each([
     ["en", en],
     ["pt-BR", pt],
-  ])("has a singular and a counted plural, both ways, in %s", (_, dict) => {
-    for (const pair of [dict.toolsRunning, dict.toolsUsed]) {
-      expect(pair.one).not.toContain("{count}");
-      expect(pair.many).toContain("{count}");
+  ])("fills its time and its count, and has a verb in both tenses for every kind of call, in %s", (_, dict) => {
+    expect(dict.work.workedFor).toContain("{time}");
+    expect(dict.work.failedMany).toContain("{count}");
+    expect(dict.work.moreTargets).toContain("{count}");
+    for (const verb of Object.values(dict.work.steps)) {
+      expect(verb.past).not.toBe("");
+      expect(verb.ing).not.toBe("");
+      expect(verb.past).not.toBe(verb.ing);
     }
-  });
-});
-
-describe("groupDuration", () => {
-  const timed = (startedAt: number, endedAt: number, o: Partial<ToolCallEntry> = {}) => shell("x", { startedAt, endedAt, ...o });
-
-  it("runs from the first start to the last end, so parallel calls are not added twice", () => {
-    expect(groupDuration([timed(1000, 4000), timed(1000, 3000), timed(5000, 6500)])).toBe(5500);
-  });
-
-  it("is unknown while any call is still open", () => {
-    expect(groupDuration([timed(1000, 2000), shell("y", { done: false, startedAt: 2000 })])).toBeUndefined();
-  });
-
-  it("is unknown when a call has no timestamps — an older replay — rather than guessed", () => {
-    expect(groupDuration([timed(1000, 2000), shell("y")])).toBeUndefined();
-    expect(groupDuration([])).toBeUndefined();
   });
 });
 
@@ -153,17 +178,28 @@ describe("callTarget", () => {
   });
 });
 
-describe("groupBatch", () => {
-  it("is a batch only when the whole group shares one id", () => {
-    expect(groupBatch([read("/a", { batchId: "m" }), read("/b", { batchId: "m" })])?.count).toBe(2);
-    expect(groupBatch([read("/a", { batchId: "m" }), read("/b", { batchId: "n" })])).toBeUndefined();
-    expect(groupBatch([read("/a", { batchId: "m" })])).toBeUndefined();
+describe("callTargetChip", () => {
+  it("names what each call acted on, with the whole text kept for the tooltip", () => {
+    expect(callTargetChip(read("/w/src/MessageLog.tsx"))).toMatchObject({ kind: "file", label: "MessageLog.tsx", full: "/w/src/MessageLog.tsx" });
+    expect(callTargetChip(shell("npm test\nmore"))).toMatchObject({ kind: "command", label: "npm test", full: "npm test\nmore" });
+    expect(callTargetChip(call({ toolKind: "web", subject: { kind: "web", mode: "fetch", url: "https://x.dev/p?q=1" } }))).toMatchObject({ kind: "domain", label: "x.dev" });
+    expect(callTargetChip(call({ toolKind: "web", subject: { kind: "web", mode: "search", query: "tauri ios" } }))).toMatchObject({ kind: "query", label: "tauri ios" });
+    expect(callTargetChip(call({ toolKind: "mcp", subject: { kind: "mcp", server: "linear", tool: "get" } }))).toMatchObject({ kind: "app", label: "linear.get" });
+    expect(callTargetChip(call({ name: "Mystery", toolKind: "other" }))).toMatchObject({ kind: "other", label: "Mystery" });
   });
 
-  it("measures the batch from the first start to the last end, once it is over", () => {
-    const calls = [read("/a", { batchId: "m", startedAt: 1000, endedAt: 2500 }), read("/b", { batchId: "m", startedAt: 1100, endedAt: 3000 })];
-    expect(groupBatch(calls)?.durationMs).toBe(2000);
-    expect(groupBatch([...calls.slice(0, 1), { ...calls[1], done: false }])?.durationMs).toBeUndefined();
+  it("carries the change on an edit", () => {
+    const edit = call({ toolKind: "edit", subject: { kind: "edit", path: "/a.ts" }, outcome: { kind: "diff", path: "/a.ts", hunks: [], added: 9, removed: 2 } });
+    expect(callTargetChip(edit).diff).toEqual({ added: 9, removed: 2 });
+  });
+});
+
+describe("failureLine", () => {
+  it("is the first useful line of a failure, and nothing for a call that did not fail", () => {
+    expect(failureLine(shell("x", { isError: true, content: "\n  Error: nope\nat x" }))).toBe("Error: nope");
+    expect(failureLine(shell("x", { content: "fine" }))).toBe("");
+    expect(failureLine(shell("x", { isError: true, aborted: true, content: "stopped" }))).toBe("");
+    expect(failureLine(shell("x", { isError: true }))).toBe("");
   });
 });
 
