@@ -78,11 +78,12 @@ interface SortableTabProps {
 // `data-state`/`aria-selected` itself instead of delegating to Radix, which
 // is what keeps the `data-[state=active]:*` utilities below working.
 //
-// Hovering an inactive tab brightens its text, washes its fill (on the row
-// that wraps it, below), reveals its close button and stretches its profile
-// rule to the full width, all at once and without animation.
+// Hovering an inactive tab brightens its text and shows its close button;
+// nothing else about it moves. What marks the active tab is only its fill,
+// its profile rule stretched to the full width, and full opacity — never a
+// different font weight or spacing.
 const TAB_TRIGGER_CLASS =
-  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint transition-colors hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:font-medium data-[state=active]:text-foreground";
+  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint transition-colors hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:text-foreground";
 
 /**
  * Only spreads dnd-kit's `listeners`/`setNodeRef`, not `attributes` — avoids
@@ -139,7 +140,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             // it reads as the plane's tab rather than a button above it.
             // Auto width up to 196px — a short title makes a short tab.
             "group relative flex h-[31px] max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
-            isActive ? "h-8 border-border-soft bg-background" : "hover:bg-bg-hover",
+            isActive && "h-8 border-border-soft bg-background",
           )}
         >
           {/* The profile, as a 2px rule across the top of the tab: the whole
@@ -150,7 +151,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             className={cn(
               "pointer-events-none absolute top-0 z-20 h-0.5",
               profileColorClass(tab.profileId),
-              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85 group-hover:-right-px group-hover:-left-px group-hover:opacity-100",
+              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85",
             )}
           />
           <button
