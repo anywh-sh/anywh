@@ -78,8 +78,8 @@ interface SortableTabProps {
 // `data-state`/`aria-selected` itself instead of delegating to Radix, which
 // is what keeps the `data-[state=active]:*` utilities below working.
 //
-// Hovering an inactive tab brightens its text and shows its close button;
-// nothing else about it moves. What marks the active tab is only its fill,
+// Hovering an inactive tab brightens its text, washes its fill and shows its
+// close button; nothing else about it moves. What marks the active tab is only its fill,
 // its profile rule stretched to the full width, and full opacity — never a
 // different font weight or spacing.
 const TAB_TRIGGER_CLASS =
@@ -140,7 +140,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             // it reads as the plane's tab rather than a button above it.
             // Auto width up to 196px — a short title makes a short tab.
             "group relative flex h-8 max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
-            isActive && "border-border-soft bg-background",
+            isActive ? "border-border-soft bg-background" : "hover:bg-bg-hover",
           )}
         >
           {/* The profile, as a 2px rule across the top of the tab: the whole
