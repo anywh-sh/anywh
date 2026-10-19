@@ -7,7 +7,10 @@ interface LogEntryRowProps {
 }
 
 /**
- * Vertical rhythm between entries in the log, and nothing else.
+ * Vertical rhythm between entries in the log, and nothing else: 4px here on
+ * each side plus the 4px the virtualized row adds, so 12px between one
+ * entry and the next — the design's gap between a thinking line, the
+ * activity line and the text.
  *
  * It used to draw a coloured rail down the left of tool calls and errors.
  * The design has no rails: a tool call is already a bordered card, and the
@@ -19,5 +22,5 @@ interface LogEntryRowProps {
  * too late) on every `MessageLog` render, even with `children` unchanged.
  */
 export const LogEntryRow = memo(function LogEntryRow({ children, className }: LogEntryRowProps) {
-  return <div className={cn("py-2.5", className)}>{children}</div>;
+  return <div className={cn("py-1", className)}>{children}</div>;
 });
