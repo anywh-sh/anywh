@@ -91,30 +91,25 @@ describe("SessionList", () => {
     expect(onClearFilter).toHaveBeenCalledTimes(1);
   });
 
-  it("groups sessions by recency, newest group first, with a count per heading", () => {
-    renderList({
-      sessions: [
-        session({ id: "s1", title: "Today one" }),
-        session({ id: "s2", title: "Today two" }),
-        session({ id: "s3", title: "Long ago", lastActiveAt: Date.now() - 90 * DAY }),
-      ],
-    });
+  it("lists only the 10 latest under one Recent heading, with its count", () => {
+    const sessions = Array.from({ length: 12 }, (_, i) => session({ id: `s${String(i)}`, title: `Item ${String(i)}`, lastActiveAt: Date.now() - i * 1000 }));
+    renderList({ sessions });
 
-    expect(screen.getByText(copy.groups.today).parentElement).toHaveTextContent(`${copy.groups.today}2`);
-    expect(screen.getByText(copy.groups.older).parentElement).toHaveTextContent(`${copy.groups.older}1`);
-    // A bucket with nothing in it never gets a heading of its own.
-    expect(screen.queryByText(copy.groups.yesterday)).not.toBeInTheDocument();
+    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}10`);
+    expect(screen.getByText("Item 0")).toBeInTheDocument();
+    expect(screen.queryByText("Item 10")).not.toBeInTheDocument();
+    expect(screen.queryByText("Item 11")).not.toBeInTheDocument();
+    expect(screen.queryByText(copy.groups.today)).not.toBeInTheDocument();
   });
 
   it("folds a group away on its heading and unfolds it again, keeping the count", async () => {
-    renderList({ sessions: [session({ id: "s1", title: "Alpha item" }), session({ id: "s2", title: "Long ago", lastActiveAt: Date.now() - 90 * DAY })] });
+    renderList({ sessions: [session({ id: "s1", title: "Alpha item" })] });
     const user = userEvent.setup();
-    const heading = screen.getByRole("button", { name: new RegExp(`^${copy.groups.today}`) });
+    const heading = screen.getByRole("button", { name: new RegExp(`^${copy.recent}`) });
     expect(heading).toHaveAttribute("aria-expanded", "true");
 
     await user.click(heading);
     expect(screen.queryByText("Alpha item")).not.toBeInTheDocument();
-    expect(screen.getByText("Long ago")).toBeInTheDocument();
     expect(heading).toHaveAttribute("aria-expanded", "false");
     expect(heading).toHaveTextContent("1");
 

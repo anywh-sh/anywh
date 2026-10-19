@@ -11,6 +11,7 @@ import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
+import { profileColorClass } from "@/lib/profiles/profiles";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -141,6 +142,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             isActive && "h-8 border-border-soft bg-background",
           )}
         >
+          {/* The profile, as a 2px rule across the top of the tab. */}
+          <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5", profileColorClass(tab.profileId))} />
           <button
             ref={(el) => buttonRef(tab.id, el)}
             type="button"
@@ -161,9 +164,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
             ) : (
               tab.hasUnreadCompletion && (
-                // "Turn finished, not seen yet": a plain light dot. The tab no
-                // longer carries a profile tint, so there is nothing for it to
-                // be confused with.
+                // "Turn finished, not seen yet": a plain light dot.
                 <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-label={dict.chat.tabs.sessionDone} />
               )
             )}

@@ -69,22 +69,26 @@ export const SessionListItem = memo(function SessionListItem({
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
       >
-        {/* One animated indicator per row at most, `running` first — a
-         * live turn and a background job on the same session would
-         * otherwise stack two. The ring is reserved for an actual turn in
-         * flight; a background job gets its own glyph, a pulsing terminal
-         * icon, since that is literally what `anywh-bg` runs. */}
-        {running ? (
-          <span
-            aria-label={indicatorLabel}
-            className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
-            style={{ borderTopColor: "var(--foreground)" }}
-          />
-        ) : (
-          hasBackgroundJob && (
-            <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
-          )
-        )}
+        {/* The status slot: always as wide as its content, so titles line up
+         * whether or not the row has a status to show. One animated
+         * indicator per row at most, `running` first — a live turn and a
+         * background job on the same session would otherwise stack two. The
+         * ring is reserved for an actual turn in flight; a background job
+         * gets its own glyph, a pulsing terminal icon, since that is
+         * literally what `anywh-bg` runs. */}
+        <span className="flex size-3 shrink-0 items-center justify-center">
+          {running ? (
+            <span
+              aria-label={indicatorLabel}
+              className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
+              style={{ borderTopColor: "var(--foreground)" }}
+            />
+          ) : (
+            hasBackgroundJob && (
+              <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
+            )
+          )}
+        </span>
         <span
           className={cn(
             "min-w-0 flex-1 truncate",

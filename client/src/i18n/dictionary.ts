@@ -1028,6 +1028,8 @@ export interface Dictionary {
        * `window.alert`, which is unreliable in these webviews. */
       renameFailed: string;
       deleteFailed: string;
+      /** The one heading of the desktop sidebar list: the latest sessions. */
+      recent: string;
       groups: {
         today: string;
         yesterday: string;

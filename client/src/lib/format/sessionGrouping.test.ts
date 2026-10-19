@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupSessionsByRecency, mergeProfileSessions, type MergedSession } from "@/lib/format/sessionGrouping";
+import { groupSessionsByRecency, mergeProfileSessions, recentSessions, RECENT_SESSION_LIMIT, type MergedSession } from "@/lib/format/sessionGrouping";
 import type { SessionListCache } from "@/lib/format/sessionListCache";
 
 /** A fixed wall-clock moment, mid-afternoon, so "start of today" is hours
@@ -144,5 +144,18 @@ describe("groupSessionsByRecency", () => {
     const groups = groupSessionsByRecency([session("undated", null), session("today", NOW - 1000)], NOW);
     expect(groups.map((group) => group.id)).toEqual(["today", "older"]);
     expect(groups[1].sessions.map((entry) => entry.id)).toEqual(["undated"]);
+  });
+});
+
+describe("recentSessions", () => {
+  it("keeps the newest ones and no more than the limit", () => {
+    const sessions = Array.from({ length: RECENT_SESSION_LIMIT + 4 }, (_, i) => session(`s${i}`, NOW - i * 1000));
+    const recent = recentSessions(sessions);
+    expect(recent).toHaveLength(RECENT_SESSION_LIMIT);
+    expect(recent[0].id).toBe("s0");
+  });
+
+  it("returns a short list whole", () => {
+    expect(recentSessions([session("only", NOW)])).toHaveLength(1);
   });
 });

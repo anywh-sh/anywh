@@ -8,13 +8,16 @@ import { SessionListSkeleton } from "@/components/shell/SessionListSkeleton";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/profiles/profiles";
-import { groupSessionsByRecency, type MergedSession, type SessionGroupId } from "@/lib/format/sessionGrouping";
+import { recentSessions, type MergedSession } from "@/lib/format/sessionGrouping";
+
+/** The sidebar has one list for now; the id keeps room for the state groups. */
+type HeadingId = "recent";
 
 /** The grouped list flattened into one row stream, which is what a
  * virtualizer can index into — headings included, so a heading scrolls with
  * its sessions instead of needing a second, parallel mechanism. */
 type Row =
-  | { kind: "heading"; id: SessionGroupId; count: number }
+  | { kind: "heading"; id: HeadingId; count: number }
   | { kind: "session"; session: MergedSession };
 
 function rowKey(row: Row): string {
@@ -71,14 +74,17 @@ export function SessionList({
   size = "default",
 }: SessionListProps) {
   const dict = useDict();
-  const groups = useMemo(() => groupSessionsByRecency(sessions), [sessions]);
+  const groups = useMemo(() => {
+    const recent = recentSessions(sessions);
+    return recent.length > 0 ? [{ id: "recent" as const, sessions: recent }] : [];
+  }, [sessions]);
   // One pass instead of a lookup per row: the list can hold every session of
   // every profile now, and this renders on each sidebar render.
   // Groups the user folded away: the heading stays (with its count), the
   // rows go. Kept in memory only — a fold is a way to get a long list out of
   // the way for now, not a setting.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<SessionGroupId>>(() => new Set());
-  const toggleGroup = useCallback((id: SessionGroupId) => {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<HeadingId>>(() => new Set());
+  const toggleGroup = useCallback((id: HeadingId) => {
     setCollapsed((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
@@ -179,7 +185,7 @@ export function SessionList({
                     )}
                   >
                     <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
-                    <span className="opacity-80">{dict.shell.sidebar.groups[row.id]}</span>
+                    <span className="opacity-80">{dict.shell.sidebar[row.id]}</span>
                     <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
                     <span>{row.count}</span>
                   </button>

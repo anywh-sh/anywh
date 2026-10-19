@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe("unified session list", () => {
-  it("lists every profile's conversations together, grouped by recency", async () => {
+  it("lists every profile's conversations together, as one list of the latest", async () => {
     setProfiles(freshProfiles());
     renderApp();
 
@@ -92,10 +92,9 @@ describe("unified session list", () => {
     await screen.findByText("Conversa da A");
     await screen.findByText("Conversa da B");
 
-    // Bucketed by when each was last used, not lumped into one flat list.
-    expect(screen.getByText(en.shell.sidebar.groups.today)).toBeInTheDocument();
-    expect(screen.getByText(en.shell.sidebar.groups.week)).toBeInTheDocument();
-    expect(screen.queryByText(en.shell.sidebar.groups.yesterday)).not.toBeInTheDocument();
+    // One list of the latest, with no date buckets.
+    expect(screen.getByText(en.shell.sidebar.recent)).toBeInTheDocument();
+    expect(screen.queryByText(en.shell.sidebar.groups.today)).not.toBeInTheDocument();
   });
 
   it("keeps the other profiles' rows on screen while a profile switch is still loading", async () => {
@@ -204,9 +203,8 @@ describe("unified session list", () => {
     renderApp();
 
     expect(await screen.findByText("Conversa sem data")).toBeInTheDocument();
-    // Kept, under the one heading that claims nothing about when it was
-    // used — dropping the row instead would read as lost history.
-    expect(screen.getByText(en.shell.sidebar.groups.older)).toBeInTheDocument();
+    // Kept in the list — dropping the row instead would read as lost history.
+    expect(screen.getByText(en.shell.sidebar.recent)).toBeInTheDocument();
     // Still the real shell around it, not a blank document.
     expect(screen.getByRole("button", { name: en.shell.sidebar.newConversation })).toBeInTheDocument();
   });

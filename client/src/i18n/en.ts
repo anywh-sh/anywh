@@ -443,6 +443,7 @@ export const en: Dictionary = {
       },
       renameFailed: "Couldn't rename the session.",
       deleteFailed: "Couldn't delete the session.",
+      recent: "Recent",
       groups: {
         today: "Today",
         yesterday: "Yesterday",
