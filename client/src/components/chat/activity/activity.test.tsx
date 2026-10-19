@@ -187,6 +187,15 @@ describe("ThinkingRow", () => {
     expect(screen.getByText("because of the cache")).toBeInTheDocument();
   });
 
+  it("marks a finished block with a check and a running one with a spinner and the sweeping label", () => {
+    const { container, rerender } = render(<ThinkingRow entry={entry({ startedAt: 0, endedAt: 3000 })} />);
+    expect(container.querySelector("svg.lucide-check")).not.toBeNull();
+    expect(container.querySelector(".animate-shimmer-window")).toBeNull();
+    rerender(<ThinkingRow entry={entry({ running: true, startedAt: 0 })} />);
+    expect(container.querySelector("svg.lucide-check")).toBeNull();
+    expect(container.querySelector(".animate-shimmer-window")).not.toBeNull();
+  });
+
   it("while running keeps the verb it drew, however often it re-renders", () => {
     vi.useFakeTimers();
     vi.setSystemTime(5_000);
