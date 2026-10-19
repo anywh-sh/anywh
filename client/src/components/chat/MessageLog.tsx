@@ -2,12 +2,13 @@ import { forwardRef, memo, useCallback, useImperativeHandle, useLayoutEffect, us
 import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
-import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
+import { UserBubble, AssistantText, AssistantHeader, TurnFooter } from "@/components/chat/Message";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { ActivityGroup } from "@/components/chat/activity/ActivityGroup";
 import { ThinkingRow } from "@/components/chat/activity/ThinkingRow";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
 import { OpenState, OpenStateContext } from "@/lib/format/openState";
+import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
 import { cn } from "@/lib/utils";
 import { nextScrollToEndVisible } from "@/lib/platform/scrollToEndVisibility";
@@ -79,6 +80,11 @@ interface MessageLogProps {
    * caller memoizes it: a fresh element on every render would defeat this
    * component's `memo`. */
   trailing?: ReactNode;
+  /** The session's agent and model, named on the header that opens each
+   * agent turn. Absent while the catalog hasn't arrived: the header is then
+   * left out rather than shown half-filled. */
+  agentId?: string | null;
+  modelLabel?: string;
 }
 
 export interface MessageLogHandle {
@@ -233,6 +239,8 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   cwd,
   isActiveTab,
   trailing,
+  agentId,
+  modelLabel,
 }: MessageLogProps, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
@@ -257,6 +265,26 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
     ],
     [items, streamingEntries, hasTrailing],
   );
+
+  // The row that opens each agent turn — the first one that isn't the user's
+  // own message after it — and when that turn began, for its header.
+  const turnHeaders = useMemo(() => {
+    const starts = new Map<number, number>();
+    let afterUserAt: number | undefined;
+    allItems.forEach((item, index) => {
+      if (item.kind === "trailing") return;
+      if (item.kind === "single" && item.entry.kind === "user") {
+        afterUserAt = item.entry.sentAt;
+        return;
+      }
+      if (afterUserAt !== undefined) {
+        if (!(item.kind === "single" && (item.entry.kind === "turn-footer" || item.entry.kind === "stopped"))) starts.set(index, afterUserAt);
+        afterUserAt = undefined;
+      }
+    });
+    return starts;
+  }, [allItems]);
+  const agentNames = dict.chat.composer.agentNames;
 
   const getItemKey = useCallback((index: number) => itemKey(allItems[index]), [allItems]);
 
@@ -504,7 +532,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         </div>
       )}
-      <div className="mx-auto max-w-3xl" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
+      <div className="mx-auto max-w-[calc(680px*var(--chrome-scale))]" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const item = allItems[virtualItem.index];
           if (!item) return null;
@@ -525,6 +553,11 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             >
+              {turnHeaders.has(virtualItem.index) && agentId && (
+                <div className="pt-2.5">
+                  <AssistantHeader agentLabel={agentName(agentNames, agentId)} modelLabel={modelLabel} at={turnHeaders.get(virtualItem.index) ?? 0} />
+                </div>
+              )}
               {item.kind === "trailing" ? trailing : renderItem(item, userActions, attributionByToolUseId, dict)}
             </div>
           );

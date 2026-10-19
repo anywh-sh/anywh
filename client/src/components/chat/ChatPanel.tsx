@@ -814,6 +814,8 @@ export function ChatPanel({
           streamingEntries={log.streamingEntries}
           attributionByToolUseId={log.attributionByToolUseId}
           spawnedSubagentIds={spawnedSubagentIds}
+          agentId={agentId}
+          modelLabel={modelLabel ?? undefined}
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}

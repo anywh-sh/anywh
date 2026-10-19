@@ -101,7 +101,7 @@ describe("the interleaved activity flow", () => {
     await openConversation();
     broadcast([{ type: "turn_state", active: true, startedAt: Date.now() - 8_000 }]);
     const stop = await screen.findByRole("button", { name: en.common.stop });
-    expect(stop).toHaveTextContent(/^\s*(8|9)s\s*/);
+    expect(stop).toHaveTextContent(/^\s*0:0(8|9)\s*/);
 
     broadcast([{ type: "agent_event", event: { type: "turn_ended", stopped: false, durationMs: 9000 } }]);
     await vi.waitFor(() => expect(screen.queryByRole("button", { name: en.common.stop })).toBeNull());

@@ -7,7 +7,7 @@ import { isIOS } from "@/lib/platform/platform";
 import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
 import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
 import { bubbleMenu } from "@/lib/platform/bubbleMenu";
-import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format/relativeTime";
+import { formatAbsoluteTime, formatClockTime } from "@/lib/format/relativeTime";
 import { useDict, useLocale } from "@/i18n";
 import { cn, formatDurationLong } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,8 +40,8 @@ function TimestampLabel({ sentAt }: { sentAt: number }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="cursor-default px-1.5 font-mono text-[10.5px] text-text-faint transition-colors select-none hover:text-muted-foreground">
-          {formatRelativeTime(sentAt, locale)}
+        <span className="cursor-default pl-1.5 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint transition-colors select-none hover:text-muted-foreground">
+          {formatClockTime(sentAt, locale)}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top">{formatAbsoluteTime(sentAt, locale)}</TooltipContent>
@@ -133,10 +133,9 @@ export const UserBubble = memo(function UserBubble({
     <div className="group flex flex-col items-end">
       <div
         className={cn(
-          // Square and bordered, like every other surface in this design —
-          // the rounded pill it used to be was the one bubble shape left
-          // over from the scaffold's visual language.
-          "flex max-w-[88%] flex-col gap-2 border border-border px-3.5 py-3 text-sm text-foreground",
+          // Square and borderless: the fill alone sets it apart from the
+          // plane, like every other surface in this design.
+          "flex max-w-[88%] flex-col gap-2 px-3.5 py-2.5 text-[15px] leading-[1.55] text-foreground",
           isEditing ? "w-[88%] bg-bg-elevated" : "bg-bubble-user",
           // The log is text-selectable, so on iOS a held finger starts the
           // system's word selection before the long-press timer fires and
@@ -198,16 +197,16 @@ export const UserBubble = memo(function UserBubble({
           </Button>
         </div>
       ) : (
-        // Action strip always present (fixed height reserved, only the
-        // content toggles opacity) — this is what creates the requested
-        // spacing before the agent's response, and avoids the bubble
-        // "jumping" when hover reveals the icons (the virtualizer measures
-        // the whole item's height, including this strip). Fully hidden on
-        // iOS (the interaction is the long-press above, not hover — there's
-        // no hover on touch).
+        // Meta strip always present (fixed height reserved) — this is what
+        // creates the spacing before the agent's response, and avoids the
+        // bubble "jumping" when hover reveals the icons (the virtualizer
+        // measures the whole item's height, including this strip). The time
+        // is always visible; copy/edit appear on hover. Fully hidden on iOS
+        // (the interaction is the long-press above, not hover — there's no
+        // hover on touch).
         !isIOS() && (
-          <div className="mt-1 flex h-6 items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-            <TimestampLabel sentAt={sentAt} />
+          <div className="mt-1 flex h-6 items-center justify-end gap-0.5">
+            <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
             <Button
               type="button"
               variant="ghost"
@@ -242,6 +241,8 @@ export const UserBubble = memo(function UserBubble({
                 <Pencil />
               </Button>
             )}
+            </span>
+            <TimestampLabel sentAt={sentAt} />
           </div>
         )
       )}
@@ -305,15 +306,12 @@ export const TurnFooter = memo(function TurnFooter({ sentAt, durationMs, text, o
   const worked = durationMs !== undefined ? dict.chat.activity.workedFor.replace("{time}", formatDurationLong(Math.round(durationMs / 1000))) : undefined;
 
   return (
-    <div className="group/footer mt-1 flex h-6 items-center gap-0.5">
-      <TimestampLabel sentAt={sentAt} />
-      {worked && <span className="px-1.5 font-mono text-[10.5px] text-text-faint select-none">· {worked}</span>}
+    <div className="mt-1 flex h-7 items-center gap-0.5">
       {!isIOS() && text !== "" && (
         <Button
           type="button"
           variant="ghost"
           size="icon-xs"
-          className="opacity-0 transition-opacity group-hover/footer:opacity-100"
           onClick={() => {
             onCopy(text);
             setCopied(true);
@@ -324,6 +322,34 @@ export const TurnFooter = memo(function TurnFooter({ sentAt, durationMs, text, o
           {copied ? <Check /> : <Copy />}
         </Button>
       )}
+      {worked && <span className="px-1.5 font-mono text-[length:calc(11.5px*var(--chrome-scale))] text-text-faint select-none">{worked} ·</span>}
+      <TimestampLabel sentAt={sentAt} />
+    </div>
+  );
+});
+
+interface AssistantHeaderProps {
+  agentLabel: string;
+  modelLabel?: string;
+  /** When the turn began, for the meta line. */
+  at: number;
+}
+
+/** Opens an agent turn: who answers and with which model, and when. Plain
+ * monochrome dot instead of the vendor mark — the brand colour is not part of
+ * the palette, and the name already says which agent it is. */
+export const AssistantHeader = memo(function AssistantHeader({ agentLabel, modelLabel, at }: AssistantHeaderProps) {
+  const { locale } = useLocale();
+  return (
+    <div className="mb-3 flex items-center gap-[9px]">
+      <span className="flex size-[calc(14px*var(--chrome-scale))] shrink-0 items-center justify-center rounded-full border border-border" aria-hidden>
+        <span className="size-1 rounded-full bg-muted-foreground" />
+      </span>
+      <span className="text-[length:calc(13px*var(--chrome-scale))] font-medium text-foreground">{agentLabel}</span>
+      <span className="font-mono text-[length:calc(11.5px*var(--chrome-scale))] text-text-faint">
+        {modelLabel ? `${modelLabel} · ` : ""}
+        {formatClockTime(at, locale)}
+      </span>
     </div>
   );
 });
