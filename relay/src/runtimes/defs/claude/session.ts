@@ -72,7 +72,8 @@ const APPEND_SYSTEM_PROMPT =
   "back' or 'let you know' made through them is always broken. Once launched with `anywh-bg`, " +
   "you don't need to wait for it or keep polling before ending your turn — when it finishes, you " +
   "will automatically get a new turn reporting the result, which the user is notified about. You " +
-  "can tell them that.";
+  "can tell them that. To stop a job you started with `anywh-bg`, run `anywh-bg stop <id>` " +
+  "(never `kill`/`pkill`): a job stopped that way does not trigger a report turn.";
 
 // Real-session finding (2026-09-09): the per-server `timeout` field in
 // `--mcp-config` (sharedSession.ts, mcpServers) is a documented, confirmed
