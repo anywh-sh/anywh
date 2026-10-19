@@ -721,3 +721,39 @@ test("anywh-bg stop: a job that finishes with exit 1 right after the marker is w
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("anywh-bg stop: a stale heartbeat means the PID may be recycled - nothing is signalled", async () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  // A live, unrelated process group standing in for the recycled PID.
+  const bystander = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
+  try {
+    const pid = bystander.pid;
+    assert.ok(pid);
+    const jobs = join(home, ".anywh", "bg-jobs");
+    mkdirSync(jobs, { recursive: true });
+    const id = "old-job";
+    writeFileSync(join(jobs, `${id}.log`), "");
+    writeFileSync(join(jobs, `${id}.pid`), `${String(pid)}\n`);
+    writeFileSync(join(jobs, `${id}.alive`), "");
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(join(jobs, `${id}.alive`), old, old);
+
+    const stop = runBg(home, "stop", id);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.match(stop.stdout, /"stopped":false/);
+    assert.match(stop.stdout, /no live heartbeat/);
+    assert.equal(existsSync(join(jobs, `${id}.cancelled`)), false, "no marker either");
+    assert.equal(existsSync(join(jobs, `${id}.exit`)), false);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.doesNotThrow(() => process.kill(pid, 0), "the bystander must still be alive");
+  } finally {
+    if (bystander.pid) {
+      try {
+        process.kill(-bystander.pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
