@@ -347,8 +347,6 @@ export const en: Dictionary = {
       effort: "Effort",
       menu: "Menu",
       settings: "Settings",
-      back: "Back",
-      forward: "Forward",
       collapseSidebar: "Collapse sidebar",
       expandSidebar: "Expand sidebar",
       openSidebar: "Open sidebar",

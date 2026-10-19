@@ -908,8 +908,6 @@ export interface Dictionary {
       effort: string;
       menu: string;
       settings: string;
-      back: string;
-      forward: string;
       collapseSidebar: string;
       expandSidebar: string;
       openSidebar: string;

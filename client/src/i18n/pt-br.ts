@@ -347,8 +347,6 @@ export const ptBr: Dictionary = {
       effort: "Esforço",
       menu: "Menu",
       settings: "Configurações",
-      back: "Voltar",
-      forward: "Avançar",
       collapseSidebar: "Colapsar barra lateral",
       expandSidebar: "Expandir barra lateral",
       openSidebar: "Abrir barra lateral",

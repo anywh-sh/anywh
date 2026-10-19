@@ -21,7 +21,6 @@ import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
 import { useDict } from "@/i18n";
 import { useActiveProfile } from "@/hooks/profiles/useActiveProfile";
-import { useNavigationHistory } from "@/hooks/useNavigationHistory";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useLayoutCommands } from "@/hooks/useLayoutCommands";
 import { useProfileSwitching } from "@/hooks/useProfileSwitching";
@@ -136,7 +135,6 @@ function AppShell() {
   const sessionDock = useSessionDock();
   const terminalTabs = useTerminalTabs();
   const fileTabs = useFileTabs();
-  const nav = useNavigationHistory();
   const windowFocused = useWindowFocus();
   useContextMenuGuard();
   // Both registry mirrors live here, at the one place that is mounted for
@@ -308,24 +306,6 @@ function AppShell() {
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
   }, [tabsState.tabs]);
-
-  // Pushes a history entry (titlebar Back/Forward) every time the
-  // active tab changes, except when the change came from goBack/goForward
-  // itself (the hook filters that out internally).
-  useEffect(() => {
-    nav.notifyLocationChanged({ tabId: activeTabId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId]);
-
-  function handleGoBack(): void {
-    const location = nav.goBack();
-    if (location?.tabId) tabsState.setActiveTab(location.tabId);
-  }
-
-  function handleGoForward(): void {
-    const location = nav.goForward();
-    if (location?.tabId) tabsState.setActiveTab(location.tabId);
-  }
 
   // Read side of the deep-link/pairing queue `App` (the gate) feeds — nothing
   // switches profile until the user clicks "Continue" on ProfileSetupDialog
@@ -683,10 +663,6 @@ function AppShell() {
 
   const titleBar = (
     <TitleBar
-      canGoBack={nav.canGoBack}
-      canGoForward={nav.canGoForward}
-      onGoBack={handleGoBack}
-      onGoForward={handleGoForward}
       showSidebarToggle={!isCompact}
       sidebarCollapsed={resizable.collapsed}
       onToggleSidebar={resizable.toggleCollapsed}
