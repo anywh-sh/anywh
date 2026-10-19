@@ -181,6 +181,16 @@ function GroupResizeHandle({
   );
 }
 
+/** The plane's own frame: a 1px rule along its top and sides, starting under
+ * the strip row, with an 8px margin of chrome on its right. Drawn as an
+ * overlay rather than as borders on the panel layer so it takes no layout
+ * space — the strips and the panels below share one `calc()` geometry that a
+ * border or margin on either would skew. The strip row sits above it, so the
+ * active tab covers the rule where it stands. */
+function PlaneFrame() {
+  return <div aria-hidden="true" className="pointer-events-none absolute top-10 right-2 bottom-0 left-0 z-10 border border-b-0 border-border-soft" />;
+}
+
 /** Floats with the pointer for the whole drag (`DragOverlay`) — without it,
  * the dragged tab's own translate-transform (from `useSortable`) is still
  * clipped the moment it crosses its strip's `overflow-x-auto` boundary, so
@@ -296,8 +306,9 @@ export function TabGroupLayout({
           setActiveDragTab(null);
         }}
       >
-        <div className="flex h-full min-w-0 flex-col">
-          <div className="relative h-10 shrink-0 bg-bg-chrome">
+        <div className="relative flex h-full min-w-0 flex-col pr-2">
+          <PlaneFrame />
+          <div className="relative z-20 h-10 shrink-0 bg-bg-chrome">
             <TabGroupStrip
               groupId={lastGroupId}
               trailingInsetClass={stripTrailingInsetClass}
@@ -342,13 +353,14 @@ export function TabGroupLayout({
         setActiveDragTab(null);
       }}
     >
-      <div ref={containerRef} className="relative flex h-full min-w-0 flex-col" style={groupCssVars(groups)}>
-        <div className="flex h-10 w-full shrink-0 bg-bg-chrome">
+      <div ref={containerRef} className="relative flex h-full min-w-0 flex-col pr-2" style={groupCssVars(groups)}>
+        <PlaneFrame />
+        <div className="relative z-20 flex h-10 w-full shrink-0 bg-bg-chrome">
           {groups.map((group, index) => (
             <div
               key={group.id}
               data-testid={`group-strip-${group.id}`}
-              className="min-w-0 shrink-0 grow-0 overflow-hidden"
+              className="min-w-0 shrink-0 grow-0 overflow-x-clip"
               style={{
                 flexBasis: `calc(${avail} * var(--g${index}-frac, ${group.size}))`,
                 transition: draggingIndex === null ? "flex-basis 150ms ease" : "none",

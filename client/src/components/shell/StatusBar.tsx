@@ -270,7 +270,7 @@ export function StatusBar({
           : dict.shell.statusBar.changes.replace("{count}", String(repo.changes));
 
   return (
-    <div className="flex h-[26px] shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome px-3 font-mono text-[10.5px] text-text-faint">
+    <div className="flex h-7 shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome pr-2 pl-2.5 font-mono text-[11.5px] text-text-faint">
       <DropdownMenu
         modal={false}
         open={activityOpen}
@@ -366,7 +366,7 @@ export function StatusBar({
         </span>
       )}
       {connected !== undefined && (
-        <span className="ml-auto flex shrink-0 items-center gap-1.5" role="status">
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 px-1.5" role="status">
           <span
             aria-hidden="true"
             className={cn("size-1.5 rounded-full", connected ? "bg-diff-add" : "animate-pulse bg-destructive")}

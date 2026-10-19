@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { profileColorClass, profileColorVar, type Profile } from "@/lib/profiles/profiles";
+import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useRevokedProfiles } from "@/hooks/profiles/useProfileRevoked";
 import { useDict } from "@/i18n";
@@ -27,15 +27,11 @@ function ProfileSquare({ profileId, size = "sm" }: { profileId: string; size?: "
     <span
       aria-hidden="true"
       className={cn(
-        "flex shrink-0 items-center justify-center border",
+        "flex shrink-0 items-center justify-center border border-border bg-surface-hover",
         size === "lg" ? "size-[22px]" : "size-3.5",
       )}
-      style={{
-        borderColor: `color-mix(in srgb, ${profileColorVar(profileId)} 45%, transparent)`,
-        backgroundColor: `color-mix(in srgb, ${profileColorVar(profileId)} 14%, transparent)`,
-      }}
     >
-      <span className={cn(size === "lg" ? "size-2.5" : "size-1.5", profileColorClass(profileId))} />
+      <span className={cn(size === "lg" ? "size-2" : "size-1.5", profileColorClass(profileId))} />
     </span>
   );
 }
@@ -78,10 +74,10 @@ export function ProfileSwitcher({ activeProfile, supported, onChange, allProfile
           >
             <ProfileSquare profileId={activeProfile.id} size="lg" />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[length:calc(14px*var(--font-scale-ratio))] leading-tight font-medium text-foreground">
+              <span className="truncate text-[length:calc(13.5px*var(--chrome-scale))] leading-tight font-medium text-foreground">
                 {activeProfile.label}
               </span>
-              <span className="truncate font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] leading-tight text-text-faint">
+              <span className="truncate font-mono text-[length:calc(11px*var(--chrome-scale))] leading-tight text-text-faint">
                 {activeBadge.label} · {allProfilesShown ? dict.shell.profiles.scopeAll : dict.shell.profiles.scopeActive}
               </span>
             </span>

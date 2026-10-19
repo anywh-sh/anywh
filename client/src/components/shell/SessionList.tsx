@@ -26,7 +26,7 @@ function rowKey(row: Row): string {
 // row is one or two lines depending on whether it carries a profile name and
 // a timestamp). Wrong estimates cost scrollbar accuracy far from the
 // viewport, nothing else.
-const ESTIMATED_HEADING_PX = 30;
+const ESTIMATED_HEADING_PX = 36;
 const ESTIMATED_ROW_PX = { default: 32, lg: 58 } as const;
 
 interface SessionListProps {
@@ -111,7 +111,7 @@ export function SessionList({
 
   return (
     <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
-      <div className={cn("flex flex-col", size === "lg" ? "pb-2" : "pb-3")}>
+      <div className={cn("flex flex-col", size === "lg" ? "pb-2" : "px-2 pb-3")}>
         {error && (
           <div className="flex flex-col items-start gap-2 px-2 py-2 text-xs text-muted-foreground">
             <p>{dict.shell.sidebar.loadFailed}</p>
@@ -157,11 +157,11 @@ export function SessionList({
                 {row.kind === "heading" ? (
                   <div
                     className={cn(
-                      "flex items-center gap-2 px-2 pt-4 pb-1.5 font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint",
+                      "flex h-[26px] items-center gap-2 px-[9px] font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint",
                       // `first:pt-2` can't do this job once rows are
                       // windowed: the first rendered child is whatever
                       // happens to be scrolled into view, not row zero.
-                      virtualRow.index === 0 && "pt-2",
+                      virtualRow.index > 0 && "mt-2.5",
                     )}
                   >
                     <span className="opacity-80">{dict.shell.sidebar.groups[row.id]}</span>

@@ -5,4 +5,4 @@
  * (the agent picker and model button are conditional) space out the same.
  */
 export const toolbarTriggerClass =
-  "flex h-7 min-w-0 shrink-0 cursor-pointer items-center gap-1.5 font-sans text-[13px] text-muted-foreground transition-colors hover:text-foreground data-[state=open]:text-foreground disabled:cursor-default disabled:opacity-50";
+  "flex h-[30px] min-w-0 shrink-0 cursor-pointer items-center gap-1.5 px-2 font-sans text-[length:calc(13px*var(--chrome-scale))] text-muted-foreground transition-colors hover:text-foreground data-[state=open]:text-foreground disabled:cursor-default disabled:opacity-50";

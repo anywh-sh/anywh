@@ -441,10 +441,10 @@ export const en: Dictionary = {
       renameFailed: "Couldn't rename the session.",
       deleteFailed: "Couldn't delete the session.",
       groups: {
-        today: "today",
-        yesterday: "yesterday",
-        week: "7 days",
-        older: "older",
+        today: "Today",
+        yesterday: "Yesterday",
+        week: "Last 7 days",
+        older: "Older",
       },
     },
     profiles: {

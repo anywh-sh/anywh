@@ -31,11 +31,11 @@ export function TerminalToggleButton({ open, disabled, onToggle }: TerminalToggl
           onClick={onToggle}
           aria-label={open ? dict.panels.closeTerminal : dict.panels.openTerminal}
           className={cn(
-            "flex w-9 shrink-0 cursor-pointer items-center justify-center border-l border-border-soft text-text-faint transition-colors hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
-            open && "bg-bg-elevated text-foreground",
+            "flex size-[30px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
+            open && "text-foreground",
           )}
         >
-          <SquareTerminal className="size-3.5" />
+          <SquareTerminal className="size-4" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">

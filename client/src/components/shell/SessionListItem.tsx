@@ -64,7 +64,7 @@ export const SessionListItem = memo(function SessionListItem({
         type="button"
         onClick={() => onSelect(session)}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2 pr-3 pl-4 text-left transition-colors",
+          "flex w-full cursor-pointer items-center gap-2.5 px-[9px] text-left transition-colors",
           size === "lg" ? "min-h-11 py-2.5" : "h-8",
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
@@ -88,7 +88,7 @@ export const SessionListItem = memo(function SessionListItem({
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            size === "lg" ? "text-base" : "text-[length:calc(13px*var(--font-scale-ratio))]",
+            size === "lg" ? "text-base" : "text-[length:calc(13.5px*var(--chrome-scale))]",
             selected ? "font-medium text-foreground" : "text-muted-foreground",
           )}
         >
@@ -97,7 +97,7 @@ export const SessionListItem = memo(function SessionListItem({
         {lastActive !== null && (
           <span
             title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
-            className="shrink-0 font-mono text-[length:calc(11px*var(--font-scale-ratio))] text-text-faint"
+            className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
           >
             {lastActive}
           </span>

@@ -877,7 +877,7 @@ export function ChatPanel({
          * the box tree entirely, so the phone layout (which never hits the
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
-          <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-3xl flex-col")}>
+          <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-[728px] flex-col")}>
             {choicePrompt && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
@@ -950,6 +950,7 @@ export function ChatPanel({
                 suggestion={suggestion}
                 onChangeDraft={setDraft}
                 onSend={handleSend}
+                className={showingIdle ? "shadow-lift" : undefined}
                 infoStart={
                   <WorkingDirectoryButton
                     profile={profile}

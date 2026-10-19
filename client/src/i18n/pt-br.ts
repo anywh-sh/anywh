@@ -441,10 +441,10 @@ export const ptBr: Dictionary = {
       renameFailed: "Não foi possível renomear a sessão.",
       deleteFailed: "Não foi possível excluir a sessão.",
       groups: {
-        today: "hoje",
-        yesterday: "ontem",
-        week: "7 dias",
-        older: "mais antigas",
+        today: "Hoje",
+        yesterday: "Ontem",
+        week: "Últimos 7 dias",
+        older: "Mais antigas",
       },
     },
     profiles: {

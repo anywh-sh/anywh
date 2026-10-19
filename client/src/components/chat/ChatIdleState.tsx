@@ -14,7 +14,7 @@ export function ChatIdleState() {
   const dict = useDict();
   if (isIOS()) return <IdleScreen heading={dict.common.untitledSession} subtitle={dict.chat.log.idleSubtitle} />;
   return (
-    <h2 className="shrink-0 px-6 pb-8 text-center font-display text-[34px] leading-tight font-bold tracking-[-0.03em] text-foreground">
+    <h2 className="shrink-0 px-6 pb-10 text-center font-display text-[length:calc(40px*var(--chrome-scale))] leading-[1.1] font-semibold tracking-[-0.035em] text-foreground">
       {dict.chat.log.idleTitle}
     </h2>
   );

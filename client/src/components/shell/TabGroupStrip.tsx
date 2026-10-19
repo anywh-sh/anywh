@@ -78,7 +78,7 @@ interface SortableTabProps {
 // (see the button below). Hovering a tab still changes its text color, just
 // not its fill.
 const TAB_TRIGGER_CLASS =
-  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 pr-8 pl-3 text-[length:calc(13px*var(--font-scale-ratio))] whitespace-nowrap text-text-faint transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:text-foreground";
+  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint transition-colors hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:font-medium data-[state=active]:text-foreground";
 
 /**
  * Only spreads dnd-kit's `listeners`/`setNodeRef`, not `attributes` — avoids
@@ -130,11 +130,12 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             zIndex: isDragging ? 1 : undefined,
           }}
           className={cn(
-            // 31px tall and sitting on the strip's rule: the active tab is
-            // the plane's own colour and covers that rule by a pixel, so it
-            // reads as the plane's tab rather than a button above it.
-            "group relative flex h-[31px] min-w-[72px] flex-[0_1_196px] items-center border border-b-0 border-transparent",
-            isActive && "-mb-px h-[32px] border-border-soft bg-background",
+            // 31px tall and sitting on the plane's top rule: the active tab
+            // is the plane's own colour and covers that rule by a pixel, so
+            // it reads as the plane's tab rather than a button above it.
+            // Auto width up to 196px — a short title makes a short tab.
+            "group relative flex h-[31px] max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
+            isActive && "h-8 border-border-soft bg-background",
           )}
         >
           <button
@@ -146,8 +147,13 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             data-tab-id={tab.id}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onSelect(tab.id)}
-            className={TAB_TRIGGER_CLASS}
+            className={cn(TAB_TRIGGER_CLASS, isActive ? "pr-[34px]" : "pr-[13px]")}
           >
+            {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
+              // A conversation that has not started: the tab wears the same plus as
+              // the new-session row it came from.
+              <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+            )}
             {tab.isRunning ? (
               <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
             ) : (
@@ -173,8 +179,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               // its clickable box covers the full row including the `pr-7`
               // padding reserved for this button, so without a higher
               // z-index the trigger intercepts every click meant for the X.
-              "absolute right-1.5 z-20 cursor-pointer p-0.5 text-text-faint transition-colors hover:text-foreground",
-              isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+              "absolute right-2 z-20 flex size-[22px] cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground",
+              isActive ? "opacity-100" : "pointer-events-none opacity-0",
             )}
           >
             <X className="size-3" />
@@ -259,7 +265,7 @@ export function TabGroupStrip({
             wrapper rather than on the tablist, so the `+` can sit OUTSIDE the
             horizontal scroller and stay pinned to the right edge instead of
             scrolling away with the tabs. */}
-        <div className={cn("flex h-10 w-full items-center border-b border-border-soft bg-bg-chrome", trailingInsetClass)}>
+        <div className={cn("flex h-10 w-full items-center bg-bg-chrome", trailingInsetClass)}>
           <div
             role="tablist"
             aria-orientation="horizontal"
@@ -271,7 +277,7 @@ export function TabGroupStrip({
             // without this, shrinking the window narrow enough for a tab's
             // content to wrap could pop a vertical scrollbar on a strip
             // that's meant to only ever scroll horizontally.
-            className="scrollbar-thin flex h-full min-w-0 flex-nowrap items-end self-end justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 text-muted-foreground"
+            className="scrollbar-thin -mb-px flex h-[41px] min-w-0 flex-nowrap items-end self-end justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 text-muted-foreground"
           >
             {tabs.map((tab) => (
               <SortableTab
@@ -297,9 +303,9 @@ export function TabGroupStrip({
                 type="button"
                 onClick={onNewTab}
                 aria-label={dict.chat.tabs.newTab}
-                className="flex h-[31px] w-9 shrink-0 cursor-pointer items-center justify-center self-end text-text-faint transition-colors hover:bg-bg-hover hover:text-foreground"
+                className="mt-[11px] ml-[5px] flex size-7 shrink-0 self-start cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
               >
-                <Plus className="size-3.5" />
+                <Plus className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{dict.chat.tabs.newTab}</TooltipContent>

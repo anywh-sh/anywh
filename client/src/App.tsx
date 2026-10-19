@@ -477,6 +477,8 @@ function AppShell() {
     [],
   );
 
+  const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
+
   const sidebarProps = {
     activeProfile,
     profiles,
@@ -486,6 +488,7 @@ function AppShell() {
     onToggleAllProfiles: toggleAllProfiles,
     onClearProfileFilter: clearProfileFilter,
     onOpenSearch: openSearch,
+    newSessionActive: activeTab?.isNew === true && activeTab.title === null,
     sessions,
     sessionsLoading,
     sessionsError,
@@ -499,7 +502,6 @@ function AppShell() {
     onDeleteSession: onDeleteSessionRow,
   };
 
-  const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
 
   // Everything a panel calls back into here, built once. Each callback takes
   // the tab (or profile/path) it acts on as an argument and closes over
