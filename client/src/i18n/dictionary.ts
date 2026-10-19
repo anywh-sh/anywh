@@ -642,6 +642,8 @@ export interface Dictionary {
       placeholder: string;
       /** The desktop field's prompt — the iOS native composer keeps `placeholder`. */
       placeholderTask: string;
+      /** Shown instead of `placeholderTask` while a turn runs: a message sent now waits its turn. */
+      placeholderQueue: string;
       attach: string;
       attachmentUploading: string;
       /** Tooltip and label of the send button while an attachment uploads. */
@@ -714,6 +716,16 @@ export interface Dictionary {
        * for a model whose CLI reports no default effort of its own). */
       effortDefault: string;
       effortAriaLabel: string;
+      /** Tooltip and accessible name of the single agent/model/effort trigger. */
+      agentMenuLabel: string;
+      menu: {
+        agent: string;
+        model: string;
+        effort: string;
+        thisSession: string;
+        newSession: string;
+        fixedInSession: string;
+      };
       context: {
         label: string;
         ariaLabel: string;

@@ -204,6 +204,7 @@ export const ptBr: Dictionary = {
     composer: {
       placeholder: "Escreva uma mensagem…",
       placeholderTask: "Descreva a tarefa, @ para contexto, / para comandos",
+      placeholderQueue: "Escreva o próximo pedido, ele entra na fila",
       attach: "Anexar imagem ou vídeo",
       attachmentUploading: "enviando anexo…",
       sendWaitingForUpload: "Aguardando o anexo terminar de enviar",
@@ -261,6 +262,8 @@ export const ptBr: Dictionary = {
       },
       effortDefault: "Padrão",
       effortAriaLabel: "Esforço de raciocínio",
+      agentMenuLabel: "{agent} · {model} · esforço {effort}",
+      menu: { agent: "Agente", model: "Modelo", effort: "Esforço", thisSession: "desta sessão", newSession: "numa nova sessão", fixedInSession: "fixo na sessão" },
       context: {
         label: "Janela de contexto",
         ariaLabel: "Janela de contexto: {percent}% usada",

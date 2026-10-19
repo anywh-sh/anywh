@@ -35,9 +35,7 @@ import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
-import { ModelButton } from "@/components/chat/ModelButton";
-import { EffortButton } from "@/components/chat/EffortButton";
-import { AgentPickerButton } from "@/components/chat/AgentPickerButton";
+import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
@@ -52,7 +50,7 @@ import type { ContextUsage, ModelCatalog, ModelChoice, PermissionMode, Permissio
 import type { Profile } from "@/lib/profiles/profiles";
 
 export interface ComposerProps {
-  /** Also threaded to `AgentPickerButton`'s own `getHostInfo` fetch. */
+  /** Also threaded to `AgentModelEffortButton`'s own `getHostInfo` fetch. */
   profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
@@ -65,23 +63,23 @@ export interface ComposerProps {
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveImage: (path: string) => void;
   /** `null` only in the brief window before the first `agent_state` arrives
-   * — see `useRelayClient`. Drives `AgentPickerButton`'s selection. */
+   * — see `useRelayClient`. Drives `AgentModelEffortButton`'s selection. */
   agentId: string | null;
   onChangeAgent: (agentId: string) => void;
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
   onChangePermissionMode: (mode: PermissionMode) => void;
   /** `null` until the session's first explicit switch (now via
-   * `ModelButton` in addition to typing `/model`) — in that case the
+   * `AgentModelEffortButton` in addition to typing `/model`) — in that case the
    * catalog's own `defaultId` is what runs. */
   model: ModelChoice | null;
   /** The session's agent's model catalog (`useRelayClient`) — drives
-   * `ModelButton` and `/model`'s autocomplete. `null` hides the picker: an
+   * `AgentModelEffortButton` and `/model`'s autocomplete. `null` hides the picker: an
    * agent whose def declares no catalog has nothing to pick from. */
   modelCatalog: ModelCatalog | null;
   onChangeModel: (model: ModelChoice) => void;
   /** The explicit reasoning-effort pick (`null` = the model's default) and
-   * its setter — drives `EffortButton`, which hides itself for a model with
+   * its setter — drives `AgentModelEffortButton`, which hides itself for a model with
    * no efforts. */
   effort: string | null;
   onChangeEffort: (effort: string | null) => void;
@@ -89,7 +87,7 @@ export interface ComposerProps {
    * the conversation has had its first turn, i.e. "the conversation is
    * locked". Switching the model at that point would require rereading the
    * whole history for the CLI to rebuild context in the new model, so
-   * `ModelButton` locks along with the folder; `AgentPickerButton` locks for
+   * `AgentModelEffortButton` locks along with the folder; `AgentModelEffortButton` locks for
    * the same reason. */
   modelLocked: boolean;
   /** Shown in the info strip's context-usage button. */
@@ -545,7 +543,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
   const placeholderRef = useRef(copy.placeholderTask);
-  placeholderRef.current = copy.placeholderTask;
+  placeholderRef.current = turnInFlight ? copy.placeholderQueue : copy.placeholderTask;
   const [placeholderExtension] = useState(() => createPlaceholderExtension(suggestionRef, placeholderRef));
   // Set by `submit()` when the text looks like a typo'd command (`/cler`)
   // instead of either a real command or plain text — blocks the send until
@@ -814,17 +812,18 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
       <div className="flex items-center justify-between gap-2 px-2 pt-1 pb-2">
         <div className="flex min-w-0 flex-1 items-center gap-0.5">
-          <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
-          {modelCatalog && (
-            <ModelButton
-              model={model}
-              catalog={modelCatalog}
-              onChange={onChangeModel}
-              disabled={disabled ?? false}
-              locked={modelLocked}
-            />
-          )}
-          <EffortButton effort={effort} model={model} catalog={modelCatalog} onChange={onChangeEffort} disabled={disabled ?? false} />
+          <AgentModelEffortButton
+            profile={profile}
+            agentId={agentId}
+            onChangeAgent={onChangeAgent}
+            model={model}
+            catalog={modelCatalog}
+            onChangeModel={onChangeModel}
+            effort={effort}
+            onChangeEffort={onChangeEffort}
+            disabled={disabled ?? false}
+            locked={modelLocked}
+          />
           <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
@@ -915,11 +914,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             )}
           </div>
           {turnInFlight ? (
-            // Neutral, not red: stopping is an ordinary action here, and
-            // the clock beside it is the turn's only running counter.
-            <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
+            // Light like the send button it replaces, not red: stopping is
+            // an ordinary action here, and the clock beside it is the turn's
+            // only running counter.
+            <Button type="button" size="sm" aria-label={dict.common.stop} onClick={onStop}>
               <span className="size-2 bg-current" />
-              {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
+              {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} clock className="font-mono text-[11px]" />}
             </Button>
           ) : uploadingImage ? (
             // A disabled button gets no pointer events, so the tooltip hangs

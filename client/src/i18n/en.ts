@@ -204,6 +204,7 @@ export const en: Dictionary = {
     composer: {
       placeholder: "Write a message…",
       placeholderTask: "Describe the task, @ for context, / for commands",
+      placeholderQueue: "Write the next request, it joins the queue",
       attach: "Attach image or video",
       attachmentUploading: "uploading attachment…",
       sendWaitingForUpload: "Waiting for the attachment to finish uploading",
@@ -261,6 +262,8 @@ export const en: Dictionary = {
       },
       effortDefault: "Default",
       effortAriaLabel: "Reasoning effort",
+      agentMenuLabel: "{agent} · {model} · {effort} effort",
+      menu: { agent: "Agent", model: "Model", effort: "Effort", thisSession: "this session", newSession: "in a new session", fixedInSession: "fixed in the session" },
       context: {
         label: "Context window",
         ariaLabel: "Context window: {percent}% used",
