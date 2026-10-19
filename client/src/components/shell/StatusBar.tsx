@@ -179,10 +179,9 @@ function ActivityRow({
  * The strip along the bottom of the window: what git says about the focused
  * session's folder on the left, the running version on the right.
  *
- * Unlike the working directory — which lives in the title bar but is
- * published there through a portal, because `cwd` is per-tab state that
- * would re-render every mounted tab if `App` held it (see titleBarSlot.ts) —
- * this needs nothing `App` doesn't already have: the relay resolves the
+ * Unlike the working directory — which lives in the conversation itself,
+ * because `cwd` is per-tab state that would re-render every mounted tab if
+ * `App` held it — this needs nothing `App` doesn't already have: the relay resolves the
  * folder from the session id, so the id of the focused tab is the whole
  * input. Rendering it straight from `App` is both simpler and cheaper here.
  *

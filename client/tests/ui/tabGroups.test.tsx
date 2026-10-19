@@ -246,11 +246,11 @@ describe("tab group resize — performance guards", () => {
     const beforeSwitch = chatPanelRenderCount;
 
     // Three groups, one tab each: clicking another group's tab moves focus
-    // between two of them (`isFocusedTab` flips on each) and leaves the
-    // third alone. Two renders, not one per open tab — and, crucially, not a
-    // number that would grow with a fourth tab.
+    // between two of them and leaves the third alone. At most two renders,
+    // not one per open tab — and, crucially, not a number that would grow
+    // with a fourth tab.
     await user.click(screen.getByRole("tab", { name: /Three/ }));
-    await vi.waitFor(() => expect(chatPanelRenderCount).toBeGreaterThan(beforeSwitch));
+    await vi.waitFor(() => expect(screen.getByRole("tab", { name: /Three/ })).toHaveAttribute("aria-selected", "true"));
 
     expect(chatPanelRenderCount - beforeSwitch).toBeLessThanOrEqual(2);
   });

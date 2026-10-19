@@ -38,6 +38,10 @@ function WindowControlButton({
  * side and just reserves their space so nothing ends up underneath them. */
 export const MAC_TRAFFIC_LIGHTS_INSET = "pl-[78px]";
 
+/** Right padding that clears the three controls below (3 × 46px) when they
+ * are pinned over the end of a strip. */
+export const WINDOW_CONTROLS_INSET_CLASS = "pr-[138px]";
+
 /**
  * Minimize / maximize-or-restore / close, drawn by the app because the
  * window has no OS decorations (`tauri.conf.json`). Every bar that frames

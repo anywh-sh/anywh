@@ -12,6 +12,7 @@ import { TabPanel } from "@/components/shell/TabPanel";
 import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
@@ -53,7 +54,8 @@ import { pruneCachedProfiles } from "@/lib/format/sessionListCache";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
 import { ensureNotificationPermission } from "@/lib/platform/notifications";
-import { isIOS } from "@/lib/platform/platform";
+import { isIOS, isMacOS } from "@/lib/platform/platform";
+import { cn } from "@/lib/utils";
 import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
@@ -179,24 +181,22 @@ function AppShell() {
     });
   }, [profiles]);
 
-  const toggleProfileFilter = useCallback((profileId: string) => {
-    setSelectedProfileIds((previous) => {
-      const next = new Set(previous);
-      // Turning the last one off would show nothing at all — the way to see
-      // one profile is to leave one selected, not to select none.
-      if (next.has(profileId) && next.size === 1) return previous;
-      if (next.has(profileId)) next.delete(profileId);
-      else next.add(profileId);
-      return next;
-    });
-  }, []);
-
   const clearProfileFilter = useCallback(() => {
     setSelectedProfileIds(new Set(getProfiles().map((profile) => profile.id)));
   }, []);
 
+  // The sidebar's one view switch: every profile, or only the one work is
+  // happening in. Anything in between (a subset left over from before) counts
+  // as "not all" and goes to every profile on the next press.
+  const toggleAllProfiles = useCallback(() => {
+    setSelectedProfileIds((previous) =>
+      previous.size < getProfiles().length ? new Set(getProfiles().map((profile) => profile.id)) : new Set([activeProfile.id]),
+    );
+  }, [activeProfile.id]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   // Connection state per tab — used by TitleBar and the native iOS top bar, which
@@ -483,8 +483,9 @@ function AppShell() {
     profilesSupported,
     onProfileChange,
     selectedProfileIds,
-    onToggleProfileFilter: toggleProfileFilter,
+    onToggleAllProfiles: toggleAllProfiles,
     onClearProfileFilter: clearProfileFilter,
+    onOpenSearch: openSearch,
     sessions,
     sessionsLoading,
     sessionsError,
@@ -531,16 +532,11 @@ function AppShell() {
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
       dock={sessionDock.getDock(tab.id)}
-      // Two different gates, now that a group split can put more than one
-      // tab on screen at once: `isVisible` is "this tab is the active one of
-      // its own group" (drives panel visibility, dock mounting,
-      // MessageLog's scroll re-sync, and the native drag-drop guard) — up to
-      // one per group can be true simultaneously. `isFocusedTab` narrows
-      // that to "...and that group is also the one the user's actually
-      // interacting with right now" (drives unread-badge clearing,
-      // TitleBar.connected, nav history) — at most one tab in the whole app.
+      // "This tab is the active one of its own group" — drives panel
+      // visibility, dock mounting, MessageLog's scroll re-sync and the native
+      // drag-drop guard. With a group split, up to one per group can be true
+      // at once.
       isVisible={tabsState.visibleTabIds.has(tab.id)}
-      isFocusedTab={tab.id === activeTabId}
       isCompact={isCompact}
       terminalTabs={terminalTabs}
       fileTabs={fileTabs}
@@ -557,10 +553,42 @@ function AppShell() {
   // bug, reproduced via Playwright WebKit), and the desktop composer's
   // glass relies on that. Don't remove it even though it looks redundant — harmless for
   // desktop (doesn't change position/size of anything).
+  // Drawn by the app only where the window has no OS decorations of its own.
+  const windowControls = isMacOS() ? null : <WindowControls />;
+
+  // Drawn between the strip row and the panels (the strip stays level with
+  // the sidebar's header). Notices about a profile's connection sit here, in
+  // the main column, because the conversation and panels are what stop
+  // working — the session list keeps working off its local cache.
+  const notices = (
+    <>
+      <RevokedProfileBanners />
+      {/* Desktop had no connection feedback at all: a relay that's
+       * unreachable from the start (wrong profile host/port, nothing
+       * running there) looked identical to "the app is just loading", with
+       * every panel failing silently or hanging instead. Only drawn when
+       * `false`, unlike the native iOS top bar. */}
+      {!activeConnected && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border-soft bg-bg-chrome px-3 py-1 font-mono text-[11px] text-destructive">
+          <span className="size-1.5 animate-pulse rounded-full bg-destructive" />
+          {dict.shell.titleBar.reconnecting}
+        </div>
+      )}
+    </>
+  );
+
   const tabsContent = (
     <div className="relative min-h-0 flex-1">
       {tabsState.tabs.length === 0 ? (
-        <EmptyState />
+        <div className="flex h-full flex-col">
+          <div data-tauri-drag-region className="relative h-10 shrink-0 border-b border-border-soft bg-bg-chrome">
+            {windowControls && <div className="absolute top-0 right-0 h-10">{windowControls}</div>}
+          </div>
+          {notices}
+          <div className="min-h-0 flex-1 bg-background">
+            <EmptyState />
+          </div>
+        </div>
       ) : isIOS() ? (
         // iOS: the MVP is one session in focus at a time,
         // without keeping several WebSocket connections alive in parallel in
@@ -590,6 +618,9 @@ function AppShell() {
             if (tab) handleDeleteSession(tab.profileId, tabId);
           }}
           renderPanel={renderPanel}
+          belowStrip={notices}
+          stripTrailing={windowControls}
+          stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />
       )}
     </div>
@@ -650,21 +681,22 @@ function AppShell() {
     );
   }
 
+  const titleBar = (
+    <TitleBar
+      canGoBack={nav.canGoBack}
+      canGoForward={nav.canGoForward}
+      onGoBack={handleGoBack}
+      onGoForward={handleGoForward}
+      showSidebarToggle={!isCompact}
+      sidebarCollapsed={resizable.collapsed}
+      onToggleSidebar={resizable.toggleCollapsed}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onCheckForUpdates={() => void handleCheckForUpdates()}
+    />
+  );
+
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <TitleBar
-        canGoBack={nav.canGoBack}
-        canGoForward={nav.canGoForward}
-        onGoBack={handleGoBack}
-        onGoForward={handleGoForward}
-        showSidebarToggle={!isCompact}
-        sidebarCollapsed={resizable.collapsed}
-        onToggleSidebar={resizable.toggleCollapsed}
-        onOpenSearch={() => setSearchOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onCheckForUpdates={() => void handleCheckForUpdates()}
-        connected={activeConnected}
-      />
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
 
@@ -679,18 +711,25 @@ function AppShell() {
 
       <div className="flex min-h-0 flex-1">
         {!isCompact && (
+          // The window's top-left corner and the sidebar are one column: the
+          // traffic lights and the shell buttons sit on top of the session
+          // list, and the tab strip starts where this column ends. Collapsed,
+          // it shrinks to just the buttons.
           <div
-            className="relative flex shrink-0 border-r border-border-soft"
-            style={{ width: resizable.width }}
+            className={cn("relative flex shrink-0 flex-col bg-bg-sidebar", !resizable.collapsed && "border-r border-border-soft")}
+            style={resizable.collapsed ? undefined : { width: resizable.width }}
           >
-            <div className="min-w-0 flex-1 overflow-hidden">
-              {!resizable.collapsed && <Sidebar {...sidebarProps} />}
-            </div>
+            {titleBar}
             {!resizable.collapsed && (
-              <div
-                onPointerDown={resizable.startDrag}
-                className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
-              />
+              <>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <Sidebar {...sidebarProps} />
+                </div>
+                <div
+                  onPointerDown={resizable.startDrag}
+                  className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
+                />
+              </>
             )}
           </div>
         )}
@@ -704,17 +743,14 @@ function AppShell() {
           </Sheet>
         )}
 
-        {/* Inside the main column, not above it: the notice is about a
-         * profile's connection, and the conversation and panels are what
-         * stop working. The session list keeps working — its rows are cached
-         * locally and still readable — so covering it would claim otherwise. */}
-        <div className="relative flex min-w-0 flex-1 flex-col">
-          <RevokedProfileBanners />
+        {/* Collapsed, the plane keeps 8px of the frame on its left. */}
+        <div className={cn("relative flex min-w-0 flex-1 flex-col", resizable.collapsed && !isCompact && "pl-2")}>
           {isCompact && (
-            <div className="flex items-center gap-2 p-2">
+            <div className="flex shrink-0 items-center">
+              {titleBar}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setDrawerOpen(true)} aria-label={dict.shell.titleBar.openSidebar}>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setDrawerOpen(true)} aria-label={dict.shell.titleBar.openSidebar}>
                     <Menu className="size-4" />
                   </Button>
                 </TooltipTrigger>
@@ -722,7 +758,6 @@ function AppShell() {
               </Tooltip>
             </div>
           )}
-
           {tabsContent}
         </div>
       </div>

@@ -885,7 +885,6 @@ export interface Dictionary {
       collapseSidebar: string;
       expandSidebar: string;
       openSidebar: string;
-      searchSessions: string;
       checkForUpdates: string;
       minimize: string;
       maximize: string;
@@ -979,16 +978,14 @@ export interface Dictionary {
     sidebar: {
       label: string;
       newConversation: string;
+      search: string;
       allChats: string;
-      filterByProfile: string;
-      filterHeading: string;
       allProfiles: string;
       loadingSessions: string;
       loadFailed: string;
       emptyTitle: string;
       emptyBody: string;
       noMatches: string;
-      noMatchesHint: string;
       /** `{time}` — a relative moment ("2 hr. ago"). */
       syncedAt: string;
       neverSynced: string;
@@ -1026,6 +1023,9 @@ export interface Dictionary {
       activeProfile: string;
       addRemoteMachine: string;
       addProfile: string;
+      allProfilesToggle: string;
+      scopeAll: string;
+      scopeActive: string;
       badgeLocal: string;
       badgeRemote: string;
       badgeRevoked: string;

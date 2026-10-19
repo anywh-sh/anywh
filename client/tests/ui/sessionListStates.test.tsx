@@ -143,25 +143,25 @@ describe("unified session list", () => {
     expect(sessionFetches.filter((id) => id === "a")).toHaveLength(1);
   });
 
-  it("narrows the list to the chosen profiles and refuses to hide the last one", async () => {
+  it("flips between every profile and only the active one from the profile menu", async () => {
     setProfiles(freshProfiles());
     renderApp();
     await screen.findByText("Conversa da B");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: en.shell.sidebar.filterByProfile }));
-    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: /Profile B/ }));
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: en.shell.profiles.allProfilesToggle }));
 
+    // Only the active profile's rows are left.
     await vi.waitFor(() => {
       expect(screen.queryByText("Conversa da B")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Conversa da A")).toBeInTheDocument();
 
-    // Deselecting the last remaining profile is refused — an empty sidebar
-    // whose only way out is buried in this same menu is not a state worth
-    // being able to reach.
-    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: /Profile A/ }));
-    expect(screen.getByText("Conversa da A")).toBeInTheDocument();
+    // And the same item brings every profile back.
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: en.shell.profiles.allProfilesToggle }));
+    expect(await screen.findByText("Conversa da B")).toBeInTheDocument();
   });
 
   it("opens a session of a non-active profile against that profile, not the active one", async () => {

@@ -54,9 +54,9 @@
   /* Tinted fill + the text tone that stays legible on top of it: an accent
      surface can't use `--primary` itself for its own label, and can't use
      the Tailwind alpha modifier either (that composites with whatever is
-     behind, the same trap documented on `--profile-*-soft` below). Filled
-     accent buttons keep using `--primary-foreground`; these two are for the
-     *soft* variant (active tool-call badge, selected menu row, drop zone). */
+     behind). Filled accent buttons keep using `--primary-foreground`; these
+     two are for the *soft* variant (active tool-call badge, selected menu
+     row, drop zone). */
   --primary-soft: rgb(229 100 42 / 0.14);
   --primary-ink: #f89c67;
   --destructive: #f27b69;
@@ -125,42 +125,10 @@
   --profile-5: #7c93ab;
   --profile-6: #8fa876;
 
-  /* Selected-tab background wash (TabBar). The second operand must be an
-     *opaque* color, never `transparent`: the Tailwind alpha modifier
-     (`bg-profile-N/15`, i.e. `color-mix(…, transparent)`) composites with
-     whatever surface happens to sit behind the element at paint time, which
-     on a dark theme read as a near-black smudge instead of a soft version of
-     the profile color.
-     It used to be a hardcoded neutral (`#2b2a27`, the old `--bg-elevated`)
-     so the wash would stay theme-independent the way the profile hues
-     themselves are. That breaks the moment a light theme exists: mixing a
-     profile color toward a dark literal paints a dark blob on a light tab
-     strip. Mixing toward `--bg-chrome` — the tab strip's own background —
-     keeps the result opaque and deterministic (the requirement that
-     motivated the literal) while following the theme it's painted on. */
-  --profile-1-soft: color-mix(in srgb, var(--profile-1) 20%, var(--bg-chrome));
-  --profile-2-soft: color-mix(in srgb, var(--profile-2) 20%, var(--bg-chrome));
-  --profile-3-soft: color-mix(in srgb, var(--profile-3) 20%, var(--bg-chrome));
-  --profile-4-soft: color-mix(in srgb, var(--profile-4) 20%, var(--bg-chrome));
-  --profile-5-soft: color-mix(in srgb, var(--profile-5) 20%, var(--bg-chrome));
-  --profile-6-soft: color-mix(in srgb, var(--profile-6) 20%, var(--bg-chrome));
-
-  /* Resting-state wash for a tab that isn't selected — same opaque-mix trick
-     as `-soft` above (never the alpha modifier, same near-black-smudge risk),
-     just a lighter pass (7%, against `-soft`'s 20%) so the profile color
-     reads at a glance on every tab, not only the active one. */
-  --profile-1-faint: color-mix(in srgb, var(--profile-1) 7%, var(--bg-chrome));
-  --profile-2-faint: color-mix(in srgb, var(--profile-2) 7%, var(--bg-chrome));
-  --profile-3-faint: color-mix(in srgb, var(--profile-3) 7%, var(--bg-chrome));
-  --profile-4-faint: color-mix(in srgb, var(--profile-4) 7%, var(--bg-chrome));
-  --profile-5-faint: color-mix(in srgb, var(--profile-5) 7%, var(--bg-chrome));
-  --profile-6-faint: color-mix(in srgb, var(--profile-6) 7%, var(--bg-chrome));
-
-  /* Tab dot for "turn finished, not viewed yet" (TabBar). Deliberately a
-     saturated blue with no muted/pastel sibling in the profile palette above
-     — every `--profile-*` needs to stay visually distinct from this one, or
-     the dot could be mistaken for a profile color instead of a status. */
-  --status-done: #4f9fe0;
+  /* Hover wash on a sidebar row or a tab: half a step from the sidebar towards
+     the selected-row surface. Derived rather than a theme key, so every theme
+     gets a hover that sits between its own resting and selected rows. */
+  --bg-hover: color-mix(in srgb, var(--bg-sidebar) 55%, var(--bg-elevated));
 
   /* Square corners are the brand, not a default left unset — same call as
      the account dashboard and the marketing site. */
@@ -197,6 +165,7 @@
   --color-bg-chrome: var(--bg-chrome);
   --color-bg-elevated: var(--bg-elevated);
   --color-surface-hover: var(--surface-hover);
+  --color-bg-hover: var(--bg-hover);
   --color-card: var(--card);
   --color-card-foreground: var(--foreground);
   --color-bubble-user: var(--bubble-user);
@@ -254,19 +223,6 @@
   --color-profile-4: var(--profile-4);
   --color-profile-5: var(--profile-5);
   --color-profile-6: var(--profile-6);
-  --color-profile-1-soft: var(--profile-1-soft);
-  --color-profile-2-soft: var(--profile-2-soft);
-  --color-profile-3-soft: var(--profile-3-soft);
-  --color-profile-4-soft: var(--profile-4-soft);
-  --color-profile-5-soft: var(--profile-5-soft);
-  --color-profile-6-soft: var(--profile-6-soft);
-  --color-profile-1-faint: var(--profile-1-faint);
-  --color-profile-2-faint: var(--profile-2-faint);
-  --color-profile-3-faint: var(--profile-3-faint);
-  --color-profile-4-faint: var(--profile-4-faint);
-  --color-profile-5-faint: var(--profile-5-faint);
-  --color-profile-6-faint: var(--profile-6-faint);
-  --color-status-done: var(--status-done);
 
   --color-sidebar: var(--bg-sidebar);
   --color-sidebar-foreground: var(--foreground);

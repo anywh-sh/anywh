@@ -22,7 +22,6 @@ import { NativeTopBarMenu } from "@/components/chat/NativeTopBarMenu";
 import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
-import { useTitleBarSlot } from "@/hooks/useTitleBarSlot";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
@@ -134,11 +133,6 @@ interface ChatPanelProps {
    * so each `ChatPanel` needs to know whether it's its turn to handle the
    * drop. */
   isActiveTab: boolean;
-  /** Narrower than `isActiveTab`: with split groups more than one tab is
-   * visible at a time, and only one of them is the one the user is working
-   * in. Drives what the title bar shows, which describes a single
-   * conversation. Absent on iOS, which has neither groups nor a title bar. */
-  isFocusedTab?: boolean;
 }
 
 function buildWireMessage(text: string, attachments: PendingAttachment[]): string {
@@ -197,7 +191,6 @@ export function ChatPanel({
   files,
   onOpenPath,
   isActiveTab,
-  isFocusedTab = false,
 }: ChatPanelProps) {
   const dict = useDict();
   const log = useMessageLog();
@@ -211,11 +204,9 @@ export function ChatPanel({
   // dictionary that changes when the language does.
   const dictRef = useRef(dict);
   dictRef.current = dict;
-  const titleBarSlot = useTitleBarSlot();
   // Only this tab's group's own active tab may claim the slot — with split
   // groups, `isActiveTab` can be true for more than one tab at once (one per
-  // group), unlike `isFocusedTab` above which is at most one in the whole
-  // app.
+  // group).
   const panelTogglesSlot = usePanelTogglesSlot(isActiveTab ? groupId : null);
   const isActiveTabRef = useRef(isActiveTab);
   isActiveTabRef.current = isActiveTab;
@@ -959,29 +950,25 @@ export function ChatPanel({
                 onSend={handleSend}
               />
             )}
+            {/* Desktop: the working directory sits under the composer, where
+             * the redesign's info strip will take it over. iOS keeps its own
+             * copy above the composer (see the top of this stack). */}
+            {!isIOS() && (
+              <div className="flex items-center gap-1.5 pt-1.5">
+                <WorkingDirectoryButton
+                  profile={profile}
+                  cwd={cwd}
+                  locked={cwdLocked}
+                  connected={connected}
+                  isNewConversation={isNewConversation}
+                  onSetCwd={setCwd}
+                  onFocusComposer={() => composerRef.current?.focus()}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Only the focused tab paints the title bar's center, and only on
-       * desktop (iOS has no title bar and keeps its own copy of this button
-       * above the composer). Rendering from here rather than lifting `cwd`
-       * into `App` keeps a value every mounted tab reports on connect out of
-       * the state that re-renders every mounted tab — see titleBarSlot.ts. */}
-      {!isIOS() && isFocusedTab && titleBarSlot
-        ? createPortal(
-            <WorkingDirectoryButton
-              profile={profile}
-              cwd={cwd}
-              locked={cwdLocked}
-              connected={connected}
-              isNewConversation={isNewConversation}
-              onSetCwd={setCwd}
-              onFocusComposer={() => composerRef.current?.focus()}
-            />,
-            titleBarSlot,
-          )
-        : null}
 
       {/* This group's own active tab claims the strip's toggle slot — see
        * panelTogglesSlot.ts for why this is a portal rather than `cwd`

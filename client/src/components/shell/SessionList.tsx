@@ -27,7 +27,7 @@ function rowKey(row: Row): string {
 // a timestamp). Wrong estimates cost scrollbar accuracy far from the
 // viewport, nothing else.
 const ESTIMATED_HEADING_PX = 30;
-const ESTIMATED_ROW_PX = { default: 46, lg: 58 } as const;
+const ESTIMATED_ROW_PX = { default: 32, lg: 58 } as const;
 
 interface SessionListProps {
   /** Already merged across the selected profiles and sorted newest-first. */
@@ -111,7 +111,7 @@ export function SessionList({
 
   return (
     <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
-      <div className={cn("flex flex-col", size === "lg" ? "pb-2" : "px-2 pb-3")}>
+      <div className={cn("flex flex-col", size === "lg" ? "pb-2" : "pb-3")}>
         {error && (
           <div className="flex flex-col items-start gap-2 px-2 py-2 text-xs text-muted-foreground">
             <p>{dict.shell.sidebar.loadFailed}</p>
@@ -157,15 +157,16 @@ export function SessionList({
                 {row.kind === "heading" ? (
                   <div
                     className={cn(
-                      "px-1 pt-4 pb-1.5 font-mono text-[length:calc(10px*var(--font-scale-ratio))] tracking-[0.14em] text-text-faint uppercase",
+                      "flex items-center gap-2 px-2 pt-4 pb-1.5 font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint",
                       // `first:pt-2` can't do this job once rows are
                       // windowed: the first rendered child is whatever
                       // happens to be scrolled into view, not row zero.
                       virtualRow.index === 0 && "pt-2",
                     )}
                   >
-                    {dict.shell.sidebar.groups[row.id]}
-                    <span className="opacity-75"> {row.count}</span>
+                    <span className="opacity-80">{dict.shell.sidebar.groups[row.id]}</span>
+                    <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dotted border-border" />
+                    <span>{row.count}</span>
                   </div>
                 ) : (
                   <SessionListItem

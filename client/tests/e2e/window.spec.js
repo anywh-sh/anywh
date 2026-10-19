@@ -5,7 +5,7 @@
 // real relay for a fuller e2e scenario later).
 describe("anywh desktop shell", () => {
   it("launches the main window and renders the sidebar", async () => {
-    const newConversationButton = await $('[aria-label="New conversation"]');
+    const newConversationButton = await $('[aria-label="New session"]');
     await newConversationButton.waitForExist({ timeout: 15000 });
     await expect(newConversationButton).toBeExisting();
   });

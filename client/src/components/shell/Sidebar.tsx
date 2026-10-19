@@ -1,16 +1,13 @@
 import { memo, useState } from "react";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
-import { AnywhLockup } from "@/components/shell/AnywhLogo";
+import { Plus, Search } from "lucide-react";
+import { KbdShortcut } from "@/components/ui/kbd";
 import { SessionList } from "@/components/shell/SessionList";
-import { ProfileFilterTrigger, ProfileFilterPanel } from "@/components/shell/ProfileFilter";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
-import { shortcutLabel } from "@/lib/platform/platform";
+import { shortcutKeys } from "@/lib/platform/platform";
 
 export interface SidebarProps {
   activeProfile: Profile;
@@ -22,8 +19,10 @@ export interface SidebarProps {
   /** Which profiles the list shows. Separate from `activeProfile`, which is
    * about where work happens, not about what is on screen. */
   selectedProfileIds: ReadonlySet<string>;
-  onToggleProfileFilter: (profileId: string) => void;
+  /** Flips the list between every profile and only the active one. */
+  onToggleAllProfiles: () => void;
   onClearProfileFilter: () => void;
+  onOpenSearch: () => void;
   sessions: MergedSession[];
   sessionsLoading: boolean;
   sessionsError: boolean;
@@ -56,8 +55,9 @@ export const Sidebar = memo(function Sidebar({
   profilesSupported,
   onProfileChange,
   selectedProfileIds,
-  onToggleProfileFilter,
+  onToggleAllProfiles,
   onClearProfileFilter,
+  onOpenSearch,
   sessions,
   sessionsLoading,
   sessionsError,
@@ -72,40 +72,42 @@ export const Sidebar = memo(function Sidebar({
 }: SidebarProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ session: MergedSession; title: string } | null>(null);
-  const [profileFilterOpen, setProfileFilterOpen] = useState(false);
-  const profileFiltering = selectedProfileIds.size < profiles.length;
+  const allProfilesShown = selectedProfileIds.size >= profiles.length;
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-bg-sidebar">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border-soft px-3 py-2.5">
-        <AnywhLockup className="flex min-w-0 flex-1 items-center gap-2" />
-        <ProfileFilterTrigger
-          filtering={profileFiltering}
-          selectedCount={selectedProfileIds.size}
-          open={profileFilterOpen}
-          onToggle={() => setProfileFilterOpen((value) => !value)}
+      <div className="shrink-0 px-2 pt-1">
+        <ProfileSwitcher
+          activeProfile={activeProfile}
+          supported={profilesSupported}
+          onChange={onProfileChange}
+          allProfilesShown={allProfilesShown}
+          onToggleAllProfiles={onToggleAllProfiles}
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="icon-xs" onClick={onNewConversation} aria-label={dict.shell.sidebar.newConversation}>
-              <Plus />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {dict.shell.sidebar.newConversation}
-            <TooltipShortcut>{shortcutLabel("N")}</TooltipShortcut>
-          </TooltipContent>
-        </Tooltip>
       </div>
 
-      {profileFilterOpen && (
-        <ProfileFilterPanel
-          profiles={profiles}
-          selected={selectedProfileIds}
-          onToggle={onToggleProfileFilter}
-          onSelectAll={onClearProfileFilter}
-        />
-      )}
+      <div className="flex shrink-0 flex-col gap-1 px-2 pt-1.5 pb-3">
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          aria-label={dict.shell.sidebar.search}
+          className="flex h-8 w-full cursor-pointer items-center gap-2.5 border border-border bg-bg-chrome px-2.5 text-left text-[length:calc(13px*var(--font-scale-ratio))] text-text-faint transition-colors hover:text-foreground"
+        >
+          <Search className="size-3.5 shrink-0" />
+          <span className="flex-1">{dict.shell.sidebar.search}</span>
+          <KbdShortcut keys={shortcutKeys("K")} size="sm" />
+        </button>
+        <button
+          type="button"
+          onClick={onNewConversation}
+          aria-label={dict.shell.sidebar.newConversation}
+          className="flex h-8 w-full cursor-pointer items-center gap-2.5 px-2.5 text-left text-[length:calc(13px*var(--font-scale-ratio))] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
+        >
+          <Plus className="size-3.5 shrink-0" />
+          <span className="flex-1">{dict.shell.sidebar.newConversation}</span>
+          <KbdShortcut keys={shortcutKeys("N")} size="sm" />
+        </button>
+      </div>
 
       <SessionList
         sessions={sessions}
@@ -122,10 +124,6 @@ export const Sidebar = memo(function Sidebar({
         onDelete={onDeleteSession}
         onClearFilter={onClearProfileFilter}
       />
-
-      <div className="shrink-0 border-t border-border-soft p-2.5">
-        <ProfileSwitcher activeProfile={activeProfile} supported={profilesSupported} onChange={onProfileChange} />
-      </div>
 
       <RenameSessionDialog
         open={renaming !== null}

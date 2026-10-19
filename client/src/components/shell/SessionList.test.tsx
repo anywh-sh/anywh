@@ -100,8 +100,8 @@ describe("SessionList", () => {
       ],
     });
 
-    expect(screen.getByText(copy.groups.today).parentElement).toHaveTextContent(`${copy.groups.today} 2`);
-    expect(screen.getByText(copy.groups.older).parentElement).toHaveTextContent(`${copy.groups.older} 1`);
+    expect(screen.getByText(copy.groups.today).parentElement).toHaveTextContent(`${copy.groups.today}2`);
+    expect(screen.getByText(copy.groups.older).parentElement).toHaveTextContent(`${copy.groups.older}1`);
     // A bucket with nothing in it never gets a heading of its own.
     expect(screen.queryByText(copy.groups.yesterday)).not.toBeInTheDocument();
   });
