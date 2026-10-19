@@ -404,26 +404,18 @@ export class SharedSession implements SessionDriverHost {
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
-    // A rehydrated question belongs to a conversation; with no session_id
-    // left for the active agent (cleared, lost, never created) answering it
-    // would start a turn with no context, so drop it (and its stored copy)
-    // instead of adopting it.
-    const rehydrated = options.initialPendingChoice && this.driver.getSessionId() ? options.initialPendingChoice : undefined;
     this.choiceMachine = new ChoiceMachine(this.clients, (kind, questions) =>
       // Deliberately NO push for a rehydrated question: the person was
       // already notified when it was first asked, and re-notifying on every
       // relay restart would be noise. It simply reappears on connect.
       this.notify(promptDraft({ title: this.title, kind, firstQuestion: questions[0]?.question })),
-      rehydrated,
+      options.initialPendingChoice,
       options.onPendingChoiceChange,
     );
-    if (options.initialPendingChoice && !rehydrated) {
-      try {
-        options.onPendingChoiceChange?.(undefined);
-      } catch (error) {
-        console.error("[relay] could not clear the orphaned pending choice:", error instanceof Error ? error.message : String(error));
-      }
-    }
+    // A rehydrated question belongs to a conversation; with no session_id
+    // left for the active agent (cleared, lost, never created) answering it
+    // would start a turn with no context, so drop it (and its stored copy).
+    if (!this.driver.getSessionId()) this.choiceMachine.dropRehydrated();
   }
 
   /** Tears down anything the driver holds open beyond a single turn (a
@@ -488,7 +480,9 @@ export class SharedSession implements SessionDriverHost {
     // The question was asked by the outgoing agent's conversation; the
     // incoming one has none of that context, so an answer would be a turn
     // out of nowhere.
-    this.discardStaleChoice();
+    // Only on a REAL change: a redundant set_agent for the current agent
+    // (e.g. a client re-sending its picked agent on reconnect) keeps it.
+    if (next.def.identity.id !== this.def.identity.id) this.discardStaleChoice();
     this.driver.dispose();
     this.def = next.def;
     this.driver = this.createDriver(next.def, next.initialSessionId);

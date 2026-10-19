@@ -172,10 +172,19 @@ function isPersistedChoice(value: unknown): value is PersistedChoice {
   const { promptId, questions } = value as { promptId?: unknown; questions?: unknown };
   if (typeof promptId !== "string" || promptId === "") return false;
   if (!Array.isArray(questions) || questions.length === 0) return false;
+  const optionalString = (v: unknown) => v === undefined || typeof v === "string";
   return questions.every((q) => {
     if (!q || typeof q !== "object") return false;
-    const { question, options } = q as { question?: unknown; options?: unknown };
-    return typeof question === "string" && Array.isArray(options);
+    const { question, options, header, multiSelect, approval } = q as Record<string, unknown>;
+    if (typeof question !== "string" || !optionalString(header)) return false;
+    if (multiSelect !== undefined && typeof multiSelect !== "boolean") return false;
+    if (approval !== undefined && (!approval || typeof approval !== "object")) return false;
+    if (!Array.isArray(options)) return false;
+    return options.every((o) => {
+      if (!o || typeof o !== "object") return false;
+      const { label, description, id } = o as Record<string, unknown>;
+      return typeof label === "string" && optionalString(description) && optionalString(id);
+    });
   });
 }
 
@@ -618,7 +627,8 @@ export class SessionStore {
   }
 
   getPendingChoice(id: string): PersistedChoice | undefined {
-    return this.records[id]?.pendingChoice;
+    const stored = this.records[id]?.pendingChoice;
+    return stored === undefined ? undefined : structuredClone(stored);
   }
 
   /** `undefined` clears it. No-op when there's nothing to clear, so
@@ -630,7 +640,8 @@ export class SessionStore {
       delete this.records[id].pendingChoice;
     } else {
       this.ensureEntry(id);
-      this.records[id].pendingChoice = choice;
+      // Copy: the caller (ChoiceMachine) keeps its own reference.
+      this.records[id].pendingChoice = structuredClone(choice);
     }
     this.persist();
   }

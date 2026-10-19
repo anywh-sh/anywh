@@ -174,3 +174,15 @@ test("switching agent dismisses the question and clears the persisted record", a
   assert.ok(messages.some((m) => m.type === "choice_resolved" && m.promptId === promptId), "other devices must be told the card is gone");
   assert.equal(messagesAfterRestart("session-pending-agent-switch").some((m) => m.type === "choice_prompt"), false);
 });
+
+test("a redundant set_agent for the CURRENT agent keeps the question, in memory and on disk", async () => {
+  const { socket, promptId } = await askAndEndTurn("session-pending-same-agent");
+
+  socket.send(JSON.stringify({ type: "set_agent", agentId: "claude" }));
+  const messages = await collectUntil(socket, (m) => m.type === "permission_mode_state");
+  socket.close();
+
+  assert.equal(messages.some((m) => m.type === "choice_resolved"), false);
+  const after = messagesAfterRestart("session-pending-same-agent").find((m) => m.type === "choice_prompt");
+  assert.equal(after?.promptId, promptId);
+});

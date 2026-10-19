@@ -80,11 +80,27 @@ export class ChoiceMachine {
    * must cost at most a stale record on disk — not the user's answer, the
    * dismissal of the card, or the model's tool call. */
   private mirror(choice: PersistedChoice | undefined): void {
-    try {
-      this.onChoiceChange?.(choice);
-    } catch (error) {
-      console.error("[relay] could not persist the pending choice:", error instanceof Error ? error.message : String(error));
+    // One retry: a failed CLEAR leaves the old question on disk, and after a
+    // restart an answered question would come back. (The store's in-memory
+    // records are already updated, so any later successful write of the
+    // file fixes it too.)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        this.onChoiceChange?.(choice);
+        return;
+      } catch (error) {
+        if (attempt === 2) console.error("[relay] could not persist the pending choice:", error instanceof Error ? error.message : String(error));
+      }
     }
+  }
+
+  /** Drops a question adopted from the store that turns out to belong to no
+   * conversation (see `SharedSession`'s constructor). Silent: nothing was
+   * shown to anyone yet. Only the stored copy needs clearing. */
+  dropRehydrated(): void {
+    if (!this.pendingChoice) return;
+    this.pendingChoice = undefined;
+    this.mirror(undefined);
   }
 
   /** Called by the MCP bridge

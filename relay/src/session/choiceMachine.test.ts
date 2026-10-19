@@ -198,3 +198,22 @@ test("onChoiceChange throwing (disk full) never breaks present, answer or discar
     console.error = originalError;
   }
 });
+
+test("a failed CLEAR write is retried once, so an answered question can't come back from disk after a restart", () => {
+  const client = fakeSocket();
+  const calls: unknown[] = [];
+  let failNext = false;
+  const machine = new ChoiceMachine(new Set([client]), undefined, undefined, (choice) => {
+    if (choice === undefined && failNext) {
+      failNext = false;
+      throw new Error("EIO");
+    }
+    calls.push(choice);
+  });
+  machine.presentChoice([question()]);
+  const promptId = (client.sent[0] as { promptId: string }).promptId;
+  failNext = true;
+  machine.answerChoice(promptId, []);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], undefined, "the clear must have been written on the retry");
+});
