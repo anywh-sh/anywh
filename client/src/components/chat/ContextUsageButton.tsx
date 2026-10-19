@@ -4,6 +4,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
+import { cn } from "@/lib/utils";
 import { contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
 import type { ContextUsage } from "@/lib/relay/relayClient";
 
@@ -23,11 +24,10 @@ interface BreakdownSegment {
 }
 
 /**
- * The ring alone, borderless, as the last control on the composer's toolbar,
- * with the full detail a click away. The token count lives only in the
- * popover: the ring already says how full the window is at a glance, and the
- * exact numbers are one click behind it (the `aria-label` carries the
- * percentage for assistive tech).
+ * The ring and its percentage, borderless, at the right end of the composer's
+ * info strip, with the full detail a click away. The token count lives only
+ * in the popover: the ring already says how full the window is at a glance,
+ * and the exact numbers are one click behind it.
  *
  * The popover renders one of two shapes, depending on whether
  * `usage.breakdown` has arrived yet (it's requested on open, see `onOpen`,
@@ -114,9 +114,10 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
           type="button"
           aria-label={copy.ariaLabel.replace("{percent}", String(Math.round(pct)))}
           title={copy.label}
-          className={toolbarTriggerClass}
+          className={cn(toolbarTriggerClass, "gap-2 font-mono text-[11.5px] text-text-faint")}
         >
-          <ContextUsageRing usage={usage} />
+          <ContextUsageRing usage={usage} size={16} />
+          <span>{Math.round(pct)}%</span>
         </button>
       </DropdownMenuTrigger>
 

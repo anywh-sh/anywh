@@ -41,7 +41,7 @@ function modeCopy(composer: Dictionary["chat"]["composer"], id: PermissionMode):
  * focus/pointer-events on the body while a modal dropdown is open, and
  * restoration fails on Tauri's WKWebView on macOS.
  *
- * The accent tint (text only, no chip) marks the one concept every agent's mode set shares: "this
+ * The warning tint (text only, no chip) marks the one concept every agent's mode set shares: "this
  * mode never asks for approval" (`pausesForApproval: false` — Claude's
  * `bypassPermissions`, Codex's `full-access`), not a specific literal id.
  */
@@ -62,7 +62,7 @@ export function PermissionModeButton({ mode, available, onChange }: PermissionMo
           ref={triggerRef}
           type="button"
           disabled={mode === null}
-          className={cn(toolbarTriggerClass, neverAsks && "text-primary-ink hover:text-primary-ink data-[state=open]:text-primary-ink")}
+          className={cn(toolbarTriggerClass, neverAsks && "text-context-ring-warn hover:text-context-ring-warn data-[state=open]:text-context-ring-warn")}
         >
           <span className="truncate">{mode !== null ? modeCopy(copy, mode).label : copy.pending}</span>
           <span aria-hidden="true" className="text-[9px] opacity-55">▾</span>
@@ -78,7 +78,7 @@ export function PermissionModeButton({ mode, available, onChange }: PermissionMo
                 <span>{label}</span>
                 <span className="font-sans text-[11px] text-muted-foreground">{hint}</span>
               </span>
-              <Check className={cn("mt-px size-3.5 text-primary!", option.id !== mode && "opacity-0")} />
+              <Check className={cn("mt-px size-3.5 text-foreground", option.id !== mode && "opacity-0")} />
             </DropdownMenuItem>
           );
         })}

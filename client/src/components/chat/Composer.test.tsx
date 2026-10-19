@@ -152,7 +152,7 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "switch" }));
 
     const paragraph = container.querySelector(".ProseMirror p");
-    expect(paragraph).toHaveAttribute("data-placeholder", ptBr.chat.composer.placeholder);
+    expect(paragraph).toHaveAttribute("data-placeholder", ptBr.chat.composer.placeholderTask);
   });
 
   // The picker used to be gated on `agentId === "claude"` — the catalog is

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type ReactNode,
 } from "react";
 import { ArrowUp, Check, ChevronDown, FileText, Loader2, Mic, Paperclip, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
@@ -91,8 +92,12 @@ export interface ComposerProps {
    * `ModelButton` locks along with the folder; `AgentPickerButton` locks for
    * the same reason. */
   modelLocked: boolean;
-  /** Shown in the toolbar's context-usage button. */
+  /** Shown in the info strip's context-usage button. */
   contextUsage: ContextUsage | null;
+  /** The left end of the info strip under the field — where the session's
+   * working directory goes. Rendered by the owner because the folder state
+   * lives with the conversation, not here. */
+  infoStart?: ReactNode;
   /** Sent once, the first time the context usage popover opens — see
    * `ContextUsageButton`. */
   onRequestContextBreakdown: () => void;
@@ -484,6 +489,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onChangeEffort,
     modelLocked,
     contextUsage,
+    infoStart,
     onRequestContextBreakdown,
     compactBoundary,
     suggestion,
@@ -534,8 +540,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
-  const placeholderRef = useRef(copy.placeholder);
-  placeholderRef.current = copy.placeholder;
+  const placeholderRef = useRef(copy.placeholderTask);
+  placeholderRef.current = copy.placeholderTask;
   const [placeholderExtension] = useState(() => createPlaceholderExtension(suggestionRef, placeholderRef));
   // Set by `submit()` when the text looks like a typo'd command (`/cler`)
   // instead of either a real command or plain text — blocks the send until
@@ -714,15 +720,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         event.preventDefault();
         submit();
       }}
-      className={cn(
-        // Square, like every other box in the app: the border is the whole
-        // frame, and it firms up under the pointer the way the outline
-        // buttons inside it do.
-        "flex flex-col gap-1.5 border p-2 transition-colors",
-        "mb-3 bg-bg-sidebar",
-        focused ? "border-primary" : "border-border hover:border-text-faint",
-      )}
+      // Frame + field: the frame is the lighter outer surface that also holds
+      // the info strip, the field inside it carries its own border (which is
+      // what firms up on focus). Square, like every other box in the app.
+      className="mb-3 flex flex-col bg-surface-hover px-[3px] pt-[3px]"
     >
+      <div
+        className={cn(
+          "flex flex-col gap-1.5 border bg-bg-elevated p-2 transition-colors",
+          focused ? "border-composer-focus" : "border-composer-border",
+        )}
+      >
       <ComposerLinkHoverCard editor={editor} />
 
       {(pendingImages.length > 0 || uploadingImage) && (
@@ -801,9 +809,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       <EditorContent editor={editor} className="composer-editor" />
 
       <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
+        <div className="flex min-w-0 flex-1 items-center gap-4 px-1">
           <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
-          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
           {modelCatalog && (
             <ModelButton
               model={model}
@@ -814,7 +821,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             />
           )}
           <EffortButton effort={effort} model={model} catalog={modelCatalog} onChange={onChangeEffort} disabled={disabled ?? false} />
-          <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
+          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
         </div>
@@ -927,6 +934,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             </Button>
           )}
         </div>
+      </div>
+      </div>
+
+      {/* The info strip: where this session runs on the left, how full the
+          context window is on the right. It sits on the frame, outside the
+          field, so it never competes with what is being typed. */}
+      <div className="flex h-8 items-center justify-between gap-3 px-1.5">
+        <div className="flex min-w-0 items-center gap-3">{infoStart}</div>
+        <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
       </div>
     </form>
   );

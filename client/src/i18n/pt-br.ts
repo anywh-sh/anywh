@@ -184,6 +184,7 @@ export const ptBr: Dictionary = {
       compacted: "Conversa compactada",
       compactedAuto: "Conversa compactada automaticamente",
       idleSubtitle: "Escreva uma mensagem abaixo para começar.",
+      idleTitle: "Qual o próximo item da sua lista?",
     },
     choice: {
       previousQuestion: "Pergunta anterior",
@@ -202,6 +203,7 @@ export const ptBr: Dictionary = {
     },
     composer: {
       placeholder: "Escreva uma mensagem…",
+      placeholderTask: "Descreva a tarefa, @ para contexto, / para comandos",
       attach: "Anexar imagem ou vídeo",
       attachmentUploading: "enviando anexo…",
       sendWaitingForUpload: "Aguardando o anexo terminar de enviar",

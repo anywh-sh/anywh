@@ -184,6 +184,7 @@ export const en: Dictionary = {
       compacted: "Conversation compacted",
       compactedAuto: "Conversation compacted automatically",
       idleSubtitle: "Write a message below to start.",
+      idleTitle: "What's next on your list?",
     },
     choice: {
       previousQuestion: "Previous question",
@@ -202,6 +203,7 @@ export const en: Dictionary = {
     },
     composer: {
       placeholder: "Write a message…",
+      placeholderTask: "Describe the task, @ for context, / for commands",
       attach: "Attach image or video",
       attachmentUploading: "uploading attachment…",
       sendWaitingForUpload: "Waiting for the attachment to finish uploading",

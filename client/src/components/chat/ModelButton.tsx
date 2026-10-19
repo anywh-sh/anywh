@@ -100,7 +100,7 @@ export function ModelButton({ model, catalog, onChange, disabled, locked }: Mode
         {catalog?.options.map((option) => (
           <DropdownMenuItem key={option.id} onSelect={() => onChange(option.id)} className="gap-3" title={option.description}>
             <span className="flex-1 truncate text-left">{option.label}</span>
-            <Check className={cn("size-3.5 shrink-0 text-primary!", option.id !== current && "opacity-0")} />
+            <Check className={cn("size-3.5 shrink-0 text-foreground", option.id !== current && "opacity-0")} />
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

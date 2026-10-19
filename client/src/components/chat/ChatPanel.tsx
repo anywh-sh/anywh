@@ -730,7 +730,8 @@ export function ChatPanel({
   }, []);
 
   // The message log itself is on screen (not the idle state or the skeleton).
-  const showingLog = ready && !((isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0);
+  const showingIdle = (isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0;
+  const showingLog = ready && !showingIdle;
   useEffect(() => {
     if (!showingLog) setScrollToEndVisible(false);
   }, [showingLog]);
@@ -777,7 +778,7 @@ export function ChatPanel({
   };
 
   return (
-    <div ref={containerRef} className="relative flex h-full flex-col">
+    <div ref={containerRef} className={cn("relative flex h-full flex-col", showingIdle && !isIOS() && "justify-center")}>
       {protocolMismatch !== null && (
         // Full takeover, not a dismissible toast: past this point nothing
         // the relay sends is guaranteed to render correctly (see
@@ -796,7 +797,7 @@ export function ChatPanel({
         </div>
       )}
 
-      {(isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0 ? (
+      {showingIdle ? (
         // `isNewConversation` covers the freshly opened tab (shows idle right
         // away, without waiting for `ready` — there's really nothing to load
         // anyway). `ready` covers an existing session that genuinely became
@@ -948,23 +949,18 @@ export function ChatPanel({
                 suggestion={suggestion}
                 onChangeDraft={setDraft}
                 onSend={handleSend}
+                infoStart={
+                  <WorkingDirectoryButton
+                    profile={profile}
+                    cwd={cwd}
+                    locked={cwdLocked}
+                    connected={connected}
+                    isNewConversation={isNewConversation}
+                    onSetCwd={setCwd}
+                    onFocusComposer={() => composerRef.current?.focus()}
+                  />
+                }
               />
-            )}
-            {/* Desktop: the working directory sits under the composer, where
-             * the redesign's info strip will take it over. iOS keeps its own
-             * copy above the composer (see the top of this stack). */}
-            {!isIOS() && (
-              <div className="flex items-center gap-1.5 pt-1.5">
-                <WorkingDirectoryButton
-                  profile={profile}
-                  cwd={cwd}
-                  locked={cwdLocked}
-                  connected={connected}
-                  isNewConversation={isNewConversation}
-                  onSetCwd={setCwd}
-                  onFocusComposer={() => composerRef.current?.focus()}
-                />
-              </div>
             )}
           </div>
         </div>

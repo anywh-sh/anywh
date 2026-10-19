@@ -59,13 +59,13 @@ export function EffortButton({ effort, model, catalog, onChange, disabled }: Eff
         {offersDefault && (
           <DropdownMenuItem onSelect={() => onChange(null)} className="gap-3">
             <span className="flex-1 truncate text-left">{dict.effortDefault}</span>
-            <Check className={cn("size-3.5 shrink-0 text-primary!", current !== null && "opacity-0")} />
+            <Check className={cn("size-3.5 shrink-0 text-foreground", current !== null && "opacity-0")} />
           </DropdownMenuItem>
         )}
         {efforts.map((entry) => (
           <DropdownMenuItem key={entry.id} onSelect={() => onChange(entry.id)} className="gap-3" title={entry.description}>
             <span className="flex-1 truncate text-left">{labelForEffort(dict.effortLabels, entry.id)}</span>
-            <Check className={cn("size-3.5 shrink-0 text-primary!", entry.id !== current && "opacity-0")} />
+            <Check className={cn("size-3.5 shrink-0 text-foreground", entry.id !== current && "opacity-0")} />
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

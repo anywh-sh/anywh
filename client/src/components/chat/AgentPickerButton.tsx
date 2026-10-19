@@ -104,7 +104,7 @@ export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentP
             <DropdownMenuItem
               key={agent.id}
               onSelect={() => onChange(agent.id)}
-              className={cn("items-start gap-3 py-2", current && "bg-primary-soft")}
+              className={cn("items-start gap-3 py-2", current && "bg-surface-hover")}
             >
               <span className="flex size-6 shrink-0 items-center justify-center border border-border-soft">
                 <AgentLogo agentId={agent.id} className="size-3.5" />
@@ -113,7 +113,7 @@ export function AgentPickerButton({ profile, agentId, onChange, locked }: AgentP
                 <span className="truncate">{agentName(agentNames, agent.id)}</span>
                 {detail !== "" && <span className="truncate font-sans text-[11px] text-muted-foreground">{detail}</span>}
               </span>
-              <Check className={cn("mt-1 size-3.5 text-primary!", !current && "opacity-0")} />
+              <Check className={cn("mt-1 size-3.5 text-foreground", !current && "opacity-0")} />
             </DropdownMenuItem>
           );
         })}

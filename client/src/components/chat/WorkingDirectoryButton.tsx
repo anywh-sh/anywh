@@ -112,12 +112,20 @@ export function WorkingDirectoryButton({
                 ref={triggerRef}
                 type="button"
                 disabled={!isNewConversation && (!cwd || !connected)}
-                className="flex h-[26px] max-w-full shrink cursor-pointer items-center gap-2 border border-border bg-bg-sidebar px-2.5 font-mono text-[11.5px] text-muted-foreground transition-colors hover:border-text-faint hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                className={cn(
+                  "flex max-w-full shrink cursor-pointer items-center gap-2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                  // On desktop it is a plain item of the composer's info
+                  // strip; on iOS it still floats above the composer as a box.
+                  isIOS()
+                    ? "h-[26px] border border-border bg-bg-sidebar px-2.5 font-mono text-[11.5px] hover:border-text-faint"
+                    : "h-6 font-sans text-[13px]",
+                )}
               >
-                {/* The design ties this icon to the tab's own profile color
-                  * (`tabColor`), not the accent — the working directory
-                  * belongs to whichever profile the current tab is on. */}
-                <Folder className="size-3 shrink-0" style={{ color: profileColorVar(profile.id) }} />
+                {/* On iOS the icon takes the tab's own profile colour — the
+                  * working directory belongs to whichever profile the tab is
+                  * on. In the desktop strip the colour is already carried by
+                  * the sidebar and stays out of the composer. */}
+                <Folder className="size-3.5 shrink-0" style={isIOS() ? { color: profileColorVar(profile.id) } : undefined} />
                 <span className="truncate">{cwd ? folderName(cwd) : "…"}</span>
               </button>
             </DropdownMenuTrigger>

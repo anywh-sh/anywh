@@ -130,6 +130,13 @@
      gets a hover that sits between its own resting and selected rows. */
   --bg-hover: color-mix(in srgb, var(--bg-sidebar) 55%, var(--bg-elevated));
 
+  /* The composer's two edge tones, derived from the theme's own borders so
+     every theme gets a frame that sits between its resting and its
+     focused line. The frame and the field themselves use `surface-hover`
+     and `bg-elevated`. */
+  --composer-border: color-mix(in srgb, var(--border-soft) 55%, var(--border));
+  --composer-focus: color-mix(in srgb, var(--text-faint) 45%, var(--border));
+
   /* Square corners are the brand, not a default left unset — same call as
      the account dashboard and the marketing site. */
   --radius: 0px;
@@ -166,6 +173,8 @@
   --color-bg-elevated: var(--bg-elevated);
   --color-surface-hover: var(--surface-hover);
   --color-bg-hover: var(--bg-hover);
+  --color-composer-border: var(--composer-border);
+  --color-composer-focus: var(--composer-focus);
   --color-card: var(--card);
   --color-card-foreground: var(--foreground);
   --color-bubble-user: var(--bubble-user);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ContextUsageButton } from "./ContextUsageButton";
 import { en } from "@/i18n/en";
@@ -11,10 +11,11 @@ const USAGE: ContextUsage = { model: "claude-opus-5", contextWindowSize: 200_000
 const USAGE_WITH_BASELINE: ContextUsage = { ...USAGE, baselineTokens: 45_448 };
 
 describe("ContextUsageButton", () => {
-  it("shows the ring only on the chip — the token counts stay in the popover", () => {
+  it("shows the ring and its percentage on the chip — the token counts stay in the popover", () => {
     render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
 
-    expect(screen.getByRole("button")).toHaveTextContent("");
+    expect(screen.getByRole("button")).toHaveTextContent("64%");
+    expect(screen.getByRole("button")).not.toHaveTextContent("tokens");
     expect(screen.getByRole("button").querySelector("svg")).not.toBeNull();
   });
 
@@ -37,7 +38,7 @@ describe("ContextUsageButton", () => {
     render(<ContextUsageButton usage={USAGE} onOpen={() => {}} />);
     await user.click(screen.getByRole("button"));
 
-    expect(screen.getByText("64%")).toBeInTheDocument();
+    expect(within(screen.getByRole("menu")).getByText("64%")).toBeInTheDocument();
     expect(screen.getByText(en.chat.composer.context.occupied)).toBeInTheDocument();
     expect(screen.getByText("128k / 200k tokens")).toBeInTheDocument();
   });

@@ -610,6 +610,8 @@ export interface Dictionary {
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;
+      /** The heading of a new session, above the composer. */
+      idleTitle: string;
     };
     choice: {
       previousQuestion: string;
@@ -638,6 +640,8 @@ export interface Dictionary {
      */
     composer: {
       placeholder: string;
+      /** The desktop field's prompt — the iOS native composer keeps `placeholder`. */
+      placeholderTask: string;
       attach: string;
       attachmentUploading: string;
       /** Tooltip and label of the send button while an attachment uploads. */
