@@ -160,6 +160,14 @@ function readExitCode(exitPath: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : -1;
 }
 
+/** Outcomes that can be a deliberate stop: clean exit (a server that handles
+ * SIGTERM and exits 0), SIGINT (130), SIGTERM (143), or an external kill with
+ * no exit code. Any other code is a real failure and is never silenced, by
+ * the `.cancelled` marker or by the model's `NO_REPLY`. */
+export function isQuietExit(result: { exitCode: number; terminated?: true }): boolean {
+  return result.terminated === true || result.exitCode === 0 || result.exitCode === 130 || result.exitCode === 143;
+}
+
 /** Path of the marker `anywh-bg stop` writes BEFORE signalling the job. It
  * sits next to the `.exit` file (`<id>.exit` -> `<id>.cancelled`), which is
  * the only per-job path the relay already knows. */
@@ -395,13 +403,20 @@ export class BackgroundJobTracker {
     // exit (or the dead wrapper) is visible the marker is already on disk.
     // Whoever stopped the job knows it ended: treat it exactly like a UI
     // cancel — no follow-up turn.
+    //
+    // Only for outcomes that can be a stop: a job that failed on its own
+    // (exit 1...) in the window around `anywh-bg stop` must still be
+    // reported, marker or not.
     const marker = cancelledMarkerPath(job.exitPath);
-    if (existsSync(marker)) {
+    const hasMarker = existsSync(marker);
+    if (hasMarker) {
       try {
         rmSync(marker, { force: true });
       } catch (error) {
         console.error(`[relay] failed removing cancel marker of background job "${job.label}" (${job.id}):`, error);
       }
+    }
+    if (hasMarker && isQuietExit(result)) {
       this.persist();
       this.options.onChanged?.(job.sessionId);
       return;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -9,6 +9,7 @@ import type { AgentEvent } from "../protocol/agent-event.js";
 import {
   BackgroundJobTracker,
   cancelledMarkerPath,
+  isQuietExit,
   extractStartedJobFromEvent,
   parseStartedMarker,
   type FinishedBackgroundJob,
@@ -659,5 +660,64 @@ test("BackgroundJobTracker: a cancel marker also silences the wrapper-killed (te
     tracker.stopPolling();
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isQuietExit: 0/130/143/terminated only", () => {
+  for (const exitCode of [0, 130, 143]) assert.equal(isQuietExit({ exitCode }), true);
+  assert.equal(isQuietExit({ exitCode: -1, terminated: true }), true);
+  for (const exitCode of [1, 2, 124, 137]) assert.equal(isQuietExit({ exitCode }), false);
+});
+
+test("BackgroundJobTracker: a cancel marker never swallows a real failure (exit 1), and is still cleaned up", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-bgjobs-test-"));
+  try {
+    const logPath = join(dir, "job.log");
+    const exitPath = join(dir, "job.exit");
+    writeFileSync(logPath, "boom");
+    writeFileSync(exitPath, "1\n");
+    writeFileSync(cancelledMarkerPath(exitPath), "");
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
+    tracker.observeEvent("sess-1", startedEvent("job-1", logPath, exitPath));
+    tracker.pollOnce();
+    assert.equal(finished.length, 1);
+    assert.equal(finished[0]?.exitCode, 1);
+    assert.equal(existsSync(cancelledMarkerPath(exitPath)), false);
+    tracker.stopPolling();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg stop: a job that finishes with exit 1 right after the marker is written is reported, not silenced", () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  try {
+    const job = startRealJob(home, "sleep 30");
+    // `touch` shim: creates the marker like the real one, then makes the job
+    // "finish by itself with exit 1" at exactly the racy moment.
+    const shimDir = join(home, "shim");
+    mkdirSync(shimDir);
+    const shim = join(shimDir, "touch");
+    writeFileSync(shim, `#!/bin/bash\n/usr/bin/env -i PATH=/usr/bin:/bin touch "$@"\ncase "$1" in *.cancelled) echo 1 > "${job.exitFile}" ;; esac\n`);
+    chmodSync(shim, 0o755);
+    const out = spawnSync("bash", [ANYWH_BG, "stop", job.id], {
+      env: { ...process.env, HOME: home, PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+      encoding: "utf8",
+    });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /"stopped":false/);
+    assert.match(out.stdout, /already finished \(exit 1\)/);
+    assert.equal(existsSync(cancelledMarkerPath(job.exitFile)), false, "marker removed again");
+
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
+    tracker.observeEvent("sess-1", startedEvent(job.id, job.log, job.exitFile, "t", job.pid));
+    tracker.pollOnce();
+    assert.equal(finished[0]?.exitCode, 1, "the real failure is reported");
+    tracker.stopPolling();
+    process.kill(-job.pid, "SIGKILL");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });

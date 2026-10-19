@@ -1,4 +1,5 @@
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
+import { isQuietExit } from "../host/backgroundJobs.js";
 import { SILENCE_OFFER_MARKER } from "../protocol/silentEvents.js";
 
 export { NO_REPLY, isNoReply } from "../protocol/silentEvents.js";
@@ -20,7 +21,7 @@ export { NO_REPLY, isNoReply } from "../protocol/silentEvents.js";
  * the relay does not decide by exit code alone what is silent, it only
  * decides what may EVER be silent. */
 export function offersSilence(job: FinishedBackgroundJob): boolean {
-  return job.terminated === true || job.exitCode === 0 || job.exitCode === 130 || job.exitCode === 143;
+  return isQuietExit(job);
 }
 
 export function buildBackgroundJobFollowupPrompt(job: FinishedBackgroundJob): string {

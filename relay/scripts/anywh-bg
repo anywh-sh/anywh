@@ -223,7 +223,15 @@ cmd_stop() {
 
   # Marker first, kill second: the relay may observe the exit the instant
   # the process dies and must already find the marker there.
-  : > "$marker"
+  touch "$marker"
+  # Close the window between the `.exit` check above and the marker: if the
+  # job finished by itself in between, its result is real news, not a stop.
+  if [[ -f "$exitfile" ]]; then
+    rm -f "$marker"
+    printf '{"anywh_bg":"stop","id":"%s","stopped":false,"reason":"already finished (exit %s)"}\n' \
+      "$(json_escape "$id")" "$(json_escape "$(<"$exitfile")")"
+    return 0
+  fi
   kill -TERM "-$pgid" 2>/dev/null || true
   local i
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
