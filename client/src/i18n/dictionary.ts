@@ -613,15 +613,6 @@ export interface Dictionary {
        * to whichever question text is in play above. */
       reasonSuffix: string;
     };
-    turn: {
-      /** One is drawn per turn and held for its whole duration — the Claude
-       * Code CLI's own behaviour, which this mirrors: a random verb instead
-       * of a fixed "Thinking…", never a carousel that keeps changing while
-       * you read it. The two languages don't have to be the same length,
-       * and shouldn't: these are jokes, and a joke that survives a literal
-       * translation is the exception. */
-      workingWords: readonly string[];
-    };
     log: {
       loading: string;
       error: string;
