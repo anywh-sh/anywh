@@ -22,23 +22,21 @@
      the webview's own context menu. */
   color-scheme: dark;
 
-  --background: #1b1a18;
-  /* Note the direction: the sidebar is *lighter* than the background here,
-     the opposite of what `themeApply.ts` derives for a theme that leaves it
-     out (`shade(background, 18)`). That derivation is still the right guess
-     for an author who declares neither — this palette just isn't a guess.
-     `--bg-chrome` is the third step: darker than both, for the window chrome
-     (title bar, tab strip, status bar) that frames the whole app. */
-  --bg-sidebar: #222120;
-  --bg-chrome: #1e1d1b;
-  --bg-elevated: #2a2826;
-  --surface-hover: #322f2c;
-  --card: #222120;
-  --bubble-user: #2a2826;
+  --background: #161513;
+  /* `--background` is the main plane; the sidebar and the window chrome
+     (title bar, tab strip, status bar) share one darker base that frames it —
+     the same direction `themeApply.ts` derives for a theme that leaves them
+     out, though a derived theme gets two distinct steps rather than one. */
+  --bg-sidebar: #11100e;
+  --bg-chrome: #11100e;
+  --bg-elevated: #1c1b19;
+  --surface-hover: #22211f;
+  --card: #1c1b19;
+  --bubble-user: #242321;
 
-  --foreground: #eceae4;
-  --muted-foreground: #b1aba2;
-  --text-faint: #9d978f;
+  --foreground: #edebe8;
+  --muted-foreground: #c3c0bd;
+  --text-faint: #a09c98;
 
   /* Overwritten on the root element by `lib/fontSize.ts` alongside the named
      `--text-*` steps — this default only matters before that JS runs (or in
@@ -47,38 +45,38 @@
      resolves to a plain length instead of `calc(10.5px*)`. */
   --font-scale-ratio: 1;
 
-  --primary: #e0642a;
+  --primary: #e5642a;
   /* The label printed on a filled accent button. Measured, not assumed: the
      accent is mid-tone, so `--foreground` on it is 2.9:1 — under the floor
      for a button label. themeApply.ts derives this per theme by taking
      whichever end of the ramp contrasts more with the fill. */
-  --primary-foreground: #1b1a18;
+  --primary-foreground: #11100e;
   /* Tinted fill + the text tone that stays legible on top of it: an accent
      surface can't use `--primary` itself for its own label, and can't use
      the Tailwind alpha modifier either (that composites with whatever is
      behind, the same trap documented on `--profile-*-soft` below). Filled
      accent buttons keep using `--primary-foreground`; these two are for the
      *soft* variant (active tool-call badge, selected menu row, drop zone). */
-  --primary-soft: rgb(224 100 42 / 0.14);
-  --primary-ink: #f2c6ac;
-  --destructive: #dc6f5c;
-  --destructive-foreground: #1b1a18;
+  --primary-soft: rgb(229 100 42 / 0.14);
+  --primary-ink: #f89c67;
+  --destructive: #f27b69;
+  --destructive-foreground: #11100e;
   /* Midpoint of the context-window usage ring/bar (lib/contextUsage.ts) —
      it interpolates from `--primary` (0%) to here (~70%) and from here to
      `--destructive` (~90%+) via color-mix(), never a fixed hex at either
      end: changing `--primary` later moves the start of the gradient on its
      own. There is no "yellow" in the palette (only primary/destructive), so
      this is the one new tone that feature introduced. */
-  --context-ring-warn: #d6a24e;
+  --context-ring-warn: #e9b860;
   /* Only for an added line in a diff or code preview (CodeLines) — not a UI
      color, and for the same reason as hljs-string/number below: `--primary`
      is orange/terracotta, too close to `--destructive` in hue to work as the
      "green" of an addition (a Write card, which is nothing but additions,
      read as "everything removed"). */
-  --diff-add: #74b183;
+  --diff-add: #85cf95;
 
-  --border: #332f2c;
-  --border-soft: #2a2724;
+  --border: #3a3937;
+  --border-soft: #2a2927;
 
   /* Scrim behind dialog/sheet/alert — this was a literal `bg-black/50` in
      all three shadcn overlays. Opaque black is a dark-theme choice: a light
@@ -90,7 +88,7 @@
      This was `white/8`/`white/10`: white only works over a dark background,
      so on a light theme the highlight disappears. Always consumed with an
      alpha modifier (`border-glass-tint/8`), so the full color lives here. */
-  --glass-tint: #eceae4;
+  --glass-tint: #edebe8;
 
   /* Video badge on top of an attached thumbnail (Composer, Message).
      Deliberately dark in both appearances: it sits over the user's own
@@ -101,7 +99,7 @@
   --media-scrim-foreground: #ffffff;
 
   /* Shadow color for popovers (`--shadow-popover`); each theme sets its own. */
-  --shadow-color: rgb(0 0 0 / 0.5);
+  --shadow-color: rgb(0 0 0 / 0.75);
 
   /* Syntax highlighting (hljs). Before: `--primary` for keywords, a literal
      `#9cae7c` for strings and `--profile-work` for numbers — that last one a
@@ -109,18 +107,18 @@
      repainted every numeric literal in every code block. Tokens of their
      own, because syntax is a dimension of the theme rather than a side
      effect of the UI palette. */
-  --syntax-comment: #706a62;
-  --syntax-keyword: #dd9068;
-  --syntax-string: #9fb98a;
-  --syntax-number: #c9ae6e;
-  --syntax-title: #cdc2ae;
+  --syntax-comment: #71706e;
+  --syntax-keyword: #c1b3f2;
+  --syntax-string: #a5d39b;
+  --syntax-number: #ebc487;
+  --syntax-title: #f1eeea;
 
   /* Named aliases (`--profile-personal`/`--profile-work`) used to front the
      first two, from when "pessoal" and "trabalho" were the only profiles.
      Dropped rather than revalued: nothing referenced them anymore, and
      themeApply.ts only ever writes the numbered form — a custom theme that
      changed `profile-1` left the alias behind on the built-in value. */
-  --profile-1: #e0642a;
+  --profile-1: #7b9cf0;
   --profile-2: #3f9d92;
   --profile-3: #8a72d6;
   --profile-4: #c9a23e;
@@ -284,7 +282,7 @@
      `--shadow-color`, so a light theme gets its own weaker version instead of
      the same near-black. Static only — animating box-shadow is banned by the
      motion budget above. */
-  --shadow-popover: 0 18px 40px var(--shadow-color);
+  --shadow-popover: 0 20px 44px -10px var(--shadow-color);
 
   --font-sans: "IBM Plex Sans Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
