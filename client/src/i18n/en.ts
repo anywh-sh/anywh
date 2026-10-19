@@ -388,6 +388,7 @@ export const en: Dictionary = {
       clean: "clean",
       detachedHead: "No branch checked out — showing the current commit",
       appVersion: "anywh {version}",
+      relayConnected: "relay connected",
       updateAvailable: "Update to {version}",
       updateReady: "Restart into {version}",
       backgroundActivity: {

@@ -779,6 +779,7 @@ export function ChatPanel({
 
   return (
     <div ref={containerRef} className={cn("relative flex h-full flex-col", showingIdle && !isIOS() && "justify-center")}>
+      {showingIdle && !isIOS() && <div aria-hidden="true" className="idle-grid pointer-events-none absolute inset-0" />}
       {protocolMismatch !== null && (
         // Full takeover, not a dismissible toast: past this point nothing
         // the relay sends is guaranteed to render correctly (see

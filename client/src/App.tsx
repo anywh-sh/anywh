@@ -557,25 +557,11 @@ function AppShell() {
   const windowControls = isMacOS() ? null : <WindowControls />;
 
   // Drawn between the strip row and the panels (the strip stays level with
-  // the sidebar's header). Notices about a profile's connection sit here, in
-  // the main column, because the conversation and panels are what stop
-  // working — the session list keeps working off its local cache.
-  const notices = (
-    <>
-      <RevokedProfileBanners />
-      {/* Desktop had no connection feedback at all: a relay that's
-       * unreachable from the start (wrong profile host/port, nothing
-       * running there) looked identical to "the app is just loading", with
-       * every panel failing silently or hanging instead. Only drawn when
-       * `false`, unlike the native iOS top bar. */}
-      {!activeConnected && (
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-border-soft bg-bg-chrome px-3 py-1 font-mono text-[11px] text-destructive">
-          <span className="size-1.5 animate-pulse rounded-full bg-destructive" />
-          {dict.shell.titleBar.reconnecting}
-        </div>
-      )}
-    </>
-  );
+  // the sidebar's header). A revoked profile's notice sits here, in the main
+  // column, because the conversation and panels are what stop working — the
+  // session list keeps working off its local cache. The live connection state
+  // is in the footer, next to the version.
+  const notices = <RevokedProfileBanners />;
 
   const tabsContent = (
     <div className="relative min-h-0 flex-1">
@@ -716,20 +702,22 @@ function AppShell() {
           // list, and the tab strip starts where this column ends. Collapsed,
           // it shrinks to just the buttons.
           <div
-            className={cn("relative flex shrink-0 flex-col bg-bg-sidebar", !resizable.collapsed && "border-r border-border-soft")}
+            className="relative flex shrink-0 flex-col bg-bg-sidebar"
             style={resizable.collapsed ? undefined : { width: resizable.width }}
           >
             {titleBar}
+            {/* The rule between the sidebar and the plane starts below the
+             * header: the strip row owns the line above it. */}
             {!resizable.collapsed && (
-              <>
-                <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="relative min-h-0 flex-1 border-r border-border-soft">
+                <div className="h-full overflow-hidden">
                   <Sidebar {...sidebarProps} />
                 </div>
                 <div
                   onPointerDown={resizable.startDrag}
                   className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
                 />
-              </>
+              </div>
             )}
           </div>
         )}
@@ -771,6 +759,7 @@ function AppShell() {
         sessionId={activeTab?.id ?? null}
         isRunning={activeTab?.isRunning ?? false}
         windowFocused={windowFocused}
+        connected={activeConnected}
         onOpenUpdateModal={() => setUpdateModalOpen(true)}
         backgroundActivity={backgroundActivity}
         onOpenBackgroundActivityItem={openBackgroundActivityItem}

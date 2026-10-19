@@ -917,6 +917,7 @@ export interface Dictionary {
       /** `{version}` — title of the version slot, which has room for the
        * number but not for what the number belongs to. */
       appVersion: string;
+      relayConnected: string;
       /** `{version}` — replaces the version slot itself once a newer
        * release exists, so there is one thing there rather than a number
        * plus a separate badge competing for the same sliver of width. */

@@ -387,6 +387,7 @@ export const ptBr: Dictionary = {
       changesOne: "1 alteração",
       clean: "limpo",
       detachedHead: "Nenhum branch ativo — mostrando o commit atual",
+      relayConnected: "relay conectado",
       appVersion: "anywh {version}",
       updateAvailable: "Atualizar para {version}",
       updateReady: "Reiniciar na {version}",

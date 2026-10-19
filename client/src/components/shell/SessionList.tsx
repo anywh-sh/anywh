@@ -165,7 +165,7 @@ export function SessionList({
                     )}
                   >
                     <span className="opacity-80">{dict.shell.sidebar.groups[row.id]}</span>
-                    <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dotted border-border" />
+                    <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
                     <span>{row.count}</span>
                   </div>
                 ) : (

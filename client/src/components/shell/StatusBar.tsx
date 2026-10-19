@@ -23,6 +23,9 @@ interface StatusBarProps {
    * turn is the most likely thing to have changed the folder. */
   isRunning: boolean;
   windowFocused: boolean;
+  /** Whether the focused tab's relay connection is up. Drawn at the right end,
+   * next to the version; omitted by a caller that has no connection to report. */
+  connected?: boolean;
   /** Opens `UpdateModal` — only reachable from here while an update is
    * actually available; the version slot is plain text otherwise. */
   onOpenUpdateModal: () => void;
@@ -196,6 +199,7 @@ export function StatusBar({
   sessionId,
   isRunning,
   windowFocused,
+  connected,
   onOpenUpdateModal,
   backgroundActivity,
   onOpenBackgroundActivityItem,
@@ -361,11 +365,20 @@ export function StatusBar({
           {repo.branch} · {changes}
         </span>
       )}
+      {connected !== undefined && (
+        <span className="ml-auto flex shrink-0 items-center gap-1.5" role="status">
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 rounded-full", connected ? "bg-diff-add" : "animate-pulse bg-destructive")}
+          />
+          {connected ? dict.shell.statusBar.relayConnected : dict.shell.titleBar.reconnecting}
+        </span>
+      )}
       {downloaded ? (
         <button
           type="button"
           onClick={onOpenUpdateModal}
-          className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
           title={dict.shell.statusBar.updateReady.replace("{version}", downloaded.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
@@ -375,14 +388,14 @@ export function StatusBar({
         <button
           type="button"
           onClick={onOpenUpdateModal}
-          className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
           title={dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
           {dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
         </button>
       ) : (
-        <span className="ml-auto shrink-0" title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>
+        <span className="shrink-0" title={dict.shell.statusBar.appVersion.replace("{version}", APP_VERSION)}>
           v{APP_VERSION}
         </span>
       )}
