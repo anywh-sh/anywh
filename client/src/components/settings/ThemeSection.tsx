@@ -79,7 +79,7 @@ function ThemeCard({
   const copy = dict.settings.appearance.theme;
 
   return (
-    <div className={cn("group relative flex flex-col border bg-bg-chrome", selected ? "border-primary" : "border-border")}>
+    <div className={cn("group relative flex flex-col border bg-bg-chrome", selected ? "border-foreground" : "border-border")}>
       <button
         type="button"
         onClick={onSelect}
@@ -94,7 +94,7 @@ function ThemeCard({
           <span
             className={cn(
               "flex size-3 shrink-0 items-center justify-center border",
-              selected ? "border-primary bg-primary text-primary-foreground" : "border-border",
+              selected ? "border-foreground bg-foreground text-background" : "border-border",
             )}
           >
             {selected && <Check className="size-2.5" />}

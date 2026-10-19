@@ -108,7 +108,7 @@ function ActivityRow({
       />
       {item.status === "run" ? (
         item.kind === "agent" ? (
-          <span className="mt-0.5 size-3 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary" />
+          <span className="mt-0.5 size-3 shrink-0 animate-spin rounded-full border-2 border-border border-t-foreground" />
         ) : (
           <span className="mt-1 size-2.5 shrink-0 bg-diff-add" />
         )
@@ -120,7 +120,7 @@ function ActivityRow({
           <span
             className={cn(
               "shrink-0 border px-1 py-px font-mono text-[9px] font-medium tracking-wider",
-              item.kind === "agent" ? "border-primary bg-primary-soft text-primary-ink" : "border-border text-text-faint",
+              item.kind === "agent" ? "border-border-soft bg-surface-hover text-muted-foreground" : "border-border text-text-faint",
             )}
           >
             {item.kind === "agent" ? strings.agentBadge : strings.procBadge}
@@ -293,7 +293,7 @@ export function StatusBar({
             )}
           >
             {runCount > 0 ? (
-              <span className="size-2.5 shrink-0 animate-spin rounded-full border border-border border-t-primary" />
+              <span className="size-2.5 shrink-0 animate-spin rounded-full border border-border border-t-foreground" />
             ) : (
               <span className="size-2 shrink-0 rounded-full border border-text-faint" />
             )}
@@ -378,7 +378,7 @@ export function StatusBar({
         <button
           type="button"
           onClick={onOpenUpdateModal}
-          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-foreground outline-hidden transition-colors hover:border-border"
           title={dict.shell.statusBar.updateReady.replace("{version}", downloaded.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
@@ -388,7 +388,7 @@ export function StatusBar({
         <button
           type="button"
           onClick={onOpenUpdateModal}
-          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
+          className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-foreground outline-hidden transition-colors hover:border-border"
           title={dict.shell.statusBar.updateAvailable.replace("{version}", update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />

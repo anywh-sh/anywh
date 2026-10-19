@@ -103,7 +103,7 @@ export function CodeBlock({ label, value, copyLabel, onCopy, cap = DEFAULT_CAP }
             setCopied(true);
           }}
         >
-          {copied ? <Check className="text-primary" /> : <Copy />}
+          {copied ? <Check className="text-muted-foreground" /> : <Copy />}
         </Button>
       </div>
       <pre

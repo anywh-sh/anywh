@@ -262,7 +262,7 @@ export function AddProfileDialog({ open, onOpenChange, activeProfile, onMcpSignI
                 {(agentIds.length > 0 ? agentIds : [DEFAULT_RUNTIME_ID]).map((id) => (
                   <DropdownMenuItem key={id} onSelect={() => setRuntimeId(id)} className="gap-3">
                     <span className="flex-1 truncate text-left">{agentNames[id as KnownAgentId] ?? id}</span>
-                    <Check className={cn("size-3.5 text-primary!", id !== runtimeId && "opacity-0")} />
+                    <Check className={cn("size-3.5 text-muted-foreground!", id !== runtimeId && "opacity-0")} />
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

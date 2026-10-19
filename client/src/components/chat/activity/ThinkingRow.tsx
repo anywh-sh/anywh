@@ -35,9 +35,9 @@ export const ThinkingRow = memo(function ThinkingRow({ entry }: { entry: Thinkin
   const header = (
     <>
       {entry.running ? (
-        <span className="relative top-0.5 size-3 shrink-0 animate-spin self-start rounded-full border-2 border-border border-t-primary" aria-hidden />
+        <span className="relative top-0.5 size-3 shrink-0 animate-spin self-start rounded-full border-2 border-border border-t-foreground" aria-hidden />
       ) : (
-        <Check className="relative top-0.5 size-3.5 shrink-0 self-start text-primary" strokeWidth={2.5} aria-hidden />
+        <Check className="relative top-0.5 size-3.5 shrink-0 self-start text-muted-foreground" strokeWidth={2.5} aria-hidden />
       )}
       <Shimmer active={entry.running}>{label}</Shimmer>
       {entry.running && entry.startedAt !== undefined && <Elapsed startedAt={entry.startedAt} className="font-mono text-[11px]" />}

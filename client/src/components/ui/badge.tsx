@@ -18,14 +18,14 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a&]:hover:bg-primary-hover",
+        default: "bg-foreground text-background [a&]:hover:bg-muted-foreground",
         // Tinted rather than filled — for a tag that marks a property of the
         // thing it sits next to, not the thing itself.
-        secondary: "border-border bg-primary-soft text-primary-ink [a&]:hover:bg-primary-soft",
+        secondary: "border-border bg-surface-hover text-muted-foreground [a&]:hover:bg-surface-hover",
         destructive: "border-destructive text-destructive [a&]:hover:bg-destructive/10",
         outline: "border-border text-text-faint [a&]:hover:border-text-faint [a&]:hover:text-foreground",
         ghost: "text-text-faint [a&]:hover:text-foreground",
-        link: "text-primary underline-offset-4 [a&]:hover:underline",
+        link: "text-foreground underline-offset-4 [a&]:hover:underline",
       },
     },
     defaultVariants: {

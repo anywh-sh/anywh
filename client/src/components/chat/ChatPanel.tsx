@@ -792,7 +792,7 @@ export function ChatPanel({
       )}
 
       {isDraggingOver && (
-        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center gap-2 border-2 border-dashed border-primary bg-background/90 text-sm text-primary">
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center gap-2 border-2 border-dashed border-foreground bg-background/90 text-sm text-foreground">
           <ImagePlus className="size-4" />
           {dict.chat.composer.dropzone}
         </div>

@@ -157,10 +157,10 @@ function AgentCard({ agent, open, onToggle, onStop }: { agent: RunningSubagent; 
       open={open}
       onToggle={onToggle}
       glyph={
-        <span className="size-2.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-primary" />
+        <span className="size-2.5 shrink-0 animate-spin rounded-full border-2 border-border border-t-foreground" />
       }
       badge={strings.agentBadge}
-      badgeClassName="border-primary bg-primary-soft text-primary-ink"
+      badgeClassName="border-border-soft bg-surface-hover text-muted-foreground"
       name={agent.description ?? strings.agentFallbackName}
       meta={meta}
       latest={agent.activity}
