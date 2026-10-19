@@ -139,8 +139,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             // is the plane's own colour and covers that rule by a pixel, so
             // it reads as the plane's tab rather than a button above it.
             // Auto width up to 196px — a short title makes a short tab.
-            "group relative flex h-[31px] max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
-            isActive && "h-8 border-border-soft bg-background",
+            "group relative flex h-8 max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
+            isActive && "border-border-soft bg-background",
           )}
         >
           {/* The profile, as a 2px rule across the top of the tab: the whole
@@ -167,19 +167,25 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             // when it is hovered or becomes the active one.
             className={cn(TAB_TRIGGER_CLASS, "pr-[34px]")}
           >
-            {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
-              // A conversation that has not started: the tab wears the same plus as
-              // the new-session row it came from.
-              <Plus className="size-3.5 shrink-0" aria-hidden="true" />
-            )}
-            {tab.isRunning ? (
-              <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
-            ) : (
-              tab.hasUnreadCompletion && (
-                // "Turn finished, not seen yet": a plain light dot.
-                <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-label={dict.chat.tabs.sessionDone} />
-              )
-            )}
+            {/* The status slot keeps its width whether or not there is a
+                status to show, so the title never moves when one appears or
+                clears (a finished turn is marked "seen" the moment its tab
+                is opened). */}
+            <span className="flex size-3.5 shrink-0 items-center justify-center">
+              {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
+                // A conversation that has not started: the tab wears the same plus as
+                // the new-session row it came from.
+                <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+              )}
+              {tab.isRunning ? (
+                <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
+              ) : (
+                tab.hasUnreadCompletion && (
+                  // "Turn finished, not seen yet": a plain light dot.
+                  <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-label={dict.chat.tabs.sessionDone} />
+                )
+              )}
+            </span>
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </button>
           <button
