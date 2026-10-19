@@ -4,7 +4,7 @@ import { Tooltip as TooltipPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 function TooltipProvider({
-  delayDuration = 500,
+  delayDuration = 400,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (
@@ -40,26 +40,24 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          // `bg-sidebar` (not `bg-popover`, like dropdown/popover) on purpose
-          // — a tooltip needs to stand out from anything behind it,
-          // including another element right next to it that already uses
-          // `bg-popover`/`bg-elevated` (real finding: the slash commands
-          // menu's tooltip was almost invisible next to the listing itself,
-          // same color).
-          "z-50 w-fit origin-(--radix-tooltip-content-transform-origin) border border-border bg-sidebar px-2.5 py-1.5 font-mono text-[11px] text-balance text-popover-foreground shadow-popover",
+          // Inverted: the foreground ramp as the fill and the page color as
+          // the ink, so it stands out from anything behind it — including a
+          // neighbouring menu (real finding: the slash commands menu's
+          // tooltip was almost invisible next to the listing itself).
+          "z-50 w-fit origin-(--radix-tooltip-content-transform-origin) bg-foreground px-2.5 py-1.5 font-mono text-[11px] text-balance text-background shadow-popover",
           className
         )}
         {...props}
       >
         {children}
-        <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 bg-sidebar fill-sidebar" />
+        <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 bg-foreground fill-foreground" />
       </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )
 }
 
 function TooltipShortcut({ children }: { children: React.ReactNode }) {
-  return <span className="ml-2 opacity-60">{children}</span>
+  return <span className="ml-2 border border-background/25 px-1 opacity-70">{children}</span>
 }
 
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipShortcut }
