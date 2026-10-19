@@ -88,17 +88,30 @@ export interface CodexPermissionSettings {
  * git from the session cwd (plain `--git-dir`/`--git-common-dir`, which work on
  * old git too; relative answers are resolved against the cwd). Empty when the
  * cwd is not in a repo, so nothing extra is granted there. */
+const GIT_LOCATION_VARS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+let warnedGitFailure = false;
+
 function gitWritableRoots(cwd: string): string[] {
+  // Ambient GIT_* location vars would make git answer for another repo; LC_ALL=C pins the stderr text matched below.
+  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" };
+  for (const v of GIT_LOCATION_VARS) delete env[v];
   let out: string;
   try {
-    out = execFileSync("git", ["rev-parse", "--git-dir", "--git-common-dir"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 2000 });
+    out = execFileSync("git", ["rev-parse", "--git-dir", "--git-common-dir"], { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 2000 });
   } catch (err) {
-    const raw = (err as { stderr?: unknown }).stderr;
-    const stderr = typeof raw === "string" ? raw : Buffer.isBuffer(raw) ? raw.toString("utf8") : "";
-    if (!/not a git repository/i.test(stderr)) console.warn(`[codex] could not resolve git dirs for ${cwd}: ${(err as Error).message}`);
+    const e = err as { stderr?: unknown; status?: unknown; code?: unknown; message: string };
+    const stderr = typeof e.stderr === "string" ? e.stderr : Buffer.isBuffer(e.stderr) ? e.stderr.toString("utf8") : "";
+    // Not a repo (exit 128) is the normal case; a missing git (ENOENT) is warned about once, not per turn.
+    const quiet = /not a git repository/i.test(stderr) || e.status === 128 || (e.code === "ENOENT" && warnedGitFailure);
+    if (!quiet) {
+      if (e.code === "ENOENT") warnedGitFailure = true;
+      console.warn(`[codex] could not resolve git dirs for ${cwd}: ${e.message}`);
+    }
     return [];
   }
-  return out.split("\n").filter(Boolean).map((p) => canonical(resolve(cwd, p)));
+  const lines = out.split("\n").filter(Boolean);
+  if (lines.length !== 2) console.warn(`[codex] unexpected git rev-parse output for ${cwd}: ${lines.length} lines`);
+  return lines.map((p) => canonical(resolve(cwd, p)));
 }
 
 function canonical(p: string): string {

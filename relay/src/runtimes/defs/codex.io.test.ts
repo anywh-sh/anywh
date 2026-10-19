@@ -1,10 +1,24 @@
-import { test } from "node:test";
+import { test as nodeTest } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexRuntimeDef } from "./codex.js";
+
+const hasGit = (() => {
+  try {
+    execFileSync("git", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const test = (name: string, fn: () => void): void => void nodeTest(name, { skip: !hasGit && "git not installed" }, fn);
+
+function gitOut(cwd: string, ...args: string[]): string {
+  return realpathSync(execFileSync("git", args, { cwd, encoding: "utf8" }).trim());
+}
 
 function writableRootsFor(cwd: string): readonly string[] {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
@@ -54,7 +68,7 @@ test("workspace-write: a git worktree adds both its gitdir and the common dir", 
     git(main, "commit", "-q", "--allow-empty", "-m", "init");
     const wt = join(dir, "wt");
     git(main, "worktree", "add", "-q", "-b", "feature", wt);
-    assertSameRoots(writableRootsFor(wt), [wt, join(main, ".git", "worktrees", "wt"), join(main, ".git")]);
+    assertSameRoots(writableRootsFor(wt), [wt, gitOut(wt, "rev-parse", "--absolute-git-dir"), join(main, ".git")]);
   });
 });
 
@@ -74,5 +88,24 @@ test("workspace-write: a symlinked cwd is canonicalized so the git dir is not li
     const roots = writableRootsFor(link);
     assert.ok(roots.includes(join(real, ".git")));
     assert.equal(new Set(roots).size, roots.length);
+  });
+});
+
+test("workspace-write: ambient GIT_DIR from the relay environment does not redirect the lookup", () => {
+  withTmp((dir) => {
+    const other = join(dir, "other");
+    const repo = join(dir, "repo");
+    mkdirSync(other);
+    mkdirSync(repo);
+    git(other, "init", "-q");
+    git(repo, "init", "-q");
+    const saved = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(other, ".git");
+    try {
+      assertSameRoots(writableRootsFor(repo), [repo, join(repo, ".git")]);
+    } finally {
+      if (saved === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved;
+    }
   });
 });
