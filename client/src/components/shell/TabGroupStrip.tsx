@@ -78,9 +78,9 @@ interface SortableTabProps {
 // `data-state`/`aria-selected` itself instead of delegating to Radix, which
 // is what keeps the `data-[state=active]:*` utilities below working.
 //
-// No hover background on the tab itself — only its close button gets one
-// (see the button below). Hovering a tab still changes its text color, just
-// not its fill.
+// Hovering an inactive tab brightens its text, washes its fill (on the row
+// that wraps it, below), reveals its close button and stretches its profile
+// rule to the full width, all at once and without animation.
 const TAB_TRIGGER_CLASS =
   "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint transition-colors hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:font-medium data-[state=active]:text-foreground";
 
@@ -139,7 +139,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             // it reads as the plane's tab rather than a button above it.
             // Auto width up to 196px — a short title makes a short tab.
             "group relative flex h-[31px] max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
-            isActive && "h-8 border-border-soft bg-background",
+            isActive ? "h-8 border-border-soft bg-background" : "hover:bg-bg-hover",
           )}
         >
           {/* The profile, as a 2px rule across the top of the tab: the whole
@@ -150,7 +150,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             className={cn(
               "pointer-events-none absolute top-0 z-20 h-0.5",
               profileColorClass(tab.profileId),
-              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85",
+              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85 group-hover:-right-px group-hover:-left-px group-hover:opacity-100",
             )}
           />
           <button
@@ -162,7 +162,9 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             data-tab-id={tab.id}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onSelect(tab.id)}
-            className={cn(TAB_TRIGGER_CLASS, isActive ? "pr-[34px]" : "pr-[13px]")}
+            // The close button's room is always reserved, so a tab keeps its width
+            // when it is hovered or becomes the active one.
+            className={cn(TAB_TRIGGER_CLASS, "pr-[34px]")}
           >
             {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
               // A conversation that has not started: the tab wears the same plus as
@@ -193,7 +195,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               // padding reserved for this button, so without a higher
               // z-index the trigger intercepts every click meant for the X.
               "absolute right-2 z-20 flex size-[22px] cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground",
-              isActive ? "opacity-100" : "pointer-events-none opacity-0",
+              isActive ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
             )}
           >
             <X className="size-3" />
