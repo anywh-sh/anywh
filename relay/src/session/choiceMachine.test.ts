@@ -146,3 +146,74 @@ test("onPromptShown: fires once per published prompt, for both kinds, and not fo
     { kind: "approval", questions: ["allow?"] },
   ]);
 });
+
+test("onChoiceChange: reports the pending question when published and undefined once answered", () => {
+  const changes: unknown[] = [];
+  const machine = new ChoiceMachine(new Set([fakeSocket()]), undefined, undefined, (choice) => changes.push(choice));
+  machine.presentChoice([question()]);
+  const published = changes[0] as { promptId: string };
+  machine.answerChoice(published.promptId, []);
+  assert.equal(changes.length, 2);
+  assert.equal(changes[1], undefined);
+});
+
+test("onChoiceChange: discardStaleChoice reports the slot emptied; a no-op with nothing pending reports nothing", () => {
+  const changes: unknown[] = [];
+  const machine = new ChoiceMachine(new Set([fakeSocket()]), undefined, undefined, (choice) => changes.push(choice));
+  machine.discardStaleChoice();
+  assert.deepEqual(changes, []);
+  machine.presentChoice([question()]);
+  machine.discardStaleChoice();
+  assert.equal(changes.length, 2);
+  assert.equal(changes[1], undefined);
+});
+
+test("initialChoice: a rehydrated question is resent to a connecting socket and can be answered", () => {
+  const machine = new ChoiceMachine(new Set(), undefined, { promptId: "p1", questions: [question("again?")] });
+  const client = fakeSocket();
+  machine.sendPendingTo(client);
+  assert.deepEqual((client.sent[0] as { promptId: string }).promptId, "p1");
+  assert.equal(machine.answerChoice("p1", []).kind, "choice");
+});
+
+test("onChoiceChange throwing (disk full) never breaks present, answer or discard: broadcast and results are unaffected", () => {
+  const client = fakeSocket();
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const machine = new ChoiceMachine(new Set([client]), undefined, undefined, () => {
+      throw new Error("ENOSPC");
+    });
+    assert.equal(machine.presentChoice([question()]), true);
+    const promptId = (client.sent[0] as { promptId: string }).promptId;
+    assert.equal(machine.answerChoice(promptId, []).kind, "choice");
+    assert.equal((client.sent[1] as { type: string }).type, "choice_resolved");
+
+    machine.presentChoice([question()]);
+    const second = (client.sent[2] as { promptId: string }).promptId;
+    machine.discardStaleChoice();
+    assert.deepEqual(client.sent[3], { type: "choice_resolved", promptId: second });
+    assert.equal(machine.answerChoice(second, []).kind, "not_found", "the in-memory slot is cleared even though the write failed");
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("a failed CLEAR write is retried once, so an answered question can't come back from disk after a restart", () => {
+  const client = fakeSocket();
+  const calls: unknown[] = [];
+  let failNext = false;
+  const machine = new ChoiceMachine(new Set([client]), undefined, undefined, (choice) => {
+    if (choice === undefined && failNext) {
+      failNext = false;
+      throw new Error("EIO");
+    }
+    calls.push(choice);
+  });
+  machine.presentChoice([question()]);
+  const promptId = (client.sent[0] as { promptId: string }).promptId;
+  failNext = true;
+  machine.answerChoice(promptId, []);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], undefined, "the clear must have been written on the retry");
+});

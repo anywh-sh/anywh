@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
+import type { PersistedChoice } from "./sessionStore.js";
 import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from "./broadcast.js";
 
 /** What `answerChoice` resolved, told apart so `SharedSession` (the only
@@ -48,31 +49,59 @@ export type AnswerChoiceResult =
  * only by `answerChoice` (human answered) or `discardStaleChoice` (human
  * moved on without answering: new message, edit, `/clear`).
  *
- * Both in-memory only, same reasoning as `SharedSession`'s other
- * turn-scoped state: on a relay restart there's nothing meaningful left to
- * resume for `pendingApproval` either way (its underlying `claude` child
- * dies too, see `McpChoiceBridge`'s per-turn `unregister`) — a fresh
- * session simply has no pending approval, which is correct. `pendingChoice`
- * is the one case where a restart now has real (if rare) user-visible cost
- * — an unanswered `present_choice`/plan-marker prompt just disappears, same
- * as it silently already did for the plan-marker case since Fase 3.
- * Accepted rather than persisted (no `sessionStore.ts` entry): the
- * conversation itself survives a restart fine via the persisted
- * `session_id`, the human only loses the one pending question and can just
- * ask the model to repeat it — not worth the complexity of persisting a
- * JSON blob for a window this narrow (a relay restart landing in the exact
- * gap between "prompt shown" and "human answers").
+ * `pendingApproval` is in-memory only: on a relay restart there's nothing
+ * meaningful left to resume for it (its underlying `claude` child dies too,
+ * see `McpChoiceBridge`'s per-turn `unregister`). `pendingChoice` is
+ * mirrored into the session store (`onChoiceChange`) and rehydrated through
+ * `initialChoice`, because it can sit unanswered for days and a restart must
+ * not make it vanish.
  */
 export class ChoiceMachine {
   private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
-  private pendingChoice: { promptId: string; questions: ChoiceQuestion[] } | undefined;
+  private pendingChoice: PersistedChoice | undefined;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
   constructor(
     private readonly clients: Set<WebSocket>,
     private readonly onPromptShown?: (kind: "approval" | "choice", questions: ChoiceQuestion[]) => void,
-  ) {}
+    /** A deferred question persisted before a relay restart, if any. */
+    initialChoice?: PersistedChoice,
+    /** Fires whenever the deferred slot is set (the prompt) or emptied
+     * (`undefined`), so the session can mirror it into the store. */
+    private readonly onChoiceChange?: (choice: PersistedChoice | undefined) => void,
+  ) {
+    this.pendingChoice = initialChoice;
+  }
+
+  /** Mirrors the deferred slot into the store. Always runs AFTER the
+   * in-memory transition and the broadcast, and never throws: the write is
+   * sync (`writeFileSync`) and can fail (disk full, read-only file), which
+   * must cost at most a stale record on disk — not the user's answer, the
+   * dismissal of the card, or the model's tool call. */
+  private mirror(choice: PersistedChoice | undefined): void {
+    // One retry: a failed CLEAR leaves the old question on disk, and after a
+    // restart an answered question would come back. (The store's in-memory
+    // records are already updated, so any later successful write of the
+    // file fixes it too.)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        this.onChoiceChange?.(choice);
+        return;
+      } catch (error) {
+        if (attempt === 2) console.error("[relay] could not persist the pending choice:", error instanceof Error ? error.message : String(error));
+      }
+    }
+  }
+
+  /** Drops a question adopted from the store that turns out to belong to no
+   * conversation (see `SharedSession`'s constructor). Silent: nothing was
+   * shown to anyone yet. Only the stored copy needs clearing. */
+  dropRehydrated(): void {
+    if (!this.pendingChoice) return;
+    this.pendingChoice = undefined;
+    this.mirror(undefined);
+  }
 
   /** Called by the MCP bridge
    * (`McpChoiceBridge`, `ChoiceHost.presentChoice`) when the model calls
@@ -104,6 +133,7 @@ export class ChoiceMachine {
     const promptId = randomUUID();
     this.pendingChoice = { promptId, questions };
     broadcastChoicePrompt(this.clients, this.pendingChoice, "choice");
+    this.mirror(this.pendingChoice);
     this.onPromptShown?.("choice", questions);
     return true;
   }
@@ -193,6 +223,7 @@ export class ChoiceMachine {
     const { promptId } = this.pendingChoice;
     this.pendingChoice = undefined;
     broadcastChoiceResolved(this.clients, promptId);
+    this.mirror(undefined);
   }
 
   /** Called from the WS handler (`server.ts`) when any connected device
@@ -224,6 +255,7 @@ export class ChoiceMachine {
     if (this.pendingChoice?.promptId === promptId) {
       this.pendingChoice = undefined;
       broadcastChoiceResolved(this.clients, promptId);
+      this.mirror(undefined);
       return { kind: "choice", answers };
     }
     return { kind: "not_found" };
