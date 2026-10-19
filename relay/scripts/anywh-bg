@@ -231,6 +231,16 @@ cmd_stop() {
     sleep 0.1
   done
   kill -KILL "-$pgid" 2>/dev/null || true
+  # The wrapper can die before it writes `.exit` (stopped before its TERM
+  # trap was installed, or taken out by the KILL above). The job is gone and
+  # we are the one who ended it, so record the conventional SIGTERM status
+  # now instead of leaving the relay to notice via the stale heartbeat.
+  if [[ ! -f "$exitfile" ]]; then
+    sleep 0.2
+    if [[ ! -f "$exitfile" ]]; then
+      printf '143\n' > "$exitfile.stop.tmp" && mv -f "$exitfile.stop.tmp" "$exitfile"
+    fi
+  fi
   printf '{"anywh_bg":"stop","id":"%s","stopped":true}\n' "$(json_escape "$id")"
 }
 
