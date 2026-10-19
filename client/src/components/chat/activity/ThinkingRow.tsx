@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Shimmer } from "@/components/chat/Shimmer";
 import { Elapsed } from "@/components/chat/activity/Elapsed";
@@ -34,24 +34,25 @@ export const ThinkingRow = memo(function ThinkingRow({ entry }: { entry: Thinkin
 
   const header = (
     <>
-      {hasText ? (
-        <ChevronRight className={cn("size-3 shrink-0 self-center transition-transform", open && "rotate-90")} />
-      ) : entry.running ? (
-        <span className="size-3 shrink-0 animate-spin self-center rounded-full border-[1.5px] border-border border-t-foreground" aria-hidden />
-      ) : null}
+      {entry.running ? (
+        <span className="relative top-0.5 size-3 shrink-0 animate-spin self-start rounded-full border-2 border-border border-t-foreground" aria-hidden />
+      ) : (
+        <Check className="relative top-0.5 size-3.5 shrink-0 self-start text-muted-foreground" strokeWidth={2.5} aria-hidden />
+      )}
       <Shimmer active={entry.running}>{label}</Shimmer>
-      {entry.running && entry.startedAt !== undefined && <Elapsed startedAt={entry.startedAt} className="font-mono text-[length:calc(11.5px*var(--chrome-scale))]" />}
+      {entry.running && entry.startedAt !== undefined && <Elapsed startedAt={entry.startedAt} className="font-mono text-[11px]" />}
+      {hasText && <ChevronRight className={cn("relative top-0.5 size-3 shrink-0 self-start transition-transform", open && "rotate-90")} />}
     </>
   );
 
   return (
-    <div className="text-[length:calc(14px*var(--chrome-scale))] text-text-faint">
+    <div className="text-sm text-text-faint">
       {hasText ? (
-        <button type="button" onClick={toggle} aria-expanded={open} className="flex cursor-pointer items-center gap-2 py-1 text-left transition-colors hover:text-muted-foreground">
+        <button type="button" onClick={toggle} aria-expanded={open} className="flex cursor-pointer items-baseline gap-2 py-0.5 text-left transition-colors hover:text-muted-foreground">
           {header}
         </button>
       ) : (
-        <div className="flex items-center gap-2 py-1">{header}</div>
+        <div className="flex items-baseline gap-2 py-0.5">{header}</div>
       )}
       {open && hasText && <p className="mt-1 whitespace-pre-wrap border-l border-border-soft pl-3 text-xs leading-relaxed">{entry.text}</p>}
     </div>

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/chat/activity/CodeBlock";
 import { Elapsed, formatElapsed } from "@/components/chat/activity/Elapsed";
 import { OutcomeView } from "@/components/chat/activity/OutcomeView";
+import { ToolIcon } from "@/components/chat/activity/ToolIcon";
 import { callDuration, callMeta, callTarget, verbKey } from "@/lib/format/activity";
 import { formatTokenCount } from "@/lib/format/contextUsage";
 import { useOpen } from "@/lib/format/openState";
@@ -127,7 +128,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
   }
 
   return (
-    <div>
+    <div className="bg-background">
       {/* A `div` acting as the toggle: the target inside it is a second
           action (open the file) and a button can't sit inside a button. */}
       <div
@@ -136,26 +137,16 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
         aria-expanded={open}
         onClick={toggle}
         onKeyDown={onKey}
-        className="flex min-h-[calc(30px*var(--chrome-scale))] cursor-pointer items-center gap-2.5 text-[length:calc(13.5px*var(--chrome-scale))] leading-snug transition-colors hover:bg-surface-hover"
+        className="flex cursor-pointer items-center gap-2.5 px-3 py-[9px] text-[13.5px] leading-snug transition-colors hover:bg-surface-hover"
       >
         <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          {/* The state leads the row: a spinner while it runs, a dot once it
-              is done, a mark when it failed. */}
-          <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden>
-            {!call.done ? (
-              <span className="size-[calc(11.6px*var(--chrome-scale))] animate-spin rounded-full border border-border border-t-foreground" />
-            ) : failed ? (
-              <AlertCircle className="size-3.5 text-destructive" />
-            ) : (
-              <span className="size-1.5 bg-text-faint/70" />
-            )}
-          </span>
+          <ToolIcon call={call} className="size-4 shrink-0 text-text-faint" />
           <span className="shrink-0 whitespace-nowrap text-text-faint">{verb}</span>
           {openablePath && onOpenPath ? (
             <button
               type="button"
               title={dict.chat.activity.openFile}
-              className="min-w-0 cursor-pointer truncate font-mono text-[length:calc(13px*var(--chrome-scale))] text-foreground hover:underline"
+              className="min-w-0 cursor-pointer truncate font-mono text-[12.5px] text-foreground hover:underline"
               onClick={(event) => {
                 event.stopPropagation();
                 onOpenPath(openablePath);
@@ -164,11 +155,11 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
               {target}
             </button>
           ) : (
-            <span className="min-w-0 truncate font-mono text-[length:calc(13px*var(--chrome-scale))] text-foreground">{target}</span>
+            <span className="min-w-0 truncate font-mono text-[12.5px] text-foreground">{target}</span>
           )}
           <ChevronRight className={cn("size-3 shrink-0 text-text-faint transition-transform", open && "rotate-90")} />
         </span>
-        <span className="flex shrink-0 items-center gap-[7px] font-mono text-[length:calc(11.5px*var(--chrome-scale))] text-text-faint">
+        <span className="flex shrink-0 items-center gap-[7px] font-mono text-[11px] text-text-faint">
           {meta?.kind === "diff" && (
             <span className="flex gap-1.5 font-medium">
               {meta.added > 0 && <span className="text-diff-add">+{meta.added}</span>}
@@ -182,15 +173,24 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
               {attribution.estimated ? "~" : ""}
             </span>
           )}
-          {/* Time on the right once there is one; the state itself is the
-              marker on the left. A call the user stopped has neither. */}
+          {/* The state, always on the right: still running, failed, or done.
+              A call the user stopped is none of those, so it shows nothing. */}
           {!call.done ? (
-            call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />
+            <>
+              <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-foreground" aria-hidden />
+              {call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />}
+            </>
           ) : failed ? (
-            <span className="text-destructive">{meta?.kind === "error" ? meta.text : activity.callFailed}</span>
-          ) : (
-            !call.isError && duration !== undefined && <span>{formatCallTime(duration)}</span>
-          )}
+            <>
+              <AlertCircle className="size-3.5 shrink-0 text-destructive" aria-hidden />
+              <span className="text-destructive">{meta?.kind === "error" ? meta.text : activity.callFailed}</span>
+            </>
+          ) : !call.isError ? (
+            <>
+              <Check className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} aria-hidden />
+              {duration !== undefined && <span>{formatCallTime(duration)}</span>}
+            </>
+          ) : null}
         </span>
       </div>
 

@@ -40,13 +40,6 @@ export function formatRelativeTime(epochMs: number, locale: Locale): string {
 /** Full date + time — used in the relative timestamp's tooltip (hover
  * reveals the exact time) and as `formatRelativeTime`'s fallback after a
  * week. */
-/** The wall-clock time of day alone — "23:21" — for a message's meta line,
- * where the conversation already says which day it is. */
-export function formatClockTime(epochMs: number, locale: Locale): string {
-  if (!Number.isFinite(epochMs)) return UNKNOWN_TIME;
-  return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(epochMs));
-}
-
 export function formatAbsoluteTime(epochMs: number, locale: Locale): string {
   if (!Number.isFinite(epochMs)) return UNKNOWN_TIME;
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(epochMs));

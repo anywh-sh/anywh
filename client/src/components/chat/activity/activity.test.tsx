@@ -104,10 +104,8 @@ describe("ActivityGroup", () => {
     await user.click(groupButton());
     expect(screen.getByText("420ms")).toBeInTheDocument();
     expect(screen.getAllByText("Failed")).toHaveLength(1); // the stopped call is not a failure
-    // The row's state is the mark on its left: a dot once done (no icon), the
-    // alert for the failure only — the stopped call carries neither.
-    expect(container.querySelectorAll("svg.lucide-check")).toHaveLength(0);
-    expect(container.querySelectorAll("svg.lucide-circle-alert")).toHaveLength(1);
+    // One check (the read) in the rows; the stopped and the failed calls have none.
+    expect(container.querySelectorAll("svg.lucide-check")).toHaveLength(1);
   });
 
   it("draws a call with no interpretation from its raw name and text", async () => {
@@ -199,12 +197,12 @@ describe("ThinkingRow", () => {
     expect(screen.getByText("because of the cache")).toBeInTheDocument();
   });
 
-  it("marks a running block with a spinner and the sweeping label, and a finished one with neither", () => {
+  it("marks a finished block with a check and a running one with a spinner and the sweeping label", () => {
     const { container, rerender } = render(<ThinkingRow entry={entry({ startedAt: 0, endedAt: 3000 })} />);
-    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.querySelector("svg.lucide-check")).not.toBeNull();
     expect(container.querySelector(".animate-shimmer-window")).toBeNull();
     rerender(<ThinkingRow entry={entry({ running: true, startedAt: 0 })} />);
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(container.querySelector("svg.lucide-check")).toBeNull();
     expect(container.querySelector(".animate-shimmer-window")).not.toBeNull();
   });
 
