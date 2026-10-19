@@ -13,7 +13,8 @@ import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { ActivityClock } from "./activityClock.js";
 import { BridgeToolFilter } from "./bridgeToolFilter.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
-import { buildBackgroundJobFollowupPrompt } from "./turnMessages.js";
+import { buildBackgroundJobFollowupPrompt, isNoReply, NO_REPLY, offersSilence } from "./turnMessages.js";
+import { isSilentEvent, markSilent } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
@@ -238,6 +239,53 @@ export type EditMessageError = "not_found" | "truncate_failed" | "relay_restarti
  * switching over to live events — this is what gives the "real-time shared
  * session" across devices.
  */
+/**
+ * Events of a background-job report turn that was offered the `NO_REPLY`
+ * escape, held back until the turn shows it will say something. It starts
+ * out able to be silent and gives that up on the first sign of content: a
+ * tool call, or text that can no longer spell `NO_REPLY`. At that point the
+ * buffer is flushed in order and the turn continues live like any other.
+ */
+class HeldTurn {
+  readonly buffer: BroadcastMessage[] = [];
+  released = false;
+  /** Committed top-level text blocks, in order. */
+  private readonly committed: string[] = [];
+  /** Streaming previews not yet committed, per block index. */
+  private readonly streaming = new Map<number | string, string>();
+
+  /** Whether `event` proves the turn is not (only) `NO_REPLY`. */
+  shouldRelease(event: AgentEvent): boolean {
+    if (event.type === "tool_started" || event.type === "plan" || event.type === "subagent" || event.type === "error") return true;
+    if (event.type === "text_delta") {
+      this.streaming.set(event.index, (this.streaming.get(event.index) ?? "") + event.text);
+      return !this.couldBeNoReply();
+    }
+    if (event.type === "text") {
+      if (event.parentToolUseId !== undefined) return true;
+      this.committed.push(event.text);
+      this.streaming.clear();
+      return !this.couldBeNoReply();
+    }
+    return false;
+  }
+
+  private currentText(): string {
+    return [...this.committed, ...this.streaming.values()].join("\n");
+  }
+
+  /** Text so far is empty or a prefix of what would still normalise to
+   * `NO_REPLY` — the streaming-time version of `isNoReply`. */
+  private couldBeNoReply(): boolean {
+    const text = this.currentText().trim().replace(/^[`"']+/, "").replace(/[`"'.]+$/, "").trim();
+    return text === "" || NO_REPLY.startsWith(text);
+  }
+
+  isNoReply(): boolean {
+    return isNoReply(this.committed.join("\n"));
+  }
+}
+
 export class SharedSession implements SessionDriverHost {
   /** Not `readonly`: `switchAgent` replaces it when the user picks a
    * different agent mid-conversation — see that method's own doc comment. */
@@ -726,10 +774,10 @@ export class SharedSession implements SessionDriverHost {
    * `agent-event.ts`'s own comment on why the wire variant's `toolUseIds`
    * is an array but every synthesized event carries exactly one). Consumed
    * by `ToolCallCard`'s per-call token badge in the chat transcript. */
-  private emitContextAttribution(attribution: Attribution, bridgeFilter: BridgeToolFilter): void {
+  private emitContextAttribution(attribution: Attribution, bridgeFilter: BridgeToolFilter, emit: (message: BroadcastMessage) => void): void {
     for (const source of attribution.bySource) {
       const event: AgentEvent = { type: "context_attribution", toolUseIds: [source.toolUseId], tokens: source.tokens, estimated: attribution.estimated };
-      if (!bridgeFilter.shouldHide(event)) this.broadcast({ type: "agent_event", event });
+      if (!bridgeFilter.shouldHide(event)) emit({ type: "agent_event", event });
     }
   }
 
@@ -818,7 +866,7 @@ export class SharedSession implements SessionDriverHost {
     // is what lets the client hydrate the log with a single dispatch instead
     // of one per event (the reducer's O(n²) cost).
     const page = pageHistoryBefore(this.history, this.history.length, INITIAL_HISTORY_TAIL_TURNS);
-    socket.send(JSON.stringify({ type: "history_page", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }));
+    socket.send(JSON.stringify({ type: "history_page", messages: this.visible(page.messages), cursor: page.cursor, hasMore: page.hasMore }));
     // Marks the end of the replay for this client — doesn't enter `history`
     // (it's not a session event, it's per-connection), so it's never resent
     // to the next clients that connect. This is what lets the client tell
@@ -835,7 +883,16 @@ export class SharedSession implements SessionDriverHost {
    * one client. */
   loadOlderHistory(socket: WebSocket, beforeCursor: number): void {
     const page = pageHistoryBefore(this.history, beforeCursor, INITIAL_HISTORY_TAIL_TURNS);
-    socket.send(JSON.stringify({ type: "older_history", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore }));
+    socket.send(JSON.stringify({ type: "older_history", messages: this.visible(page.messages), cursor: page.cursor, hasMore: page.hasMore }));
+  }
+
+  /** Drops the events of silenced turns (see `protocol/silentEvents.ts`)
+   * from what is sent to a client. Applied only on the way out: `history`
+   * itself keeps the minimal pair so its turn count still matches the
+   * transcript's `user` lines, and cursors (indices into `history`) stay
+   * valid. */
+  private visible(messages: BroadcastMessage[]): BroadcastMessage[] {
+    return messages.some((message) => isSilentEvent(message.event)) ? messages.filter((message) => !isSilentEvent(message.event)) : messages;
   }
 
   removeClient(socket: WebSocket): void {
@@ -940,12 +997,28 @@ export class SharedSession implements SessionDriverHost {
    * synthetic prompt to everyone connected, not just "to the others". */
   submitBackgroundJobResult(job: FinishedBackgroundJob): void {
     this.clearSuggestion();
-    if (job.exitCode !== 0) {
+    // When silence is on offer the failure tray entry waits for the turn: a
+    // job the model reports as nothing-to-say (e.g. a server the agent
+    // stopped itself) must not leave a red entry behind. Every other
+    // failure is recorded right away, as before.
+    const silenceOffered = offersSilence(job);
+    const addFailed = (): void => {
+      if (job.exitCode === 0) return;
       this.failedBackgroundJobs = [...this.failedBackgroundJobs, toFailedBackgroundJobSummary(job)].slice(-20);
       this.broadcastBackgroundJobs();
-    }
+    };
+    if (!silenceOffered) addFailed();
     const text = buildBackgroundJobFollowupPrompt(job);
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, { label: job.label, kind: "background_job" }));
+    this.turnQueue = this.turnQueue.then(() =>
+      this.runTurn(undefined, text, {
+        label: job.label,
+        kind: "background_job",
+        silenceOffered,
+        onSettled: (silenced) => {
+          if (silenceOffered && !silenced) addFailed();
+        },
+      }),
+    );
   }
 
   /** Cancellation from the UI's failed-job row ("descartar") — pure local
@@ -1087,7 +1160,7 @@ export class SharedSession implements SessionDriverHost {
     // self-truncated before sending `edit_message` (same pattern as the
     // synthetic `user_message` in `runTurn`, which also skips `origin`).
     const page = pageHistoryBefore(this.history, this.history.length, INITIAL_HISTORY_TAIL_TURNS);
-    const payload = JSON.stringify({ type: "history_truncated", messages: page.messages, cursor: page.cursor, hasMore: page.hasMore });
+    const payload = JSON.stringify({ type: "history_truncated", messages: this.visible(page.messages), cursor: page.cursor, hasMore: page.hasMore });
     for (const client of this.clients) {
       if (client !== origin) client.send(payload);
     }
@@ -1159,7 +1232,15 @@ export class SharedSession implements SessionDriverHost {
   private async runTurn(
     origin: WebSocket | undefined,
     text: string,
-    synthetic?: { label?: string; kind: "background_job" | "wakeup" },
+    synthetic?: {
+      label?: string;
+      kind: "background_job" | "wakeup";
+      /** The prompt offered the model the `NO_REPLY` escape: hold the turn's
+       * events until it is known whether they will ever be shown. */
+      silenceOffered?: boolean;
+      /** Runs once the turn is over, with whether it was silenced. */
+      onSettled?: (silenced: boolean) => void;
+    },
   ): Promise<void> {
     this.options.onActivity?.();
 
@@ -1181,7 +1262,22 @@ export class SharedSession implements SessionDriverHost {
     // rather than mapped from anything the CLI emits. Sent to every device,
     // origin included: unlike `user_message` below, no device has already
     // rendered this locally.
-    this.broadcast({ type: "agent_event", event: clock.turnStarted() });
+    //
+    // For a turn that may end up silent (`hold`) nothing below reaches a
+    // client or `history` until the turn proves it has something to show —
+    // see `HeldTurn`.
+    const hold = synthetic?.kind === "background_job" && synthetic.silenceOffered ? new HeldTurn() : undefined;
+    const emit = (message: BroadcastMessage): void => {
+      if (hold && !hold.released) hold.buffer.push(message);
+      else this.broadcast(message);
+    };
+    const release = (): void => {
+      if (!hold || hold.released) return;
+      hold.released = true;
+      for (const message of hold.buffer.splice(0)) this.broadcast(message);
+    };
+    let silenced = false;
+    emit({ type: "agent_event", event: clock.turnStarted() });
 
     // Syncs the question to the OTHER devices connected to this same
     // session — a real finding: without this, whoever didn't send the
@@ -1192,14 +1288,16 @@ export class SharedSession implements SessionDriverHost {
     // from disk. Doesn't send to `origin`: whoever sent it
     // already committed the bubble locally optimistically (`ChatPanel`),
     // getting it back would duplicate it.
+    let syntheticUserEvent: AgentEvent | undefined;
     {
       const event: AgentEvent = synthetic
         ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}) }
         : { type: "user_message", text };
+      syntheticUserEvent = event;
       if (origin) {
         this.broadcastExcept({ type: "agent_event", event }, origin);
       } else {
-        this.broadcast({ type: "agent_event", event });
+        emit({ type: "agent_event", event });
       }
     }
 
@@ -1279,11 +1377,12 @@ export class SharedSession implements SessionDriverHost {
             this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
             this.broadcastContextUsage();
           }
-          if (step.attribution) this.emitContextAttribution(step.attribution, bridgeFilter);
+          if (step.attribution) this.emitContextAttribution(step.attribution, bridgeFilter, emit);
         }
         // The relay's own bridge calls have their own UI; hiding them here
         // leaves the job tracker below, which sees everything, unaffected.
-        if (!bridgeFilter.shouldHide(agentEvent)) this.broadcast({ type: "agent_event", event: agentEvent });
+        if (hold && !hold.released && hold.shouldRelease(agentEvent)) release();
+        if (!bridgeFilter.shouldHide(agentEvent)) emit({ type: "agent_event", event: agentEvent });
         // Lets the `anywh-bg` job tracker (owned by
         // `SessionManager`) see every event of every turn, looking for
         // the start marker. Purely observational: never throws nor
@@ -1307,8 +1406,24 @@ export class SharedSession implements SessionDriverHost {
         this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
       }
-      this.broadcast({ type: "agent_event", event: clock.turnEnded(stopped) });
-      this.notify(turnEndedDraft({ title: this.title, stopped, lastAssistantText, userText: synthetic ? undefined : text }));
+      const turnEnded = clock.turnEnded(stopped);
+      // The relay, not the model, decides what stays silent: only a turn that
+      // was offered the escape, ran to completion, used no tool and said
+      // exactly `NO_REPLY`. Anything else — including that same word after a
+      // real failure, where it was never offered — is shown.
+      if (hold && !hold.released && !stopped && hold.isNoReply()) {
+        silenced = true;
+        hold.buffer.length = 0;
+        // Keep the minimal pair in `history` (marked, so the send path skips
+        // it) — `findEditTarget`/`forkTruncatedTranscript` count one turn
+        // per transcript `user` line.
+        if (syntheticUserEvent) this.history.push({ type: "agent_event", event: markSilent(syntheticUserEvent) });
+        this.history.push({ type: "agent_event", event: markSilent(turnEnded) });
+      } else {
+        release();
+        this.broadcast({ type: "agent_event", event: turnEnded });
+        this.notify(turnEndedDraft({ title: this.title, stopped, lastAssistantText, userText: synthetic ? undefined : text }));
+      }
       // Only suggests a follow-up for a turn that genuinely finished (not
       // interrupted) — fire-and-forget, doesn't delay `turn_ended`
       // above. Speed isn't a priority here (it's a convenience, not part
@@ -1330,6 +1445,7 @@ export class SharedSession implements SessionDriverHost {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[relay] turn failed:", message);
+      release();
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
       this.notify(turnFailedDraft(this.title));
     } finally {
@@ -1343,6 +1459,9 @@ export class SharedSession implements SessionDriverHost {
       // the instant it was created. `present_choice` now needs that same
       // survival property, which is what motivated splitting the field.
       this.cancelPendingApproval();
+      // Before the idle `turn_state` goes out, so a client that sees the turn
+      // end already has the failure tray the turn's outcome decided.
+      synthetic?.onSettled?.(silenced);
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
