@@ -33,11 +33,16 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
 // of true idleness is generous for a coding session but short enough that an
 // abandoned daemon doesn't outlive the session that spawned it by much.
 // "Idle" means no `request()` or notification traffic AND no turn in flight
-// (`turn/started` seen, `turn/completed` not yet) AND no server request
-// (approval, structured input) waiting for an answer: a turn can sit for
-// longer than the timeout on a human decision while the daemon sends nothing,
-// and `request()` is not called during that wait. The timer is paused while
-// any of those holds and re-armed when the last one clears.
+// (a `turn/started` whose id has not yet seen its `turn/completed`; turns are
+// tracked per id, so overlapping turns on one process don't clear each other)
+// AND no client request awaiting its response (`connection.pendingCount`)
+// AND no server request (approval, structured input) waiting for an answer:
+// a turn can sit for longer than the timeout on a human decision while the
+// daemon sends nothing. The timer is paused while any of those holds and
+// re-armed when the last one clears. There is deliberately no hard cap on a
+// pending approval: a daemon is bound to its session and is killed when the
+// session is disposed (`kill()`), so an abandoned one is reclaimed there, not
+// by a timeout that would cut a human's decision short.
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 // SIGTERM first, always — a daemon mid-write to its own on-disk state
 // deserves the chance to exit cleanly. SIGKILL only if it ignores that.
@@ -87,11 +92,33 @@ export interface SpawnCodexDaemonOptions {
    * surfaces as the returned promise rejecting instead. */
   readonly onExit: (reason: CodexDaemonExitReason) => void;
   readonly idleTimeoutMs?: number;
+  /** Timer functions for the idle reaper only — injectable so tests can
+   * assert "no idle timer is armed" and fire it deterministically instead of
+   * sleeping. Defaults to the globals. */
+  readonly idleTimers?: {
+    readonly set: (callback: () => void, ms: number) => NodeJS.Timeout;
+    readonly clear: (timer: NodeJS.Timeout) => void;
+  };
   readonly killGraceMs?: number;
 }
 
 function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { exec: JsonRpcDaemonPlan } {
   return def.exec.kind === "jsonRpcDaemon";
+}
+
+// `turn/started` and `turn/completed` both carry `{ threadId, turn: { id } }`
+// (generated bindings; see codexDriver.ts). Fall back to the thread id, then a
+// constant, so a payload without an id still pairs start with completion.
+function turnKey(params: unknown): string {
+  const p = params as { threadId?: unknown; turn?: { id?: unknown } } | null | undefined;
+  if (typeof p?.turn?.id === "string") return p.turn.id;
+  return typeof p?.threadId === "string" ? p.threadId : "";
+}
+
+// Server requests (approvals, user input) carry the owning `turnId`.
+function serverRequestTurnKey(params: unknown): string | undefined {
+  const p = params as { turnId?: unknown } | null | undefined;
+  return typeof p?.turnId === "string" ? p.turnId : undefined;
 }
 
 function toError(value: unknown): Error {
@@ -113,6 +140,8 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   }
   const exec = options.def.exec;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const setIdleTimer = options.idleTimers?.set ?? setTimeout;
+  const clearIdleTimerFn = options.idleTimers?.clear ?? clearTimeout;
   const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
   const bin = resolveAgentBin(options.def.identity.bin);
@@ -129,8 +158,12 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   }
 
   let exited = false;
-  let turnActive = false;
-  let pendingServerRequests = 0;
+  // Ids of turns between `turn/started` and `turn/completed`.
+  const activeTurns = new Set<string>();
+  // Outstanding server->client requests (approval, structured input). Each
+  // entry is removed on settle (resolve OR reject), when its turn completes
+  // (an interrupted turn's host promise may never settle), or on exit.
+  const pendingServerRequests = new Map<symbol, string | undefined>();
   // Assigned once the promise executor below runs; lets the connection
   // callbacks (created before it) re-arm the idle timer.
   let touchIdle: () => void = () => {};
@@ -145,7 +178,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   // scheduled would be cancelled before it ever got to run, and a process
   // ignoring SIGTERM would never actually die.
   function clearIdleTimer(): void {
-    if (idleTimer) clearTimeout(idleTimer);
+    if (idleTimer) clearIdleTimerFn(idleTimer);
   }
 
   // `child.killed` is true as soon as a signal is successfully *sent* — it
@@ -166,18 +199,26 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     framing: exec.framing,
     write: (chunk) => child.stdin.write(chunk),
     onNotification: (method, params) => {
-      if (method === "turn/started") turnActive = true;
-      else if (method === "turn/completed") turnActive = false;
+      if (method === "turn/started") activeTurns.add(turnKey(params));
+      else if (method === "turn/completed") {
+        const key = turnKey(params);
+        activeTurns.delete(key);
+        // A turn that ended (e.g. stopped mid-approval) can no longer be
+        // waiting on its server requests, whether or not the host ever
+        // settles their promises.
+        for (const [token, turnId] of pendingServerRequests) if (turnId === key) pendingServerRequests.delete(token);
+      }
       touchIdle();
       options.onNotification(method, params);
     },
     onRequest: (method, params) => {
       const result = exec.handleServerRequest(method, params, options.host);
       if (result === undefined) return undefined;
-      pendingServerRequests += 1;
+      const token = Symbol(method);
+      pendingServerRequests.set(token, serverRequestTurnKey(params));
       touchIdle();
       const settle = (): void => {
-        pendingServerRequests -= 1;
+        pendingServerRequests.delete(token);
         touchIdle();
       };
       result.then(settle, settle);
@@ -197,6 +238,8 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       if (exited) return;
       exited = true;
       clearIdleTimer();
+      activeTurns.clear();
+      pendingServerRequests.clear();
       if (daemon) {
         options.onExit(reason);
       } else {
@@ -232,11 +275,11 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
 
     function scheduleIdleCheck(): void {
       if (exited) return;
-      if (idleTimer) clearTimeout(idleTimer);
+      if (idleTimer) clearIdleTimerFn(idleTimer);
       idleTimer = undefined;
       // Busy: no timer at all; the event that ends the busy state re-arms it.
-      if (turnActive || pendingServerRequests > 0) return;
-      idleTimer = setTimeout(() => {
+      if (activeTurns.size > 0 || pendingServerRequests.size > 0 || connection.pendingCount > 0) return;
+      idleTimer = setIdleTimer(() => {
         sendKillSignal();
         finish("idle");
       }, idleTimeoutMs);
@@ -270,8 +313,12 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
         daemon = {
           request(method, params) {
             if (exited) return Promise.reject(new Error(`codex daemon already exited, cannot send "${method}"`));
-            scheduleIdleCheck();
-            return connection.request(method, params);
+            const response = connection.request(method, params);
+            scheduleIdleCheck(); // after the send: pendingCount now includes this request
+            // Re-arm once the response lands (or the request fails); the
+            // timer is paused while `connection.pendingCount > 0`.
+            response.then(scheduleIdleCheck, scheduleIdleCheck);
+            return response;
           },
           get exited() {
             return exited;
