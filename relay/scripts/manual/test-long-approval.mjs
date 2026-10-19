@@ -1,7 +1,7 @@
 // Regression check for long tool approvals on the REAL `claude` binary: a
 // permission prompt left unanswered for ~2 minutes must still be answerable,
-// and the approved tool must then actually run. The relay passes `timeout:
-// 86400000` for the `anywh-permission` MCP server in --mcp-config; without
+// and the approved tool must then actually run. The relay passes a very
+// long per-server `timeout` for the `anywh-permission` MCP server in --mcp-config; without
 // it the CLI cuts a pending MCP call at 60 s and the call degrades to a
 // denial. Measured with CLI 2.1.303: with the field, a 120 s wait survives;
 // this script covers 120 s, not longer waits. CI cannot cover this (it needs a real model and a 2 min wait);
@@ -18,7 +18,12 @@
 // temp HOME, so settings, projects and transcripts of the real ~/.claude are
 // never read or written. The one thing read from the real HOME is the login:
 // ~/.claude/.credentials.json is copied into the temp HOME (removed at the
-// end). The CLI may refresh that copy's token; the real file is not touched.
+// end). The CLI may refresh that copy's token; the real file is not touched,
+// but if the CLI rotates the refresh token in the copy, the real file keeps
+// the old one and may need a fresh `claude` login afterwards. Logins kept in
+// the macOS Keychain (no credentials file) are not supported: the script
+// exits with a clear message. The relay env is an allowlist (PATH, the temp
+// HOME and the RELAY_*/ANYWH_* vars set below), not the caller's env.
 //
 //   WAIT_MS=120000  how long to leave the approval pending (default 2 min)
 import { spawn } from "node:child_process";
@@ -30,6 +35,15 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 
 const WAIT_MS = Number(process.env.WAIT_MS ?? 120_000);
+if (!Number.isInteger(WAIT_MS) || WAIT_MS <= 0) {
+  console.error(`invalid WAIT_MS=${JSON.stringify(process.env.WAIT_MS)}: expected a positive integer (milliseconds)`);
+  process.exit(2);
+}
+const realCreds = join(homedir(), ".claude", ".credentials.json");
+if (!existsSync(realCreds)) {
+  console.error(`${realCreds} not found (Keychain-based login?): this script needs the credentials file`);
+  process.exit(2);
+}
 const relayRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ts = () => new Date().toISOString().slice(11, 23);
 const log = (...args) => console.log(`[${ts()}]`, ...args);
@@ -56,13 +70,8 @@ async function waitFor(predicate, timeoutMs, label, intervalMs = 200) {
 const dir = mkdtempSync(join(tmpdir(), "anywh-long-approval-"));
 const fakeHome = join(dir, "home");
 mkdirSync(join(fakeHome, ".claude"), { recursive: true });
-const realCreds = join(homedir(), ".claude", ".credentials.json");
-if (existsSync(realCreds)) {
-  copyFileSync(realCreds, join(fakeHome, ".claude", ".credentials.json"));
-  chmodSync(join(fakeHome, ".claude", ".credentials.json"), 0o600);
-} else {
-  console.warn("no ~/.claude/.credentials.json found; the claude child may not be logged in");
-}
+copyFileSync(realCreds, join(fakeHome, ".claude", ".credentials.json"));
+chmodSync(join(fakeHome, ".claude", ".credentials.json"), 0o600);
 const port = await freePort();
 const target = join(dir, "approved.txt");
 const marker = `long-approval-${Date.now()}`;
@@ -71,7 +80,8 @@ log(`relay on 127.0.0.1:${port}, data in ${dir}`);
 const relay = spawn(process.execPath, ["dist/server.js"], {
   cwd: relayRoot,
   env: {
-    ...process.env,
+    PATH: process.env.PATH,
+    HOME: fakeHome,
     RELAY_PORT: String(port),
     RELAY_HOST: "127.0.0.1",
     RELAY_SESSIONS_FILE: join(dir, "sessions.json"),
@@ -103,6 +113,32 @@ let relayLog = "";
 relay.stdout.on("data", (chunk) => (relayLog += chunk));
 relay.stderr.on("data", (chunk) => (relayLog += chunk));
 
+let cleaned = false;
+async function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  socket?.close();
+  if (relay.exitCode === null) {
+    relay.kill("SIGTERM");
+    const exited = new Promise((resolve) => relay.once("exit", () => resolve(true)));
+    const timedOut = new Promise((resolve) => setTimeout(() => resolve(false), 5_000));
+    if (!(await Promise.race([exited, timedOut]))) {
+      console.error(`[${ts()}] relay ignored SIGTERM for 5s, sending SIGKILL to its process group`);
+      killGroup("SIGKILL");
+      await new Promise((resolve) => relay.once("exit", resolve));
+    }
+  }
+  // Stragglers (the claude child) of the group we started.
+  killGroup("SIGKILL");
+  rmSync(dir, { recursive: true, force: true });
+}
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    console.error(`[${ts()}] ${sig}: cleaning up`);
+    cleanup().finally(() => process.exit(130));
+  });
+}
+
 let exitCode = 1;
 let socket;
 try {
@@ -113,15 +149,21 @@ try {
   let prompt;
   let resolved = false;
   let reAsked = false;
+  let extraApproval;
+  const promptKey = (m) => JSON.stringify(m.questions);
   let turnEnded = 0;
   socket = new WebSocket(`ws://127.0.0.1:${port}/?session=long-approval-${Date.now()}`);
   socket.on("message", (raw) => {
     const message = JSON.parse(raw.toString());
     if (message.type === "choice_prompt") {
-      // A second prompt for the same Write means the CLI cut the first
-      // pending call (at 60 s without `timeout`) and retried it.
-      if (prompt) reAsked = true;
-      prompt = message;
+      // The SAME request again means the CLI cut the first pending call (at
+      // 60 s without `timeout`) and retried it; a different one is simply
+      // unexpected for this script.
+      if (prompt) {
+        if (promptKey(message) === promptKey(prompt)) reAsked = true;
+        else extraApproval = promptKey(message);
+      }
+      prompt = prompt ?? message;
       log("choice_prompt:", JSON.stringify(message.questions[0]?.question));
     } else if (message.type === "choice_resolved") {
       resolved = true;
@@ -163,6 +205,7 @@ try {
     if (turnEnded > 0 || resolved) {
       throw new Error(`FAIL: approval was cut after ${(elapsed / 1000).toFixed(1)}s (turn ended / prompt resolved before anyone answered)`);
     }
+    if (extraApproval) throw new Error(`FAIL: unexpected extra approval prompt while waiting: ${extraApproval.slice(0, 300)}`);
     if (reAsked) {
       throw new Error(`FAIL: the CLI cut the pending approval and asked again after ${(elapsed / 1000).toFixed(1)}s`);
     }
@@ -172,9 +215,11 @@ try {
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
+  if (extraApproval) throw new Error(`FAIL: unexpected extra approval prompt: ${extraApproval.slice(0, 300)}`);
   if (reAsked) throw new Error("FAIL: the CLI cut the pending approval and asked again");
   if (turnEnded > 0 || resolved) throw new Error("FAIL: approval resolved on its own before the answer");
 
+  if (Date.now() - promptAt < WAIT_MS) throw new Error("FAIL: internal: approving before WAIT_MS elapsed");
   log(`answering approve after ${((Date.now() - promptAt) / 1000).toFixed(1)}s`);
   const question = prompt.questions[0];
   socket.send(
@@ -185,7 +230,8 @@ try {
     }),
   );
 
-  await waitFor(() => turnEnded > 0 || reAsked, 90_000, "turn_ended after approval");
+  await waitFor(() => turnEnded > 0 || reAsked || extraApproval, 90_000, "turn_ended after approval");
+  if (extraApproval) throw new Error(`FAIL: unexpected extra approval prompt after the answer: ${extraApproval.slice(0, 300)}`);
   if (reAsked) throw new Error("FAIL: the CLI asked for approval again after the answer was sent (answer not accepted)");
   if (!resolved) throw new Error("FAIL: no choice_resolved after the answer (approval was not accepted)");
   const content = existsSync(target) ? readFileSync(target, "utf8").trim() : undefined;
@@ -199,19 +245,6 @@ try {
 } catch (error) {
   console.error(`[${ts()}] ${error.message}`);
 } finally {
-  socket?.close();
-  if (relay.exitCode === null) {
-    relay.kill("SIGTERM");
-    const exited = new Promise((resolve) => relay.once("exit", () => resolve(true)));
-    const timedOut = new Promise((resolve) => setTimeout(() => resolve(false), 5_000));
-    if (!(await Promise.race([exited, timedOut]))) {
-      console.error(`[${ts()}] relay ignored SIGTERM for 5s, sending SIGKILL to its process group`);
-      killGroup("SIGKILL");
-      await new Promise((resolve) => relay.once("exit", resolve));
-    }
-  }
-  // Stragglers (the claude child) of the group we started.
-  killGroup("SIGKILL");
-  rmSync(dir, { recursive: true, force: true });
+  await cleanup();
 }
 process.exit(exitCode);

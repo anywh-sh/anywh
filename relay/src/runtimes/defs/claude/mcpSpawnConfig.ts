@@ -94,9 +94,9 @@ export function buildPermissionDecision(toolName: string, input: unknown, approv
   };
 }
 
-/** The CLI's own idle timeout for an `"http"` MCP server the child never
- * hears back from before a human answers — see `buildMcpSpawnConfig`'s doc
- * comment for why this is a known-ineffective override kept anyway. */
+/** Per-server `timeout` for the permission MCP server, which stays silent
+ * until a human answers. Honored by CLI 2.1.303 (without it the CLI cuts the
+ * pending call at ~60 s); see `buildMcpSpawnConfig`'s doc comment. */
 const HUMAN_RESPONSE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -138,7 +138,7 @@ const HUMAN_RESPONSE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
  * near 6 minutes, so a human taking that long is unverified. The
  * `requestTimeout = 0` on this relay's own HTTP servers (server.ts) and
  * `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` in the child env
- * (host/childEnv.ts's `buildChildEnv`) are kept as additional guards. If an
+ * (session.ts) are kept as additional guards. If an
  * approval is ever cut, `sendTurn` surfaces it as a normal tool error (the
  * turn doesn't hang, it just can't get the approval it asked for).
  *

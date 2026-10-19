@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildMcpSpawnConfig, buildPermissionDecision, describeToolCall, isApproved } from "./mcpSpawnConfig.js";
+import { CHOICE_MCP_SERVER_NAME } from "../../../bridges/mcpBridge.js";
 import { PERMISSION_MCP_SERVER_NAME } from "../../../bridges/permissionBridge.js";
 
 // Merged into this file from the standalone approvalPrompt.test.ts, and
@@ -170,4 +171,5 @@ test("buildMcpSpawnConfig: the serialized --mcp-config keeps a per-server timeou
   const timeout = parsed.mcpServers[PERMISSION_MCP_SERVER_NAME]?.timeout;
   assert.equal(typeof timeout, "number");
   assert.ok((timeout as number) >= 60 * 60 * 1000, `permission timeout must be at least 1h, got ${String(timeout)}`);
+  assert.equal(parsed.mcpServers[CHOICE_MCP_SERVER_NAME]?.timeout, undefined);
 });
