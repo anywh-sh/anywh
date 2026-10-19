@@ -135,13 +135,21 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   let turnOffered = false;
   let turnAssistantTexts: string[] = [];
   let turnUsedTool = false;
+  // Live, a Stop (`stopped: true`) is never silenced. The transcript has no
+  // stop record of its own, only the "[Request interrupted by user]" user
+  // line Claude Code appends right after an interrupted turn, so that line
+  // is the one signal available here. It is not complete: a Stop that left
+  // no such line (or a turn still running when the relay died) can't be told
+  // from a finished turn, which is why the LAST turn of a file is never
+  // collapsed (see the end of this function).
+  let turnInterrupted = false;
 
   /** A report turn the model answered with `NO_REPLY` alone collapses to the
    * minimal marked pair the live relay keeps in `history` (see
    * `protocol/silentEvents.ts`): one `user_message` + `turn_ended`, so the turn
    * count still matches the transcript's `user` lines. Returns whether it did. */
   function collapseIfSilent(): boolean {
-    if (!turnUserEvent || !turnOffered || turnUsedTool || !isNoReply(turnAssistantTexts.join("\n"))) return false;
+    if (!turnUserEvent || !turnOffered || turnUsedTool || turnInterrupted || !isNoReply(turnAssistantTexts.join("\n"))) return false;
     messages.length = turnStartIdx;
     messages.push({ type: "agent_event", event: markSilent(turnUserEvent) });
     messages.push({ type: "agent_event", event: markSilent({ type: "turn_ended", stopped: false }) });
@@ -212,6 +220,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       // as a closed, followed-by-another-turn conversation didn't end on a
       // stop. Mirrors `turn_started`/`turn_ended`'s live ordering in
       // `sharedSession.ts::runTurn`.
+      if (humanText.startsWith(INTERRUPT_MARKER)) turnInterrupted = true;
       if (turnOpen) closeTurn();
       turnStartMs = lineMs;
       lastLineMs = lineMs;
@@ -220,6 +229,7 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       turnOffered = false;
       turnAssistantTexts = [];
       turnUsedTool = false;
+      turnInterrupted = false;
       messages.push({ type: "agent_event", event: { type: "turn_started", ...(lineMs !== undefined ? { startedAt: lineMs } : {}) } });
       // Real timestamp of the line — the client uses this to show
       // "X min ago" on messages reconstructed from disk; whoever sends it
@@ -263,8 +273,11 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
     // `isMeta` or unexpected format: ignore, no visual representation.
   }
 
-  // A report turn that ended in `NO_REPLY` is complete even as the last turn.
-  if (turnOpen) collapseIfSilent();
+  // The last turn is deliberately NOT collapsed even if it looks like an
+  // offered report answered `NO_REPLY`: nothing closes it, so it may be
+  // still running, interrupted, or cut by a crash, and the transcript can't
+  // say which. Showing a harmless `NO_REPLY` note until the next turn is
+  // better than hiding something that was not actually silenced live.
 
   // A turn left open at the end of the file is not closed on purpose — it
   // may genuinely be in progress (relay crashed mid-turn). Leaving it open
@@ -290,3 +303,6 @@ function backgroundJobPrompt(text: string): { label: string | undefined } | unde
   const label = /^\[anywh-bg\][^\n]*?"([^\n]*)" que você iniciou/.exec(text)?.[1];
   return { label };
 }
+
+/** Text Claude Code writes as a user line when the user interrupts a turn. */
+const INTERRUPT_MARKER = "[Request interrupted by user";

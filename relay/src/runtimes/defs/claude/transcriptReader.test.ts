@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
-import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 
 function withFixture(sessionId: string, rawLines: string[], run: (home: string) => void): void {
@@ -254,12 +253,25 @@ test("an offered report answered NO_REPLY collapses to a marked user_message + t
   });
 });
 
-test("a collapsed report as the LAST turn of the file is collapsed too", () => {
-  withFixture("bg3", [userLine("hi"), assistantText("ok"), userLine(OFFER_PROMPT), assistantText("`NO_REPLY`")], (home) => {
+test("the LAST turn of a file is never collapsed (it may be open, stopped or cut by a crash)", () => {
+  withFixture("bg3", [userLine("hi"), assistantText("ok"), userLine(OFFER_PROMPT), assistantText("NO_REPLY")], (home) => {
     const events = readHistoryFromTranscript(home, home, "bg3").map((m) => m.event);
-    assert.deepEqual(events.slice(-2).map((e) => e.type), ["user_message", "turn_ended"]);
-    assert.equal(isSilentEvent(events.at(-1) as AgentEvent), true);
+    assert.ok(events.some((e) => e.type === "text" && e.text === "NO_REPLY"));
+    assert.ok(events.every((e) => !isSilentEvent(e)));
+    assert.notEqual(events.at(-1)?.type, "turn_ended", "still open, as any last turn");
   });
+});
+
+test("a report turn followed by Claude Code's interrupt line was stopped, so it is not collapsed", () => {
+  withFixture(
+    "bg3b",
+    [userLine(OFFER_PROMPT), assistantText("NO_REPLY"), userLine("[Request interrupted by user]"), userLine("next"), assistantText("sure")],
+    (home) => {
+      const events = readHistoryFromTranscript(home, home, "bg3b").map((m) => m.event);
+      assert.ok(events.some((e) => e.type === "text" && e.text === "NO_REPLY"));
+      assert.ok(events.every((e) => !isSilentEvent(e)));
+    },
+  );
 });
 
 test("NO_REPLY is never hidden when the prompt did not offer it (failure report, log mentions the word)", () => {

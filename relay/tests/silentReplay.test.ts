@@ -17,7 +17,7 @@ function job(overrides: Partial<FinishedBackgroundJob>): FinishedBackgroundJob {
   return { sessionId: "s", id: "j", label: "dev server", logPath: "/x.log", exitPath: "/x.exit", startedAt: 0, pid: 1, exitCode: 0, logTail: "ok", ...overrides };
 }
 
-function replay(prompt: string, answer: string) {
+function replay(prompt: string, answer: string, followUp = true) {
   const home = mkdtempSync(join(tmpdir(), "anywh-silent-replay-"));
   try {
     const file = transcriptPath(home, home, "s");
@@ -26,6 +26,7 @@ function replay(prompt: string, answer: string) {
       { type: "user", message: { content: prompt } },
       { type: "assistant", message: { content: [{ type: "text", text: answer }] } },
     ];
+    if (followUp) lines.push({ type: "user", message: { content: "next" } });
     writeFileSync(file, lines.map((l) => JSON.stringify(l)).join("\n"));
     return readHistoryFromTranscript(home, home, "s").map((m) => m.event);
   } finally {
@@ -35,8 +36,8 @@ function replay(prompt: string, answer: string) {
 
 test("real prompt, exit 143 offered + NO_REPLY: collapsed and marked", () => {
   const events = replay(buildBackgroundJobFollowupPrompt(job({ exitCode: 143 })), "NO_REPLY");
-  assert.deepEqual(events.map((e) => e.type), ["user_message", "turn_ended"]);
-  assert.ok(events.every(isSilentEvent));
+  assert.deepEqual(events.map((e) => e.type), ["user_message", "turn_ended", "turn_started", "user_message"]);
+  assert.ok(events.slice(0, 2).every(isSilentEvent));
 });
 
 test("real prompt, exit 1 + NO_REPLY (log also contains the word): shown", () => {
