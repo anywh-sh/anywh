@@ -1,5 +1,5 @@
-import { useMemo, useRef } from "react";
-import { MessageSquareDashed } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ChevronDown, MessageSquareDashed } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -74,13 +74,24 @@ export function SessionList({
   const groups = useMemo(() => groupSessionsByRecency(sessions), [sessions]);
   // One pass instead of a lookup per row: the list can hold every session of
   // every profile now, and this renders on each sidebar render.
+  // Groups the user folded away: the heading stays (with its count), the
+  // rows go. Kept in memory only — a fold is a way to get a long list out of
+  // the way for now, not a setting.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<SessionGroupId>>(() => new Set());
+  const toggleGroup = useCallback((id: SessionGroupId) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
   const rows = useMemo<Row[]>(
     () =>
       groups.flatMap((group) => [
         { kind: "heading", id: group.id, count: group.sessions.length },
-        ...group.sessions.map((session): Row => ({ kind: "session", session })),
+        ...(collapsed.has(group.id) ? [] : group.sessions.map((session): Row => ({ kind: "session", session }))),
       ]),
-    [groups],
+    [groups, collapsed],
   );
   const viewportRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -155,19 +166,23 @@ export function SessionList({
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
                 {row.kind === "heading" ? (
-                  <div
+                  <button
+                    type="button"
+                    aria-expanded={!collapsed.has(row.id)}
+                    onClick={() => toggleGroup(row.id)}
                     className={cn(
-                      "flex h-[26px] items-center gap-2 px-[9px] font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint",
+                      "flex h-[26px] w-full cursor-pointer items-center gap-2 px-[9px] text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground",
                       // `first:pt-2` can't do this job once rows are
                       // windowed: the first rendered child is whatever
                       // happens to be scrolled into view, not row zero.
                       virtualRow.index > 0 && "mt-2.5",
                     )}
                   >
+                    <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
                     <span className="opacity-80">{dict.shell.sidebar.groups[row.id]}</span>
                     <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
                     <span>{row.count}</span>
-                  </div>
+                  </button>
                 ) : (
                   <SessionListItem
                     session={row.session}

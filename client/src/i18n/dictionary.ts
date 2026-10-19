@@ -27,7 +27,7 @@ export type KnownEffortId = "none" | "minimal" | "low" | "medium" | "high" | "xh
 export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
 
 /** Every agent id this build has a display name for — resolved defensively
- * at the call site (`AgentPickerButton`), same id-switch-with-fallback shape
+ * at the call site (`AgentModelEffortButton`), same id-switch-with-fallback shape
  * as `KnownPermissionModeId` above. Product names, so `en`/`pt-br` carry the
  * identical string — still dictionary entries, not a literal in the
  * component, per this repo's "any string rendered to a user lives in the
@@ -704,7 +704,7 @@ export interface Dictionary {
       /** Keyed by `KnownAgentId` — same completeness guarantee as `mode`
        * above. Product names (`Claude Code`, `Codex`), identical in both
        * languages by nature, but still resolved through here rather than a
-       * literal in `AgentPickerButton`. */
+       * literal in `AgentModelEffortButton`. */
       agentNames: Record<KnownAgentId, string>;
       /** Both toolbar dropdowns' label before the relay has reported this
        * session's mode/model. */

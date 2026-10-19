@@ -57,23 +57,23 @@ describe("PermissionModeButton", () => {
     expect(unknown).toBeInTheDocument();
   });
 
-  it("accents the trigger when the CURRENT mode never pauses for approval (Claude's bypassPermissions)", () => {
+  it("tints the trigger's icon when the CURRENT mode never pauses for approval (Claude's bypassPermissions)", () => {
     render(<PermissionModeButton mode="bypassPermissions" available={CLAUDE_MODES} onChange={vi.fn()} />);
-    expect(screen.getByRole("button").className).toMatch(/text-context-ring-warn/);
+    expect(screen.getByRole("button").querySelector("svg")?.getAttribute("class")).toMatch(/text-context-ring-warn/);
   });
 
-  it("accents the trigger the same way for a different agent's never-asks mode (Codex's full-access) — the concept generalizes, not the literal", () => {
+  it("tints the icon the same way for a different agent's never-asks mode (Codex's full-access) — the concept generalizes, not the literal", () => {
     const codexModes = [
       { id: "read-only", pausesForApproval: true },
       { id: "workspace-write", pausesForApproval: true },
       { id: "full-access", pausesForApproval: false },
     ];
     render(<PermissionModeButton mode="full-access" available={codexModes} onChange={vi.fn()} />);
-    expect(screen.getByRole("button").className).toMatch(/text-context-ring-warn/);
+    expect(screen.getByRole("button").querySelector("svg")?.getAttribute("class")).toMatch(/text-context-ring-warn/);
   });
 
-  it("does not accent the trigger for a mode that does pause for approval", () => {
+  it("does not tint the icon for a mode that does pause for approval", () => {
     render(<PermissionModeButton mode="default" available={CLAUDE_MODES} onChange={vi.fn()} />);
-    expect(screen.getByRole("button").className).not.toMatch(/text-context-ring-warn/);
+    expect(screen.getByRole("button").querySelector("svg")?.getAttribute("class")).not.toMatch(/text-context-ring-warn/);
   });
 });

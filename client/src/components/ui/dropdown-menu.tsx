@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
+import { ChevronRightIcon, CircleIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
@@ -98,9 +98,17 @@ function DropdownMenuCheckboxItem({
       checked={checked}
       {...props}
     >
-      <span className="pointer-events-none absolute left-3 flex size-3.5 items-center justify-center">
+      {/* A small square, filled when on — the same mark the design draws for a
+          toggle in a menu, as opposed to the check that marks the chosen row
+          of a list. */}
+      <span
+        className={cn(
+          "pointer-events-none absolute left-3 flex size-3 items-center justify-center border",
+          checked ? "border-foreground bg-foreground" : "border-text-faint",
+        )}
+      >
         <DropdownMenuPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <span className="block size-1 bg-background" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}

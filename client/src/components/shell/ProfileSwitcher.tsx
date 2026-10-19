@@ -93,7 +93,7 @@ export function ProfileSwitcher({ activeProfile, supported, onChange, allProfile
               <DropdownMenuItem
                 key={profile.id}
                 onSelect={() => onChange(profile.id)}
-                className="gap-2.5"
+                className={cn("gap-2.5", active && "bg-bg-elevated text-foreground")}
               >
                 <ProfileSquare profileId={profile.id} />
                 <span className="min-w-0 flex-1 truncate">{profile.label}</span>
