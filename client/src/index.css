@@ -511,21 +511,21 @@ body {
   pointer-events: none;
 }
 .composer-link {
-  color: var(--foreground);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: text;
 }
 
 /* `/model haiku` and friends, recognized in the composer — the slash is
- * dimmed and the command name takes the full foreground color; the argument,
+ * dimmed and the command name takes the full primary color; the argument,
  * when there is one, gets no decoration at all, deliberately. */
 .composer-command-slash {
-  color: var(--foreground);
+  color: var(--primary);
   opacity: 0.55;
 }
 .composer-command-name {
-  color: var(--foreground);
+  color: var(--primary);
 }
 
 /* Markdown in the assistant's replies (react-markdown). No typography
@@ -539,7 +539,7 @@ body {
      agent's own words stopped being distinguishable from the app talking
      about itself. Those notes are what moved instead: they are mono and
      fainter now, and the separation comes from that. */
-  line-height: 1.65;
+  line-height: 1.7;
   /* `anywhere` (not just `break-word`) — a long path or URL with no spaces
    * is a single "word" to the browser, which by default has nowhere to break
    * it; without this it overflows the bubble's width and opens the phantom
@@ -596,7 +596,7 @@ body {
   margin-top: 0.5em;
 }
 .prose-chat a {
-  color: var(--foreground);
+  color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -605,14 +605,15 @@ body {
  * no bubble of its own, it floats straight on `--background`), so a code
  * span barely stood apart from the text around it. A neutral pill instead: a
  * background darker than `--background` but softened toward it, since plain
- * `--bg-sidebar` read too heavy, with a border on the `--border` line. The text is plain foreground:
- * the accent is reserved for "needs you". */
+ * `--bg-sidebar` read too heavy, with a border on the `--border` line. Only
+ * the text carries the brand color (`--primary`), so the pill doesn't
+ * compete with the rest of the palette. */
 .prose-chat code {
   font-family: var(--font-mono);
   background: var(--surface-hover);
   padding: 0.15em 0.4em;
   font-size: 0.85em;
-  color: var(--foreground);
+  color: var(--primary-ink);
 }
 /* Inline code that looks like a file path (`MarkdownContent`'s `code`
  * override) — same pill as `.prose-chat code` above, plus the affordance
@@ -622,7 +623,7 @@ body {
   background: var(--surface-hover);
   padding: 0.15em 0.4em;
   font-size: 0.85em;
-  color: var(--foreground);
+  color: var(--primary-ink);
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: transparent;
@@ -639,7 +640,7 @@ body {
 }
 .prose-chat-path-link:hover {
   text-decoration-color: currentColor;
-  color: var(--foreground);
+  color: var(--primary);
 }
 /* The frame (border, background) belongs to the wrapper `MarkdownCodeBlock`
    puts around this, because the block now has a header bar above the code —
@@ -660,8 +661,8 @@ body {
   color: inherit;
 }
 .prose-chat blockquote {
-  border-left: 2px solid var(--border);
-  background: var(--bg-elevated);
+  border-left: 2px solid var(--primary);
+  background: var(--primary-soft);
   padding: 0.8em 1em;
   color: var(--foreground);
 }
@@ -762,5 +763,5 @@ body {
   background: color-mix(in srgb, var(--destructive) 15%, transparent);
 }
 .hljs-addition {
-  background: color-mix(in srgb, var(--diff-add) 15%, transparent);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
 }

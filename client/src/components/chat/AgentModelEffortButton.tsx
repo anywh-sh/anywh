@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AgentLogo } from "@/components/chat/AgentLogo";
 import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
@@ -25,24 +26,16 @@ export function agentName(agentNames: Record<KnownAgentId, string>, id: string):
   return agentNames[id as KnownAgentId] ?? id;
 }
 
-/** Two letters standing in for the agent in the trigger and the menu — "CC",
- * "CX". Not the vendor mark: the palette has no brand colours. */
-function agentTile(agentId: string): string {
-  if (agentId === "claude") return "CC";
-  if (agentId === "codex") return "CX";
-  return agentId.slice(0, 2).toUpperCase();
-}
-
 function AgentTile({ agentId, dim }: { agentId: string; dim?: boolean }) {
   return (
     <span
       aria-hidden
       className={cn(
-        "flex size-[calc(18px*var(--chrome-scale))] shrink-0 items-center justify-center border border-border bg-surface-hover font-mono text-[length:calc(9px*var(--chrome-scale))] font-semibold text-foreground",
+        "flex size-[calc(18px*var(--chrome-scale))] shrink-0 items-center justify-center border border-border bg-surface-hover text-foreground",
         dim && "text-text-faint",
       )}
     >
-      {agentTile(agentId)}
+      <AgentLogo agentId={agentId} className="size-3" />
     </span>
   );
 }
@@ -78,7 +71,7 @@ interface AgentModelEffortButtonProps {
 
 /**
  * The composer's one control for agent, model and reasoning effort: a trigger
- * reading "[CC] Opus 4.6 default" that opens a menu with the three choices as
+ * reading "[logo] Opus 4.6 default" that opens a menu with the three choices as
  * sections. They used to be three triggers in a row, which crowded a toolbar
  * that has a permission mode, attach, voice and send to fit as well.
  *

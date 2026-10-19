@@ -63,7 +63,7 @@ describe("AgentModelEffortButton", () => {
     vi.mocked(getHostInfo).mockResolvedValue(TWO_AGENTS);
     renderButton({ effort: "high" });
     const trigger = await screen.findByRole("button");
-    expect(trigger).toHaveTextContent("CC");
+    expect(trigger.querySelector("svg")).not.toBeNull();
     expect(trigger).toHaveTextContent("Opus 5.5");
     expect(trigger).toHaveTextContent("high");
   });
