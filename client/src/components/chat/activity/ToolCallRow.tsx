@@ -211,7 +211,15 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
             // Nothing above carries the copy-result button here (that lives on
             // the input line), so the result brings its own label and button.
             call.outcome === undefined || call.outcome.kind === "text" ? (
-              <CodeBlock label={activity.block.result} value={call.content ?? ""} copyLabel={activity.copyResult} onCopy={onCopy} />
+              call.content ? (
+                <CodeBlock label={activity.block.result} value={call.content} copyLabel={activity.copyResult} onCopy={onCopy} />
+              ) : (
+                // A call that returned nothing: say so, and offer no copy of an empty string.
+                <div className="flex flex-col gap-1">
+                  <span className="font-mono text-[10.5px] tracking-wide text-text-faint uppercase">{activity.block.result}</span>
+                  <p className="font-mono text-[11px] text-text-faint">{activity.noOutput}</p>
+                </div>
+              )
             ) : (
               <div className="flex flex-col gap-1">
                 <div className="flex min-h-6 items-center justify-between">

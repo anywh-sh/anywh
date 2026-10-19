@@ -54,6 +54,10 @@ interface CodeBlockProps {
 export function CodeBlock({ label, value, copyLabel, onCopy, cap = DEFAULT_CAP }: CodeBlockProps) {
   const dict = useDict().chat.activity;
   const { text, json } = useMemo(() => toDisplayText(value), [value]);
+  // A string is copied as it arrived: pretty-printing re-serializes it, which
+  // can round a large integer or drop a duplicate key — fine to read, wrong to
+  // paste. Anything else has no original text, so the pretty form is the copy.
+  const copyable = typeof value === "string" ? value : text;
   const omitted = Math.max(0, text.length - MAX_DISPLAY_CHARS);
   const shown = omitted > 0 ? text.slice(0, MAX_DISPLAY_CHARS) : text;
   const lines = useMemo(() => (json ? highlightLines("json", shown.split("\n")) : null), [json, shown]);
@@ -95,7 +99,7 @@ export function CodeBlock({ label, value, copyLabel, onCopy, cap = DEFAULT_CAP }
           aria-label={copied ? dict.resultCopied : copyLabel}
           title={copied ? dict.resultCopied : copyLabel}
           onClick={() => {
-            onCopy(text);
+            onCopy(copyable);
             setCopied(true);
           }}
         >

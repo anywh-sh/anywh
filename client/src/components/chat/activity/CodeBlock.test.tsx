@@ -36,6 +36,15 @@ describe("CodeBlock", () => {
     expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
+  it("copies a string as it arrived, not re-serialized — a large integer must not be rounded", async () => {
+    const user = userEvent.setup();
+    const onCopy = vi.fn();
+    const raw = '{"id":12345678901234567890,"a":1,"a":2}';
+    render(<CodeBlock {...props} value={raw} onCopy={onCopy} />);
+    await user.click(screen.getByRole("button", { name: "Copy arguments" }));
+    expect(onCopy).toHaveBeenCalledWith(raw);
+  });
+
   it("cuts a huge payload for display, says how much, and still copies all of it", async () => {
     const user = userEvent.setup();
     const onCopy = vi.fn();

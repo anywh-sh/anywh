@@ -139,6 +139,16 @@ describe("ActivityGroup", () => {
     expect(onCopy).toHaveBeenCalledWith(JSON.stringify({ id: "ENG-42" }, null, 2));
   });
 
+  it("says 'no output' for a tool that returned nothing, and offers no copy of an empty result", async () => {
+    const user = userEvent.setup();
+    render(group([call({ name: "mcp__linear__ping", toolKind: "mcp", subject: { kind: "mcp", server: "linear", tool: "ping" }, input: { id: "x" }, content: "" })]));
+    await user.click(groupButton());
+    await user.click(screen.getByText("linear.ping").closest('[role="button"]') as HTMLElement);
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("no output")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy result" })).toBeNull();
+  });
+
   it("does not repeat as JSON what a call's own input line already says", async () => {
     const user = userEvent.setup();
     render(group([call({ subject: { kind: "read", path: "/w/a.ts" }, input: { file_path: "/w/a.ts" }, outcome: { kind: "code", path: "/w/a.ts", lines: ["x"] } })]));
