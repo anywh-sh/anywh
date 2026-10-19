@@ -156,3 +156,18 @@ test("buildMcpSpawnConfig: blockAskUserQuestion alone, no bridges at all, still 
   assert.deepEqual(JSON.parse(mcp.configJson), { mcpServers: {} });
   assert.equal(mcp.disallowedTools, "AskUserQuestion");
 });
+
+test("buildMcpSpawnConfig: the serialized --mcp-config keeps a per-server timeout well above the CLI's 60s default for the permission server only", () => {
+  // Without `timeout` the CLI cuts a pending MCP call at 60s, which would
+  // auto-deny any approval a human takes longer than a minute to answer.
+  // Checked on the raw JSON string (what the CLI actually receives), not on
+  // a re-derived object. scripts/manual/test-long-approval.mjs is the live
+  // counterpart against the real binary.
+  const mcp = buildMcpSpawnConfig({ choiceToken: "tok-choice", permissionToken: "tok-perm", mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: true });
+  assert.ok(mcp);
+  const parsed = JSON.parse(mcp.configJson) as { mcpServers: Record<string, { timeout?: unknown }> };
+  const timeout = parsed.mcpServers["anywh-permission"].timeout;
+  assert.equal(typeof timeout, "number");
+  assert.ok((timeout as number) >= 60 * 60 * 1000, `permission timeout must be at least 1h, got ${String(timeout)}`);
+  assert.equal(parsed.mcpServers["anywh-choice"].timeout, undefined);
+});
