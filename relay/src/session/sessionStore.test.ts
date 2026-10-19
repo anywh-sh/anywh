@@ -466,3 +466,23 @@ test("setSuggestion(null) persists the clear, surviving reopening the file", () 
   });
 });
 
+
+test("pendingChoice: round-trips through disk, clears on undefined, and is absent on older records", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-store-pending-"));
+  try {
+    const file = join(dir, "sessions.json");
+    const store = new SessionStore(file, "/home/user");
+    assert.equal(store.getPendingChoice("s1"), undefined);
+    store.setPendingChoice("s1", undefined);
+    assert.equal(store.listIds().includes("s1"), false, "clearing a never-set value must not create a record");
+
+    const choice = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
+    store.setPendingChoice("s1", choice);
+    assert.deepEqual(new SessionStore(file, "/home/user").getPendingChoice("s1"), choice);
+
+    store.setPendingChoice("s1", undefined);
+    assert.equal(new SessionStore(file, "/home/user").getPendingChoice("s1"), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

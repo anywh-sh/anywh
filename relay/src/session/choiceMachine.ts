@@ -48,20 +48,12 @@ export type AnswerChoiceResult =
  * only by `answerChoice` (human answered) or `discardStaleChoice` (human
  * moved on without answering: new message, edit, `/clear`).
  *
- * Both in-memory only, same reasoning as `SharedSession`'s other
- * turn-scoped state: on a relay restart there's nothing meaningful left to
- * resume for `pendingApproval` either way (its underlying `claude` child
- * dies too, see `McpChoiceBridge`'s per-turn `unregister`) — a fresh
- * session simply has no pending approval, which is correct. `pendingChoice`
- * is the one case where a restart now has real (if rare) user-visible cost
- * — an unanswered `present_choice`/plan-marker prompt just disappears, same
- * as it silently already did for the plan-marker case since Fase 3.
- * Accepted rather than persisted (no `sessionStore.ts` entry): the
- * conversation itself survives a restart fine via the persisted
- * `session_id`, the human only loses the one pending question and can just
- * ask the model to repeat it — not worth the complexity of persisting a
- * JSON blob for a window this narrow (a relay restart landing in the exact
- * gap between "prompt shown" and "human answers").
+ * `pendingApproval` is in-memory only: on a relay restart there's nothing
+ * meaningful left to resume for it (its underlying `claude` child dies too,
+ * see `McpChoiceBridge`'s per-turn `unregister`). `pendingChoice` is
+ * mirrored into the session store (`onChoiceChange`) and rehydrated through
+ * `initialChoice`, because it can sit unanswered for days and a restart must
+ * not make it vanish.
  */
 export class ChoiceMachine {
   private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
@@ -72,7 +64,14 @@ export class ChoiceMachine {
   constructor(
     private readonly clients: Set<WebSocket>,
     private readonly onPromptShown?: (kind: "approval" | "choice", questions: ChoiceQuestion[]) => void,
-  ) {}
+    /** A deferred question persisted before a relay restart, if any. */
+    initialChoice?: { promptId: string; questions: ChoiceQuestion[] },
+    /** Fires whenever the deferred slot is set (the prompt) or emptied
+     * (`undefined`), so the session can mirror it into the store. */
+    private readonly onChoiceChange?: (choice: { promptId: string; questions: ChoiceQuestion[] } | undefined) => void,
+  ) {
+    this.pendingChoice = initialChoice;
+  }
 
   /** Called by the MCP bridge
    * (`McpChoiceBridge`, `ChoiceHost.presentChoice`) when the model calls
@@ -103,6 +102,7 @@ export class ChoiceMachine {
     if (this.pendingChoice) return false;
     const promptId = randomUUID();
     this.pendingChoice = { promptId, questions };
+    this.onChoiceChange?.(this.pendingChoice);
     broadcastChoicePrompt(this.clients, this.pendingChoice, "choice");
     this.onPromptShown?.("choice", questions);
     return true;
@@ -192,6 +192,7 @@ export class ChoiceMachine {
     if (!this.pendingChoice) return;
     const { promptId } = this.pendingChoice;
     this.pendingChoice = undefined;
+    this.onChoiceChange?.(undefined);
     broadcastChoiceResolved(this.clients, promptId);
   }
 
@@ -223,6 +224,7 @@ export class ChoiceMachine {
     }
     if (this.pendingChoice?.promptId === promptId) {
       this.pendingChoice = undefined;
+      this.onChoiceChange?.(undefined);
       broadcastChoiceResolved(this.clients, promptId);
       return { kind: "choice", answers };
     }

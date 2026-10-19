@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
+import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -146,6 +147,20 @@ export interface SessionEntry {
    * as `null` via `getSuggestion`, the distinction doesn't matter to a
    * reconnecting client either way. */
   suggestion?: string | null;
+  /** The deferred `present_choice`/plan-marker question still waiting for a
+   * human, kept so it survives a relay restart — it can sit unanswered for
+   * days. Optional for the same reason as `permissionMode`/`draft`: records
+   * written before this feature existed simply have none (read as
+   * `undefined` via `getPendingChoice`). `promptId` is stored too, so a
+   * reconnecting device sees the same prompt it saw before the restart. */
+  pendingChoice?: PersistedChoice;
+}
+
+/** Structural twin of `ChoiceMachine`'s pending slot, declared here so the
+ * store doesn't import from `session/choiceMachine.ts`. */
+export interface PersistedChoice {
+  promptId: string;
+  questions: ChoiceQuestion[];
 }
 
 export type SessionRecord = Record<string, SessionEntry>;
@@ -570,6 +585,24 @@ export class SessionStore {
     this.ensureEntry(id);
     if (this.records[id].suggestion === text) return;
     this.records[id].suggestion = text;
+    this.persist();
+  }
+
+  getPendingChoice(id: string): PersistedChoice | undefined {
+    return this.records[id]?.pendingChoice;
+  }
+
+  /** `undefined` clears it. No-op when there's nothing to clear, so
+   * discarding a never-asked question doesn't create a record or rewrite
+   * the file. */
+  setPendingChoice(id: string, choice: PersistedChoice | undefined): void {
+    if (choice === undefined) {
+      if (this.records[id]?.pendingChoice === undefined) return;
+      delete this.records[id].pendingChoice;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].pendingChoice = choice;
+    }
     this.persist();
   }
 

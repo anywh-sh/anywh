@@ -146,3 +146,32 @@ test("onPromptShown: fires once per published prompt, for both kinds, and not fo
     { kind: "approval", questions: ["allow?"] },
   ]);
 });
+
+test("onChoiceChange: reports the pending question when published and undefined once answered", () => {
+  const changes: unknown[] = [];
+  const machine = new ChoiceMachine(new Set([fakeSocket()]), undefined, undefined, (choice) => changes.push(choice));
+  machine.presentChoice([question()]);
+  const published = changes[0] as { promptId: string };
+  machine.answerChoice(published.promptId, []);
+  assert.equal(changes.length, 2);
+  assert.equal(changes[1], undefined);
+});
+
+test("onChoiceChange: discardStaleChoice reports the slot emptied; a no-op with nothing pending reports nothing", () => {
+  const changes: unknown[] = [];
+  const machine = new ChoiceMachine(new Set([fakeSocket()]), undefined, undefined, (choice) => changes.push(choice));
+  machine.discardStaleChoice();
+  assert.deepEqual(changes, []);
+  machine.presentChoice([question()]);
+  machine.discardStaleChoice();
+  assert.equal(changes.length, 2);
+  assert.equal(changes[1], undefined);
+});
+
+test("initialChoice: a rehydrated question is resent to a connecting socket and can be answered", () => {
+  const machine = new ChoiceMachine(new Set(), undefined, { promptId: "p1", questions: [question("again?")] });
+  const client = fakeSocket();
+  machine.sendPendingTo(client);
+  assert.deepEqual((client.sent[0] as { promptId: string }).promptId, "p1");
+  assert.equal(machine.answerChoice("p1", []).kind, "choice");
+});

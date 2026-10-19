@@ -184,6 +184,11 @@ export interface SharedSessionOptions {
    * by a new turn/`/clear`/edit) — this is how SessionManager writes it to
    * SessionStore. */
   onSuggestionChange?: (suggestion: string | null) => void;
+  /** Deferred question persisted before a relay restart, if any. */
+  initialPendingChoice?: { promptId: string; questions: ChoiceQuestion[] };
+  /** Called whenever the deferred question is set or cleared (`undefined`) —
+   * this is how SessionManager writes it to SessionStore. */
+  onPendingChoiceChange?: (choice: { promptId: string; questions: ChoiceQuestion[] } | undefined) => void;
   /** Shared by every session in the process (like
    * `SessionManager` itself); `undefined` only in tests that don't exercise
    * this feature, in which case `present_choice` is simply never offered to
@@ -401,6 +406,8 @@ export class SharedSession implements SessionDriverHost {
     this.suggestion = options.initialSuggestion ?? null;
     this.choiceMachine = new ChoiceMachine(this.clients, (kind, questions) =>
       this.notify(promptDraft({ title: this.title, kind, firstQuestion: questions[0]?.question })),
+      options.initialPendingChoice,
+      options.onPendingChoiceChange,
     );
   }
 
