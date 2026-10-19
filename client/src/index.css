@@ -491,7 +491,7 @@ body {
 
 .composer-editor .ProseMirror {
   outline: none;
-  min-height: 84px;
+  min-height: 61px;
   max-height: 480px;
   overflow-y: auto;
   padding: 14px 16px 2px;
@@ -539,7 +539,7 @@ body {
      agent's own words stopped being distinguishable from the app talking
      about itself. Those notes are what moved instead: they are mono and
      fainter now, and the separation comes from that. */
-  line-height: 1.7;
+  line-height: 1.65;
   /* `anywhere` (not just `break-word`) — a long path or URL with no spaces
    * is a single "word" to the browser, which by default has nowhere to break
    * it; without this it overflows the bubble's width and opens the phantom

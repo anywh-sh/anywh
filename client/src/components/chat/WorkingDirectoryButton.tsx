@@ -118,7 +118,7 @@ export function WorkingDirectoryButton({
                   // strip; on iOS it still floats above the composer as a box.
                   isIOS()
                     ? "h-[26px] border border-border bg-bg-sidebar px-2.5 font-mono text-[11.5px] hover:border-text-faint"
-                    : "h-[30px] px-2 font-sans text-[length:calc(12.5px*var(--chrome-scale))]",
+                    : "h-[calc(26px*var(--chrome-scale))] px-2 font-sans text-[length:calc(12.5px*var(--chrome-scale))]",
                 )}
               >
                 {/* On iOS the icon takes the tab's own profile colour — the
