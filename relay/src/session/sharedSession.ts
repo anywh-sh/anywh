@@ -17,7 +17,7 @@ import { buildBackgroundJobFollowupPrompt, offersSilence } from "./turnMessages.
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
-import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode, PersistedChoice } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import {
@@ -185,10 +185,10 @@ export interface SharedSessionOptions {
    * SessionStore. */
   onSuggestionChange?: (suggestion: string | null) => void;
   /** Deferred question persisted before a relay restart, if any. */
-  initialPendingChoice?: { promptId: string; questions: ChoiceQuestion[] };
+  initialPendingChoice?: PersistedChoice;
   /** Called whenever the deferred question is set or cleared (`undefined`) —
    * this is how SessionManager writes it to SessionStore. */
-  onPendingChoiceChange?: (choice: { promptId: string; questions: ChoiceQuestion[] } | undefined) => void;
+  onPendingChoiceChange?: (choice: PersistedChoice | undefined) => void;
   /** Shared by every session in the process (like
    * `SessionManager` itself); `undefined` only in tests that don't exercise
    * this feature, in which case `present_choice` is simply never offered to
@@ -404,11 +404,26 @@ export class SharedSession implements SessionDriverHost {
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
+    // A rehydrated question belongs to a conversation; with no session_id
+    // left for the active agent (cleared, lost, never created) answering it
+    // would start a turn with no context, so drop it (and its stored copy)
+    // instead of adopting it.
+    const rehydrated = options.initialPendingChoice && this.driver.getSessionId() ? options.initialPendingChoice : undefined;
     this.choiceMachine = new ChoiceMachine(this.clients, (kind, questions) =>
+      // Deliberately NO push for a rehydrated question: the person was
+      // already notified when it was first asked, and re-notifying on every
+      // relay restart would be noise. It simply reappears on connect.
       this.notify(promptDraft({ title: this.title, kind, firstQuestion: questions[0]?.question })),
-      options.initialPendingChoice,
+      rehydrated,
       options.onPendingChoiceChange,
     );
+    if (options.initialPendingChoice && !rehydrated) {
+      try {
+        options.onPendingChoiceChange?.(undefined);
+      } catch (error) {
+        console.error("[relay] could not clear the orphaned pending choice:", error instanceof Error ? error.message : String(error));
+      }
+    }
   }
 
   /** Tears down anything the driver holds open beyond a single turn (a
@@ -470,6 +485,10 @@ export class SharedSession implements SessionDriverHost {
    */
   switchAgent(next: { def: AgentRuntimeDef; initialSessionId?: string; initialPermissionMode: string; initialModel?: string; initialEffort?: string }): void {
     if (this.turnStartedAt !== null) return;
+    // The question was asked by the outgoing agent's conversation; the
+    // incoming one has none of that context, so an answer would be a turn
+    // out of nowhere.
+    this.discardStaleChoice();
     this.driver.dispose();
     this.def = next.def;
     this.driver = this.createDriver(next.def, next.initialSessionId);
@@ -796,7 +815,11 @@ export class SharedSession implements SessionDriverHost {
 
   /** Thin delegation — see `ChoiceMachine.discardStaleChoice`. Called from
    * the three sites where a human moves on without answering a deferred
-   * choice: `submitTurn`, `editMessage`, `clearConversation`. */
+   * choice: `submitTurn`, `editMessage`, `clearConversation` — plus
+   * `switchAgent`, since the incoming agent has none of the asking
+   * conversation's context. NOT called for wakeup / background-job turns:
+   * those are the agent talking to itself, the human hasn't moved on, so the
+   * card (and its persisted copy, which always mirrors it) stays. */
   private discardStaleChoice(): void {
     this.choiceMachine.discardStaleChoice();
   }

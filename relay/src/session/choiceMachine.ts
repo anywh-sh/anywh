@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
+import type { PersistedChoice } from "./sessionStore.js";
 import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from "./broadcast.js";
 
 /** What `answerChoice` resolved, told apart so `SharedSession` (the only
@@ -57,7 +58,7 @@ export type AnswerChoiceResult =
  */
 export class ChoiceMachine {
   private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
-  private pendingChoice: { promptId: string; questions: ChoiceQuestion[] } | undefined;
+  private pendingChoice: PersistedChoice | undefined;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
@@ -65,12 +66,25 @@ export class ChoiceMachine {
     private readonly clients: Set<WebSocket>,
     private readonly onPromptShown?: (kind: "approval" | "choice", questions: ChoiceQuestion[]) => void,
     /** A deferred question persisted before a relay restart, if any. */
-    initialChoice?: { promptId: string; questions: ChoiceQuestion[] },
+    initialChoice?: PersistedChoice,
     /** Fires whenever the deferred slot is set (the prompt) or emptied
      * (`undefined`), so the session can mirror it into the store. */
-    private readonly onChoiceChange?: (choice: { promptId: string; questions: ChoiceQuestion[] } | undefined) => void,
+    private readonly onChoiceChange?: (choice: PersistedChoice | undefined) => void,
   ) {
     this.pendingChoice = initialChoice;
+  }
+
+  /** Mirrors the deferred slot into the store. Always runs AFTER the
+   * in-memory transition and the broadcast, and never throws: the write is
+   * sync (`writeFileSync`) and can fail (disk full, read-only file), which
+   * must cost at most a stale record on disk — not the user's answer, the
+   * dismissal of the card, or the model's tool call. */
+  private mirror(choice: PersistedChoice | undefined): void {
+    try {
+      this.onChoiceChange?.(choice);
+    } catch (error) {
+      console.error("[relay] could not persist the pending choice:", error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** Called by the MCP bridge
@@ -102,8 +116,8 @@ export class ChoiceMachine {
     if (this.pendingChoice) return false;
     const promptId = randomUUID();
     this.pendingChoice = { promptId, questions };
-    this.onChoiceChange?.(this.pendingChoice);
     broadcastChoicePrompt(this.clients, this.pendingChoice, "choice");
+    this.mirror(this.pendingChoice);
     this.onPromptShown?.("choice", questions);
     return true;
   }
@@ -192,8 +206,8 @@ export class ChoiceMachine {
     if (!this.pendingChoice) return;
     const { promptId } = this.pendingChoice;
     this.pendingChoice = undefined;
-    this.onChoiceChange?.(undefined);
     broadcastChoiceResolved(this.clients, promptId);
+    this.mirror(undefined);
   }
 
   /** Called from the WS handler (`server.ts`) when any connected device
@@ -224,8 +238,8 @@ export class ChoiceMachine {
     }
     if (this.pendingChoice?.promptId === promptId) {
       this.pendingChoice = undefined;
-      this.onChoiceChange?.(undefined);
       broadcastChoiceResolved(this.clients, promptId);
+      this.mirror(undefined);
       return { kind: "choice", answers };
     }
     return { kind: "not_found" };

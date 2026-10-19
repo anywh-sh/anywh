@@ -156,11 +156,27 @@ export interface SessionEntry {
   pendingChoice?: PersistedChoice;
 }
 
-/** Structural twin of `ChoiceMachine`'s pending slot, declared here so the
- * store doesn't import from `session/choiceMachine.ts`. */
+/** The deferred question as stored on disk. The single definition of this
+ * shape: `ChoiceMachine` and `SharedSession` import it from here (type-only),
+ * so the store never has to import from `session/choiceMachine.ts`. */
 export interface PersistedChoice {
   promptId: string;
   questions: ChoiceQuestion[];
+}
+
+/** Runtime check for what `load()` reads back: this field is the first one
+ * fed straight to the WS broadcast code, so a hand-edited, truncated or
+ * future-schema file must not be able to reach it malformed. */
+function isPersistedChoice(value: unknown): value is PersistedChoice {
+  if (!value || typeof value !== "object") return false;
+  const { promptId, questions } = value as { promptId?: unknown; questions?: unknown };
+  if (typeof promptId !== "string" || promptId === "") return false;
+  if (!Array.isArray(questions) || questions.length === 0) return false;
+  return questions.every((q) => {
+    if (!q || typeof q !== "object") return false;
+    const { question, options } = q as { question?: unknown; options?: unknown };
+    return typeof question === "string" && Array.isArray(options);
+  });
 }
 
 export type SessionRecord = Record<string, SessionEntry>;
@@ -273,6 +289,19 @@ export class SessionStore {
   }
 
   private load(): SessionRecord {
+    const records = this.loadAndMigrate();
+    for (const entry of Object.values(records)) {
+      if (entry && typeof entry === "object" && entry.pendingChoice !== undefined && !isPersistedChoice(entry.pendingChoice)) {
+        // Drop the bad record instead of crashing or adopting it; rewrite so
+        // it doesn't come back on the next boot.
+        delete entry.pendingChoice;
+        this.migrated = true;
+      }
+    }
+    return records;
+  }
+
+  private loadAndMigrate(): SessionRecord {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(this.filePath, "utf8"));

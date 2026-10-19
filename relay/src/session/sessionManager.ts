@@ -329,7 +329,7 @@ export class SessionManager {
       onDraftChange: (text) => this.sessionStore.setDraft(id, text),
       initialSuggestion: this.sessionStore.getSuggestion(id),
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
-      ...(this.sessionStore.getPendingChoice(id) ? { initialPendingChoice: this.sessionStore.getPendingChoice(id)! } : {}),
+      initialPendingChoice: this.sessionStore.getPendingChoice(id),
       onPendingChoiceChange: (choice) => this.sessionStore.setPendingChoice(id, choice),
       mcpChoiceBridge: this.mcpChoiceBridge,
       mcpBridgeBaseUrl: this.mcpBridgeBaseUrl,

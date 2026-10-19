@@ -175,3 +175,26 @@ test("initialChoice: a rehydrated question is resent to a connecting socket and 
   assert.deepEqual((client.sent[0] as { promptId: string }).promptId, "p1");
   assert.equal(machine.answerChoice("p1", []).kind, "choice");
 });
+
+test("onChoiceChange throwing (disk full) never breaks present, answer or discard: broadcast and results are unaffected", () => {
+  const client = fakeSocket();
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const machine = new ChoiceMachine(new Set([client]), undefined, undefined, () => {
+      throw new Error("ENOSPC");
+    });
+    assert.equal(machine.presentChoice([question()]), true);
+    const promptId = (client.sent[0] as { promptId: string }).promptId;
+    assert.equal(machine.answerChoice(promptId, []).kind, "choice");
+    assert.equal((client.sent[1] as { type: string }).type, "choice_resolved");
+
+    machine.presentChoice([question()]);
+    const second = (client.sent[2] as { promptId: string }).promptId;
+    machine.discardStaleChoice();
+    assert.deepEqual(client.sent[3], { type: "choice_resolved", promptId: second });
+    assert.equal(machine.answerChoice(second, []).kind, "not_found", "the in-memory slot is cleared even though the write failed");
+  } finally {
+    console.error = originalError;
+  }
+});

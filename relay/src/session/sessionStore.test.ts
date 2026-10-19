@@ -486,3 +486,32 @@ test("pendingChoice: round-trips through disk, clears on undefined, and is absen
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("load drops a malformed pendingChoice (and rewrites the file) without touching valid ones or crashing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-store-pending-bad-"));
+  try {
+    const file = join(dir, "sessions.json");
+    const good = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
+    const seed = new SessionStore(file, "/home/user");
+    for (const id of ["good", "empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar"]) seed.setPendingChoice(id, good);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: unknown }>;
+    records.empty.pendingChoice = {};
+    records.noQuestions.pendingChoice = { promptId: "p" };
+    records.emptyQuestions.pendingChoice = { promptId: "p", questions: [] };
+    records.strQuestions.pendingChoice = { promptId: "p", questions: "nope" };
+    records.badQuestion.pendingChoice = { promptId: "p", questions: [{ question: 1 }] };
+    records.noPromptId.pendingChoice = { questions: good.questions };
+    records.scalar.pendingChoice = "x";
+    writeFileSync(file, JSON.stringify(records));
+
+    const store = new SessionStore(file, "/home/user");
+    assert.deepEqual(store.getPendingChoice("good"), good);
+    for (const id of ["empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar"]) {
+      assert.equal(store.getPendingChoice(id), undefined, id);
+    }
+    const onDisk = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice?: unknown }>;
+    assert.equal(onDisk.empty.pendingChoice, undefined, "the bad record must not come back on the next boot");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
