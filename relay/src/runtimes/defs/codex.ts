@@ -41,6 +41,7 @@
 // `initialize`'s capabilities (see `runtimes/transports/codexDaemon.ts`) —
 // without it every `turn/start` in `workspace-write` mode was rejected
 // outright, confirmed live the same way.
+import { execFileSync } from "node:child_process";
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
@@ -89,6 +90,20 @@ export interface CodexPermissionSettings {
  * unreachable in practice (`SharedSession` already validated the id against
  * this same def's `modesFor` before a turn ever starts) but costs nothing to
  * degrade safely if it somehow isn't. */
+/** `workspace-write` makes `.git` read-only even inside the writable cwd, and in a
+ * linked worktree the gitdir and the common dir (objects/refs/index) live
+ * outside the cwd entirely, so the agent could not commit. Resolved with real
+ * git from the session cwd; empty when the cwd is not in a repo (or git is
+ * missing), so nothing extra is granted there. */
+function gitWritableRoots(cwd: string): string[] {
+  try {
+    const out = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 });
+    return [...new Set(out.split("\n").filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
 function settingsFor(id: string, cwd: string): CodexPermissionSettings | undefined {
   switch (id) {
     case "read-only":
@@ -96,7 +111,7 @@ function settingsFor(id: string, cwd: string): CodexPermissionSettings | undefin
     case "workspace-write":
       return {
         approvalPolicy: { granular: { sandbox_approval: true, rules: false, skill_approval: false, request_permissions: false, mcp_elicitations: false } },
-        sandboxPolicy: { type: "workspaceWrite", writableRoots: [cwd], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+        sandboxPolicy: { type: "workspaceWrite", writableRoots: [cwd, ...gitWritableRoots(cwd).filter((r) => r !== cwd)], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
       };
     case "full-access":
       return { approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } };
