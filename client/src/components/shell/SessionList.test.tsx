@@ -107,19 +107,19 @@ describe("SessionList", () => {
   });
 
   it("folds a group away on its heading and unfolds it again, keeping the count", async () => {
-    renderList({ sessions: [session({ id: "s1", title: "Today one" }), session({ id: "s2", title: "Long ago", lastActiveAt: Date.now() - 90 * DAY })] });
+    renderList({ sessions: [session({ id: "s1", title: "Alpha item" }), session({ id: "s2", title: "Long ago", lastActiveAt: Date.now() - 90 * DAY })] });
     const user = userEvent.setup();
     const heading = screen.getByRole("button", { name: new RegExp(`^${copy.groups.today}`) });
     expect(heading).toHaveAttribute("aria-expanded", "true");
 
     await user.click(heading);
-    expect(screen.queryByText("Today one")).not.toBeInTheDocument();
+    expect(screen.queryByText("Alpha item")).not.toBeInTheDocument();
     expect(screen.getByText("Long ago")).toBeInTheDocument();
     expect(heading).toHaveAttribute("aria-expanded", "false");
     expect(heading).toHaveTextContent("1");
 
     await user.click(heading);
-    expect(screen.getByText("Today one")).toBeInTheDocument();
+    expect(screen.getByText("Alpha item")).toBeInTheDocument();
   });
 
   it("never names the row's profile — its colour bar says which it is", () => {
