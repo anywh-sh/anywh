@@ -23,20 +23,29 @@ function group(calls: ToolCallEntry[], onOpenPath?: (p: string) => void) {
   return <ActivityGroup id={calls[0].id} calls={calls} attributionByToolUseId={{}} cwd="/w" onCopy={noop} onOpenPath={onOpenPath} />;
 }
 
+/** The group's own button — the line that counts, "Used 2 tools" / "Using 2 tools…". */
+const groupButton = () => screen.getByRole("button", { name: /^(Used|Using) \d+ tools?/ });
+
 describe("ActivityGroup", () => {
-  it("opens from its summary line and lists a row per call", async () => {
+  it("counts its calls in one line instead of narrating them, and lists a row per call when opened", async () => {
     const user = userEvent.setup();
     render(group([call({ subject: { kind: "read", path: "/w/a.ts" } }), call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "ls" } })]));
-    expect(screen.queryByText("a.ts")).toBeNull(); // only inside the summary sentence
-    await user.click(screen.getByRole("button", { name: /Read a\.ts, ran ls/ }));
+    expect(groupButton()).toHaveTextContent("Used 2 tools");
+    expect(screen.queryByText("a.ts")).toBeNull(); // the target belongs to its row, not to the line
+    await user.click(groupButton());
     expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(2);
+  });
+
+  it("says one call in the singular", () => {
+    render(group([call({ subject: { kind: "read", path: "/w/a.ts" } })]));
+    expect(groupButton()).toHaveTextContent("Used 1 tool");
   });
 
   it("clicking a file target opens the file and leaves the row closed", async () => {
     const user = userEvent.setup();
     const onOpenPath = vi.fn();
     render(group([call({ subject: { kind: "read", path: "/w/src/a.ts" }, outcome: { kind: "code", path: "/w/src/a.ts", lines: ["x"] } })], onOpenPath));
-    await user.click(screen.getByRole("button", { name: /Read a\.ts/ }));
+    await user.click(groupButton());
     await user.click(screen.getByTitle("Open file"));
     expect(onOpenPath).toHaveBeenCalledWith("/w/src/a.ts");
     expect(screen.queryByText("path")).toBeNull();
@@ -45,43 +54,115 @@ describe("ActivityGroup", () => {
   it("does not offer to open a target that is not a file, or anything on a client with no file panel", async () => {
     const user = userEvent.setup();
     render(group([call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "ls" } })], vi.fn()));
-    await user.click(screen.getByRole("button", { name: /Ran ls/ }));
+    await user.click(groupButton());
     expect(screen.queryByTitle("Open file")).toBeNull();
     cleanup();
     render(group([call({ subject: { kind: "read", path: "/w/a.ts" } })]));
-    await user.click(screen.getByRole("button", { name: /Read a\.ts/ }));
+    await user.click(groupButton());
     expect(screen.queryByTitle("Open file")).toBeNull();
   });
 
-  it("marks a failed call and shows its exit code, and says how many failed", async () => {
+  it("says how many failed in the line, and shows the exit code on the failed row", async () => {
     const user = userEvent.setup();
     render(group([call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "false" }, isError: true, outcome: { kind: "terminal", output: "", exitCode: 3 } })]));
-    expect(screen.getByText(/1 failed/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Ran false/ }));
+    expect(groupButton()).toHaveTextContent("1 failed");
+    await user.click(groupButton());
     expect(screen.getByText("exit 3")).toBeInTheDocument();
   });
 
-  it("shows a running call in the gerund, with its own clock", () => {
-    vi.useFakeTimers();
+  it("counts the calls so far while any is running, with the group's clock", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(10_000);
-    render(group([call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "npm test" }, done: false, startedAt: 8_000 })]));
-    expect(screen.getByText(/Running npm test…/)).toBeInTheDocument();
-    act(() => void vi.advanceTimersByTime(1000));
+    render(group([call({ subject: { kind: "read", path: "/w/a.ts" }, startedAt: 7_000, endedAt: 7_500 }), call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "npm test" }, done: false, startedAt: 8_000 })]));
+    expect(groupButton()).toHaveTextContent("Using 2 tools…");
+    expect(groupButton()).toHaveTextContent("· 3s");
+    // The running row keeps the gerund and its own clock.
+    await userEvent.setup({ advanceTimers: (ms) => void vi.advanceTimersByTime(ms) }).click(groupButton());
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("2s")).toBeInTheDocument();
+  });
+
+  it("shows the group's total time once every call ended, from the first start to the last end", () => {
+    render(group([call({ startedAt: 1_000, endedAt: 4_000 }), call({ startedAt: 1_000, endedAt: 3_000 }), call({ startedAt: 5_000, endedAt: 6_000 })]));
+    expect(groupButton()).toHaveTextContent("Used 3 tools · 5s");
+  });
+
+  it("leaves the time out when a call has no timestamps, as in an older replay", () => {
+    render(group([call({ startedAt: 1_000, endedAt: 4_000 }), call()]));
+    expect(groupButton()).toHaveTextContent(/^Used 2 tools$/);
+  });
+
+  it("marks each row by how its call ended: a check with the time, a failure, nothing for a stopped one", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      group([
+        call({ subject: { kind: "read", path: "/w/ok.ts" }, startedAt: 1_000, endedAt: 1_420 }),
+        call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "boom" }, isError: true }),
+        call({ toolKind: "shell", name: "Bash", subject: { kind: "shell", command: "stopped" }, isError: true, aborted: true }),
+      ]),
+    );
+    await user.click(groupButton());
+    expect(screen.getByText("420ms")).toBeInTheDocument();
+    expect(screen.getAllByText("Failed")).toHaveLength(1); // the stopped call is not a failure
+    // One check (the read) in the rows; the stopped and the failed calls have none.
+    expect(container.querySelectorAll("svg.lucide-check")).toHaveLength(1);
   });
 
   it("draws a call with no interpretation from its raw name and text", async () => {
     const user = userEvent.setup();
     render(group([call({ name: "Mystery", toolKind: "other", content: "raw result" })]));
-    await user.click(screen.getByRole("button", { name: /Used Mystery/ }));
+    await user.click(groupButton());
     await user.click(screen.getByText("Used").closest('[role="button"]') as HTMLElement);
     expect(await screen.findByText("raw result")).toBeInTheDocument();
+  });
+
+  it("shows an MCP call's arguments, highlighted and copyable, and its result under a label of its own", async () => {
+    const user = userEvent.setup();
+    const onCopy = vi.fn();
+    render(
+      <ActivityGroup
+        id="m"
+        calls={[call({ name: "mcp__linear__get", toolKind: "mcp", subject: { kind: "mcp", server: "linear", tool: "get" }, input: { id: "ENG-42" }, content: '{"title":"Fix it"}' })]}
+        attributionByToolUseId={{}}
+        cwd="/w"
+        onCopy={onCopy}
+      />,
+    );
+    await user.click(groupButton());
+    await user.click(screen.getByText("linear.get").closest('[role="button"]') as HTMLElement);
+    expect(screen.getByText("Arguments")).toBeInTheDocument();
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText('"ENG-42"')).toBeInTheDocument();
+    // One copy button per block — the input line must not add a second one for the result.
+    expect(screen.getAllByRole("button", { name: /^Copy / }).map((b) => b.getAttribute("aria-label"))).toEqual(["Copy arguments", "Copy result"]);
+    await user.click(screen.getByRole("button", { name: "Copy arguments" }));
+    expect(onCopy).toHaveBeenCalledWith(JSON.stringify({ id: "ENG-42" }, null, 2));
+  });
+
+  it("says 'no output' for a tool that returned nothing, and offers no copy of an empty result", async () => {
+    const user = userEvent.setup();
+    render(group([call({ name: "mcp__linear__ping", toolKind: "mcp", subject: { kind: "mcp", server: "linear", tool: "ping" }, input: { id: "x" }, content: "" })]));
+    await user.click(groupButton());
+    await user.click(screen.getByText("linear.ping").closest('[role="button"]') as HTMLElement);
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("no output")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy result" })).toBeNull();
+  });
+
+  it("does not repeat as JSON what a call's own input line already says", async () => {
+    const user = userEvent.setup();
+    render(group([call({ subject: { kind: "read", path: "/w/a.ts" }, input: { file_path: "/w/a.ts" }, outcome: { kind: "code", path: "/w/a.ts", lines: ["x"] } })]));
+    await user.click(groupButton());
+    await user.click(screen.getByText("a.ts").closest('[role="button"]') as HTMLElement);
+    expect(screen.getByText("path")).toBeInTheDocument();
+    expect(screen.queryByText("Arguments")).toBeNull();
   });
 
   it("keeps a group open across an unmount, as when the virtualized list scrolls it away", async () => {
     const user = userEvent.setup();
     const calls = [call({ subject: { kind: "read", path: "/w/a.ts" } })];
     const { unmount } = render(group(calls));
-    await user.click(screen.getByRole("button", { name: /Read a\.ts/ }));
+    await user.click(groupButton());
     expect(screen.getByText("a.ts")).toBeInTheDocument();
     unmount();
     render(group(calls));
@@ -114,6 +195,15 @@ describe("ThinkingRow", () => {
     render(<ThinkingRow entry={entry({ text: "because of the cache", startedAt: 0, endedAt: 1000 })} />);
     await user.click(screen.getByRole("button"));
     expect(screen.getByText("because of the cache")).toBeInTheDocument();
+  });
+
+  it("marks a finished block with a check and a running one with a spinner and the sweeping label", () => {
+    const { container, rerender } = render(<ThinkingRow entry={entry({ startedAt: 0, endedAt: 3000 })} />);
+    expect(container.querySelector("svg.lucide-check")).not.toBeNull();
+    expect(container.querySelector(".animate-shimmer-window")).toBeNull();
+    rerender(<ThinkingRow entry={entry({ running: true, startedAt: 0 })} />);
+    expect(container.querySelector("svg.lucide-check")).toBeNull();
+    expect(container.querySelector(".animate-shimmer-window")).not.toBeNull();
   });
 
   it("while running keeps the verb it drew, however often it re-renders", () => {

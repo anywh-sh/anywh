@@ -446,6 +446,34 @@ body {
   animation: turn-sweep 1.9s linear infinite;
 }
 
+/* Shimmer (components/chat/Shimmer.tsx): the window travels one label width
+ * to the right while its content travels the same distance back, so the
+ * bright copy of the text stays exactly over the base text and only the
+ * masked band of it moves. Both are `transform`, same percentage of the same
+ * width (the window and the text are as wide as the label). */
+@keyframes shimmer-window {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes shimmer-text {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+.animate-shimmer-window {
+  animation: shimmer-window 1.8s linear infinite;
+}
+.animate-shimmer-text {
+  animation: shimmer-text 1.8s linear infinite;
+}
+
 /* Radix's `ScrollArea` injects an inner wrapper with `display:table;
  * min-width:100%` (as an inline style, not a class) around the content — a
  * table grows to the size of its content without wrapping (our `truncate`

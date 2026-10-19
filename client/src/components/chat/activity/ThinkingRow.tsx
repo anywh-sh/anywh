@@ -1,6 +1,7 @@
 import { memo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Shimmer } from "@/components/chat/Shimmer";
 import { Elapsed } from "@/components/chat/activity/Elapsed";
 import { useOpen } from "@/lib/format/openState";
 import { pickThinkingWord } from "@/lib/format/thinkingWords";
@@ -33,8 +34,12 @@ export const ThinkingRow = memo(function ThinkingRow({ entry }: { entry: Thinkin
 
   const header = (
     <>
-      {entry.running && <span className="relative top-0.5 size-3 shrink-0 animate-spin self-start rounded-full border-2 border-border border-t-primary" aria-hidden />}
-      <span>{label}</span>
+      {entry.running ? (
+        <span className="relative top-0.5 size-3 shrink-0 animate-spin self-start rounded-full border-2 border-border border-t-primary" aria-hidden />
+      ) : (
+        <Check className="relative top-0.5 size-3.5 shrink-0 self-start text-primary" strokeWidth={2.5} aria-hidden />
+      )}
+      <Shimmer active={entry.running}>{label}</Shimmer>
       {entry.running && entry.startedAt !== undefined && <Elapsed startedAt={entry.startedAt} className="font-mono text-[11px]" />}
       {hasText && <ChevronRight className={cn("relative top-0.5 size-3 shrink-0 self-start transition-transform", open && "rotate-90")} />}
     </>

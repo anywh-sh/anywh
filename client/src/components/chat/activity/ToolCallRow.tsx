@@ -1,10 +1,12 @@
 import { memo, useState, type KeyboardEvent } from "react";
-import { Check, ChevronRight, Copy } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Elapsed } from "@/components/chat/activity/Elapsed";
+import { CodeBlock } from "@/components/chat/activity/CodeBlock";
+import { Elapsed, formatElapsed } from "@/components/chat/activity/Elapsed";
 import { OutcomeView } from "@/components/chat/activity/OutcomeView";
-import { callMeta, callTarget, verbKey } from "@/lib/format/activity";
+import { ToolIcon } from "@/components/chat/activity/ToolIcon";
+import { callDuration, callMeta, callTarget, verbKey } from "@/lib/format/activity";
 import { formatTokenCount } from "@/lib/format/contextUsage";
 import { useOpen } from "@/lib/format/openState";
 import { relativeToCwd } from "@/lib/relay/toolCallSummary";
@@ -54,6 +56,23 @@ function inputLine(call: ToolCallEntry, dict: ReturnType<typeof useDict>, cwd: s
   }
 }
 
+/** A call whose input line already says everything its arguments do (a path,
+ * a command, a query) has nothing to add by repeating them as JSON. One with
+ * no interpreted subject — an unknown tool — or an MCP call, whose line only
+ * names the tool, would otherwise show nothing about what it was called with,
+ * so its arguments get a block of their own. */
+function showsArguments(call: ToolCallEntry): boolean {
+  if (Object.keys(call.input).length === 0) return false;
+  const kind = call.subject?.kind;
+  return kind === undefined || kind === "mcp" || kind === "task" || kind === "other";
+}
+
+/** "420ms" for a call that ended fast, whole seconds after — the same clock
+ * format as everything else in the log. */
+function formatCallTime(ms: number): string {
+  return ms < 1000 ? `${Math.max(1, Math.round(ms))}ms` : formatElapsed(ms);
+}
+
 /** The copy button copies the result — the text the call produced — not the
  * input, which the row already shows. */
 function CopyResult({ text, onCopy }: { text: string; onCopy: (text: string) => void }) {
@@ -97,6 +116,8 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
   const meta = callMeta(call, activity);
   const input = inputLine(call, dict, cwd);
   const failed = call.isError && !call.aborted;
+  const duration = callDuration(call);
+  const withArguments = showsArguments(call);
 
   function onKey(event: KeyboardEvent<HTMLDivElement>): void {
     if (event.target !== event.currentTarget) return;
@@ -119,8 +140,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
         className="flex cursor-pointer items-center gap-2.5 px-3 py-[9px] text-[13.5px] leading-snug transition-colors hover:bg-surface-hover"
       >
         <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-          {!call.done && <span className="size-2.5 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-primary" aria-hidden />}
-          {failed && <span className="size-[7px] shrink-0 bg-destructive" aria-hidden />}
+          <ToolIcon call={call} className="size-4 shrink-0 text-text-faint" />
           <span className="shrink-0 whitespace-nowrap text-text-faint">{verb}</span>
           {openablePath && onOpenPath ? (
             <button
@@ -147,14 +167,30 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
             </span>
           )}
           {meta?.kind === "text" && <span>{meta.text}</span>}
-          {meta?.kind === "error" && <span className="text-destructive">{meta.text}</span>}
           {attribution && attribution.tokens >= ATTRIBUTION_BADGE_FLOOR && (
             <span title={attribution.estimated ? dict.chat.toolCall.attributionEstimatedHint : undefined}>
               +{formatTokenCount(attribution.tokens)}
               {attribution.estimated ? "~" : ""}
             </span>
           )}
-          {!call.done && call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />}
+          {/* The state, always on the right: still running, failed, or done.
+              A call the user stopped is none of those, so it shows nothing. */}
+          {!call.done ? (
+            <>
+              <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-primary" aria-hidden />
+              {call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />}
+            </>
+          ) : failed ? (
+            <>
+              <AlertCircle className="size-3.5 shrink-0 text-destructive" aria-hidden />
+              <span className="text-destructive">{meta?.kind === "error" ? meta.text : activity.callFailed}</span>
+            </>
+          ) : !call.isError ? (
+            <>
+              <Check className="size-3.5 shrink-0 text-primary" strokeWidth={2.5} aria-hidden />
+              {duration !== undefined && <span>{formatCallTime(duration)}</span>}
+            </>
+          ) : null}
         </span>
       </div>
 
@@ -164,10 +200,38 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
             <div className="flex min-h-6 items-center gap-2 font-mono text-[11px]">
               <span className="shrink-0 text-text-faint">{input.label}</span>
               <span className="min-w-0 flex-1 whitespace-pre-wrap break-all text-foreground">{input.value}</span>
-              {call.content !== undefined && <CopyResult text={call.content} onCopy={onCopy} />}
+              {/* With a Result block below, that block carries the copy button. */}
+              {call.content !== undefined && !withArguments && <CopyResult text={call.content} onCopy={onCopy} />}
             </div>
           )}
-          {call.done ? <OutcomeView call={call} cwd={cwd} /> : <p className="font-mono text-[11px] text-text-faint">{activity.running}</p>}
+          {withArguments && <CodeBlock label={activity.block.arguments} value={call.input} copyLabel={activity.block.copyArguments} onCopy={onCopy} />}
+          {!call.done ? (
+            <p className="font-mono text-[11px] text-text-faint">{activity.running}</p>
+          ) : withArguments ? (
+            // Nothing above carries the copy-result button here (that lives on
+            // the input line), so the result brings its own label and button.
+            call.outcome === undefined || call.outcome.kind === "text" ? (
+              call.content ? (
+                <CodeBlock label={activity.block.result} value={call.content} copyLabel={activity.copyResult} onCopy={onCopy} />
+              ) : (
+                // A call that returned nothing: say so, and offer no copy of an empty string.
+                <div className="flex flex-col gap-1">
+                  <span className="font-mono text-[10.5px] tracking-wide text-text-faint uppercase">{activity.block.result}</span>
+                  <p className="font-mono text-[11px] text-text-faint">{activity.noOutput}</p>
+                </div>
+              )
+            ) : (
+              <div className="flex flex-col gap-1">
+                <div className="flex min-h-6 items-center justify-between">
+                  <span className="font-mono text-[10.5px] tracking-wide text-text-faint uppercase">{activity.block.result}</span>
+                  {call.content !== undefined && <CopyResult text={call.content} onCopy={onCopy} />}
+                </div>
+                <OutcomeView call={call} cwd={cwd} />
+              </div>
+            )
+          ) : (
+            <OutcomeView call={call} cwd={cwd} />
+          )}
         </div>
       )}
     </div>

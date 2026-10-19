@@ -68,7 +68,6 @@ export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> 
 }
 
 type VerbKey = keyof ActivityDict["verbs"];
-type CountKey = keyof ActivityDict["counts"];
 
 export function verbKey(call: ToolCallEntry): VerbKey {
   const subject = call.subject;
@@ -78,11 +77,6 @@ export function verbKey(call: ToolCallEntry): VerbKey {
   if (call.toolKind === "search") return "searchContent";
   if (call.toolKind === "web") return "webSearch";
   return call.toolKind;
-}
-
-function countKey(call: ToolCallEntry): CountKey {
-  const kind = call.subject?.kind ?? call.toolKind;
-  return kind;
 }
 
 const TARGET_MAX = 48;
@@ -132,101 +126,44 @@ function fill(template: string, values: Record<string, string | number>): string
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? `{${key}}`));
 }
 
-function phraseFor(call: ToolCallEntry, dict: ActivityDict): string {
-  const verb = dict.verbs[verbKey(call)];
-  const target = callTarget(call);
-  return call.done ? fill(verb.past, { target }) : `${fill(verb.ing, { target })}…`;
-}
-
-function upperFirst(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function lowerFirst(text: string): string {
-  return text.charAt(0).toLowerCase() + text.slice(1);
-}
-
-/** Consecutive identical phrases collapse: "ran the tests, ran the tests"
- * reads as "ran the tests 2×". */
-function collapseRepeats(phrases: string[]): string[] {
-  const out: { phrase: string; count: number }[] = [];
-  for (const phrase of phrases) {
-    const last = out[out.length - 1];
-    if (last && last.phrase === phrase) last.count += 1;
-    else out.push({ phrase, count: 1 });
-  }
-  return out.map(({ phrase, count }) => (count > 1 ? `${phrase} ${count}×` : phrase));
-}
-
-/** One phrase per call, except that a run of different finished commands
- * is counted, not quoted — a command line is noise in a sentence once it has
- * run, and the expanded row keeps it in full. A command repeated as it was
- * ("npm test", "npm test") is still named, so it can collapse to "2×";
- * one still running is always named. */
-function detailPhrases(calls: ToolCallEntry[], dict: ActivityDict): string[] {
-  const phrases: string[] = [];
-  let run: ToolCallEntry[] = [];
-  const flush = () => {
-    const commands = new Set(run.map(callTarget));
-    if (commands.size > 1) phrases.push(plural(dict.counts.shell, run.length));
-    else phrases.push(...run.map((call) => phraseFor(call, dict)));
-    run = [];
-  };
-  for (const call of calls) {
-    if (call.done && countKey(call) === "shell") {
-      run.push(call);
-      continue;
-    }
-    flush();
-    phrases.push(phraseFor(call, dict));
-  }
-  flush();
-  return phrases;
-}
-
-/** A group longer than this is described by counts, not call by call. */
-export const GROUP_DETAIL_LIMIT = 4;
-
-export interface GroupSummary {
-  /** The sentence: one phrase per call up to the limit, counts by kind
-   * beyond it, and anything still running listed in the gerund. */
-  text: string;
-  /** Calls that belong to a batch of two or more issued together. */
-  parallel: number;
-  failed: number;
+export interface GroupStatus {
+  /** Calls in the group — what the header counts. */
+  count: number;
   running: boolean;
+  /** Failed calls; one the user stopped is not a failure. */
+  failed: number;
 }
 
-export function summarizeGroup(calls: ToolCallEntry[], dict: ActivityDict): GroupSummary {
-  const running = calls.some((call) => !call.done);
-  let phrases: string[];
+/** What a group's header says: how many calls, whether any still runs, how
+ * many failed. The header is a count, not a sentence — each row names its own
+ * call, so a group of forty never grows a forty-clause line. */
+export function groupStatus(calls: ToolCallEntry[]): GroupStatus {
+  return {
+    count: calls.length,
+    running: calls.some((call) => !call.done),
+    failed: calls.filter((call) => call.isError && !call.aborted).length,
+  };
+}
 
-  if (calls.length <= GROUP_DETAIL_LIMIT) {
-    phrases = collapseRepeats(detailPhrases(calls, dict));
-  } else {
-    const order: CountKey[] = [];
-    const counts = new Map<CountKey, number>();
-    for (const call of calls) {
-      if (!call.done) continue;
-      const key = countKey(call);
-      if (!counts.has(key)) order.push(key);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    phrases = order.map((key) => {
-      const n = counts.get(key) ?? 0;
-      return n === 1 ? dict.counts[key].one : fill(dict.counts[key].many, { count: n });
-    });
-    phrases.push(...collapseRepeats(calls.filter((call) => !call.done).map((call) => phraseFor(call, dict))));
+/** The group's total time once every call ended with timestamps: first start
+ * to last end, so parallel calls are not double counted. Undefined while
+ * anything is open or when a call has no timestamps (an older replay) — the
+ * header then simply omits it instead of guessing. */
+export function groupDuration(calls: ToolCallEntry[]): number | undefined {
+  if (calls.length === 0) return undefined;
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const call of calls) {
+    if (!call.done || call.startedAt === undefined || call.endedAt === undefined) return undefined;
+    starts.push(call.startedAt);
+    ends.push(call.endedAt);
   }
+  return Math.max(...ends) - Math.min(...starts);
+}
 
-  const text = phrases.map((phrase, index) => (index === 0 ? upperFirst(phrase) : lowerFirst(phrase))).join(", ");
-
-  const batchSizes = new Map<string, number>();
-  for (const call of calls) if (call.batchId) batchSizes.set(call.batchId, (batchSizes.get(call.batchId) ?? 0) + 1);
-  const parallel = calls.filter((call) => call.batchId !== undefined && (batchSizes.get(call.batchId) ?? 0) > 1).length;
-
-  const failed = calls.filter((call) => call.isError && !call.aborted).length;
-  return { text, parallel, failed, running };
+/** One call's own duration, when both of its timestamps are known. */
+export function callDuration(call: ToolCallEntry): number | undefined {
+  return call.startedAt !== undefined && call.endedAt !== undefined ? Math.max(0, call.endedAt - call.startedAt) : undefined;
 }
 
 /** Whether the whole group is one parallel batch — the case where the
