@@ -60,24 +60,28 @@ async function openConversation(): Promise<void> {
 
 async function expectFlow(): Promise<void> {
   const user = userEvent.setup();
-  // The first group: the parallel read + search, in the past tense, with the
-  // parallel suffix; and the second, the failing command and its retry.
-  expect(await screen.findByText(/Read socket\.ts, searched onclose/)).toBeInTheDocument();
-  expect(screen.getByText(/2 in parallel/)).toBeInTheDocument();
-  expect(screen.getByText(/Ran npm test 2×/)).toBeInTheDocument();
-  expect(screen.getByText(/1 failed/)).toBeInTheDocument();
+  // Two groups, each one counted line: the parallel read + search, and the
+  // failing command with its retry (which is why that one says it failed).
+  const groups = await screen.findAllByRole("button", { name: /^Used 2 tools/ });
+  expect(groups).toHaveLength(2);
+  expect(groups[0]).toHaveTextContent("Used 2 tools · 2s");
+  expect(groups[1]).toHaveTextContent("Used 2 tools · 1 failed · 5s");
   expect(screen.getByText("Thought for 3s")).toBeInTheDocument();
   expect(screen.getByText("All green now.")).toBeInTheDocument();
   expect(screen.getByText(/worked 12s/)).toBeInTheDocument();
 
   // Expanding a group lists each call; expanding a call shows its result.
-  await user.click(screen.getByRole("button", { name: /Read socket\.ts, searched onclose/ }));
+  await user.click(groups[0]);
   expect(screen.getByText(en.chat.activity.batchHeader.replace("{count}", "2"))).toBeInTheDocument();
   expect(screen.getByText("2 lines")).toBeInTheDocument();
   expect(screen.getByText("1 match")).toBeInTheDocument();
 
   await user.click(screen.getByText("Read").closest('[role="button"]') as HTMLElement);
   expect(await screen.findByText("two")).toBeInTheDocument();
+
+  // The failed row of the second group says so, with the exit code.
+  await user.click(groups[1]);
+  expect(screen.getByText("exit 1")).toBeInTheDocument();
 }
 
 describe("the interleaved activity flow", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getDictionary } from "@/i18n/dictionaries";
 import type { LogEntry, ToolCallEntry } from "@/hooks/relay/useMessageLog";
-import { buildTimeline, callMeta, callTarget, groupBatch, summarizeGroup } from "@/lib/format/activity";
+import { buildTimeline, callDuration, callMeta, callTarget, groupBatch, groupDuration, groupStatus } from "@/lib/format/activity";
 
 const en = getDictionary("en").chat.activity;
 const pt = getDictionary("pt-BR").chat.activity;
@@ -86,56 +86,58 @@ describe("buildTimeline", () => {
   });
 });
 
-describe("summarizeGroup", () => {
-  it("describes each call up to four, in the past for finished ones", () => {
-    const s = summarizeGroup([read("/w/src/socket.ts"), shell("npm test")], en);
-    expect(s.text).toBe("Read socket.ts, ran npm test");
-    expect(s.running).toBe(false);
+describe("groupStatus", () => {
+  it("counts every call, running or not", () => {
+    expect(groupStatus([read("/a"), shell("ls"), shell("npm test", { done: false })])).toEqual({ count: 3, running: true, failed: 0 });
   });
 
-  it("counts a run of different finished commands instead of quoting them, and names the one still running", () => {
-    expect(summarizeGroup([shell("ls -d /a/*"), shell("cd /a; cat b")], en).text).toBe("Ran 2 commands");
-    expect(summarizeGroup([shell("ls"), shell("pwd"), shell("npm test", { done: false })], en).text).toBe("Ran 2 commands, running npm test…");
-  });
-
-  it("uses the gerund and an ellipsis for a call still running", () => {
-    const s = summarizeGroup([read("/w/socket.ts"), shell("npm test", { done: false })], en);
-    expect(s.text).toBe("Read socket.ts, running npm test…");
-    expect(s.running).toBe(true);
-  });
-
-  it("collapses identical consecutive phrases into N×", () => {
-    expect(summarizeGroup([shell("npm test"), shell("npm test")], en).text).toBe("Ran npm test 2×");
-  });
-
-  it("switches to counts by kind past four, in order of first appearance", () => {
-    const calls = [shell("a"), read("/1"), read("/2"), read("/3"), read("/4"), shell("b"), shell("c")];
-    expect(summarizeGroup(calls, en).text).toBe("Ran 3 commands, read 4 files");
-  });
-
-  it("lists what still runs after the counts", () => {
-    const calls = [read("/1"), read("/2"), read("/3"), read("/4"), shell("npm test", { done: false })];
-    expect(summarizeGroup(calls, en).text).toBe("Read 4 files, running npm test…");
-  });
-
-  it("counts calls in parallel batches of two or more, and failures", () => {
-    const calls = [read("/a", { batchId: "m1" }), read("/b", { batchId: "m1" }), shell("x", { batchId: "m2" }), shell("y", { isError: true })];
-    const s = summarizeGroup(calls, en);
-    expect(s.parallel).toBe(2);
-    expect(s.failed).toBe(1);
+  it("is not running once every call is done, and counts failures", () => {
+    const status = groupStatus([read("/a"), shell("x", { isError: true }), shell("y", { isError: true })]);
+    expect(status).toEqual({ count: 3, running: false, failed: 2 });
   });
 
   it("does not count a call the turn aborted as a failure", () => {
-    expect(summarizeGroup([shell("x", { isError: true, aborted: true })], en).failed).toBe(0);
+    expect(groupStatus([shell("x", { isError: true, aborted: true })]).failed).toBe(0);
+  });
+});
+
+describe("the group line", () => {
+  // The line is `toolsRunning`/`toolsUsed` with `{count}` filled in: a pair per
+  // language, and a placeholder in the plural form is what keeps the number
+  // from being lost in translation.
+  it.each([
+    ["en", en],
+    ["pt-BR", pt],
+  ])("has a singular and a counted plural, both ways, in %s", (_, dict) => {
+    for (const pair of [dict.toolsRunning, dict.toolsUsed]) {
+      expect(pair.one).not.toContain("{count}");
+      expect(pair.many).toContain("{count}");
+    }
+  });
+});
+
+describe("groupDuration", () => {
+  const timed = (startedAt: number, endedAt: number, o: Partial<ToolCallEntry> = {}) => shell("x", { startedAt, endedAt, ...o });
+
+  it("runs from the first start to the last end, so parallel calls are not added twice", () => {
+    expect(groupDuration([timed(1000, 4000), timed(1000, 3000), timed(5000, 6500)])).toBe(5500);
   });
 
-  it("speaks the other language from the dictionary alone", () => {
-    expect(summarizeGroup([read("/w/socket.ts"), shell("npm test")], pt).text).toBe("Leu socket.ts, rodou npm test");
+  it("is unknown while any call is still open", () => {
+    expect(groupDuration([timed(1000, 2000), shell("y", { done: false, startedAt: 2000 })])).toBeUndefined();
   });
 
-  it("falls back to the raw tool name when the runtime gave no subject", () => {
-    const s = summarizeGroup([call({ name: "Mystery", toolKind: "other" })], en);
-    expect(s.text).toBe("Used Mystery");
+  it("is unknown when a call has no timestamps — an older replay — rather than guessed", () => {
+    expect(groupDuration([timed(1000, 2000), shell("y")])).toBeUndefined();
+    expect(groupDuration([])).toBeUndefined();
+  });
+});
+
+describe("callDuration", () => {
+  it("needs both timestamps, and never goes negative on a skewed clock", () => {
+    expect(callDuration(shell("x", { startedAt: 1000, endedAt: 1420 }))).toBe(420);
+    expect(callDuration(shell("x", { startedAt: 1000 }))).toBeUndefined();
+    expect(callDuration(shell("x", { startedAt: 2000, endedAt: 1000 }))).toBe(0);
   });
 });
 
@@ -146,6 +148,8 @@ describe("callTarget", () => {
     expect(callTarget(call({ toolKind: "web", subject: { kind: "web", mode: "fetch", url: "https://x.dev/p?q=1" } }))).toBe("x.dev");
     expect(callTarget(call({ toolKind: "mcp", subject: { kind: "mcp", server: "linear", tool: "get" } }))).toBe("linear.get");
     expect(callTarget(shell("x".repeat(80))).endsWith("…")).toBe(true);
+    // A runtime that gave no subject: the raw tool name, never an empty target.
+    expect(callTarget(call({ name: "Mystery", toolKind: "other" }))).toBe("Mystery");
   });
 });
 

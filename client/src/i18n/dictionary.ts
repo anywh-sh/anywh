@@ -433,11 +433,12 @@ export interface Dictionary {
        * being this one call's own exact number. */
       attributionEstimatedHint: string;
     };
-    /** The interleaved activity flow: a group of tool calls summarized in one
+    /** The interleaved activity flow: a group of tool calls counted in one
      * line, the rows inside it, and what an expanded call shows. Verbs come
      * per kind of call in two tenses (`{target}` is the file, command,
      * pattern or query, which is data); past for what finished, `ing` for
-     * what still runs. Counts have a singular/plural pair per convention. */
+     * what still runs — they name a row, never the group. Counts have a
+     * singular/plural pair per convention. */
     activity: {
       verbs: {
         read: ActivityVerb;
@@ -452,22 +453,14 @@ export interface Dictionary {
         task: ActivityVerb;
         other: ActivityVerb;
       };
-      /** The aggregated form of a long group: "Read 7 files, ran 3 commands". */
-      counts: {
-        read: ActivityCount;
-        edit: ActivityCount;
-        write: ActivityCount;
-        shell: ActivityCount;
-        search: ActivityCount;
-        web: ActivityCount;
-        mcp: ActivityCount;
-        task: ActivityCount;
-        other: ActivityCount;
-      };
-      /** `{count}` calls the agent issued at once. */
-      parallelSuffix: string;
+      /** The group's line while something in it runs — `{count}` calls so far. */
+      toolsRunning: ActivityCount;
+      /** The group's line once everything in it ended. */
+      toolsUsed: ActivityCount;
       failedOne: string;
       failedMany: string;
+      /** The state mark of a row whose call failed and reported no exit code. */
+      callFailed: string;
       /** `{count}` calls in one parallel batch. */
       batchHeader: string;
       thinking: string;
@@ -483,6 +476,17 @@ export interface Dictionary {
         matches: ActivityCount;
         results: ActivityCount;
         exit: string;
+      };
+      /** The labelled, copyable blocks of an expanded call. */
+      block: {
+        arguments: string;
+        result: string;
+        copyArguments: string;
+        /** Past this height a block is clipped behind this toggle. */
+        showAll: string;
+        showLess: string;
+        /** `{count}` characters left out of the display of a huge payload. */
+        truncated: string;
       };
       copyResult: string;
       resultCopied: string;
