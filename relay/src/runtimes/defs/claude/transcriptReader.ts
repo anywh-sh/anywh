@@ -4,6 +4,7 @@ import { isToolResultOnly, type ClaudeEvent } from "./session.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
+import { isNoReply, markSilent, promptOffersSilence } from "../../../protocol/silentEvents.js";
 
 /** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
  * independently (rather than imported) so this file has no reason to reach
@@ -125,7 +126,38 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   // good enough for "thought for Ns".
   let previousLineMs: number | undefined;
 
+  // The open turn, as far as recognising a silenced background-job report
+  // needs it: where it starts in `messages`, whether it is one of those
+  // reports and offered `NO_REPLY`, what the assistant said and whether it
+  // used a tool.
+  let turnStartIdx = 0;
+  let turnUserEvent: Extract<AgentEvent, { type: "user_message" }> | undefined;
+  let turnOffered = false;
+  let turnAssistantTexts: string[] = [];
+  let turnUsedTool = false;
+  // Live, a Stop (`stopped: true`) is never silenced. The transcript has no
+  // stop record of its own, only the "[Request interrupted by user]" user
+  // line Claude Code appends right after an interrupted turn, so that line
+  // is the one signal available here. It is not complete: a Stop that left
+  // no such line (or a turn still running when the relay died) can't be told
+  // from a finished turn, which is why the LAST turn of a file is never
+  // collapsed (see the end of this function).
+  let turnInterrupted = false;
+
+  /** A report turn the model answered with `NO_REPLY` alone collapses to the
+   * minimal marked pair the live relay keeps in `history` (see
+   * `protocol/silentEvents.ts`): one `user_message` + `turn_ended`, so the turn
+   * count still matches the transcript's `user` lines. Returns whether it did. */
+  function collapseIfSilent(): boolean {
+    if (!turnUserEvent || !turnOffered || turnUsedTool || turnInterrupted || !isNoReply(turnAssistantTexts.join("\n"))) return false;
+    messages.length = turnStartIdx;
+    messages.push({ type: "agent_event", event: markSilent(turnUserEvent) });
+    messages.push({ type: "agent_event", event: markSilent({ type: "turn_ended", stopped: false }) });
+    return true;
+  }
+
   function closeTurn(): void {
+    if (collapseIfSilent()) return;
     const durationMs = turnStartMs !== undefined && lastLineMs !== undefined ? Math.max(0, lastLineMs - turnStartMs) : undefined;
     messages.push({ type: "agent_event", event: { type: "turn_ended", stopped: false, ...(durationMs !== undefined ? { durationMs } : {}) } });
   }
@@ -159,6 +191,15 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
 
     if (line.type === "assistant") {
       if (turnOpen && lineMs !== undefined) lastLineMs = lineMs;
+      const content = line.message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (typeof block !== "object" || block === null) continue;
+          const kind = (block as { type?: unknown }).type;
+          if (kind === "tool_use") turnUsedTool = true;
+          else if (isTextBlock(block)) turnAssistantTexts.push(block.text);
+        }
+      }
       // Real timestamp of the line (same as `user_prompt` below) —
       // the client shows it on the assistant bubble's action strip. Omitted
       // when absent, same reasoning as the `user_prompt` case.
@@ -179,9 +220,16 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
       // as a closed, followed-by-another-turn conversation didn't end on a
       // stop. Mirrors `turn_started`/`turn_ended`'s live ordering in
       // `sharedSession.ts::runTurn`.
+      if (humanText.startsWith(INTERRUPT_MARKER)) turnInterrupted = true;
       if (turnOpen) closeTurn();
       turnStartMs = lineMs;
       lastLineMs = lineMs;
+      turnStartIdx = messages.length;
+      turnUserEvent = undefined;
+      turnOffered = false;
+      turnAssistantTexts = [];
+      turnUsedTool = false;
+      turnInterrupted = false;
       messages.push({ type: "agent_event", event: { type: "turn_started", ...(lineMs !== undefined ? { startedAt: lineMs } : {}) } });
       // Real timestamp of the line — the client uses this to show
       // "X min ago" on messages reconstructed from disk; whoever sends it
@@ -194,6 +242,16 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
         message: { content: [{ type: "text", text: humanText }] },
         ...(typeof line.timestamp === "string" ? { timestamp: line.timestamp } : {}),
       });
+      const synthetic = backgroundJobPrompt(humanText);
+      const pushed = messages.at(-1)?.event;
+      if (synthetic && pushed?.type === "user_message") {
+        // A job report is not something the user typed: mark it the way the
+        // live relay does so the client renders a note, not a user bubble.
+        const event: AgentEvent = { ...pushed, synthetic: "background_job", ...(synthetic.label !== undefined ? { label: synthetic.label } : {}) };
+        messages[messages.length - 1] = { type: "agent_event", event };
+        turnUserEvent = event;
+        turnOffered = promptOffersSilence(humanText);
+      }
       turnOpen = true;
       continue;
     }
@@ -215,6 +273,12 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
     // `isMeta` or unexpected format: ignore, no visual representation.
   }
 
+  // The last turn is deliberately NOT collapsed even if it looks like an
+  // offered report answered `NO_REPLY`: nothing closes it, so it may be
+  // still running, interrupted, or cut by a crash, and the transcript can't
+  // say which. Showing a harmless `NO_REPLY` note until the next turn is
+  // better than hiding something that was not actually silenced live.
+
   // A turn left open at the end of the file is not closed on purpose — it
   // may genuinely be in progress (relay crashed mid-turn). Leaving it open
   // is harmless: `turnInFlight` on the client is local only, unaffected by
@@ -230,3 +294,15 @@ function withReplayTiming(event: AgentEvent, lineMs: number, previousMs: number 
   if (event.type === "thinking") return { ...event, startedAt: previousMs ?? lineMs, endedAt: lineMs };
   return event;
 }
+
+/** A background-job report prompt (`[anywh-bg]` line, see
+ * `session/turnMessages.ts`) and its job label, or `undefined` for anything
+ * a person typed. */
+function backgroundJobPrompt(text: string): { label: string | undefined } | undefined {
+  if (!text.startsWith("[anywh-bg]")) return undefined;
+  const label = /^\[anywh-bg\][^\n]*?"([^\n]*)" que você iniciou/.exec(text)?.[1];
+  return { label };
+}
+
+/** Text Claude Code writes as a user line when the user interrupts a turn. */
+const INTERRUPT_MARKER = "[Request interrupted by user";

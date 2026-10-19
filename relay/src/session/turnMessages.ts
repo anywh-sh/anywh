@@ -1,4 +1,8 @@
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
+import { isQuietExit } from "../host/backgroundJobs.js";
+import { SILENCE_OFFER_MARKER } from "../protocol/silentEvents.js";
+
+export { NO_REPLY, isNoReply } from "../protocol/silentEvents.js";
 
 /** Text of the synthetic turn fired when an `anywh-bg`
  * job finishes. Explicit instruction to only report (not start new work nor
@@ -10,6 +14,16 @@ import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
  * synthetic user message for the turn, so its language is what the model's
  * reply (shown to the user in the chat log) will follow.
  */
+/** Whether the model may be offered the `NO_REPLY` escape for this result.
+ * Only outcomes that can be a deliberate stop qualify: clean exit, SIGINT
+ * (130), SIGTERM (143), or an external kill with no exit code. Every other
+ * exit code (1, 2, 65, 124, ...) is a real failure and is never offered —
+ * the relay does not decide by exit code alone what is silent, it only
+ * decides what may EVER be silent. */
+export function offersSilence(job: FinishedBackgroundJob): boolean {
+  return isQuietExit(job);
+}
+
 export function buildBackgroundJobFollowupPrompt(job: FinishedBackgroundJob): string {
   // `terminated` is NOT a failure: the wrapper was
   // killed from the outside (`pkill`, SIGKILL, reboot) without leaving an
@@ -22,11 +36,26 @@ export function buildBackgroundJobFollowupPrompt(job: FinishedBackgroundJob): st
       ? "concluiu com sucesso (exit 0)"
       : `terminou com erro (exit ${String(job.exitCode)})`;
   const logTail = job.logTail.trim() || "(sem saída)";
-  return (
+  const header =
     `[anywh-bg] O processo em background "${job.label}" que você iniciou ${status}. Log (cauda):\n` +
     "```\n" +
     logTail +
-    "\n```\n\n" +
+    "\n```\n\n";
+  if (offersSilence(job)) {
+    return (
+      header +
+      "Resuma o resultado pro usuário, de forma concisa, se houver algo que ele precise saber. " +
+      `Se o contexto desta conversa mostrar que você ou o usuário encerrou esse processo de propósito, ` +
+      "ou que o resultado dele já foi lido e relatado (por exemplo, você o leu com `anywh-bg status`), " +
+      `não há nada a avisar: ${SILENCE_OFFER_MARKER}. ` +
+      "Sem essa evidência na conversa, escreva uma linha curta com o resultado — exit 0 com log vazio ou " +
+      "mascarado por `| tail` ou redirecionamento não é evidência. " +
+      "Isto é só um relatório automático — não inicie trabalho novo nem rode outro anywh-bg a partir daqui; " +
+      "se o resultado pedir alguma ação, pergunte antes de agir."
+    );
+  }
+  return (
+    header +
     "Resuma o resultado pro usuário, de forma concisa. Isto é só um relatório automático — não inicie " +
     "trabalho novo nem rode outro anywh-bg a partir daqui; se o resultado pedir alguma ação, pergunte " +
     "antes de agir."

@@ -2,8 +2,10 @@ import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type WebSocket from "ws";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
@@ -25,6 +27,8 @@ let requests: GatewayRequest[];
 let answers: { status: number; body?: unknown }[];
 
 before(async () => {
+  // Short job poll so the background-job test below doesn't wait 10s.
+  process.env.BACKGROUND_JOB_POLL_MS = "30";
   server = await startTestServer();
   gateway = createServer((req, res) => {
     let raw = "";
@@ -40,6 +44,7 @@ before(async () => {
   gatewayUrl = `http://127.0.0.1:${(gateway.address() as AddressInfo).port}/push/v1/notify`;
 });
 after(async () => {
+  delete process.env.BACKGROUND_JOB_POLL_MS;
   await server.close();
   await new Promise<void>((resolve) => gateway.close(() => resolve()));
 });
@@ -212,4 +217,44 @@ test("nothing is sent while no device is registered", async () => {
   (await runTurn("session-push-none", "hello")).close();
   await new Promise((resolve) => setTimeout(resolve, 200));
   assert.equal(requests.length, 0);
+});
+
+test("a silenced background-job report sends no push; the same job reported for real does", async () => {
+  await register();
+  const dir = mkdtempSync(join(tmpdir(), "anywh-push-bg-"));
+  const startJob = async (socket: WebSocket, id: string): Promise<string> => {
+    const exitPath = join(dir, `${id}.exit`);
+    writeFileSync(join(dir, `${id}.log`), "");
+    process.env.FAKE_CLAUDE_REPLY = "started it";
+    process.env.FAKE_CLAUDE_BACKGROUND_JOB = JSON.stringify({
+      anywh_bg: "started", id, pid: 999999, log: join(dir, `${id}.log`), exitFile: exitPath, label: id,
+    });
+    sendUserMessage(socket, "run it");
+    await collectUntil(socket, isTurnEnded);
+    delete process.env.FAKE_CLAUDE_BACKGROUND_JOB;
+    return exitPath;
+  };
+  const socket = await connectSession(server.port, "session-push-silent-bg");
+  const quietExit = await startJob(socket, "quiet");
+  await gatewayRequests(1); // the launching turn's own push
+  requests.length = 0;
+
+  process.env.FAKE_CLAUDE_REPLY = "NO_REPLY";
+  writeFileSync(quietExit, "143\n");
+  let sawActive = false;
+  await collectUntil(socket, (m) => {
+    if (m.type === "turn_state" && m.active === true) sawActive = true;
+    return sawActive && m.type === "turn_state" && m.active === false;
+  }, 8000);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(requests.length, 0, "a silenced report must not buzz the phone");
+
+  const loudExit = await startJob(socket, "loud");
+  await gatewayRequests(1); // the launching turn's push
+  requests.length = 0;
+  process.env.FAKE_CLAUDE_REPLY = "The job died unexpectedly.";
+  writeFileSync(loudExit, "143\n");
+  const [only] = await gatewayRequests(1);
+  assert.equal(only?.body.event.preview, "The job died unexpectedly.");
+  socket.close();
 });

@@ -1,12 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import {
   BackgroundJobTracker,
+  cancelledMarkerPath,
+  isQuietExit,
   extractStartedJobFromEvent,
   parseStartedMarker,
   type FinishedBackgroundJob,
@@ -547,5 +550,210 @@ test("BackgroundJobTracker: cancel with a stale heartbeat drops the job WITHOUT 
     tracker.stopPolling();
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- anywh-bg stop ---------------------------------------------------------
+
+const ANYWH_BG = fileURLToPath(new URL("../../scripts/anywh-bg", import.meta.url));
+
+function runBg(home: string, ...args: string[]) {
+  return spawnSync("bash", [ANYWH_BG, ...args], { env: { ...process.env, HOME: home }, encoding: "utf8" });
+}
+
+function startRealJob(home: string, cmd: string): { id: string; pid: number; log: string; exitFile: string } {
+  const out = runBg(home, "start", "--label", "t", "--cmd", cmd);
+  assert.equal(out.status, 0, out.stderr);
+  const marker = JSON.parse(out.stdout.trim()) as { id: string; pid: number; log: string; exitFile: string };
+  return marker;
+}
+
+async function waitFor(cond: () => boolean, ms = 5000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error("waitFor timed out");
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+test("cancelledMarkerPath: sits next to the .exit file", () => {
+  assert.equal(cancelledMarkerPath("/a/b/123-4.exit"), "/a/b/123-4.cancelled");
+});
+
+test("anywh-bg stop: a stopped real job fires NO onFinished and the marker is cleaned up", async () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  try {
+    const job = startRealJob(home, "sleep 30");
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
+    tracker.observeEvent("sess-1", startedEvent(job.id, job.log, job.exitFile, "t", job.pid));
+
+    const stop = runBg(home, "stop", job.id);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.match(stop.stdout, /"stopped":true/);
+    assert.ok(existsSync(cancelledMarkerPath(job.exitFile)), "marker is written");
+
+    await waitFor(() => existsSync(job.exitFile));
+    tracker.pollOnce();
+    assert.equal(finished.length, 0, "a deliberate stop must not trigger the follow-up turn");
+    assert.equal(tracker.listWatched().length, 0);
+    assert.equal(existsSync(cancelledMarkerPath(job.exitFile)), false, "marker removed once consumed");
+    tracker.stopPolling();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg stop: a job that already finished is NOT silenced", async () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  try {
+    const job = startRealJob(home, "echo done");
+    await waitFor(() => existsSync(job.exitFile));
+    const stop = runBg(home, "stop", job.id);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.match(stop.stdout, /"stopped":false/);
+    assert.match(stop.stdout, /already finished/);
+    assert.equal(existsSync(cancelledMarkerPath(job.exitFile)), false, "no marker for a finished job");
+
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
+    tracker.observeEvent("sess-1", startedEvent(job.id, job.log, job.exitFile, "t", job.pid));
+    tracker.pollOnce();
+    assert.equal(finished.length, 1);
+    assert.equal(finished[0]?.exitCode, 0);
+    tracker.stopPolling();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg stop: unknown id exits 1 with an error", () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  try {
+    const stop = runBg(home, "stop", "nope");
+    assert.equal(stop.status, 1);
+    assert.match(stop.stderr, /unknown job/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("BackgroundJobTracker: a cancel marker also silences the wrapper-killed (terminated) path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-bgjobs-test-"));
+  try {
+    const logPath = join(dir, "job.log");
+    const exitPath = join(dir, "job.exit");
+    const alivePath = join(dir, "job.alive");
+    writeFileSync(logPath, "");
+    writeFileSync(alivePath, "");
+    utimesSync(alivePath, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+    writeFileSync(cancelledMarkerPath(exitPath), "");
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j), heartbeatStaleMs: 1000 });
+    // Dead PID: spawn and reap a short process.
+    const dead = spawnSync("true");
+    tracker.observeEvent("sess-1", startedEvent("job-1", logPath, exitPath, "t", 2 ** 22 + (dead.pid ?? 0), alivePath));
+    tracker.pollOnce();
+    assert.equal(finished.length, 0);
+    assert.equal(tracker.listWatched().length, 0);
+    assert.equal(existsSync(cancelledMarkerPath(exitPath)), false);
+    tracker.stopPolling();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("isQuietExit: 0/130/143/terminated only", () => {
+  for (const exitCode of [0, 130, 143]) assert.equal(isQuietExit({ exitCode }), true);
+  assert.equal(isQuietExit({ exitCode: -1, terminated: true }), true);
+  for (const exitCode of [1, 2, 124, 137]) assert.equal(isQuietExit({ exitCode }), false);
+});
+
+test("BackgroundJobTracker: a cancel marker never swallows a real failure (exit 1), and is still cleaned up", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-bgjobs-test-"));
+  try {
+    const logPath = join(dir, "job.log");
+    const exitPath = join(dir, "job.exit");
+    writeFileSync(logPath, "boom");
+    writeFileSync(exitPath, "1\n");
+    writeFileSync(cancelledMarkerPath(exitPath), "");
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
+    tracker.observeEvent("sess-1", startedEvent("job-1", logPath, exitPath));
+    tracker.pollOnce();
+    assert.equal(finished.length, 1);
+    assert.equal(finished[0]?.exitCode, 1);
+    assert.equal(existsSync(cancelledMarkerPath(exitPath)), false);
+    tracker.stopPolling();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg stop: a job that finishes with exit 1 right after the marker is written is reported, not silenced", () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  try {
+    const job = startRealJob(home, "sleep 30");
+    // `touch` shim: creates the marker like the real one, then makes the job
+    // "finish by itself with exit 1" at exactly the racy moment.
+    const shimDir = join(home, "shim");
+    mkdirSync(shimDir);
+    const shim = join(shimDir, "touch");
+    writeFileSync(shim, `#!/bin/bash\n/usr/bin/env -i PATH=/usr/bin:/bin touch "$@"\ncase "$1" in *.cancelled) echo 1 > "${job.exitFile}" ;; esac\n`);
+    chmodSync(shim, 0o755);
+    const out = spawnSync("bash", [ANYWH_BG, "stop", job.id], {
+      env: { ...process.env, HOME: home, PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+      encoding: "utf8",
+    });
+    assert.equal(out.status, 0, out.stderr);
+    assert.match(out.stdout, /"stopped":false/);
+    assert.match(out.stdout, /already finished \(exit 1\)/);
+    assert.equal(existsSync(cancelledMarkerPath(job.exitFile)), false, "marker removed again");
+
+    const finished: FinishedBackgroundJob[] = [];
+    const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
+    tracker.observeEvent("sess-1", startedEvent(job.id, job.log, job.exitFile, "t", job.pid));
+    tracker.pollOnce();
+    assert.equal(finished[0]?.exitCode, 1, "the real failure is reported");
+    tracker.stopPolling();
+    process.kill(-job.pid, "SIGKILL");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg stop: a stale heartbeat means the PID may be recycled - nothing is signalled", async () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  // A live, unrelated process group standing in for the recycled PID.
+  const bystander = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
+  try {
+    const pid = bystander.pid;
+    assert.ok(pid);
+    const jobs = join(home, ".anywh", "bg-jobs");
+    mkdirSync(jobs, { recursive: true });
+    const id = "old-job";
+    writeFileSync(join(jobs, `${id}.log`), "");
+    writeFileSync(join(jobs, `${id}.pid`), `${String(pid)}\n`);
+    writeFileSync(join(jobs, `${id}.alive`), "");
+    const old = new Date(Date.now() - 120_000);
+    utimesSync(join(jobs, `${id}.alive`), old, old);
+
+    const stop = runBg(home, "stop", id);
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.match(stop.stdout, /"stopped":false/);
+    assert.match(stop.stdout, /no live heartbeat/);
+    assert.equal(existsSync(join(jobs, `${id}.cancelled`)), false, "no marker either");
+    assert.equal(existsSync(join(jobs, `${id}.exit`)), false);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.doesNotThrow(() => process.kill(pid, 0), "the bystander must still be alive");
+  } finally {
+    if (bystander.pid) {
+      try {
+        process.kill(-bystander.pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    rmSync(home, { recursive: true, force: true });
   }
 });

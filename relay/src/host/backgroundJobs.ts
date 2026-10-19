@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentEvent } from "../protocol/agent-event.js";
 
@@ -158,6 +158,21 @@ function readExitCode(exitPath: string): number | undefined {
   if (raw === "") return undefined;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : -1;
+}
+
+/** Outcomes that can be a deliberate stop: clean exit (a server that handles
+ * SIGTERM and exits 0), SIGINT (130), SIGTERM (143), or an external kill with
+ * no exit code. Any other code is a real failure and is never silenced, by
+ * the `.cancelled` marker or by the model's `NO_REPLY`. */
+export function isQuietExit(result: { exitCode: number; terminated?: true }): boolean {
+  return result.terminated === true || result.exitCode === 0 || result.exitCode === 130 || result.exitCode === 143;
+}
+
+/** Path of the marker `anywh-bg stop` writes BEFORE signalling the job. It
+ * sits next to the `.exit` file (`<id>.exit` -> `<id>.cancelled`), which is
+ * the only per-job path the relay already knows. */
+export function cancelledMarkerPath(exitPath: string): string {
+  return exitPath.endsWith(".exit") ? `${exitPath.slice(0, -".exit".length)}.cancelled` : `${exitPath}.cancelled`;
 }
 
 /** `kill(pid, 0)` — signal 0 only checks existence/permission, never
@@ -384,6 +399,28 @@ export class BackgroundJobTracker {
    * empty tail, never worth swallowing the whole notification for. */
   private finish(key: string, job: WatchedJob, result: { exitCode: number; terminated?: true }): void {
     this.jobs.delete(key);
+    // `anywh-bg stop` leaves its marker before it kills, so by the time the
+    // exit (or the dead wrapper) is visible the marker is already on disk.
+    // Whoever stopped the job knows it ended: treat it exactly like a UI
+    // cancel — no follow-up turn.
+    //
+    // Only for outcomes that can be a stop: a job that failed on its own
+    // (exit 1...) in the window around `anywh-bg stop` must still be
+    // reported, marker or not.
+    const marker = cancelledMarkerPath(job.exitPath);
+    const hasMarker = existsSync(marker);
+    if (hasMarker) {
+      try {
+        rmSync(marker, { force: true });
+      } catch (error) {
+        console.error(`[relay] failed removing cancel marker of background job "${job.label}" (${job.id}):`, error);
+      }
+    }
+    if (hasMarker && isQuietExit(result)) {
+      this.persist();
+      this.options.onChanged?.(job.sessionId);
+      return;
+    }
     let logTail = "";
     try {
       logTail = readLogTail(job.logPath, this.logTailBytes);

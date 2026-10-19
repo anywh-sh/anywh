@@ -10,6 +10,13 @@
 # Uso:
 #   anywh-bg start --label "<descrição curta>" --cmd "<comando shell completo>"
 #   anywh-bg status <id>
+#   anywh-bg stop <id>
+#
+# `stop` is the way to end a job on purpose. It leaves a `<id>.cancelled`
+# marker BEFORE signalling the process group, which is how the relay tells a
+# deliberate stop from a job that ended on its own and skips the automatic
+# follow-up turn for it. Killing the job by hand (`kill`/`pkill`) leaves no
+# such marker, so the relay reports it like any other finish.
 #
 # `--cmd` recebe UMA string (o comando inteiro, com `&&`/`|`/`;`/redirects
 # como o autor da chamada quiser) rodada via `bash -c`, nunca uma lista de
@@ -150,6 +157,9 @@ cmd_start() {
     < /dev/null > "$log" 2>&1 &
   local pid=$!
   disown 2>/dev/null || true
+  # `stop` only receives the id, and `setsid` made this PID the process
+  # group leader, so persist it next to the other per-job files.
+  printf '%s\n' "$!" > "$JOBS_DIR/$id.pid"
 
   printf '{"anywh_bg":"started","id":"%s","pid":%d,"log":"%s","exitFile":"%s","alive":"%s","label":"%s"}\n' \
     "$(json_escape "$id")" "$pid" "$(json_escape "$log")" "$(json_escape "$exitfile")" \
@@ -180,6 +190,90 @@ cmd_status() {
   fi
 }
 
+# Seconds since a file was last modified (GNU stat, then BSD/macOS stat).
+file_age_s() {
+  local mtime
+  mtime=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null) || return 1
+  echo $(( $(date +%s) - mtime ))
+}
+
+# Same bound the relay uses before it trusts a job's PID (6 missed beats).
+HEARTBEAT_STALE_S=30
+
+cmd_stop() {
+  local id=${1:?usage: anywh-bg stop <id>}
+  local log="$JOBS_DIR/$id.log"
+  local exitfile="$JOBS_DIR/$id.exit"
+  local pidfile="$JOBS_DIR/$id.pid"
+  local marker="$JOBS_DIR/$id.cancelled"
+
+  if [[ ! -f "$log" ]]; then
+    echo "unknown job: $id" >&2
+    exit 1
+  fi
+
+  # Already finished: its completion is real news, so never mark it as
+  # cancelled (that would silence the report).
+  if [[ -f "$exitfile" ]]; then
+    printf '{"anywh_bg":"stop","id":"%s","stopped":false,"reason":"already finished (exit %s)"}\n' \
+      "$(json_escape "$id")" "$(json_escape "$(<"$exitfile")")"
+    return 0
+  fi
+
+  if [[ ! -f "$pidfile" ]]; then
+    echo "cannot stop job $id: no pid file (started by an older anywh-bg)" >&2
+    exit 1
+  fi
+  local pgid
+  pgid=$(<"$pidfile")
+  if [[ ! "$pgid" =~ ^[0-9]+$ ]] || ! kill -0 "-$pgid" 2>/dev/null; then
+    printf '{"anywh_bg":"stop","id":"%s","stopped":false,"reason":"not running"}\n' "$(json_escape "$id")"
+    return 0
+  fi
+
+  # The pid file alone proves nothing: after a reboot or a long-dead job the
+  # OS may have handed that PID (and group) to someone else, and `kill -<pgid>`
+  # would take down an unrelated process group. The wrapper's heartbeat is what
+  # vouches that the group is still ours. It is created in the wrapper's first
+  # milliseconds, so until then the pid file's own age stands in for it.
+  local age
+  age=$(file_age_s "$JOBS_DIR/$id.alive" || file_age_s "$pidfile" || echo 0)
+  if (( age > HEARTBEAT_STALE_S )); then
+    printf '{"anywh_bg":"stop","id":"%s","stopped":false,"reason":"no live heartbeat; job considered dead, nothing signalled"}\n' "$(json_escape "$id")"
+    return 0
+  fi
+
+  # Marker first, kill second: the relay may observe the exit the instant
+  # the process dies and must already find the marker there.
+  touch "$marker"
+  # Close the window between the `.exit` check above and the marker: if the
+  # job finished by itself in between, its result is real news, not a stop.
+  if [[ -f "$exitfile" ]]; then
+    rm -f "$marker"
+    printf '{"anywh_bg":"stop","id":"%s","stopped":false,"reason":"already finished (exit %s)"}\n' \
+      "$(json_escape "$id")" "$(json_escape "$(<"$exitfile")")"
+    return 0
+  fi
+  kill -TERM "-$pgid" 2>/dev/null || true
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    kill -0 "-$pgid" 2>/dev/null || break
+    sleep 0.1
+  done
+  kill -KILL "-$pgid" 2>/dev/null || true
+  # The wrapper can die before it writes `.exit` (stopped before its TERM
+  # trap was installed, or taken out by the KILL above). The job is gone and
+  # we are the one who ended it, so record the conventional SIGTERM status
+  # now instead of leaving the relay to notice via the stale heartbeat.
+  if [[ ! -f "$exitfile" ]]; then
+    sleep 0.2
+    if [[ ! -f "$exitfile" ]]; then
+      printf '143\n' > "$exitfile.stop.tmp" && mv -f "$exitfile.stop.tmp" "$exitfile"
+    fi
+  fi
+  printf '{"anywh_bg":"stop","id":"%s","stopped":true}\n' "$(json_escape "$id")"
+}
+
 case "${1:-}" in
   start)
     shift
@@ -189,9 +283,14 @@ case "${1:-}" in
     shift
     cmd_status "$@"
     ;;
+  stop)
+    shift
+    cmd_stop "$@"
+    ;;
   *)
     echo "uso: anywh-bg start --label \"<descrição>\" --cmd \"<comando shell completo>\"" >&2
     echo "     anywh-bg status <id>" >&2
+    echo "     anywh-bg stop <id>" >&2
     exit 1
     ;;
 esac
