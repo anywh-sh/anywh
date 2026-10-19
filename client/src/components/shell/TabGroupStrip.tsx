@@ -50,6 +50,9 @@ interface TabGroupStripProps {
   /** Right padding that keeps the strip's own controls clear of something
    * pinned over its end (the window controls). */
   trailingInsetClass?: string;
+  /** Left padding for the first group when something is pinned over the start
+   * of the strip (the shell buttons, once the sidebar is collapsed). */
+  leadingInsetClass?: string;
 }
 
 interface SortableTabProps {
@@ -229,6 +232,7 @@ export function TabGroupStrip({
   onSplitToNewGroup,
   onNewTab,
   trailingInsetClass,
+  leadingInsetClass,
 }: TabGroupStripProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
@@ -265,7 +269,7 @@ export function TabGroupStrip({
             wrapper rather than on the tablist, so the `+` can sit OUTSIDE the
             horizontal scroller and stay pinned to the right edge instead of
             scrolling away with the tabs. */}
-        <div className={cn("flex h-10 w-full items-center bg-bg-chrome", trailingInsetClass)}>
+        <div className={cn("flex h-10 w-full items-center bg-bg-chrome", trailingInsetClass, leadingInsetClass)}>
           <div
             role="tablist"
             aria-orientation="horizontal"

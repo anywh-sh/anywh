@@ -565,11 +565,22 @@ function AppShell() {
   // is in the footer, next to the version.
   const notices = <RevokedProfileBanners />;
 
+  // The sidebar is hidden (collapsed on desktop) — the shell buttons then
+  // float over the strip, and their measured width tells the strip how much
+  // room to leave.
+  const sidebarHidden = resizable.collapsed && !isCompact;
+  const [leadingWidth, setLeadingWidth] = useState(0);
+  const leadingRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    setLeadingWidth(node.getBoundingClientRect().width);
+    new ResizeObserver(() => setLeadingWidth(node.getBoundingClientRect().width)).observe(node);
+  }, []);
+
   const tabsContent = (
     <div className="relative min-h-0 flex-1">
       {tabsState.tabs.length === 0 ? (
         <div className="flex h-full flex-col">
-          <div data-tauri-drag-region className="relative h-10 shrink-0 border-b border-border-soft bg-bg-chrome">
+          <div data-tauri-drag-region className={cn("relative h-10 shrink-0 border-b border-border-soft bg-bg-chrome", sidebarHidden && "pl-[var(--shell-leading)]")}>
             {windowControls && <div className="absolute top-0 right-0 h-10">{windowControls}</div>}
           </div>
           {notices}
@@ -607,6 +618,7 @@ function AppShell() {
           }}
           renderPanel={renderPanel}
           belowStrip={notices}
+          stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />
@@ -698,29 +710,23 @@ function AppShell() {
       <UpdateModal open={updateModalOpen} onOpenChange={setUpdateModalOpen} />
 
       <div className="flex min-h-0 flex-1">
-        {!isCompact && (
+        {!isCompact && !resizable.collapsed && (
           // The window's top-left corner and the sidebar are one column: the
           // traffic lights and the shell buttons sit on top of the session
-          // list, and the tab strip starts where this column ends. Collapsed,
-          // it shrinks to just the buttons.
-          <div
-            className="relative flex shrink-0 flex-col bg-bg-sidebar"
-            style={resizable.collapsed ? undefined : { width: resizable.width }}
-          >
+          // list, and the tab strip starts where this column ends. The rule
+          // between the sidebar and the plane is the plane's own frame, so the
+          // column draws none.
+          <div className="relative flex shrink-0 flex-col bg-bg-sidebar" style={{ width: resizable.width }}>
             {titleBar}
-            {/* The rule between the sidebar and the plane starts below the
-             * header: the strip row owns the line above it. */}
-            {!resizable.collapsed && (
-              <div className="relative min-h-0 flex-1 border-r border-border-soft">
-                <div className="h-full overflow-hidden">
-                  <Sidebar {...sidebarProps} />
-                </div>
-                <div
-                  onPointerDown={resizable.startDrag}
-                  className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
-                />
+            <div className="relative min-h-0 flex-1">
+              <div className="h-full overflow-hidden">
+                <Sidebar {...sidebarProps} />
               </div>
-            )}
+              <div
+                onPointerDown={resizable.startDrag}
+                className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
+              />
+            </div>
           </div>
         )}
 
@@ -734,7 +740,18 @@ function AppShell() {
         )}
 
         {/* Collapsed, the plane keeps 8px of the frame on its left. */}
-        <div className={cn("relative flex min-w-0 flex-1 flex-col", resizable.collapsed && !isCompact && "pl-2")}>
+        <div
+          className={cn("relative flex min-w-0 flex-1 flex-col", sidebarHidden && "pl-2")}
+          style={sidebarHidden ? ({ "--shell-leading": `${String(Math.max(0, leadingWidth - 8))}px` } as React.CSSProperties) : undefined}
+        >
+          {/* Collapsed, the sidebar is gone and only the shell buttons stay,
+           * floating over the start of the strip row; the plane runs from 8px
+           * in, and the strip leaves room for them. */}
+          {sidebarHidden && (
+            <div ref={leadingRef} className="absolute top-0 left-0 z-30">
+              {titleBar}
+            </div>
+          )}
           {isCompact && (
             <div className="flex shrink-0 items-center">
               {titleBar}

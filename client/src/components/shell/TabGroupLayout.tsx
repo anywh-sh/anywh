@@ -89,6 +89,8 @@ interface TabGroupLayoutProps {
    * break), so the last strip reserves the room with `stripTrailingInsetClass`. */
   stripTrailing?: ReactNode;
   stripTrailingInsetClass?: string;
+  /** The same for the start of the strip row: room for what is pinned over it. */
+  stripLeadingInsetClass?: string;
   /** Full-width notices drawn between the strip row and the panels — below
    * the strip so the strip row stays level with the sidebar's own header. */
   belowStrip?: ReactNode;
@@ -244,6 +246,7 @@ export function TabGroupLayout({
   renderPanel,
   stripTrailing,
   stripTrailingInsetClass,
+  stripLeadingInsetClass,
   belowStrip,
 }: TabGroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -312,6 +315,7 @@ export function TabGroupLayout({
             <TabGroupStrip
               groupId={lastGroupId}
               trailingInsetClass={stripTrailingInsetClass}
+            leadingInsetClass={stripLeadingInsetClass}
               tabs={flatTabIds.map((id) => tabById.get(id)).filter((tab): tab is Tab => tab !== undefined)}
               activeTabId={activeTabId}
               allowSplit={false}
@@ -377,6 +381,7 @@ export function TabGroupLayout({
                 activeTabId={group.activeTabId}
                 allowSplit
                 trailingInsetClass={index === groups.length - 1 ? stripTrailingInsetClass : undefined}
+                leadingInsetClass={index === 0 ? stripLeadingInsetClass : undefined}
                 onSelect={onSelect}
                 onClose={onClose}
                 onRenameSession={onRenameSession}
