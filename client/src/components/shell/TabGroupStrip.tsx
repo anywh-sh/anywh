@@ -142,8 +142,17 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             isActive && "h-8 border-border-soft bg-background",
           )}
         >
-          {/* The profile, as a 2px rule across the top of the tab. */}
-          <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-0 z-20 h-0.5", profileColorClass(tab.profileId))} />
+          {/* The profile, as a 2px rule across the top of the tab: the whole
+              width (borders included) on the active tab, inset by the tab's
+              own padding and a touch dimmer on the others. */}
+          <span
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute top-0 z-20 h-0.5",
+              profileColorClass(tab.profileId),
+              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85",
+            )}
+          />
           <button
             ref={(el) => buttonRef(tab.id, el)}
             type="button"
