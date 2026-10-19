@@ -224,3 +224,28 @@ test("inbound notification: dispatched to onNotification, never to onRequest", (
   conn.receive(JSON.stringify({ jsonrpc: "2.0", method: "item/started", params: { id: "1" } }) + "\n");
   assert.deepEqual(notifications, [{ method: "item/started", params: { id: "1" } }]);
 });
+
+test("request: a write() that throws rejects the request and leaves nothing pending", async () => {
+  const conn = createJsonRpcConnection({
+    framing: "ndjson",
+    write: () => {
+      throw new Error("EPIPE");
+    },
+    onNotification: () => {},
+    onRequest: () => undefined,
+  });
+  await assert.rejects(conn.request("turn/start", {}), /EPIPE/);
+  assert.equal(conn.pendingCount, 0);
+});
+
+test("close(): rejects every in-flight request and clears pendingCount", async () => {
+  const { write } = fakeWriter();
+  const conn = createJsonRpcConnection({ framing: "ndjson", write, onNotification: () => {}, onRequest: () => undefined });
+  const a = conn.request("a", {});
+  const b = conn.request("b", {});
+  assert.equal(conn.pendingCount, 2);
+  conn.close(new Error("gone"));
+  await assert.rejects(a, /gone/);
+  await assert.rejects(b, /gone/);
+  assert.equal(conn.pendingCount, 0);
+});
