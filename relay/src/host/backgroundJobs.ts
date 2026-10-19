@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentEvent } from "../protocol/agent-event.js";
 
@@ -158,6 +158,13 @@ function readExitCode(exitPath: string): number | undefined {
   if (raw === "") return undefined;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : -1;
+}
+
+/** Path of the marker `anywh-bg stop` writes BEFORE signalling the job. It
+ * sits next to the `.exit` file (`<id>.exit` -> `<id>.cancelled`), which is
+ * the only per-job path the relay already knows. */
+export function cancelledMarkerPath(exitPath: string): string {
+  return exitPath.endsWith(".exit") ? `${exitPath.slice(0, -".exit".length)}.cancelled` : `${exitPath}.cancelled`;
 }
 
 /** `kill(pid, 0)` — signal 0 only checks existence/permission, never
@@ -384,6 +391,21 @@ export class BackgroundJobTracker {
    * empty tail, never worth swallowing the whole notification for. */
   private finish(key: string, job: WatchedJob, result: { exitCode: number; terminated?: true }): void {
     this.jobs.delete(key);
+    // `anywh-bg stop` leaves its marker before it kills, so by the time the
+    // exit (or the dead wrapper) is visible the marker is already on disk.
+    // Whoever stopped the job knows it ended: treat it exactly like a UI
+    // cancel — no follow-up turn.
+    const marker = cancelledMarkerPath(job.exitPath);
+    if (existsSync(marker)) {
+      try {
+        rmSync(marker, { force: true });
+      } catch (error) {
+        console.error(`[relay] failed removing cancel marker of background job "${job.label}" (${job.id}):`, error);
+      }
+      this.persist();
+      this.options.onChanged?.(job.sessionId);
+      return;
+    }
     let logTail = "";
     try {
       logTail = readLogTail(job.logPath, this.logTailBytes);
