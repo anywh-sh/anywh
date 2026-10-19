@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpCircle, X } from "lucide-react";
+import { ArrowUpCircle } from "lucide-react";
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { LanguageControl } from "@/components/shell/LanguageControl";
 import { useAppUpdate, useDownloadedUpdate } from "@/hooks/platform/useAppUpdate";
 import { backgroundActivityProfileColor, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
@@ -97,12 +104,12 @@ function ActivityRow({
             ? strings.logUnavailable
             : strings.noOutput;
   const lastLine = placeholder ?? tailLines[tailLines.length - 1];
-  const tailClassName = cn("font-mono text-[10.5px]", failed && placeholder === null ? "text-destructive" : "text-text-faint");
+  const tailClassName = cn("font-mono text-[11px]", failed && placeholder === null ? "text-destructive" : "text-text-faint");
 
   return (
-    <div className="group relative flex items-start gap-[9px] py-[9px] pr-[9px] pl-[13px] transition-colors hover:bg-bg-elevated">
+    <div className="group relative flex items-start gap-2.5 py-2 pr-3 pl-[18px] transition-colors hover:bg-surface-hover">
       <span
-        className="absolute top-[9px] bottom-[9px] left-1 w-0.5 opacity-80"
+        className="absolute top-2 bottom-2 left-2 w-0.5 opacity-80"
         style={{ background: backgroundActivityProfileColor(item) }}
         aria-hidden="true"
       />
@@ -125,9 +132,9 @@ function ActivityRow({
           >
             {item.kind === "agent" ? strings.agentBadge : strings.procBadge}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] font-medium text-foreground">{item.name}</span>
+          <span className="min-w-0 flex-1 truncate font-sans text-[13px] text-foreground">{item.name}</span>
           {duration !== null && (
-            <span className="shrink-0 font-mono text-[10.5px] text-text-faint">
+            <span className="shrink-0 font-mono text-[11px] text-text-faint">
               {failed ? strings.timeAgo.replace("{time}", duration) : duration}
             </span>
           )}
@@ -149,7 +156,7 @@ function ActivityRow({
               <button
                 type="button"
                 onClick={onDismiss}
-                className="cursor-pointer border border-border px-1.5 py-px font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+                className="cursor-pointer px-1.5 py-px font-sans text-[12px] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
               >
                 {strings.dismiss}
               </button>
@@ -158,14 +165,14 @@ function ActivityRow({
                 <button
                   type="button"
                   onClick={onOpen}
-                  className="cursor-pointer border border-border px-1.5 py-px font-mono text-[10px] font-medium text-text-faint transition-colors hover:border-text-faint hover:text-foreground"
+                  className="cursor-pointer px-1.5 py-px font-sans text-[12px] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
                 >
                   {strings.open}
                 </button>
                 <button
                   type="button"
                   onClick={onStop}
-                  className="cursor-pointer border border-destructive px-1.5 py-px font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                  className="cursor-pointer px-1.5 py-px font-sans text-[12px] text-destructive transition-colors hover:bg-destructive/10"
                 >
                   {strings.stop}
                 </button>
@@ -284,12 +291,12 @@ export function StatusBar({
             ref={activityTriggerRef}
             type="button"
             title={activityStrings.chipTitle}
-            // Same pill as `LanguageControl` on the other end of this bar —
-            // the two are the bar's only menus and should read as one kind
-            // of control.
+            // Same wash as `LanguageControl` on the other end of this bar and
+            // as the composer's menu triggers: no outline, only a fill that
+            // appears on hover and while the menu is open.
             className={cn(
-              "flex shrink-0 cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 outline-hidden transition-colors hover:border-border hover:text-foreground",
-              activityOpen ? "border-border text-foreground" : "border-transparent text-text-faint",
+              "flex shrink-0 cursor-pointer items-center gap-1.5 px-1.5 py-0.5 outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground",
+              activityOpen ? "bg-surface-hover text-foreground" : "text-text-faint",
             )}
           >
             {runCount > 0 ? (
@@ -303,26 +310,11 @@ export function StatusBar({
           </button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-[416px] p-0">
-          <div className="flex items-center gap-2 border-b border-border-soft px-[11px] py-[10px]">
-            <span className="flex-1 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
-              {activityStrings.heading}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setActivityOpen(false);
-                activityTriggerRef.current?.blur();
-              }}
-              aria-label={activityStrings.close}
-              className="flex size-5 shrink-0 cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground"
-            >
-              <X className="size-3" aria-hidden="true" />
-            </button>
-          </div>
+        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-[416px]">
+          <DropdownMenuLabel>{activityStrings.heading}</DropdownMenuLabel>
 
           {backgroundActivity.length > 0 ? (
-            <div className="max-h-[326px] overflow-y-auto px-[5px] pt-1 pb-1.5">
+            <div className="max-h-[326px] overflow-y-auto">
               {backgroundActivity.map((item) => (
                 <ActivityRow
                   key={item.id}
@@ -337,24 +329,20 @@ export function StatusBar({
               ))}
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-2 px-4 py-7 text-center">
-              <span className="flex size-[30px] items-center justify-center border border-dashed border-border font-mono text-xs text-text-faint">
-                ○
-              </span>
-              <span className="font-mono text-[11.5px] text-muted-foreground">{activityStrings.emptyTitle}</span>
-            </div>
+            <p className="px-3 py-2 font-sans text-[13px] text-text-faint">{activityStrings.emptyTitle}</p>
           )}
 
           {runCount > 0 && (
-            <div className="flex items-center justify-end border-t border-border-soft px-[9px] py-2">
-              <button
-                type="button"
-                onClick={onStopAllBackgroundActivity}
-                className="cursor-pointer border border-destructive px-1.5 py-1 font-mono text-[10px] font-medium text-destructive transition-colors hover:bg-destructive hover:text-destructive-foreground"
-              >
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={(event) => {
+                // Stopping everything leaves the list open to show it empty.
+                event.preventDefault();
+                onStopAllBackgroundActivity();
+              }}>
                 {activityStrings.stopAll}
-              </button>
-            </div>
+              </DropdownMenuItem>
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

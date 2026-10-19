@@ -373,7 +373,6 @@ export const ptBr: Dictionary = {
         none: "nada em execução",
         failedSuffix: "{count} com falha",
         heading: "atividade em segundo plano",
-        close: "Fechar",
         emptyTitle: "nada em segundo plano",
         open: "abrir",
         stop: "parar",

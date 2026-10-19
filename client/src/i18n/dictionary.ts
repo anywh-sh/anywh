@@ -965,10 +965,8 @@ export interface Dictionary {
         /** `{count}` — appended after `running`/`none` with " · " between
          * them, only when at least one item failed. */
         failedSuffix: string;
-        /** Panel header label, uppercase via CSS. */
+        /** Panel header label, the dropdown's own label row. */
         heading: string;
-        /** Accessible name of the panel's close button. */
-        close: string;
         /** Empty-state title, once every job is gone or dismissed. */
         emptyTitle: string;
         /** Row action: jumps to the item's tab and closes the panel. */

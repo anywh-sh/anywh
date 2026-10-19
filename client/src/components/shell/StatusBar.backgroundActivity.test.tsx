@@ -184,7 +184,7 @@ describe("StatusBar background activity chip", () => {
     );
     await user.click(screen.getByTitle(copy.chipTitle));
     expect(await screen.findByText(copy.heading)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: copy.stopAll })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: copy.stopAll })).not.toBeInTheDocument();
 
     rerender(
       <StatusBar
@@ -196,7 +196,7 @@ describe("StatusBar background activity chip", () => {
         onStopAllBackgroundActivity={() => {}}
       />,
     );
-    expect(await screen.findByRole("button", { name: copy.stopAll })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: copy.stopAll })).toBeInTheDocument();
   });
 
   it("never leaves a running process row's log line blank — it says the relay can't serve the log", async () => {

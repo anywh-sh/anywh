@@ -373,7 +373,6 @@ export const en: Dictionary = {
         none: "nothing running",
         failedSuffix: "{count} failed",
         heading: "background activity",
-        close: "Close",
         emptyTitle: "nothing in the background",
         open: "open",
         stop: "stop",
