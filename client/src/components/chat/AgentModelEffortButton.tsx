@@ -26,16 +26,11 @@ export function agentName(agentNames: Record<KnownAgentId, string>, id: string):
   return agentNames[id as KnownAgentId] ?? id;
 }
 
+/** The runtime's own mark, bare: no tile behind it, no border. */
 function AgentTile({ agentId, dim }: { agentId: string; dim?: boolean }) {
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "flex size-[calc(18px*var(--chrome-scale))] shrink-0 items-center justify-center border border-border bg-surface-hover text-foreground",
-        dim && "text-text-faint",
-      )}
-    >
-      <AgentLogo agentId={agentId} className="size-3" />
+    <span aria-hidden className={cn("flex shrink-0 items-center justify-center text-foreground", dim && "text-text-faint")}>
+      <AgentLogo agentId={agentId} className="size-[calc(14px*var(--chrome-scale))]" />
     </span>
   );
 }
