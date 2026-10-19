@@ -25,7 +25,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDuration } from "@/lib/utils";
@@ -890,23 +889,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             </Button>
 
             {voice.devices.length > 1 && !isRecording && !isTranscribing && (
-              <DropdownMenu>
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
                     aria-label={copy.selectMicrophone}
-                    className="flex h-7 w-3.5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex h-[30px] w-5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
                   >
-                    <ChevronDown className="size-3" />
+                    <ChevronDown className="size-3 opacity-70" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="min-w-[calc(240px*var(--chrome-scale))]">
                   <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
                   {voice.devices.map((name) => (
-                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)}>
-                      <Check className={cn("size-3.5", name !== voice.selectedDevice && "opacity-0")} />
-                      <span className="max-w-48 truncate">{name}</span>
+                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)} className={cn(name === voice.selectedDevice && "text-foreground")}>
+                      <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+                      <Check className={cn("size-3.5 shrink-0 text-foreground", name !== voice.selectedDevice && "opacity-0")} />
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>

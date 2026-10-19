@@ -504,7 +504,8 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         </div>
       )}
-      <div className="mx-auto max-w-3xl" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
+      {/* Same width as the composer under it (`ChatPanel`), so both share edges. */}
+      <div className="mx-auto max-w-[728px]" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const item = allItems[virtualItem.index];
           if (!item) return null;
