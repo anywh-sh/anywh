@@ -1,4 +1,7 @@
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
+import { SILENCE_OFFER_MARKER } from "../protocol/silentEvents.js";
+
+export { NO_REPLY, isNoReply } from "../protocol/silentEvents.js";
 
 /** Text of the synthetic turn fired when an `anywh-bg`
  * job finishes. Explicit instruction to only report (not start new work nor
@@ -10,11 +13,6 @@ import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
  * synthetic user message for the turn, so its language is what the model's
  * reply (shown to the user in the chat log) will follow.
  */
-/** Sentinel the model answers with, and nothing else, when a finished job
- * needs no report. Only honoured by the relay when `offersSilence(job)` was
- * true for that turn (see `SharedSession.runTurn`). */
-export const NO_REPLY = "NO_REPLY";
-
 /** Whether the model may be offered the `NO_REPLY` escape for this result.
  * Only outcomes that can be a deliberate stop qualify: clean exit, SIGINT
  * (130), SIGTERM (143), or an external kill with no exit code. Every other
@@ -23,12 +21,6 @@ export const NO_REPLY = "NO_REPLY";
  * decides what may EVER be silent. */
 export function offersSilence(job: FinishedBackgroundJob): boolean {
   return job.terminated === true || job.exitCode === 0 || job.exitCode === 130 || job.exitCode === 143;
-}
-
-/** Text of the answer once normalised for the `NO_REPLY` comparison: trimmed,
- * wrapping backticks/quotes and trailing period removed. */
-export function isNoReply(text: string): boolean {
-  return text.trim().replace(/^[`"']+|[`"'.]+$/g, "").trim() === NO_REPLY;
 }
 
 export function buildBackgroundJobFollowupPrompt(job: FinishedBackgroundJob): string {
@@ -54,7 +46,7 @@ export function buildBackgroundJobFollowupPrompt(job: FinishedBackgroundJob): st
       "Resuma o resultado pro usuário, de forma concisa, se houver algo que ele precise saber. " +
       `Se o contexto desta conversa mostrar que você ou o usuário encerrou esse processo de propósito, ` +
       "ou que o resultado dele já foi lido e relatado (por exemplo, você o leu com `anywh-bg status`), " +
-      `não há nada a avisar: responda exatamente ${NO_REPLY} e nada mais. ` +
+      `não há nada a avisar: ${SILENCE_OFFER_MARKER}. ` +
       "Sem essa evidência na conversa, escreva uma linha curta com o resultado — exit 0 com log vazio ou " +
       "mascarado por `| tail` ou redirecionamento não é evidência. " +
       "Isto é só um relatório automático — não inicie trabalho novo nem rode outro anywh-bg a partir daqui; " +

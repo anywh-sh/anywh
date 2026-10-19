@@ -4,6 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
+import { isSilentEvent } from "../../../protocol/silentEvents.js";
+import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 
 function withFixture(sessionId: string, rawLines: string[], run: (home: string) => void): void {
@@ -208,6 +210,81 @@ test("a replayed turn produces the same subject and outcome as the live stream d
         .map((entry) => entry.event)
         .filter((event) => event.type === "tool_started" || event.type === "tool_ended");
       assert.deepEqual(replayed, live);
+    },
+  );
+});
+
+// ---- background-job report turns on replay --------------------------------
+
+const OFFER_PROMPT =
+  '[anywh-bg] O processo em background "dev server" que você iniciou foi encerrado de fora. Log (cauda):\n```\nlisten :3000\n```\n\n' +
+  "Resuma o resultado. Se não há nada a avisar: responda exatamente NO_REPLY e nada mais.";
+const PLAIN_PROMPT =
+  '[anywh-bg] O processo em background "migrate" que você iniciou terminou com erro (exit 1). Log (cauda):\n```\nsay NO_REPLY\n```\n\nResuma o resultado.';
+
+function userLine(text: string): string {
+  return JSON.stringify({ type: "user", message: { content: text } });
+}
+function assistantText(text: string): string {
+  return JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }] } });
+}
+
+test("an [anywh-bg] prompt replays as a synthetic background_job note with its label", () => {
+  withFixture("bg1", [userLine("hi"), assistantText("ok"), userLine(PLAIN_PROMPT), assistantText("It failed.")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bg1").map((m) => m.event);
+    const note = events.find((e) => e.type === "user_message" && e.synthetic === "background_job");
+    assert.ok(note && note.type === "user_message");
+    assert.equal(note.label, "migrate");
+    assert.equal(events.filter((e) => e.type === "user_message" && e.synthetic === undefined).length, 1, "only 'hi' is a plain user message");
+  });
+});
+
+test("an offered report answered NO_REPLY collapses to a marked user_message + turn_ended pair", () => {
+  withFixture("bg2", [userLine("hi"), assistantText("ok"), userLine(OFFER_PROMPT), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bg2").map((m) => m.event);
+    const types = events.map((e) => e.type);
+    assert.deepEqual(types, [
+      "turn_started", "user_message", "text", "turn_ended", // hi
+      "user_message", "turn_ended", // collapsed report
+      "turn_started", "user_message", "text", // next
+    ]);
+    assert.equal(isSilentEvent(events[4]), true);
+    assert.equal(isSilentEvent(events[5]), true);
+    assert.equal(isSilentEvent(events[1]), false);
+  });
+});
+
+test("a collapsed report as the LAST turn of the file is collapsed too", () => {
+  withFixture("bg3", [userLine("hi"), assistantText("ok"), userLine(OFFER_PROMPT), assistantText("`NO_REPLY`")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bg3").map((m) => m.event);
+    assert.deepEqual(events.slice(-2).map((e) => e.type), ["user_message", "turn_ended"]);
+    assert.equal(isSilentEvent(events.at(-1) as AgentEvent), true);
+  });
+});
+
+test("NO_REPLY is never hidden when the prompt did not offer it (failure report, log mentions the word)", () => {
+  withFixture("bg4", [userLine(PLAIN_PROMPT), assistantText("NO_REPLY")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "bg4").map((m) => m.event);
+    assert.ok(events.some((e) => e.type === "text" && e.text === "NO_REPLY"));
+    assert.ok(events.every((e) => !isSilentEvent(e)));
+  });
+});
+
+test("an offered report is not collapsed when the model also used a tool or said more than NO_REPLY", () => {
+  withFixture(
+    "bg5",
+    [
+      userLine(OFFER_PROMPT),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }] } }),
+      assistantText("NO_REPLY"),
+      userLine(OFFER_PROMPT),
+      assistantText("NO_REPLY, but the port is still busy"),
+    ],
+    (home) => {
+      const events = readHistoryFromTranscript(home, home, "bg5").map((m) => m.event);
+      assert.ok(events.every((e) => !isSilentEvent(e)));
+      assert.ok(events.some((e) => e.type === "tool_started"));
+      assert.ok(events.some((e) => e.type === "text" && String(e.text).startsWith("NO_REPLY, but")));
     },
   );
 });
