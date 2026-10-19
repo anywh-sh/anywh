@@ -3,7 +3,8 @@
 // and the approved tool must then actually run. The relay passes `timeout:
 // 86400000` for the `anywh-permission` MCP server in --mcp-config; without
 // it the CLI cuts a pending MCP call at 60 s and the call degrades to a
-// denial. CI cannot cover this (it needs a real model and a 2 min wait);
+// denial. Measured with CLI 2.1.303: with the field, a 120 s wait survives;
+// this script covers 120 s, not longer waits. CI cannot cover this (it needs a real model and a 2 min wait);
 // relay/src/runtimes/defs/claude/mcpSpawnConfig.test.ts guards that the
 // field is present in the generated config, this script proves it works.
 //
@@ -11,13 +12,19 @@
 // `relay/`: `node scripts/manual/test-long-approval.mjs`. It starts its own
 // relay on a free port with throwaway data under a temp dir (never touches
 // the real profiles), uses Haiku and one trivial Write, and kills only the
-// relay process it started. Costs a couple of Haiku turns.
+// process group of the relay it started. Costs a couple of Haiku turns.
+//
+// Isolation: RELAY_HOME_OVERRIDE points the relay and the `claude` child at a
+// temp HOME, so settings, projects and transcripts of the real ~/.claude are
+// never read or written. The one thing read from the real HOME is the login:
+// ~/.claude/.credentials.json is copied into the temp HOME (removed at the
+// end). The CLI may refresh that copy's token; the real file is not touched.
 //
 //   WAIT_MS=120000  how long to leave the approval pending (default 2 min)
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
@@ -47,6 +54,15 @@ async function waitFor(predicate, timeoutMs, label, intervalMs = 200) {
 }
 
 const dir = mkdtempSync(join(tmpdir(), "anywh-long-approval-"));
+const fakeHome = join(dir, "home");
+mkdirSync(join(fakeHome, ".claude"), { recursive: true });
+const realCreds = join(homedir(), ".claude", ".credentials.json");
+if (existsSync(realCreds)) {
+  copyFileSync(realCreds, join(fakeHome, ".claude", ".credentials.json"));
+  chmodSync(join(fakeHome, ".claude", ".credentials.json"), 0o600);
+} else {
+  console.warn("no ~/.claude/.credentials.json found; the claude child may not be logged in");
+}
 const port = await freePort();
 const target = join(dir, "approved.txt");
 const marker = `long-approval-${Date.now()}`;
@@ -63,12 +79,26 @@ const relay = spawn(process.execPath, ["dist/server.js"], {
     RELAY_WAKEUPS_FILE: join(dir, "wakeups.json"),
     RELAY_PUSH_DEVICES_FILE: join(dir, "push-devices.json"),
     RELAY_PUSH_DISABLED: "1",
+    RELAY_HOME_OVERRIDE: fakeHome,
+    // The turn is blocked on the pending approval at cleanup time; do not let
+    // the graceful shutdown wait the default 4 minutes for it.
+    RELAY_SHUTDOWN_GRACE_MS: "1000",
     RELAY_UPLOAD_DIR: join(dir, "uploads"),
     ANYWH_ENV_DIR: join(dir, "env"),
     ANYWH_THEMES_DIR: join(dir, "themes"),
   },
   stdio: ["ignore", "pipe", "pipe"],
+  // Own process group, so cleanup can SIGKILL the relay and the `claude`
+  // children it spawned by group id (a PID this script started), never by name.
+  detached: true,
 });
+const killGroup = (signal) => {
+  try {
+    process.kill(-relay.pid, signal);
+  } catch {
+    // group already gone
+  }
+};
 let relayLog = "";
 relay.stdout.on("data", (chunk) => (relayLog += chunk));
 relay.stderr.on("data", (chunk) => (relayLog += chunk));
@@ -76,7 +106,7 @@ relay.stderr.on("data", (chunk) => (relayLog += chunk));
 let exitCode = 1;
 let socket;
 try {
-  await waitFor(() => relayLog.includes(String(port)) || relay.exitCode !== null, 15_000, "relay boot");
+  await waitFor(() => relayLog.includes("[relay] listening on") || relay.exitCode !== null, 15_000, "relay boot");
   if (relay.exitCode !== null) throw new Error(`relay exited early:\n${relayLog}`);
 
   const events = [];
@@ -155,7 +185,9 @@ try {
     }),
   );
 
-  await waitFor(() => turnEnded > 0, 90_000, "turn_ended after approval");
+  await waitFor(() => turnEnded > 0 || reAsked, 90_000, "turn_ended after approval");
+  if (reAsked) throw new Error("FAIL: the CLI asked for approval again after the answer was sent (answer not accepted)");
+  if (!resolved) throw new Error("FAIL: no choice_resolved after the answer (approval was not accepted)");
   const content = existsSync(target) ? readFileSync(target, "utf8").trim() : undefined;
   log("file content:", JSON.stringify(content));
   if (content !== marker) {
@@ -170,8 +202,16 @@ try {
   socket?.close();
   if (relay.exitCode === null) {
     relay.kill("SIGTERM");
-    await new Promise((resolve) => relay.once("exit", resolve));
+    const exited = new Promise((resolve) => relay.once("exit", () => resolve(true)));
+    const timedOut = new Promise((resolve) => setTimeout(() => resolve(false), 5_000));
+    if (!(await Promise.race([exited, timedOut]))) {
+      console.error(`[${ts()}] relay ignored SIGTERM for 5s, sending SIGKILL to its process group`);
+      killGroup("SIGKILL");
+      await new Promise((resolve) => relay.once("exit", resolve));
+    }
   }
+  // Stragglers (the claude child) of the group we started.
+  killGroup("SIGKILL");
   rmSync(dir, { recursive: true, force: true });
 }
 process.exit(exitCode);
