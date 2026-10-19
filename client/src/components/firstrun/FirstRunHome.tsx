@@ -28,7 +28,7 @@ function PathCard({
         disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:border-text-faint",
       )}
     >
-      <span className="shrink-0 pt-[3px] font-mono text-[10.5px] font-medium text-muted-foreground">{number}</span>
+      <span className="shrink-0 pt-[3px] font-mono text-[10.5px] font-medium text-primary">{number}</span>
       <span className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="text-[15px] font-medium text-foreground">{title}</span>
         <span className="text-[13px] leading-[1.6] text-pretty text-text-faint">{hint}</span>
@@ -77,7 +77,7 @@ export function FirstRunHome({ onPick, local }: { onPick: (screen: FirstRunScree
         <button
           type="button"
           onClick={() => onPick("manual")}
-          className="cursor-pointer border-b border-border text-foreground transition-colors hover:text-foreground"
+          className="cursor-pointer border-b border-primary-soft text-primary transition-colors hover:text-primary-ink"
         >
           {copy.terminalLink}
         </button>

@@ -58,7 +58,7 @@ export function PaneTabStrip({ tabs, activeId, onSelect, onClose, onAdd, addLabe
           className={cn(
             "flex shrink-0 cursor-pointer items-center gap-1.5 border-r border-border-soft py-1 pr-1.5 pl-2.5 font-mono text-[11px] transition-colors",
             tab.id === activeId
-              ? "bg-bg-elevated text-foreground shadow-[inset_0_-2px_0_var(--foreground)]"
+              ? "bg-bg-elevated text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
               : "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
           )}
         >

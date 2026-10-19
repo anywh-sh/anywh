@@ -9,7 +9,7 @@ export function DetectScreen() {
     <>
       <FirstRunHeading title={copy.title} body={copy.body} />
       <div className="h-0.5 w-full overflow-hidden bg-border-soft" aria-hidden="true">
-        <span className="animate-turn-sweep block h-full w-1/3 bg-foreground" />
+        <span className="animate-turn-sweep block h-full w-1/3 bg-primary" />
       </div>
     </>
   );

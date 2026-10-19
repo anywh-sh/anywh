@@ -55,8 +55,8 @@ function StepBlock({
           className={cn(
             "shrink-0 font-mono text-[10.5px] font-medium",
             state === "todo" && "text-border",
-            state === "done" && "text-muted-foreground",
-            state === "active" && "text-foreground",
+            state === "done" && "text-primary",
+            state === "active" && "text-primary",
           )}
         >
           {state === "done" ? "✓" : number}
@@ -107,7 +107,7 @@ function useCopyCommand(command: string | undefined) {
 function CommandBox({ command }: { command: string }) {
   return (
     <div className="flex items-start gap-2.5 border border-border-soft bg-bg-chrome px-3 py-2">
-      <span className="shrink-0 font-mono text-[11px] text-muted-foreground" aria-hidden="true">
+      <span className="shrink-0 font-mono text-[11px] text-primary" aria-hidden="true">
         $
       </span>
       <code className="selectable-content min-w-0 flex-1 font-mono text-xs leading-[1.6] break-words text-foreground">{command}</code>
@@ -327,12 +327,12 @@ function AddressOption({ selected, onSelect, value, hint }: { selected: boolean;
       onClick={onSelect}
       className={cn(
         "flex w-full cursor-pointer items-start gap-2.5 border px-3 py-2.5 text-left transition-colors",
-        selected ? "border-foreground bg-bg-elevated" : "border-border-soft hover:border-text-faint",
+        selected ? "border-primary bg-bg-elevated" : "border-border-soft hover:border-text-faint",
       )}
     >
       <span
         aria-hidden="true"
-        className={cn("mt-1 size-2.5 shrink-0 rounded-full border", selected ? "border-foreground bg-foreground" : "border-border")}
+        className={cn("mt-1 size-2.5 shrink-0 rounded-full border", selected ? "border-primary bg-primary" : "border-border")}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className={cn("font-mono text-[13px] font-medium", selected ? "text-foreground" : "text-muted-foreground")}>{value}</span>
@@ -422,9 +422,9 @@ function InstallBody({
   return (
     <>
       {setup.held && setup.queuedCount > 0 && (
-        <div className="flex items-center gap-2.5 bg-surface-hover px-4 py-2 shadow-[inset_2px_0_0_var(--foreground)]">
-          <span className="size-1.5 shrink-0 bg-foreground" aria-hidden="true" />
-          <span className="min-w-0 flex-1 font-mono text-xs text-foreground">
+        <div className="flex items-center gap-2.5 bg-primary-soft px-4 py-2 shadow-[inset_2px_0_0_var(--primary)]">
+          <span className="size-1.5 shrink-0 bg-primary" aria-hidden="true" />
+          <span className="min-w-0 flex-1 font-mono text-xs text-primary-ink">
             {setup.queuedCount > 1 ? copy.install.pendingLinks.replace("{count}", String(setup.queuedCount)) : copy.install.pendingLink}
           </span>
           <button

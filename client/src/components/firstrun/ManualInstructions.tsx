@@ -33,7 +33,7 @@ function CommandRow({ step }: { step: Step }) {
     <li className="flex flex-col gap-1.5 border-b border-border-soft px-3.5 py-3 last:border-b-0">
       <span className="font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">{step.label}</span>
       <div className="flex items-start gap-2.5">
-        <span className="shrink-0 pt-px font-mono text-[11.5px] text-muted-foreground" aria-hidden="true">
+        <span className="shrink-0 pt-px font-mono text-[11.5px] text-primary" aria-hidden="true">
           $
         </span>
         <code className="selectable-content min-w-0 flex-1 font-mono text-[12.5px] leading-[1.7] break-words whitespace-pre-wrap text-foreground">

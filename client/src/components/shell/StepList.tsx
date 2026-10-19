@@ -15,13 +15,13 @@ export interface StepRow {
 }
 
 function StepIndicator({ status }: { status: StepStatus }) {
-  if (status === "done") return <Check className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />;
+  if (status === "done") return <Check className="size-4 shrink-0 text-primary" aria-hidden="true" />;
   if (status === "failed") return <X className="size-4 shrink-0 text-destructive" aria-hidden="true" />;
   if (status === "warning") return <TriangleAlert className="size-4 shrink-0 text-context-ring-warn" aria-hidden="true" />;
   return (
     <span
       aria-hidden="true"
-      className={cn("size-2.5 shrink-0 rounded-full", status === "running" ? "animate-pulse bg-foreground" : "bg-border")}
+      className={cn("size-2.5 shrink-0 rounded-full", status === "running" ? "animate-pulse bg-primary" : "bg-border")}
     />
   );
 }

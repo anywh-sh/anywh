@@ -30,7 +30,7 @@ function FontSizeControl() {
           step={FONT_SIZE_STEP}
           value={size}
           onChange={(event) => setSize(Number(event.target.value))}
-          className="min-w-0 flex-1 accent-foreground"
+          className="min-w-0 flex-1 accent-primary"
         />
         <span className="font-mono text-[10px] text-text-faint">{MAX_FONT_SIZE}</span>
       </div>

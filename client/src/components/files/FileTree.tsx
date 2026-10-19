@@ -650,15 +650,15 @@ function FileTreeNode({
           // hundreds.
           "flex cursor-pointer items-center gap-1.5 py-0.5 pr-2 transition-colors hover:bg-surface-hover",
           isActive
-            ? "bg-surface-hover text-foreground"
+            ? "bg-primary-soft text-primary-ink"
             : isMultiSelected
-              ? "bg-bg-elevated text-foreground"
+              ? "bg-primary-soft/60 text-foreground"
               : isDir
                 ? isExpanded
                   ? "text-foreground"
                   : "text-muted-foreground"
                 : "text-text-faint",
-          isDir && dropTargetPath === entry.path && "bg-surface-hover text-foreground outline outline-foreground -outline-offset-1",
+          isDir && dropTargetPath === entry.path && "bg-primary-soft text-primary-ink outline outline-primary -outline-offset-1",
         )}
       >
         {isDir ? (

@@ -17,7 +17,7 @@ function Input({ className, ...props }: React.ComponentProps<"input">) {
     <input
       data-slot="input"
       className={cn(
-        "min-w-0 border border-border bg-bg-chrome px-2.5 py-1.5 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-text-faint focus:border-text-faint disabled:cursor-not-allowed disabled:opacity-50",
+        "min-w-0 border border-border bg-bg-chrome px-2.5 py-1.5 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-text-faint focus:border-primary disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}
@@ -30,7 +30,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
     <textarea
       data-slot="textarea"
       className={cn(
-        "min-w-0 resize-none border border-border bg-bg-chrome px-2.5 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-text-faint focus:border-text-faint disabled:cursor-not-allowed disabled:opacity-50",
+        "min-w-0 resize-none border border-border bg-bg-chrome px-2.5 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-text-faint focus:border-primary disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}

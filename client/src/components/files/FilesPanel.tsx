@@ -348,8 +348,8 @@ export function FilesPanel({ profile, chatSessionId, maximized, fileTabs, onTogg
           * lands, and it can't stop receiving hover just because the overlay
           * is on top of it. */}
         {isDraggingOver && (
-          <div className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2.5 border border-dashed border-foreground bg-surface-hover">
-            <span className="flex size-9 items-center justify-center border border-foreground text-foreground">
+          <div className="pointer-events-none absolute inset-2 z-10 flex flex-col items-center justify-center gap-2.5 border border-dashed border-primary bg-primary-soft">
+            <span className="flex size-9 items-center justify-center border border-primary text-primary">
               <FolderInput className="size-4" />
             </span>
             <span className="font-mono text-xs text-foreground">{copy.drop.title}</span>

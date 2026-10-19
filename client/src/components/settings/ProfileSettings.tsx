@@ -58,7 +58,7 @@ function ChoiceButton({
       className={cn(
         "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors",
         selected
-          ? "border-border-soft bg-surface-hover text-muted-foreground"
+          ? "border-primary bg-primary-soft text-primary-ink"
           : "border-border text-muted-foreground hover:border-text-faint hover:bg-surface-hover hover:text-foreground",
       )}
     >

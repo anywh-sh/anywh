@@ -316,8 +316,8 @@ function hardBreakAnchorPlugin() {
 /** Colors `/model haiku` etc typed in the composer, only when it's a
  * genuinely recognized command (same check as `parseSlashCommand` — an
  * invalid `/model gpt4` gets no color at all, since it'll become a normal
- * message). Slash with reduced opacity, command name with
- * full foreground color, parameter (if any) with no styling at all — explicit
+ * message). Slash with reduced opacity + primary color, command name with
+ * full primary color, parameter (if any) with no styling at all — explicit
  * user request. Pure decoration (`Decoration.inline`), doesn't
  * touch the document — the text that goes to `onSend` remains the usual
  * plain text. */
@@ -762,7 +762,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 key={image.path}
                 className="flex h-7 items-center gap-2 border border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
               >
-                {image.kind === "video" ? <Video className="size-3 text-muted-foreground" /> : <FileText className="size-3 text-muted-foreground" />}
+                {image.kind === "video" ? <Video className="size-3 text-primary" /> : <FileText className="size-3 text-primary" />}
                 <span className="max-w-40 truncate">{attachmentName(image.path, copy.unnamedAttachment)}</span>
                 <button
                   type="button"
@@ -782,7 +782,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               role="status"
               className="flex h-7 items-center gap-2 border border-dashed border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
             >
-              <Loader2 className="size-3 animate-spin text-muted-foreground" />
+              <Loader2 className="size-3 animate-spin text-primary" />
               {copy.attachmentUploading}
             </span>
           )}
@@ -797,7 +797,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             {typoQuestion[1]}
           </span>
           <div className="flex shrink-0 items-center gap-1">
-            <Button type="button" variant="ghost" size="xs" className="text-foreground" onClick={applyTypoSuggestion}>
+            <Button type="button" variant="ghost" size="xs" className="text-primary" onClick={applyTypoSuggestion}>
               {copy.typo.use}
             </Button>
             <Button type="button" variant="ghost" size="xs" onClick={() => performSend(typoConfirm.text)}>

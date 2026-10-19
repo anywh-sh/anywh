@@ -177,7 +177,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
               A call the user stopped is none of those, so it shows nothing. */}
           {!call.done ? (
             <>
-              <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-foreground" aria-hidden />
+              <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-primary" aria-hidden />
               {call.startedAt !== undefined && <Elapsed startedAt={call.startedAt} />}
             </>
           ) : failed ? (
@@ -187,7 +187,7 @@ export const ToolCallRow = memo(function ToolCallRow({ call, attribution, cwd, o
             </>
           ) : !call.isError ? (
             <>
-              <Check className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={2.5} aria-hidden />
+              <Check className="size-3.5 shrink-0 text-primary" strokeWidth={2.5} aria-hidden />
               {duration !== undefined && <span>{formatCallTime(duration)}</span>}
             </>
           ) : null}

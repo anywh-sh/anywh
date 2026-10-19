@@ -35,7 +35,7 @@ const buttonVariants = cva(
         // Chrome buttons (title bar, panel headers): invisible until pointed
         // at, then they acquire the outline variant's look.
         ghost: "text-muted-foreground hover:border-border hover:bg-bg-elevated hover:text-foreground",
-        link: "text-foreground underline-offset-4 hover:underline",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
         default: "h-8 gap-2 px-3.5 text-xs",

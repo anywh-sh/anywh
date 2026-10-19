@@ -229,7 +229,7 @@
   --color-border: var(--border);
   --color-border-soft: var(--border-soft);
   --color-input: var(--border);
-  --color-ring: var(--muted-foreground);
+  --color-ring: var(--primary);
 
   --color-profile-1: var(--profile-1);
   --color-profile-2: var(--profile-2);
@@ -245,7 +245,7 @@
   --color-sidebar-accent: var(--bg-elevated);
   --color-sidebar-accent-foreground: var(--foreground);
   --color-sidebar-border: var(--border);
-  --color-sidebar-ring: var(--muted-foreground);
+  --color-sidebar-ring: var(--primary);
 
   /* The one elevation in the design: a soft, far-throw shadow under
      anything that floats (menu, dialog, tooltip). Uses the themed

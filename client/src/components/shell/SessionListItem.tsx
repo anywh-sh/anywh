@@ -2,7 +2,7 @@ import { memo } from "react";
 import { SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
-import { profileColorClass } from "@/lib/profiles/profiles";
+import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
 import { formatAbsoluteTime, formatCompactTime } from "@/lib/format/relativeTime";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
@@ -81,7 +81,7 @@ export const SessionListItem = memo(function SessionListItem({
             <span
               aria-label={indicatorLabel}
               className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
-              style={{ borderTopColor: "var(--foreground)" }}
+              style={{ borderTopColor: profileColorVar(session.profileId) }}
             />
           ) : (
             hasBackgroundJob && (
