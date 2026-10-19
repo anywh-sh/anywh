@@ -35,8 +35,8 @@ export function broadcastBackgroundJobs(clients: Iterable<WebSocket>, jobs: Back
  * a device that reconnects (or connects for the first time) mid-wait needs
  * to see the pending question immediately, not just devices that were
  * already there when it was asked. */
-export function sendChoicePrompt(target: WebSocket, prompt: { promptId: string; questions: ChoiceQuestion[] }, kind: "approval" | "choice"): void {
-  target.send(JSON.stringify({ type: "choice_prompt", promptId: prompt.promptId, questions: prompt.questions, kind }));
+export function sendChoicePrompt(target: WebSocket, prompt: { promptId: string; questions: ChoiceQuestion[]; askedAt: number }, kind: "approval" | "choice"): void {
+  target.send(JSON.stringify({ type: "choice_prompt", promptId: prompt.promptId, questions: prompt.questions, kind, askedAt: prompt.askedAt }));
 }
 
 /** Takes the prompt explicitly (rather than a field on some owning object)
@@ -46,7 +46,7 @@ export function sendChoicePrompt(target: WebSocket, prompt: { promptId: string; 
  * `kind` is passed alongside for the same reason and tells the client which
  * close behavior applies — see the `choice_prompt` doc comment in
  * relay-types.ts. */
-export function broadcastChoicePrompt(clients: Iterable<WebSocket>, prompt: { promptId: string; questions: ChoiceQuestion[] }, kind: "approval" | "choice"): void {
+export function broadcastChoicePrompt(clients: Iterable<WebSocket>, prompt: { promptId: string; questions: ChoiceQuestion[]; askedAt: number }, kind: "approval" | "choice"): void {
   for (const client of clients) sendChoicePrompt(client, prompt, kind);
 }
 

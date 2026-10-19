@@ -57,8 +57,8 @@ export type AnswerChoiceResult =
  * not make it vanish.
  */
 export class ChoiceMachine {
-  private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
-  private pendingChoice: PersistedChoice | undefined;
+  private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; askedAt: number; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
+  private pendingChoice: (PersistedChoice & { askedAt: number }) | undefined;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
@@ -70,8 +70,16 @@ export class ChoiceMachine {
     /** Fires whenever the deferred slot is set (the prompt) or emptied
      * (`undefined`), so the session can mirror it into the store. */
     private readonly onChoiceChange?: (choice: PersistedChoice | undefined) => void,
+    /** Injectable clock (epoch ms) for `askedAt`. */
+    private readonly now: () => number = Date.now,
   ) {
-    this.pendingChoice = initialChoice;
+    if (initialChoice) {
+      // Records from before `askedAt` existed get the load time, written back
+      // so it doesn't move again on the next restart.
+      const backfill = initialChoice.askedAt === undefined;
+      this.pendingChoice = { ...initialChoice, askedAt: initialChoice.askedAt ?? this.now() };
+      if (backfill) this.mirror(this.pendingChoice);
+    }
   }
 
   /** Mirrors the deferred slot into the store. Always runs AFTER the
@@ -131,7 +139,7 @@ export class ChoiceMachine {
   presentChoice(questions: ChoiceQuestion[]): boolean {
     if (this.pendingChoice) return false;
     const promptId = randomUUID();
-    this.pendingChoice = { promptId, questions };
+    this.pendingChoice = { promptId, questions, askedAt: this.now() };
     broadcastChoicePrompt(this.clients, this.pendingChoice, "choice");
     this.mirror(this.pendingChoice);
     this.onPromptShown?.("choice", questions);
@@ -174,7 +182,7 @@ export class ChoiceMachine {
   presentApprovalChoice(questions: ChoiceQuestion[]): Promise<ChoiceAnswer[]> {
     return new Promise((resolve) => {
       const promptId = randomUUID();
-      this.pendingApproval = { promptId, questions, resolve };
+      this.pendingApproval = { promptId, questions, askedAt: this.now(), resolve };
       broadcastChoicePrompt(this.clients, this.pendingApproval, "approval");
       this.onPromptShown?.("approval", questions);
     });

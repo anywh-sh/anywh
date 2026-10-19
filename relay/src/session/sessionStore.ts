@@ -162,6 +162,10 @@ export interface SessionEntry {
 export interface PersistedChoice {
   promptId: string;
   questions: ChoiceQuestion[];
+  /** Epoch ms when the question was asked, set once at creation. Optional
+   * only for records written before the field existed; `ChoiceMachine`
+   * backfills those with the load time. */
+  askedAt?: number;
 }
 
 /** Runtime check for what `load()` reads back: this field is the first one
@@ -169,7 +173,8 @@ export interface PersistedChoice {
  * future-schema file must not be able to reach it malformed. */
 function isPersistedChoice(value: unknown): value is PersistedChoice {
   if (!value || typeof value !== "object") return false;
-  const { promptId, questions } = value as { promptId?: unknown; questions?: unknown };
+  const { promptId, questions, askedAt } = value as { promptId?: unknown; questions?: unknown; askedAt?: unknown };
+  if (askedAt !== undefined && (typeof askedAt !== "number" || !Number.isFinite(askedAt))) return false;
   if (typeof promptId !== "string" || promptId === "") return false;
   if (!Array.isArray(questions) || questions.length === 0) return false;
   const optionalString = (v: unknown) => v === undefined || typeof v === "string";

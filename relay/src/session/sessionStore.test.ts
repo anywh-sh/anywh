@@ -476,7 +476,7 @@ test("pendingChoice: round-trips through disk, clears on undefined, and is absen
     store.setPendingChoice("s1", undefined);
     assert.equal(store.listIds().includes("s1"), false, "clearing a never-set value must not create a record");
 
-    const choice = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
+    const choice = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }], askedAt: 1700000000000 };
     store.setPendingChoice("s1", choice);
     assert.deepEqual(new SessionStore(file, "/home/user").getPendingChoice("s1"), choice);
 
@@ -493,7 +493,7 @@ test("load drops a malformed pendingChoice (and rewrites the file) without touch
     const file = join(dir, "sessions.json");
     const good = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
     const seed = new SessionStore(file, "/home/user");
-    for (const id of ["good", "empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar", "badOptions", "badOptions2"]) seed.setPendingChoice(id, good);
+    for (const id of ["good", "empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar", "badOptions", "badOptions2", "badAskedAt"]) seed.setPendingChoice(id, good);
     const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: unknown }>;
     records.empty.pendingChoice = {};
     records.noQuestions.pendingChoice = { promptId: "p" };
@@ -501,14 +501,15 @@ test("load drops a malformed pendingChoice (and rewrites the file) without touch
     records.strQuestions.pendingChoice = { promptId: "p", questions: "nope" };
     records.badQuestion.pendingChoice = { promptId: "p", questions: [{ question: 1 }] };
     records.noPromptId.pendingChoice = { questions: good.questions };
+    records.badAskedAt.pendingChoice = { ...good, askedAt: "yesterday" };
     records.scalar.pendingChoice = "x";
     records.badOptions.pendingChoice = { promptId: "p", questions: [{ question: "q", options: [{}] }] };
     records.badOptions2.pendingChoice = { promptId: "p", questions: [{ question: "q", options: ["A"] }] };
     writeFileSync(file, JSON.stringify(records));
 
     const store = new SessionStore(file, "/home/user");
-    assert.deepEqual(store.getPendingChoice("good"), good);
-    for (const id of ["empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar", "badOptions", "badOptions2"]) {
+    assert.deepEqual(store.getPendingChoice("good"), good, "a record without askedAt (older file) stays valid");
+    for (const id of ["empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar", "badOptions", "badOptions2", "badAskedAt"]) {
       assert.equal(store.getPendingChoice(id), undefined, id);
     }
     const onDisk = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice?: unknown }>;

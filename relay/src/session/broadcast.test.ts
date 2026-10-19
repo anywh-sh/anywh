@@ -51,9 +51,9 @@ test("broadcastBackgroundJobs: failed jobs ride along in the same message", () =
 
 test("broadcastChoicePrompt: carries promptId, questions and kind through unchanged", () => {
   const client = fakeSocket();
-  const prompt = { promptId: "p1", questions: [{ id: "q1", question: "ok?", options: [] }] };
+  const prompt = { promptId: "p1", questions: [{ id: "q1", question: "ok?", options: [] }], askedAt: 1234 };
   broadcastChoicePrompt([client], prompt, "approval");
-  assert.deepEqual(client.sent, [{ type: "choice_prompt", promptId: "p1", questions: prompt.questions, kind: "approval" }]);
+  assert.deepEqual(client.sent, [{ type: "choice_prompt", promptId: "p1", questions: prompt.questions, kind: "approval", askedAt: 1234 }]);
 });
 
 test("broadcastChoiceResolved: every connected client is told, not just the one who answered", () => {
