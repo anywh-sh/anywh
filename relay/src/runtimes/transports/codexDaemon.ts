@@ -40,9 +40,9 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
 // a turn can sit for longer than the timeout on a human decision while the
 // daemon sends nothing. The timer is paused while any of those holds and
 // re-armed when the last one clears. There is deliberately no hard cap on a
-// pending approval: a daemon is bound to its session and is killed when the
-// session is disposed (`kill()`), so an abandoned one is reclaimed there, not
-// by a timeout that would cut a human's decision short.
+// pending approval, so a daemon whose approval is never answered keeps running
+// until its owner calls `kill()` (the session layer does so when it disposes
+// the session) or the process dies on its own; nothing here reaps it earlier.
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 // SIGTERM first, always — a daemon mid-write to its own on-disk state
 // deserves the chance to exit cleanly. SIGKILL only if it ignores that.
@@ -106,19 +106,24 @@ function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { e
   return def.exec.kind === "jsonRpcDaemon";
 }
 
-// `turn/started` and `turn/completed` both carry `{ threadId, turn: { id } }`
-// (generated bindings; see codexDriver.ts). Fall back to the thread id, then a
-// constant, so a payload without an id still pairs start with completion.
-function turnKey(params: unknown): string {
-  const p = params as { threadId?: unknown; turn?: { id?: unknown } } | null | undefined;
-  if (typeof p?.turn?.id === "string") return p.turn.id;
-  return typeof p?.threadId === "string" ? p.threadId : "";
+interface TurnRef {
+  readonly threadId: string | undefined;
+  readonly turnId: string | undefined;
 }
 
-// Server requests (approvals, user input) carry the owning `turnId`.
-function serverRequestTurnKey(params: unknown): string | undefined {
-  const p = params as { turnId?: unknown } | null | undefined;
-  return typeof p?.turnId === "string" ? p.turnId : undefined;
+// `turn/started`/`turn/completed` carry `{ threadId, turn: { id } }` and
+// server requests (approvals, user input) carry `{ threadId, turnId }`
+// (generated bindings; see codexDriver.ts). Either field may be missing.
+function toRef(threadId: unknown, turnId: unknown): TurnRef {
+  return { threadId: typeof threadId === "string" ? threadId : undefined, turnId: typeof turnId === "string" ? turnId : undefined };
+}
+function lifecycleRef(params: unknown): TurnRef {
+  const p = params as { threadId?: unknown; turn?: { id?: unknown } } | null | undefined;
+  return toRef(p?.threadId, p?.turn?.id);
+}
+function serverRequestRef(params: unknown): TurnRef {
+  const p = params as { threadId?: unknown; turnId?: unknown } | null | undefined;
+  return toRef(p?.threadId, p?.turnId);
 }
 
 function toError(value: unknown): Error {
@@ -160,10 +165,13 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   let exited = false;
   // Ids of turns between `turn/started` and `turn/completed`.
   const activeTurns = new Set<string>();
+  // `turn/started` without an id can't be paired by id: count them per
+  // thread so each id-less `turn/completed` retires exactly one.
+  const anonymousTurns = new Map<string, number>();
   // Outstanding server->client requests (approval, structured input). Each
   // entry is removed on settle (resolve OR reject), when its turn completes
   // (an interrupted turn's host promise may never settle), or on exit.
-  const pendingServerRequests = new Map<symbol, string | undefined>();
+  const pendingServerRequests = new Map<symbol, TurnRef>();
   // Assigned once the promise executor below runs; lets the connection
   // callbacks (created before it) re-arm the idle timer.
   let touchIdle: () => void = () => {};
@@ -199,14 +207,28 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     framing: exec.framing,
     write: (chunk) => child.stdin.write(chunk),
     onNotification: (method, params) => {
-      if (method === "turn/started") activeTurns.add(turnKey(params));
-      else if (method === "turn/completed") {
-        const key = turnKey(params);
-        activeTurns.delete(key);
+      if (method === "turn/started") {
+        const { threadId, turnId } = lifecycleRef(params);
+        if (turnId !== undefined) activeTurns.add(turnId);
+        else anonymousTurns.set(threadId ?? "", (anonymousTurns.get(threadId ?? "") ?? 0) + 1);
+      } else if (method === "turn/completed") {
+        const done = lifecycleRef(params);
+        if (done.turnId !== undefined) activeTurns.delete(done.turnId);
+        else {
+          const key = done.threadId ?? "";
+          const left = (anonymousTurns.get(key) ?? 0) - 1;
+          if (left > 0) anonymousTurns.set(key, left);
+          else anonymousTurns.delete(key);
+        }
         // A turn that ended (e.g. stopped mid-approval) can no longer be
         // waiting on its server requests, whether or not the host ever
-        // settles their promises.
-        for (const [token, turnId] of pendingServerRequests) if (turnId === key) pendingServerRequests.delete(token);
+        // settles their promises. A request with no turnId is attributed
+        // to its thread: any completion on that thread releases it.
+        for (const [token, ref] of pendingServerRequests) {
+          const sameThread = ref.threadId === undefined || done.threadId === undefined || ref.threadId === done.threadId;
+          const belongsToTurn = ref.turnId !== undefined && done.turnId !== undefined ? ref.turnId === done.turnId : sameThread;
+          if (belongsToTurn) pendingServerRequests.delete(token);
+        }
       }
       touchIdle();
       options.onNotification(method, params);
@@ -215,7 +237,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       const result = exec.handleServerRequest(method, params, options.host);
       if (result === undefined) return undefined;
       const token = Symbol(method);
-      pendingServerRequests.set(token, serverRequestTurnKey(params));
+      pendingServerRequests.set(token, serverRequestRef(params));
       touchIdle();
       const settle = (): void => {
         pendingServerRequests.delete(token);
@@ -239,6 +261,8 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       exited = true;
       clearIdleTimer();
       activeTurns.clear();
+      anonymousTurns.clear();
+      connection.close(new Error(`codex daemon exited (reason: ${reason})`));
       pendingServerRequests.clear();
       if (daemon) {
         options.onExit(reason);
@@ -273,12 +297,18 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       finish("killed");
     }
 
+    // The single definition of "something is in flight": any of these pauses
+    // the reaper; the event that clears the last one calls `touchIdle`.
+    function isBusy(): boolean {
+      return activeTurns.size > 0 || anonymousTurns.size > 0 || pendingServerRequests.size > 0 || connection.pendingCount > 0;
+    }
+
     function scheduleIdleCheck(): void {
       if (exited) return;
       if (idleTimer) clearIdleTimerFn(idleTimer);
       idleTimer = undefined;
       // Busy: no timer at all; the event that ends the busy state re-arms it.
-      if (activeTurns.size > 0 || pendingServerRequests.size > 0 || connection.pendingCount > 0) return;
+      if (isBusy()) return;
       idleTimer = setIdleTimer(() => {
         sendKillSignal();
         finish("idle");

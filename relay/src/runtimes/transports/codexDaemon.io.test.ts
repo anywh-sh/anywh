@@ -484,6 +484,44 @@ test("idle reaper: stop during a pending approval — turn/completed releases it
   });
 });
 
+test("idle reaper: stop during a pending approval WITHOUT a turnId — any turn/completed of the same thread releases it", async () => {
+  await withTmpDir(async (dir) => {
+    let requestSeen = false;
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {}, () => {
+      requestSeen = true;
+      return new Promise<unknown>(() => {}); // abandoned
+    });
+    try {
+      await daemon.request("test/emit", {
+        notifications: [startedTurn("a")],
+        serverRequest: { id: 903, method: "item/commandExecution/requestApproval", params: { threadId: "t" } },
+      });
+      await waitFor(() => requestSeen);
+      assert.equal(clock.armedCount(), 0);
+      await daemon.request("test/emit", { notifications: [completedTurn("a")] });
+      assert.equal(clock.armedCount(), 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: id-less turn/started events pair one-to-one with id-less turn/completed events", async () => {
+  await withTmpDir(async (dir) => {
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {});
+    const bare = (method: string) => ({ method, params: { threadId: "t" } });
+    try {
+      await daemon.request("test/emit", { notifications: [bare("turn/started"), bare("turn/started")] });
+      await daemon.request("test/emit", { notifications: [bare("turn/completed")] });
+      assert.equal(clock.armedCount(), 0, "the second id-less turn is still running");
+      await daemon.request("test/emit", { notifications: [bare("turn/completed")] });
+      assert.equal(clock.armedCount(), 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
 test("idle reaper: a client request still awaiting its response is never reaped under, and re-arms when it lands", async () => {
   await withTmpDir(async (dir) => {
     const { daemon, clock } = await spawnWithFakeTimers(dir, {});
