@@ -26,6 +26,9 @@ export function TitleBar({
   onCheckForUpdates: () => void;
 }) {
   const dict = useDict();
+  // With the sidebar folded away the bar keeps only the control that brings it
+  // back; the menu returns with the sidebar.
+  const showMenu = !(showSidebarToggle && sidebarCollapsed);
   const sidebarLabel = sidebarCollapsed ? dict.shell.titleBar.expandSidebar : dict.shell.titleBar.collapseSidebar;
 
   return (
@@ -34,28 +37,30 @@ export function TitleBar({
       className={cn("flex h-10 shrink-0 items-center gap-1 pr-2 pl-1.5 select-none", isMacOS() && MAC_TRAFFIC_LIGHTS_INSET)}
     >
       <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="size-[30px]" aria-label={dict.shell.titleBar.menu}>
-                <SlidersHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{dict.shell.titleBar.menu}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start" className="min-w-52">
-          <DropdownMenuItem onSelect={onOpenSettings}>
-            <Settings className="size-3.5" />
-            {dict.shell.titleBar.settings}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onCheckForUpdates}>
-            <RefreshCw className="size-3.5" />
-            {dict.shell.titleBar.checkForUpdates}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {showMenu && (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className="size-[30px]" aria-label={dict.shell.titleBar.menu}>
+                  <SlidersHorizontal className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{dict.shell.titleBar.menu}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="start" className="min-w-52">
+            <DropdownMenuItem onSelect={onOpenSettings}>
+              <Settings className="size-3.5" />
+              {dict.shell.titleBar.settings}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onCheckForUpdates}>
+              <RefreshCw className="size-3.5" />
+              {dict.shell.titleBar.checkForUpdates}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
       {showSidebarToggle && (
         <Tooltip>
           <TooltipTrigger asChild>
