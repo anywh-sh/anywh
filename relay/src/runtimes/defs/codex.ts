@@ -93,7 +93,8 @@ function gitWritableRoots(cwd: string): string[] {
   try {
     out = execFileSync("git", ["rev-parse", "--git-dir", "--git-common-dir"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 2000 });
   } catch (err) {
-    const stderr = String((err as { stderr?: unknown }).stderr ?? "");
+    const raw = (err as { stderr?: unknown }).stderr;
+    const stderr = typeof raw === "string" ? raw : Buffer.isBuffer(raw) ? raw.toString("utf8") : "";
     if (!/not a git repository/i.test(stderr)) console.warn(`[codex] could not resolve git dirs for ${cwd}: ${(err as Error).message}`);
     return [];
   }
