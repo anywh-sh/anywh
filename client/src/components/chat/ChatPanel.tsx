@@ -872,7 +872,7 @@ export function ChatPanel({
           </div>
         )}
 
-        {/* Caps the composer column at the same width as MessageLog's content
+        {/* Caps the composer column at 728px, a little wider than MessageLog's content
          * — `contents` on iOS keeps these two wrapper divs out of
          * the box tree entirely, so the phone layout (which never hits the
          * cap anyway) is untouched. */}

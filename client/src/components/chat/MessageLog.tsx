@@ -495,7 +495,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
       // which opens up horizontal scroll as soon as any content (a long
       // path in `code`, for instance) overflows the width by even 1px.
       className={cn(
-        "selectable-content scrollbar-thin relative flex-1 overflow-x-hidden overflow-y-auto px-4 py-3",
+        "selectable-content scrollbar-thin relative flex-1 overflow-x-hidden overflow-y-auto px-4 py-3 [scrollbar-gutter:stable_both-edges]",
         className,
       )}
     >
@@ -504,8 +504,8 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         </div>
       )}
-      {/* Same width as the composer under it (`ChatPanel`), so both share edges. */}
-      <div className="mx-auto max-w-[728px]" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
+      {/* Narrower than the composer under it (`ChatPanel`, 728px) and centred on the same axis; the symmetric scrollbar gutter on the scroller keeps that axis when the log overflows. */}
+      <div className="mx-auto max-w-[calc(680px*var(--chrome-scale))]" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const item = allItems[virtualItem.index];
           if (!item) return null;
