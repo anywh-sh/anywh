@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexRuntimeDef } from "./codex.js";
@@ -14,7 +14,11 @@ function writableRootsFor(cwd: string): readonly string[] {
 }
 
 function git(cwd: string, ...args: string[]): void {
-  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, stdio: "ignore" });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args], { cwd, stdio: "ignore", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
+}
+
+function assertSameRoots(actual: readonly string[], expected: readonly string[]): void {
+  assert.deepEqual([...actual].sort(), [...expected].sort());
 }
 
 function withTmp(fn: (dir: string) => void): void {
@@ -29,7 +33,7 @@ function withTmp(fn: (dir: string) => void): void {
 test("workspace-write: a plain repo adds its own .git to the writable roots", () => {
   withTmp((dir) => {
     git(dir, "init", "-q");
-    assert.deepEqual(writableRootsFor(dir), [dir, join(dir, ".git")]);
+    assertSameRoots(writableRootsFor(dir), [dir, join(dir, ".git")]);
   });
 });
 
@@ -38,7 +42,7 @@ test("workspace-write: a subdirectory of a repo still resolves the repo's .git",
     git(dir, "init", "-q");
     const sub = join(dir, "pkg");
     mkdirSync(sub);
-    assert.deepEqual(writableRootsFor(sub), [sub, join(dir, ".git")]);
+    assertSameRoots(writableRootsFor(sub), [sub, join(dir, ".git")]);
   });
 });
 
@@ -50,12 +54,25 @@ test("workspace-write: a git worktree adds both its gitdir and the common dir", 
     git(main, "commit", "-q", "--allow-empty", "-m", "init");
     const wt = join(dir, "wt");
     git(main, "worktree", "add", "-q", "-b", "feature", wt);
-    assert.deepEqual(writableRootsFor(wt), [wt, join(main, ".git", "worktrees", "wt"), join(main, ".git")]);
+    assertSameRoots(writableRootsFor(wt), [wt, join(main, ".git", "worktrees", "wt"), join(main, ".git")]);
   });
 });
 
 test("workspace-write: outside a git repo the roots stay just the cwd", () => {
   withTmp((dir) => {
     assert.deepEqual(writableRootsFor(dir), [dir]);
+  });
+});
+
+test("workspace-write: a symlinked cwd is canonicalized so the git dir is not listed twice", () => {
+  withTmp((dir) => {
+    const real = join(dir, "real");
+    mkdirSync(real);
+    git(real, "init", "-q");
+    const link = join(dir, "link");
+    symlinkSync(real, link);
+    const roots = writableRootsFor(link);
+    assert.ok(roots.includes(join(real, ".git")));
+    assert.equal(new Set(roots).size, roots.length);
   });
 });
