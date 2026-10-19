@@ -30,10 +30,14 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
 
 // A daemon that never hears from its session again (tab closed without a
 // clean shutdown, client vanished) shouldn't sit there forever — 15 minutes
-// with no `request()` activity is generous for a coding session (an
-// in-flight turn's own requests count as activity, so this never fires
-// mid-turn) but short enough that an abandoned daemon doesn't outlive the
-// session that spawned it by much.
+// of true idleness is generous for a coding session but short enough that an
+// abandoned daemon doesn't outlive the session that spawned it by much.
+// "Idle" means no `request()` or notification traffic AND no turn in flight
+// (`turn/started` seen, `turn/completed` not yet) AND no server request
+// (approval, structured input) waiting for an answer: a turn can sit for
+// longer than the timeout on a human decision while the daemon sends nothing,
+// and `request()` is not called during that wait. The timer is paused while
+// any of those holds and re-armed when the last one clears.
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 // SIGTERM first, always — a daemon mid-write to its own on-disk state
 // deserves the chance to exit cleanly. SIGKILL only if it ignores that.
@@ -125,6 +129,11 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   }
 
   let exited = false;
+  let turnActive = false;
+  let pendingServerRequests = 0;
+  // Assigned once the promise executor below runs; lets the connection
+  // callbacks (created before it) re-arm the idle timer.
+  let touchIdle: () => void = () => {};
   let idleTimer: NodeJS.Timeout | undefined;
   let killTimer: NodeJS.Timeout | undefined;
 
@@ -156,8 +165,24 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   const connection = createJsonRpcConnection({
     framing: exec.framing,
     write: (chunk) => child.stdin.write(chunk),
-    onNotification: options.onNotification,
-    onRequest: (method, params) => exec.handleServerRequest(method, params, options.host),
+    onNotification: (method, params) => {
+      if (method === "turn/started") turnActive = true;
+      else if (method === "turn/completed") turnActive = false;
+      touchIdle();
+      options.onNotification(method, params);
+    },
+    onRequest: (method, params) => {
+      const result = exec.handleServerRequest(method, params, options.host);
+      if (result === undefined) return undefined;
+      pendingServerRequests += 1;
+      touchIdle();
+      const settle = (): void => {
+        pendingServerRequests -= 1;
+        touchIdle();
+      };
+      result.then(settle, settle);
+      return result;
+    },
   });
   child.stdout.on("data", (chunk: Buffer) => connection.receive(chunk.toString("utf8")));
 
@@ -208,6 +233,9 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     function scheduleIdleCheck(): void {
       if (exited) return;
       if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = undefined;
+      // Busy: no timer at all; the event that ends the busy state re-arms it.
+      if (turnActive || pendingServerRequests > 0) return;
       idleTimer = setTimeout(() => {
         sendKillSignal();
         finish("idle");
@@ -237,6 +265,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     connection.request("initialize", { clientInfo, capabilities: { experimentalApi: true, requestAttestation: false } }).then(
       () => {
         if (exited) return; // already settled via the exit/error listeners above
+        touchIdle = scheduleIdleCheck; // only after the handshake: no reaper before then
         scheduleIdleCheck();
         daemon = {
           request(method, params) {

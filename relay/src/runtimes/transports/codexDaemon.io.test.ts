@@ -22,6 +22,10 @@ interface FixtureBehavior {
    * since the handshake's own response never reaches the caller (it resolves
    * with a `CodexDaemon`, not the raw `initialize` result). */
   initializeParamsFile?: string;
+  /** On `turn/start`, answer it, push a `turn/started` notification and
+   * (optionally) a server-initiated approval request that the test's own
+   * `handleServerRequest` leaves pending. */
+  turnStartPushesServerRequest?: boolean;
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -52,6 +56,17 @@ process.stdin.on("data", (chunk) => {
       }
       continue;
     }
+    if (msg.method === "test/finishTurn") {
+      send({ jsonrpc: "2.0", id: msg.id, result: {} });
+      send({ jsonrpc: "2.0", method: "turn/completed", params: {} });
+      continue;
+    }
+    if (msg.method === "turn/start" && behavior.turnStartPushesServerRequest !== undefined) {
+      send({ jsonrpc: "2.0", id: msg.id, result: {} });
+      send({ jsonrpc: "2.0", method: "turn/started", params: {} });
+      if (behavior.turnStartPushesServerRequest) send({ jsonrpc: "2.0", id: 900, method: "item/commandExecution/requestApproval", params: {} });
+      continue;
+    }
     send({ jsonrpc: "2.0", id: msg.id, result: { echoedMethod: msg.method, echoedParams: msg.params } });
   }
 });
@@ -75,7 +90,11 @@ const noopHost: TurnHost = {
   requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
 };
 
-function fixtureDef(bin: string, overrides: Partial<Pick<AgentRuntimeDef, "identity">> = {}): AgentRuntimeDef {
+function fixtureDef(
+  bin: string,
+  overrides: Partial<Pick<AgentRuntimeDef, "identity">> = {},
+  handleServerRequest: () => Promise<unknown> | undefined = () => undefined,
+): AgentRuntimeDef {
   const startThread = (): JsonRpcRequestSpec => ({ method: "thread/start", params: {} });
   const startTurn = (): JsonRpcRequestSpec => ({ method: "turn/start", params: {} });
   return {
@@ -101,7 +120,7 @@ function fixtureDef(bin: string, overrides: Partial<Pick<AgentRuntimeDef, "ident
       thread: { start: startThread },
       turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
       mapNotification: () => [],
-      handleServerRequest: () => undefined,
+      handleServerRequest,
     },
     portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
@@ -293,6 +312,78 @@ test("spawnCodexDaemon: request() resets the idle timer, so activity keeps the d
       await new Promise((r) => setTimeout(r, 40));
       assert.equal(daemon.exited, false);
       assert.deepEqual(onExitCalls, []);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const poll = () => {
+      if (condition()) return resolve();
+      if (Date.now() - start > timeoutMs) return reject(new Error(`condition not met within ${timeoutMs}ms`));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
+test("idle reaper: a pending server request (approval) keeps the daemon alive, and re-arms once answered", async () => {
+  await withTmpDir(async (dir) => {
+    const bin = writeFixture(dir, { turnStartPushesServerRequest: true });
+    const onExitCalls: CodexDaemonExitReason[] = [];
+    let answer: (value: unknown) => void = () => {};
+    let requestSeen = false;
+    const pending = new Promise<unknown>((resolve) => (answer = resolve));
+    const daemon = await spawnCodexDaemon({
+      def: fixtureDef(bin, {}, () => {
+        requestSeen = true;
+        return pending;
+      }),
+      cwd: dir,
+      host: noopHost,
+      onNotification: () => {},
+      onExit: (reason) => onExitCalls.push(reason),
+      idleTimeoutMs: 40,
+    });
+    try {
+      await daemon.request("turn/start", {});
+      await waitFor(() => requestSeen);
+      // Several idle windows pass with the approval unanswered.
+      await new Promise((r) => setTimeout(r, 200));
+      assert.equal(daemon.exited, false);
+      assert.deepEqual(onExitCalls, []);
+      answer({});
+      await daemon.request("test/finishTurn", {});
+      assert.equal(await waitForExit(onExitCalls), "idle");
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: an active turn (turn/started without turn/completed) keeps the daemon alive until it completes", async () => {
+  await withTmpDir(async (dir) => {
+    const bin = writeFixture(dir, { turnStartPushesServerRequest: false });
+    const onExitCalls: CodexDaemonExitReason[] = [];
+    const methods: string[] = [];
+    const daemon = await spawnCodexDaemon({
+      def: fixtureDef(bin),
+      cwd: dir,
+      host: noopHost,
+      onNotification: (method) => methods.push(method),
+      onExit: (reason) => onExitCalls.push(reason),
+      idleTimeoutMs: 40,
+    });
+    try {
+      await daemon.request("turn/start", {});
+      await waitFor(() => methods.includes("turn/started"));
+      await new Promise((r) => setTimeout(r, 200));
+      assert.equal(daemon.exited, false);
+      await daemon.request("test/finishTurn", {});
+      assert.equal(await waitForExit(onExitCalls), "idle");
     } finally {
       daemon.kill();
     }
