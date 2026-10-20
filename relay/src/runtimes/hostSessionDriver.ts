@@ -38,8 +38,12 @@ export interface HostAgentBinding {
   /** The agent's id in the host: the session's own id. */
   readonly agentId: string;
   readonly roomId?: string;
-  /** The room wiring, read at every turn. */
+  /** The room wiring, read at every turn. A member of a room with none is
+   * never started: it would run without its restrictions. */
   readonly setup?: () => RoomAgentSetup | undefined;
+  /** Why this agent may not run now (stopped, removed, its room gone), or
+   * `undefined` when it may. Asked before anything is sent to the host. */
+  readonly admit?: () => string | undefined;
 }
 
 export interface HostSessionDriverOptions {
@@ -107,6 +111,9 @@ export class HostSessionDriver implements AgentSessionDriver {
   /** `/clear`: the host's agent still holds the old conversation, so the
    * next turn replaces it with a fresh one. */
   private resetPending = false;
+  /** Set by `dispose`: the session is gone (deleted, or the relay is
+   * stopping); nothing may start the agent again from here. */
+  private retired = false;
   private readonly daemonPlan: JsonRpcDaemonPlan | undefined;
   /** A Claude agent's native subagents, seen on its log in and between
    * turns (a background one outlives the turn that started it). */
@@ -137,7 +144,7 @@ export class HostSessionDriver implements AgentSessionDriver {
     this.resetPending = true;
     // Records still arriving for the old conversation (a background subagent
     // finishing) must not hand its session id back.
-    this.dispose();
+    this.closeSubscription();
   }
 
   stop(): boolean {
@@ -145,12 +152,19 @@ export class HostSessionDriver implements AgentSessionDriver {
     const client = this.options.binding.client;
     if (!turn || turn.settled || !client) return false;
     turn.stopRequested = true;
-    void client.request("interrupt", { agentId: this.agentId }).catch(() => {
+    const endHere = (): void => turn.resolve({ stopped: true, contextUsage: turn.contextUsage, lastAssistantText: turn.lastAssistantText });
+    client.request<{ interrupted?: boolean }>("interrupt", { agentId: this.agentId }).then(
+      (answer) => {
+        // Nothing in flight in the host and our message not seen yet: the
+        // message was not delivered (or is about to be refused by
+        // `deliver`), so no end of turn will come from the host.
+        if (answer?.interrupted === false && !turn.started) endHere();
+      },
       // The host cannot be reached: nothing would ever end this turn, so it
       // ends here, stopped (the host interrupts or restores the agent on its
       // own side; the next turn finds it as it is).
-      turn.resolve({ stopped: true, contextUsage: turn.contextUsage, lastAssistantText: turn.lastAssistantText });
-    });
+      endHere,
+    );
     return true;
   }
 
@@ -158,8 +172,25 @@ export class HostSessionDriver implements AgentSessionDriver {
    * removed only when its session is deleted, never because the relay
    * stops. */
   dispose(): void {
+    this.retired = true;
+    this.closeSubscription();
+  }
+
+  private closeSubscription(): void {
     this.subscription?.close();
     this.subscription = undefined;
+  }
+
+  /** Throws when the agent may not be started or written to now. */
+  private checkAdmitted(): RoomAgentSetup | undefined {
+    if (this.retired) throw new Error("this agent was removed; it takes no more turns");
+    const refusal = this.options.binding.admit?.();
+    if (refusal) throw new Error(refusal);
+    const setup = this.options.binding.setup?.();
+    if (this.options.binding.roomId !== undefined && !setup) {
+      throw new Error("this agent has lost its room wiring; it is not started without its restrictions");
+    }
+    return setup;
   }
 
   readHistory(cwd: string): Promise<AgentEvent[]> {
@@ -174,7 +205,7 @@ export class HostSessionDriver implements AgentSessionDriver {
   async sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult> {
     const client = this.options.binding.client;
     if (!client) throw new Error("this room's agents run in the agent host, and this relay has none: set ANYWH_PROFILE (or ANYWH_AGENT_HOST_SOCKET) and start anywh-agent-host");
-    const setup = this.options.binding.setup?.();
+    const setup = this.checkAdmitted();
     const turnCtx: TurnContext = setup ? { ...ctx, room: { role: setup.role, instructions: setup.instructions, tools: setup.tools } } : ctx;
     const spec = buildHostSpec(this.def, turnCtx, setup);
 
@@ -202,20 +233,25 @@ export class HostSessionDriver implements AgentSessionDriver {
       memos: new Map(),
       modelId: ctx.modelId,
     };
+    // Current from here on, so a Stop during the waits below is seen.
+    this.turn = turn;
     const onState = (agent: AgentActivity): void => this.onAgentState(turn, agent);
     client.on("agent_state", onState);
     try {
       await client.waitUntilConnected(this.options.connectTimeoutMs ?? 5000).catch(() => {
         throw new Error(`the agent host is not reachable (${client.status}); the room's agents cannot run until it is back`);
       });
+      // Asked again after the waits above: a stop or a removal may have
+      // landed meanwhile.
+      this.checkAdmitted();
       if (this.resetPending) {
-        this.dispose();
+        this.closeSubscription();
         await client.request("remove", { agentId: this.agentId }).catch((error: unknown) => {
           if (!(error instanceof HostRequestError && error.code === "unknown_agent")) throw error;
         });
         this.resetPending = false;
       }
-      this.turn = turn;
+      if (turn.stopRequested) return { stopped: true };
       await this.deliver(client, ctx.prompt, spec);
       return await done;
     } catch (error) {
@@ -244,15 +280,23 @@ export class HostSessionDriver implements AgentSessionDriver {
    * host does not have it. */
   private async deliver(client: HostClient, prompt: string, spec: Record<string, unknown>): Promise<void> {
     for (let attempt = 0; attempt < 2; attempt++) {
+      // Stopped before the message left: it is never sent.
+      if (this.turn?.stopRequested) {
+        this.turn.resolve({ stopped: true });
+        return;
+      }
       if (await this.ensureSubscription(client)) {
         try {
           await client.request("send", { agentId: this.agentId, message: prompt });
           return;
         } catch (error) {
           if (!(error instanceof HostRequestError && error.code === "unknown_agent")) throw error;
-          this.dispose();
+          this.closeSubscription();
         }
       }
+      // Creating it is the one step that could bring a stopped or removed
+      // agent back: asked once more right before.
+      this.checkAdmitted();
       try {
         const created = await client.request<AgentActivity>("spawn", {
           agentId: this.agentId,

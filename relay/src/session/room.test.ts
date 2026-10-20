@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isDescendant, isLiveMember, isRoomMembership, titleFromTask, type RoomMembership } from "./room.js";
+import { isDescendant, isRoomMembership, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
 
 const worker: RoomMembership = { roomId: "p", role: "worker", parentId: "p", createdBy: "agent", task: "count lines" };
 const principal: RoomMembership = { roomId: "p", role: "principal", createdBy: "user", task: "", undeliveredReports: [] };
@@ -29,12 +29,29 @@ test("isRoomMembership accepts the two shapes and rejects anything that would co
   for (const [what, value] of rejected) assert.equal(isRoomMembership(value), false, what);
 });
 
-test("a member is live until stopped or done; a blocked one still counts", () => {
-  assert.equal(isLiveMember(worker), true);
-  assert.equal(isLiveMember({ ...worker, report: { status: "blocked", summary: "", artifacts: [], at: 1 } }), true);
-  assert.equal(isLiveMember({ ...worker, report: { status: "done", summary: "", artifacts: [], at: 1 } }), false);
-  assert.equal(isLiveMember({ ...worker, report: { status: "failed", summary: "", artifacts: [], at: 1 } }), false);
-  assert.equal(isLiveMember({ ...worker, stopped: { reason: "user", at: 1 } }), false);
+test("an agent's state: only one with something running or waiting to run takes a place under the cap", () => {
+  const report = (status: "done" | "blocked" | "failed") => ({ status, summary: "", artifacts: [], at: 1 });
+  const cases: [RoomMembership, boolean, string, boolean][] = [
+    [worker, true, "working", true],
+    [worker, false, "waiting", false],
+    [{ ...worker, queuedMessages: [{ text: "go", at: 1 }] }, false, "queued", true],
+    [{ ...worker, report: report("done") }, false, "done", false],
+    [{ ...worker, report: report("blocked") }, false, "blocked", false],
+    [{ ...worker, report: report("failed") }, false, "failed", false],
+    [{ ...worker, report: report("done") }, true, "working", true],
+    [{ ...worker, stopped: { reason: "user", at: 1 } }, true, "stopped", false],
+  ];
+  for (const [room, busy, state, takes] of cases) {
+    assert.equal(roomAgentState(room, busy), state);
+    assert.equal(takesRoomPlace(roomAgentState(room, busy)), takes, state);
+  }
+});
+
+test("queued messages and synthetic reports validate; a principal never has a queue", () => {
+  assert.equal(isRoomMembership({ ...worker, queuedMessages: [{ text: "a", at: 1 }], report: { status: "failed", summary: "x", artifacts: [], at: 1, synthetic: true } }), true);
+  assert.equal(isRoomMembership({ ...worker, queuedMessages: [{ text: 1, at: 1 }] }), false);
+  assert.equal(isRoomMembership({ ...worker, report: { status: "done", summary: "", artifacts: [], at: 1, synthetic: "yes" } }), false);
+  assert.equal(isRoomMembership({ ...principal, queuedMessages: [] }), false);
 });
 
 test("isDescendant walks the parent chain and survives a cycle", () => {

@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HostClient } from "../src/agentHost/hostClient.js";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay } from "./helpers/spawnedServer.js";
@@ -132,6 +133,46 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
     assert.deepEqual(onDisk[roomId].room?.undeliveredReports, [workerId], "persisted in the principal's outbox");
   } finally {
     relay.cleanup();
+    await host.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("on connecting to its host the relay delivers messages queued before a restart, and removes the room agents it no longer has", async () => {
+  const { dir, home } = hostEnvDir();
+  const host = startHostProcess(dir, home);
+  const sessionsFile = join(dir, "profile.json");
+  const control = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 20, reconnectMaxMs: 200 });
+  let relay: Awaited<ReturnType<typeof spawnRelay>> | undefined;
+  try {
+    control.start();
+    await control.waitUntilConnected(15_000);
+    await control.request("spawn", { agentId: "orphan1", roomId: "ghost-room", spec: { cwd: dir }, message: "left behind" });
+    await control.request("spawn", { agentId: "plain1", spec: { cwd: dir }, message: "not a room's" });
+    writeFileSync(
+      sessionsFile,
+      JSON.stringify({
+        room9: entry("Room", { roomId: "room9", role: "principal", createdBy: "user", task: "", undeliveredReports: [] }),
+        w9: { ...entry("Queued worker", { roomId: "room9", role: "worker", parentId: "room9", createdBy: "agent", task: "t", queuedMessages: [{ text: "queued before the restart", at: 1 }] }), cwd: { cwd: dir, locked: false } },
+      }),
+    );
+    relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile });
+    const agents = async (): Promise<AgentActivity[]> => (await control.request<{ agents: AgentActivity[] }>("activity")).agents;
+    const deadline = Date.now() + 20_000;
+    for (;;) {
+      const now = await agents();
+      const worker = now.find((agent) => agent.agentId === "w9");
+      if (worker?.state === "idle" && !now.some((agent) => agent.agentId === "orphan1")) break;
+      if (Date.now() > deadline) throw new Error(`timed out: ${JSON.stringify(now)}\n${relay.output.join("").slice(-2000)}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const now = await agents();
+    assert.ok(now.some((agent) => agent.agentId === "plain1"), "an agent of no room is not the rooms' business");
+    const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: unknown[] } }>;
+    assert.equal(onDisk.w9.room?.queuedMessages, undefined, "delivered, so no longer queued");
+  } finally {
+    control.close();
+    relay?.cleanup();
     await host.stop();
     rmSync(dir, { recursive: true, force: true });
   }

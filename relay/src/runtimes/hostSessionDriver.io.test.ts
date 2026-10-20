@@ -12,7 +12,7 @@ import type { AgentActivity } from "../agentHost/protocol.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import { claudeRuntimeDef } from "./defs/claude/index.js";
 import { HostSessionDriver } from "./hostSessionDriver.js";
-import type { TurnContext } from "./types.js";
+import type { RoomAgentSetup, TurnContext } from "./types.js";
 
 const FAKE_CLAUDE = resolve(import.meta.dirname, "../../tests/fixtures/fake-claude.mjs");
 
@@ -52,8 +52,10 @@ async function withHost(run: (h: { dir: string; client: HostClient; host: AgentH
 
 const ctx = (dir: string, prompt: string): TurnContext => ({ cwd: dir, prompt, permissionModeId: "bypassPermissions" });
 
-function driverFor(client: HostClient | undefined, agentId: string, initialSessionId?: string): HostSessionDriver {
-  return new HostSessionDriver(claudeRuntimeDef, { initialSessionId, binding: { client, agentId, roomId: "room-a" } });
+const workerSetup = (): RoomAgentSetup => ({ role: "worker", instructions: "work", tools: [], bridgeServerName: "anywh-room", bridgeUrl: "http://127.0.0.1:9/room/x/y" });
+
+function driverFor(client: HostClient | undefined, agentId: string, initialSessionId?: string, admit?: () => string | undefined): HostSessionDriver {
+  return new HostSessionDriver(claudeRuntimeDef, { initialSessionId, binding: { client, agentId, roomId: "room-a", setup: workerSetup, ...(admit ? { admit } : {}) } });
 }
 
 async function agent(client: HostClient, agentId: string): Promise<AgentActivity | undefined> {
@@ -154,7 +156,7 @@ test("a host that is down makes the turn fail fast instead of hanging", async ()
     writeFileSync(join(dir, "placeholder"), "");
     const client = new HostClient({ socketPath: join(dir, "nothing.sock"), reconnectMinMs: 10, reconnectMaxMs: 50 });
     client.start();
-    const driver = new HostSessionDriver(claudeRuntimeDef, { binding: { client, agentId: "w6" }, connectTimeoutMs: 300 });
+    const driver = new HostSessionDriver(claudeRuntimeDef, { binding: { client, agentId: "w6", roomId: "room-a", setup: workerSetup }, connectTimeoutMs: 300 });
     await assert.rejects(driver.sendTurn(ctx(dir, "hi"), () => {}), /not reachable/);
     client.close();
   } finally {
@@ -194,5 +196,22 @@ test("after /clear, late records of the old conversation never bring its session
     await driver.sendTurn(ctx(dir, "fresh"), () => {});
     assert.notEqual(driver.getSessionId(), old);
     driver.dispose();
+  });
+});
+
+test("a member that may not run is never started: refused, stopped, without its room wiring, or after its session is gone", async () => {
+  await withHost(async ({ dir, client }) => {
+    let refusal: string | undefined = "This agent was stopped.";
+    const driver = driverFor(client, "w9", undefined, () => refusal);
+    await assert.rejects(driver.sendTurn(ctx(dir, "hi"), () => {}), /was stopped/);
+    const bare = new HostSessionDriver(claudeRuntimeDef, { binding: { client, agentId: "w10", roomId: "room-a", setup: () => undefined } });
+    await assert.rejects(bare.sendTurn(ctx(dir, "hi"), () => {}), /not started without its restrictions/);
+    assert.equal(await agent(client, "w9"), undefined);
+    assert.equal(await agent(client, "w10"), undefined, "nothing was spawned");
+
+    refusal = undefined;
+    await driver.sendTurn(ctx(dir, "now allowed"), () => {});
+    driver.dispose();
+    await assert.rejects(driver.sendTurn(ctx(dir, "after removal"), () => {}), /was removed/);
   });
 });

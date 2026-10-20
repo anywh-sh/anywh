@@ -63,6 +63,8 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
  *                                stops one worker (its turn and its process in
  *                                the agent host), the others go on; it no
  *                                longer counts under the room's cap
+ *   POST /rooms/:roomId/agents/:agentId/resume
+ *                                lets a stopped worker take turns again
  * 404 for a room whose principal does not exist.
  */
 /** `/rooms/:roomId/agents/:agentId/subtasks[/:taskId/stop]`: a member's
@@ -104,14 +106,14 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
     await handleSubtasks(res, ctx, roomId, agentId, stopTaskId);
     return true;
   }
-  const stopAgent = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/stop$/.exec(url.pathname);
+  const stopAgent = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/(stop|resume)$/.exec(url.pathname);
   if (stopAgent && req.method === "POST") {
     const [roomId, agentId] = [decode(stopAgent[1]), decode(stopAgent[2])];
     if (roomId === undefined || agentId === undefined) {
       send(res, 400, { error: "malformed path" });
       return true;
     }
-    const outcome = await ctx.roomManager.stopAgent(roomId, agentId);
+    const outcome = stopAgent[3] === "stop" ? await ctx.roomManager.stopAgent(roomId, agentId) : ctx.roomManager.resumeAgent(roomId, agentId);
     if (outcome.ok) send(res, 200, { stopped: true });
     else send(res, outcome.status, { error: outcome.error });
     return true;

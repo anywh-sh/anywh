@@ -459,8 +459,9 @@ export class SessionStore {
    * moves it to the top. */
   listTitled(): TitledSession[] {
     return Object.entries(this.records)
-      // A room's workers are reached through the room, never listed on their own.
-      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && entry[1].room?.role !== "worker")
+      // A room's workers are reached through the room, never listed on their
+      // own — unless their room is gone, so they can still be found and removed.
+      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && !this.isHiddenWorker(entry[0]))
       .sort(([, a], [, b]) => b.lastActiveAt - a.lastActiveAt)
       .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt }));
   }
@@ -684,6 +685,12 @@ export class SessionStore {
       this.records[id].pendingChoice = structuredClone(choice);
     }
     this.persist();
+  }
+
+  /** A worker of a room whose principal exists: reached through the room. */
+  isHiddenWorker(id: string): boolean {
+    const room = this.records[id]?.room;
+    return room?.role === "worker" && this.records[room.roomId]?.room?.role === "principal";
   }
 
   getRoom(id: string): RoomMembership | undefined {

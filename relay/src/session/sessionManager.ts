@@ -2,7 +2,7 @@ import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { PushNotificationDraft } from "../push/events.js";
-import { SharedSession } from "./sharedSession.js";
+import { SharedSession, type TurnOutcome } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
 import { WakeupScheduler } from "../host/wakeupScheduler.js";
@@ -22,6 +22,10 @@ export interface SessionManagerRoomOptions {
   readonly roomSetup?: (sessionId: string) => RoomAgentSetup | undefined;
   /** A room's principal was deleted (its workers with it). */
   readonly onRoomDeleted?: (roomId: string) => void;
+  /** Why a member may not run a turn now (stopped, room gone), if so. */
+  readonly admit?: (sessionId: string) => string | undefined;
+  /** A member's turn ended. */
+  readonly onTurnSettled?: (sessionId: string, outcome: TurnOutcome) => void;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -147,7 +151,7 @@ export class SessionManager {
    * reached through their room and never listed on their own (the store's
    * `listTitled` leaves them out the same way). */
   private announce(event: SessionListEvent): void {
-    if (event.type === "upsert" && this.sessionStore.getRoom(event.id)?.role === "worker") return;
+    if (event.type === "upsert" && this.sessionStore.isHiddenWorker(event.id)) return;
     this.onListChanged?.(event);
   }
 
@@ -293,8 +297,20 @@ export class SessionManager {
       // A room goes as a whole: its workers have no way in but through it.
       for (const member of this.sessionStore.listRoomMembers(id)) if (member.id !== id) this.deleteSession(member.id);
       this.rooms.onRoomDeleted?.(id);
+    } else if (room?.role === "worker") {
+      // Removing an agent removes the agents below it (they report to it),
+      // and its report no longer waits for the principal.
+      for (const member of this.sessionStore.listRoomMembers(room.roomId)) {
+        if (member.room.parentId === id && member.id !== id) this.deleteSession(member.id);
+      }
+      const principal = this.sessionStore.getRoom(room.roomId);
+      if (principal?.undeliveredReports?.includes(id)) {
+        this.sessionStore.setRoom(room.roomId, { ...principal, undeliveredReports: principal.undeliveredReports.filter((other) => other !== id) });
+      }
     }
     const session = this.sessions.get(id);
+    // Nothing still queued for it runs (its driver refuses anyway once disposed).
+    session?.discardQueuedTurns();
     // A room's agent lives in the agent host: deleting its session removes
     // it there too (best effort — a host that is down keeps it until a later
     // removal; its process would be stopped on the host's next start).
@@ -337,7 +353,10 @@ export class SessionManager {
     const session = new SharedSession(this.homeOverride, {
       def,
       ...(room
-        ? { hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id) } }
+        ? {
+            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id) },
+            onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
+          }
         : {}),
       // Nobody types into a worker: no suggestion to generate after its turns.
       ...(room?.role === "worker" ? { suggestNextMessage: false } : {}),

@@ -221,6 +221,17 @@ export interface SharedSessionOptions {
   /** `false` for a session no person types into (a room's worker): no
    * next-message suggestion is generated after its turns. Default on. */
   suggestNextMessage?: boolean;
+  /** Called once each turn is over, with how it ended — how a room learns
+   * that a worker's turn failed or ended without a report. */
+  onTurnSettled?: (outcome: TurnOutcome) => void;
+}
+
+/** How a turn ended, as `onTurnSettled` reports it. */
+export interface TurnOutcome {
+  readonly startedAt: number;
+  readonly stopped: boolean;
+  /** The failure's message, when the turn failed. */
+  readonly error?: string;
 }
 
 /**
@@ -307,6 +318,12 @@ export class SharedSession implements SessionDriverHost {
    * push/presence.ts for why a claim is a lease. */
   private readonly presenceExpiry = new Map<WebSocket, number>();
   private turnQueue: Promise<void> = Promise.resolve();
+  /** Sequence numbers of enqueued turns: the last enqueued, the last that
+   * reached the front of the queue, and the last dropped by
+   * `discardQueuedTurns` (waiting turns up to it never run). */
+  private enqueuedSeq = 0;
+  private dequeuedSeq = 0;
+  private discardedUpTo = 0;
   private cwd: string;
   private locked: boolean;
   private title: string | null;
@@ -854,7 +871,7 @@ export class SharedSession implements SessionDriverHost {
     if (result.kind === "not_found") return false;
     if (result.kind === "choice") {
       const text = formatPlanChoiceAnswerText(result.answers);
-      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text));
+      this.enqueue(() => this.runTurn(undefined, text));
     }
     return true;
   }
@@ -1014,7 +1031,7 @@ export class SharedSession implements SessionDriverHost {
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(origin, text));
+    this.enqueue(() => this.runTurn(origin, text));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1040,7 +1057,7 @@ export class SharedSession implements SessionDriverHost {
     };
     if (!silenceOffered) addFailed();
     const text = buildBackgroundJobFollowupPrompt(job);
-    this.turnQueue = this.turnQueue.then(() =>
+    this.enqueue(() =>
       this.runTurn(undefined, text, {
         label: job.label,
         kind: "background_job",
@@ -1087,7 +1104,7 @@ export class SharedSession implements SessionDriverHost {
    * `prompt` is already literal text either way. */
   submitWakeup(prompt: string): void {
     this.clearSuggestion();
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
+    this.enqueue(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
   }
 
   /** Interrupts the turn in progress, if any — doesn't touch the queue
@@ -1122,7 +1139,7 @@ export class SharedSession implements SessionDriverHost {
     this.discardStaleChoice();
     this.cancelPendingWakeup();
     this.driver.stop();
-    this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text));
+    this.enqueue(() => this.performEdit(origin, target, text));
   }
 
   /** Reuses the normal `runTurn` for the turn with the edited text — same
@@ -1204,6 +1221,28 @@ export class SharedSession implements SessionDriverHost {
    * safe to exit without interrupting anything mid-flight. `turnQueue`
    * never rejects (`runTurn` handles its own errors and never rethrows), so
    * it's fine to return it directly without a try/catch here. */
+  /** Queues a turn behind the ones already waiting. */
+  private enqueue(run: () => Promise<void>): void {
+    const seq = ++this.enqueuedSeq;
+    this.turnQueue = this.turnQueue.then(async () => {
+      this.dequeuedSeq = seq;
+      if (seq <= this.discardedUpTo) return;
+      await run();
+    });
+  }
+
+  /** Drops every turn still waiting to start (a stopped or removed agent of
+   * a room): none of them runs. The turn in flight, if any, is the
+   * caller's to stop. */
+  discardQueuedTurns(): void {
+    this.discardedUpTo = this.enqueuedSeq;
+  }
+
+  /** A turn is running, or one is waiting to. */
+  isBusy(): boolean {
+    return this.turnStartedAt !== null || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
+  }
+
   waitForIdle(): Promise<void> {
     // An agent in the host goes on through a relay restart: nothing to wait for.
     if (this.runsOutsideRelay()) return Promise.resolve();
@@ -1236,7 +1275,7 @@ export class SharedSession implements SessionDriverHost {
    * device has its bubble yet, so everyone connected gets it. */
   submitAgentTurn(text: string): void {
     this.clearSuggestion();
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text));
+    this.enqueue(() => this.runTurn(undefined, text));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1396,6 +1435,7 @@ export class SharedSession implements SessionDriverHost {
     // position regardless, since the turn's outcome (`stopped`,
     // `lastAssistantText`) genuinely isn't known until `sendTurn` resolves.
     let turnStopped = false;
+    let turnError: string | undefined;
     let planChoiceText: string | undefined;
     try {
       const effortId = this.effortForTurn();
@@ -1406,7 +1446,7 @@ export class SharedSession implements SessionDriverHost {
         ...(effortId !== undefined ? { effortId } : {}),
         permissionModeId: this.permissionMode,
       };
-      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
+      const onDriverEvent = (rawEvent: AgentEvent): void => {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
         const agentEvent = clock.stamp(rawEvent);
@@ -1450,7 +1490,8 @@ export class SharedSession implements SessionDriverHost {
         // the start marker. Purely observational: never throws nor
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
-      });
+      };
+      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, onDriverEvent);
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
       const sessionId = this.driver.getSessionId();
@@ -1506,6 +1547,7 @@ export class SharedSession implements SessionDriverHost {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      turnError = message;
       console.error("[relay] turn failed:", message);
       release();
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
@@ -1527,6 +1569,7 @@ export class SharedSession implements SessionDriverHost {
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
+    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(turnError !== undefined ? { error: turnError } : {}) });
 
     // Plan mode's `present_choice` fallback: Claude's driver never
     // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s

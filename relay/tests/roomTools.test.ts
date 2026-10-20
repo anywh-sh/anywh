@@ -122,15 +122,35 @@ test("the principal delegates, the worker is born in the host, works and reports
     assert.match(messaged.results[1].content, /no agent "not-in-room" below you/);
 
     const status = await principalTurn(socket, `status ${marker("room_status", {})}`);
-    const listed = JSON.parse(status.last) as { agents: { agentId: string; state: string; report?: { summary: string } }[] };
+    const listed = JSON.parse(status.last) as { agents: { agentId: string; state: string; report?: { summary: string; fromRelay?: boolean } }[] };
     assert.deepEqual(listed.agents.map((agent) => agent.agentId), [agentId]);
-    assert.equal(listed.agents[0].report?.summary, "README has 42 lines");
+    // The message's turn ended without a report: the relay says so.
+    assert.deepEqual(listed.agents[0].report && { summary: listed.agents[0].report.summary, fromRelay: listed.agents[0].report.fromRelay }, {
+      summary: "The agent ended its turn without reporting.",
+      fromRelay: true,
+    });
+    assert.equal(listed.agents[0].state, "blocked");
   } finally {
     socket.close();
   }
 });
 
-test("delegate refuses an unknown runtime, a parent outside the room, and a worker cannot delegate or a principal report", async () => {
+test("delegate refuses an unknown runtime or model, a parent outside the room, and a worker cannot delegate or a principal report", async () => {
+  // The model catalog the relay probed off the (fake) CLI at boot.
+  await waitFor(async () => {
+    try {
+      const { socket: probe } = await connectSessionAndCollectUntil(
+        relay.port,
+        "catalog-probe",
+        (message) => message.type === "model_catalogs_state" && JSON.stringify(message).includes("fake-sonnet"),
+        2000,
+      );
+      probe.close();
+      return true;
+    } catch {
+      return false;
+    }
+  }, 20_000, "the model catalog");
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
   try {
@@ -141,9 +161,13 @@ test("delegate refuses an unknown runtime, a parent outside the room, and a work
         marker("delegate", { task: "x", runtime: "claude", model: "haiku", parentId: "someone-else" }),
         marker("delegate", { task: "x", runtime: "claude" }),
         marker("report", { status: "done", summary: "not mine to send" }),
+        marker("delegate", { task: "x", runtime: "claude", model: "gpt-9" }),
+        marker("delegate", { task: "x", runtime: "claude", model: "fake-sonnet", effort: "ultra" }),
       ].join(" "),
     );
-    assert.equal(results.length, 4);
+    assert.equal(results.length, 6);
+    assert.match(results[4].content, /Model "gpt-9" is not one claude offers here\. Use one of: fake-sonnet, fake-opus/);
+    assert.match(results[5].content, /takes effort low, medium, high, max/);
     assert.ok(results.every((result) => result.isError), JSON.stringify(results));
     assert.match(results[0].content, /Unknown runtime "gemini"\. Use one of: claude/);
     assert.match(results[1].content, /no agent "someone-else" in this room/);
@@ -173,7 +197,7 @@ test("a room has at most 10 live agents: the next delegate fails with the limit,
     assert.equal(results.length, 10);
     assert.deepEqual(results.slice(0, 9).map((result) => result.isError), Array(9).fill(false), JSON.stringify(results.slice(0, 9)));
     assert.equal(results[9].isError, true);
-    assert.match(results[9].content, /already has 10 live agents, the limit is 10/);
+    assert.match(results[9].content, /^room_cap_reached: this room already has 10 agents at work, the limit is 10/);
     assert.equal((await members(roomId)).length, 10, "principal + 9 workers");
   } finally {
     socket.close();
@@ -288,23 +312,41 @@ test("a malformed room URL is refused, never taking the relay down", async () =>
   assert.equal((await fetch(`${base}/sessions`)).status, 200, "still up");
 });
 
-test("stopping a worker frees its place under the cap; deleting the room's principal removes its workers too", async () => {
+test("stopping a worker frees its place, drops what was queued for it and never brings it back; deleting the principal removes the room", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
   try {
-    const calls = Array.from({ length: 9 }, (_, index) => marker("delegate", { task: `idle ${index}`, runtime: "claude", model: "haiku" }));
+    // Nine workers busy in a turn that only ends when interrupted.
+    const calls = Array.from({ length: 9 }, (_, index) => marker("delegate", { task: `busy ${index} [[hang]]`, runtime: "claude", model: "haiku" }));
     const { results } = await principalTurn(socket, calls.join(" "));
     const ids = results.map((result) => (JSON.parse(result.content) as { agentId: string }).agentId);
+    await waitFor(async () => (await hostAgents()).filter((agent) => ids.includes(agent.agentId) && agent.state === "working").length === 9, 20_000, "nine workers at work");
     const full = await principalTurn(socket, marker("delegate", { task: "one more", runtime: "claude", model: "haiku" }));
-    assert.match(full.results[0].content, /limit is 10/);
+    assert.match(full.results[0].content, /^room_cap_reached/);
 
+    // A message queued behind the busy turn of the first one, then it is stopped.
+    const queued = await principalTurn(socket, marker("message_agent", { agentId: ids[0], text: "after that, do more" }));
+    assert.equal(queued.results[0].isError, false, queued.results[0].content);
     assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/stop`, { method: "POST" })).status, 200);
-    const stopped = (await members(roomId)).find((member) => member.id === ids[0]) as Member & { room: { stopped?: { reason: string } } };
+    const stopped = (await members(roomId)).find((member) => member.id === ids[0]) as Member & { room: { stopped?: { reason: string }; queuedMessages?: unknown[] } };
     assert.equal(stopped.room.stopped?.reason, "user");
+    assert.equal(stopped.room.queuedMessages, undefined, "what was queued for it is dropped");
     await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === ids[0])?.state === "stopped", 15_000, "stopped in the host");
+
+    // Typed into directly, it refuses instead of coming back.
+    const direct = await connectSession(relay.port, ids[0]);
+    const refused = collectUntil(direct, (message) => message.type === "agent_event" && (message.event as { type?: string }).type === "error", 15_000);
+    sendUserMessage(direct, "are you there?");
+    const errors = await refused;
+    direct.close();
+    assert.match(String((errors.at(-1)!.event as { message: string }).message), /was stopped/);
+    assert.equal((await hostAgents()).find((agent) => agent.agentId === ids[0])?.state, "stopped", "still stopped in the host");
+
     const again = await principalTurn(socket, marker("delegate", { task: "now it fits", runtime: "claude", model: "haiku" }));
     assert.equal(again.results[0].isError, false, again.results[0].content);
     assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${roomId}/stop`, { method: "POST" })).status, 400, "the principal is not stopped this way");
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/resume`, { method: "POST" })).status, 200);
+    assert.equal(((await members(roomId)).find((member) => member.id === ids[0]) as Member & { room: { stopped?: unknown } }).room.stopped, undefined);
   } finally {
     socket.close();
   }
@@ -316,4 +358,58 @@ test("stopping a worker frees its place under the cap; deleting the room's princ
     const agents = await hostAgents();
     return before.every((id) => !agents.some((agent) => agent.agentId === id));
   }, 20_000, "every agent of the room removed from the host");
+});
+
+test("a worker whose turn fails, or ends without a report, gets one from the relay, and the principal's outbox has it", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { results } = await principalTurn(socket, [marker("delegate", { task: "boom [[crash]]", runtime: "claude", model: "haiku" }), marker("delegate", { task: "just chat", runtime: "claude", model: "haiku" })].join(" "));
+    const [crashed, silent] = results.map((result) => (JSON.parse(result.content) as { agentId: string }).agentId);
+    await waitFor(async () => {
+      const room = await members(roomId);
+      return room.find((member) => member.id === crashed)?.room.report !== undefined && room.find((member) => member.id === silent)?.room.report !== undefined;
+    }, 20_000, "both reports");
+    const room = await members(roomId);
+    const failed = room.find((member) => member.id === crashed)!.room.report as { status: string; summary: string; synthetic?: boolean };
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.synthetic, true);
+    assert.match(failed.summary, /^The agent's turn failed: the agent's process exited/);
+    const blocked = room.find((member) => member.id === silent)!.room.report as { status: string; summary: string; synthetic?: boolean };
+    assert.deepEqual([blocked.status, blocked.summary, blocked.synthetic], ["blocked", "The agent ended its turn without reporting.", true]);
+    assert.deepEqual(new Set(room.find((member) => member.id === roomId)!.room.undeliveredReports), new Set([crashed, silent]));
+
+    const status = await principalTurn(socket, marker("room_status", {}));
+    const states = Object.fromEntries((JSON.parse(status.last) as { agents: { agentId: string; state: string }[] }).agents.map((agent) => [agent.agentId, agent.state]));
+    assert.deepEqual(states, { [crashed]: "failed", [silent]: "blocked" });
+  } finally {
+    socket.close();
+  }
+});
+
+test("messages wait in a bounded, persisted queue; removing a worker removes the agents below it and its report", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const first = await principalTurn(socket, marker("delegate", { task: "long job [[hang]]", runtime: "claude", model: "haiku" }));
+    const busy = (JSON.parse(first.last) as { agentId: string }).agentId;
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === busy)?.state === "working", 15_000, "busy");
+    const sends = Array.from({ length: 6 }, (_, index) => marker("message_agent", { agentId: busy, text: `note ${index}` }));
+    const { results } = await principalTurn(socket, sends.join(" "));
+    assert.deepEqual(results.map((result) => result.isError), [false, false, false, false, false, true]);
+    assert.match(results[5].content, /already has 5 messages waiting/);
+    const queued = (await members(roomId)).find((member) => member.id === busy)! as Member & { room: { queuedMessages?: { text: string }[] } };
+    assert.deepEqual(queued.room.queuedMessages?.map((message) => message.text), ["note 0", "note 1", "note 2", "note 3", "note 4"], "persisted in the room record");
+
+    // A child under the busy worker, then the busy worker is removed.
+    const child = await principalTurn(socket, marker("delegate", { task: `child [[room:report:${Buffer.from(JSON.stringify({ status: "done", summary: "child done" })).toString("base64url")}]]`, runtime: "claude", model: "haiku", parentId: busy }));
+    const childId = (JSON.parse(child.last) as { agentId: string }).agentId;
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === childId)?.room.report !== undefined, 15_000, "child report");
+    assert.equal((await fetch(`${base}/sessions/delete`, { method: "POST", body: JSON.stringify({ id: busy }) })).status, 200);
+    const left = await members(roomId);
+    assert.deepEqual(left.map((member) => member.id), [roomId], "the subtree is gone");
+    assert.deepEqual(left[0].room.undeliveredReports ?? [], [], "and its reports with it");
+  } finally {
+    socket.close();
+  }
 });

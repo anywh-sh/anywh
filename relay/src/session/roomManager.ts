@@ -16,7 +16,18 @@ import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { ModelCatalog, RoomAgentSetup, RoomToolSpec } from "../runtimes/types.js";
 import { availableModes, isOfferedMode } from "./permissionModes.js";
-import { ROOM_MAX_LIVE_AGENTS, isDescendant, isLiveMember, titleFromTask, type RoomMembership } from "./room.js";
+import {
+  ROOM_MAX_LIVE_AGENTS,
+  ROOM_QUEUE_PER_AGENT_MAX,
+  ROOM_QUEUE_PER_ROOM_MAX,
+  ROOM_REPORT_SUMMARY_MAX,
+  isDescendant,
+  roomAgentState,
+  takesRoomPlace,
+  titleFromTask,
+  type RoomAgentState,
+  type RoomMembership,
+} from "./room.js";
 import {
   ROOM_MCP_SERVER_NAME,
   parseDelegateArgs,
@@ -27,7 +38,7 @@ import {
   workerInstructions,
 } from "./roomTools.js";
 import type { SessionStore } from "./sessionStore.js";
-import type { SharedSession } from "./sharedSession.js";
+import type { SharedSession, TurnOutcome } from "./sharedSession.js";
 
 /** The runtimes the agent host can run. */
 export const HOST_RUNTIMES: readonly string[] = ["claude", "codex"];
@@ -36,6 +47,9 @@ export interface RoomSessions {
   getOrCreate(id: string): SharedSession;
   renameTitle(id: string, title: string): boolean;
 }
+
+/** Aliases the Claude CLI takes beyond the ids its own picker lists. */
+const CLAUDE_MODEL_ALIAS = /^(default|best|haiku|sonnet|opus|opusplan)(\[1m\])?$|^claude-[a-z0-9.-]+$/;
 
 export interface RoomManagerOptions {
   readonly store: SessionStore;
@@ -49,6 +63,10 @@ export interface RoomManagerOptions {
   readonly getModelCatalog?: (agentId: string) => ModelCatalog | undefined;
   /** Ends an agent's process in the agent host (its session is kept). */
   readonly stopInHost?: (agentId: string) => Promise<void>;
+  /** The agents the host has that belong to a room (ids and room ids). */
+  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string }[]>;
+  /** Removes an agent from the host. */
+  readonly removeFromHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
 }
 
@@ -64,6 +82,7 @@ export interface CreateRoomInput {
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };
 
 export type StopAgentResult = { ok: true } | { ok: false; status: number; error: string };
+export type ResumeAgentResult = StopAgentResult;
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
 const fail = (text: string): RoomToolResult => ({ text, isError: true });
@@ -83,10 +102,20 @@ export class RoomManager implements RoomToolHost {
     return this.options.runtimes().filter((id) => HOST_RUNTIMES.includes(id) && this.options.registry.get(id) !== undefined);
   }
 
-  /** The room wiring of a member, for its driver. */
+  /** Why a member may not run a turn now, or `undefined` when it may. */
+  admit(sessionId: string): string | undefined {
+    const room = this.store.getRoom(sessionId);
+    if (!room) return "This agent is no longer part of a room.";
+    if (this.store.getRoom(room.roomId)?.role !== "principal") return "This agent's room no longer exists.";
+    if (room.stopped) return "This agent was stopped. Resume it from its room to give it more work.";
+    return undefined;
+  }
+
+  /** The room wiring of a member, for its driver; none for one that may
+   * not run (its driver then refuses to start it). */
   setupFor(sessionId: string): RoomAgentSetup | undefined {
     const room = this.store.getRoom(sessionId);
-    if (!room) return undefined;
+    if (!room || this.admit(sessionId) !== undefined) return undefined;
     return {
       role: room.role,
       instructions: room.role === "principal" ? principalInstructions(this.runtimes()) : workerInstructions(),
@@ -100,8 +129,7 @@ export class RoomManager implements RoomToolHost {
    * removed, or when its room is gone. */
   toolsFor(sessionId: string): readonly RoomToolSpec[] | undefined {
     const room = this.store.getRoom(sessionId);
-    if (!room || room.stopped) return undefined;
-    if (this.store.getRoom(room.roomId)?.role !== "principal") return undefined;
+    if (!room || this.admit(sessionId) !== undefined) return undefined;
     return roomToolsFor(room.role);
   }
 
@@ -161,28 +189,124 @@ export class RoomManager implements RoomToolHost {
   }
 
   /** The person stops one worker (only that card): its turn is
-   * interrupted, its process ended in the host, and it is marked stopped,
-   * which frees its place under the room's cap and closes its room tools. */
+   * interrupted, nothing queued for it runs, its process is ended in the
+   * host, and it is marked stopped, which frees its place under the room's
+   * cap and closes its room tools. */
   async stopAgent(roomId: string, agentId: string): Promise<StopAgentResult> {
     const room = this.store.getRoom(agentId);
     if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
     if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is stopped this way" };
-    if (!room.stopped) this.store.setRoom(agentId, { ...room, stopped: { reason: "user", at: this.now() } });
-    this.options.sessions.getOrCreate(agentId).stopTurn();
+    const { queuedMessages: _dropped, ...kept } = room;
+    void _dropped;
+    this.store.setRoom(agentId, { ...kept, stopped: room.stopped ?? { reason: "user", at: this.now() } });
+    const session = this.options.sessions.getOrCreate(agentId);
+    session.discardQueuedTurns();
+    session.stopTurn();
     try {
       await this.options.stopInHost?.(agentId);
     } catch (error) {
-      // Marked stopped regardless: the host ends it on its next start.
+      // Marked stopped regardless: its driver refuses to start it again.
       console.warn(`[relay] could not stop agent ${agentId} in the agent host: ${(error as Error).message}`);
     }
     return { ok: true };
   }
 
-  /** Under the room's cap: not stopped, and not done for good — or done but
-   * working again (a message started a new turn). */
-  private countsAsLive(id: string, room: RoomMembership): boolean {
-    if (isLiveMember(room)) return true;
-    return !room.stopped && this.options.sessions.getOrCreate(id).isTurnInFlight();
+  /** The person gives a stopped worker its place back, if the room has one. */
+  resumeAgent(roomId: string, agentId: string): ResumeAgentResult {
+    const room = this.store.getRoom(agentId);
+    if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
+    if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is resumed this way" };
+    if (!room.stopped) return { ok: true };
+    const { stopped: _stopped, ...rest } = room;
+    void _stopped;
+    this.store.setRoom(agentId, rest);
+    return { ok: true };
+  }
+
+  private stateOf(id: string, room: RoomMembership): RoomAgentState {
+    return roomAgentState(room, this.options.sessions.getOrCreate(id).isBusy());
+  }
+
+  /** Agents of a room that take a place under its cap right now. */
+  private placesTaken(roomId: string): number {
+    return this.members(roomId).filter((member) => takesRoomPlace(this.stateOf(member.id, member.room))).length;
+  }
+
+  /** A turn of a member ended. A worker's turn that failed, or ended without
+   * the agent reporting, gets a report from the relay, so the principal
+   * hears about it and the worker stops holding a place. Then the next
+   * queued message, if any, goes out. */
+  onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    const room = this.store.getRoom(sessionId);
+    if (!room || room.role !== "worker" || room.stopped) return;
+    if (!outcome.stopped) {
+      const reportedThisTurn = room.report !== undefined && !room.report.synthetic && room.report.at >= outcome.startedAt;
+      if (outcome.error !== undefined) {
+        this.recordReport(sessionId, room, { status: "failed", summary: `The agent's turn failed: ${outcome.error}`.slice(0, ROOM_REPORT_SUMMARY_MAX), artifacts: [], synthetic: true });
+      } else if (!reportedThisTurn) {
+        this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });
+      }
+    }
+    this.pump(sessionId);
+  }
+
+  /** Delivers the next queued message of a worker that is not busy. */
+  private pump(sessionId: string): void {
+    const room = this.store.getRoom(sessionId);
+    if (!room || room.role !== "worker" || this.admit(sessionId) !== undefined) return;
+    const session = this.options.sessions.getOrCreate(sessionId);
+    if (session.isBusy()) return;
+    const [next, ...rest] = room.queuedMessages ?? [];
+    if (!next) return;
+    const { queuedMessages: _old, ...kept } = room;
+    void _old;
+    this.store.setRoom(sessionId, rest.length > 0 ? { ...kept, queuedMessages: rest } : kept);
+    session.submitAgentTurn(next.text);
+  }
+
+  /** Removes from the host every room agent this relay no longer knows (a
+   * session deleted while the host was down, a removal that failed). Only
+   * agents that belong to a room: the host is this profile's alone, and its
+   * other agents are not the rooms' business. Returns the ids removed. */
+  async reconcileHost(): Promise<string[]> {
+    if (!this.options.listHostRoomAgents || !this.options.removeFromHost) return [];
+    const removed: string[] = [];
+    const agents = await this.options.listHostRoomAgents();
+    for (const agent of agents) {
+      if (agent.roomId === undefined || this.store.getRoom(agent.agentId) !== undefined) continue;
+      try {
+        await this.options.removeFromHost(agent.agentId);
+        removed.push(agent.agentId);
+      } catch (error) {
+        console.warn(`[relay] could not remove orphaned agent ${agent.agentId} from the agent host: ${(error as Error).message}`);
+      }
+    }
+    if (removed.length > 0) console.log(`[relay] removed ${removed.length} agent(s) the rooms no longer have from the agent host`);
+    return removed;
+  }
+
+  /** Delivers what was queued before a relay restart. */
+  resumeQueues(): void {
+    for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.queuedMessages?.length ?? 0) > 0) this.pump(id);
+  }
+
+  private recordReport(workerId: string, worker: RoomMembership, report: Omit<NonNullable<RoomMembership["report"]>, "at">): void {
+    this.store.setRoom(workerId, { ...worker, report: { ...report, at: this.now() } });
+    const principal = this.store.getRoom(worker.roomId);
+    if (principal?.role === "principal") {
+      const outbox = principal.undeliveredReports ?? [];
+      if (!outbox.includes(workerId)) this.store.setRoom(worker.roomId, { ...principal, undeliveredReports: [...outbox, workerId] });
+    }
+  }
+
+  /** A model the runtime will take: the catalog's own ids, and for Claude
+   * its aliases (the CLI takes more than its picker lists). Unknown
+   * catalog: anything goes, the CLI is the judge. */
+  private checkModel(runtime: string, model: string): string | undefined {
+    const catalog = this.options.getModelCatalog?.(runtime);
+    if (!catalog || catalog.options.some((option) => option.id === model)) return undefined;
+    if (runtime === "claude" && CLAUDE_MODEL_ALIAS.test(model)) return undefined;
+    return `Model "${model}" is not one ${runtime} offers here. Use one of: ${catalog.options.map((option) => option.id).join(", ")}${runtime === "claude" ? " (or haiku, sonnet, opus)" : ""}.`;
   }
 
   // ------------------------------------------------------------ tools
@@ -204,10 +328,12 @@ export class RoomManager implements RoomToolHost {
     const parent = members.find((member) => member.id === parentId);
     if (!parent) return fail(`There is no agent "${parentId}" in this room; parentId must be one of its agents.`);
     if (parent.room.stopped) return fail(`Agent "${parentId}" was stopped; pick another parent.`);
-    const live = members.filter((member) => this.countsAsLive(member.id, member.room)).length;
+    const live = this.placesTaken(roomId);
     if (live >= ROOM_MAX_LIVE_AGENTS) {
-      return fail(`This room already has ${live} live agents, the limit is ${ROOM_MAX_LIVE_AGENTS}. Wait for one to report, or ask the person to stop one, before delegating more.`);
+      return fail(`room_cap_reached: this room already has ${live} agents at work, the limit is ${ROOM_MAX_LIVE_AGENTS}. Wait for one to report, or ask the person to stop one, before delegating more.`);
     }
+    const modelProblem = this.checkModel(args.runtime, args.model);
+    if (modelProblem) return fail(modelProblem);
     if (!this.options.hostConnected()) return fail("The agent host is not running, so no agent can start now. Tell the person; nothing was started.");
     const def = this.options.registry.get(args.runtime)!;
     const option = this.options.getModelCatalog?.(args.runtime)?.options.find((candidate) => candidate.id === args.model);
@@ -236,10 +362,12 @@ export class RoomManager implements RoomToolHost {
       createdBy: "agent",
       task: args.task,
       ...(args.area ? { area: args.area } : {}),
+      // Persisted until it is delivered: a relay restart loses no task.
+      queuedMessages: [{ text: args.task, at: this.now() }],
     });
     // Titled before its first turn, so no title is generated for it.
     this.store.setTitle(workerId, titleFromTask(args.task));
-    this.options.sessions.getOrCreate(workerId).submitAgentTurn(args.task);
+    this.pump(workerId);
     return ok(JSON.stringify({ agentId: workerId }));
   }
 
@@ -247,12 +375,7 @@ export class RoomManager implements RoomToolHost {
     if (caller.role !== "worker") return fail("Only an agent started in the room reports; the principal answers the person directly.");
     const parsed = parseReportArgs(rawArgs);
     if (!parsed.ok) return fail(parsed.error);
-    this.store.setRoom(callerId, { ...caller, report: { ...parsed.value, at: this.now() } });
-    const principal = this.store.getRoom(caller.roomId);
-    if (principal?.role === "principal") {
-      const outbox = principal.undeliveredReports ?? [];
-      if (!outbox.includes(callerId)) this.store.setRoom(caller.roomId, { ...principal, undeliveredReports: [...outbox, callerId] });
-    }
+    this.recordReport(callerId, caller, parsed.value);
     return ok("Report recorded. End your turn now.");
   }
 
@@ -267,7 +390,17 @@ export class RoomManager implements RoomToolHost {
       return fail(`There is no agent "${agentId}" below you in this room.`);
     }
     if (target.stopped) return fail(`Agent "${agentId}" was stopped; it takes no messages.`);
-    this.options.sessions.getOrCreate(agentId).submitAgentTurn(text);
+    const queue = target.queuedMessages ?? [];
+    if (queue.length >= ROOM_QUEUE_PER_AGENT_MAX) return fail(`Agent "${agentId}" already has ${queue.length} messages waiting (the limit); wait for it to get to them.`);
+    const roomQueued = this.members(caller.roomId).reduce((sum, member) => sum + (member.room.queuedMessages?.length ?? 0), 0);
+    if (roomQueued >= ROOM_QUEUE_PER_ROOM_MAX) return fail(`This room already has ${roomQueued} messages waiting (the limit); wait for its agents to get to them.`);
+    // An agent at rest takes a place again once it has work: refused now if
+    // there is none, rather than lost later.
+    if (!takesRoomPlace(this.stateOf(agentId, target)) && this.placesTaken(caller.roomId) >= ROOM_MAX_LIVE_AGENTS) {
+      return fail(`room_cap_reached: this room already has ${ROOM_MAX_LIVE_AGENTS} agents at work; agent "${agentId}" cannot take this message until one is done.`);
+    }
+    this.store.setRoom(agentId, { ...target, queuedMessages: [...queue, { text, at: this.now() }] });
+    this.pump(agentId);
     return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; it is delivered as its next turn.`);
   }
 
@@ -276,8 +409,7 @@ export class RoomManager implements RoomToolHost {
       .filter((member) => member.id !== callerId && member.room.role === "worker")
       .map(({ id, room }) => {
         const runtime = this.store.getAgentId(id);
-        const session = this.options.sessions.getOrCreate(id);
-        const state = room.stopped ? "stopped" : session.isTurnInFlight() ? "working" : (room.report?.status ?? "idle");
+        const state = this.stateOf(id, room);
         return {
           agentId: id,
           title: this.store.getTitle(id),
@@ -286,7 +418,10 @@ export class RoomManager implements RoomToolHost {
           parentId: room.parentId,
           ...(room.area ? { area: room.area } : {}),
           state,
-          ...(room.report ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts } } : {}),
+          ...(room.queuedMessages?.length ? { queuedMessages: room.queuedMessages.length } : {}),
+          ...(room.report
+            ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, ...(room.report.synthetic ? { fromRelay: true } : {}) } }
+            : {}),
         };
       });
     return ok(JSON.stringify({ agents, liveLimit: ROOM_MAX_LIVE_AGENTS }));

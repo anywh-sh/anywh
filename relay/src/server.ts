@@ -128,7 +128,13 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
-  { agentHost, roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id), onRoomDeleted: (roomId) => roomCanvas.delete(roomId) },
+  {
+    agentHost,
+    roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),
+    admit: (id): string | undefined => roomManager.admit(id),
+    onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
+    onRoomDeleted: (roomId) => roomCanvas.delete(roomId),
+  },
 );
 
 // Runtimes a room can use: the installed ones the agent host can run. Until
@@ -145,9 +151,25 @@ const roomManager: RoomManager = new RoomManager({
     if (!agentHost) throw new Error("this relay has no agent host");
     await agentHost.request("stop", { agentId });
   },
+  listHostRoomAgents: async () => {
+    if (!agentHost) return [];
+    return (await agentHost.request<{ agents: { agentId: string; roomId?: string }[] }>("activity")).agents;
+  },
+  removeFromHost: async (agentId) => {
+    await agentHost?.request("remove", { agentId });
+  },
   getModelCatalog: (agentId) => modelCatalogs[agentId],
 });
 roomBridge.attach(roomManager);
+// Every time the relay (re)connects to its host: agents the rooms no longer
+// have are removed there, then messages queued before a restart go out.
+agentHost?.on("status", (status) => {
+  if (status !== "connected") return;
+  roomManager
+    .reconcileHost()
+    .catch((error: unknown) => console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message))
+    .finally(() => roomManager.resumeQueues());
+});
 
 
 const routeContext: RouteContext = {

@@ -24,6 +24,16 @@ export interface RoomReport {
   artifacts: string[];
   /** Epoch ms when the report arrived. */
   at: number;
+  /** Written by the relay, not the agent: its turn failed (`failed`), or it
+   * ended its turn without reporting (`blocked`). */
+  synthetic?: boolean;
+}
+
+/** A message for a worker that has not reached it yet (it was busy, or the
+ * relay restarted before delivering it). Delivered in order, one turn each. */
+export interface QueuedMessage {
+  text: string;
+  at: number;
 }
 
 export interface RoomStop {
@@ -48,6 +58,8 @@ export interface RoomMembership {
   area?: string;
   report?: RoomReport;
   stopped?: RoomStop;
+  /** Worker only: messages (its task first) still to be delivered. */
+  queuedMessages?: QueuedMessage[];
   /** Principal only: workers whose report has not been handed to the
    * principal yet. Persisted so a restart between a report and the turn
    * that delivers it loses nothing. */
@@ -59,6 +71,9 @@ export interface RoomMembership {
 export const ROOM_REPORT_SUMMARY_MAX = 1000;
 export const ROOM_REPORT_ARTIFACTS_MAX = 20;
 export const ROOM_TASK_MAX = 20_000;
+/** Messages waiting for one worker, and for a whole room. */
+export const ROOM_QUEUE_PER_AGENT_MAX = 5;
+export const ROOM_QUEUE_PER_ROOM_MAX = 20;
 
 /** Live agents a room may have at once, the principal included. */
 export const ROOM_MAX_LIVE_AGENTS = 10;
@@ -86,7 +101,8 @@ export function isRoomReport(value: unknown): value is RoomReport {
     REPORT_STATUSES.has(value.status) &&
     typeof value.summary === "string" &&
     isStringList(value.artifacts) &&
-    isTimestamp(value.at)
+    isTimestamp(value.at) &&
+    (value.synthetic === undefined || typeof value.synthetic === "boolean")
   );
 }
 
@@ -94,7 +110,7 @@ export function isRoomReport(value: unknown): value is RoomReport {
  * truncated or future-schema record must never reach the room logic. */
 export function isRoomMembership(value: unknown): value is RoomMembership {
   if (!isRecord(value)) return false;
-  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports } = value;
+  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports, queuedMessages } = value;
   if (typeof roomId !== "string" || roomId === "") return false;
   if (typeof role !== "string" || !ROLES.has(role)) return false;
   if (createdBy !== "user" && createdBy !== "agent") return false;
@@ -105,18 +121,39 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
   if (role === "worker") {
     if (typeof parentId !== "string" || parentId === "") return false;
     if (undeliveredReports !== undefined) return false;
+    if (
+      queuedMessages !== undefined &&
+      !(Array.isArray(queuedMessages) && queuedMessages.length <= ROOM_QUEUE_PER_AGENT_MAX + 1 && queuedMessages.every((m) => isRecord(m) && typeof m.text === "string" && isTimestamp(m.at)))
+    ) {
+      return false;
+    }
   } else {
-    if (parentId !== undefined) return false;
+    if (parentId !== undefined || queuedMessages !== undefined) return false;
     if (undeliveredReports !== undefined && !isStringList(undeliveredReports)) return false;
   }
   return true;
 }
 
-/** An agent that still takes part in the room: not stopped, and not done
- * for good (a `blocked` report waits for help, so it still counts). */
-export function isLiveMember(room: RoomMembership): boolean {
-  if (room.stopped) return false;
-  return room.report === undefined || room.report.status === "blocked";
+/** Where an agent of a room stands, as `room_status` shows it:
+ * - `working`: a turn of it is running;
+ * - `queued`: it has messages (its task, or one for it) not delivered yet;
+ * - `waiting`: idle, never reported (only before its first turn ends);
+ * - `done` / `blocked` / `failed`: its last report (a turn that failed or
+ *   ended without a report gets one from the relay);
+ * - `stopped`: the person stopped it.
+ * Only `working` and `queued` take a place under the room's cap: an agent
+ * that is idle has nothing running for it. */
+export type RoomAgentState = "working" | "queued" | "waiting" | RoomReportStatus | "stopped";
+
+export function roomAgentState(room: RoomMembership, busy: boolean): RoomAgentState {
+  if (room.stopped) return "stopped";
+  if (busy) return "working";
+  if ((room.queuedMessages?.length ?? 0) > 0) return "queued";
+  return room.report?.status ?? "waiting";
+}
+
+export function takesRoomPlace(state: RoomAgentState): boolean {
+  return state === "working" || state === "queued";
 }
 
 /** Whether `candidateId` is below `ancestorId` in the room's tree (direct
