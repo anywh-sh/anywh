@@ -313,9 +313,12 @@ enable_agent_host() {
   fi
   if systemctl --user is-active --quiet "anywh-agent-host@$ID"; then
     echo "anywh-agent-host@$ID is already running; left as is"
-  else
-    systemctl --user enable --now "anywh-agent-host@$ID"
+  elif systemctl --user enable --now "anywh-agent-host@$ID"; then
     echo "Enabled anywh-agent-host@$ID (check: systemctl --user status anywh-agent-host@$ID)"
+  else
+    # Not fatal (`set -e` must not stop here): the relay works without its
+    # agent host; only what runs agents through the host is unavailable.
+    echo "warning: couldn't enable anywh-agent-host@$ID — the relay still works; check 'systemctl --user status anywh-agent-host@$ID'" >&2
   fi
 }
 
