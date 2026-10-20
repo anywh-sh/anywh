@@ -28,7 +28,9 @@ export type PermissionDecision =
   | { behavior: "deny"; message: string };
 
 export interface PermissionCheckHost {
-  checkPermission(toolName: string, input: unknown, toolUseId: string | undefined): Promise<PermissionDecision>;
+  /** `agentId` is set when the CLI says the call comes from a native
+   * subagent rather than the session's own agent. */
+  checkPermission(toolName: string, input: unknown, toolUseId: string | undefined, agentId?: string): Promise<PermissionDecision>;
 }
 
 export const PERMISSION_MCP_SERVER_NAME = "anywh-permission";
@@ -46,6 +48,7 @@ const TOOL_SCHEMA = {
       tool_name: { type: "string" },
       input: { type: "object" },
       tool_use_id: { type: "string" },
+      agent_id: { type: "string" },
     },
     required: ["tool_name", "input"],
   },
@@ -93,6 +96,14 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  */
 export class McpPermissionBridge {
   private readonly pending = new Map<string, PermissionCheckHost>();
+  private open = 0;
+
+  /** Approvals currently held open waiting on a host's answer. A host that
+   * defers answers at once, so this stays at zero for it: no CLI call is left
+   * hanging on a human. */
+  openCalls(): number {
+    return this.open;
+  }
 
   registerTurn(host: PermissionCheckHost): { token: string; unregister: () => void } {
     const token = randomUUID();
@@ -142,13 +153,16 @@ export class McpPermissionBridge {
     }
 
     if (method === "tools/call" && params?.name === TOOL_NAME) {
-      const args = params.arguments as { tool_name?: string; input?: unknown; tool_use_id?: string } | undefined;
+      const args = params.arguments as { tool_name?: string; input?: unknown; tool_use_id?: string; agent_id?: string } | undefined;
+      this.open += 1;
       try {
-        const decision = await host.checkPermission(args?.tool_name ?? "", args?.input, args?.tool_use_id);
+        const decision = await host.checkPermission(args?.tool_name ?? "", args?.input, args?.tool_use_id, typeof args?.agent_id === "string" ? args.agent_id : undefined);
         sendJson(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(decision) }] } });
       } catch (error) {
         const text = error instanceof Error ? error.message : String(error);
         sendJson(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text }], isError: true } });
+      } finally {
+        this.open -= 1;
       }
       return;
     }

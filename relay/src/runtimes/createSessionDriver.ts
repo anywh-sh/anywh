@@ -15,6 +15,8 @@ export interface CreateSessionDriverOptions {
    * (and in tests that don't exercise the bridged approval path). A def
    * whose `exec.kind` isn't `"spawnPerTurn"` never reads this. */
   readonly claudeMcp?: ClaudeMcpWiring;
+  /** Claude only: the session is driven on behalf of another agent. */
+  readonly agentWorker?: boolean;
 }
 
 export function createSessionDriver(def: AgentRuntimeDef, options: CreateSessionDriverOptions): AgentSessionDriver {
@@ -31,6 +33,7 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
         initialSessionId: options.initialSessionId,
         host: options.host,
         mcp: options.claudeMcp,
+        agentWorker: options.agentWorker,
       });
     case "jsonRpcDaemon":
       // CodexSessionDriver is the only driver of this shape today — same

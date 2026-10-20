@@ -11,10 +11,12 @@ export {
   APPROVE_OPTION_ID,
   DENY_OPTION_ID,
   buildApprovalQuestion,
+  buildDeferredDecision,
   buildMcpSpawnConfig,
   buildPermissionDecision,
   describeToolCall,
   isApproved,
+  isApprovedAt,
 } from "./mcpSpawnConfig.js";
 export { ClaudeSessionDriver, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
 export { buildPersistentArgs, encodeInterrupt, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
