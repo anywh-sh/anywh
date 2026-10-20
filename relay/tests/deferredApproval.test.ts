@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocket } from "ws";
@@ -24,6 +24,7 @@ let SessionManager: typeof SessionManagerType;
 let McpPermissionBridge: typeof McpPermissionBridgeType;
 let SessionStore: typeof import("../src/session/sessionStore.js").SessionStore;
 let claudeRuntimeDef: typeof import("../src/runtimes/defs/claude/index.js").claudeRuntimeDef;
+let codexRuntimeDef: typeof import("../src/runtimes/defs/codex.js").codexRuntimeDef;
 let buildRegistry: typeof import("../src/runtimes/registry.js").buildRegistry;
 
 before(async () => {
@@ -32,6 +33,7 @@ before(async () => {
   ({ McpPermissionBridge } = await import("../src/bridges/permissionBridge.js"));
   ({ SessionStore } = await import("../src/session/sessionStore.js"));
   ({ claudeRuntimeDef } = await import("../src/runtimes/defs/claude/index.js"));
+  ({ codexRuntimeDef } = await import("../src/runtimes/defs/codex.js"));
   ({ buildRegistry } = await import("../src/runtimes/registry.js"));
 });
 
@@ -75,6 +77,7 @@ interface Relay {
   sent: Sent[];
   session: import("../src/session/sharedSession.js").SharedSession;
   bridge: McpPermissionBridgeType;
+  manager: SessionManagerType;
   storeFile: string;
   stop: () => Promise<void>;
 }
@@ -99,7 +102,7 @@ async function boot(sessionId: string, options: { seedFile?: string; deferred?: 
   const manager = new SessionManager(
     undefined,
     store,
-    buildRegistry([claudeRuntimeDef]),
+    buildRegistry([claudeRuntimeDef, codexRuntimeDef]),
     undefined,
     undefined,
     undefined,
@@ -126,6 +129,7 @@ async function boot(sessionId: string, options: { seedFile?: string; deferred?: 
     sent,
     session,
     bridge,
+    manager,
     storeFile,
     stop: async () => {
       manager.disposeAll();
@@ -327,7 +331,7 @@ test("approving an edit of app/[id]/page.tsx (no safe rule names it) converges: 
   mkdirSync(join(workDir, "app", "[id]"), { recursive: true });
   await ask(relay, "write it", [{ tool: "Write", input: { file_path: page, content: "x" } }]);
   const card = prompts(relay)[0];
-  assert.match(card.questions![0].approval!.detail, /approving allows every Write call during the next turn/);
+  assert.match(card.questions![0].approval!.detail, /approving allows every file-edit call during the next turn/);
   relay.session.answerChoice(card.promptId!, [{ question: card.questions![0].question, selected: ["approve"] }]);
   await relay.session.waitForIdle();
   assert.equal(turns().at(-1)!.allowed, "Write");
@@ -487,4 +491,59 @@ test("approving ExitPlanMode on a deferred session leaves plan mode, and the fol
 
   assert.equal(relay.sent.filter((m) => m.type === "permission_mode_state").at(-1)?.mode, "default");
   assert.match(turns().at(-1)!.prompt, /leave plan mode/);
+});
+
+test("approving a card with a broad edit grant does not let a call waiting behind it run unasked", async () => {
+  const relay = await boot("deferred-waiting");
+  const page = join(workDir, "app", "[id]", "page.tsx");
+  await ask(relay, "write it", [{ tool: "Write", input: { file_path: page, content: "x" }, tool_use_id: "toolu_a" }]);
+  const first = prompts(relay)[0];
+
+  process.env.FAKE_CLAUDE_REQUEST_TOOLS = JSON.stringify([{ tool: "Write", input: { file_path: join(workDir, "b.txt"), content: "b" }, tool_use_id: "toolu_b" }]);
+  relay.session.submitWakeup("wake up");
+  await relay.session.waitForIdle();
+
+  delete process.env.FAKE_CLAUDE_REQUEST_TOOLS;
+  process.env.FAKE_CLAUDE_REPLY = "ok";
+  relay.session.answerChoice(first.promptId!, [{ question: first.questions![0].question, selected: ["approve"] }]);
+  await relay.session.waitForIdle();
+  const turn = turns().find((t) => t.prompt.startsWith("approved:"))!;
+  assert.equal(turn.allowed, undefined, "a tool-wide Write would also run the call that is still waiting");
+  assert.match(turn.prompt, /asked again/);
+});
+
+test("the permission shown on the card is the one used when it is answered, even if the folder changed meanwhile", async () => {
+  const relay = await boot("deferred-stored-rule");
+  const dir = join(workDir, "real");
+  mkdirSync(dir);
+  const file = join(dir, "f.txt");
+  await ask(relay, "write it", [{ tool: "Write", input: { file_path: file, content: "x" } }]);
+  const card = prompts(relay)[0];
+  assert.doesNotMatch(card.questions![0].approval!.detail, /approving allows/, "a single-file rule: nothing to warn about");
+
+  // Hours later the folder is a symlink to somewhere else.
+  rmSync(dir, { recursive: true });
+  mkdirSync(join(workDir, "elsewhere"));
+  symlinkSync(join(workDir, "elsewhere"), dir);
+  relay.session.answerChoice(card.promptId!, [{ question: card.questions![0].question, selected: ["approve"] }]);
+  await relay.session.waitForIdle();
+  const turn = turns().at(-1)!;
+  assert.equal(turn.allowed, undefined, "never wider than what the card showed");
+  assert.match(turn.prompt, /asked again/);
+});
+
+test("switching to another agent and back keeps the withdrawal owed to the Claude conversation that heard to wait", async () => {
+  const relay = await boot("deferred-switch");
+  await ask(relay, "write the file", [writeCall()]);
+  assert.equal(prompts(relay).length, 1);
+
+  relay.manager.setAgent("deferred-switch", "codex");
+  assert.equal(storedApproval(relay, "deferred-switch"), undefined, "the card does not follow the conversation to another agent");
+  relay.manager.setAgent("deferred-switch", "claude");
+
+  delete process.env.FAKE_CLAUDE_REQUEST_TOOLS;
+  process.env.FAKE_CLAUDE_REPLY = "ok";
+  relay.session.submitTurn({ send: () => {} } as unknown as WebSocket, "carry on");
+  await relay.session.waitForIdle();
+  assert.match(turns().at(-1)!.prompt, /\[anywh-note\] \(the pending approval request was withdrawn/, "Claude is told, whatever happened in between");
 });

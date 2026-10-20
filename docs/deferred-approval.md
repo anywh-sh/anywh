@@ -42,7 +42,10 @@ reads both from its `sessionTraits` hook when it creates a session.
    the person stopped after it had heard "wait for approval" (remembered in
    `withdrawnApproval`, so it survives a restart). That note travels behind an
    `[anywh-note]` marker at the end of the prompt, is not part of the broadcast
-   `user_message`, and is stripped when history is rebuilt from the transcript.
+   `user_message`, and is stripped when history is rebuilt from the transcript, but only when it is
+exactly one of the notes the relay adds; text a person pasted with the marker
+in it is left alone. Switching agent does not use the note up: it stays owed to
+the next turn of an agent that waited for an approval.
 5. A call from a native subagent belongs to the parent session. The permission
    request carries no agent id (measured with CLI 2.1.303), so the subagent is
    recognised from the stream, where its tool calls are announced with the
@@ -61,10 +64,17 @@ The follow-up turn runs with `--allowedTools` rules from `grantRules.ts`:
 | Bash with shell operators or rule syntax, MCP tools, WebFetch, notebooks, anything else | the tool name | the whole tool, for that one turn (broad) |
 | a call with no path or command at all | none | asked again |
 
-A broad grant is only given when **every** pending call of that tool in the
-card was approved (`Write`, `Edit` and `MultiEdit` count as one tool here).
-A narrow rule is not given when a refused call in the card names the same
-target (`Edit a.ts` approved, `Write a.ts` denied): approving `ls | head` and denying `rm -rf ~/x` grants
+The rule for each call is decided once, when the call is refused, stored with
+it in `pendingApproval` and shown on the card; the answer, hours later, uses
+the stored rule and may only narrow it (a folder that became a symlink in the
+meantime gets "asked again", never something wider).
+
+A broad grant is only given when nothing of that tool is refused **or still
+undecided** (a call queued behind this card counts). `Write`, `Edit`,
+`MultiEdit` and `NotebookEdit` count as one tool here, and the card says
+"every file-edit call". A narrow rule is not given when a refused or waiting
+call acts on the same target, compared as a canonical path (relative paths
+resolved against the session folder, symlinks resolved when they can be): approving `ls | head` and denying `rm -rf ~/x` grants
 `Bash` to neither, and the approved call is asked about again. When a broad
 grant is possible the card says so ("approving allows every Bash call during
 the next turn"). `Write(/abs)` does not grant in CLI 2.1.303; `Edit(//abs)`

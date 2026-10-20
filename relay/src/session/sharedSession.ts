@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants, resolveGrant } from "../runtimes/defs/claude/index.js";
 import { compactToolInput } from "./approvalInput.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
@@ -525,7 +525,11 @@ export class SharedSession implements SessionDriverHost {
     // out of nowhere.
     // Only on a REAL change: a redundant set_agent for the current agent
     // (e.g. a client re-sending its picked agent on reconnect) keeps it.
-    if (next.def.identity.id !== this.def.identity.id) this.discardAndNote();
+    if (next.def.identity.id !== this.def.identity.id && this.discardStaleChoice()) {
+      // Not told to the incoming agent (it never waited for it); owed to the
+      // next turn of one that did.
+      this.choiceMachine.markWithdrawn();
+    }
     this.driver.dispose();
     this.def = next.def;
     this.driver = this.createDriver(next.def, next.initialSessionId);
@@ -783,9 +787,12 @@ export class SharedSession implements SessionDriverHost {
       // Kept small (it is written to disk); the fields a grant is derived
       // from are kept whole.
       const kept = compactToolInput(input);
-      const broad = grantRuleFor({ tool: toolName, input: kept })?.broad === true;
+      // Decided once, here: the card is built from it and the answer, hours
+      // later, uses it as is rather than looking at the disk again.
+      const grant = grantRuleFor({ tool: toolName, input: kept });
+      const broad = grant?.broad === true;
       this.choiceMachine.deferApproval(
-        { tool: toolName, input: kept, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
+        { tool: toolName, input: kept, ...(grant ? { grant } : {}), ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
         buildApprovalQuestion(toolName, kept, origin, broad),
         this.currentTurnId,
       );
@@ -882,6 +889,12 @@ export class SharedSession implements SessionDriverHost {
    * discarded now, or one dropped earlier with an interrupted turn). */
   private discardAndNote(): string | undefined {
     const dropped = this.discardStaleChoice();
+    // Only an agent that defers approvals was left waiting for one; the debt
+    // stays on the books for the next turn of one that did.
+    if (!this.def.bridges.includes("permission")) {
+      if (dropped) this.choiceMachine.markWithdrawn();
+      return undefined;
+    }
     const flagged = this.choiceMachine.takeWithdrawn();
     return dropped || flagged ? WITHDRAWN_APPROVAL_NOTE : undefined;
   }
@@ -921,8 +934,8 @@ export class SharedSession implements SessionDriverHost {
       // The calls were refused when they were asked; now the human has
       // decided, a new turn repeats the approved ones with the permission
       // granted and tells the model about the rest.
-      const verdicts = result.calls.map((call, index) => ({ tool: call.tool, input: call.input, approved: isApprovedAt(result.answers, index) }));
-      const outcomes = planDeferredGrants(verdicts);
+      const verdicts = result.calls.map((call, index) => ({ tool: call.tool, input: call.input, stored: call.grant, approved: isApprovedAt(result.answers, index) }));
+      const outcomes = planDeferredGrants(verdicts, { waiting: result.waiting, cwd: this.cwd });
       const decisions = result.calls.map((call, index) => ({
         tool: call.tool,
         detail: result.questions[index]?.approval?.detail ?? "",
@@ -930,7 +943,11 @@ export class SharedSession implements SessionDriverHost {
         granted: outcomes[index] === "granted",
         ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
       }));
-      const grants: ToolGrant[] = result.calls.filter((_, index) => outcomes[index] === "granted").map(({ tool, input }) => ({ tool, input }));
+      const grants: ToolGrant[] = result.calls.flatMap((call, index) => {
+        if (outcomes[index] !== "granted") return [];
+        const rule = resolveGrant(call.grant, call)?.rule;
+        return [{ tool: call.tool, input: call.input, ...(rule !== undefined ? { rule } : {}) }];
+      });
       // Approving the plan is what takes the session out of plan mode; the
       // refused call cannot do it on its own.
       if (verdicts.some((verdict) => verdict.approved && verdict.tool === "ExitPlanMode") && this.permissionMode === "plan" && isOfferedMode(this.permissionModes, "default")) {
