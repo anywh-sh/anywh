@@ -8,13 +8,21 @@
  *  - the camera is one `transform` on `.sala-world`, written by script, never
  *    through a render;
  *  - the grid is one oversized layer moved and scaled by the compositor;
- *  - `will-change` is on only while something moves (`.moving`);
+ *  - nothing here asks for a compositing layer (`will-change`, `translateZ`,
+ *    `backface-visibility`): a promoted layer under `transform: scale()` is
+ *    rasterised once and then stretched as a bitmap by WebKit, so the plane
+ *    went soft as it was zoomed. Left to the browser, text and borders are
+ *    painted again at the real scale on every frame, on every engine;
  *  - a looping animation is either `transform`/`opacity` on a small element
  *    or advances in `steps()`, and stops while the view moves.
  */
 .sala {
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
-  --sala-hair: color-mix(in srgb, var(--foreground) 14%, transparent);
+  /* Areas: the design's warm-white tint at 16% (frame) and 1.8% (fill), 30%
+   * when hovered or selected. */
+  --sala-hair: color-mix(in srgb, var(--foreground) 16%, transparent);
+  --sala-area-fill: color-mix(in srgb, var(--foreground) 1.8%, transparent);
+  --sala-area-hot: color-mix(in srgb, var(--foreground) 30%, transparent);
   --sala-edge: color-mix(in srgb, var(--foreground) 24%, var(--background));
   --sala-edge-done: color-mix(in srgb, var(--foreground) 32%, var(--background));
   --sala-run-bg: color-mix(in srgb, var(--state-run) 9%, transparent);
@@ -26,16 +34,22 @@
   --sala-block-bg: color-mix(in srgb, var(--context-ring-warn) 10%, transparent);
   --sala-seg: color-mix(in srgb, var(--foreground) 12%, var(--background));
   position: absolute;
-  inset: 0;
-  overflow: hidden;
+  /* One pixel taller than the plane, so the toolbar can sit over the status
+   * bar's line (the extra row is transparent: the fill is the ::before). */
+  inset: 0 0 -1px;
   /* `clip`, not just `hidden`: a hidden box is still a scroll container, and
    * focusing a card that sticks out of it scrolls the whole canvas under the
    * toolbar and the minimap. */
   overflow: clip;
   outline: none;
   touch-action: none;
-  background: var(--background);
   cursor: default;
+}
+.sala::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 1px;
+  background: var(--background);
 }
 .sala:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 40%, var(--border));
@@ -63,11 +77,10 @@
   top: 0;
   pointer-events: none;
   transform-origin: 0 0;
-  will-change: transform;
 }
 .sala-vignette {
   position: absolute;
-  inset: 0;
+  inset: 0 0 1px;
   pointer-events: none;
   background: radial-gradient(130% 100% at 50% 42%, transparent 58%, color-mix(in srgb, var(--bg-chrome) 42%, transparent) 100%);
 }
@@ -78,9 +91,6 @@
   width: 0;
   height: 0;
   transform-origin: 0 0;
-}
-.sala-world.moving {
-  will-change: transform;
 }
 
 /* ─── links ─── */
@@ -190,16 +200,12 @@
   gap: 8px;
   height: 18px;
 }
-.sala-tile {
-  width: 18px;
-  height: 18px;
+/* The runtime's own mark, as the composer's agent selector draws it: no
+ * chip, no border, no background. */
+.sala-logo {
+  width: 14px;
+  height: 14px;
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  font: 600 9px var(--font-mono);
   color: var(--foreground);
 }
 .sala-model {
@@ -464,11 +470,7 @@
   left: 0;
   top: 0;
   border: 1px solid var(--sala-hair);
-  background: color-mix(in srgb, var(--foreground) 2%, transparent);
-  transition:
-    border-color var(--motion-fast) var(--motion-ease),
-    background-color var(--motion-fast) var(--motion-ease),
-    opacity var(--motion-fast) var(--motion-ease);
+  background: var(--sala-area-fill);
 }
 .sala-frame.empty {
   border-style: dashed;
@@ -483,7 +485,7 @@
 }
 .sala-frame:hover,
 .sala-frame.sel {
-  border-color: color-mix(in srgb, var(--foreground) 30%, transparent);
+  border-color: var(--sala-area-hot);
 }
 .sala-frame-bar {
   position: absolute;
@@ -497,13 +499,10 @@
   padding: 0 4px 0 0;
   cursor: grab;
   white-space: nowrap;
-  /* A link coming down into the frame is never drawn across the label: the
-     bar sits in a gap between links (`--label-x`, world units; the bar is
-     scaled by --inv, so it is divided by it), and where no gap is wide enough
-     the links are drawn under it, behind a plate of the plane's colour. */
+  /* A link coming down into the frame is never drawn across the label where
+     it can be helped: the bar sits in a gap between links (`--label-x`, world
+     units; the bar is scaled by --inv, so it is divided by it). */
   left: calc(-1px + var(--label-x, 0px) / var(--inv, 1));
-  background: var(--background);
-  padding-left: 2px;
 }
 .sala-frame-meta {
   display: flex;
@@ -599,7 +598,7 @@
 }
 .sala-toolbar {
   left: 50%;
-  bottom: -1px;
+  bottom: 0;
   z-index: 30;
   transform: translateX(-50%);
 }
@@ -761,16 +760,14 @@
   width: 384px;
   height: 100%;
   min-width: 0;
-  border-left: 1px solid var(--border-soft);
-  background: var(--background);
+  /* The window chrome's colour, like the sidebar: the panel is docked in the
+   * base plane, not drawn on the canvas, so it has no frame of its own and
+   * covers the status bar's line (the plane's frame is cut away from it, see
+   * the end of this file). */
+  background: var(--bg-chrome);
   color: var(--foreground);
   overflow: hidden;
-  animation: sala-side-in var(--motion-base, 180ms) var(--motion-ease, ease-out);
-}
-@keyframes sala-side-in {
-  from {
-    width: 0;
-  }
+  margin-bottom: -1px;
 }
 .sala-side-in {
   width: 384px;
@@ -795,12 +792,11 @@
   border: 1px solid var(--border);
   color: var(--muted-foreground);
 }
-.sala-tile.big {
-  width: 28px;
-  height: 28px;
-  font-size: 11px;
+.sala-logo.big {
+  width: 22px;
+  height: 22px;
 }
-.sala-side-mark:has(.sala-tile) {
+.sala-side-mark:has(.sala-logo) {
   border: 0;
   width: auto;
   height: auto;
@@ -870,9 +866,6 @@
   font-size: 12.5px;
   color: var(--muted-foreground);
   cursor: pointer;
-  transition:
-    background-color var(--motion-fast) var(--motion-ease),
-    color var(--motion-fast) var(--motion-ease);
 }
 .sala-side-act:hover {
   background: var(--surface-hover);
@@ -1371,4 +1364,12 @@
 }
 .sala-launcher:focus-within .sala-launcher-box {
   box-shadow: inset 0 0 0 2px var(--foreground);
+}
+
+/* The plane's frame (a 1px rule along its top and sides, drawn by the shell
+ * over the whole plane) stops where the side panel begins: the panel is the
+ * base colour all the way to the window's edge, as the sidebar is. */
+:has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) > [data-plane-frame] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 384px), transparent 0);
+  mask-image: linear-gradient(to right, #000 calc(100% - 384px), transparent 0);
 }

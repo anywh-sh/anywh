@@ -215,7 +215,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   };
 
   return (
-    <div ref={rootRef} className="flex h-full min-w-0 bg-background" data-room-id={roomId}>
+    <div ref={rootRef} className="flex h-[calc(100%-1px)] min-w-0 bg-background" data-room-id={roomId}>
       <div className="relative h-full min-w-0 flex-1">
         <SalaCanvas
           handleRef={canvasHandle}

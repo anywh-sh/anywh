@@ -113,7 +113,7 @@ const press = async (selector) => {
   await element.click();
 };
 
-/** Waits for the side panel to finish opening (it grows from nothing), so a
+/** Waits for the side panel to be open at its full width, so a
  * photograph shows the panel and not a frame of it. */
 const panelSettled = () =>
   browser.waitUntil(() => browser.execute(() => (document.querySelector("aside.sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });

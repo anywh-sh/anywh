@@ -190,7 +190,7 @@ function GroupResizeHandle({
  * border or margin on either would skew. The strip row sits above it, so the
  * active tab covers the rule where it stands. */
 function PlaneFrame() {
-  return <div aria-hidden="true" className="pointer-events-none absolute top-10 right-2 bottom-0 left-0 z-10 border border-b-0 border-border-soft" />;
+  return <div aria-hidden="true" data-plane-frame className="pointer-events-none absolute top-10 right-2 bottom-0 left-0 z-10 border border-b-0 border-border-soft" />;
 }
 
 /** Floats with the pointer for the whole drag (`DragOverlay`) — without it,
@@ -334,7 +334,7 @@ export function TabGroupLayout({
               <div
                 key={tab.id}
                 data-testid={`tab-panel-${tab.id}`}
-                className={cn("absolute inset-0 overflow-hidden", tab.id !== activeTabId && "invisible")}
+                className={cn("absolute overflow-hidden", tab.room ? "inset-x-0 top-0 -bottom-px" : "inset-0", tab.id !== activeTabId && "invisible")}
                 style={{ contain: "layout paint" }}
               >
                 {renderPanel(tab, null)}
@@ -414,7 +414,7 @@ export function TabGroupLayout({
                 // panel keeps its group's box (a virtualized `MessageLog`'s
                 // `ResizeObserver` would corrupt its height cache the instant
                 // it measures 0, even for a single frame).
-                className={cn("absolute inset-y-0 overflow-hidden", !isVisible && "invisible")}
+                className={cn("absolute overflow-hidden", tab.room ? "top-0 -bottom-px" : "inset-y-0", !isVisible && "invisible")}
                 style={{
                   left: `calc(${avail} * var(--g${groupIndex}-cum, 0) + ${groupIndex * HANDLE_PX}px)`,
                   width: `calc(${avail} * var(--g${groupIndex}-frac, ${group.size}))`,
