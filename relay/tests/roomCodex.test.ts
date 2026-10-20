@@ -137,7 +137,7 @@ test("a Codex principal delegates through its dynamic tools; the worker is born 
     (threadStart.params.dynamicTools as { name: string }[]).map((tool) => tool.name),
     ["delegate", "message_agent", "room_status"],
   );
-  assert.deepEqual(threadStart.params.config, { features: { multi_agent: false } }, "Codex's own subagents are off for the principal");
+  assert.deepEqual(threadStart.params.config, { features: { multi_agent: false }, web_search: "disabled" }, "Codex's own subagents and web search are off for the principal");
   const turnStart = codexRequests().find((request) => request.method === "turn/start")!;
   assert.deepEqual(turnStart.params.sandboxPolicy, { type: "readOnly", networkAccess: false }, "read-only although the room was opened in full-access");
   assert.equal(turnStart.params.approvalPolicy, "never");
@@ -156,4 +156,15 @@ test("a Codex without dynamic tools fails visibly in the principal's chat, and t
   assert.deepEqual(room.members.map((member) => [member.id, member.agentId]), [[roomId, "codex"]], "still Codex, and nothing was delegated");
   const agents = ((await (await fetch(`${base}/agents/activity`)).json()) as { agents: AgentActivity[] }).agents;
   assert.equal(agents.some((agent) => agent.agentId === roomId && agent.runtime !== "codex"), false, "no other runtime took its place");
+});
+
+test("a Codex thread that fails for another reason says that reason, not that the room tools are missing", async () => {
+  const cwd = join(dir, "thread-start-fails");
+  mkdirSync(cwd);
+  const roomId = await createCodexRoom(cwd);
+  const events = await turn(roomId, "hello");
+  const error = events.find((event) => event.type === "error");
+  assert.ok(error, JSON.stringify(events));
+  assert.match(String(error.message), /not logged in/);
+  assert.doesNotMatch(String(error.message), /room's tools are not available/);
 });
