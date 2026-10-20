@@ -28,6 +28,9 @@
 //   [[bg-task:<path>]]   report a background task and end the turn; the
 //                        task is reported finished once <path> exists
 //   [[crash]]            exit with code 3 in the middle of the turn
+//   [[detach]]           start a job that leaves this process's tree (a
+//                        `sleep` whose parent shell exits at once, like a
+//                        dev server started with `anywh-bg`), then end the turn
 //   [[inherit-stdout]]   start a detached `sleep` that inherits this
 //                        process's stdout/stderr (a tool that daemonized
 //                        without closing them) and is not cleaned up on
@@ -112,6 +115,9 @@ export async function runPersistent(args) {
 
     const stale = /\[\[stale-result:([^\]]+)\]\]/.exec(text)?.[1];
     if (stale) staleBeforeNext = stale;
+    if (text.includes("[[detach]]")) {
+      spawn("sh", ["-c", "sleep 300 >/dev/null 2>&1 &"], { stdio: "ignore" });
+    }
     if (text.includes("[[inherit-stdout]]")) {
       spawn("sleep", ["300"], { stdio: ["ignore", "inherit", "inherit"], detached: true }).unref();
     }

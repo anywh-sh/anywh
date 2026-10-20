@@ -802,3 +802,53 @@ test("stopping an agent whose descendant holds its stdout is graceful and prompt
     await h.cleanup();
   }
 });
+
+// ---------------------------------------------------------------- detached jobs
+
+async function waitForDetached(h: Harness, agentId: string): Promise<number[]> {
+  const { findAgentProcesses } = await import("./processTree.js");
+  const { pid } = await h.activity(agentId);
+  let others: number[] = [];
+  const deadline = Date.now() + 5000;
+  while (others.length === 0) {
+    others = (await findAgentProcesses(h.hostId, agentId)).filter((p) => p !== pid);
+    if (Date.now() > deadline) throw new Error("no detached job appeared");
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  return others;
+}
+
+test("an idle agent with a detached job still running is not hibernated for being idle", { skip: process.platform !== "linux" }, async () => {
+  let clock = 1_000_000;
+  const h = await harness({ now: () => clock, hibernation: { policy: "idle", idleMs: 1000 } });
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "start the dev server [[detach]]" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    const jobs = await waitForDetached(h, "a1");
+    clock += 3_600_000;
+    assert.deepEqual(await h.host.runHibernationPolicy(), []);
+    assert.equal((await h.activity("a1")).alive, true);
+    assert.ok(jobs.every(isAlive), "the job keeps running");
+    // An explicit stop still ends everything.
+    await h.client.request("stop", { agentId: "a1" });
+    await waitFor(() => !jobs.some(isAlive), 5000, "job ended by stop");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("memory pressure may hibernate an agent with a detached job, and its log says the job was ended", { skip: process.platform !== "linux" }, async () => {
+  const h = await harness({ hibernation: { policy: "memory", memoryBytes: 1, memoryFraction: 0.6 } });
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "start the dev server [[detach]]" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    const jobs = await waitForDetached(h, "a1");
+    assert.deepEqual(await h.host.runHibernationPolicy(), ["a1"]);
+    await waitFor(() => events.some((event) => event.ev.type === "host_process" && event.ev.subtype === "killed_detached"), 5000, "logged");
+    await waitFor(() => !jobs.some(isAlive), 5000, "job ended");
+  } finally {
+    await h.cleanup();
+  }
+});

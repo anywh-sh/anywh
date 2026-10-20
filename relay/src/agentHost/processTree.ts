@@ -181,6 +181,29 @@ export async function sweepAgentProcesses(hostId: string, agentId: string | unde
   return pids.length;
 }
 
+function parentOf(pid: number): number | undefined {
+  const stat = readFileSyncSafe(`/proc/${pid}/stat`);
+  if (stat === undefined) return undefined;
+  const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+  return Number.isInteger(ppid) ? ppid : undefined;
+}
+
+/** Processes of the agent that are no longer under its CLI's process tree
+ * (re-parented after their parent exited): jobs it detached on purpose,
+ * like a dev server started to outlive the turn. Linux only. */
+export async function detachedAgentProcesses(hostId: string, agentId: string, rootPid: number): Promise<number[]> {
+  const pids = await findAgentProcesses(hostId, agentId);
+  return pids.filter((pid) => {
+    if (pid === rootPid) return false;
+    let current: number | undefined = pid;
+    for (let depth = 0; depth < 64 && current !== undefined && current > 1; depth++) {
+      current = parentOf(current);
+      if (current === rootPid) return false;
+    }
+    return true;
+  });
+}
+
 /** Proportional set size of the given processes, in bytes (Linux; 0
  * elsewhere). Shared pages are split among the processes sharing them, so
  * sums across agents do not double count. */

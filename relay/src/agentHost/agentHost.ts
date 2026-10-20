@@ -36,7 +36,7 @@ import { ClaudeProcess, type ClaudeAgentSpec } from "./claudeProcess.js";
 import { CodexPool } from "./codexPool.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
 import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
-import { agentProcessMap, pssBytes, sweepAgentProcesses } from "./processTree.js";
+import { agentProcessMap, detachedAgentProcesses, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
 import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
 import { AgentHostSocketServer } from "./socketServer.js";
@@ -489,6 +489,8 @@ export class AgentHost {
                 : `the agent is ${this.stateOf(agent)}`;
         throw new HostError("not_hibernatable", `cannot hibernate ${agent.agentId}: ${why}`);
       }
+      const detached = await this.detachedJobs(agent);
+      if (detached > 0) this.record(agent, { type: "host_process", subtype: "killed_detached", count: detached });
       await this.endProcess(agent, "hibernate");
     });
     return this.describe(agent);
@@ -517,7 +519,14 @@ export class AgentHost {
       if (policy.policy === "idle") {
         const idleMs = policy.idleMs ?? DEFAULT_IDLE_MS;
         const now = this.now();
-        chosen.push(...candidates.filter((agent) => now - agent.lastActivityAt >= idleMs));
+        for (const agent of candidates) {
+          if (now - agent.lastActivityAt < idleMs) continue;
+          // Being idle is no reason to end a job the agent started to keep
+          // running (a dev server): only memory pressure, an explicit
+          // hibernate or a stop does that.
+          if ((await this.detachedJobs(agent)) > 0) continue;
+          chosen.push(agent);
+        }
       } else {
         const budget = (policy.memoryBytes ?? 0) * (policy.memoryFraction ?? DEFAULT_MEMORY_FRACTION);
         const byAgent = await agentProcessMap(this.options.hostId);
@@ -547,6 +556,12 @@ export class AgentHost {
     } finally {
       this.policyRunning = false;
     }
+  }
+
+  private async detachedJobs(agent: Agent): Promise<number> {
+    const pid = agent.proc?.pid;
+    if (pid === undefined || pid <= 0) return 0;
+    return (await detachedAgentProcesses(this.options.hostId, agent.agentId, pid)).length;
   }
 
   /**

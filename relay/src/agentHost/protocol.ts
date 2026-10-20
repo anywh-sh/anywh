@@ -237,6 +237,9 @@ export type HostEvent =
   /** The host that ran this agent's process went away without stopping it
    * (crash, SIGKILL, reboot); written when the next host starts. */
   | { readonly type: "host_process"; readonly subtype: "lost" }
+  /** Hibernation ended processes the agent had detached from its own tree
+   * (a job meant to outlive the turn). */
+  | { readonly type: "host_process"; readonly subtype: "killed_detached"; readonly count: number }
   | { readonly type: "host_interrupt" };
 
 // ---------------------------------------------------------------- framing
