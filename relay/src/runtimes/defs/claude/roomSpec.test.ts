@@ -49,3 +49,12 @@ test("without a room the spec is just the turn's own choices", () => {
   const spec = buildClaudeHostSpec({ ...ctx, effortId: "high", permissionModeId: "acceptEdits" }, undefined);
   assert.deepEqual(spec, { cwd: "/w", model: "haiku", effort: "high", permissionMode: "acceptEdits", agentWorker: true });
 });
+
+test("a room's context folder is granted to the agent with --add-dir, principal and worker alike", () => {
+  for (const role of ["principal", "worker"] as const) {
+    const spec = buildClaudeHostSpec(ctx, { ...setup(role), addDirs: ["/home/u/.anywh/rooms/r1"] });
+    const args = buildPersistentArgs(spec, {});
+    assert.equal(flag(args, "--add-dir"), "/home/u/.anywh/rooms/r1");
+  }
+  assert.equal(buildPersistentArgs(buildClaudeHostSpec(ctx, setup("worker")), {}).includes("--add-dir"), false);
+});
