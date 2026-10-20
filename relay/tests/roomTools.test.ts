@@ -11,7 +11,7 @@ import type WebSocket from "ws";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { hostEnvDir, startHostProcess, type HostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay, type SpawnedServer } from "./helpers/spawnedServer.js";
-import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionAndCollectUntil, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 let host: HostProcess;
 let relay: SpawnedServer;
@@ -253,6 +253,28 @@ test("a worker's native subagents are its subtasks: listed, and stopped one by o
 
     assert.equal((await fetch(`${url}/nope/stop`, { method: "POST" })).status, 404);
     assert.equal((await fetch(`${base}/rooms/${roomId}/agents/not-a-member/subtasks`)).status, 404);
+  } finally {
+    socket.close();
+  }
+});
+
+test("nobody types into a worker: its turns leave no next-message suggestion, while the principal's do", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  const suggestionOf = async (id: string): Promise<unknown> => {
+    const { socket: probe, messages } = await connectSessionAndCollectUntil(relay.port, id, (message) => message.type === "caught_up", 10_000);
+    probe.close();
+    return messages.find((message) => message.type === "suggestion")?.text;
+  };
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { task: "just answer", runtime: "claude", model: "haiku" }));
+    const workerId = (JSON.parse(last) as { agentId: string }).agentId;
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === workerId)?.state === "idle", 15_000, "the worker's turn");
+    // A principal turn after the worker's: its suggestion is generated after
+    // the worker's would have been, through the same path.
+    await principalTurn(socket, "anything new?");
+    await waitFor(async () => typeof (await suggestionOf(roomId)) === "string", 15_000, "the principal's suggestion");
+    assert.equal(await suggestionOf(workerId), null);
   } finally {
     socket.close();
   }

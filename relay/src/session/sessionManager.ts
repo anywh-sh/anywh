@@ -331,6 +331,8 @@ export class SessionManager {
       ...(room
         ? { hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id) } }
         : {}),
+      // Nobody types into a worker: no suggestion to generate after its turns.
+      ...(room?.role === "worker" ? { suggestNextMessage: false } : {}),
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
       // Re-reads the agent at call time rather than closing over the
       // `agentId` resolved above: after `setAgent` (below) switches a live
@@ -381,7 +383,12 @@ export class SessionManager {
         const title = this.sessionStore.getTitle(id);
         if (title !== null) this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
       },
-      onNotifiable: (draft, watched) => this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched }),
+      // A worker's turns end all the time while the room works; the person
+      // hears from the room, not from each of its workers.
+      onNotifiable: (draft, watched) => {
+        if (this.sessionStore.getRoom(id)?.role === "worker") return;
+        this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched });
+      },
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);
         this.wakeups.observeEvent(id, event);

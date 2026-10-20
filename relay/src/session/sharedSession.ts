@@ -218,6 +218,9 @@ export interface SharedSessionOptions {
   def: AgentRuntimeDef;
   /** Set for an agent of a room: its turns run in the agent host. */
   hostAgent?: HostAgentBinding;
+  /** `false` for a session no person types into (a room's worker): no
+   * next-message suggestion is generated after its turns. Default on. */
+  suggestNextMessage?: boolean;
 }
 
 /**
@@ -1490,7 +1493,7 @@ export class SharedSession implements SessionDriverHost {
       // synthetic turn (`synthetic`) never suggests: the "user text" that
       // would feed the generator is the follow-up's internal instruction,
       // not something that makes sense to offer as a real next message.
-      if (!stopped && !synthetic) {
+      if (!stopped && !synthetic && this.options.suggestNextMessage !== false) {
         generateSuggestion(this.def, this.homeOverride, this.cwd, text, lastAssistantText)
           .then((suggestion) => {
             this.suggestion = suggestion ?? null;
