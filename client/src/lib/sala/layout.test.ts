@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_BAR, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
@@ -34,6 +34,17 @@ describe("placeAgents", () => {
     const out = placeAgents(agents, empty);
     expect(Object.keys(out.positions)).toHaveLength(10);
     expect(noOverlap(out, agents)).toBe(true);
+  });
+
+  it("leaves the link's elbow above the label bar of the area its child is in, so the link never runs through the name", () => {
+    const agents = [main, agent("a", { area: "Design" })];
+    const out = placeAgents(agents, empty);
+    const cards = cardRects(agents, out.positions);
+    const parent = cards.get("main")!;
+    const child = cards.get("a")!;
+    const elbow = parent.y + parent.h + (child.y - (parent.y + parent.h)) / 2;
+    const barTop = areaRect(out.areas[0], cards).y - AREA_BAR;
+    expect(elbow).toBeLessThan(barTop);
   });
 
   it("lays a grandchild below its own parent", () => {

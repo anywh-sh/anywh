@@ -9,7 +9,7 @@ export const CARD_W = 264;
 export const CARD_W_MAIN = 312;
 export const CARD_H = 156;
 /** Vertical distance between a card and the ones it delegated. */
-export const ROW = 264;
+export const ROW = 288;
 /** Horizontal distance between siblings. */
 export const COL = 288;
 /** Space an area keeps around its members. */

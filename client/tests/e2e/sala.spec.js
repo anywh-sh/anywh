@@ -315,10 +315,44 @@ describe("anywh room canvas", () => {
   });
 
   it("opens ten agents on one canvas and reads them all (principal and nine workers)", async () => {
+    // A room of its own, so the screen is a feature with its three fronts and
+    // not what the earlier tests did to the first room.
+    const created = await fetch(`${stack.base}/rooms`, {
+      method: "POST",
+      body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: stack.dir, title: "Profile page: ten agents" }),
+    });
+    roomId = (await created.json()).roomId;
     const open = gate();
-    const more = Array.from({ length: 2 }, (_, i) => roomMarker("delegate", { task: `Extra agent ${String(i + 1)}\n[[gate:${open}]]`, runtime: "claude", model: "haiku" }));
-    await say(stack.port, roomId, more.join(" "));
+    const done = (summary) => roomMarker("report", { status: "done", summary, artifacts: [] });
+    const front = (area, tasks) => tasks.map((task) => roomMarker("delegate", { task, runtime: "claude", model: "haiku", area }));
+    await say(
+      stack.port,
+      roomId,
+      [
+        ...front("Design", [`Explore layouts for the profile\n[[gate:${open}]]`, `Header and avatar variations\n[[gate:${open}]]`, `Review contrast and accessibility\n${done("2 contrast fixes")}`]),
+        ...front("Research", [
+          `Map the profile features\n[[gate:${open}]]`,
+          `Benchmark of profiles in 6 apps\n${done("6 apps, benchmark ready")}`,
+          `Investigate the user API\n${askMarker({ tool: "Write", input: { file_path: join(stack.dir, "api.txt"), content: "x" } })}`,
+        ]),
+        ...front("Code", [`Profile screen in SwiftUI\n[[gate:${open}]]`, `Profile screen in Compose\n[[gate:${open}]]`, `Shared data model\n${done("Profile v2, 11 fields")}`]),
+      ].join(" "),
+    );
+    await browser.execute(
+      (id) => {
+        localStorage.setItem("anywh:tabs", JSON.stringify([{ id, profileId: "e2e-room", title: "Profile page: ten agents", room: true }]));
+        localStorage.setItem("anywh:active-tab", id);
+        localStorage.removeItem("anywh:tab-layout");
+        window.location.reload();
+      },
+      roomId,
+    );
     await browser.waitUntil(async () => (await cards()).length === 10, { timeout: 60000, timeoutMsg: "ten cards never appeared" });
+    await browser.waitUntil(
+      () => browser.execute(() => !!document.querySelector('[data-state="awaiting_user"]') && !!document.querySelector('[data-state="done"]') && !!document.querySelector('[data-state="working"]')),
+      { timeout: 60000, timeoutMsg: "the ten cards did not reach working, done and awaiting_user" },
+    );
+    expect((await $$("[data-area-id]")).length).toBe(3);
     await browser.execute(() => {
       // "Fit to screen"
       document.querySelector('[aria-label="Fit to screen"]').click();
