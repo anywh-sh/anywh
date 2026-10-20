@@ -343,13 +343,22 @@ export class HostSessionDriver implements AgentSessionDriver {
   /** Writes the message to the agent, creating it in the host first if the
    * host does not have it. */
   private async deliver(client: HostClient, prompt: string, spec: Record<string, unknown>): Promise<void> {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      // Stopped before the message left: it is never sent.
+    // Stopped (or stopped being allowed to run) before the message left: it
+    // is never sent. Asked again after every await, right before any request
+    // that could start the agent.
+    const halted = (): boolean => {
       if (this.turn?.stopRequested) {
         this.turn.resolve({ stopped: true });
-        return;
+        return true;
       }
-      if (await this.ensureSubscription(client)) {
+      this.checkAdmitted();
+      return false;
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (halted()) return;
+      const known = await this.ensureSubscription(client);
+      if (halted()) return;
+      if (known) {
         try {
           await client.request("send", { agentId: this.agentId, message: prompt });
           return;
@@ -358,9 +367,7 @@ export class HostSessionDriver implements AgentSessionDriver {
           this.closeSubscription();
         }
       }
-      // Creating it is the one step that could bring a stopped or removed
-      // agent back: asked once more right before.
-      this.checkAdmitted();
+      if (halted()) return;
       try {
         const created = await client.request<AgentActivity>("spawn", {
           agentId: this.agentId,

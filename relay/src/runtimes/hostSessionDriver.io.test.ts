@@ -226,3 +226,44 @@ test("Stop before the message reached the host: the turn ends stopped and nothin
     driver.dispose();
   });
 });
+
+/** A real client that runs `hook` the moment a request of `method` goes out
+ * (once): how a Stop lands in the middle of the driver's own awaits. */
+class HookedClient extends HostClient {
+  hook: { method: string; run: () => void } | undefined;
+  override request<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    const hook = this.hook;
+    if (hook && hook.method === method) {
+      this.hook = undefined;
+      hook.run();
+    }
+    return super.request<T>(method, params);
+  }
+}
+
+test("a Stop that lands while the driver looks the agent up keeps the message from ever reaching the host", async () => {
+  await withHost(async ({ dir, client, host }) => {
+    const first = driverFor(client, "w12");
+    await first.sendTurn(ctx(dir, "warm up"), () => {});
+    first.dispose();
+    await client.request("stop", { agentId: "w12" });
+    assert.equal((await agent(client, "w12"))?.state, "stopped");
+
+    const hooked = new HookedClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
+    hooked.start();
+    await hooked.waitUntilConnected();
+    try {
+      const driver = driverFor(hooked, "w12");
+      hooked.hook = { method: "activity", run: () => driver.stop() };
+      const result = await driver.sendTurn(ctx(dir, "should never arrive"), () => {});
+      assert.equal(result.stopped, true);
+      await new Promise((r) => setTimeout(r, 300));
+      const after = await agent(client, "w12");
+      assert.equal(after?.state, "stopped", "the stopped agent was not started again");
+      assert.equal(after?.alive, false);
+      driver.dispose();
+    } finally {
+      hooked.close();
+    }
+  });
+});
