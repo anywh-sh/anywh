@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants } from "../runtimes/defs/claude/index.js";
 import { compactToolInput } from "./approvalInput.js";
-import { withRelayNote } from "../protocol/relayNote.js";
+import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
@@ -312,9 +312,6 @@ class HeldTurn {
     return isNoReply(this.committed.join("\n"));
   }
 }
-
-/** Appended to a user message that replaces a pending deferred approval. */
-const WITHDRAWN_APPROVAL_NOTE = "(the pending approval request was withdrawn by the user; do not wait for it)";
 
 export class SharedSession implements SessionDriverHost {
   /** Not `readonly`: `switchAgent` replaces it when the user picks a

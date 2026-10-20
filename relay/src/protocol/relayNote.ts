@@ -5,12 +5,23 @@
 // transcript) can drop it again.
 const RELAY_NOTE_MARKER = "\n\n[anywh-note] ";
 
+/** Told to the model when an approval it was left waiting for is gone. */
+export const WITHDRAWN_APPROVAL_NOTE = "(the pending approval request was withdrawn by the user; do not wait for it)";
+
+// Only these are ever added, so only these are removed: a person's own text
+// that happens to contain the marker must come back untouched.
+const KNOWN_NOTES: readonly string[] = [WITHDRAWN_APPROVAL_NOTE];
+
 export function withRelayNote(text: string, note: string): string {
   return `${text}${RELAY_NOTE_MARKER}${note}`;
 }
 
-/** The text without a relay note; unchanged when it has none. */
+/** The text without a relay note; unchanged unless it ENDS with the marker
+ * followed by exactly one of the notes the relay adds. */
 export function stripRelayNote(text: string): string {
-  const at = text.indexOf(RELAY_NOTE_MARKER);
-  return at === -1 ? text : text.slice(0, at);
+  for (const note of KNOWN_NOTES) {
+    const tail = `${RELAY_NOTE_MARKER}${note}`;
+    if (text.endsWith(tail)) return text.slice(0, -tail.length);
+  }
+  return text;
 }

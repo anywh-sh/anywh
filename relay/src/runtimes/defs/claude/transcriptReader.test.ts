@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
-import { withRelayNote } from "../../../protocol/relayNote.js";
+import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 
 function withFixture(sessionId: string, rawLines: string[], run: (home: string) => void): void {
@@ -306,7 +306,7 @@ test("a relay note added to a prompt for the model does not show up in the rebui
   withFixture(
     "s-note",
     [
-      JSON.stringify({ type: "user", message: { content: withRelayNote("never mind", "the pending approval request was withdrawn") } }),
+      JSON.stringify({ type: "user", message: { content: withRelayNote("never mind", WITHDRAWN_APPROVAL_NOTE) } }),
       JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }),
     ],
     (home) => {
