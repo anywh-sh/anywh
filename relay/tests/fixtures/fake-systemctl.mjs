@@ -13,5 +13,12 @@
 //
 // Always succeeds (exit 0, no output) — the route only cares about the exit
 // code (best-effort cleanup either way, see server.ts), and no test in this
-// repo asserts on systemd's own state.
+// repo asserts on systemd's own state. FAKE_SYSTEMCTL_ARGV_FILE, if set,
+// gets each invocation's argv appended as one JSON array per line, so a test
+// can check which units the relay asked to disable.
+import { appendFileSync } from "node:fs";
+
+if (process.env.FAKE_SYSTEMCTL_ARGV_FILE) {
+  appendFileSync(process.env.FAKE_SYSTEMCTL_ARGV_FILE, `${JSON.stringify(process.argv.slice(2))}\n`);
+}
 process.exit(0);

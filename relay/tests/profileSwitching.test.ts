@@ -1,7 +1,7 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer as createNetServer, type Server } from "node:net";
-import { writeFileSync, existsSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
 
@@ -81,9 +81,17 @@ test("GET /control/profiles reports a second profile's running state from a real
   assert.equal(patched?.label, "Trabalho renomeado");
   assert.equal(patched?.colorIndex, 2);
 
+  const systemctlArgv = join(server.envDir, "..", "systemctl-argv.jsonl");
+  process.env.FAKE_SYSTEMCTL_ARGV_FILE = systemctlArgv;
   const deleteResponse = await fetch(httpUrl("/control/profiles/trabalho"), { method: "DELETE" });
   assert.equal(deleteResponse.status, 200);
   assert.equal(existsSync(join(server.envDir, "trabalho.env")), false, "delete should remove the .env file from disk");
+  // Both of the profile's services go: the relay and its agent host.
+  const calls = readFileSync(systemctlArgv, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+  assert.deepEqual(calls, [
+    ["--user", "disable", "--now", "anywh-relay@trabalho"],
+    ["--user", "disable", "--now", "anywh-agent-host@trabalho"],
+  ]);
 
   const listedAfterDelete = (await (await fetch(httpUrl("/control/profiles"))).json()) as {
     profiles: { id: string }[];

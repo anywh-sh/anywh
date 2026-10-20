@@ -243,19 +243,26 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         res.end(JSON.stringify({ error: "failed to delete profile files" }));
       }
     };
-    const disable = spawn(SYSTEMCTL_BIN, ["--user", "disable", "--now", `anywh-relay@${id}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let disableStderr = "";
-    disable.stderr.on("data", (chunk: Buffer) => (disableStderr += chunk.toString("utf8")));
-    disable.on("error", (error) => {
-      console.error("[relay] failed to run systemctl disable for", id, ":", error);
-      finishDelete();
-    });
-    disable.on("close", (code) => {
-      if (code !== 0) console.error("[relay] systemctl disable for", id, "exited", code, disableStderr.trim());
-      finishDelete();
-    });
+    // One unit at a time: `systemctl disable` given several units fails as a
+    // whole when one of them does not exist, and a machine set up before the
+    // agent host existed has no `anywh-agent-host@` unit at all.
+    const disableUnit = (unit: string): Promise<void> =>
+      new Promise((resolveDisable) => {
+        const disable = spawn(SYSTEMCTL_BIN, ["--user", "disable", "--now", unit], { stdio: ["ignore", "pipe", "pipe"] });
+        let disableStderr = "";
+        disable.stderr.on("data", (chunk: Buffer) => (disableStderr += chunk.toString("utf8")));
+        disable.on("error", (error) => {
+          console.error("[relay] failed to run systemctl disable for", unit, ":", error);
+          resolveDisable();
+        });
+        disable.on("close", (code) => {
+          if (code !== 0) console.error("[relay] systemctl disable for", unit, "exited", code, disableStderr.trim());
+          resolveDisable();
+        });
+      });
+    void disableUnit(`anywh-relay@${id}`)
+      .then(() => disableUnit(`anywh-agent-host@${id}`))
+      .then(finishDelete);
     return true;
   }
 
