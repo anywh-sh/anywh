@@ -1,9 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { McpChoiceBridge } from "./bridges/mcpBridge.js";
 import { McpPermissionBridge } from "./bridges/permissionBridge.js";
 import { ROOM_BRIDGE_PATH, RoomBridge, roomKeyPathFor } from "./bridges/roomBridge.js";
 import { defaultCwd } from "./host/paths.js";
+import { extractPdfText } from "./host/pdfText.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
@@ -28,7 +30,9 @@ import { PushDispatcher } from "./push/dispatcher.js";
 import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { RoomCanvasStore, roomCanvasPathFor } from "./session/roomCanvas.js";
+import { RoomContextStore } from "./session/roomContextStore.js";
 import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
+import { UsageTally } from "./session/roomUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -70,6 +74,14 @@ const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
 // Each room's canvas layout, beside the sessions file (`<profile>-rooms.json`
 // for a profile whose sessions file is `<profile>.json`).
 const roomCanvas = new RoomCanvasStore(process.env.RELAY_ROOMS_FILE ?? roomCanvasPathFor(SESSIONS_FILE));
+// Each room's shared files and their index: a folder per room under the
+// profile's home, where the agents (on this machine) can read them.
+const roomContext = new RoomContextStore({
+  root: process.env.RELAY_ROOM_CONTEXT_DIR ?? join(defaultCwd(HOME_OVERRIDE), ".anywh", "rooms"),
+  extractPdf: (path) => extractPdfText(path),
+});
+// Per room agent: what it read from the model's cache and what it wrote.
+const roomUsage = new UsageTally();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
 // machine (see the comment on `SharedSessionOptions.mcpBridgeBaseUrl`), not
@@ -134,7 +146,12 @@ const sessionManager = new SessionManager(
     roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),
     admit: (id): string | undefined => roomManager.admit(id),
     onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
-    onRoomDeleted: (roomId) => roomCanvas.delete(roomId),
+    onRoomDeleted: (roomId) => {
+      roomCanvas.delete(roomId);
+      roomContext.deleteRoom(roomId);
+    },
+    turnNote: (id) => roomManager.turnNote(id),
+    onUsage: (id, event) => roomUsage.observe(id, event),
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
     owner: roomBridge.ownerId,
@@ -167,8 +184,21 @@ const roomManager: RoomManager = new RoomManager({
     await agentHost?.request("remove", { agentId });
   },
   getModelCatalog: (agentId) => modelCatalogs[agentId],
+  context: roomContext,
+  ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
 });
 roomBridge.attach(roomManager);
+// A room's folder outlives nothing: those of rooms the sessions file no
+// longer has are removed. Skipped when that file did not load whole (an
+// unreadable one would make every room look gone).
+// Not for a store with no session at all unless the folder was named by the
+// operator: a relay started by hand with default paths would otherwise see
+// every room of the profile it shares the folder with as gone.
+if (sessionStore.loadedOk && !sessionStore.recoveredFromCorrupt && (sessionStore.listIds().length > 0 || process.env.RELAY_ROOM_CONTEXT_DIR)) {
+  const liveRooms = new Set(sessionStore.listIds().filter((id) => sessionStore.getRoom(id)?.role === "principal"));
+  const pruned = roomContext.pruneOrphans(liveRooms);
+  if (pruned.length > 0) console.log(`[relay] removed the context folders of ${pruned.length} room(s) that no longer exist`);
+}
 // Every time the relay (re)connects to its host: agents the rooms no longer
 // have are removed there, then messages queued before a restart go out.
 agentHost?.on("status", (status) => {
@@ -191,6 +221,8 @@ const routeContext: RouteContext = {
   agentHost,
   roomCanvas,
   roomManager,
+  roomContext,
+  roomUsage,
 };
 
 // Tried in this order, but order only matters within a group — no two

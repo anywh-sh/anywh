@@ -246,6 +246,11 @@ export interface SharedSessionOptions {
   /** Called once each turn is over, with how it ended — how a room learns
    * that a worker's turn failed or ended without a report. */
   onTurnSettled?: (outcome: TurnOutcome) => void;
+  /** A room agent's note for the model alone on its next turn (news of the
+   * room's context), and what to run once that turn went through. */
+  /** Every event of every turn, for a room agent's usage tally. */
+  onUsage?: (event: AgentEvent) => void;
+  roomTurnNote?: () => { text: string; commit: () => void } | undefined;
 }
 
 /** How a turn ended, as `onTurnSettled` reports it. */
@@ -1585,11 +1590,13 @@ export class SharedSession implements SessionDriverHost {
     let turnStopped = false;
     let turnError: string | undefined;
     let planChoiceText: string | undefined;
+    const roomNote = follow ? undefined : this.options.roomTurnNote?.();
     try {
       const effortId = this.effortForTurn();
+      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), text);
       const ctx: TurnContext = {
         cwd: this.cwd,
-        prompt: note ? withRelayNote(text, note) : text,
+        prompt,
         modelId: this.model,
         ...(effortId !== undefined ? { effortId } : {}),
         permissionModeId: this.permissionMode,
@@ -1642,6 +1649,7 @@ export class SharedSession implements SessionDriverHost {
         // the start marker. Purely observational: never throws nor
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
+        if (agentEvent.type === "usage") this.options.onUsage?.(agentEvent);
       };
       const { stopped, contextUsage, lastAssistantText } =
         follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent, { fromTranscript }) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);
@@ -1726,6 +1734,7 @@ export class SharedSession implements SessionDriverHost {
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
+    if (turnError === undefined && !turnStopped) roomNote?.commit();
     this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(follow ? { adopted: true } : {}), ...(turnError !== undefined ? { error: turnError } : {}) });
 
     // Plan mode's `present_choice` fallback: Claude's driver never

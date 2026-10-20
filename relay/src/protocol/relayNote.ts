@@ -16,12 +16,28 @@ export function withRelayNote(text: string, note: string): string {
   return `${text}${RELAY_NOTE_MARKER}${note}`;
 }
 
-/** The text without a relay note; unchanged unless it ENDS with the marker
- * followed by exactly one of the notes the relay adds. */
+/** Starts the note that tells a room agent of items added to the room's
+ * context after it was born (the rest of it names the items). */
+export const ROOM_CONTEXT_NOTE_PREFIX = "New in the room's context since you started:";
+
+/** The text without the relay notes at its end; unchanged unless it ENDS
+ * with the marker followed by exactly one of the notes the relay adds (or a
+ * room-context notice, which names items). Several stacked notes all go. */
 export function stripRelayNote(text: string): string {
+  let current = text;
+  for (;;) {
+    const stripped = stripOne(current);
+    if (stripped === current) return current;
+    current = stripped;
+  }
+}
+
+function stripOne(text: string): string {
   for (const note of KNOWN_NOTES) {
     const tail = `${RELAY_NOTE_MARKER}${note}`;
     if (text.endsWith(tail)) return text.slice(0, -tail.length);
   }
+  const at = text.lastIndexOf(`${RELAY_NOTE_MARKER}${ROOM_CONTEXT_NOTE_PREFIX}`);
+  if (at >= 0 && !text.slice(at + RELAY_NOTE_MARKER.length).includes("\n")) return text.slice(0, at);
   return text;
 }

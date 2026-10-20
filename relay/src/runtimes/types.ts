@@ -339,6 +339,9 @@ export interface RoomTurnSetup {
    * first request, so they never change afterwards. */
   readonly instructions: string;
   readonly tools: readonly RoomToolSpec[];
+  /** Folders outside the agent's cwd it works in (the room's context
+   * folder), granted to the CLI where it has such a grant. */
+  readonly addDirs?: readonly string[];
   /** MCP servers of the user's own CLI configuration to switch off for this
    * agent (a read-only principal must not reach them). Filled by whoever
    * can read that configuration (the agent host). */
