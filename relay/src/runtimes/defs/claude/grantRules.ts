@@ -41,10 +41,14 @@ function isPlainAbsolutePath(path: string): boolean {
   } catch {
     // Not there yet (a Write creating it): nothing to resolve.
   }
-  try {
-    return realpathSync(dirname(path)) === dirname(path);
-  } catch {
-    return true;
+  // The nearest directory that exists must be its own real path: a symlink
+  // further up, above directories the write would create, still redirects it.
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    try {
+      return realpathSync(dir) === dir;
+    } catch {
+      if (dir === "/") return true;
+    }
   }
 }
 

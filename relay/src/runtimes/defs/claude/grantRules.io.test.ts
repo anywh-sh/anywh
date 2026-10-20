@@ -210,3 +210,13 @@ test("broadGrantLabel: the whole edit family is named as file-edit, other tools 
   assert.equal(broadGrantLabel("Bash"), "Bash");
   assert.equal(broadGrantLabel("mcp__s__t"), "mcp__s__t");
 });
+
+test("a symlink above directories the write would create is not a plain path", () => {
+  withDir((dir) => {
+    mkdirSync(`${dir}/real`);
+    symlinkSync(`${dir}/real`, `${dir}/link`);
+    const through = grantRuleFor({ tool: "Write", input: { file_path: `${dir}/link/new/deep/f.txt` } });
+    assert.deepEqual(through, { rule: "Write", broad: true }, "only the tool can be named, never the path that would land elsewhere");
+    assert.deepEqual(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/new/deep/f.txt` } })?.broad, false, "the same through the real directory is plain");
+  });
+});

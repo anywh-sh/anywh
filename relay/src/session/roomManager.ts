@@ -506,6 +506,9 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    // Whatever stopped an earlier digest from going out, a turn of its own
+    // since is a reason to try again.
+    if (outcome.synthetic !== "room_digest") this.digestFailed.delete(sessionId);
     if (outcome.synthetic === "room_digest") {
       const digest = this.digests.get(sessionId);
       this.digests.delete(sessionId);
