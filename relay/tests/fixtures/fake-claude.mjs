@@ -412,10 +412,23 @@ if (args[0] === "--version") {
     process.exit(0);
   } else if (process.env.FAKE_CLAUDE_REQUEST_TOOLS && outputFormat === "stream-json") {
     const calls = JSON.parse(process.env.FAKE_CLAUDE_REQUEST_TOOLS);
+    // FAKE_CLAUDE_HOLD_AFTER_TOOLS=<file> - once every call has its answer,
+    // write that file and stay in flight until SIGINT (a turn the person is
+    // about to stop), then end the way an interrupted turn does.
+    const holdFile = process.env.FAKE_CLAUDE_HOLD_AFTER_TOOLS;
+    if (holdFile) {
+      process.once("SIGINT", () => {
+        emitAndExit({ type: "result", session_id: sessionId, is_error: true, result: "interrompido pelo usuário", errors: ["interrompido pelo usuário"], modelUsage: { [model]: { contextWindow: 200000 } } });
+      });
+    }
     const rules = parseAllowedRules(flagValue("--allowed-tools") ?? flagValue("--allowedTools"));
     const mcpConfig = flagValue("--mcp-config");
-    const outcomes = await Promise.all(
-      calls.map(async (call, index) => {
+    // One after the other, in the order given: the card lists the calls in the
+    // order they were refused, and a test answers it by position.
+    const outcomes = [];
+    for (const [index, call] of calls.entries()) {
+      outcomes.push(
+        await (async () => {
         const label = `${call.tool} ${call.input.file_path ?? call.input.command ?? ""}`.trim();
         if (call.subagent_of) {
           // A call made inside a native subagent is announced in the stream
@@ -438,12 +451,18 @@ if (args[0] === "--version") {
           return `ran: ${label}`;
         }
         if (!flagValue("--permission-prompt-tool")) return `refused: ${label} (no permission tool)`;
-        const decision = await askPermission(mcpConfig, call, `toolu_fake_${index}`);
+        const decision = await askPermission(mcpConfig, call, call.tool_use_id ?? `toolu_fake_${index}`);
         if (decision.behavior !== "allow") return `refused: ${label} (${decision.message})`;
         performCall(call);
         return `ran: ${label}`;
-      }),
-    );
+        })(),
+      );
+    }
+    if (holdFile) {
+      writeFileSync(holdFile, "ready");
+      setInterval(() => {}, 1000);
+      await new Promise(() => {});
+    }
     const text = outcomes.join("\n");
     emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
     emit({ type: "result", session_id: sessionId, is_error: false, result: text, modelUsage: { [model]: { contextWindow: 200000 } } });

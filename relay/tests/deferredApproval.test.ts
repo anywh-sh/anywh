@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocket } from "ws";
@@ -321,15 +321,97 @@ test("approving every Bash call of the prompt does give the tool-wide rule", asy
   assert.deepEqual(turns().at(-1)!.allowed?.split(","), ["Bash"]);
 });
 
-test("an approved edit no safe rule can name (a relative path) is asked again, never widened to the whole tool", async () => {
-  const relay = await boot("deferred-relative");
-  await ask(relay, "write it", [{ tool: "Write", input: { file_path: "out/relative.txt", content: "x" } }]);
+test("approving an edit of app/[id]/page.tsx (no safe rule names it) converges: granted tool-wide on the second turn, with the warning on the card", async () => {
+  const relay = await boot("deferred-bracket");
+  const page = join(workDir, "app", "[id]", "page.tsx");
+  mkdirSync(join(workDir, "app", "[id]"), { recursive: true });
+  await ask(relay, "write it", [{ tool: "Write", input: { file_path: page, content: "x" } }]);
   const card = prompts(relay)[0];
+  assert.match(card.questions![0].approval!.detail, /approving allows every Write call during the next turn/);
   relay.session.answerChoice(card.promptId!, [{ question: card.questions![0].question, selected: ["approve"] }]);
+  await relay.session.waitForIdle();
+  assert.equal(turns().at(-1)!.allowed, "Write");
+  assert.equal(readFileSync(page, "utf8"), "x", "it ran in the follow-up turn");
+  assert.equal(prompts(relay).length, 1, "no second card: it converged");
+});
+
+test("the same edit with a refused sibling is not granted tool-wide, and the model is told it will be asked again", async () => {
+  const relay = await boot("deferred-bracket-sibling");
+  const page = join(workDir, "app", "[id]", "page.tsx");
+  await ask(relay, "write both", [{ tool: "Write", input: { file_path: page, content: "x" } }, writeCall()]);
+  const card = prompts(relay)[0];
+  relay.session.answerChoice(card.promptId!, [
+    { question: card.questions![0].question, selected: ["approve"] },
+    { question: card.questions![1].question, selected: ["deny"] },
+  ]);
   await relay.session.waitForIdle();
   const turn = turns().at(-1)!;
   assert.equal(turn.allowed, undefined);
   assert.match(turn.prompt, /asked again/);
+});
+
+test("Edit approved and Write refused on the same file: the narrow rule would let the refused one through, so it is not given", async () => {
+  const relay = await boot("deferred-same-target");
+  await ask(relay, "both", [{ tool: "Edit", input: { file_path: OUT(), old_string: "a", new_string: "b" } }, writeCall()]);
+  const card = prompts(relay)[0];
+  relay.session.answerChoice(card.promptId!, [
+    { question: card.questions![0].question, selected: ["approve"] },
+    { question: card.questions![1].question, selected: ["deny"] },
+  ]);
+  await relay.session.waitForIdle();
+  assert.equal(turns().at(-1)!.allowed, undefined);
+  assert.equal(existsSync(OUT()), false, "the refused write did not happen");
+});
+
+test("a turn the person stops drops its refusals, and the next message tells the model the approval was withdrawn", async () => {
+  const relay = await boot("deferred-stop");
+  const ready = join(workDir, "ready");
+  process.env.FAKE_CLAUDE_HOLD_AFTER_TOOLS = ready;
+  try {
+    process.env.FAKE_CLAUDE_REQUEST_TOOLS = JSON.stringify([writeCall()]);
+    relay.session.submitTurn({ send: () => {} } as unknown as WebSocket, "write the file");
+    while (!existsSync(ready)) await new Promise((r) => setImmediate(r));
+    relay.session.stopTurn();
+    await relay.session.waitForIdle();
+  } finally {
+    delete process.env.FAKE_CLAUDE_HOLD_AFTER_TOOLS;
+  }
+  assert.equal(prompts(relay).length, 0, "nothing is asked about a turn that was stopped");
+  assert.equal(storedApproval(relay, "deferred-stop"), undefined);
+  assert.equal((JSON.parse(readFileSync(relay.storeFile, "utf8")) as Record<string, { withdrawnApproval?: boolean }>)["deferred-stop"].withdrawnApproval, true, "remembered across a restart");
+
+  delete process.env.FAKE_CLAUDE_REQUEST_TOOLS;
+  process.env.FAKE_CLAUDE_REPLY = "ok";
+  relay.session.submitTurn({ send: () => {} } as unknown as WebSocket, "carry on");
+  await relay.session.waitForIdle();
+  assert.match(turns().at(-1)!.prompt, /^carry on\n\n\[anywh-note\] \(the pending approval request was withdrawn/);
+
+  relay.session.submitTurn({ send: () => {} } as unknown as WebSocket, "and again");
+  await relay.session.waitForIdle();
+  assert.equal(turns().at(-1)!.prompt, "and again", "the note is said once");
+});
+
+test("a refusal from a later turn waits, persisted, behind the card on screen and becomes the next card once it is answered", async () => {
+  const relay = await boot("deferred-queue");
+  await ask(relay, "write the file", [writeCall()]);
+  const first = prompts(relay)[0];
+
+  const second = join(workDir, "second.txt");
+  process.env.FAKE_CLAUDE_REQUEST_TOOLS = JSON.stringify([{ tool: "Write", input: { file_path: second, content: "2" }, tool_use_id: "toolu_second" }]);
+  relay.session.submitWakeup("wake up");
+  await relay.session.waitForIdle();
+  assert.equal(prompts(relay).length, 1, "the card on screen is not replaced");
+  const onDisk = JSON.parse(readFileSync(relay.storeFile, "utf8")) as Record<string, { queuedApproval?: { calls: { tool: string }[] } }>;
+  assert.equal(onDisk["deferred-queue"].queuedApproval?.calls.length, 1, "what waits is persisted");
+
+  delete process.env.FAKE_CLAUDE_REQUEST_TOOLS;
+  process.env.FAKE_CLAUDE_REPLY = "ok";
+  relay.session.answerChoice(first.promptId!, [{ question: first.questions![0].question, selected: ["deny"] }]);
+  await relay.session.waitForIdle();
+  const shown = prompts(relay);
+  assert.equal(shown.length, 2);
+  assert.notEqual(shown[1].promptId, first.promptId);
+  assert.equal(shown[1].questions![0].approval!.detail, second);
 });
 
 test("the follow-up turn is a synthetic one: marked on the wire, and it does not feed the title", async () => {
@@ -368,7 +450,9 @@ test("typing a new message instead of answering dismisses the pending approval, 
 
   assert.ok(relay.sent.some((m) => m.type === "choice_resolved" && m.promptId === asked.promptId));
   assert.equal(storedApproval(relay, "deferred-moveon"), undefined);
-  assert.match(turns().at(-1)!.prompt, /never mind\n\n\(the pending approval request was withdrawn by the user; do not wait for it\)/);
+  assert.match(turns().at(-1)!.prompt, /^never mind\n\n\[anywh-note\] \(the pending approval request was withdrawn by the user; do not wait for it\)$/);
+  const echoed = relay.sent.filter((m) => m.type === "agent_event" && m.event?.type === "user_message");
+  assert.ok(echoed.every((m) => !JSON.stringify(m).includes("withdrawn")), "the note is for the model, not for the chat");
 });
 
 test("an ordinary session is untouched: the approval blocks the turn until answered, and the call runs on approve", async () => {

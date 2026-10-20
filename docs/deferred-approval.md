@@ -19,8 +19,10 @@ reads both from its `sessionTraits` hook when it creates a session.
    question per call, persisted in the sessions file as `pendingApproval` with
    the same validation, `askedAt` and restart behaviour as a deferred question.
    The card is published once, with a stable id: it never changes while a
-   person is answering it. A call that arrives while that card is on screen
-   waits and becomes a new card once it is answered. Only the fields a grant is
+   person is answering it. Refusals are staged per turn, so interrupting one
+   turn only drops its own. A call that arrives while that card is on screen
+   waits, persisted (`queuedApproval`), and becomes a new card once it is
+   answered. Only the fields a grant is
    derived from (`file_path`, `notebook_path`, `command`) are stored whole; any
    other field over 4 KB is cut with a marker.
 3. It is published as a `choice_prompt` with `kind: "approval"` and the usual
@@ -35,8 +37,12 @@ reads both from its `sessionTraits` hook when it creates a session.
    are passed as `TurnContext.grants`; the message tells the model to repeat
    them (`approved: retry the denied call`), says which approved calls will be
    asked about again, and tells it not to retry the refused ones. A human who
-   types a message instead of answering dismisses the pending approval, and
-   the model is told it was withdrawn.
+   types a message (or edits one) instead of answering dismisses the pending
+   approval, and the model is told it was withdrawn; so is the model of a turn
+   the person stopped after it had heard "wait for approval" (remembered in
+   `withdrawnApproval`, so it survives a restart). That note travels behind an
+   `[anywh-note]` marker at the end of the prompt, is not part of the broadcast
+   `user_message`, and is stripped when history is rebuilt from the transcript.
 5. A call from a native subagent belongs to the parent session. The permission
    request carries no agent id (measured with CLI 2.1.303), so the subagent is
    recognised from the stream, where its tool calls are announced with the
@@ -50,12 +56,15 @@ The follow-up turn runs with `--allowedTools` rules from `grantRules.ts`:
 | Approved call | Rule | Scope |
 | --- | --- | --- |
 | Write / Edit / MultiEdit on an absolute, canonical path (no `..`, `.`, `//`, trailing slash, glob characters or symlink in the way) | `Edit(//absolute/path)` | that file |
+| Write / Edit / MultiEdit on any other path (`app/[id]/page.tsx`, a symlinked directory such as `/tmp` on macOS, a relative path) | `Write` / `Edit` | every file edit of the turn (broad) |
 | Bash with a plain command | `Bash(<exact command>)` | that command |
 | Bash with shell operators or rule syntax, MCP tools, WebFetch, notebooks, anything else | the tool name | the whole tool, for that one turn (broad) |
-| a path or command no rule can name safely | none | asked again |
+| a call with no path or command at all | none | asked again |
 
 A broad grant is only given when **every** pending call of that tool in the
-card was approved: approving `ls | head` and denying `rm -rf ~/x` grants
+card was approved (`Write`, `Edit` and `MultiEdit` count as one tool here).
+A narrow rule is not given when a refused call in the card names the same
+target (`Edit a.ts` approved, `Write a.ts` denied): approving `ls | head` and denying `rm -rf ~/x` grants
 `Bash` to neither, and the approved call is asked about again. When a broad
 grant is possible the card says so ("approving allows every Bash call during
 the next turn"). `Write(/abs)` does not grant in CLI 2.1.303; `Edit(//abs)`

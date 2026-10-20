@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants } from "../runtimes/defs/claude/index.js";
 import { compactToolInput } from "./approvalInput.js";
+import { withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
@@ -194,6 +195,12 @@ export interface SharedSessionOptions {
   initialPendingApproval?: PersistedApproval;
   /** Called whenever the deferred approval is set or cleared (`undefined`). */
   onPendingApprovalChange?: (approval: PersistedApproval | undefined) => void;
+  /** Refused calls waiting behind an approval card on screen, persisted. */
+  initialQueuedApproval?: PersistedApproval;
+  onQueuedApprovalChange?: (approval: PersistedApproval | undefined) => void;
+  /** An approval was withdrawn without the model being told. */
+  initialWithdrawnApproval?: boolean;
+  onWithdrawnApprovalChange?: (withdrawn: boolean) => void;
   /** The session is driven on behalf of another agent rather than typed into
    * by a person (Claude: inherits the user's MCP servers, none of their
    * plugins/skills/hooks). Turns deferred approval on unless
@@ -396,6 +403,10 @@ export class SharedSession implements SessionDriverHost {
    * deferred approval learns it came from a subagent. Best effort: the stream
    * line and the permission request travel on different channels. */
   private readonly parentToolUse = new Map<string, string>();
+  /** Id of the latest turn started, and of the one running now: refusals are
+   * staged per turn so one turn's interruption cannot drop another's. */
+  private turnSeq = 0;
+  private currentTurnId = 0;
   /** Correlates each response's `usage` with whatever ran since the last
    * one — see its own doc comment. Seeded once, at construction: a session
    * whose driver already has a session id (resuming after a relay restart)
@@ -437,7 +448,14 @@ export class SharedSession implements SessionDriverHost {
       options.initialPendingChoice,
       options.onPendingChoiceChange,
       undefined,
-      { initial: options.initialPendingApproval, onChange: options.onPendingApprovalChange },
+      {
+        initial: options.initialPendingApproval,
+        onChange: options.onPendingApprovalChange,
+        initialQueued: options.initialQueuedApproval,
+        onQueuedChange: options.onQueuedApprovalChange,
+        initialWithdrawn: options.initialWithdrawnApproval,
+        onWithdrawnChange: options.onWithdrawnApprovalChange,
+      },
     );
     // A rehydrated question belongs to a conversation; with no session_id
     // left for the active agent (cleared, lost, never created) answering it
@@ -510,7 +528,7 @@ export class SharedSession implements SessionDriverHost {
     // out of nowhere.
     // Only on a REAL change: a redundant set_agent for the current agent
     // (e.g. a client re-sending its picked agent on reconnect) keeps it.
-    if (next.def.identity.id !== this.def.identity.id) this.discardStaleChoice();
+    if (next.def.identity.id !== this.def.identity.id) this.discardAndNote();
     this.driver.dispose();
     this.def = next.def;
     this.driver = this.createDriver(next.def, next.initialSessionId);
@@ -772,6 +790,7 @@ export class SharedSession implements SessionDriverHost {
       this.choiceMachine.deferApproval(
         { tool: toolName, input: kept, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
         buildApprovalQuestion(toolName, kept, origin, broad),
+        this.currentTurnId,
       );
       return buildDeferredDecision();
     }
@@ -858,7 +877,16 @@ export class SharedSession implements SessionDriverHost {
    * those are the agent talking to itself, the human hasn't moved on, so the
    * card (and its persisted copy, which always mirrors it) stays. */
   private discardStaleChoice(): boolean {
-    return this.choiceMachine.discardStaleChoice();
+    return this.choiceMachine.discardStaleChoice(this.turnSeq);
+  }
+
+  /** `discardStaleChoice` for a message that carries on the conversation: the
+   * note, when the model was left waiting for an approval that is gone (one
+   * discarded now, or one dropped earlier with an interrupted turn). */
+  private discardAndNote(): string | undefined {
+    const dropped = this.discardStaleChoice();
+    const flagged = this.choiceMachine.takeWithdrawn();
+    return dropped || flagged ? WITHDRAWN_APPROVAL_NOTE : undefined;
   }
 
   /** Called from the same three sites as `discardStaleChoice`
@@ -1067,15 +1095,13 @@ export class SharedSession implements SessionDriverHost {
     // normal message directly is now stale — dismiss it rather than leave
     // the card showing a question for a plan/tool call the conversation has
     // already moved past.
-    if (this.discardStaleChoice()) {
-      // The model was told to wait for an answer that is not coming.
-      text = `${text}\n\n${WITHDRAWN_APPROVAL_NOTE}`;
-    }
+    // The model may have been told to wait for an answer that is not coming.
+    const note = this.discardAndNote();
     // Same reasoning for a wakeup a previous turn armed for itself — a real
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(origin, text));
+    this.turnQueue = this.turnQueue.then(() => this.runTurn(origin, text, undefined, undefined, note));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1180,10 +1206,10 @@ export class SharedSession implements SessionDriverHost {
     // `driver.stop()` below only unblocks a live `pendingApproval` (it's
     // tied to the turn being interrupted) — a deferred `pendingChoice`
     // outlives its turn and needs the same explicit dismissal as `submitTurn`.
-    this.discardStaleChoice();
+    const note = this.discardAndNote();
     this.cancelPendingWakeup();
     this.driver.stop();
-    this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text));
+    this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text, note));
   }
 
   /** Reuses the normal `runTurn` for the turn with the edited text — same
@@ -1192,7 +1218,7 @@ export class SharedSession implements SessionDriverHost {
    * streaming, same `turn_ended`. Only what comes before (rewinding the
    * driver's continuity + the in-memory `history` + notifying the OTHER
    * devices of the cut) is edit-specific. */
-  private async performEdit(origin: WebSocket, target: EditTarget, text: string): Promise<void> {
+  private async performEdit(origin: WebSocket, target: EditTarget, text: string, note: string | undefined): Promise<void> {
     try {
       if (target.turnsBefore > 0) {
         const sessionId = this.driver.getSessionId();
@@ -1257,7 +1283,7 @@ export class SharedSession implements SessionDriverHost {
       if (client !== origin) client.send(payload);
     }
 
-    await this.runTurn(origin, text);
+    await this.runTurn(origin, text, undefined, undefined, note);
   }
 
   /** Resolves when there's no turn in progress (nor queued) in this session
@@ -1280,7 +1306,8 @@ export class SharedSession implements SessionDriverHost {
    * lock in `runTurn`), so the session can pick another one again, just
    * like a new session. */
   clearConversation(): void {
-    this.discardStaleChoice();
+    // A fresh conversation: nothing left that the model could be waiting for.
+    this.discardAndNote();
     this.cancelPendingWakeup();
     this.turnQueue = this.turnQueue.then(() => {
       this.driver.resetSessionId();
@@ -1335,8 +1362,12 @@ export class SharedSession implements SessionDriverHost {
     },
     /** Tool calls a human approved after an earlier turn was told to wait. */
     grants?: readonly ToolGrant[],
+    /** A note for the model alone, added to the prompt but not shown. */
+    note?: string,
   ): Promise<void> {
     this.options.onActivity?.();
+    const turnId = ++this.turnSeq;
+    this.currentTurnId = turnId;
     this.parentToolUse.clear();
 
     // A turn in progress is "current" state (same reasoning as
@@ -1434,7 +1465,7 @@ export class SharedSession implements SessionDriverHost {
       const effortId = this.effortForTurn();
       const ctx: TurnContext = {
         cwd: this.cwd,
-        prompt: text,
+        prompt: note ? withRelayNote(text, note) : text,
         modelId: this.model,
         ...(effortId !== undefined ? { effortId } : {}),
         permissionModeId: this.permissionMode,
@@ -1560,8 +1591,8 @@ export class SharedSession implements SessionDriverHost {
       this.cancelPendingApproval();
       // The refusals of this turn become one card now that it is over (not
       // for a turn the person stopped).
-      if (turnStopped) this.choiceMachine.dropStagedApprovals();
-      else this.choiceMachine.flushDeferredApprovals();
+      if (turnStopped) this.choiceMachine.dropStagedApprovals(turnId);
+      else this.choiceMachine.flushDeferredApprovals(turnId);
       // Before the idle `turn_state` goes out, so a client that sees the turn
       // end already has the failure tray the turn's outcome decided.
       synthetic?.onSettled?.(silenced);

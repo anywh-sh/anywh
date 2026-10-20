@@ -101,7 +101,7 @@ export function buildDeferredApprovalFollowup(decisions: readonly DeferredApprov
     const many = notCleared.length > 1;
     sections.push(
       `${approved.length > 0 ? "Also approved" : "approved"}: the user approved ${many ? "these calls" : "this call"}, but no permission could be pre-authorised for ` +
-        `${many ? "them" : "it"} (a safe rule does not exist, or something else of the same tool was denied). Repeat ${many ? "them" : "it"}; ` +
+        `${many ? "them" : "it"} (no safe rule covers it, or a denied call of the same tool or on the same target would have been allowed with it). Repeat ${many ? "them" : "it"}; ` +
         `the user will be asked again:\n${notCleared.map(line).join("\n")}`,
     );
   }
