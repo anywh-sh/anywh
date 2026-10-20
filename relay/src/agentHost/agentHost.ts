@@ -163,6 +163,9 @@ export class AgentHost {
   private policyTimer: NodeJS.Timeout | undefined;
   private codexPool: CodexPool | undefined;
   private lock: InstanceLock | undefined;
+  /** Agents being hibernated to make room in their room; not counted as
+   * live, and never picked twice. */
+  private readonly roomVictims = new Set<Agent>();
   /** This run of the host, carried in every agent's mark. */
   private readonly incarnation = randomBytes(4).toString("hex");
   private policyRunning = false;
@@ -531,20 +534,44 @@ export class AgentHost {
     }
   }
 
-  /** Before a process starts in a full room, makes room by hibernating its
-   * oldest idle agent; fails when every live agent there is busy. */
+  /**
+   * Claims a live slot in the agent's room before its process (or Codex
+   * turn) starts: marks the agent `starting` synchronously, before any
+   * await, so concurrent starts in the same room count each other. In a
+   * full room it makes room by hibernating the oldest idle agents — chosen
+   * under the same exclusion, so two starts never pick the same one — and
+   * fails when there are not enough idle agents.
+   */
   private async makeRoomFor(agent: Agent): Promise<void> {
-    if (agent.roomId === undefined) return;
+    const previous = agent.lifecycle;
+    if (agent.roomId === undefined) {
+      agent.lifecycle = "starting";
+      return;
+    }
     const live = [...this.agents.values()].filter(
-      (other) => other !== agent && other.roomId === agent.roomId && (other.lifecycle === "alive" || other.lifecycle === "starting"),
+      (other) =>
+        other !== agent && other.roomId === agent.roomId && (other.lifecycle === "alive" || other.lifecycle === "starting") && !this.roomVictims.has(other),
     );
-    if (live.length < this.maxAlivePerRoom) return;
-    const idle = live.filter((other) => this.hibernatable(other)).sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+    if (live.length < this.maxAlivePerRoom) {
+      agent.lifecycle = "starting";
+      return;
+    }
     const needed = live.length - this.maxAlivePerRoom + 1;
+    const idle = live.filter((other) => this.hibernatable(other)).sort((a, b) => a.lastActivityAt - b.lastActivityAt);
     if (idle.length < needed) {
       throw new HostError("room_cap_reached", `room ${agent.roomId} already has ${live.length} live agents (limit ${this.maxAlivePerRoom}) and none is idle`);
     }
-    for (const other of idle.slice(0, needed)) await this.hibernate(other);
+    const victims = idle.slice(0, needed);
+    for (const victim of victims) this.roomVictims.add(victim);
+    agent.lifecycle = "starting";
+    try {
+      for (const victim of victims) await this.hibernate(victim);
+    } catch {
+      agent.lifecycle = previous;
+      throw new HostError("room_cap_reached", `room ${agent.roomId} is full and an idle agent could not be hibernated to make room`);
+    } finally {
+      for (const victim of victims) this.roomVictims.delete(victim);
+    }
   }
 
   // ------------------------------------------------------------ codex (skeleton, see codexPool.ts)

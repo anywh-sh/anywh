@@ -613,3 +613,29 @@ for (const order of ["remove first", "send first"] as const) {
     }
   });
 }
+
+test("concurrent resumes in a full room never exceed its cap", async () => {
+  let clock = 1_000_000;
+  const h = await harness({ now: () => clock, maxAlivePerRoom: 3 });
+  try {
+    const ids = ["r1", "r2", "r3", "r4", "r5", "r6"];
+    for (const agentId of ids) {
+      await h.client.request("spawn", { agentId, roomId: "r", spec: spec(h), message: "hi" });
+      const events = h.watch(agentId);
+      await waitFor(() => results(events).length === 1, 5000, `${agentId} turn`);
+      clock += 1000;
+    }
+    for (const agent of h.host.activity()) if (agent.alive) await h.client.request("hibernate", { agentId: agent.agentId });
+    assert.equal(h.host.activity().filter((agent) => agent.alive).length, 0);
+
+    const gate = h.file("gate");
+    const outcomes = await Promise.allSettled(ids.map((agentId) => h.client.request("send", { agentId, message: `[[gate:${gate}]]` })));
+    const alive = h.host.activity().filter((agent) => agent.alive).length;
+    assert.ok(alive <= 3, `${alive} live agents in a room capped at 3`);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 3);
+    for (const outcome of outcomes) if (outcome.status === "rejected") assert.match(String(outcome.reason), /room r already has/);
+    writeFileSync(gate, "");
+  } finally {
+    await h.cleanup();
+  }
+});
