@@ -1247,4 +1247,124 @@ export interface Dictionary {
       noResults: string;
     };
   };
+  /** The room: an agent orchestration canvas, a session type chosen on the new
+   * session screen. */
+  sala: {
+    /** The new-session selector between a conversation and a room. */
+    newSession: {
+      modeLabel: string;
+      conversation: string;
+      room: string;
+      placeholderRoom: string;
+      createFailed: string;
+      /** The room opened but its first message did not reach the principal. */
+      sendFailed: string;
+    };
+    /** Accessible name of the room glyph in the session list and tab strip. */
+    roomGlyph: string;
+    /** The room's tab and its canvas. */
+    canvas: {
+      label: string;
+      loading: string;
+      gone: string;
+      reconnecting: string;
+      empty: string;
+    };
+    card: {
+      main: string;
+      /** `{title}`, `{status}`. */
+      aria: string;
+      untitled: string;
+      reply: string;
+      /** `{count}` context items every agent of the room reads. */
+      context: string;
+      status: {
+        running: string;
+        starting: string;
+        yourTurn: string;
+        done: string;
+        stopped: string;
+        idle: string;
+        failed: string;
+        blocked: string;
+      };
+      activity: {
+        coordinating: string;
+        coordinatingOne: string;
+        working: string;
+        /** `{count}` native subtasks running. */
+        workingSubtasks: string;
+        needsApproval: string;
+        needsAnswer: string;
+        queued: string;
+        idle: string;
+        stopped: string;
+        noReport: string;
+      };
+      /** The line under the card; each takes `{time}` (`m:ss`) except
+       * `starting`. */
+      clock: {
+        running: string;
+        waiting: string;
+        done: string;
+        failed: string;
+        blocked: string;
+        stopped: string;
+        starting: string;
+      };
+      /** The bar over a selected card. */
+      actions: {
+        label: string;
+        group: string;
+        stop: string;
+        remove: string;
+      };
+    };
+    area: {
+      nameLabel: string;
+      namePlaceholder: string;
+      /** `{count}` agents. */
+      agents: string;
+      agentsOne: string;
+      /** `{count}` of its agents working. */
+      running: string;
+      /** `{count}` of its agents waiting for the person. */
+      waiting: string;
+      remove: string;
+    };
+    text: {
+      label: string;
+      placeholder: string;
+    };
+    toolbar: {
+      label: string;
+      select: string;
+      hand: string;
+      newAgent: string;
+      newAgentSoon: string;
+      attach: string;
+      text: string;
+      area: string;
+      zoomOut: string;
+      zoomIn: string;
+      /** `{percent}`. */
+      zoomReset: string;
+      fit: string;
+      /** Tooltip words around a shortcut. */
+      orHold: string;
+      space: string;
+    };
+    minimap: string;
+    toast: {
+      backTo100: string;
+      removed: string;
+      undo: string;
+      stopFailed: string;
+      removeFailed: string;
+      restoreFailed: string;
+      attached: string;
+      attachFailed: string;
+      saveFailed: string;
+    };
+  };
 }
