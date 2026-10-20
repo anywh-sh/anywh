@@ -367,8 +367,10 @@ export class AgentHostSocketServer {
     return this.options.logFor(agentId);
   }
 
+  /** A handler that throws synchronously still answers with an error
+   * response instead of taking the host down. */
   dispatch(method: string, params: Readonly<Record<string, unknown>>): Promise<unknown> {
-    return this.options.handleRequest(method, params);
+    return Promise.resolve().then(() => this.options.handleRequest(method, params));
   }
 
   forget(connection: Connection): void {

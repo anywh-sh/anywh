@@ -40,6 +40,7 @@ async function fixture(options: { highWaterBytes?: number; replayChunkBytes?: nu
       logFor: (agentId) => logs.get(agentId),
       handleRequest: (method) => {
         if (method === "echo") return Promise.resolve({ pong: true });
+        if (method === "throw") throw new HostError("sync_failure", "thrown before any promise");
         return Promise.reject(new HostError("unknown_method", method));
       },
       ...options,
@@ -120,6 +121,9 @@ test("requests are answered, and a host error keeps its code", async () => {
     await client.waitUntilConnected();
     assert.deepEqual(await client.request("echo"), { pong: true });
     await assert.rejects(client.request("nope"), (error: Error & { code?: string }) => error.code === "unknown_method");
+    // A handler that throws synchronously answers with an error, and the host keeps serving.
+    await assert.rejects(client.request("throw"), (error: Error & { code?: string }) => error.code === "sync_failure");
+    assert.deepEqual(await client.request("echo"), { pong: true });
   } finally {
     await f.cleanup();
   }
