@@ -357,7 +357,7 @@ test("answerChoice on a deferred approval: hands back the calls and answers, cle
   clock.now += 6 * 60 * 60 * 1000;
   const answers = [{ question: "write?", selected: ["yes"] }, { question: "bash?", selected: ["no"] }];
   const result = machine.answerChoice(prompt.promptId, answers);
-  assert.deepEqual(result, { kind: "deferredApproval", calls: [WRITE, BASH], questions: [question("write?"), question("bash?")], answers });
+  assert.deepEqual(result, { kind: "deferredApproval", calls: [WRITE, BASH], questions: [question("write?"), question("bash?")], answers, waiting: [] });
   assert.equal(stored.at(-1), undefined);
   assert.equal((client.sent.at(-1) as Sent).type, "choice_resolved");
   assert.deepEqual(machine.answerChoice(prompt.promptId, answers), { kind: "not_found" }, "first answer wins");
@@ -494,4 +494,41 @@ test("takeWithdrawn reports and clears the persisted flag once", () => {
   assert.equal(machine.takeWithdrawn(), true);
   assert.equal(machine.takeWithdrawn(), false);
   assert.deepEqual(storedWithdrawn, [false]);
+});
+
+test("a refusal that arrives after the person moved on is withdrawn, and the model is owed the note", () => {
+  const client = fakeSocket();
+  const { machine, storedWithdrawn } = machineWithClock(client);
+  machine.discardStaleChoice(3);
+  machine.deferApproval(WRITE, question("write?"), 3);
+  assert.deepEqual(storedWithdrawn, [true]);
+  assert.equal(machine.takeWithdrawn(), true);
+});
+
+test("calls waiting behind the card promoted at construction are mirrored, so an answered card does not come back after a restart", () => {
+  const queued = { promptId: "q1", questions: [question("bash?")], calls: [BASH], askedAt: 5 };
+  const { machine, stored, storedQueued } = machineWithClock(fakeSocket(), { initialQueued: queued });
+  assert.deepEqual(stored.at(-1), queued, "the promoted card is written as the pending approval");
+  assert.equal(storedQueued.at(-1), undefined, "and the queue slot is emptied on disk");
+  machine.answerChoice("q1", [{ question: "bash?", selected: ["yes"] }]);
+  assert.equal(stored.at(-1), undefined);
+});
+
+test("answering reports the calls still waiting for an answer (queued behind this card, or staged by a running turn)", () => {
+  const client = fakeSocket();
+  const { machine } = machineWithClock(client);
+  machine.deferApproval(WRITE, question("write?"), 1);
+  machine.flushDeferredApprovals(1);
+  machine.deferApproval(BASH, question("bash?"), 2);
+  machine.flushDeferredApprovals(2);
+  machine.deferApproval(THIRD, question("edit?"), 3);
+  const result = machine.answerChoice((client.sent[0] as Sent).promptId, [{ question: "write?", selected: ["yes"] }]);
+  assert.equal(result.kind, "deferredApproval");
+  if (result.kind === "deferredApproval") assert.deepEqual(result.waiting, [BASH, THIRD]);
+});
+
+test("markWithdrawn records an approval the model was not told about", () => {
+  const { machine, storedWithdrawn } = machineWithClock(fakeSocket());
+  machine.markWithdrawn();
+  assert.deepEqual(storedWithdrawn, [true]);
 });

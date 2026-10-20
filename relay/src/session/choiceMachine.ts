@@ -15,7 +15,15 @@ export type AnswerChoiceResult =
   | { kind: "choice"; answers: ChoiceAnswer[] }
   /** The held-back tool calls of a deferred approval, with the answers in
    * the same order (`answers[i]` is about `calls[i]`). */
-  | { kind: "deferredApproval"; calls: DeferredToolCall[]; questions: ChoiceQuestion[]; answers: ChoiceAnswer[] };
+  | {
+      kind: "deferredApproval";
+      calls: DeferredToolCall[];
+      questions: ChoiceQuestion[];
+      answers: ChoiceAnswer[];
+      /** Refused calls with no answer yet (queued behind this card, or staged
+       * by a turn still running): a permission given now must not cover them. */
+      waiting: DeferredToolCall[];
+    };
 
 /** Where the deferred-approval slot is rehydrated from and mirrored to. */
 export interface DeferredApprovalStorage {
@@ -125,6 +133,10 @@ export class ChoiceMachine {
     if (!this.deferredApproval && this.queued) {
       this.deferredApproval = this.queued;
       this.queued = undefined;
+      // Mirrored too, or the old queue record would bring an answered card
+      // back after the next restart.
+      this.mirrorApproval(this.deferredApproval);
+      this.mirrorQueued(undefined);
     }
     this.active = initialChoice ? "choice" : this.deferredApproval ? "approval" : undefined;
   }
@@ -150,6 +162,11 @@ export class ChoiceMachine {
     if (this.withdrawn === value) return;
     this.withdrawn = value;
     this.mirrorWith(() => this.deferredStorage.onWithdrawnChange?.(value), "withdrawal mark");
+  }
+
+  /** An approval was withdrawn and the model was not told. */
+  markWithdrawn(): void {
+    this.setWithdrawn(true);
   }
 
   /** Whether an approval was withdrawn without the model being told; reading
@@ -282,7 +299,11 @@ export class ChoiceMachine {
    * the turn ends — republishing per call would reset the person's progress
    * through the card. A repeat of a `toolUseId` already held is ignored. */
   deferApproval(call: DeferredToolCall, question: ChoiceQuestion, turnId: number): void {
-    if (turnId <= this.ignoreUpTo) return;
+    if (turnId <= this.ignoreUpTo) {
+      // The model was told to wait for this one, and nobody will answer.
+      this.setWithdrawn(true);
+      return;
+    }
     if (call.toolUseId !== undefined) {
       const known = (other: DeferredToolCall): boolean => other.toolUseId === call.toolUseId;
       if (this.staged.some((entry) => known(entry.call)) || this.deferredApproval?.calls.some(known) || this.queued?.calls.some(known)) return;
@@ -454,12 +475,13 @@ export class ChoiceMachine {
     }
     if (this.deferredApproval?.promptId === promptId && this.active === "approval") {
       const { calls, questions } = this.deferredApproval;
+      const waiting = [...(this.queued?.calls ?? []), ...this.staged.map((entry) => entry.call)];
       this.deferredApproval = undefined;
       this.active = undefined;
       broadcastChoiceResolved(this.clients, promptId);
       this.mirrorApproval(undefined);
       this.publishNext();
-      return { kind: "deferredApproval", calls, questions, answers };
+      return { kind: "deferredApproval", calls, questions, answers, waiting };
     }
     return { kind: "not_found" };
   }
