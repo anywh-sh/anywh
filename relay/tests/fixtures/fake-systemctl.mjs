@@ -24,8 +24,19 @@ import { appendFileSync } from "node:fs";
 if (process.env.FAKE_SYSTEMCTL_ARGV_FILE) {
   appendFileSync(process.env.FAKE_SYSTEMCTL_ARGV_FILE, `${JSON.stringify(process.argv.slice(2))}\n`);
 }
+// For `anywh-agent-host@` units only: FAKE_SYSTEMCTL_HOST_DISABLE_FAIL=1 makes
+// `disable` fail, and FAKE_SYSTEMCTL_HOST_STATE is what `is-active` reports
+// (default "inactive"; exit 0 only for "active", like the real one).
+const hostUnit = process.argv.some((arg) => arg.startsWith("anywh-agent-host@"));
 const delay = Number(process.env.FAKE_SYSTEMCTL_HOST_DELAY_MS ?? 0);
-if (delay > 0 && process.argv.some((arg) => arg.startsWith("anywh-agent-host@"))) {
+if (delay > 0 && hostUnit) {
   await new Promise((resolve) => setTimeout(resolve, delay));
 }
-process.exit(0);
+if (hostUnit && process.argv.includes("is-active")) {
+  const state = process.env.FAKE_SYSTEMCTL_HOST_STATE ?? "inactive";
+  process.stdout.write(`${state}\n`, () => process.exit(state === "active" ? 0 : 3));
+} else if (hostUnit && process.argv.includes("disable") && process.env.FAKE_SYSTEMCTL_HOST_DISABLE_FAIL === "1") {
+  process.exit(1);
+} else {
+  process.exit(0);
+}

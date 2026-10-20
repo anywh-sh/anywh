@@ -27,7 +27,7 @@
 //   - plus a cap of live agents per room: starting one more hibernates the
 //     room's oldest idle agent, or fails when none is idle.
 import { randomBytes } from "node:crypto";
-import { mkdirSync, realpathSync, renameSync } from "node:fs";
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
@@ -39,6 +39,7 @@ import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
 import { agentProcessMap, detachedAgentProcesses, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
 import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
+import { AGENT_HOST_DIR_MARKER } from "./paths.js";
 import { AgentHostSocketServer } from "./socketServer.js";
 
 export interface HibernationOptions {
@@ -225,6 +226,7 @@ export class AgentHost {
       options.dataDir,
     );
     try {
+      writeFileSync(join(options.dataDir, AGENT_HOST_DIR_MARKER), `${options.hostId}\n`, { mode: 0o600 });
       const orphans = await sweepAgentProcesses(options.hostId, undefined, 2000);
       if (orphans > 0) console.log(`[agent-host] ended ${orphans} process(es) left behind by a previous run`);
       host.restore();

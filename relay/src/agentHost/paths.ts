@@ -36,3 +36,7 @@ export function sessionsRoot(env: NodeJS.ProcessEnv = process.env): string {
 export function agentHostDataDir(profile: string, env: NodeJS.ProcessEnv = process.env): string {
   return env.ANYWH_AGENT_HOST_DIR || join(sessionsRoot(env), `${profile}-agent-host`);
 }
+
+/** File the host writes into its data directory: what lets anything else
+ * (deleting a profile) recognize that directory as an agent host's. */
+export const AGENT_HOST_DIR_MARKER = ".anywh-agent-host";

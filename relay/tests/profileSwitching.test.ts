@@ -88,6 +88,7 @@ test("GET /control/profiles reports a second profile's running state from a real
   const hostData = join(process.env.ANYWH_SESSIONS_ROOT!, "trabalho-agent-host");
   mkdirSync(join(hostData, "logs"), { recursive: true });
   writeFileSync(join(hostData, "registry.json"), "{}");
+  writeFileSync(join(hostData, ".anywh-agent-host"), "trabalho\n");
   // Stopping the host waits for its drain; the delete must not.
   process.env.FAKE_SYSTEMCTL_HOST_DELAY_MS = "3000";
   const deleteStarted = Date.now();
@@ -104,6 +105,7 @@ test("GET /control/profiles reports a second profile's running state from a real
   assert.deepEqual(calls, [
     ["--user", "disable", "--now", "anywh-relay@trabalho"],
     ["--user", "disable", "--now", "anywh-agent-host@trabalho"],
+    ["--user", "is-active", "anywh-agent-host@trabalho"],
   ]);
 
   const listedAfterDelete = (await (await fetch(httpUrl("/control/profiles"))).json()) as {
