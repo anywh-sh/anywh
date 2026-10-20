@@ -124,7 +124,7 @@ test("workers born with the same index get byte-identical system prompts; a resu
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "result-a.md"), "# Findings of A\nthree\n");
     const report = marker("report", { status: "done", summary: "wrote it", artifacts: [join(dir, "result-a.md")] });
-    await turn(socket, `${marker("delegate", { task: `Worker alpha ${report}`, runtime: "claude", model: "haiku" })} ${marker("delegate", { task: "Worker beta", runtime: "claude", model: "haiku" })}`);
+    await turn(socket, `${marker("delegate", { task: "Worker alpha", runtime: "claude", model: "haiku" })} ${marker("delegate", { task: "Worker beta", runtime: "claude", model: "haiku" })}`);
     await waitFor(() => spawns().filter((args) => flag(args, "--append-system-prompt")?.startsWith("You are an agent of an anywh room") && flag(args, "--append-system-prompt")?.includes(dir)).length >= 2, 20_000, "both workers' spawns");
     const prompts = spawns()
       .map((args) => flag(args, "--append-system-prompt"))
@@ -133,9 +133,10 @@ test("workers born with the same index get byte-identical system prompts; a resu
     assert.match(prompts[0], /`notes\.md` · text · 1 line · user · Shared notes/);
     assert.ok(prompts[0].indexOf("Never edit INDEX.md") < prompts[0].indexOf("# Room context"), "fixed text first, then the index");
 
+    await turn(socket, marker("delegate", { task: `Worker gamma ${report}`, runtime: "claude", model: "haiku" }));
     type Listing = { items: { name: string; author: string; summary: string }[] };
     const result = async (): Promise<Listing["items"][number] | undefined> => ((await (await fetch(`${base}/rooms/${roomId}/context`)).json()) as Listing).items.find((item) => item.name === "result-a.md");
-    await waitFor(async () => (await result())?.author.startsWith("Worker alpha") === true, 20_000, "the result credited to its worker");
+    await waitFor(async () => (await result())?.author.startsWith("Worker gamma") === true, 20_000, "the result credited to its worker");
     const found = (await result())!;
     assert.equal(found.summary, "Findings of A");
   } finally {
@@ -176,6 +177,49 @@ test("a restart removes the folders of rooms that no longer exist, keeps the liv
     assert.equal(existsSync(join(root, "live-room", "f.md")), true);
   } finally {
     proc.cleanup();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("workers of one model launched together start one behind the first, so the cache it writes serves the rest", async () => {
+  const { dir, home } = hostEnvDir();
+  const warmHost = startHostProcess(dir, home, { FAKE_CLAUDE_ARGV_FILE: join(dir, "argv.jsonl") });
+  const warmRelay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: warmHost.socketPath, RELAY_ROOM_CONTEXT_DIR: join(dir, "ctx"), RELAY_ROOM_WARMUP_MS: "1500" });
+  const url = `http://127.0.0.1:${warmRelay.port}`;
+  const workers = async (): Promise<number> => {
+    const agents = ((await (await fetch(`${url}/agents/activity`)).json()) as { agents: { agentId: string; roomId?: string }[] }).agents;
+    return agents.filter((agent) => agent.roomId !== undefined && agent.agentId !== agent.roomId).length;
+  };
+  try {
+    await waitFor(async () => (await fetch(`${url}/agents/activity`)).status === 200, 20_000, "warm relay connected");
+    const created = await fetch(`${url}/rooms`, { method: "POST", body: JSON.stringify({ agentId: "claude", model: "haiku", cwd: dir, title: "Warm" }) });
+    const roomId = ((await created.json()) as { roomId: string }).roomId;
+    const socket = await connectSession(warmRelay.port, roomId);
+    try {
+      const gate = join(dir, "gate");
+      await turn(
+        socket,
+        [
+          marker("delegate", { task: `leader [[gate:${gate}]]`, runtime: "claude", model: "haiku" }),
+          marker("delegate", { task: "follower one", runtime: "claude", model: "haiku" }),
+          marker("delegate", { task: "follower two", runtime: "claude", model: "haiku" }),
+          marker("delegate", { task: "another model", runtime: "claude", model: "sonnet" }),
+        ].join(" "),
+      );
+      // The leader and the one on another model (its own cache) are up; the
+      // two followers of the leader's model wait.
+      await waitFor(async () => (await workers()) === 2, 20_000, "leader and the other model's worker");
+      await new Promise((r) => setTimeout(r, 500));
+      assert.equal(await workers(), 2, "the followers are held while the leader's window is open");
+      // The window closes by itself, the leader's turn still running.
+      await waitFor(async () => (await workers()) === 4, 20_000, "followers released when the window closes");
+      writeFileSync(gate, "open");
+    } finally {
+      socket.close();
+    }
+  } finally {
+    warmRelay.cleanup();
+    await warmHost.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -181,6 +181,7 @@ const roomManager: RoomManager = new RoomManager({
   },
   getModelCatalog: (agentId) => modelCatalogs[agentId],
   context: roomContext,
+  ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
 });
 roomBridge.attach(roomManager);
 // A room's folder outlives nothing: those of rooms the sessions file no

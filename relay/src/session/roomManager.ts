@@ -43,6 +43,12 @@ import type { RoomContextStore } from "./roomContextStore.js";
 import type { SessionStore } from "./sessionStore.js";
 import type { SharedSession, TurnOutcome } from "./sharedSession.js";
 
+function defaultSchedule(fn: () => void, ms: number): () => void {
+  const timer = setTimeout(fn, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
+}
+
 /** The runtimes the agent host can run. */
 export const HOST_RUNTIMES: readonly string[] = ["claude", "codex"];
 
@@ -80,7 +86,17 @@ export interface RoomManagerOptions {
   readonly now?: () => number;
   /** The rooms' context folders. Without it a room has no shared context. */
   readonly context?: RoomContextStore;
+  /** How long agents of one model wait behind the first of them to be
+   * launched (see `pump`). Default 6 s. */
+  readonly warmUpMs?: number;
+  /** Runs `fn` after `ms`; returns how to cancel it. Replaceable so a test
+   * steps time by hand. */
+  readonly schedule?: (fn: () => void, ms: number) => () => void;
 }
+
+/** What the model's cache needs to be written once before siblings can read
+ * it: measured at about 6 s for the first response to start. */
+export const ROOM_WARM_UP_MS = 6000;
 
 export interface CreateRoomInput {
   agentId?: unknown;
@@ -103,6 +119,11 @@ export class RoomManager implements RoomToolHost {
   private readonly now: () => number;
   /** Per worker, the queued message its current turn is delivering. */
   private readonly sending = new Map<string, { text: string; at: number; delivered: boolean }>();
+  /** Per runtime and model, the agent launched first and those waiting
+   * behind it. Launching a batch cold would make every one of them write the
+   * whole prompt to the cache; behind the first, the rest read it. */
+  private readonly warming = new Map<string, { leader: string; waiting: Set<string>; cancel?: () => void }>();
+  private readonly warmingKeyOf = new Map<string, string>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -293,6 +314,7 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    this.endWarmUp(sessionId);
     const sending = this.sending.get(sessionId);
     this.sending.delete(sessionId);
     const room = this.store.getRoom(sessionId);
@@ -335,14 +357,58 @@ export class RoomManager implements RoomToolHost {
     if (session.isBusy()) return;
     const next = room.queuedMessages?.[0];
     if (!next) return;
+    if (this.parkBehindLeader(sessionId)) return;
     const sending = { text: next.text, at: next.at, delivered: false };
     this.sending.set(sessionId, sending);
     session.submitAgentTurn(next.text, {
       onDelivered: () => {
         sending.delivered = true;
         this.removeQueued(sessionId, sending);
+        const key = this.warmingKeyOf.get(sessionId);
+        const warming = key === undefined ? undefined : this.warming.get(key);
+        if (warming?.leader === sessionId) {
+          warming.cancel?.();
+          warming.cancel = (this.options.schedule ?? defaultSchedule)(() => this.endWarmUp(sessionId), this.options.warmUpMs ?? ROOM_WARM_UP_MS);
+        }
       },
     });
+  }
+
+  /** Whether `sessionId`, about to start its very first turn on a Claude
+   * model, has to wait behind a sibling of the same model that is warming
+   * the cache (it is then started when that one's window closes). Otherwise
+   * it becomes the one the others wait behind. A later turn of an agent
+   * already born is never held. */
+  private parkBehindLeader(sessionId: string): boolean {
+    const runtime = this.store.getAgentId(sessionId);
+    if (runtime !== "claude" || this.store.getSessionId(sessionId, runtime) !== undefined) return false;
+    const key = `${runtime}:${this.store.getModel(sessionId, runtime) ?? ""}`;
+    const warming = this.warming.get(key);
+    if (!warming) {
+      // Until its message is delivered (the window then starts), a bound on
+      // how long the others can wait if that never happens (its turn was
+      // discarded before it began).
+      const cancel = (this.options.schedule ?? defaultSchedule)(() => this.endWarmUp(sessionId), (this.options.warmUpMs ?? ROOM_WARM_UP_MS) + 30_000);
+      this.warming.set(key, { leader: sessionId, waiting: new Set(), cancel });
+      this.warmingKeyOf.set(sessionId, key);
+      return false;
+    }
+    if (warming.leader === sessionId) return false;
+    warming.waiting.add(sessionId);
+    return true;
+  }
+
+  /** The cache is written (or the leader's turn ended): the agents that
+   * waited go. */
+  private endWarmUp(leaderId: string): void {
+    const key = this.warmingKeyOf.get(leaderId);
+    if (key === undefined) return;
+    this.warmingKeyOf.delete(leaderId);
+    const warming = this.warming.get(key);
+    if (warming?.leader !== leaderId) return;
+    this.warming.delete(key);
+    warming.cancel?.();
+    for (const id of warming.waiting) this.pump(id);
   }
 
   /** Drops `message` from the head of a worker's queue, if it is still there. */
