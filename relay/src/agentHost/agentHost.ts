@@ -606,8 +606,12 @@ export class AgentHost {
         }
         for (const agent of candidates) {
           if (total <= budget) break;
+          // Hibernating an agent with no memory of its own (a Codex agent:
+          // its process is shared) frees nothing; the room cap still applies.
+          const used = usage.get(agent.agentId) ?? 0;
+          if (used <= 0) continue;
           chosen.push(agent);
-          total -= usage.get(agent.agentId) ?? 0;
+          total -= used;
         }
       }
       const hibernated: string[] = [];

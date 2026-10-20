@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { codexRuntimeDef } from "../runtimes/defs/codex.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
-import { AgentHost } from "./agentHost.js";
+import { AgentHost, type AgentHostOptions } from "./agentHost.js";
 import { HostClient, START_OF_LOG } from "./hostClient.js";
 import type { AgentActivity, EventMessage } from "./protocol.js";
 
@@ -27,7 +27,12 @@ function fakeCodexDef(env: Record<string, string>): AgentRuntimeDef {
   return { ...codexRuntimeDef, identity: { ...codexRuntimeDef.identity, bin: FAKE_CODEX, env: { ...codexRuntimeDef.identity.env, set: { ...codexRuntimeDef.identity.env.set, ...env } } } };
 }
 
-async function start(dir: string, hostId: string, env: Record<string, string>, extra: { maxAlivePerRoom?: number } = {}): Promise<{ host: AgentHost; client: HostClient }> {
+async function start(
+  dir: string,
+  hostId: string,
+  env: Record<string, string>,
+  extra: Partial<Pick<AgentHostOptions, "maxAlivePerRoom" | "hibernation">> = {},
+): Promise<{ host: AgentHost; client: HostClient }> {
   const host = await AgentHost.start({ hostId, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), codexDef: fakeCodexDef(env), drainGraceMs: 500, ...extra });
   const client = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
   client.start();
@@ -171,6 +176,22 @@ test("idle Codex agents give up their room slot, and an app-server exit leaves t
     const events = watch(client, "c1");
     await waitFor(() => completed(events).length === 2, 5000, "c1 resumed");
     assert.equal((await activity(client, "c1")).sessionId, c1.sessionId);
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("memory pressure never picks a Codex agent: it has no memory of its own to free", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const { host, client } = await start(dir, `codex-mem-${process.pid}`, {}, { hibernation: { policy: "memory", memoryBytes: 1, memoryFraction: 0.6 } });
+  try {
+    await client.request("spawn", { agentId: "c1", runtime: "codex", spec: { cwd: dir }, message: "hi" });
+    const events = watch(client, "c1");
+    await waitFor(() => completed(events).length === 1, 5000, "turn");
+    assert.deepEqual(await host.runHibernationPolicy(), []);
+    assert.equal((await activity(client, "c1")).state, "idle");
   } finally {
     client.close();
     await host.close();
