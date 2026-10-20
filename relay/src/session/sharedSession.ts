@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants, resolveGrant } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, grantsAllow, isApproved, isApprovedAt, planDeferredGrants, resolveGrant } from "../runtimes/defs/claude/index.js";
 import { compactToolInput } from "./approvalInput.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
@@ -246,12 +246,20 @@ export interface SharedSessionOptions {
   /** Called once each turn is over, with how it ended — how a room learns
    * that a worker's turn failed or ended without a report. */
   onTurnSettled?: (outcome: TurnOutcome) => void;
-  /** A room agent's note for the model alone on its next turn (news of the
-   * room's context), and what to run once that turn went through. */
+  /** Called whenever a turn starts or ends (what `turn_state` tells clients). */
+  onTurnStateChange?: () => void;
   /** Every event of every turn, for a room agent's usage tally. */
   onUsage?: (event: AgentEvent) => void;
+  /** A room agent's note for the model alone on its next turn (news of the
+   * room's context), and what to run once that turn went through. */
   roomTurnNote?: () => { text: string; commit: () => void } | undefined;
+  /** Why answering a card must wait, for a room agent: the answer starts a
+   * turn, which is refused while the room is full. */
+  answerRefusal?: () => AnswerChoiceError | undefined;
 }
+
+/** Why a `choice_answer` was refused; the card stays open. */
+export type AnswerChoiceError = "room_cap_reached";
 
 /** How a turn ended, as `onTurnSettled` reports it. */
 export interface TurnOutcome {
@@ -261,6 +269,9 @@ export interface TurnOutcome {
   readonly stopped: boolean;
   /** The failure's message, when the turn failed. */
   readonly error?: string;
+  /** What started the turn when it was neither a person's message nor an
+   * agent's: the relay's own follow-ups. */
+  readonly synthetic?: "background_job" | "wakeup" | "approval" | "room_digest";
 }
 
 /**
@@ -351,6 +362,12 @@ export class SharedSession implements SessionDriverHost {
    * reached the front of the queue, and the last dropped by
    * `discardQueuedTurns` (waiting turns up to it never run). */
   private enqueuedSeq = 0;
+  /** A queued turn has left the queue and has not started yet (it reads the
+   * conversation's history first): cleared as `turnStartedAt` takes over. */
+  private runningFromQueue = false;
+  /** Tool calls the person approved for the turn in flight (see
+   * `checkPermission`); only for an agent whose CLI lives in the host. */
+  private turnGrants: readonly ToolGrant[] = [];
   private dequeuedSeq = 0;
   private discardedUpTo = 0;
   private cwd: string;
@@ -811,6 +828,13 @@ export class SharedSession implements SessionDriverHost {
    * Claude-specific framing at all. */
   async checkPermission(toolName: string, input: unknown, toolUseId: string | undefined, agentId?: string): Promise<PermissionDecision> {
     if (this.options.deferredApproval ?? this.options.agentWorker ?? false) {
+      // An agent in the agent host keeps one CLI process for good, so a
+      // turn's grants cannot be handed to it as `--allowedTools`: calls the
+      // person already approved are allowed here instead.
+      const compact = compactToolInput(input);
+      if (this.turnGrants.length > 0 && grantsAllow(this.turnGrants, { tool: toolName, input: compact }, this.cwd)) {
+        return { behavior: "allow", updatedInput: input };
+      }
       // The call is refused right here, so the CLI is never left waiting on a
       // human: the turn ends, the request is kept (and persisted), and the
       // verdict comes back as a new turn (`answerChoice`).
@@ -954,7 +978,18 @@ export class SharedSession implements SessionDriverHost {
    * instead (`origin: undefined` — no client rendered a bubble for it
    * locally the way `submitTurn` callers do, so everyone connected needs the
    * synthetic `user_message` broadcast, not just "the others"). */
-  answerChoice(promptId: string, answers: ChoiceAnswer[]): boolean {
+  answerChoice(promptId: string, answers: ChoiceAnswer[], origin?: WebSocket): boolean {
+    // Answering puts the agent back to work, which takes a place under the
+    // room's cap: refused while the room is full, the card left as it is.
+    const refusal = this.choiceMachine.wouldStartTurn(promptId) ? this.options.answerRefusal?.() : undefined;
+    if (refusal !== undefined) {
+      if (origin && origin.readyState === origin.OPEN) {
+        origin.send(JSON.stringify({ type: "choice_answer_error", promptId, code: refusal satisfies AnswerChoiceError }));
+        // The device may have cleared the card as it sent the answer.
+        this.choiceMachine.sendPendingTo(origin);
+      }
+      return false;
+    }
     const result = this.choiceMachine.answerChoice(promptId, answers);
     if (result.kind === "not_found") return false;
     if (result.kind === "choice") {
@@ -1345,7 +1380,14 @@ export class SharedSession implements SessionDriverHost {
     this.turnQueue = this.turnQueue.then(async () => {
       this.dequeuedSeq = seq;
       if (seq <= this.discardedUpTo) return;
-      await run();
+      // Between leaving the queue and the turn's own start nothing else says
+      // the session is busy.
+      this.runningFromQueue = true;
+      try {
+        await run();
+      } finally {
+        this.runningFromQueue = false;
+      }
     });
   }
 
@@ -1373,7 +1415,7 @@ export class SharedSession implements SessionDriverHost {
 
   /** A turn is running, or one is waiting to. */
   isBusy(): boolean {
-    return this.turnStartedAt !== null || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
+    return this.turnStartedAt !== null || this.runningFromQueue || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
   }
 
   waitForIdle(): Promise<void> {
@@ -1401,6 +1443,15 @@ export class SharedSession implements SessionDriverHost {
    * relay process. */
   runsOutsideRelay(): boolean {
     return this.driver.runsOutsideRelay === true;
+  }
+
+  /** The reports of the agents this one started, handed over as one turn
+   * that may end in silence (`NO_REPLY`): nothing of it is shown unless the
+   * agent does or says something. `onDelivered` runs once the agent has the
+   * message. */
+  submitRoomDigest(text: string, hooks?: TurnHooks): void {
+    this.clearSuggestion();
+    this.enqueue(() => this.runTurn(undefined, text, { kind: "room_digest", silenceOffered: true }, false, hooks));
   }
 
   /** A turn asked by another agent of the room (a delegated task, a message
@@ -1469,7 +1520,7 @@ export class SharedSession implements SessionDriverHost {
     text: string,
     synthetic?: {
       label?: string;
-      kind: "background_job" | "wakeup" | "approval";
+      kind: "background_job" | "wakeup" | "approval" | "room_digest";
       /** The prompt offered the model the `NO_REPLY` escape: hold the turn's
        * events until it is known whether they will ever be shown. */
       silenceOffered?: boolean;
@@ -1509,6 +1560,7 @@ export class SharedSession implements SessionDriverHost {
     const clock = new ActivityClock(Date.now);
     const bridgeFilter = new BridgeToolFilter();
     this.turnStartedAt = clock.startedAt;
+    this.runningFromQueue = false;
     this.broadcastTurnState();
 
     // First thing in the log for this turn — see `AgentEvent`'s own doc
@@ -1520,7 +1572,7 @@ export class SharedSession implements SessionDriverHost {
     // For a turn that may end up silent (`hold`) nothing below reaches a
     // client or `history` until the turn proves it has something to show —
     // see `HeldTurn`.
-    const hold = synthetic?.kind === "background_job" && synthetic.silenceOffered ? new HeldTurn() : undefined;
+    const hold = synthetic?.silenceOffered ? new HeldTurn() : undefined;
     const emit = (message: BroadcastMessage): void => {
       if (hold && !hold.released) hold.buffer.push(message);
       else this.broadcast(message);
@@ -1590,6 +1642,7 @@ export class SharedSession implements SessionDriverHost {
     let turnStopped = false;
     let turnError: string | undefined;
     let planChoiceText: string | undefined;
+    this.turnGrants = this.options.hostAgent && grants ? grants : [];
     const roomNote = follow ? undefined : this.options.roomTurnNote?.();
     try {
       const effortId = this.effortForTurn();
@@ -1714,6 +1767,7 @@ export class SharedSession implements SessionDriverHost {
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
       this.notify(turnFailedDraft(this.title));
     } finally {
+      this.turnGrants = [];
       // Only `pendingApproval` — `pendingChoice` deliberately survives the
       // turn that created it (see the doc
       // comment on `cancelPendingApproval`). This is THE inversion this
@@ -1735,7 +1789,13 @@ export class SharedSession implements SessionDriverHost {
       this.broadcastTurnState();
     }
     if (turnError === undefined && !turnStopped) roomNote?.commit();
-    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(follow ? { adopted: true } : {}), ...(turnError !== undefined ? { error: turnError } : {}) });
+    this.options.onTurnSettled?.({
+      startedAt: clock.startedAt,
+      stopped: turnStopped,
+      ...(follow ? { adopted: true } : {}),
+      ...(turnError !== undefined ? { error: turnError } : {}),
+      ...(synthetic ? { synthetic: synthetic.kind } : {}),
+    });
 
     // Plan mode's `present_choice` fallback: Claude's driver never
     // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s
@@ -1768,6 +1828,7 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private broadcastTurnState(): void {
+    this.options.onTurnStateChange?.();
     broadcastTurnState(this.clients, this.turnStartedAt);
   }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanBody, promptDraft, turnEndedDraft, turnFailedDraft } from "./events.js";
+import { cleanBody, promptDraft, roomPromptsDraft, turnEndedDraft, turnFailedDraft } from "./events.js";
 
 // Vectors recorded by running the desktop client's own cleanBody
 // (client/src/lib/platform/notifications.ts) on each input, so the two stay
@@ -61,4 +61,23 @@ test("an approval prompt reveals nothing about the action; a choice previews its
     preview: "Which database?",
   });
   assert.equal(promptDraft({ title: "t", kind: "choice" }).preview, null);
+});
+
+test("agents of a room waiting for the person make one notification about the room", () => {
+  assert.deepEqual(roomPromptsDraft({ roomTitle: "Release", entries: [{ kind: "choice", agentTitle: "Docs", firstQuestion: "Which **tone**?" }] }), {
+    kind: "choice_required",
+    title: "Release",
+    preview: "Docs: Which tone?",
+  });
+  assert.deepEqual(roomPromptsDraft({ roomTitle: "Release", entries: [{ kind: "approval", agentTitle: "Docs", firstQuestion: "Run rm -rf /secret?" }] }), {
+    kind: "approval_required",
+    title: "Release",
+    preview: "Docs",
+  });
+  assert.deepEqual(roomPromptsDraft({ roomTitle: null, entries: [{ kind: "approval", agentTitle: null }, { kind: "approval", agentTitle: "B" }] }), {
+    kind: "approval_required",
+    title: null,
+    preview: "2 agents are waiting for you",
+  });
+  assert.equal(roomPromptsDraft({ roomTitle: null, entries: [{ kind: "approval", agentTitle: "A" }, { kind: "choice", agentTitle: "B", firstQuestion: "q" }] }).kind, "choice_required");
 });

@@ -6,9 +6,8 @@
 //
 // Every tool answers at once. Delegating creates the worker's session, queues
 // its first turn and returns its id; the work itself runs on the worker's own
-// turn, in the host. Handing reports back to the principal (the digest) is
-// not done here: a report only lands in the worker's record and in the
-// principal's outbox.
+// turn, in the host. A report lands in the worker's record and in the outbox
+// of the agent that reads it, which gets it as one digest turn per round.
 import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { RoomBridge, RoomToolHost, RoomToolResult } from "../bridges/roomBridge.js";
@@ -23,12 +22,16 @@ import {
   ROOM_QUEUE_PER_ROOM_MAX,
   ROOM_REPORT_SUMMARY_MAX,
   isDescendant,
+  liveAncestorId,
   roomAgentState,
   takesRoomPlace,
   titleFromTask,
   type RoomAgentState,
   type RoomMembership,
 } from "./room.js";
+import { roomPromptsDraft, type PushNotificationDraft, type RoomPromptEntry } from "../push/events.js";
+import { summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
+import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
 import {
   ROOM_MCP_SERVER_NAME,
   parseDelegateArgs,
@@ -36,6 +39,7 @@ import {
   parseReportArgs,
   parseWorktreeCreateArgs,
   principalInstructions,
+  APPROVE_TOOL,
   roomToolsFor,
   workerInstructions,
 } from "./roomTools.js";
@@ -89,6 +93,24 @@ export interface RoomManagerOptions {
    * answers that worktrees are not available. */
   readonly worktrees?: RoomWorktrees;
   readonly now?: () => number;
+  /** How long a wake-up waits for more reports before the digest goes out:
+   * agents that finish together share one turn. Default 2 s. */
+  readonly digestWindowMs?: number;
+  /** Deletes an agent's session (and, with it, the agents below it and
+   * their agents in the host). */
+  readonly deleteAgent?: (agentId: string) => boolean;
+  /** How long a removed agent can still be brought back before it is
+   * deleted for good. Default 15 s. */
+  readonly removeUndoMs?: number;
+  /** Agents that were just deleted for good after a removal (the root of the
+   * removed subtree and everything below it). */
+  readonly onPurged?: (agentIds: readonly string[]) => void;
+  /** Tells the person's devices that agents of a room wait for them (one
+   * call per round, about the room's principal session). */
+  readonly notifyPerson?: (event: { roomId: string; draft: PushNotificationDraft; watched: boolean }) => void;
+  /** How long the questions of several agents are gathered into one
+   * notification. Default 1.5 s. */
+  readonly promptWindowMs?: number;
   /** The rooms' context folders. Without it a room has no shared context. */
   readonly context?: RoomContextStore;
   /** How long agents of one model wait behind the first of them to be
@@ -116,6 +138,8 @@ export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error
 
 export type StopAgentResult = { ok: true } | { ok: false; status: number; error: string };
 export type ResumeAgentResult = StopAgentResult;
+export type RemoveAgentResult = { ok: true; removed: string[]; undoMs: number } | { ok: false; status: number; error: string };
+export type RestoreAgentResult = { ok: true; restored: string[] } | { ok: false; status: number; error: string };
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
 const fail = (text: string): RoomToolResult => ({ text, isError: true });
@@ -124,6 +148,22 @@ export class RoomManager implements RoomToolHost {
   private readonly now: () => number;
   /** Per worker, the queued message its current turn is delivering. */
   private readonly sending = new Map<string, { text: string; at: number; delivered: boolean }>();
+  /** Per agent, the coalescing timer of a digest about to go out. */
+  private readonly digestTimers = new Map<string, NodeJS.Timeout>();
+  /** Per agent, the digest turn queued or running for it: at most one at a
+   * time, so a round of reports is one turn however they arrive. */
+  private readonly digests = new Map<string, { delivered: boolean }>();
+  /** Agents whose last digest turn ended (failed, or was stopped) before the
+   * host took it: not tried again until a new report arrives, so a turn that
+   * cannot start does not loop. */
+  private readonly digestFailed = new Set<string>();
+  /** Per removed root, the timer that deletes its subtree once the undo
+   * window is over. */
+  private readonly purgeTimers = new Map<string, NodeJS.Timeout>();
+  /** Per room, the gathering of questions into one notification, and the
+   * prompts the person has already been told about. */
+  private readonly promptRounds = new Map<string, { timer: NodeJS.Timeout; watched: boolean }>();
+  private readonly notifiedPrompts = new Map<string, Set<string>>();
   /** Per runtime and model, the agent launched first and those waiting
    * behind it. Launching a batch cold would make every one of them write the
    * whole prompt to the cache; behind the first, the rest read it. */
@@ -178,7 +218,8 @@ export class RoomManager implements RoomToolHost {
   toolsFor(sessionId: string): readonly RoomToolSpec[] | undefined {
     const room = this.store.getRoom(sessionId);
     if (!room || this.admit(sessionId) !== undefined) return undefined;
-    return roomToolsFor(room.role);
+    // A worker's CLI also asks the relay about tool calls that need approval.
+    return room.role === "worker" ? [...roomToolsFor(room.role), APPROVE_TOOL] : roomToolsFor(room.role);
   }
 
   /** A note for the model alone on an agent's next turn when items joined the
@@ -218,6 +259,8 @@ export class RoomManager implements RoomToolHost {
         return this.messageAgent(sessionId, room, args);
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
+      case "approve":
+        return this.approve(sessionId, room, args);
       case "worktree_create":
         return this.worktreeCreate(sessionId, room, args);
       default:
@@ -290,6 +333,7 @@ export class RoomManager implements RoomToolHost {
     const session = this.options.sessions.getOrCreate(agentId);
     session.discardQueuedTurns();
     session.stopTurn();
+    this.handOffOutbox(agentId);
     try {
       await this.options.stopInHost?.(agentId);
     } catch (error) {
@@ -305,14 +349,241 @@ export class RoomManager implements RoomToolHost {
     if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
     if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is resumed this way" };
     if (!room.stopped) return { ok: true };
+    if (room.stopped.reason === "removed") return { ok: false, status: 404, error: "no such agent in this room" };
     const { stopped: _stopped, ...rest } = room;
     void _stopped;
     this.store.setRoom(agentId, rest);
     return { ok: true };
   }
 
+  /** A worker asked the person something. The person hears about it from
+   * the room, once for the agents that asked together, never from each
+   * worker. */
+  workerPrompted(workerId: string, watched: boolean): void {
+    const room = this.store.getRoom(workerId);
+    if (room?.role !== "worker" || room.stopped || !this.options.notifyPerson) return;
+    const round = this.promptRounds.get(room.roomId);
+    if (round) {
+      round.watched = round.watched || watched;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const gathered = this.promptRounds.get(room.roomId);
+      this.promptRounds.delete(room.roomId);
+      this.notifyPrompts(room.roomId, gathered?.watched ?? false);
+    }, this.options.promptWindowMs ?? 1500);
+    timer.unref();
+    this.promptRounds.set(room.roomId, { timer, watched });
+  }
+
+  /** Tells the person about the prompts of a room it has not told them about. */
+  private notifyPrompts(roomId: string, watched: boolean): void {
+    if (this.store.getRoom(roomId)?.role !== "principal") {
+      this.notifiedPrompts.delete(roomId);
+      return;
+    }
+    const known = this.notifiedPrompts.get(roomId) ?? new Set<string>();
+    const current = new Set<string>();
+    const entries: RoomPromptEntry[] = [];
+    for (const { id, room } of this.members(roomId)) {
+      if (room.role !== "worker" || room.stopped) continue;
+      const needs = this.needsYou(id);
+      for (const need of needs) current.add(need.promptId);
+      // One entry per agent, whatever it asks.
+      const fresh = needs.find((need) => !known.has(need.promptId));
+      if (!fresh) continue;
+      const choice = fresh.kind === "choice" ? this.store.getPendingChoice(id) : undefined;
+      entries.push({ kind: fresh.kind, agentTitle: this.store.getTitle(id), ...(choice?.questions[0] ? { firstQuestion: choice.questions[0].question } : {}) });
+    }
+    // What was answered stops counting, so a later prompt is told again.
+    this.notifiedPrompts.set(roomId, current);
+    if (entries.length === 0) return;
+    const looking = this.options.sessions.peek(roomId)?.isAnyoneLooking() ?? false;
+    this.options.notifyPerson?.({ roomId, draft: roomPromptsDraft({ roomTitle: this.store.getTitle(roomId), entries }), watched: watched || looking });
+  }
+
+  /** What the person is being asked by `id`, from what is persisted. */
+  private needsYou(id: string): NeedsYou[] {
+    const out: NeedsYou[] = [];
+    // Nobody can usefully answer an agent that was stopped or removed.
+    if (this.store.getRoom(id)?.stopped) return out;
+    const choice = this.store.getPendingChoice(id);
+    if (choice) out.push({ kind: "choice", promptId: choice.promptId, ...(choice.askedAt !== undefined ? { askedAt: choice.askedAt } : {}), count: choice.questions.length });
+    const approval = this.store.getPendingApproval(id);
+    if (approval) out.push({ kind: "approval", promptId: approval.promptId, ...(approval.askedAt !== undefined ? { askedAt: approval.askedAt } : {}), count: approval.calls.length });
+    return out;
+  }
+
+  /** One agent as the room's channel shows it. */
+  private agentView(id: string, room: RoomMembership): RoomAgentView {
+    const runtime = this.store.getAgentId(id);
+    const needsYou = this.needsYou(id);
+    return {
+      agentId: id,
+      role: room.role,
+      ...(room.parentId !== undefined ? { parentId: room.parentId } : {}),
+      title: this.store.getTitle(id),
+      runtime,
+      model: this.store.getModel(id, runtime) ?? null,
+      ...(room.area ? { area: room.area } : {}),
+      createdBy: room.createdBy,
+      state: this.stateOf(id, room),
+      queuedMessages: room.queuedMessages?.length ?? 0,
+      ...(room.report
+        ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, at: room.report.at, ...(room.report.synthetic ? { fromRelay: true } : {}) } }
+        : {}),
+      needsYou,
+      subtasksRunning: this.options.sessions.peek(id)?.listSubtasks().filter((task) => task.status === "running").length ?? 0,
+    };
+  }
+
+  /** The whole room's state (every agent but the removed ones, the
+   * principal first) and its totals, or `undefined` when there is no such
+   * room. */
+  snapshot(roomId: string): RoomSnapshot | undefined {
+    if (this.store.getRoom(roomId)?.role !== "principal") return undefined;
+    const agents = this.members(roomId)
+      .filter(({ room }) => room.stopped?.reason !== "removed")
+      .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
+      .map(({ id, room }) => this.agentView(id, room));
+    return { roomId, agents, summary: summarizeRoom(agents) };
+  }
+
+  /** `agentId` and every agent below it, in the room. */
+  private subtreeOf(roomId: string, agentId: string): string[] {
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    return this.members(roomId)
+      .filter((member) => member.id === agentId || isDescendant(member.id, agentId, parentOf))
+      .map((member) => member.id);
+  }
+
+  /** The person removes an agent: it and every agent below it are stopped
+   * and hidden at once, and deleted for good once the undo window is over
+   * (`restoreAgent` within it brings them back). */
+  async removeAgent(roomId: string, agentId: string): Promise<RemoveAgentResult> {
+    const room = this.store.getRoom(agentId);
+    if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
+    if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is removed this way; delete the room to remove its principal" };
+    if (room.stopped?.reason === "removed") return { ok: false, status: 404, error: "no such agent in this room" };
+    const ids = this.subtreeOf(roomId, agentId).filter((id) => this.store.getRoom(id)?.stopped?.reason !== "removed");
+    const at = this.now();
+    for (const id of ids) {
+      const member = this.store.getRoom(id)!;
+      const { queuedMessages: _dropped, ...kept } = member;
+      void _dropped;
+      this.store.setRoom(id, { ...kept, stopped: { reason: "removed", at } });
+    }
+    // The agents are stopped first and the outboxes handed up after, so no
+    // report goes to an agent that is itself going away.
+    for (const id of ids) {
+      const session = this.options.sessions.getOrCreate(id);
+      session.discardQueuedTurns();
+      session.stopTurn();
+      this.sending.delete(id);
+    }
+    for (const id of ids) this.handOffOutbox(id);
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await this.options.stopInHost?.(id);
+        } catch (error) {
+          console.warn(`[relay] could not stop agent ${id} in the agent host: ${(error as Error).message}`);
+        }
+      }),
+    );
+    // Restored (or removed again) while the host was stopping them: that
+    // call's own window and timer are the ones that count.
+    if (this.store.getRoom(agentId)?.stopped?.at !== at) return { ok: true, removed: ids, undoMs: this.undoMs() };
+    // The window starts when the agents are really gone from the host, not
+    // when the person asked: a slow stop must not use it up.
+    const from = this.now();
+    for (const id of ids) {
+      const member = this.store.getRoom(id);
+      if (member?.stopped?.reason === "removed" && member.stopped.at === at) this.store.setRoom(id, { ...member, stopped: { reason: "removed", at: from } });
+    }
+    this.schedulePurge(agentId, from);
+    return { ok: true, removed: ids, undoMs: this.undoMs() };
+  }
+
+  /** Brings back an agent removed within the undo window, with the agents
+   * that went with it. They come back idle (their turn was ended), with
+   * whatever they had reported. */
+  restoreAgent(roomId: string, agentId: string): RestoreAgentResult {
+    const room = this.store.getRoom(agentId);
+    // Only what the person removed (the root of the subtree) is restored: an
+    // agent under it comes back with it, never alone under a hidden parent.
+    const parentRemoved = room?.parentId !== undefined && this.store.getRoom(room.parentId)?.stopped?.reason === "removed";
+    if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId || room.stopped?.reason !== "removed" || parentRemoved) {
+      return { ok: false, status: 404, error: "no removed agent with that id in this room (it may have been deleted for good)" };
+    }
+    const timer = this.purgeTimers.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.purgeTimers.delete(agentId);
+    const restored: string[] = [];
+    for (const id of this.subtreeOf(roomId, agentId)) {
+      const member = this.store.getRoom(id);
+      if (member?.stopped?.reason !== "removed") continue;
+      const { stopped: _stopped, ...rest } = member;
+      void _stopped;
+      this.store.setRoom(id, rest);
+      restored.push(id);
+    }
+    this.considerDigestFor(agentId);
+    return { ok: true, restored };
+  }
+
+  private undoMs(): number {
+    return this.options.removeUndoMs ?? 15_000;
+  }
+
+  private schedulePurge(rootId: string, removedAt: number): void {
+    const existing = this.purgeTimers.get(rootId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => this.purge(rootId), Math.max(0, removedAt + this.undoMs() - this.now()));
+    timer.unref();
+    this.purgeTimers.set(rootId, timer);
+  }
+
+  private purge(rootId: string): void {
+    this.purgeTimers.delete(rootId);
+    const room = this.store.getRoom(rootId);
+    if (room?.stopped?.reason !== "removed") return;
+    const ids = this.subtreeOf(room.roomId, rootId);
+    this.options.deleteAgent?.(rootId);
+    this.options.onPurged?.(ids);
+  }
+
+  /** After a restart: removals whose window is over are deleted now, the
+   * others get their timer back. Only the roots of removed subtrees matter. */
+  sweepRemoved(): void {
+    for (const id of this.store.listIds()) {
+      const room = this.store.getRoom(id);
+      if (room?.role !== "worker" || room.stopped?.reason !== "removed") continue;
+      if (this.store.getRoom(room.parentId!)?.stopped?.reason === "removed") continue;
+      this.schedulePurge(id, room.stopped.at);
+    }
+  }
+
+  /** Whether a question or a tool approval of `id` waits for the person: read
+   * from what is persisted, not from the process, which may be asleep. */
+  private awaitingUser(id: string): boolean {
+    return this.store.getPendingChoice(id) !== undefined || this.store.getPendingApproval(id) !== undefined;
+  }
+
   private stateOf(id: string, room: RoomMembership): RoomAgentState {
-    return roomAgentState(room, this.options.sessions.peek(id)?.isBusy() ?? false);
+    return roomAgentState(room, this.options.sessions.peek(id)?.isBusy() ?? false, this.awaitingUser(id));
+  }
+
+  /** Whether the card of a worker can be answered now. Answering puts the
+   * agent back to work, and an agent waiting for the person takes no place
+   * under the cap, so the room may have filled up meanwhile; then the answer
+   * is refused and the card stays open. A v1 limit: a later version may let
+   * the answer wait its turn instead. */
+  answerRefusal(sessionId: string): "room_cap_reached" | undefined {
+    const room = this.store.getRoom(sessionId);
+    if (room?.role !== "worker") return undefined;
+    if (takesRoomPlace(this.stateOf(sessionId, room))) return undefined;
+    return this.placesTaken(room.roomId) >= ROOM_MAX_LIVE_AGENTS ? "room_cap_reached" : undefined;
   }
 
   /** Agents of a room that take a place under its cap right now. */
@@ -325,11 +596,24 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    // Whatever stopped an earlier digest from going out, a turn of its own
+    // since is a reason to try again.
+    if (outcome.synthetic !== "room_digest") this.digestFailed.delete(sessionId);
+    if (outcome.synthetic === "room_digest") {
+      const digest = this.digests.get(sessionId);
+      this.digests.delete(sessionId);
+      if (digest && !digest.delivered && (outcome.error !== undefined || outcome.stopped)) this.digestFailed.add(sessionId);
+    }
     this.endWarmUp(sessionId);
     const sending = this.sending.get(sessionId);
     this.sending.delete(sessionId);
     const room = this.store.getRoom(sessionId);
-    if (!room || room.role !== "worker" || room.stopped) return;
+    if (!room) return;
+    if (room.role !== "worker" || room.stopped) {
+      // The principal's own turn is over: reports that waited for it go out.
+      if (room.role === "principal") this.considerDigest(sessionId);
+      return;
+    }
     if (sending && !sending.delivered) {
       // The queued message never reached the agent. With the host away it
       // stays queued, untouched, for when the host is back (the queues are
@@ -338,7 +622,9 @@ export class RoomManager implements RoomToolHost {
       if (!this.options.hostConnected()) return;
       this.removeQueued(sessionId, sending);
     }
-    if (!outcome.stopped) {
+    // A digest is about the agents below this one: no report of its own is
+    // owed for it.
+    if (!outcome.stopped && outcome.synthetic !== "room_digest") {
       // A followed turn began before this relay saw it: any report of the
       // agent's own may be this turn's.
       const reportedThisTurn = room.report !== undefined && !room.report.synthetic && (outcome.adopted === true || room.report.at >= outcome.startedAt);
@@ -349,11 +635,17 @@ export class RoomManager implements RoomToolHost {
         this.recordReport(sessionId, room, { ...room.report, summary: `${room.report.summary}${note}`.slice(0, ROOM_REPORT_SUMMARY_MAX + note.length) });
       } else if (outcome.error !== undefined) {
         this.recordReport(sessionId, room, { status: "failed", summary: `The agent's turn failed: ${outcome.error}`.slice(0, ROOM_REPORT_SUMMARY_MAX), artifacts: [], synthetic: true });
-      } else if (!reportedThisTurn) {
+      } else if (!reportedThisTurn && !this.awaitingUser(sessionId)) {
+        // Not blocked when it ended its turn to wait for the person: it is
+        // waiting for them, which is its own state.
         this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });
       }
     }
     this.pump(sessionId);
+    // Its own digest may have been waiting for this turn; so may whoever
+    // reads what this agent reported.
+    this.considerDigest(sessionId);
+    this.considerDigestFor(sessionId);
     this.cleanWorktrees(sessionId);
   }
 
@@ -479,8 +771,17 @@ export class RoomManager implements RoomToolHost {
   }
 
   /** A room member's session was deleted: its agent is to leave the host,
-   * now or on a later connection. */
+   * now or on a later connection, and the round it was part of may be over. */
   onMemberDeleted(sessionId: string): void {
+    const timer = this.digestTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.digestTimers.delete(sessionId);
+    this.digests.delete(sessionId);
+    this.digestFailed.delete(sessionId);
+    // Once it is really gone, whoever it was working for may have nothing
+    // left to wait for.
+    const above = liveAncestorId(sessionId, (id) => this.store.getRoom(id));
+    if (above !== undefined) setImmediate(() => this.considerDigest(above));
     // Once the deletion has finished (its record is gone), what it had
     // integrated is cleaned up, and the rest kept and listed by the sweep.
     const worktrees = this.options.worktrees;
@@ -572,15 +873,156 @@ export class RoomManager implements RoomToolHost {
   /** Delivers what was queued before a relay restart. */
   resumeQueues(): void {
     for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.queuedMessages?.length ?? 0) > 0) this.pump(id);
+    this.considerAllDigests();
   }
 
+  /** Stores a worker's report and puts it in the outbox of the agent that
+   * reads it: the closest one above it that is still there. */
   private recordReport(workerId: string, worker: RoomMembership, report: Omit<NonNullable<RoomMembership["report"]>, "at">): void {
-    this.store.setRoom(workerId, { ...worker, report: { ...report, at: this.now() } });
-    const principal = this.store.getRoom(worker.roomId);
-    if (principal?.role === "principal") {
-      const outbox = principal.undeliveredReports ?? [];
-      if (!outbox.includes(workerId)) this.store.setRoom(worker.roomId, { ...principal, undeliveredReports: [...outbox, workerId] });
+    // Read again: `worker` may predate a change made since (a queued
+    // message that was just dropped).
+    this.store.setRoom(workerId, { ...(this.store.getRoom(workerId) ?? worker), report: { ...report, at: this.now() } });
+    const recipientId = liveAncestorId(workerId, (id) => this.store.getRoom(id));
+    const recipient = recipientId === undefined ? undefined : this.store.getRoom(recipientId);
+    if (recipientId === undefined || !recipient) return;
+    const outbox = recipient.undeliveredReports ?? [];
+    if (!outbox.includes(workerId)) this.store.setRoom(recipientId, { ...recipient, undeliveredReports: [...outbox, workerId] });
+    // News for whoever was left alone after a digest that failed.
+    this.digestFailed.delete(recipientId);
+    this.considerDigest(recipientId);
+  }
+
+  // ------------------------------------------------------------ digest
+
+  /** The agents below `recipientId` (at any depth) in one of `states`. */
+  private countBelow(recipientId: string, states: readonly RoomAgentState[]): number {
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    const roomId = this.store.getRoom(recipientId)?.roomId;
+    return this.members(roomId ?? recipientId).filter((member) => member.id !== recipientId && isDescendant(member.id, recipientId, parentOf) && states.includes(this.stateOf(member.id, member.room))).length;
+  }
+
+  /** What `recipientId` has not been told yet, from the reports as they are
+   * now (a report made again replaces the earlier one). */
+  private outboxEntries(recipientId: string): { entry: DigestEntry; at: number }[] {
+    const recipient = this.store.getRoom(recipientId);
+    const entries: { entry: DigestEntry; at: number }[] = [];
+    for (const workerId of recipient?.undeliveredReports ?? []) {
+      const worker = this.store.getRoom(workerId);
+      if (!worker?.report || worker.roomId !== recipient?.roomId) continue;
+      // Taken out of the room by the person: not reported on unless brought back.
+      if (worker.stopped?.reason === "removed") continue;
+      entries.push({
+        entry: {
+          agentId: workerId,
+          title: this.store.getTitle(workerId),
+          status: worker.report.status,
+          summary: worker.report.summary,
+          artifacts: worker.report.artifacts,
+          fromRelay: worker.report.synthetic === true,
+        },
+        at: worker.report.at,
+      });
     }
+    return entries;
+  }
+
+  /** Whether a digest to `recipientId` is due now: it has reports waiting,
+   * and either one of them failed or blocked (somebody has to decide) or
+   * nothing under it is still running (the round is over). Never while one
+   * is already on its way. */
+  private digestDue(recipientId: string): boolean {
+    if (this.digests.has(recipientId) || this.digestFailed.has(recipientId) || this.admit(recipientId) !== undefined) return false;
+    const entries = this.outboxEntries(recipientId);
+    if (entries.length === 0) return false;
+    return entries.some(({ entry }) => isUrgent(entry.status)) || this.countBelow(recipientId, ["working", "queued"]) === 0;
+  }
+
+  /** Schedules the digest if one is due; the window lets agents that report
+   * together share it. Called whenever something that can make one due
+   * happens. */
+  private considerDigest(recipientId: string): void {
+    if (this.digestTimers.has(recipientId) || !this.digestDue(recipientId)) return;
+    const timer = setTimeout(() => {
+      this.digestTimers.delete(recipientId);
+      this.deliverDigest(recipientId);
+    }, this.options.digestWindowMs ?? 2000);
+    timer.unref();
+    this.digestTimers.set(recipientId, timer);
+  }
+
+  /** `considerDigest` for whoever reads the reports of `workerId`'s side of
+   * the tree: it just stopped working, so the round may be over. */
+  private considerDigestFor(workerId: string): void {
+    const recipientId = liveAncestorId(workerId, (id) => this.store.getRoom(id));
+    if (recipientId !== undefined) this.considerDigest(recipientId);
+  }
+
+  private deliverDigest(recipientId: string): void {
+    // The host being away is no reason to fail a turn nobody asked for: the
+    // reports stay in the outbox and go out when it is back.
+    if (!this.digestDue(recipientId) || !this.options.hostConnected()) return;
+    const entries = this.outboxEntries(recipientId);
+    const text = buildRoomDigest(
+      entries.map(({ entry }) => entry),
+      { stillWorking: this.countBelow(recipientId, ["working", "queued"]), awaitingPerson: this.countBelow(recipientId, ["awaiting_user"]) },
+    );
+    const taken = new Map(entries.map(({ entry, at }) => [entry.agentId, at]));
+    const digest = { delivered: false };
+    this.digests.set(recipientId, digest);
+    this.options.sessions.getOrCreate(recipientId).submitRoomDigest(text, {
+      onDelivered: () => {
+        digest.delivered = true;
+        this.clearFromOutbox(recipientId, taken);
+      },
+    });
+  }
+
+  /** Takes reports out of an outbox once they were handed over — those that
+   * were not made again since (`at` is when the one that was handed over
+   * arrived). Also drops entries whose agent is gone. */
+  private clearFromOutbox(recipientId: string, handed: ReadonlyMap<string, number>): void {
+    const recipient = this.store.getRoom(recipientId);
+    if (!recipient?.undeliveredReports) return;
+    const kept = recipient.undeliveredReports.filter((workerId) => {
+      const report = this.store.getRoom(workerId)?.report;
+      if (!report) return false;
+      const at = handed.get(workerId);
+      return at === undefined || report.at !== at;
+    });
+    const { undeliveredReports: _old, ...rest } = recipient;
+    void _old;
+    this.store.setRoom(recipientId, recipient.role === "principal" || kept.length > 0 ? { ...rest, undeliveredReports: kept } : rest);
+  }
+
+  /** An agent leaves the room's active work (stopped, removed): reports
+   * waiting for it go to the next agent above, and the round may be over. */
+  private handOffOutbox(agentId: string): void {
+    const timer = this.digestTimers.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.digestTimers.delete(agentId);
+    this.digests.delete(agentId);
+    const room = this.store.getRoom(agentId);
+    const waiting = room?.undeliveredReports ?? [];
+    const targetId = liveAncestorId(agentId, (id) => this.store.getRoom(id));
+    const target = targetId === undefined ? undefined : this.store.getRoom(targetId);
+    if (room && waiting.length > 0 && targetId !== undefined && target) {
+      const { undeliveredReports: _old, ...rest } = room;
+      void _old;
+      this.store.setRoom(agentId, rest);
+      const merged = [...(target.undeliveredReports ?? [])];
+      for (const workerId of waiting) if (!merged.includes(workerId)) merged.push(workerId);
+      this.store.setRoom(targetId, { ...target, undeliveredReports: merged });
+    }
+    if (targetId !== undefined) this.considerDigest(targetId);
+  }
+
+  /** Looks at every agent that may owe someone a digest (after a restart, or
+   * once the host is back). */
+  considerAllDigests(): void {
+    // A digest that failed because the host went away is worth another try
+    // once it is back.
+    this.digestFailed.clear();
+    for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.undeliveredReports?.length ?? 0) > 0) this.considerDigest(id);
   }
 
   /** A model the runtime will take: the catalog's own ids, and for Claude
@@ -695,9 +1137,22 @@ export class RoomManager implements RoomToolHost {
     return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; it is delivered as its next turn.`);
   }
 
+  /** The CLI of a worker asks whether a tool call may run. The worker's
+   * session answers at once (it defers: the call is refused, the turn ends,
+   * the person is asked) so nothing is held open for a person. */
+  private async approve(callerId: string, caller: RoomMembership, args: unknown): Promise<RoomToolResult> {
+    if (caller.role !== "worker") return fail("Only an agent started in the room is asked about tool calls.");
+    const input = typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {};
+    const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
+    const decision = await this.options.sessions
+      .getOrCreate(callerId)
+      .checkPermission(toolName, input.input, typeof input.tool_use_id === "string" ? input.tool_use_id : undefined, typeof input.agent_id === "string" ? input.agent_id : undefined);
+    return ok(JSON.stringify(decision));
+  }
+
   private roomStatus(callerId: string, caller: RoomMembership): RoomToolResult {
     const agents = this.members(caller.roomId)
-      .filter((member) => member.id !== callerId && member.room.role === "worker")
+      .filter((member) => member.id !== callerId && member.room.role === "worker" && member.room.stopped?.reason !== "removed")
       .map(({ id, room }) => {
         const runtime = this.store.getAgentId(id);
         const state = this.stateOf(id, room);

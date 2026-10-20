@@ -44,12 +44,24 @@
 //                        [[gate:<path>]] too, the calls wait for the gate;
 //                        with [[crash-after]], the process exits (code 3)
 //                        right after them
+//   [[ask:<base64url JSON {tool, input}>]] try that tool call, which needs
+//                        approval: put to the `--permission-prompt-tool` (the
+//                        `anywh-room` server's `approve`) like the CLI does;
+//                        refused → the turn ends; on the NEXT message (the
+//                        person's verdict) the refused calls are tried again,
+//                        and once all run (a Write writes its file) the agent
+//                        reports done (a verdict of no: reports blocked). Without `--permission-prompt-tool` the
+//                        call is refused for good, as the real CLI does
 //   [[subagent]]         start a native subagent in the background (the
 //                        CLI's `task_started`/`background_tasks_changed`)
 //                        and end the turn; it runs until a `stop_task`
 //                        control request names it (then `task_updated`
 //                        killed, `task_notification` stopped), as measured
 //                        on Claude Code 2.1.303
+//   FAKE_CLAUDE_DIGEST_REPLY=<text> (env, not a marker): a message that
+//                        starts with `[anywh-room]` (a room's digest) is
+//                        answered with exactly this text, as a principal
+//                        would answer NO_REPLY when it has nothing to do
 //   [[stale-result:<path>]] end the turn normally; when the NEXT message
 //                        arrives, first print one more lone `result` (as if
 //                        a background-triggered turn's result were still in
@@ -72,6 +84,7 @@ export async function runPersistent(args) {
   let inputEnded = false;
   let staleBeforeNext = null; // gate path, see [[stale-result]]
   let turns = 0;
+  let refusedAsks = null; // calls to try again on the next message
   const subagents = new Map(); // task id -> tool use id, still running
 
   const emit = (event) => process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
@@ -163,6 +176,46 @@ export async function runPersistent(args) {
       emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent", description: "survey the repo" })) });
       emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
       finish("started a subagent");
+      return;
+    }
+    if (process.env.FAKE_CLAUDE_DIGEST_REPLY !== undefined && text.startsWith("[anywh-room]")) {
+      finish(process.env.FAKE_CLAUDE_DIGEST_REPLY);
+      return;
+    }
+    const asks = [...text.matchAll(/\[\[ask:([A-Za-z0-9_-]+)\]\]/g)].map(([, encoded]) => JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")));
+    if (refusedAsks && asks.length === 0 && text.startsWith("denied by the user")) {
+      // The verdict was no: a model told not to retry reports it is stuck.
+      refusedAsks = null;
+      const reported = await callRoomTool("report", { status: "blocked", summary: "the user denied the call", artifacts: [] });
+      finish(`denied: ${reported.text}`);
+      return;
+    }
+    if (asks.length > 0 || refusedAsks) {
+      const calls = asks.length > 0 ? asks : refusedAsks;
+      refusedAsks = null;
+      const refused = [];
+      for (const [index, call] of calls.entries()) {
+        const id = `toolu_ask_${turns}_${index}`;
+        emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id, name: call.tool, input: call.input }] } });
+        let decision = { behavior: "deny", message: "no permission tool" };
+        if (flag("--permission-prompt-tool")) {
+          const answer = await callRoomTool("approve", { tool_name: call.tool, input: call.input, tool_use_id: id });
+          decision = answer.isError ? { behavior: "deny", message: answer.text } : JSON.parse(answer.text);
+        }
+        if (decision.behavior === "allow") {
+          if (call.tool === "Write") writeFileSync(call.input.file_path, call.input.content);
+        } else if (flag("--permission-prompt-tool")) {
+          refused.push(call);
+        }
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: decision.behavior === "allow" ? "ok" : decision.message, is_error: decision.behavior !== "allow" }] } });
+      }
+      if (refused.length > 0) {
+        refusedAsks = refused;
+        finish("awaiting approval");
+        return;
+      }
+      const reported = await callRoomTool("report", { status: "done", summary: `ran ${calls.length} approved call(s)`, artifacts: [] });
+      finish(`asked: ${reported.text}`);
       return;
     }
     const roomCalls = [...text.matchAll(/\[\[room:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)];

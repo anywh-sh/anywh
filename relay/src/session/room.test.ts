@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isDescendant, isRoomMembership, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
+import { isDescendant, isRoomMembership, liveAncestorId, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
 
 const worker: RoomMembership = { roomId: "p", role: "worker", parentId: "p", createdBy: "agent", task: "count lines" };
 const principal: RoomMembership = { roomId: "p", role: "principal", createdBy: "user", task: "", undeliveredReports: [] };
@@ -18,7 +18,7 @@ test("isRoomMembership accepts the two shapes and rejects anything that would co
     ["task not a string", { ...worker, task: 3 }],
     ["worker without a parent", { ...worker, parentId: undefined }],
     ["principal with a parent", { ...principal, parentId: "x" }],
-    ["worker with an outbox", { ...worker, undeliveredReports: [] }],
+    ["worker with an outbox of non-strings", { ...worker, undeliveredReports: [1] }],
     ["outbox of non-strings", { ...principal, undeliveredReports: [1] }],
     ["bad report status", { ...worker, report: { status: "ok", summary: "", artifacts: [], at: 1 } }],
     ["report without artifacts", { ...worker, report: { status: "done", summary: "", at: 1 } }],
@@ -47,6 +47,16 @@ test("an agent's state: only one with something running or waiting to run takes 
   }
 });
 
+test("an agent waiting for the person shows as such, below a running turn and above its queue and report", () => {
+  const done = { ...worker, report: { status: "done" as const, summary: "", artifacts: [], at: 1 } };
+  assert.equal(roomAgentState(worker, false, true), "awaiting_user");
+  assert.equal(roomAgentState(done, false, true), "awaiting_user");
+  assert.equal(roomAgentState({ ...worker, queuedMessages: [{ text: "go", at: 1 }] }, false, true), "awaiting_user");
+  assert.equal(roomAgentState(worker, true, true), "working");
+  assert.equal(roomAgentState({ ...worker, stopped: { reason: "user", at: 1 } }, false, true), "stopped");
+  assert.equal(takesRoomPlace("awaiting_user"), false);
+});
+
 test("queued messages and synthetic reports validate; a principal never has a queue", () => {
   assert.equal(isRoomMembership({ ...worker, queuedMessages: [{ text: "a", at: 1 }], report: { status: "failed", summary: "x", artifacts: [], at: 1, synthetic: true } }), true);
   assert.equal(isRoomMembership({ ...worker, queuedMessages: [{ text: 1, at: 1 }] }), false);
@@ -72,6 +82,32 @@ test("titleFromTask takes the first line and cuts long ones at a word", () => {
   assert.ok(long.length <= 61, long);
   assert.ok(long.endsWith("…"));
   assert.ok(!long.includes("  "));
+});
+
+test("a worker's outbox validates like a principal's", () => {
+  assert.equal(isRoomMembership({ ...worker, undeliveredReports: ["c1"] }), true);
+});
+
+test("liveAncestorId skips stopped agents and ones that are gone, up to the principal", () => {
+  const rooms: Record<string, RoomMembership> = {
+    p: principal,
+    a: { ...worker, parentId: "p" },
+    b: { ...worker, parentId: "a" },
+    c: { ...worker, parentId: "b" },
+    loop1: { ...worker, parentId: "loop2" },
+    loop2: { ...worker, parentId: "loop1", stopped: { reason: "user", at: 1 } },
+  };
+  const get = (id: string): RoomMembership | undefined => rooms[id];
+  assert.equal(liveAncestorId("c", get), "b");
+  assert.equal(liveAncestorId("a", get), "p");
+  rooms.b = { ...rooms.b, stopped: { reason: "user", at: 1 } };
+  assert.equal(liveAncestorId("c", get), "a", "the stopped parent is skipped");
+  rooms.a = { ...rooms.a, stopped: { reason: "removed", at: 1 } };
+  assert.equal(liveAncestorId("c", get), "p");
+  delete rooms.a;
+  assert.equal(liveAncestorId("c", get), undefined, "a chain broken by a missing agent has no live ancestor");
+  assert.equal(liveAncestorId("loop1", get), undefined, "a cycle ends the walk");
+  assert.equal(liveAncestorId("p", get), undefined);
 });
 
 test("contextSeenAt is a timestamp or absent", () => {

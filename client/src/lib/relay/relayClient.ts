@@ -2,6 +2,7 @@
 import type {
   AgentEvent,
   BackgroundJobSummary,
+  AnswerChoiceErrorCode,
   ChoiceAnswer,
   ChoiceQuestion,
   ContextUsage,
@@ -33,6 +34,7 @@ import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
 export type {
   AgentEvent,
   BackgroundJobSummary,
+  AnswerChoiceErrorCode,
   ChoiceAnswer,
   ChoiceOption,
   ChoiceQuestion,
@@ -449,6 +451,8 @@ export interface RelayClientCallbacks {
   /** `edit_message` that was invalid or failed to truncate the real transcript —
    * arrives only for whoever requested the edit. */
   onEditMessageError?: (code: EditMessageErrorCode) => void;
+  /** A `choice_answer` this device sent was refused; the card is sent again. */
+  onChoiceAnswerError?: (code: AnswerChoiceErrorCode) => void;
   /** Sent right on connection (before the replay) and again every time the
    * draft changes, from any device — see sharedSession.ts::setDraft. Lets a
    * reopened/restarted app restore what was typed but not yet sent. */
@@ -703,6 +707,8 @@ export class RelayClient {
         this.callbacks.onEditMessageError?.(parsed.code);
       } else if (parsed.type === "choice_prompt") {
         this.callbacks.onChoicePrompt?.(parsed.promptId, parsed.questions, parsed.kind);
+      } else if (parsed.type === "choice_answer_error") {
+        this.callbacks.onChoiceAnswerError?.(parsed.code);
       } else if (parsed.type === "choice_resolved") {
         this.callbacks.onChoiceResolved?.(parsed.promptId);
       }

@@ -50,6 +50,15 @@ test("without a room the spec is just the turn's own choices", () => {
   assert.deepEqual(spec, { cwd: "/w", model: "haiku", effort: "high", permissionMode: "acceptEdits", agentWorker: true });
 });
 
+test("a worker's approvals are put to the room's bridge (unless its mode never asks); the principal has no such tool", () => {
+  const asking = { ...ctx, permissionModeId: "default" };
+  const worker = buildPersistentArgs(buildClaudeHostSpec(asking, setup("worker")), { mcpConfigPath: "/tmp/x.json" });
+  assert.equal(flag(worker, "--permission-prompt-tool"), "mcp__anywh-room__approve");
+  assert.ok(!flag(worker, "--allowedTools")!.split(",").includes("mcp__anywh-room__approve"), "the CLI asks it, the model never calls it");
+  assert.equal(flag(buildPersistentArgs(buildClaudeHostSpec(ctx, setup("worker")), { mcpConfigPath: "/tmp/x.json" }), "--permission-prompt-tool"), undefined, "bypassPermissions never asks");
+  assert.equal(flag(buildPersistentArgs(buildClaudeHostSpec(asking, setup("principal")), { mcpConfigPath: "/tmp/x.json" }), "--permission-prompt-tool"), undefined);
+});
+
 test("a room's context folder is granted to the agent with --add-dir, principal and worker alike", () => {
   for (const role of ["principal", "worker"] as const) {
     const spec = buildClaudeHostSpec(ctx, { ...setup(role), addDirs: ["/home/u/.anywh/rooms/r1"] });

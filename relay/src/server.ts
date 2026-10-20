@@ -23,7 +23,10 @@ import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handlePushRoutes } from "./routes/push.js";
+import { killAllTerminalsForSession } from "./host/terminalSession.js";
 import { handleRoomRoutes } from "./routes/rooms.js";
+import { handleRoomWatchConnection } from "./ws/room.js";
+import { RoomChannel } from "./session/roomChannel.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
@@ -143,7 +146,9 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
-  undefined,
+  // A room's workers never hold a tool-permission call open for a person: the
+  // request becomes an approval card and the turn ends.
+  (id) => (sessionStore.getRoom(id)?.role === "worker" ? { deferredApproval: true } : {}),
   {
     agentHost,
     roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),
@@ -151,9 +156,16 @@ const sessionManager = new SessionManager(
     onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
     onRoomDeleted: (roomId) => {
       roomCanvas.delete(roomId);
+      roomChannel.closeRoom(roomId);
       roomContext.deleteRoom(roomId);
     },
+    onWorkerPrompted: (id, watched): void => roomManager.workerPrompted(id, watched),
+    onMemberChanged: (id) => {
+      const roomId = sessionStore.getRoom(id)?.roomId;
+      if (roomId !== undefined) roomChannel.touch(roomId);
+    },
     turnNote: (id) => roomManager.turnNote(id),
+    answerRefusal: (id) => roomManager.answerRefusal(id),
     onUsage: (id, event) => roomUsage.observe(id, event),
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
@@ -181,6 +193,15 @@ const roomManager: RoomManager = new RoomManager({
   bridge: roomBridge,
   runtimes: () => roomRuntimes,
   hostConnected: () => agentHost?.status === "connected",
+  deleteAgent: (agentId) => sessionManager.deleteSession(agentId),
+  ...(process.env.RELAY_ROOM_REMOVE_UNDO_MS ? { removeUndoMs: Number(process.env.RELAY_ROOM_REMOVE_UNDO_MS) } : {}),
+  ...(process.env.RELAY_ROOM_DIGEST_WINDOW_MS ? { digestWindowMs: Number(process.env.RELAY_ROOM_DIGEST_WINDOW_MS) } : {}),
+  ...(process.env.RELAY_ROOM_PROMPT_WINDOW_MS ? { promptWindowMs: Number(process.env.RELAY_ROOM_PROMPT_WINDOW_MS) } : {}),
+  ...(pushDispatcher ? { notifyPerson: ({ roomId, draft, watched }) => pushDispatcher.notify({ ...draft, sessionId: roomId, ts: Date.now(), watched }) } : {}),
+  // A removed agent's subtree is deleted for good: its terminals go with it.
+  onPurged: (ids) => {
+    for (const id of ids) killAllTerminalsForSession(PORT, id).catch((error: unknown) => console.error("[relay] failed to clean up terminals for a purged agent:", error));
+  },
   owner: roomBridge.ownerId,
   tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
   stopInHost: async (agentId) => {
@@ -199,6 +220,11 @@ const roomManager: RoomManager = new RoomManager({
   ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
 });
 roomBridge.attach(roomManager);
+// Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
+const roomChannel = new RoomChannel(roomManager);
+sessionStore.onRoomChange((_sessionId, roomId) => roomChannel.touch(roomId));
+// Removals that were waiting out their undo window when the relay stopped.
+roomManager.sweepRemoved();
 // At start, and then daily: finish what a crash interrupted, forget worktrees
 // whose folder was deleted, and clean up those of agents gone or done.
 const sweepWorktrees = (): void => {
@@ -461,6 +487,19 @@ wss.on("connection", (socket: WebSocket, request) => {
 
   if (url.pathname === "/mcp-login") {
     handleMcpLoginConnection(socket, url, routeContext);
+    return;
+  }
+
+  const roomWatch = /^\/rooms\/([^/]+)\/watch$/.exec(url.pathname);
+  if (roomWatch) {
+    let roomId: string;
+    try {
+      roomId = decodeURIComponent(roomWatch[1]);
+    } catch {
+      socket.close(4400, "malformed path");
+      return;
+    }
+    handleRoomWatchConnection(socket, roomId, roomChannel);
     return;
   }
 

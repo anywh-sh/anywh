@@ -119,3 +119,20 @@ test("a worker whose room is gone (its principal missing or dropped as malformed
     assert.equal(store.isHiddenWorker("w1"), false);
   });
 });
+
+test("what a room's channel shows is told when it changes: title, model, membership, a waiting question, removal", () => {
+  withDir((file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    store.setRoom("w1", worker);
+    const told: string[] = [];
+    store.onRoomChange((id, roomId) => told.push(`${id}@${roomId}`));
+    store.setTitle("w1", "Count");
+    store.setModel("w1", "claude", { modelId: "haiku" } as never);
+    store.setPendingChoice("w1", { promptId: "q", questions: [{ question: "Which?", options: [] }] });
+    store.deleteEntry("w1");
+    assert.deepEqual(told, ["w1@p1", "w1@p1", "w1@p1", "w1@p1"]);
+    // A session outside any room tells nobody.
+    store.setTitle("plain", "Plain");
+    assert.equal(told.length, 4);
+  });
+});

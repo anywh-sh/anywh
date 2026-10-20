@@ -58,6 +58,9 @@ export const WORKER_SUBAGENT_LIMITS: Readonly<Record<string, string>> = {
   CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: "1",
 };
 
+/** The tool of the room's bridge the CLI asks about approvals. */
+export const APPROVE_TOOL_NAME = "approve";
+
 /** `mcp__<server>__<tool>`, the name the CLI gives an MCP tool. */
 export function mcpToolName(server: string, tool: string): string {
   return `mcp__${server}__${tool}`;
@@ -99,6 +102,10 @@ export function buildClaudeHostSpec(ctx: TurnContext, setup: RoomAgentSetup | un
   return {
     ...wiring,
     allowedTools: roomTools.join(","),
+    // Tool calls that need approval are put to the relay, which defers them:
+    // the call is refused, the turn ends, and the person's answer comes back
+    // as a new turn. Without it the CLI would just refuse them for good.
+    ...(base.permissionMode !== "bypassPermissions" ? { permissionPromptTool: mcpToolName(setup.bridgeServerName, APPROVE_TOOL_NAME) } : {}),
     // A worker may parallelize its own task with native subagents, bounded:
     // a few at once, none of them spawning more.
     env: WORKER_SUBAGENT_LIMITS,

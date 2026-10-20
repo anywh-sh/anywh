@@ -433,6 +433,7 @@ export function ChatPanel({
       logRef.current.hydrate(page);
     },
     onEditMessageError: (code) => window.alert(dict.errors.editMessage[code]),
+    onChoiceAnswerError: (code) => window.alert(dict.errors.answerChoice[code]),
     onCaughtUp: () => {
       caughtUpRef.current = true;
       setReady(true);

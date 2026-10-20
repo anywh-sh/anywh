@@ -41,10 +41,14 @@ function isPlainAbsolutePath(path: string): boolean {
   } catch {
     // Not there yet (a Write creating it): nothing to resolve.
   }
-  try {
-    return realpathSync(dirname(path)) === dirname(path);
-  } catch {
-    return true;
+  // The nearest directory that exists must be its own real path: a symlink
+  // further up, above directories the write would create, still redirects it.
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    try {
+      return realpathSync(dir) === dir;
+    } catch {
+      if (dir === "/") return true;
+    }
   }
 }
 
@@ -130,6 +134,25 @@ function targetOf({ tool, input }: ToolGrant, cwd: string): string | undefined {
       return `file:${full}`;
     }
   }
+}
+
+/**
+ * Whether `call` is one of the calls cleared by `grants`, for an agent whose
+ * CLI cannot be given `--allowedTools` for a turn (a long-lived one in the
+ * agent host): the relay answers its permission requests itself, and answers
+ * yes to these. Same reach as the rules `buildGrantRules` would have given: a
+ * rule that names a whole tool covers every call of it (the edit tools
+ * together), one that names a call covers that one.
+ */
+export function grantsAllow(grants: readonly ToolGrant[], call: ToolGrant, cwd: string): boolean {
+  return grants.some((grant) => {
+    if (grant.tool === "ExitPlanMode") return call.tool === "ExitPlanMode";
+    const rule = grant.rule ?? grantRuleFor(grant)?.rule;
+    if (rule === undefined) return false;
+    if (!rule.includes("(")) return groupOf(call.tool) === groupOf(grant.tool);
+    const wanted = targetOf(grant, cwd);
+    return wanted !== undefined && targetOf(call, cwd) === wanted;
+  });
 }
 
 export interface PlannedCall extends ToolGrant {

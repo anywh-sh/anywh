@@ -9,7 +9,7 @@
  * translating text that is about to be deleted. `common` is the slice that
  * survives any redesign — the verbs on buttons.
  */
-import type { EditMessageErrorCode, SetCwdErrorCode } from "@/lib/relay/relay-types";
+import type { AnswerChoiceErrorCode, EditMessageErrorCode, SetCwdErrorCode } from "@/lib/relay/relay-types";
 
 /** Every permission-mode id this build has real copy for, across every
  * agent — a closed union HERE (so `en`/`pt-br` can't drift) even though the
@@ -400,6 +400,7 @@ export interface Dictionary {
     setCwdTitle: string;
     setCwd: Record<SetCwdErrorCode, string>;
     editMessage: Record<EditMessageErrorCode, string>;
+    answerChoice: Record<AnswerChoiceErrorCode, string>;
   };
   /** The conversation itself — the tab strip down to the message log.
    * Same grouping rule as `shell` below: by the surface the string appears

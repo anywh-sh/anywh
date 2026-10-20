@@ -254,6 +254,22 @@ test("an offered report answered NO_REPLY collapses to a marked user_message + t
   });
 });
 
+test("a room digest replays as a room_digest note, and collapses when answered NO_REPLY", () => {
+  const digest = "[anywh-room] An agent you started has reported.\n\n1. \"x\": done\n   ```ok```\n\nIf nothing needs doing, answer exactly NO_REPLY and nothing else.";
+  withFixture("rd1", [userLine("hi"), assistantText("ok"), userLine(digest), assistantText("NO_REPLY"), userLine(digest), assistantText("Noted, moving on."), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "rd1").map((m) => m.event);
+    assert.deepEqual(events.map((e) => e.type), [
+      "turn_started", "user_message", "text", "turn_ended", // hi
+      "user_message", "turn_ended", // silenced digest
+      "turn_started", "user_message", "text", "turn_ended", // spoken digest
+      "turn_started", "user_message", "text", // next
+    ]);
+    assert.equal(isSilentEvent(events[4]), true);
+    const spoken = events[7];
+    assert.ok(spoken.type === "user_message" && spoken.synthetic === "room_digest");
+  });
+});
+
 test("the LAST turn of a file is never collapsed (it may be open, stopped or cut by a crash)", () => {
   withFixture("bg3", [userLine("hi"), assistantText("ok"), userLine(OFFER_PROMPT), assistantText("NO_REPLY")], (home) => {
     const events = readHistoryFromTranscript(home, home, "bg3").map((m) => m.event);

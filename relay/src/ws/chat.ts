@@ -71,7 +71,7 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
     return;
   }
   if (isChoiceAnswerMessage(parsed)) {
-    session.answerChoice(parsed.promptId, parsed.answers);
+    session.answerChoice(parsed.promptId, parsed.answers, socket);
     return;
   }
   if (isCancelBackgroundJobMessage(parsed)) {

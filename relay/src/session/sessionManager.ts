@@ -33,10 +33,16 @@ export interface SessionManagerRoomOptions {
   readonly owner?: string;
   /** A room member's session was deleted. */
   readonly onMemberDeleted?: (sessionId: string) => void;
-  /** See `SharedSessionOptions.roomTurnNote`. */
+  /** A worker asked the person something (a question or a tool approval). */
+  readonly onWorkerPrompted?: (sessionId: string, watched: boolean) => void;
+  /** A member's turn started or ended. */
+  readonly onMemberChanged?: (sessionId: string) => void;
   /** A usage event of a member's turn. */
   readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
+  /** See `SharedSessionOptions.roomTurnNote`. */
   readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
+  /** Why a member's card cannot be answered now (the room is full), if so. */
+  readonly answerRefusal?: (sessionId: string) => "room_cap_reached" | undefined;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -328,13 +334,14 @@ export class SessionManager {
       this.rooms.onRoomDeleted?.(id);
     } else if (room?.role === "worker") {
       // Removing an agent removes the agents below it (they report to it),
-      // and its report no longer waits for the principal.
+      // and its report no longer waits for whoever it was to be handed to.
       for (const member of this.sessionStore.listRoomMembers(room.roomId)) {
         if (member.room.parentId === id && member.id !== id) this.deleteSession(member.id);
       }
-      const principal = this.sessionStore.getRoom(room.roomId);
-      if (principal?.undeliveredReports?.includes(id)) {
-        this.sessionStore.setRoom(room.roomId, { ...principal, undeliveredReports: principal.undeliveredReports.filter((other) => other !== id) });
+      for (const member of this.sessionStore.listRoomMembers(room.roomId)) {
+        if (member.room.undeliveredReports?.includes(id)) {
+          this.sessionStore.setRoom(member.id, { ...member.room, undeliveredReports: member.room.undeliveredReports.filter((other) => other !== id) });
+        }
       }
     }
     if (room) {
@@ -387,10 +394,12 @@ export class SessionManager {
       def,
       ...(room
         ? {
-            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}) },
+            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}), onSubtasksChanged: () => this.rooms.onMemberChanged?.(id) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
+            onTurnStateChange: () => this.rooms.onMemberChanged?.(id),
             onUsage: (event: AgentEvent) => this.rooms.onUsage?.(id, event),
             roomTurnNote: () => this.rooms.turnNote?.(id),
+            answerRefusal: () => this.rooms.answerRefusal?.(id),
           }
         : {}),
       // Nobody types into a worker: no suggestion to generate after its turns.
@@ -455,7 +464,10 @@ export class SessionManager {
       // A worker's turns end all the time while the room works; the person
       // hears from the room, not from each of its workers.
       onNotifiable: (draft, watched) => {
-        if (this.sessionStore.getRoom(id)?.role === "worker") return;
+        if (this.sessionStore.getRoom(id)?.role === "worker") {
+          if (draft.kind === "approval_required" || draft.kind === "choice_required") this.rooms.onWorkerPrompted?.(id, watched);
+          return;
+        }
         this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched });
       },
       onEvent: (event) => {

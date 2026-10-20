@@ -65,6 +65,25 @@ export const REPORT_TOOL: RoomToolSpec = {
   },
 };
 
+/** What the CLI asks of its `--permission-prompt-tool` when a worker's tool
+ * call needs approval. Served on the room's bridge beside the room tools but
+ * not one of them: the model never calls it, the CLI does, so it is not part
+ * of the instructions, the allowed tools or Codex's dynamic tools. */
+export const APPROVE_TOOL: RoomToolSpec = {
+  name: "approve",
+  description: "Decides whether a pending tool call may run. Called by the CLI itself for every action that needs approval, never by the model.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      tool_name: { type: "string" },
+      input: { type: "object" },
+      tool_use_id: { type: "string" },
+      agent_id: { type: "string" },
+    },
+    required: ["tool_name", "input"],
+  },
+};
+
 export const WORKTREE_CREATE_TOOL: RoomToolSpec = {
   name: "worktree_create",
   description:
