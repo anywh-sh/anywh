@@ -494,12 +494,15 @@ test("load keeps the question when only askedAt is malformed, clearing just the 
     const good = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
     const seed = new SessionStore(file, "/home/user");
     const bad: Record<string, unknown> = { str: "yesterday", neg: -5, nan: null, obj: {} };
-    for (const id of Object.keys(bad)) seed.setPendingChoice(id, good);
+    const decimal = 1700000000000.9;
+    for (const id of [...Object.keys(bad), "dec"]) seed.setPendingChoice(id, good);
     const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: Record<string, unknown> }>;
     for (const [id, value] of Object.entries(bad)) records[id].pendingChoice.askedAt = value;
+    records.dec.pendingChoice.askedAt = decimal;
     writeFileSync(file, JSON.stringify(records));
     const store = new SessionStore(file, "/home/user");
     for (const id of Object.keys(bad)) assert.deepEqual(store.getPendingChoice(id), good, id);
+    assert.equal(store.getPendingChoice("dec")?.askedAt, 1700000000000, "decimals are truncated");
     const onDisk = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: Record<string, unknown> }>;
     assert.equal("askedAt" in onDisk.str.pendingChoice, false, "rewritten so the bad value does not come back");
   } finally {

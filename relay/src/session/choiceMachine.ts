@@ -58,10 +58,7 @@ export type AnswerChoiceResult =
  */
 export class ChoiceMachine {
   private pendingApproval: (ChoicePrompt & { resolve: (answers: ChoiceAnswer[]) => void }) | undefined;
-  private pendingChoice: ChoicePrompt | undefined;
-  /** A legacy record got its `askedAt` filled in memory; written to the store
-   * by `commitRehydrated` once the question is known to be kept. */
-  private backfilled = false;
+  private pendingChoice: PersistedChoice | undefined;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
@@ -76,11 +73,7 @@ export class ChoiceMachine {
     /** Injectable clock (epoch ms) for `askedAt`. */
     private readonly now: () => number = Date.now,
   ) {
-    if (initialChoice) {
-      // Records from before `askedAt` existed get the load time.
-      this.backfilled = initialChoice.askedAt === undefined;
-      this.pendingChoice = { ...initialChoice, askedAt: initialChoice.askedAt ?? this.now() };
-    }
+    this.pendingChoice = initialChoice;
   }
 
   /** Mirrors the deferred slot into the store. Always runs AFTER the
@@ -103,19 +96,10 @@ export class ChoiceMachine {
     }
   }
 
-  /** The adopted question is staying: write back a backfilled `askedAt` so it
-   * doesn't move again on the next restart. */
-  commitRehydrated(): void {
-    if (!this.backfilled || !this.pendingChoice) return;
-    this.backfilled = false;
-    this.mirror(this.pendingChoice);
-  }
-
   /** Drops a question adopted from the store that turns out to belong to no
    * conversation (see `SharedSession`'s constructor). Silent: nothing was
    * shown to anyone yet. Only the stored copy needs clearing. */
   dropRehydrated(): void {
-    this.backfilled = false;
     if (!this.pendingChoice) return;
     this.pendingChoice = undefined;
     this.mirror(undefined);

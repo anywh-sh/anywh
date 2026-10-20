@@ -205,8 +205,7 @@ export type RelayMessage =
    * (`ChoiceCard`'s close button behaves differently per kind).
    * `askedAt` is epoch ms of when the question was asked, fixed at creation
    * and unchanged across reconnects and restarts. Absent from a relay older
-   * than the field; for a question persisted before it existed it is the
-   * time the relay first loaded it. */
+   * than the field and for a question persisted before it existed. */
   | { type: "choice_prompt"; promptId: string; questions: ChoiceQuestion[]; kind: "approval" | "choice"; askedAt?: number }
   /** The prompt above was answered (by any device) or the turn that asked
    * it ended before anyone answered — dismiss it everywhere it's shown. */

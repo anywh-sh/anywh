@@ -416,7 +416,6 @@ export class SharedSession implements SessionDriverHost {
     // left for the active agent (cleared, lost, never created) answering it
     // would start a turn with no context, so drop it (and its stored copy).
     if (!this.driver.getSessionId()) this.choiceMachine.dropRehydrated();
-    else this.choiceMachine.commitRehydrated();
   }
 
   /** Tears down anything the driver holds open beyond a single turn (a

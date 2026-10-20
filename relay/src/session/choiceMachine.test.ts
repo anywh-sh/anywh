@@ -242,23 +242,13 @@ test("askedAt: survives a restart with the same value (rehydrated from the persi
   assert.equal((client.sent[0] as { askedAt: number }).askedAt, 1000);
 });
 
-test("askedAt: a record from before the field existed falls back to load time, and that is persisted so it stays stable", () => {
-  const changes: Array<{ askedAt?: number } | undefined> = [];
+test("askedAt: a record from before the field existed stays undefined: omitted on the wire, nothing written", () => {
+  const changes: unknown[] = [];
   const machine = new ChoiceMachine(new Set(), undefined, { promptId: "old", questions: [question()] }, (c) => changes.push(c), () => 7000);
   const client = fakeSocket();
   machine.sendPendingTo(client);
-  assert.equal((client.sent[0] as { askedAt: number }).askedAt, 7000);
-  assert.deepEqual(changes, [], "nothing is written until the session decides to keep the question");
-  machine.commitRehydrated();
-  assert.equal((changes as Array<{ askedAt?: number } | undefined>)[0]?.askedAt, 7000);
-});
-
-test("askedAt: a legacy record that is dropped is cleared with a single write, never backfilled first", () => {
-  const changes: unknown[] = [];
-  const machine = new ChoiceMachine(new Set(), undefined, { promptId: "old", questions: [question()] }, (c) => changes.push(c), () => 7000);
-  machine.dropRehydrated();
-  machine.commitRehydrated();
-  assert.deepEqual(changes, [undefined]);
+  assert.equal("askedAt" in (client.sent[0] as object), false);
+  assert.deepEqual(changes, []);
 });
 
 test("askedAt: approval prompts carry it too", () => {
