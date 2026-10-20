@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
 import { buildChildEnv } from "../../../host/childEnv.js";
+import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
 // Known reverse-direction dependency, surfaced by turning on the boundary
 // lint (not by this file changing): a def reaching into session/ for two
@@ -127,6 +129,10 @@ export interface ClaudeSessionOptions {
    * Without this, a relay restart would lose
    * `--resume` continuity even with the Claude Code session intact. */
   initialSessionId?: string;
+  /** Marks a session driven on behalf of another agent. Its spawns inherit
+   * the user's MCP servers but not their plugins, skills or hooks (see
+   * agentWorker.ts). Off for every ordinary session. */
+  agentWorker?: boolean;
 }
 
 /** Pre-built by the caller (`SharedSession`, which owns the "which mode gets
@@ -352,6 +358,7 @@ export class ClaudeSession {
   private sessionId: string | undefined;
   private currentChild: ChildProcessWithoutNullStreams | undefined;
   private stopRequested = false;
+  private preparing = false;
 
   constructor(private readonly options: ClaudeSessionOptions = {}) {
     this.sessionId = options.initialSessionId;
@@ -386,10 +393,45 @@ export class ClaudeSession {
    * error (which would erase session continuity for nothing).
    */
   stop(): boolean {
-    if (!this.currentChild) return false;
+    // A stop that lands while the turn is still preparing its spawn (config
+    // file being written) is remembered and honoured before anything starts.
+    if (!this.currentChild) {
+      if (!this.preparing) return false;
+      this.stopRequested = true;
+      return true;
+    }
     this.stopRequested = true;
     this.currentChild.kill("SIGINT");
     return true;
+  }
+
+  /** `--mcp-config` and its companion flags for one turn, plus the settings
+   * restriction when this is an agent worker. A worker's config holds the
+   * user's server secrets, so it travels as a private file (removed by
+   * `remove`) instead of inline JSON in argv. */
+  private async mcpArgs(mcp: McpSpawnConfig | undefined, cwd: string): Promise<{ args: string[]; remove: () => Promise<void> }> {
+    const worker = this.options.agentWorker === true;
+    let remove = async (): Promise<void> => {};
+    let configArg = mcp?.configJson;
+    if (worker) {
+      await sweepStaleAgentWorkerMcpFiles();
+      const merged = mergeAgentWorkerMcpConfig(mcp?.configJson, await readUserMcpServers(this.options.homeOverride ?? homedir(), cwd));
+      if (merged) {
+        const file = await writeAgentWorkerMcpFile(merged);
+        configArg = file.path;
+        remove = file.remove;
+      }
+    }
+    return {
+      remove,
+      args: [
+        ...(worker ? ["--setting-sources", AGENT_WORKER_SETTING_SOURCES] : []),
+        ...(configArg ? ["--mcp-config", configArg] : []),
+        ...(mcp?.allowedTools ? ["--allowedTools", mcp.allowedTools] : []),
+        ...(mcp?.permissionPromptTool ? ["--permission-prompt-tool", mcp.permissionPromptTool] : []),
+        ...(mcp?.disallowedTools ? ["--disallowedTools", mcp.disallowedTools] : []),
+      ],
+    };
   }
 
   async sendTurn(
@@ -402,131 +444,140 @@ export class ClaudeSession {
     effort?: string,
   ): Promise<SendTurnResult> {
     this.stopRequested = false;
-    const args = [
-      ...buildTurnArgs(text, permissionMode, model, mcp?.extraSystemPrompt, effort),
-      // `mcp` combines whichever of the two independent bridges
-      // `SharedSession.runTurn` decided to register for this turn's mode:
-      // `allowedTools` for the `present_choice` tool outside `plan` mode
-      // (tested that `plan` mode blocks any non-native tool categorically
-      // regardless of `--allowedTools`, so it's skipped there), and/or
-      // `permissionPromptTool` outside `bypassPermissions` (originally just
-      // `plan`'s `ExitPlanMode`, later widened to `default`/
-      // `acceptEdits` for every action the CLI itself decides needs
-      // approval). Validated against the real binary that both flags
-      // coexist fine in the same spawn — `default`/`acceptEdits` pass both.
-      ...(mcp
-        ? [
-            "--mcp-config",
-            mcp.configJson,
-            ...(mcp.allowedTools ? ["--allowedTools", mcp.allowedTools] : []),
-            ...(mcp.permissionPromptTool ? ["--permission-prompt-tool", mcp.permissionPromptTool] : []),
-            ...(mcp.disallowedTools ? ["--disallowedTools", mcp.disallowedTools] : []),
-          ]
-        : []),
-    ];
-    // If a previous `--resume` failed (invalid session, history not found,
-    // etc.), sessionId was already cleared below — the next call
-    // automatically starts a new conversation instead of repeating the same
-    // error forever.
-    if (this.sessionId) {
-      args.push("--resume", this.sessionId);
-    }
-
-    const child = spawn(AGENT_BIN, args, {
-      env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
-      cwd,
-    });
-    this.currentChild = child;
-
+    this.preparing = true;
+    let mcpArgs: Awaited<ReturnType<ClaudeSession["mcpArgs"]>>;
     try {
-      const spawnError = new Promise<never>((_, reject) => {
-        child.on("error", (error) => reject(error));
-      });
-
-      let stderrOutput = "";
-      child.stderr.on("data", (chunk: Buffer) => {
-        const text = chunk.toString();
-        stderrOutput += text;
-        console.error("[relay] claude stderr:", text);
-      });
-
-      let eventCount = 0;
-      let lastErrorResult: string | undefined;
-      let lastModel: string | undefined;
-      let lastMainThreadUsage: ResultUsage | undefined;
-      let contextUsage: ContextUsage | undefined;
-      let lastAssistantText: string | undefined;
-
-      const readLines = (async () => {
-        const rl = createInterface({ input: child.stdout });
-        for await (const line of rl) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line) as ClaudeEvent;
-          eventCount++;
-          if (event.type === "user" && !isToolResultOnly((event.message as { content?: unknown } | undefined)?.content)) {
-            continue;
-          }
-          if (event.type === "system" && event.subtype === "init" && typeof event.model === "string") {
-            lastModel = event.model;
-          }
-          if (event.type === "assistant" && isMainThreadEvent(event)) {
-            const message = event.message as { usage?: ResultUsage; content?: ContentBlock[] } | undefined;
-            if (message?.usage) lastMainThreadUsage = message.usage;
-            // Overwritten on every main-thread assistant event — the last
-            // one before `result` is the final response the user saw, which
-            // is what matters for the suggestion generator (no need to
-            // accumulate every intermediate response in the turn).
-            const textBlocks = message?.content?.filter((block) => block.type === "text" && block.text);
-            if (textBlocks && textBlocks.length > 0) {
-              lastAssistantText = textBlocks.map((block) => block.text).join("\n");
-            }
-          }
-          if (event.type === "result") {
-            // Captured whenever present, error or not — a turn interrupted
-            // by `stop()` still sends a `result` with a valid `session_id`
-            // (tested against the real binary), and without this the
-            // session's continuity would be lost for nothing on a stop.
-            if (typeof event.session_id === "string") this.sessionId = event.session_id;
-            if (event.is_error) {
-              lastErrorResult =
-                event.errors?.join("; ") || event.result || "erro desconhecido retornado pelo claude";
-            }
-            contextUsage = extractContextUsage(event, lastModel, lastMainThreadUsage) ?? contextUsage;
-          }
-          onEvent(event);
-        }
-      })();
-
-      // Raced against `spawnError` from the start (not awaited on its own
-      // first) — a spawn failure (bad `cwd`, missing binary, ...) doesn't
-      // reliably emit `close` (a missing executable never does, see
-      // tests/spawnFailure.test.ts), so awaiting `close` alone here would
-      // leave `spawnError`'s rejection unconsumed for a window with no
-      // handler attached — an unhandled-rejection crash that used to take
-      // the whole relay process down instead of just failing this turn.
-      const exitCode = await Promise.race([
-        spawnError,
-        new Promise<number | null>((resolve) => {
-          child.on("close", (code) => resolve(code));
-        }),
-      ]);
-
-      await Promise.race([spawnError, readLines]);
-
-      if (lastErrorResult) {
-        if (this.stopRequested) return { stopped: true, contextUsage, lastAssistantText };
-        if (isSessionInvalidError(lastErrorResult)) this.sessionId = undefined;
-        throw new Error(lastErrorResult);
-      }
-      if (eventCount === 0 || exitCode !== 0) {
-        if (this.stopRequested) return { stopped: true, contextUsage, lastAssistantText };
-        const message = stderrOutput.trim() || `claude saiu com código ${String(exitCode)} sem produzir nenhum evento`;
-        if (isSessionInvalidError(message)) this.sessionId = undefined;
-        throw new Error(message);
-      }
-      return { stopped: false, contextUsage, lastAssistantText };
+      mcpArgs = await this.mcpArgs(mcp, cwd);
     } finally {
-      this.currentChild = undefined;
+      this.preparing = false;
+    }
+    try {
+      if (this.stopRequested) return { stopped: true };
+      const args = [
+        ...buildTurnArgs(text, permissionMode, model, mcp?.extraSystemPrompt, effort),
+        // `mcp` combines whichever of the two independent bridges
+        // `SharedSession.runTurn` decided to register for this turn's mode:
+        // `allowedTools` for the `present_choice` tool outside `plan` mode
+        // (tested that `plan` mode blocks any non-native tool categorically
+        // regardless of `--allowedTools`, so it's skipped there), and/or
+        // `permissionPromptTool` outside `bypassPermissions` (originally just
+        // `plan`'s `ExitPlanMode`, later widened to `default`/
+        // `acceptEdits` for every action the CLI itself decides needs
+        // approval). Validated against the real binary that both flags
+        // coexist fine in the same spawn — `default`/`acceptEdits` pass both.
+        ...mcpArgs.args,
+      ];
+      // If a previous `--resume` failed (invalid session, history not found,
+      // etc.), sessionId was already cleared below — the next call
+      // automatically starts a new conversation instead of repeating the same
+      // error forever.
+      if (this.sessionId) {
+        args.push("--resume", this.sessionId);
+      }
+
+      const child = spawn(AGENT_BIN, args, {
+        env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
+        cwd,
+      });
+      this.currentChild = child;
+
+      try {
+        const spawnError = new Promise<never>((_, reject) => {
+          child.on("error", (error) => reject(error));
+        });
+
+        let stderrOutput = "";
+        child.stderr.on("data", (chunk: Buffer) => {
+          const text = chunk.toString();
+          stderrOutput += text;
+          console.error("[relay] claude stderr:", text);
+        });
+
+        let eventCount = 0;
+        let lastErrorResult: string | undefined;
+        let lastModel: string | undefined;
+        let lastMainThreadUsage: ResultUsage | undefined;
+        let contextUsage: ContextUsage | undefined;
+        let lastAssistantText: string | undefined;
+
+        const readLines = (async () => {
+          const rl = createInterface({ input: child.stdout });
+          for await (const line of rl) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line) as ClaudeEvent;
+            eventCount++;
+            if (event.type === "user" && !isToolResultOnly((event.message as { content?: unknown } | undefined)?.content)) {
+              continue;
+            }
+            if (event.type === "system" && event.subtype === "init" && typeof event.model === "string") {
+              lastModel = event.model;
+            }
+            if (event.type === "assistant" && isMainThreadEvent(event)) {
+              const message = event.message as { usage?: ResultUsage; content?: ContentBlock[] } | undefined;
+              if (message?.usage) lastMainThreadUsage = message.usage;
+              // Overwritten on every main-thread assistant event — the last
+              // one before `result` is the final response the user saw, which
+              // is what matters for the suggestion generator (no need to
+              // accumulate every intermediate response in the turn).
+              const textBlocks = message?.content?.filter((block) => block.type === "text" && block.text);
+              if (textBlocks && textBlocks.length > 0) {
+                lastAssistantText = textBlocks.map((block) => block.text).join("\n");
+              }
+            }
+            if (event.type === "result") {
+              // Captured whenever present, error or not — a turn interrupted
+              // by `stop()` still sends a `result` with a valid `session_id`
+              // (tested against the real binary), and without this the
+              // session's continuity would be lost for nothing on a stop.
+              if (typeof event.session_id === "string") this.sessionId = event.session_id;
+              if (event.is_error) {
+                lastErrorResult =
+                  event.errors?.join("; ") || event.result || "erro desconhecido retornado pelo claude";
+              }
+              contextUsage = extractContextUsage(event, lastModel, lastMainThreadUsage) ?? contextUsage;
+            }
+            onEvent(event);
+          }
+        })();
+
+        // Raced against `spawnError` from the start (not awaited on its own
+        // first) — a spawn failure (bad `cwd`, missing binary, ...) doesn't
+        // reliably emit `close` (a missing executable never does, see
+        // tests/spawnFailure.test.ts), so awaiting `close` alone here would
+        // leave `spawnError`'s rejection unconsumed for a window with no
+        // handler attached — an unhandled-rejection crash that used to take
+        // the whole relay process down instead of just failing this turn.
+        const exitCode = await Promise.race([
+          spawnError,
+          new Promise<number | null>((resolve) => {
+            child.on("close", (code) => resolve(code));
+          }),
+        ]);
+
+        await Promise.race([spawnError, readLines]);
+
+        if (lastErrorResult) {
+          if (this.stopRequested) return { stopped: true, contextUsage, lastAssistantText };
+          if (isSessionInvalidError(lastErrorResult)) this.sessionId = undefined;
+          throw new Error(lastErrorResult);
+        }
+        if (eventCount === 0 || exitCode !== 0) {
+          if (this.stopRequested) return { stopped: true, contextUsage, lastAssistantText };
+          const message = stderrOutput.trim() || `claude saiu com código ${String(exitCode)} sem produzir nenhum evento`;
+          if (isSessionInvalidError(message)) this.sessionId = undefined;
+          throw new Error(message);
+        }
+        return { stopped: false, contextUsage, lastAssistantText };
+      } finally {
+        this.currentChild = undefined;
+      }
+    } finally {
+      try {
+        await mcpArgs.remove();
+      } catch (error) {
+        // Never rethrow from cleanup, and never log the config itself.
+        console.error("[relay] could not remove the agent-worker MCP config:", (error as NodeJS.ErrnoException).code ?? "unknown error");
+      }
     }
   }
 }

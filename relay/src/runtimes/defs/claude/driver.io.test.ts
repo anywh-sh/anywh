@@ -1,6 +1,6 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
@@ -119,6 +119,156 @@ test("rewind: truncates the real on-disk transcript, returns the new resumable i
     const newSessionId = await driver.rewind(0, home);
     assert.notEqual(newSessionId, sessionId);
     assert.equal(driver.getSessionId(), newSessionId, "rewind updates the driver's own sessionId as a side effect, same as setSessionId would");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/** argv of every fake-claude invocation made while `run` executes. */
+async function recordSpawnArgv(run: () => Promise<void>): Promise<string[][]> {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-claude-argv-test-"));
+  const file = join(dir, "argv.jsonl");
+  process.env.FAKE_CLAUDE_ARGV_FILE = file;
+  try {
+    await run();
+    return readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+  } finally {
+    delete process.env.FAKE_CLAUDE_ARGV_FILE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const SECRET = "sentinel-secret-9f3a1c";
+
+function homeWithUserMcp(): string {
+  const home = mkdtempSync(join(tmpdir(), "anywh-claude-worker-home-"));
+  writeFileSync(
+    join(home, ".claude.json"),
+    JSON.stringify({
+      mcpServers: {
+        posthog: { type: "http", url: "https://example.test/mcp", headers: { Authorization: `Bearer ${SECRET}` } },
+        stdio: { type: "stdio", command: "node", env: { SOME_API_KEY: SECRET } },
+        off: { type: "http", url: "https://off.test/mcp" },
+      },
+      projects: { [process.cwd()]: { disabledMcpServers: ["off"] } },
+    }),
+  );
+  return home;
+}
+
+/** Controls the CLAUDE_CONFIG_DIR vs homeOverride precedence explicitly, so the
+ * test does not depend on the developer's shell. */
+async function withoutConfigDirEnv(run: () => Promise<void>): Promise<void> {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  try {
+    await run();
+  } finally {
+    if (saved !== undefined) process.env.CLAUDE_CONFIG_DIR = saved;
+  }
+}
+
+test("agent worker: user MCP servers reach the CLI through a private file, never through argv", async () => {
+  const home = homeWithUserMcp();
+  const scratch = mkdtempSync(join(tmpdir(), "anywh-claude-worker-copy-"));
+  const copy = join(scratch, "copy.json");
+  process.env.FAKE_CLAUDE_MCP_CONFIG_COPY = copy;
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+      const [argv] = await recordSpawnArgv(async () => {
+        await driver.sendTurn(turnContext(), () => {});
+      });
+      assert.equal(argv[argv.indexOf("--setting-sources") + 1], "project,local");
+      assert.ok(!argv.includes("--strict-mcp-config"), "account connectors must keep loading");
+      assert.ok(!argv.join("\n").includes(SECRET), "no secret may appear in argv");
+      const seen = JSON.parse(readFileSync(copy, "utf8")) as { path: string; mode: number; dirMode: number; content: string };
+      assert.equal(argv[argv.indexOf("--mcp-config") + 1], seen.path);
+      assert.equal(seen.mode, 0o600);
+      assert.equal(seen.dirMode, 0o700);
+      assert.deepEqual(Object.keys((JSON.parse(seen.content) as { mcpServers: object }).mcpServers).sort(), ["posthog", "stdio"], "disabled server is left out");
+      assert.ok(seen.content.includes(SECRET), "the file does carry the real config");
+      assert.equal(existsSync(seen.path), false, "the file is removed once the turn ends");
+    });
+  } finally {
+    delete process.env.FAKE_CLAUDE_MCP_CONFIG_COPY;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("agent worker: the config file is removed even when the turn fails", async () => {
+  const home = homeWithUserMcp();
+  const scratch = mkdtempSync(join(tmpdir(), "anywh-claude-worker-copy-"));
+  const copy = join(scratch, "copy.json");
+  process.env.FAKE_CLAUDE_MCP_CONFIG_COPY = copy;
+  process.env.FAKE_CLAUDE_ERROR = "boom";
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+      await driver.sendTurn(turnContext(), () => {}).catch(() => {});
+      const seen = JSON.parse(readFileSync(copy, "utf8")) as { path: string };
+      assert.equal(existsSync(seen.path), false);
+    });
+  } finally {
+    delete process.env.FAKE_CLAUDE_MCP_CONFIG_COPY;
+    delete process.env.FAKE_CLAUDE_ERROR;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("ordinary session: spawn flags are untouched even when the user has MCP servers", async () => {
+  const home = homeWithUserMcp();
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home });
+      const [argv] = await recordSpawnArgv(async () => {
+        await driver.sendTurn(turnContext(), () => {});
+      });
+      assert.ok(!argv.includes("--setting-sources"));
+      assert.ok(!argv.includes("--mcp-config"));
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+function leftoverWorkerDirs(): string[] {
+  return readdirSync(tmpdir()).filter((name) => name.startsWith(`anywh-worker-mcp-${String(process.pid)}-`));
+}
+
+test("agent worker: a spawn that throws synchronously leaves no config file or directory behind", async () => {
+  const home = homeWithUserMcp();
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+      // A NUL byte in an argument makes child_process.spawn throw before any process exists.
+      await assert.rejects(driver.sendTurn(turnContext({ prompt: "bad\0prompt" }), () => {}));
+      assert.deepEqual(leftoverWorkerDirs(), []);
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("agent worker: stop() while the config is still being prepared prevents the spawn and cleans up", async () => {
+  const home = homeWithUserMcp();
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+      let result: Awaited<ReturnType<typeof driver.sendTurn>> | undefined;
+      const spawned = await recordSpawnArgv(async () => {
+        const turn = driver.sendTurn(turnContext(), () => {});
+        assert.equal(driver.stop(), true, "the stop is accepted although no process exists yet");
+        result = await turn;
+        // recordSpawnArgv reads the file; make sure it exists even if nothing spawned
+        writeFileSync(process.env.FAKE_CLAUDE_ARGV_FILE ?? "", "", { flag: "a" });
+      }).catch(() => [] as string[][]);
+      assert.equal(result?.stopped, true);
+      assert.deepEqual(spawned.filter((argv) => argv.length > 0), [], "no claude process was started");
+      assert.deepEqual(leftoverWorkerDirs(), []);
+    });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
