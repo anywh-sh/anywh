@@ -119,14 +119,19 @@ interface Agent {
   queue: Promise<unknown>;
 }
 
-const DEFAULT_STOP_GRACE_MS = 5000;
+// Shutdown budget: drain grace + interrupt grace + stop grace (agents stop
+// in parallel) must stay under the unit's TimeoutStopSec, which must stay
+// under the user manager's own ~90 s — unitTimeouts.io.test.ts holds them
+// together. Exceeding it is safe (agents come back `host_restart`), just
+// avoidable.
+export const DEFAULT_STOP_GRACE_MS = 5000;
 const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const DEFAULT_MEMORY_FRACTION = 0.6;
 const DEFAULT_POLICY_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_ALIVE_PER_ROOM = 10;
-const DEFAULT_DRAIN_GRACE_MS = 120_000;
+export const DEFAULT_DRAIN_GRACE_MS = 50_000;
 /** After interrupting during a drain, how long to wait for the turns to end. */
-const DRAIN_INTERRUPT_GRACE_MS = 10_000;
+export const DRAIN_INTERRUPT_GRACE_MS = 10_000;
 const DEFAULT_TURN_SETTLE_MS = 2000;
 
 function str(value: unknown): string | undefined {

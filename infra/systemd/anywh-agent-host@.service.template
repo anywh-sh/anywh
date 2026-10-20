@@ -18,13 +18,17 @@ ExecStart={{NODE_BIN}} dist/agentHost/main.js --profile %i
 Restart=always
 RestartSec=3
 # SIGTERM only to the host, which drains: waits for turns in flight
-# (ANYWH_AGENT_HOST_DRAIN_GRACE_MS, 2 min by default), interrupts what is
-# left, hibernates idle agents and stops each agent's processes itself.
+# (ANYWH_AGENT_HOST_DRAIN_GRACE_MS, 50 s by default), interrupts what is
+# left (10 s), hibernates idle agents and stops each agent's processes
+# itself (5 s). TimeoutStopSec covers that worst case with a margin and
+# stays under the user manager's own ~90 s stop budget (a drain longer than
+# either is cut, and its agents come back as host_restart). Raising
+# ANYWH_AGENT_HOST_DRAIN_GRACE_MS means raising this too.
 # Anything still in the cgroup after the host exits gets SIGKILL — that
 # includes a tool process that detached and cleared its environment, which
 # the host's own sweep cannot find.
 KillMode=mixed
-TimeoutStopSec=300
+TimeoutStopSec=75
 
 [Install]
 WantedBy=default.target
