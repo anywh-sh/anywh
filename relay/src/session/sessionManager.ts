@@ -2,13 +2,37 @@ import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { PushNotificationDraft } from "../push/events.js";
-import { SharedSession } from "./sharedSession.js";
+import { SharedSession, type TurnOutcome } from "./sharedSession.js";
 import type { SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
 import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
-import type { ModelCatalog } from "../runtimes/types.js";
+import type { ModelCatalog, RoomAgentSetup } from "../runtimes/types.js";
+import type { FileCursorStore, HostClient } from "../agentHost/hostClient.js";
+
+/** What a relay with rooms adds to its sessions. */
+export interface SessionManagerRoomOptions {
+  /** This profile's agent host, where every agent of a room runs.
+   * `undefined` when the relay has none: a room's turns then fail with an
+   * explanation instead of silently running somewhere else. */
+  readonly agentHost?: HostClient;
+  /** The room wiring of a member (its instructions and tools), read at
+   * every turn. */
+  readonly roomSetup?: (sessionId: string) => RoomAgentSetup | undefined;
+  /** A room's principal was deleted (its workers with it). */
+  readonly onRoomDeleted?: (roomId: string) => void;
+  /** Why a member may not run a turn now (stopped, room gone), if so. */
+  readonly admit?: (sessionId: string) => string | undefined;
+  /** A member's turn ended. */
+  readonly onTurnSettled?: (sessionId: string, outcome: TurnOutcome) => void;
+  /** Where each room agent's log was last read up to. */
+  readonly cursors?: Pick<FileCursorStore, "get" | "set" | "delete" | "flush">;
+  /** This relay's id for its agents in the host. */
+  readonly owner?: string;
+  /** A room member's session was deleted. */
+  readonly onMemberDeleted?: (sessionId: string) => void;
+}
 
 /** A change to the sidebar's session list (title assigned/changed, or
  * session removed) — distinct from `SharedSession`'s own `session_title`/
@@ -93,6 +117,7 @@ export class SessionManager {
     /** Per-session behaviour switches, read when the session is created.
      * `undefined` means every session is an ordinary one. */
     private readonly sessionTraits?: (id: string) => SessionTraits,
+    private readonly rooms: SessionManagerRoomOptions = {},
   ) {
     // `this.sessions` needs to exist BEFORE `BackgroundJobTracker` is
     // constructed: if there are persisted jobs from a session that already
@@ -137,6 +162,14 @@ export class SessionManager {
       onFire: (sessionId, prompt) => this.handleWakeupFired(sessionId, prompt),
       persistPath: wakeupsFilePath,
     });
+  }
+
+  /** Reports a sidebar list change, except for a room's workers: they are
+   * reached through their room and never listed on their own (the store's
+   * `listTitled` leaves them out the same way). */
+  private announce(event: SessionListEvent): void {
+    if (event.type === "upsert" && this.sessionStore.isHiddenWorker(event.id)) return;
+    this.onListChanged?.(event);
   }
 
   /** Called by `BackgroundJobTracker` when a job finishes.
@@ -207,7 +240,8 @@ export class SessionManager {
    * when the normal wait deadline runs out, to end quickly and cleanly
    * instead of letting systemd kill the raw `claude -p` processes. */
   stopAllTurns(): void {
-    for (const session of this.sessions.values()) session.stopTurn();
+    // A room's agents run in the agent host and go on through the restart.
+    for (const session of this.sessions.values()) if (!session.runsOutsideRelay()) session.stopTurn();
   }
 
   /** Tears down every session's driver — called once, from
@@ -220,6 +254,13 @@ export class SessionManager {
    * defense. */
   disposeAll(): void {
     for (const session of this.sessions.values()) session.dispose();
+    // Its writes are debounced on a timer that does not hold the process.
+    this.rooms.cursors?.flush();
+  }
+
+  /** The session if it is live, without creating it. */
+  peek(id: string): SharedSession | undefined {
+    return this.sessions.get(id);
   }
 
   getOrCreate(id: string): SharedSession {
@@ -240,7 +281,7 @@ export class SessionManager {
     if (this.sessionStore.getTitle(id) === null && !this.sessions.has(id)) return false;
     this.sessionStore.setTitle(id, title);
     this.sessions.get(id)?.setTitle(title);
-    this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+    this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
     return true;
   }
 
@@ -256,6 +297,9 @@ export class SessionManager {
   setAgent(id: string, agentId: string): void {
     const def = this.registry.get(agentId);
     if (!def) return;
+    // A room's agent keeps the runtime it was created with: the room never
+    // swaps one agent for another.
+    if (this.sessionStore.getRoom(id)) return;
     this.sessionStore.setAgentId(id, agentId);
     this.sessions.get(id)?.switchAgent({
       def,
@@ -272,7 +316,37 @@ export class SessionManager {
    * progress (if any) and notifies whoever is connected before dropping the
    * connection. */
   deleteSession(id: string): boolean {
+    const room = this.sessionStore.getRoom(id);
+    if (room?.role === "principal" && room.roomId === id) {
+      // A room goes as a whole: its workers have no way in but through it.
+      for (const member of this.sessionStore.listRoomMembers(id)) if (member.id !== id) this.deleteSession(member.id);
+      this.rooms.onRoomDeleted?.(id);
+    } else if (room?.role === "worker") {
+      // Removing an agent removes the agents below it (they report to it),
+      // and its report no longer waits for the principal.
+      for (const member of this.sessionStore.listRoomMembers(room.roomId)) {
+        if (member.room.parentId === id && member.id !== id) this.deleteSession(member.id);
+      }
+      const principal = this.sessionStore.getRoom(room.roomId);
+      if (principal?.undeliveredReports?.includes(id)) {
+        this.sessionStore.setRoom(room.roomId, { ...principal, undeliveredReports: principal.undeliveredReports.filter((other) => other !== id) });
+      }
+    }
+    if (room) {
+      this.rooms.cursors?.delete(id);
+      this.rooms.onMemberDeleted?.(id);
+    }
     const session = this.sessions.get(id);
+    // Nothing still queued for it runs (its driver refuses anyway once disposed).
+    session?.discardQueuedTurns();
+    // A room's agent lives in the agent host: deleting its session removes
+    // it there too (best effort — a host that is down keeps it until a later
+    // removal; its process would be stopped on the host's next start).
+    if (this.sessionStore.getRoom(id) && this.rooms.agentHost) {
+      this.rooms.agentHost.request("remove", { agentId: id }).catch((error: unknown) => {
+        console.warn(`[relay] could not remove agent ${id} from the agent host: ${(error as Error).message}`);
+      });
+    }
     if (session) {
       session.stopTurn();
       session.closeAllClients();
@@ -287,7 +361,7 @@ export class SessionManager {
     this.wakeups.cancelForSession(id);
     const existedInStore = this.sessionStore.deleteEntry(id);
     const existed = existedInStore || session !== undefined;
-    if (existed) this.onListChanged?.({ type: "remove", id });
+    if (existed) this.announce({ type: "remove", id });
     return existed;
   }
 
@@ -303,8 +377,17 @@ export class SessionManager {
     // excluded (assertCoherent failed) or simply doesn't ship, rather than
     // SharedSession's constructor throwing on an undefined def.
     const def = this.registry.get(agentId) ?? claudeRuntimeDef;
+    const room = this.sessionStore.getRoom(id);
     const session = new SharedSession(this.homeOverride, {
       def,
+      ...(room
+        ? {
+            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}) },
+            onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
+          }
+        : {}),
+      // Nobody types into a worker: no suggestion to generate after its turns.
+      ...(room?.role === "worker" ? { suggestNextMessage: false } : {}),
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
       // Re-reads the agent at call time rather than closing over the
       // `agentId` resolved above: after `setAgent` (below) switches a live
@@ -320,7 +403,7 @@ export class SessionManager {
         // every other device has to drop the row too, not just this one.
         const wasListed = this.sessionStore.getTitle(id) !== null;
         this.sessionStore.clearTitle(id);
-        if (wasListed) this.onListChanged?.({ type: "remove", id });
+        if (wasListed) this.announce({ type: "remove", id });
       },
       initialCwd: cwd,
       initialLocked: locked,
@@ -360,9 +443,14 @@ export class SessionManager {
         // instead of only the one that sent the message. An untitled
         // session isn't listed yet; its title upsert announces it below.
         const title = this.sessionStore.getTitle(id);
-        if (title !== null) this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+        if (title !== null) this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
       },
-      onNotifiable: (draft, watched) => this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched }),
+      // A worker's turns end all the time while the room works; the person
+      // hears from the room, not from each of its workers.
+      onNotifiable: (draft, watched) => {
+        if (this.sessionStore.getRoom(id)?.role === "worker") return;
+        this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched });
+      },
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);
         this.wakeups.observeEvent(id, event);
@@ -404,7 +492,7 @@ export class SessionManager {
             if (!session.isCurrentTitleGeneration(generation)) return;
             this.sessionStore.setTitle(id, title);
             session.setTitle(title);
-            this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+            this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
           } catch (error: unknown) {
             console.error("[relay] failed to generate session title:", error);
           }

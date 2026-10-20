@@ -3,7 +3,16 @@
 // detail, not something `session/` or `server.ts` should reach into
 // directly. Re-exports exactly what's consumed today; grows as the actual
 // `AgentRuntimeDef` contract lands.
-export { ClaudeSession, CLAUDE_AGENT_ENV_OVERRIDES, isMainThreadEvent, type ClaudeEvent, type McpSpawnConfig } from "./session.js";
+export {
+  ClaudeSession,
+  CLAUDE_AGENT_ENV_OVERRIDES,
+  extractContextUsage,
+  isMainThreadEvent,
+  isSessionInvalidError,
+  isToolResultOnly,
+  type ClaudeEvent,
+  type McpSpawnConfig,
+} from "./session.js";
 export { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 export { forkTruncatedTranscript } from "./transcriptFork.js";
 export { claudeRuntimeDef } from "./def.js";
@@ -20,5 +29,6 @@ export {
 } from "./mcpSpawnConfig.js";
 export { grantRuleFor, planDeferredGrants, resolveGrant, type GrantOutcome } from "./grantRules.js";
 export { ClaudeSessionDriver, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
-export { buildPersistentArgs, encodeInterrupt, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
+export { buildPersistentArgs, encodeInterrupt, encodeStopTask, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
 export { writePersistentMcpConfig, type AgentWorkerMcpFile } from "./agentWorker.js";
+export { buildClaudeHostSpec, mcpToolName, type ClaudeHostSpec } from "./roomSpec.js";

@@ -81,7 +81,7 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
   const workDir = mkdtempSync(join(tmpdir(), "anywh-relay-spawn-"));
   const homeDir = join(workDir, "home");
   mkdirSync(homeDir, { recursive: true });
-  const port = await getFreePort();
+  const port = extraEnv.RELAY_PORT ? Number(extraEnv.RELAY_PORT) : await getFreePort();
 
   const proc = spawn(process.execPath, ["--import", "tsx", SERVER_ENTRY], {
     cwd: RELAY_ROOT,

@@ -3,7 +3,8 @@ import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, 
 import { compactToolInput } from "./approvalInput.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
-import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
+import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
+import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
@@ -237,6 +238,24 @@ export interface SharedSessionOptions {
    * `SharedSession` only ever hands this to `createSessionDriver`, it never
    * branches on it itself. */
   def: AgentRuntimeDef;
+  /** Set for an agent of a room: its turns run in the agent host. */
+  hostAgent?: HostAgentBinding;
+  /** `false` for a session no person types into (a room's worker): no
+   * next-message suggestion is generated after its turns. Default on. */
+  suggestNextMessage?: boolean;
+  /** Called once each turn is over, with how it ended — how a room learns
+   * that a worker's turn failed or ended without a report. */
+  onTurnSettled?: (outcome: TurnOutcome) => void;
+}
+
+/** How a turn ended, as `onTurnSettled` reports it. */
+export interface TurnOutcome {
+  readonly startedAt: number;
+  /** The turn was already running when this relay started following it. */
+  readonly adopted?: boolean;
+  readonly stopped: boolean;
+  /** The failure's message, when the turn failed. */
+  readonly error?: string;
 }
 
 /**
@@ -323,6 +342,12 @@ export class SharedSession implements SessionDriverHost {
    * push/presence.ts for why a claim is a lease. */
   private readonly presenceExpiry = new Map<WebSocket, number>();
   private turnQueue: Promise<void> = Promise.resolve();
+  /** Sequence numbers of enqueued turns: the last enqueued, the last that
+   * reached the front of the queue, and the last dropped by
+   * `discardQueuedTurns` (waiting turns up to it never run). */
+  private enqueuedSeq = 0;
+  private dequeuedSeq = 0;
+  private discardedUpTo = 0;
   private cwd: string;
   private locked: boolean;
   private title: string | null;
@@ -480,6 +505,7 @@ export class SharedSession implements SessionDriverHost {
       homeOverride: this.homeOverride,
       initialSessionId,
       host: this,
+      ...(this.options.hostAgent ? { hostAgent: this.options.hostAgent } : {}),
       agentWorker: this.options.agentWorker,
       claudeMcp:
         this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
@@ -928,7 +954,7 @@ export class SharedSession implements SessionDriverHost {
     if (result.kind === "not_found") return false;
     if (result.kind === "choice") {
       const text = formatPlanChoiceAnswerText(result.answers);
-      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text));
+      this.enqueue(() => this.runTurn(undefined, text));
     }
     if (result.kind === "deferredApproval") {
       // The calls were refused when they were asked; now the human has
@@ -954,7 +980,7 @@ export class SharedSession implements SessionDriverHost {
         this.setPermissionMode("default");
       }
       const text = buildDeferredApprovalFollowup(decisions);
-      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, { kind: "approval" }, grants));
+      this.enqueue(() => this.runTurn(undefined, text, { kind: "approval" }, false, undefined, grants));
     }
     return true;
   }
@@ -1075,7 +1101,10 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private needsHistoryLoad(): boolean {
-    return this.history.length === 0 && !this.historyCleared && this.options.initialSessionId !== undefined && this.driver.readHistory !== undefined;
+    // The driver's id, not only the one this session was created with: an
+    // agent's turn followed after a relay restart may be the first time
+    // this relay learns it.
+    return this.history.length === 0 && !this.historyCleared && this.driver.getSessionId() !== undefined && this.driver.readHistory !== undefined;
   }
 
   private async loadHistory(): Promise<void> {
@@ -1115,7 +1144,7 @@ export class SharedSession implements SessionDriverHost {
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(origin, text, undefined, undefined, note));
+    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1141,7 +1170,7 @@ export class SharedSession implements SessionDriverHost {
     };
     if (!silenceOffered) addFailed();
     const text = buildBackgroundJobFollowupPrompt(job);
-    this.turnQueue = this.turnQueue.then(() =>
+    this.enqueue(() =>
       this.runTurn(undefined, text, {
         label: job.label,
         kind: "background_job",
@@ -1188,7 +1217,7 @@ export class SharedSession implements SessionDriverHost {
    * `prompt` is already literal text either way. */
   submitWakeup(prompt: string): void {
     this.clearSuggestion();
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
+    this.enqueue(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
   }
 
   /** Interrupts the turn in progress, if any — doesn't touch the queue
@@ -1223,7 +1252,7 @@ export class SharedSession implements SessionDriverHost {
     const note = this.discardAndNote();
     this.cancelPendingWakeup();
     this.driver.stop();
-    this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text, note));
+    this.enqueue(() => this.performEdit(origin, target, text, note));
   }
 
   /** Reuses the normal `runTurn` for the turn with the edited text — same
@@ -1297,7 +1326,7 @@ export class SharedSession implements SessionDriverHost {
       if (client !== origin) client.send(payload);
     }
 
-    await this.runTurn(origin, text, undefined, undefined, note);
+    await this.runTurn(origin, text, undefined, false, undefined, undefined, note);
   }
 
   /** Resolves when there's no turn in progress (nor queued) in this session
@@ -1305,8 +1334,76 @@ export class SharedSession implements SessionDriverHost {
    * safe to exit without interrupting anything mid-flight. `turnQueue`
    * never rejects (`runTurn` handles its own errors and never rethrows), so
    * it's fine to return it directly without a try/catch here. */
+  /** Queues a turn behind the ones already waiting. */
+  private enqueue(run: () => Promise<void>): void {
+    const seq = ++this.enqueuedSeq;
+    this.turnQueue = this.turnQueue.then(async () => {
+      this.dequeuedSeq = seq;
+      if (seq <= this.discardedUpTo) return;
+      await run();
+    });
+  }
+
+  /** Drops every turn still waiting to start (a stopped or removed agent of
+   * a room): none of them runs. The turn in flight, if any, is the
+   * caller's to stop. */
+  discardQueuedTurns(): void {
+    this.discardedUpTo = this.enqueuedSeq;
+  }
+
+  /** Follows a turn the agent was already running when this relay started
+   * (or reconnected to the agent host): shown to every client like any
+   * other turn, to its end. Messages sent meanwhile wait their turn behind
+   * it. A no-op while this session is busy with its own turns. */
+  followTurnInFlight(sessionId?: string): void {
+    if (!this.driver.followTurnInFlight || this.isBusy()) return;
+    // The agent's conversation id, as the host knows it, when this relay
+    // never got to record it (it went down during the agent's first turn).
+    if (sessionId && this.driver.getSessionId() === undefined) {
+      this.driver.setSessionId(sessionId);
+      this.options.onSessionIdChange?.(sessionId);
+    }
+    this.enqueue(() => this.runTurn(undefined, "", undefined, true));
+  }
+
+  /** A turn is running, or one is waiting to. */
+  isBusy(): boolean {
+    return this.turnStartedAt !== null || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
+  }
+
   waitForIdle(): Promise<void> {
+    // An agent in the host goes on through a relay restart: nothing to wait for.
+    if (this.runsOutsideRelay()) return Promise.resolve();
     return this.turnQueue;
+  }
+
+  /** The native subagents this session's agent ran as its subtasks. */
+  listSubtasks(): SubtaskInfo[] {
+    return this.driver.listSubtasks?.() ?? [];
+  }
+
+  /** Stops one running subtask of this session's agent. */
+  stopSubtask(taskId: string): Promise<"stopping" | "unknown" | "unsupported"> {
+    return this.driver.stopSubtask ? this.driver.stopSubtask(taskId) : Promise.resolve("unsupported");
+  }
+
+  /** Whether a turn is running in this session right now. */
+  isTurnInFlight(): boolean {
+    return this.turnStartedAt !== null;
+  }
+
+  /** Whether this session's agent lives in the agent host, outside the
+   * relay process. */
+  runsOutsideRelay(): boolean {
+    return this.driver.runsOutsideRelay === true;
+  }
+
+  /** A turn asked by another agent of the room (a delegated task, a message
+   * from the principal) rather than typed by a person on a device: no
+   * device has its bubble yet, so everyone connected gets it. */
+  submitAgentTurn(text: string, hooks?: TurnHooks): void {
+    this.clearSuggestion();
+    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1374,11 +1471,23 @@ export class SharedSession implements SessionDriverHost {
       /** Runs once the turn is over, with whether it was silenced. */
       onSettled?: (silenced: boolean) => void;
     },
+    /** Follow a turn already running in the agent host instead of sending one. */
+    follow = false,
+    hooks?: TurnHooks,
     /** Tool calls a human approved after an earlier turn was told to wait. */
     grants?: readonly ToolGrant[],
     /** A note for the model alone, added to the prompt but not shown. */
     note?: string,
   ): Promise<void> {
+    // The conversation so far is read from the agent's own storage before
+    // anything of this turn enters the log: a turn that starts before any
+    // device connected (an agent's queued message, a turn picked up after a
+    // relay restart) would otherwise leave the log looking loaded, and the
+    // earlier conversation would never be read.
+    const freshLoad = this.historyLoad === undefined && this.needsHistoryLoad();
+    const loading = this.ensureHistoryLoaded();
+    if (loading) await loading;
+    const fromTranscript = freshLoad && this.history.length > 0;
     this.options.onActivity?.();
     const turnId = ++this.turnSeq;
     this.currentTurnId = turnId;
@@ -1429,7 +1538,7 @@ export class SharedSession implements SessionDriverHost {
     // already committed the bubble locally optimistically (`ChatPanel`),
     // getting it back would duplicate it.
     let syntheticUserEvent: AgentEvent | undefined;
-    {
+    if (!follow) {
       const event: AgentEvent = synthetic
         ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}) }
         : { type: "user_message", text };
@@ -1441,7 +1550,7 @@ export class SharedSession implements SessionDriverHost {
       }
     }
 
-    if (!synthetic) {
+    if (!synthetic && !follow) {
       // Locks the folder at the exact moment of the first real turn — not
       // at the WS connection (which already happens before any message)
       // nor in `submitTurn` (avoids a race between two `submitTurn` calls
@@ -1474,6 +1583,7 @@ export class SharedSession implements SessionDriverHost {
     // position regardless, since the turn's outcome (`stopped`,
     // `lastAssistantText`) genuinely isn't known until `sendTurn` resolves.
     let turnStopped = false;
+    let turnError: string | undefined;
     let planChoiceText: string | undefined;
     try {
       const effortId = this.effortForTurn();
@@ -1485,7 +1595,7 @@ export class SharedSession implements SessionDriverHost {
         permissionModeId: this.permissionMode,
         ...(grants && grants.length > 0 ? { grants } : {}),
       };
-      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
+      const onDriverEvent = (rawEvent: AgentEvent): void => {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
         const agentEvent = clock.stamp(rawEvent);
@@ -1532,7 +1642,9 @@ export class SharedSession implements SessionDriverHost {
         // the start marker. Purely observational: never throws nor
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
-      });
+      };
+      const { stopped, contextUsage, lastAssistantText } =
+        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent, { fromTranscript }) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
       const sessionId = this.driver.getSessionId();
@@ -1575,7 +1687,7 @@ export class SharedSession implements SessionDriverHost {
       // synthetic turn (`synthetic`) never suggests: the "user text" that
       // would feed the generator is the follow-up's internal instruction,
       // not something that makes sense to offer as a real next message.
-      if (!stopped && !synthetic) {
+      if (!stopped && !synthetic && !follow && this.options.suggestNextMessage !== false) {
         generateSuggestion(this.def, this.homeOverride, this.cwd, text, lastAssistantText)
           .then((suggestion) => {
             this.suggestion = suggestion ?? null;
@@ -1588,6 +1700,7 @@ export class SharedSession implements SessionDriverHost {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      turnError = message;
       console.error("[relay] turn failed:", message);
       release();
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
@@ -1613,6 +1726,7 @@ export class SharedSession implements SessionDriverHost {
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
+    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(follow ? { adopted: true } : {}), ...(turnError !== undefined ? { error: turnError } : {}) });
 
     // Plan mode's `present_choice` fallback: Claude's driver never
     // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s

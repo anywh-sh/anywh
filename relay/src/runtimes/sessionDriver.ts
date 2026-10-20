@@ -10,6 +10,12 @@ import type { ContextUsage } from "../session/sessionStore.js";
 import type { ChoiceHost } from "../bridges/mcpBridge.js";
 import type { PermissionCheckHost } from "../bridges/permissionBridge.js";
 
+export interface TurnHooks {
+  /** The message reached the agent (for an agent in the agent host: the
+   * host accepted it). */
+  readonly onDelivered?: () => void;
+}
+
 export interface DriverTurnResult {
   /** `true` only when the turn ended because a human asked to stop it —
    * never because the driver genuinely finished or errored. Mirrors
@@ -42,7 +48,12 @@ export interface DriverTurnResult {
  *   `runtimes/README.md` §1: killing a turn never destroys the session).
  */
 export interface AgentSessionDriver {
-  sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult>;
+  /** `true` for a driver whose agent lives outside the relay process (the
+   * agent host): a relay shutdown neither waits for its turn nor stops it. */
+  readonly runsOutsideRelay?: boolean;
+  /** `hooks.onDelivered` runs once the message is in the agent's hands (a
+   * driver that cannot tell simply never calls it). */
+  sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void, hooks?: TurnHooks): Promise<DriverTurnResult>;
   /** Interrupts the turn in progress, if any. Returns `false` if there was
    * nothing to interrupt — same contract as `ClaudeSession.stop` today. */
   stop(): boolean;
@@ -66,7 +77,37 @@ export interface AgentSessionDriver {
    * transcript the CLI keeps on disk; Codex asks its daemon for the thread's
    * stored turns. Resolves with nothing for a session with no id yet. */
   readHistory?(cwd: string): Promise<AgentEvent[]>;
+  /** The agent's native subagents seen so far. Present for a driver that
+   * can see and stop them. */
+  listSubtasks?(): SubtaskInfo[];
+  /** Stops one running subtask, leaving the agent and its turn alone.
+   * `"unknown"` when no running subtask has that id, `"unsupported"` for a
+   * runtime whose subagents are not tracked. */
+  stopSubtask?(taskId: string): Promise<"stopping" | "unknown" | "unsupported">;
+  /** Follows a turn that was already running before this driver existed (an
+   * agent that outlives the relay), to its end. */
+  /** `fromTranscript`: the session has just read the turn so far from the
+   * agent's own transcript. */
+  followTurnInFlight?(onEvent: (event: AgentEvent) => void, options?: { readonly fromTranscript?: boolean }): Promise<DriverTurnResult>;
   dispose(): void;
+}
+
+/** One native subagent an agent runs inside its own turns, as a subtask of
+ * that agent (never an agent of its own). */
+export interface SubtaskInfo {
+  /** The CLI's task id: what stopping it names. */
+  readonly taskId: string;
+  /** The tool call that started it; its `subagent` events carry it too. */
+  readonly toolUseId: string;
+  readonly status: "running" | "completed" | "failed" | "stopped";
+  readonly background: boolean;
+  readonly description?: string;
+  readonly subagentType?: string;
+  /** What it is doing right now, in the CLI's own words. */
+  readonly activity?: string;
+  readonly summary?: string;
+  readonly startedAt: number;
+  readonly endedAt?: number;
 }
 
 /** What a driver needs back from the session to route a turn-scoped

@@ -31,14 +31,15 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFi
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
-import type { AgentRuntimeDef, TurnContext } from "../runtimes/types.js";
-import { ClaudeProcess, worstCaseEndMs, type ClaudeAgentSpec } from "./claudeProcess.js";
+import type { AgentRuntimeDef, RoomToolCall, TurnContext } from "../runtimes/types.js";
+import { ClaudeProcess, worstCaseEndMs, type ClaudeAgentSpec, type HostRoomSpec } from "./claudeProcess.js";
 import { CodexPool } from "./codexPool.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
 import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
 import { agentProcessMap, detachedAgentProcesses, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
 import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
+import { userCodexMcpServers } from "./codexConfig.js";
 import { AGENT_HOST_DIR_MARKER, isAgentHostDirEntry } from "./paths.js";
 import { AgentHostSocketServer } from "./socketServer.js";
 
@@ -85,6 +86,7 @@ interface Agent {
   readonly agentId: string;
   readonly runtime: AgentRuntimeId;
   readonly roomId?: string;
+  readonly owner?: string;
   readonly spec: ClaudeAgentSpec;
   readonly createdAt: number;
   readonly log: AgentEventLog;
@@ -116,6 +118,15 @@ interface Agent {
   failure?: string;
   /** Codex only: the turn in flight on the agent's thread. */
   codexTurnId?: string;
+  /** Codex only: an interrupt arrived before the turn had an id to name;
+   * sent as soon as it has one. */
+  codexInterruptPending?: boolean;
+  /** Codex only: the id of the last turn whose `turn/completed` was read. */
+  lastCodexTurnCompleted?: string;
+  /** How many times the agent was stopped. A message waiting in the agent's
+   * queue compares it with the count when it arrived: one stopped since
+   * then is not sent (the stop came after it, and wins). */
+  stops?: number;
   /** The sweep of what a crashed process left behind; a new process for
    * this agent must not start before it ends (it matches by agent id). */
   pendingSweep?: Promise<unknown>;
@@ -149,6 +160,33 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function parseRoomSpec(raw: unknown): HostRoomSpec | undefined {
+  if (raw === undefined) return undefined;
+  const bad = (why: string): never => {
+    throw new HostError("bad_spec", `spec.room ${why}`);
+  };
+  if (typeof raw !== "object" || raw === null) return bad("must be an object");
+  const room = raw as Record<string, unknown>;
+  if (room.role !== "principal" && room.role !== "worker") return bad("role must be principal or worker");
+  if (typeof room.instructions !== "string") return bad("instructions must be a string");
+  // The room's endpoint is the relay's own, on this machine: the host never
+  // forwards an agent's tool call anywhere else.
+  if (typeof room.bridgeUrl !== "string" || !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(room.bridgeUrl)) return bad("bridgeUrl must be a loopback http URL");
+  if (!Array.isArray(room.tools)) return bad("tools must be a list");
+  const tools = room.tools.map((tool: unknown) => {
+    const entry = tool as Record<string, unknown> | null;
+    if (!entry || typeof entry.name !== "string" || typeof entry.description !== "string" || typeof entry.inputSchema !== "object" || entry.inputSchema === null) {
+      return bad("tools must have a name, a description and an inputSchema");
+    }
+    return { name: entry.name, description: entry.description, inputSchema: entry.inputSchema as Record<string, unknown> };
+  });
+  return { role: room.role, instructions: room.instructions, tools, bridgeUrl: room.bridgeUrl };
+}
+
+/** How long the host waits for the relay to answer a room tool call. Every
+ * room tool answers at once; this only bounds a relay that is down. */
+const ROOM_TOOL_TIMEOUT_MS = 30_000;
+
 function parseSpec(raw: unknown): ClaudeAgentSpec {
   if (typeof raw !== "object" || raw === null) throw new HostError("bad_spec", "spec must be an object");
   const spec = raw as Record<string, unknown>;
@@ -171,11 +209,15 @@ function parseSpec(raw: unknown): ClaudeAgentSpec {
     appendSystemPrompt: str(spec.appendSystemPrompt),
     allowedTools: str(spec.allowedTools),
     disallowedTools: str(spec.disallowedTools),
+    // `""` is meaningful here (no built-in tool at all), unlike the others.
+    tools: typeof spec.tools === "string" ? spec.tools : undefined,
+    strictMcp: spec.strictMcp === true,
     permissionPromptTool: str(spec.permissionPromptTool),
     mcpConfigJson: str(spec.mcpConfigJson),
     agentWorker: spec.agentWorker !== false,
     partialMessages: spec.partialMessages !== false,
     env,
+    room: parseRoomSpec(spec.room),
   };
 }
 
@@ -283,6 +325,7 @@ export class AgentHost {
         agentId: saved.agentId,
         runtime: saved.runtime,
         roomId: saved.roomId,
+        owner: saved.owner,
         spec: saved.spec,
         createdAt: saved.createdAt,
         log: opened.log,
@@ -330,6 +373,7 @@ export class AgentHost {
       agentId: agent.agentId,
       runtime: agent.runtime,
       roomId: agent.roomId,
+      owner: agent.owner,
       spec: agent.spec,
       createdAt: agent.createdAt,
       sessionId: agent.sessionId,
@@ -360,6 +404,8 @@ export class AgentHost {
         return this.send(this.agentParam(params), str(params.message) ?? "");
       case "interrupt":
         return Promise.resolve(this.interrupt(this.agentParam(params)));
+      case "stop_task":
+        return Promise.resolve(this.stopTask(this.agentParam(params), params.taskId));
       case "stop":
         return this.stop(this.agentParam(params));
       case "remove":
@@ -381,6 +427,11 @@ export class AgentHost {
 
   private refuseBrokenLog(agent: Agent): void {
     if (agent.logError) throw new HostError("log_error", `agent ${agent.agentId} cannot run: its log failed (${agent.logError})`);
+  }
+
+  /** Refuses a message that arrived before a stop that has happened since. */
+  private refuseStoppedSince(agent: Agent, stops: number): void {
+    if ((agent.stops ?? 0) !== stops) throw new HostError("stopped", `agent ${agent.agentId} was stopped after this message arrived; it was not sent`);
   }
 
   private refuseWhileDraining(): void {
@@ -407,9 +458,13 @@ export class AgentHost {
       agentId,
       runtime,
       roomId: str(params.roomId),
+      owner: str(params.owner),
       spec,
       createdAt: now,
       log: AgentEventLog.open(join(this.options.dataDir, "logs", agentId), this.options.log),
+      // A session the relay already has (this host lost the agent, or never
+      // ran it): the first process resumes it instead of starting over.
+      sessionId: str(params.sessionId),
       lifecycle: "starting",
       turnInFlight: false,
       lastActivityAt: now,
@@ -420,14 +475,26 @@ export class AgentHost {
     };
     this.agents.set(agentId, agent);
     try {
-      await this.serialize(agent, () => (runtime === "codex" ? this.startCodexThread(agent) : this.startProcess(agent)));
+      await this.serialize(agent, async () => {
+        if (runtime !== "codex") return this.startProcess(agent);
+        // An existing thread needs no `thread/start`: its next turn resumes it.
+        if (agent.sessionId) {
+          agent.lifecycle = "hibernated";
+          this.touch(agent);
+          this.persist();
+          return;
+        }
+        return this.startCodexThread(agent);
+      });
     } catch (error) {
       await this.forget(agent);
       throw error;
     }
     const message = str(params.message);
     if (message) {
-      if (runtime === "codex") await this.sendCodex(agent, message);
+      // Stopped while it was starting: the message it came with is not sent.
+      this.refuseStoppedSince(agent, 0);
+      if (runtime === "codex") await this.sendCodex(agent, message, 0);
       else this.write(agent, message);
     }
     return this.describe(agent);
@@ -436,15 +503,18 @@ export class AgentHost {
   private async send(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
     if (!text) throw new HostError("empty_message", "message is empty");
     this.refuseBrokenLog(agent);
-    if (agent.runtime === "codex") return this.sendCodex(agent, text);
+    const stops = agent.stops ?? 0;
+    if (agent.runtime === "codex") return this.sendCodex(agent, text, stops);
     let resumed = false;
     await this.serialize(agent, async () => {
       this.refuseRemoved(agent);
+      this.refuseStoppedSince(agent, stops);
       if (!agent.proc || agent.proc.hasExited) {
         resumed = agent.sessionId !== undefined;
         await this.startProcess(agent);
       }
     });
+    this.refuseStoppedSince(agent, stops);
     return { duringTurn: this.write(agent, text), resumed };
   }
 
@@ -472,11 +542,15 @@ export class AgentHost {
 
   private interrupt(agent: Agent): { interrupted: boolean } {
     if (agent.runtime === "codex") {
-      if (!agent.turnInFlight || !agent.sessionId || !agent.codexTurnId) return { interrupted: false };
+      if (!agent.turnInFlight || !agent.sessionId) return { interrupted: false };
       this.record(agent, { type: "host_interrupt" });
-      void this.codex()
-        .interrupt(agent.sessionId, agent.codexTurnId)
-        .catch((error: unknown) => console.error(`[agent-host] interrupting ${agent.agentId} failed:`, (error as Error).message));
+      if (!agent.codexTurnId) {
+        // The turn is starting (its `turn/start` not answered yet): it is
+        // interrupted the moment it has an id.
+        agent.codexInterruptPending = true;
+        return { interrupted: true };
+      }
+      this.interruptCodexTurn(agent);
       return { interrupted: true };
     }
     if (!agent.proc || agent.proc.hasExited || !agent.turnInFlight) return { interrupted: false };
@@ -485,7 +559,27 @@ export class AgentHost {
     return { interrupted: true };
   }
 
+  /** Stops one native subagent of a Claude agent (the CLI's `stop_task`):
+   * the agent, its turn and its other subagents go on. */
+  private stopTask(agent: Agent, taskId: unknown): { sent: true } {
+    if (typeof taskId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(taskId)) throw new HostError("bad_request", "taskId is missing or invalid");
+    if (agent.runtime !== "claude") throw new HostError("unsupported", "only a Claude agent has native subagents to stop");
+    if (!agent.proc || agent.proc.hasExited) throw new HostError("not_running", `agent ${agent.agentId} has no process`);
+    this.record(agent, { type: "host_stop_task", taskId });
+    agent.proc.writeStopTask(taskId);
+    return { sent: true };
+  }
+
+  private interruptCodexTurn(agent: Agent): void {
+    agent.codexInterruptPending = false;
+    if (!agent.sessionId || !agent.codexTurnId) return;
+    void this.codex()
+      .interrupt(agent.sessionId, agent.codexTurnId)
+      .catch((error: unknown) => console.error(`[agent-host] interrupting ${agent.agentId} failed:`, (error as Error).message));
+  }
+
   private async stop(agent: Agent): Promise<AgentActivity> {
+    agent.stops = (agent.stops ?? 0) + 1;
     if (agent.runtime === "codex") this.interrupt(agent);
     await this.serialize(agent, async () => {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "stop");
@@ -687,8 +781,32 @@ export class AgentHost {
       onNotification: (threadId, method, params) => this.onCodexNotification(threadId, method, params),
       onServerRequest: (_threadId, kind, detail) => this.onCodexServerRequest(kind, detail),
       onExit: (reason) => this.onCodexExit(reason),
+      onRoomToolCall: (call) => this.onRoomToolCall(call),
     });
     return this.codexPool;
+  }
+
+  /** A room tool a Codex agent called: forwarded to the relay's room
+   * endpoint for that agent, the same one a Claude agent calls over MCP.
+   * Never throws: any failure is an answer the model can read. */
+  private async onRoomToolCall(call: RoomToolCall): Promise<{ text: string; isError: boolean }> {
+    const agent = this.codexAgentFor(call.threadId);
+    const room = agent?.spec.room;
+    if (!agent || !room) return { text: "The room tools are not available to this agent.", isError: true };
+    try {
+      const response = await fetch(room.bridgeUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: call.tool, arguments: call.arguments ?? {} } }),
+        signal: AbortSignal.timeout(ROOM_TOOL_TIMEOUT_MS),
+      });
+      if (!response.ok) return { text: `The room refused the call (HTTP ${response.status}); this agent may no longer be part of a room.`, isError: true };
+      const body = (await response.json()) as { result?: { content?: { text?: unknown }[]; isError?: unknown } };
+      const text = (body.result?.content ?? []).map((part) => (typeof part.text === "string" ? part.text : "")).join("");
+      return { text, isError: body.result?.isError === true };
+    } catch (error) {
+      return { text: `The room did not answer (${(error as Error).message}); the relay may be restarting, try again.`, isError: true };
+    }
   }
 
   private codexContext(agent: Agent, prompt: string): TurnContext {
@@ -699,6 +817,16 @@ export class AgentHost {
       effortId: agent.spec.effort,
       permissionModeId: agent.spec.permissionMode ?? this.codex().defaultPermissionModeId,
       resumeSessionId: agent.sessionId,
+      ...(agent.spec.room
+        ? {
+            room: {
+              role: agent.spec.room.role,
+              instructions: agent.spec.room.instructions,
+              tools: agent.spec.room.tools,
+              ...(agent.spec.room.role === "principal" ? { disableMcpServers: userCodexMcpServers(this.options.homeOverride ?? homedir()) } : {}),
+            },
+          }
+        : {}),
     };
   }
 
@@ -714,27 +842,35 @@ export class AgentHost {
     this.persist();
   }
 
-  private async sendCodex(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
+  private async sendCodex(agent: Agent, text: string, stops: number): Promise<{ duringTurn: boolean; resumed: boolean }> {
     // Checked and claimed inside the agent's queue: two messages racing
     // between turns must not both pass the check and start two turns on one
     // thread.
     return this.serialize(agent, async () => {
       this.refuseRemoved(agent);
+      this.refuseStoppedSince(agent, stops);
       if (agent.turnInFlight) throw new HostError("turn_in_flight", "a Codex agent takes a new message only between turns");
       const resumed = agent.lifecycle !== "alive" && agent.sessionId !== undefined;
       if (!agent.sessionId) await this.startCodexThread(agent);
       else if (agent.lifecycle !== "alive") await this.makeRoomFor(agent);
       this.refuseRemoved(agent);
+      this.refuseStoppedSince(agent, stops);
       this.record(agent, { type: "host_user_message", text, duringTurn: false });
       agent.awaitingUser = false;
       agent.turnInFlight = true;
+      agent.codexInterruptPending = false;
       agent.turnStartedAt = this.now();
       agent.lifecycle = "alive";
       agent.stopReason = undefined;
       agent.failure = undefined;
       this.touch(agent);
       try {
-        agent.codexTurnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+        const turnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+        // A quick turn can be over (its `turn/completed` read) before this
+        // answer is: its id must not linger as the turn in flight, or a later
+        // Stop would name it instead of the next turn.
+        if (agent.turnInFlight && agent.lastCodexTurnCompleted !== turnId) agent.codexTurnId = turnId;
+        if (agent.codexInterruptPending && agent.turnInFlight) this.interruptCodexTurn(agent);
       } catch (error) {
         agent.turnInFlight = false;
         agent.lifecycle = "failed";
@@ -763,7 +899,10 @@ export class AgentHost {
       agent.turnInFlight = true;
       const id = (params as { turn?: { id?: unknown } }).turn?.id;
       if (typeof id === "string") agent.codexTurnId = id;
+      if (agent.codexInterruptPending) this.interruptCodexTurn(agent);
     } else if (method === "turn/completed") {
+      const id = (params as { turn?: { id?: unknown } }).turn?.id;
+      if (typeof id === "string") agent.lastCodexTurnCompleted = id;
       agent.turnInFlight = false;
       agent.codexTurnId = undefined;
       agent.lastTurnEndedAt = this.now();
@@ -1077,6 +1216,7 @@ export class AgentHost {
       agentId: agent.agentId,
       runtime: agent.runtime,
       roomId: agent.roomId,
+      ...(agent.owner !== undefined ? { owner: agent.owner } : {}),
       state: this.stateOf(agent),
       alive,
       pid: alive ? agent.proc?.pid : undefined,

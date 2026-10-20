@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
+import { isRoomMembership, type RoomMembership } from "./room.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -154,6 +155,10 @@ export interface SessionEntry {
    * `undefined` via `getPendingChoice`). `promptId` is stored too, so a
    * reconnecting device sees the same prompt it saw before the restart. */
   pendingChoice?: PersistedChoice;
+  /** Membership in a room (see `room.ts`). Absent on every session that is
+   * not an agent of a room, which is every session written before rooms
+   * existed: they need no migration and behave exactly as before. */
+  room?: RoomMembership;
   /** The deferred tool approval still waiting for a human (a session with
    * `deferredApproval` on): the calls the CLI was told to hold off on, with
    * one question per call. Kept for the same reason as `pendingChoice`; read
@@ -348,6 +353,16 @@ function hasFlatContextUsage(value: object): value is PreContextUsageAgentRecord
 export class SessionStore {
   private records: SessionRecord;
   private migrated = false;
+  /** Whether the records came from a file that exists and parsed. Anything
+   * that removes things the store does not list (the rooms' agents in the
+   * host) only trusts a store loaded this way. */
+  private loadedFromFile = false;
+  /** Set while `<file>.recovered-from-corrupt` exists (see `load`). */
+  private recovered = false;
+
+  private get recoveryMarker(): string {
+    return `${this.filePath}.recovered-from-corrupt`;
+  }
 
   constructor(
     private readonly filePath: string,
@@ -364,6 +379,12 @@ export class SessionStore {
       if (this.sanitizeStoredPrompt(entry, "pendingChoice", isPersistedChoice)) this.migrated = true;
       if (this.sanitizeStoredPrompt(entry, "pendingApproval", isPersistedApproval)) this.migrated = true;
       if (this.sanitizeStoredPrompt(entry, "queuedApproval", isPersistedApproval)) this.migrated = true;
+      if (entry.room !== undefined && !isRoomMembership(entry.room)) {
+        // Same treatment as a bad pendingChoice: the session survives, as an
+        // ordinary one, and the bad record is not written back.
+        delete entry.room;
+        this.migrated = true;
+      }
     }
     return records;
   }
@@ -394,15 +415,45 @@ export class SessionStore {
   }
 
   private loadAndMigrate(): SessionRecord {
-    let parsed: unknown;
+    this.recovered = existsSync(this.recoveryMarker);
+    let text: string;
     try {
-      parsed = JSON.parse(readFileSync(this.filePath, "utf8"));
+      text = readFileSync(this.filePath, "utf8");
     } catch {
-      // File missing the first time, or corrupted — never crash the relay
-      // because of this, just start with an empty mapping.
+      // Missing the first time: start with an empty mapping — a trustworthy
+      // one when the file can be created where it belongs (a new profile),
+      // not when its directory cannot even be written.
+      try {
+        accessSync(dirname(this.filePath), constants.W_OK);
+        this.loadedFromFile = true;
+      } catch {
+        // stays untrusted
+      }
       return {};
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = undefined;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      // Corrupted — never crash the relay because of this, start empty, and
+      // keep the file aside instead of overwriting it on the next write.
+      const aside = `${this.filePath}.corrupt-${Date.now()}`;
+      try {
+        renameSync(this.filePath, aside);
+        // Until someone confirms the records (by deleting this marker), the
+        // store is not taken as the full list of what exists: whatever the
+        // unreadable file held may still be recovered from its copy.
+        writeFileSync(this.recoveryMarker, `${aside}\n`);
+        this.recovered = true;
+      } catch {
+        // best effort
+      }
+      return {};
+    }
+    this.loadedFromFile = true;
 
     // A single timestamp for the whole migration batch (not `Date.now()`
     // per entry): keeps existing sessions tied in the `lastActiveAt`
@@ -488,6 +539,23 @@ export class SessionStore {
     writeFileSync(this.filePath, JSON.stringify(this.records, null, 2));
   }
 
+  /** See `loadedFromFile`. */
+  get loadedOk(): boolean {
+    return this.loadedFromFile;
+  }
+
+  /** The store started over from an unreadable file and nobody has
+   * confirmed its records since: a missing record is not proof that
+   * something is gone. Cleared by deleting `<file>.recovered-from-corrupt`. */
+  get recoveredFromCorrupt(): boolean {
+    return this.recovered;
+  }
+
+  /** Whether any record exists for `id` (with or without a room). */
+  has(id: string): boolean {
+    return id in this.records;
+  }
+
   /** All known ids, titled or not — used only to materialize the
    * `SharedSession` instances in memory at boot (SessionManager), which
    * need to exist even for a session without a title yet (cwd/lock/session_id
@@ -503,7 +571,9 @@ export class SessionStore {
    * moves it to the top. */
   listTitled(): TitledSession[] {
     return Object.entries(this.records)
-      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null)
+      // A room's workers are reached through the room, never listed on their
+      // own — unless their room is gone, so they can still be found and removed.
+      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && !this.isHiddenWorker(entry[0]))
       .sort(([, a], [, b]) => b.lastActiveAt - a.lastActiveAt)
       .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt }));
   }
@@ -729,6 +799,29 @@ export class SessionStore {
     this.persist();
   }
 
+  /** A worker of a room whose principal exists: reached through the room. */
+  isHiddenWorker(id: string): boolean {
+    const room = this.records[id]?.room;
+    return room?.role === "worker" && this.records[room.roomId]?.room?.role === "principal";
+  }
+
+  getRoom(id: string): RoomMembership | undefined {
+    const stored = this.records[id]?.room;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  /** `undefined` takes the session out of its room. */
+  setRoom(id: string, room: RoomMembership | undefined): void {
+    if (room === undefined) {
+      if (this.records[id]?.room === undefined) return;
+      delete this.records[id].room;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].room = structuredClone(room);
+    }
+    this.persist();
+  }
+
   getPendingApproval(id: string): PersistedApproval | undefined {
     const stored = this.records[id]?.pendingApproval;
     return stored === undefined ? undefined : structuredClone(stored);
@@ -760,6 +853,14 @@ export class SessionStore {
       this.records[id].queuedApproval = structuredClone(approval);
     }
     this.persist();
+  }
+
+  /** Every session of room `roomId` (its principal included), as id and
+   * membership. */
+  listRoomMembers(roomId: string): { id: string; room: RoomMembership }[] {
+    return Object.entries(this.records)
+      .filter(([, entry]) => entry.room?.roomId === roomId)
+      .map(([id, entry]) => ({ id, room: structuredClone(entry.room!) }));
   }
 
   getWithdrawnApproval(id: string): boolean {
