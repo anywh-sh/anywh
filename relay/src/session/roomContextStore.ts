@@ -12,8 +12,9 @@
 // Every write is atomic (temp file, rename) and the index and manifest are
 // rebuilt from the folder's own state, so a crash between a file landing and
 // the index catching up is repaired by the next `sync`.
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, lstatSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
 import type { ExtractedText } from "../host/pdfText.js";
 import { LARGE_ITEM_TOKENS, buildIndex, estimateTokens, summarize, type ContextItem } from "./roomContextIndex.js";
 
@@ -51,23 +52,42 @@ export function sanitizeItemName(raw: string): string | undefined {
   return cleaned;
 }
 
+/** One path segment that is not a special name: what a manifest may hold. The
+ * manifest sits in a folder agents can write to, so nothing in it is trusted
+ * to be a name inside that folder until it is checked. */
+function isSafeSegment(name: string): boolean {
+  return name !== "" && name.length <= 255 && name !== "." && name !== ".." && !/[\\/\0]/.test(name) && name !== INDEX_FILE && name !== MANIFEST_FILE && !name.startsWith(".tmp-");
+}
+
 function isItem(value: unknown): value is ContextItem {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
     typeof v.name === "string" &&
+    isSafeSegment(v.name) &&
     ["text", "pdf", "image", "binary"].includes(v.kind as string) &&
     typeof v.bytes === "number" &&
     typeof v.author === "string" &&
     typeof v.summary === "string" &&
     typeof v.at === "number" &&
-    (v.extraction === undefined || typeof v.extraction === "string")
+    (v.extraction === undefined || (typeof v.extraction === "string" && isSafeSegment(v.extraction)))
   );
 }
 
 function countLines(text: string): number {
   if (text === "") return 0;
   return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+}
+
+/** The first bytes of a file, without reading the rest of it. */
+function readHead(path: string, size: number): Buffer {
+  const fd = openSync(path, "r");
+  try {
+    const head = Buffer.alloc(Math.min(size, 4096));
+    return head.subarray(0, readSync(fd, head, 0, head.length, 0));
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function looksLikeText(data: Buffer): boolean {
@@ -110,8 +130,10 @@ export class RoomContextStore {
   }
 
   private writeAtomic(path: string, content: string | Buffer): void {
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, content);
+    // A name nobody can plant a link at ("wx" refuses an existing one), renamed
+    // over the target: the rename replaces a link rather than writing through it.
+    const tmp = join(dirname(path), `.tmp-${randomBytes(6).toString("hex")}`);
+    writeFileSync(tmp, content, { flag: "wx" });
     renameSync(tmp, path);
   }
 
@@ -230,7 +252,12 @@ export class RoomContextStore {
       const known = this.namesOf(before);
       const present = new Set<string>();
       for (const entry of entries) {
-        if (entry.startsWith(".") || entry === INDEX_FILE || entry.endsWith(".tmp")) continue;
+        if (entry.startsWith(".tmp-")) {
+          // A write the relay was killed in the middle of.
+          rmSync(join(dir, entry), { force: true });
+          continue;
+        }
+        if (entry.startsWith(".") || entry === INDEX_FILE) continue;
         let stats;
         try {
           stats = lstatSync(join(dir, entry));
@@ -254,7 +281,7 @@ export class RoomContextStore {
           changed = true;
         }
         const size = statSync(join(dir, item.name)).size;
-        if (size !== item.bytes && item.kind === "text") {
+        if (size !== item.bytes && item.kind === "text" && size <= CONTEXT_ITEM_MAX_BYTES) {
           const text = readFileSync(join(dir, item.name), "utf8");
           const { largeTokens: _old, ...rest } = item;
           void _old;
@@ -266,14 +293,25 @@ export class RoomContextStore {
       }
       for (const name of [...present].sort()) {
         if (known.has(name) || items.length >= CONTEXT_ITEMS_MAX) continue;
-        const data = readFileSync(join(dir, name));
+        if (!isSafeSegment(name)) continue;
+        // A file past the cap is not adopted (an agent's runaway output must
+        // not be read whole into the relay); one that cannot be read is skipped.
+        let size: number;
+        let head: Buffer;
+        try {
+          size = statSync(join(dir, name)).size;
+          if (size > CONTEXT_ITEM_MAX_BYTES || size === 0) continue;
+          head = readHead(join(dir, name), size);
+        } catch {
+          continue;
+        }
         const ext = extname(name).toLowerCase();
         const credited = attribution?.artifacts.some((artifact) => basename(artifact) === name || artifact === join(dir, name));
         const author = credited ? attribution!.author : /^result/i.test(name) ? "agent" : "unknown";
-        const base = { name, bytes: data.length, author, at: this.now() };
+        const base = { name, bytes: size, author, at: this.now() };
         if (ext === ".pdf") items.push({ ...base, kind: "pdf", summary: "PDF added by an agent" });
         else if (IMAGE_EXTENSIONS.has(ext)) items.push({ ...base, kind: "image", summary: "image; open it with Read to see it" });
-        else if (looksLikeText(data)) items.push({ ...base, kind: "text", ...this.describeText(data.toString("utf8"), undefined) });
+        else if (looksLikeText(head)) items.push({ ...base, kind: "text", ...this.describeText(readFileSync(join(dir, name), "utf8"), undefined) });
         else items.push({ ...base, kind: "binary", summary: "binary file" });
         changed = true;
       }

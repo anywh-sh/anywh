@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { encode } from "gpt-tokenizer";
 import { extractPdfText } from "../host/pdfText.js";
-import { CONTEXT_ITEMS_MAX, INDEX_FILE, RoomContextStore, sanitizeItemName } from "./roomContextStore.js";
+import { CONTEXT_ITEMS_MAX, CONTEXT_ITEM_MAX_BYTES, INDEX_FILE, RoomContextStore, sanitizeItemName } from "./roomContextStore.js";
 
 let root: string;
 before(() => {
@@ -200,4 +200,51 @@ test("deleting a room removes its folder; pruning removes folders of rooms that 
   assert.equal(existsSync(s.dirFor(gone)), false);
   assert.equal(existsSync(s.dirFor(live)), true);
   assert.equal(existsSync(join(root, "not-a-room-folder.txt")), true);
+});
+
+test("a manifest an agent forged cannot make the relay delete a file outside the folder", async () => {
+  const s = store();
+  const room = newRoom();
+  await s.add(room, { name: "brief.md", data: Buffer.from("brief"), author: "user" });
+  const dir = s.dirFor(room);
+  const victim = join(root, `victim-${counter}.txt`);
+  writeFileSync(victim, "precious");
+  const forged = { name: "gone.md", kind: "text", bytes: 1, author: "x", summary: "x", at: 1, extraction: `../${victim.split("/").pop()}` };
+  const traversal = { ...forged, name: `../${victim.split("/").pop()}`, extraction: undefined };
+  writeFileSync(join(dir, ".items.json"), JSON.stringify({ items: [forged, traversal] }));
+  await s.sync(room);
+  assert.equal(await s.remove(room, traversal.name), false);
+  assert.equal(readFileSync(victim, "utf8"), "precious");
+});
+
+test("a link planted where the relay writes its temporary files is never written through", async () => {
+  const s = store();
+  const room = newRoom();
+  await s.add(room, { name: "brief.md", data: Buffer.from("brief"), author: "user" });
+  const dir = s.dirFor(room);
+  const victim = join(root, `victim-link-${counter}.txt`);
+  writeFileSync(victim, "precious");
+  for (const name of [".items.json.tmp", "INDEX.md.tmp", "next.md.tmp"]) symlinkSync(victim, join(dir, name));
+  await s.add(room, { name: "next.md", data: Buffer.from("next"), author: "user" });
+  assert.equal(readFileSync(victim, "utf8"), "precious");
+  assert.equal(readFileSync(join(dir, "next.md"), "utf8"), "next");
+});
+
+test("an upload named like a temporary file stays in the index", async () => {
+  const s = store();
+  const room = newRoom();
+  assert.ok((await s.add(room, { name: "notes.tmp", data: Buffer.from("scratch notes"), author: "user" })).ok);
+  assert.deepEqual((await s.sync(room)).map((item) => item.name), ["notes.tmp"]);
+});
+
+test("a file an agent wrote past the size cap is not read, and the others are still adopted", async () => {
+  const s = store();
+  const room = newRoom();
+  await s.add(room, { name: "brief.md", data: Buffer.from("brief"), author: "user" });
+  const dir = s.dirFor(room);
+  writeFileSync(join(dir, "huge.bin"), "");
+  truncateSync(join(dir, "huge.bin"), CONTEXT_ITEM_MAX_BYTES + 1);
+  writeFileSync(join(dir, "result-ok.md"), "# fine\n");
+  const names = (await s.sync(room)).map((item) => item.name).sort();
+  assert.deepEqual(names, ["brief.md", "result-ok.md"]);
 });
