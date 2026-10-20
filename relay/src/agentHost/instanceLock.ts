@@ -8,7 +8,9 @@
 //
 // On Linux each key is an abstract unix socket (`\0...`): binding one is
 // atomic, and the kernel releases it when the process dies, so a crashed
-// host never leaves a stale lock behind. Elsewhere a lock file per key holds
+// host never leaves a stale lock behind. The name includes the uid; it is
+// still per network namespace, so two hosts of the same user in different
+// namespaces (containers) do not see each other's lock. Elsewhere a lock file per key holds
 // the owner's pid, created with O_EXCL; a file whose pid is gone is taken
 // over (two hosts racing on a stale file there can both win — a known limit
 // outside Linux).
@@ -29,8 +31,12 @@ export interface InstanceLock {
   release(): Promise<void>;
 }
 
-function lockName(key: string): string {
-  return `anywh-agent-host-${createHash("sha256").update(key).digest("hex").slice(0, 40)}`;
+/** The lock's name for `key`, per user: abstract socket names are shared by
+ * every user of the machine (they live in the network namespace, not the
+ * file system), so without the uid two users' `default` profiles would
+ * collide, and any user could squat another's name. */
+export function instanceLockName(key: string, uid: number | undefined = process.getuid?.()): string {
+  return `anywh-agent-host-${createHash("sha256").update(`${uid ?? "nouid"}:${key}`).digest("hex").slice(0, 40)}`;
 }
 
 function bindAbstract(key: string): Promise<Server> {
@@ -39,7 +45,7 @@ function bindAbstract(key: string): Promise<Server> {
     server.once("error", (error: NodeJS.ErrnoException) => {
       reject(error.code === "EADDRINUSE" ? new InstanceLockedError(key, "held by a live process") : error);
     });
-    server.listen(`\0${lockName(key)}`, () => {
+    server.listen(`\0${instanceLockName(key)}`, () => {
       server.removeAllListeners("error");
       // Never accepts anyone: the bound name is the lock.
       server.on("connection", (socket) => socket.destroy());
@@ -50,7 +56,7 @@ function bindAbstract(key: string): Promise<Server> {
 }
 
 function takeLockFile(dir: string, key: string): () => void {
-  const path = join(dir, `.${lockName(key)}.lock`);
+  const path = join(dir, `.${instanceLockName(key)}.lock`);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const fd = openSync(path, "wx", 0o600);
