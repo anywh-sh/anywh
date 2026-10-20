@@ -30,7 +30,9 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
+import type { AgentRuntimeDef, TurnContext } from "../runtimes/types.js";
 import { ClaudeProcess, type ClaudeAgentSpec } from "./claudeProcess.js";
+import { CodexPool } from "./codexPool.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
 import { agentProcessMap, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
@@ -66,6 +68,9 @@ export interface AgentHostOptions {
   readonly drainGraceMs?: number;
   readonly log?: EventLogOptions;
   readonly now?: () => number;
+  /** The Codex def to drive Codex agents with (tests point it at a fake
+   * app-server). Default: the registered Codex def. */
+  readonly codexDef?: AgentRuntimeDef;
 }
 
 interface Agent {
@@ -89,6 +94,8 @@ interface Agent {
   backgroundTasks: number;
   stopReason?: StopReason;
   failure?: string;
+  /** Codex only: the turn in flight on the agent's thread. */
+  codexTurnId?: string;
   /** Serializes process starts and stops for this agent. */
   queue: Promise<unknown>;
 }
@@ -145,6 +152,7 @@ export class AgentHost {
   private readonly maxAlivePerRoom: number;
   private readonly now: () => number;
   private policyTimer: NodeJS.Timeout | undefined;
+  private codexPool: CodexPool | undefined;
   private policyRunning = false;
   private draining = false;
   private closed = false;
@@ -279,7 +287,7 @@ export class AgentHost {
     if (!isValidAgentId(agentId)) throw new HostError("bad_agent_id", "agentId is missing or invalid");
     if (this.agents.has(agentId)) throw new HostError("agent_exists", `agent ${agentId} already exists`);
     const runtime = params.runtime ?? "claude";
-    if (runtime !== "claude") throw new HostError("unsupported_runtime", `runtime ${JSON.stringify(runtime)} is not supported`);
+    if (runtime !== "claude" && runtime !== "codex") throw new HostError("unsupported_runtime", `runtime ${JSON.stringify(runtime)} is not supported`);
     const spec = parseSpec(params.spec);
     const now = this.now();
     const agent: Agent = {
@@ -298,7 +306,7 @@ export class AgentHost {
     };
     this.agents.set(agentId, agent);
     try {
-      await this.serialize(agent, () => this.startProcess(agent));
+      await this.serialize(agent, () => (runtime === "codex" ? this.startCodexThread(agent) : this.startProcess(agent)));
     } catch (error) {
       this.agents.delete(agentId);
       await agent.log.destroy();
@@ -306,12 +314,16 @@ export class AgentHost {
       throw error;
     }
     const message = str(params.message);
-    if (message) this.write(agent, message);
+    if (message) {
+      if (runtime === "codex") await this.sendCodex(agent, message);
+      else this.write(agent, message);
+    }
     return this.describe(agent);
   }
 
   private async send(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
     if (!text) throw new HostError("empty_message", "message is empty");
+    if (agent.runtime === "codex") return this.sendCodex(agent, text);
     let resumed = false;
     await this.serialize(agent, async () => {
       if (!agent.proc || agent.proc.hasExited) {
@@ -342,6 +354,14 @@ export class AgentHost {
   }
 
   private interrupt(agent: Agent): { interrupted: boolean } {
+    if (agent.runtime === "codex") {
+      if (!agent.turnInFlight || !agent.sessionId || !agent.codexTurnId) return { interrupted: false };
+      this.record(agent, { type: "host_interrupt" });
+      void this.codex()
+        .interrupt(agent.sessionId, agent.codexTurnId)
+        .catch((error: unknown) => console.error(`[agent-host] interrupting ${agent.agentId} failed:`, (error as Error).message));
+      return { interrupted: true };
+    }
     if (!agent.proc || agent.proc.hasExited || !agent.turnInFlight) return { interrupted: false };
     this.record(agent, { type: "host_interrupt" });
     agent.proc.writeInterrupt();
@@ -349,6 +369,7 @@ export class AgentHost {
   }
 
   private async stop(agent: Agent): Promise<AgentActivity> {
+    if (agent.runtime === "codex") this.interrupt(agent);
     await this.serialize(agent, async () => {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "stop");
       agent.lifecycle = "stopped";
@@ -360,6 +381,7 @@ export class AgentHost {
   }
 
   private async remove(agent: Agent): Promise<{ removed: true }> {
+    if (agent.runtime === "codex") this.interrupt(agent);
     await this.serialize(agent, async () => {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "remove");
     });
@@ -378,7 +400,14 @@ export class AgentHost {
     await this.serialize(agent, async () => {
       if (agent.lifecycle === "hibernated") return;
       if (!this.hibernatable(agent)) {
-        const why = agent.turnInFlight ? "a turn is in flight" : agent.backgroundTasks > 0 ? "background tasks are still running" : `the agent is ${this.stateOf(agent)}`;
+        const why =
+          agent.runtime === "codex"
+            ? "Codex agents share one app-server process; there is nothing to end per agent"
+            : agent.turnInFlight
+              ? "a turn is in flight"
+              : agent.backgroundTasks > 0
+                ? "background tasks are still running"
+                : `the agent is ${this.stateOf(agent)}`;
         throw new HostError("not_hibernatable", `cannot hibernate ${agent.agentId}: ${why}`);
       }
       await this.endProcess(agent, "hibernate");
@@ -455,6 +484,124 @@ export class AgentHost {
       throw new HostError("room_cap_reached", `room ${agent.roomId} already has ${live.length} live agents (limit ${this.maxAlivePerRoom}) and none is idle`);
     }
     for (const other of idle.slice(0, needed)) await this.hibernate(other);
+  }
+
+  // ------------------------------------------------------------ codex (skeleton, see codexPool.ts)
+
+  private codex(): CodexPool {
+    this.codexPool ??= new CodexPool({
+      hostId: this.options.hostId,
+      homeOverride: this.options.homeOverride,
+      def: this.options.codexDef,
+      cwd: this.options.dataDir,
+      onNotification: (threadId, method, params) => this.onCodexNotification(threadId, method, params),
+      onServerRequest: (_threadId, kind, detail) => this.onCodexServerRequest(kind, detail),
+      onExit: (reason) => this.onCodexExit(reason),
+    });
+    return this.codexPool;
+  }
+
+  private codexContext(agent: Agent, prompt: string): TurnContext {
+    return {
+      cwd: agent.spec.cwd,
+      prompt,
+      modelId: agent.spec.model,
+      effortId: agent.spec.effort,
+      permissionModeId: agent.spec.permissionMode ?? this.codex().defaultPermissionModeId,
+      resumeSessionId: agent.sessionId,
+    };
+  }
+
+  private async startCodexThread(agent: Agent): Promise<void> {
+    await this.makeRoomFor(agent);
+    try {
+      agent.sessionId = await this.codex().startThread(this.codexContext(agent, ""));
+    } catch (error) {
+      throw new HostError("spawn_failed", `could not start a Codex thread: ${(error as Error).message}`);
+    }
+    agent.lifecycle = "alive";
+    this.touch(agent);
+    this.persist();
+  }
+
+  private async sendCodex(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
+    if (agent.turnInFlight) throw new HostError("turn_in_flight", "a Codex agent takes a new message only between turns");
+    const resumed = agent.lifecycle !== "alive" && agent.sessionId !== undefined;
+    await this.serialize(agent, async () => {
+      if (!agent.sessionId) await this.startCodexThread(agent);
+      else if (agent.lifecycle !== "alive") await this.makeRoomFor(agent);
+    });
+    this.record(agent, { type: "host_user_message", text, duringTurn: false });
+    agent.awaitingUser = false;
+    agent.turnInFlight = true;
+    agent.turnStartedAt = this.now();
+    agent.lifecycle = "alive";
+    agent.stopReason = undefined;
+    agent.failure = undefined;
+    this.touch(agent);
+    try {
+      agent.codexTurnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+    } catch (error) {
+      agent.turnInFlight = false;
+      agent.lifecycle = "failed";
+      agent.failure = `Codex refused the turn: ${(error as Error).message}`;
+      this.touch(agent);
+      this.persist();
+      throw new HostError("turn_failed", agent.failure);
+    }
+    this.persist();
+    return { duringTurn: false, resumed };
+  }
+
+  private codexAgentFor(threadId: string | undefined): Agent | undefined {
+    if (threadId === undefined) return undefined;
+    for (const agent of this.agents.values()) if (agent.runtime === "codex" && agent.sessionId === threadId) return agent;
+    return undefined;
+  }
+
+  private onCodexNotification(threadId: string | undefined, method: string, params: unknown): void {
+    const agent = this.codexAgentFor(threadId);
+    if (!agent) return;
+    agent.log.append({ type: "codex_notification", method, params });
+    const before = this.stateOf(agent);
+    if (method === "turn/started") {
+      agent.turnInFlight = true;
+      const id = (params as { turn?: { id?: unknown } }).turn?.id;
+      if (typeof id === "string") agent.codexTurnId = id;
+    } else if (method === "turn/completed") {
+      agent.turnInFlight = false;
+      agent.codexTurnId = undefined;
+      agent.lastTurnEndedAt = this.now();
+      this.notifyTurnWaiters();
+    }
+    agent.lastActivityAt = this.now();
+    if (this.stateOf(agent) !== before) this.broadcast(agent);
+  }
+
+  /** The transport hands the host a request with no thread attached; it is
+   * recorded on the one Codex agent with a turn in flight, when there is
+   * exactly one. */
+  private onCodexServerRequest(kind: "approval" | "user_input", detail: unknown): void {
+    const inFlight = [...this.agents.values()].filter((agent) => agent.runtime === "codex" && agent.turnInFlight);
+    if (inFlight.length === 1) {
+      inFlight[0].log.append({ type: "host_codex_request_declined", kind, detail });
+    } else {
+      console.error(`[agent-host] declined a Codex ${kind} request that could not be attributed to one agent`);
+    }
+  }
+
+  private onCodexExit(reason: string): void {
+    for (const agent of this.agents.values()) {
+      if (agent.runtime !== "codex" || !agent.turnInFlight) continue;
+      agent.turnInFlight = false;
+      agent.codexTurnId = undefined;
+      agent.lifecycle = "failed";
+      agent.failure = `the Codex app-server exited (${reason})`;
+      this.record(agent, { type: "host_process", subtype: "lost" });
+      this.touch(agent);
+    }
+    this.persist();
+    this.notifyTurnWaiters();
   }
 
   // ------------------------------------------------------------ processes
@@ -630,7 +777,10 @@ export class AgentHost {
   }
 
   private describe(agent: Agent): AgentActivity {
-    const alive = agent.proc !== undefined && !agent.proc.hasExited;
+    const alive =
+      agent.runtime === "codex"
+        ? agent.lifecycle === "alive" && (this.codexPool?.running ?? false)
+        : agent.proc !== undefined && !agent.proc.hasExited;
     return {
       agentId: agent.agentId,
       runtime: agent.runtime,
@@ -710,6 +860,17 @@ export class AgentHost {
         }),
       ),
     );
+    for (const agent of this.agents.values()) {
+      if (agent.runtime !== "codex" || agent.lifecycle !== "alive") continue;
+      if (cut.has(agent)) {
+        agent.lifecycle = "stopped";
+        agent.stopReason = "host_shutdown";
+      } else {
+        agent.lifecycle = "hibernated";
+      }
+      agent.turnInFlight = false;
+    }
+    this.codexPool?.close();
     this.closed = true;
     this.persist();
     await this.server.close();

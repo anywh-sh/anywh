@@ -1,0 +1,125 @@
+// The host's Codex skeleton against a fake `codex app-server`
+// (tests/fixtures/fake-codex-app-server.mjs). Nothing here ran against a real
+// Codex: these tests pin the life cycle (one app-server per host, one thread
+// per agent, turns, interrupt, stop, restore), not Codex's behaviour.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { codexRuntimeDef } from "../runtimes/defs/codex.js";
+import type { AgentRuntimeDef } from "../runtimes/types.js";
+import { AgentHost } from "./agentHost.js";
+import { HostClient, START_OF_LOG } from "./hostClient.js";
+import type { AgentActivity, EventMessage } from "./protocol.js";
+
+const FAKE_CODEX = resolve(import.meta.dirname, "../../tests/fixtures/fake-codex-app-server.mjs");
+
+async function waitFor(check: () => boolean, timeoutMs = 8000, what = "condition"): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+function fakeCodexDef(env: Record<string, string>): AgentRuntimeDef {
+  return { ...codexRuntimeDef, identity: { ...codexRuntimeDef.identity, bin: FAKE_CODEX, env: { ...codexRuntimeDef.identity.env, set: { ...codexRuntimeDef.identity.env.set, ...env } } } };
+}
+
+async function start(dir: string, hostId: string, env: Record<string, string>): Promise<{ host: AgentHost; client: HostClient }> {
+  const host = await AgentHost.start({ hostId, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), codexDef: fakeCodexDef(env), drainGraceMs: 500 });
+  const client = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
+  client.start();
+  await client.waitUntilConnected();
+  return { host, client };
+}
+
+function watch(client: HostClient, agentId: string): EventMessage[] {
+  const events: EventMessage[] = [];
+  client.subscribe(agentId, START_OF_LOG, { onEvent: (event) => events.push(event) });
+  return events;
+}
+
+function completed(events: EventMessage[]): EventMessage[] {
+  return events.filter((event) => event.ev.type === "codex_notification" && event.ev.method === "turn/completed");
+}
+
+async function activity(client: HostClient, agentId: string): Promise<AgentActivity> {
+  const { agents } = await client.request<{ agents: AgentActivity[] }>("activity");
+  return agents.find((agent) => agent.agentId === agentId)!;
+}
+
+test("Codex agents share one app-server, each on its own thread, with turns, interrupt and a declined approval", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const responses = join(dir, "responses.jsonl");
+  const envFile = join(dir, "env.json");
+  const hostId = `codex-test-${process.pid}`;
+  const { host, client } = await start(dir, hostId, { FAKE_CODEX_RESPONSES: responses, FAKE_CODEX_ENV_FILE: envFile });
+  try {
+    const a = await client.request<AgentActivity>("spawn", { agentId: "c1", runtime: "codex", roomId: "r", spec: { cwd: dir }, message: "hello" });
+    const b = await client.request<AgentActivity>("spawn", { agentId: "c2", runtime: "codex", roomId: "r", spec: { cwd: dir } });
+    assert.equal(a.runtime, "codex");
+    assert.notEqual(a.sessionId, b.sessionId, "one thread per agent");
+    const env = JSON.parse(readFileSync(envFile, "utf8")) as Record<string, string>;
+    assert.equal(env.ANYWH_AGENT_HOST_ID, hostId, "the shared app-server carries the host's marker");
+
+    const c1 = watch(client, "c1");
+    await waitFor(() => completed(c1).length === 1, 5000, "c1 turn");
+    assert.ok(c1.some((event) => event.ev.method === "item/completed"));
+    assert.equal((await activity(client, "c1")).state, "idle");
+
+    const c2 = watch(client, "c2");
+    await client.request("send", { agentId: "c2", message: "[[hang]]" });
+    await waitFor(() => c2.some((event) => event.ev.method === "turn/started"), 5000, "c2 turn started");
+    assert.equal((await activity(client, "c2")).state, "working");
+    await assert.rejects(client.request("send", { agentId: "c2", message: "more" }), /between turns/);
+    assert.deepEqual(await client.request("interrupt", { agentId: "c2" }), { interrupted: true });
+    await waitFor(() => completed(c2).length === 1, 5000, "c2 interrupted");
+    assert.equal((completed(c2)[0].ev.params as { turn: { status: string } }).turn.status, "interrupted");
+
+    await client.request("send", { agentId: "c1", message: "[[approval]]" });
+    await waitFor(() => completed(c1).length === 2, 5000, "approval turn");
+    assert.deepEqual(JSON.parse(readFileSync(responses, "utf8").trim()), { decision: "cancel" });
+    assert.ok(c1.some((event) => event.ev.type === "host_codex_request_declined"));
+
+    await assert.rejects(client.request("hibernate", { agentId: "c1" }), /share one app-server/);
+    assert.equal((await client.request<AgentActivity>("stop", { agentId: "c1" })).state, "stopped");
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a restarted host brings Codex agents back by thread id and runs the next turn on the same thread", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const hostId = `codex-restore-${process.pid}`;
+  let first: Awaited<ReturnType<typeof start>> | undefined = await start(dir, hostId, {});
+  let second: Awaited<ReturnType<typeof start>> | undefined;
+  try {
+    const spawned = await first.client.request<AgentActivity>("spawn", { agentId: "c1", runtime: "codex", spec: { cwd: dir }, message: "one" });
+    const events = watch(first.client, "c1");
+    await waitFor(() => completed(events).length === 1, 5000, "first turn");
+    first.client.close();
+    await first.host.close();
+    first = undefined;
+
+    second = await start(dir, hostId, {});
+    const restored = await activity(second.client, "c1");
+    assert.equal(restored.state, "hibernated", "idle at shutdown");
+    assert.equal(restored.sessionId, spawned.sessionId);
+    assert.deepEqual(await second.client.request("send", { agentId: "c1", message: "two" }), { duringTurn: false, resumed: true });
+    const after = watch(second.client, "c1");
+    await waitFor(() => completed(after).length === 2, 5000, "second turn");
+    const lastStart = after.filter((event) => event.ev.method === "turn/started").at(-1)!;
+    assert.equal((lastStart.ev.params as { threadId: string }).threadId, spawned.sessionId);
+    assert.ok(existsSync(join(dir, "data", "registry.json")));
+  } finally {
+    first?.client.close();
+    if (first) await first.host.close();
+    second?.client.close();
+    if (second) await second.host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
