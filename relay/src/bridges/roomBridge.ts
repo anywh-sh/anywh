@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname } from "node:path";
 import type { RoomToolSpec } from "../runtimes/types.js";
@@ -85,13 +85,19 @@ export function roomKeyPathFor(sessionsFile: string): string {
 function loadOrCreateKey(path: string): Buffer {
   try {
     const existing = readFileSync(path);
-    if (existing.length >= 32) return existing;
+    if (existing.length >= 32) {
+      // Whoever reads it can call any room agent's tools: never left open.
+      if ((statSync(path).mode & 0o077) !== 0) chmodSync(path, 0o600);
+      return existing;
+    }
   } catch {
     // created below
   }
   const key = randomBytes(32);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, key, { mode: 0o600 });
+  // `mode` only applies to a file the call creates.
+  chmodSync(path, 0o600);
   return key;
 }
 
