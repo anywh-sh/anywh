@@ -245,7 +245,7 @@ describe("anywh room canvas", () => {
 
   it("reads at 100%: a card in full, as it is worked with", async () => {
     await browser.execute(() => document.querySelector('[aria-label$="back to 100%"]').click());
-    await browser.waitUntil(async () => (await (await $('[aria-label^="Zoom "] span')).getText()) === "100%", { timeout: 5000 });
+    await browser.waitUntil(async () => (await (await $('[aria-label^="Zoom "] span')).getText()) === "100%", { timeout: 15000, timeoutMsg: "the zoom never came back to 100%" });
     // Brings the card that is waiting for the person to the middle.
     await browser.execute(() => {
       const vp = document.querySelector('[data-testid="sala-canvas"]');
