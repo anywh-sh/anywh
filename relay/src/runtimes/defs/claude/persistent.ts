@@ -95,3 +95,9 @@ export function encodeUserMessage(text: string): string {
 export function encodeInterrupt(requestId: string): string {
   return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "interrupt" } })}\n`;
 }
+
+/** Stops one native subagent (`task_id` from its `task_started`), leaving
+ * the turn and the other subagents running. */
+export function encodeStopTask(requestId: string, taskId: string): string {
+  return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "stop_task", task_id: taskId } })}\n`;
+}

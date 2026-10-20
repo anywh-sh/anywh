@@ -243,7 +243,9 @@ export type HostEvent =
   /** Hibernation ended processes the agent had detached from its own tree
    * (a job meant to outlive the turn). */
   | { readonly type: "host_process"; readonly subtype: "killed_detached"; readonly count: number }
-  | { readonly type: "host_interrupt" };
+  | { readonly type: "host_interrupt" }
+  /** A request to stop one native subagent of the agent. */
+  | { readonly type: "host_stop_task"; readonly taskId: string };
 
 // ---------------------------------------------------------------- framing
 

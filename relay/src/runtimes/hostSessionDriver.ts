@@ -27,8 +27,9 @@ import {
   type ClaudeEvent,
 } from "./defs/claude/index.js";
 import { mapClaudeEvent } from "./streams/claudeStreamJson.js";
+import { ClaudeSubtaskTracker } from "./streams/claudeSubtasks.js";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
-import type { AgentSessionDriver, DriverTurnResult } from "./sessionDriver.js";
+import type { AgentSessionDriver, DriverTurnResult, SubtaskInfo } from "./sessionDriver.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, RoomAgentSetup, TurnContext } from "./types.js";
 
 export interface HostAgentBinding {
@@ -107,6 +108,9 @@ export class HostSessionDriver implements AgentSessionDriver {
    * next turn replaces it with a fresh one. */
   private resetPending = false;
   private readonly daemonPlan: JsonRpcDaemonPlan | undefined;
+  /** A Claude agent's native subagents, seen on its log in and between
+   * turns (a background one outlives the turn that started it). */
+  private readonly subtasks = new ClaudeSubtaskTracker();
 
   constructor(
     private readonly def: AgentRuntimeDef,
@@ -295,9 +299,26 @@ export class HostSessionDriver implements AgentSessionDriver {
     else turn.reject(new Error(agent.failure ?? `the agent ${agent.state}${agent.stopReason ? ` (${agent.stopReason})` : ""}`));
   }
 
+  listSubtasks(): SubtaskInfo[] {
+    return this.subtasks.list();
+  }
+
+  async stopSubtask(taskId: string): Promise<"stopping" | "unknown"> {
+    const client = this.options.binding.client;
+    if (this.daemonPlan || !client || this.subtasks.get(taskId)?.status !== "running") return "unknown";
+    await client.request("stop_task", { agentId: this.agentId, taskId });
+    return "stopping";
+  }
+
   private onRecord(record: EventMessage): void {
     const event = record.ev;
     if (!this.daemonPlan && typeof event.session_id === "string") this.sessionId = event.session_id;
+    if (!this.daemonPlan) this.subtasks.observe(event);
+    // A native subagent's permission request carries its `agent_id`: once
+    // approvals are deferred to the person, it belongs to this agent's card
+    // as a pending approval named after the subtask
+    // (`this.subtasks.labelFor(agent_id)`). This agent's process gets no
+    // permission prompt over stdio today, so none arrives here yet.
     const turn = this.turn;
     if (!turn || turn.settled) return;
     if (!turn.started) {

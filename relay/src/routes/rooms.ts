@@ -46,10 +46,46 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
  *   GET  /rooms/:roomId          the room's agents (principal first)
  *   GET  /rooms/:roomId/canvas   the room's canvas (layout only)
  *   PUT  /rooms/:roomId/canvas   replaces it: `{ canvas }`, validated whole
+ *   GET  /rooms/:roomId/agents/:agentId/subtasks
+ *                                that agent's native subagents (its subtasks)
+ *   POST /rooms/:roomId/agents/:agentId/subtasks/:taskId/stop
+ *                                stops one of them, leaving the agent running
  * 404 for a room whose principal does not exist.
  */
+/** `/rooms/:roomId/agents/:agentId/subtasks[/:taskId/stop]`: a member's
+ * native subagents, and stopping one. */
+async function handleSubtasks(res: ServerResponse, ctx: RouteContext, roomId: string, agentId: string, stopTaskId: string | undefined): Promise<void> {
+  const member = ctx.sessionStore.getRoom(agentId);
+  if (!roomExists(ctx, roomId) || member?.roomId !== roomId) {
+    send(res, 404, { error: "no such agent in this room" });
+    return;
+  }
+  const session = ctx.sessionManager.getOrCreate(agentId);
+  if (stopTaskId === undefined) {
+    send(res, 200, { subtasks: session.listSubtasks() });
+    return;
+  }
+  let outcome: Awaited<ReturnType<typeof session.stopSubtask>>;
+  try {
+    outcome = await session.stopSubtask(stopTaskId);
+  } catch (error) {
+    send(res, 503, { error: `the agent host could not stop it: ${(error as Error).message}` });
+    return;
+  }
+  if (outcome === "stopping") send(res, 200, { stopping: true });
+  else if (outcome === "unknown") send(res, 404, { error: "no running subtask with that id" });
+  else send(res, 409, { error: "this agent's runtime has no subtasks to stop" });
+}
+
 export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
   const url = new URL(req.url ?? "/", "http://relay");
+  const subtasks = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/subtasks(?:\/([^/]+)\/stop)?$/.exec(url.pathname);
+  if (subtasks) {
+    const stopTaskId = subtasks[3] === undefined ? undefined : decodeURIComponent(subtasks[3]);
+    if ((stopTaskId === undefined && req.method !== "GET") || (stopTaskId !== undefined && req.method !== "POST")) return false;
+    await handleSubtasks(res, ctx, decodeURIComponent(subtasks[1]), decodeURIComponent(subtasks[2]), stopTaskId);
+    return true;
+  }
   if (req.method === "POST" && url.pathname === "/rooms") {
     let body: unknown;
     try {

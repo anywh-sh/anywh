@@ -41,7 +41,9 @@ half-understood. Then:
 
 - `request` (`id`, `method`, `params`) → `response` (`ok` + `result`, or an
   `error` with a stable `code`). Methods: `spawn`, `send`, `interrupt`,
-  `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`. `spawn` takes
+  `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`, `stop_task`
+  (stops one native subagent of a Claude agent by its `taskId`, through the
+  CLI's `stop_task` control request; the agent and its turn go on). `spawn` takes
   an optional `sessionId`: the agent's first process resumes that session
   (an agent the host no longer has, recreated by the relay).
 - `subscribe` (`agentId`, `fromOffset`, `incarnation`) → that agent's log

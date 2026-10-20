@@ -69,7 +69,31 @@ export interface AgentSessionDriver {
    * transcript the CLI keeps on disk; Codex asks its daemon for the thread's
    * stored turns. Resolves with nothing for a session with no id yet. */
   readHistory?(cwd: string): Promise<AgentEvent[]>;
+  /** The agent's native subagents seen so far. Present for a driver that
+   * can see and stop them. */
+  listSubtasks?(): SubtaskInfo[];
+  /** Stops one running subtask, leaving the agent and its turn alone.
+   * `"unknown"` when no running subtask has that id. */
+  stopSubtask?(taskId: string): Promise<"stopping" | "unknown">;
   dispose(): void;
+}
+
+/** One native subagent an agent runs inside its own turns, as a subtask of
+ * that agent (never an agent of its own). */
+export interface SubtaskInfo {
+  /** The CLI's task id: what stopping it names. */
+  readonly taskId: string;
+  /** The tool call that started it; its `subagent` events carry it too. */
+  readonly toolUseId: string;
+  readonly status: "running" | "completed" | "failed" | "stopped";
+  readonly background: boolean;
+  readonly description?: string;
+  readonly subagentType?: string;
+  /** What it is doing right now, in the CLI's own words. */
+  readonly activity?: string;
+  readonly summary?: string;
+  readonly startedAt: number;
+  readonly endedAt?: number;
 }
 
 /** What a driver needs back from the session to route a turn-scoped

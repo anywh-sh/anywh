@@ -8,6 +8,7 @@ import { EXTRA_PATH_DIRS, stripBilledCredentials } from "../runtimes/executables
 import {
   buildPersistentArgs,
   encodeInterrupt,
+  encodeStopTask,
   encodeUserMessage,
   persistentEnvOverrides,
   writePersistentMcpConfig,
@@ -200,6 +201,11 @@ export class ClaudeProcess {
   writeInterrupt(): void {
     this.interruptCount++;
     this.child.stdin.write(encodeInterrupt(`anywh-interrupt-${this.interruptCount}`));
+  }
+
+  writeStopTask(taskId: string): void {
+    this.interruptCount++;
+    this.child.stdin.write(encodeStopTask(`anywh-stop-task-${this.interruptCount}`, taskId));
   }
 
   /** Closing stdin with no turn in flight makes the CLI exit on its own. */

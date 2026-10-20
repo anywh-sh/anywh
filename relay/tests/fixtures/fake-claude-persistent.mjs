@@ -42,6 +42,12 @@
 //                        `tool_result`; repeatable, run in order; the turn
 //                        then ends with the last result's text; with a
 //                        [[gate:<path>]] too, the calls wait for the gate
+//   [[subagent]]         start a native subagent in the background (the
+//                        CLI's `task_started`/`background_tasks_changed`)
+//                        and end the turn; it runs until a `stop_task`
+//                        control request names it (then `task_updated`
+//                        killed, `task_notification` stopped), as measured
+//                        on Claude Code 2.1.303
 //   [[stale-result:<path>]] end the turn normally; when the NEXT message
 //                        arrives, first print one more lone `result` (as if
 //                        a background-triggered turn's result were still in
@@ -64,6 +70,7 @@ export async function runPersistent(args) {
   let inputEnded = false;
   let staleBeforeNext = null; // gate path, see [[stale-result]]
   let turns = 0;
+  const subagents = new Map(); // task id -> tool use id, still running
 
   const emit = (event) => process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
   const waitForFile = (path) =>
@@ -145,6 +152,17 @@ export async function runPersistent(args) {
     emit({ type: "system", subtype: "init", model, cwd: process.cwd(), tools: ["Bash"] });
     if (partial) emit({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" } } });
 
+    if (text.includes("[[subagent]]")) {
+      const taskId = `task-${turns}`;
+      const toolUseId = `toolu_agent_${turns}`;
+      emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id: toolUseId, name: "Agent", input: { description: "survey the repo", prompt: "look around", run_in_background: true } }] } });
+      emit({ type: "system", subtype: "task_started", task_id: taskId, tool_use_id: toolUseId, task_type: "local_agent", description: "survey the repo", subagent_type: "general-purpose", is_backgrounded: true });
+      subagents.set(taskId, toolUseId);
+      emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent", description: "survey the repo" })) });
+      emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
+      finish("started a subagent");
+      return;
+    }
     const roomCalls = [...text.matchAll(/\[\[room:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)];
     if (roomCalls.length > 0) {
       // With a gate as well: the turn is in flight, waiting, before any call.
@@ -240,6 +258,18 @@ export async function runPersistent(args) {
         continue;
       }
       if (message.type === "control_request") {
+        if (message.request?.subtype === "stop_task") {
+          const taskId = message.request.task_id;
+          const toolUseId = subagents.get(taskId);
+          if (!toolUseId) {
+            emit({ type: "control_response", response: { subtype: "error", request_id: message.request_id, error: `no task ${taskId}` } });
+            continue;
+          }
+          subagents.delete(taskId);
+          emit({ type: "system", subtype: "task_updated", task_id: taskId, patch: { status: "killed", end_time: Date.now() } });
+          emit({ type: "system", subtype: "task_notification", task_id: taskId, tool_use_id: toolUseId, status: "stopped", summary: "The agent was stopped by the user" });
+          emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent" })) });
+        }
         emit({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
         if (message.request?.subtype === "interrupt") turn?.interrupt?.();
         continue;

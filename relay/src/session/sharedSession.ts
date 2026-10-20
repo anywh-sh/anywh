@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
-import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
+import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
@@ -1205,6 +1205,16 @@ export class SharedSession implements SessionDriverHost {
     // An agent in the host goes on through a relay restart: nothing to wait for.
     if (this.runsOutsideRelay()) return Promise.resolve();
     return this.turnQueue;
+  }
+
+  /** The native subagents this session's agent ran as its subtasks. */
+  listSubtasks(): SubtaskInfo[] {
+    return this.driver.listSubtasks?.() ?? [];
+  }
+
+  /** Stops one running subtask of this session's agent. */
+  stopSubtask(taskId: string): Promise<"stopping" | "unknown" | "unsupported"> {
+    return this.driver.stopSubtask ? this.driver.stopSubtask(taskId) : Promise.resolve("unsupported");
   }
 
   /** Whether a turn is running in this session right now. */

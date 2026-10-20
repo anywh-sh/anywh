@@ -217,6 +217,9 @@ export type AgentEvent =
   | {
       type: "subagent";
       toolUseId: string;
+      /** The CLI's own id of the subagent, which stopping it names. Absent
+       * from an update that does not carry it. */
+      taskId?: string;
       status: SubagentStatus;
       at: number;
       description?: string;

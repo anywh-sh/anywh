@@ -391,6 +391,8 @@ export class AgentHost {
         return this.send(this.agentParam(params), str(params.message) ?? "");
       case "interrupt":
         return Promise.resolve(this.interrupt(this.agentParam(params)));
+      case "stop_task":
+        return Promise.resolve(this.stopTask(this.agentParam(params), params.taskId));
       case "stop":
         return this.stop(this.agentParam(params));
       case "remove":
@@ -527,6 +529,17 @@ export class AgentHost {
     this.record(agent, { type: "host_interrupt" });
     agent.proc.writeInterrupt();
     return { interrupted: true };
+  }
+
+  /** Stops one native subagent of a Claude agent (the CLI's `stop_task`):
+   * the agent, its turn and its other subagents go on. */
+  private stopTask(agent: Agent, taskId: unknown): { sent: true } {
+    if (typeof taskId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(taskId)) throw new HostError("bad_request", "taskId is missing or invalid");
+    if (agent.runtime !== "claude") throw new HostError("unsupported", "only a Claude agent has native subagents to stop");
+    if (!agent.proc || agent.proc.hasExited) throw new HostError("not_running", `agent ${agent.agentId} has no process`);
+    this.record(agent, { type: "host_stop_task", taskId });
+    agent.proc.writeStopTask(taskId);
+    return { sent: true };
   }
 
   private async stop(agent: Agent): Promise<AgentActivity> {

@@ -220,3 +220,40 @@ test("the principal runs read-only with no native subagents; workers run with na
     socket.close();
   }
 });
+
+test("a worker's native subagents are its subtasks: listed, and stopped one by one through the host", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { task: "survey in parallel [[subagent]]", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    const url = `${base}/rooms/${roomId}/agents/${agentId}/subtasks`;
+    type Subtask = { taskId: string; toolUseId: string; description?: string; status: string; background: boolean };
+    let subtasks: Subtask[] = [];
+    await waitFor(async () => {
+      const res = await fetch(url);
+      if (res.status !== 200) return false;
+      subtasks = ((await res.json()) as { subtasks: Subtask[] }).subtasks;
+      return subtasks.length === 1;
+    }, 20_000, "the subtask listed");
+    assert.equal(subtasks[0].status, "running");
+    assert.equal(subtasks[0].description, "survey the repo");
+    assert.equal(subtasks[0].background, true);
+    const agent = (await hostAgents()).find((candidate) => candidate.agentId === agentId)!;
+    assert.equal(agent.backgroundTasks, 1, "the host counts it as background work");
+
+    const stop = await fetch(`${url}/${subtasks[0].taskId}/stop`, { method: "POST" });
+    assert.equal(stop.status, 200, await stop.clone().text());
+    await waitFor(async () => {
+      subtasks = ((await (await fetch(url)).json()) as { subtasks: Subtask[] }).subtasks;
+      return subtasks[0]?.status === "stopped";
+    }, 15_000, "the subtask stopped");
+    await waitFor(async () => (await hostAgents()).find((candidate) => candidate.agentId === agentId)?.backgroundTasks === 0, 15_000, "no background work left");
+    assert.equal((await hostAgents()).find((candidate) => candidate.agentId === agentId)?.alive, true, "stopping a subtask keeps the worker");
+
+    assert.equal((await fetch(`${url}/nope/stop`, { method: "POST" })).status, 404);
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/not-a-member/subtasks`)).status, 404);
+  } finally {
+    socket.close();
+  }
+});
