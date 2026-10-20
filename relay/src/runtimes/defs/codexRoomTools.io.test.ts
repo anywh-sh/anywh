@@ -141,7 +141,7 @@ test("a dynamicToolCall item is shown like an MCP call of the room's server", ()
 
 test("thread/resume on a new app-server gives a room thread its settings again; outside a room it only names the thread", () => {
   assert.ok(plan.thread.resume, "the Codex def resumes threads explicitly");
-  const resumed = plan.thread.resume!(ctx({ room: room("principal") }), "thr-9");
+  const resumed = plan.thread.resume(ctx({ room: room("principal") }), "thr-9");
   assert.equal(resumed.method, "thread/resume");
   const params = resumed.params as Record<string, unknown>;
   for (const key of Object.keys(params)) assert.ok(fixture.threadResumeParamsFields.includes(key), `thread/resume param ${key} is not in ThreadResumeParams`);
@@ -151,5 +151,5 @@ test("thread/resume on a new app-server gives a room thread its settings again; 
     developerInstructions: "instructions for the principal",
     config: { features: { multi_agent: false }, web_search: "disabled" },
   });
-  assert.deepEqual(plan.thread.resume!(ctx(), "thr-9").params, { threadId: "thr-9", cwd: "/work" });
+  assert.deepEqual(plan.thread.resume(ctx(), "thr-9").params, { threadId: "thr-9", cwd: "/work" });
 });
