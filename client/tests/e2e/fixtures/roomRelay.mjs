@@ -108,7 +108,11 @@ async function start(children) {
     RELAY_ROOM_DIGEST_WINDOW_MS: "600000",
     RELAY_ROOM_WARMUP_MS: "0",
   });
-  await waitForPort(port);
+  try {
+    await waitForPort(port);
+  } catch (error) {
+    throw new Error(`${error.message}\n${output.join("").slice(-3000)}`);
+  }
 
   const base = `http://127.0.0.1:${String(port)}`;
   const deadline = Date.now() + 30_000;
