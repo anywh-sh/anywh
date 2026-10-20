@@ -13,7 +13,8 @@ import type { TurnContext } from "../../types.js";
 import { ClaudeSession, toClaudeMode } from "./session.js";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { forkTruncatedTranscript } from "./transcriptFork.js";
-import { buildGrantRules, buildMcpSpawnConfig } from "./mcpSpawnConfig.js";
+import { buildGrantRules } from "./grantRules.js";
+import { buildMcpSpawnConfig } from "./mcpSpawnConfig.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildDeferredDecision, buildGrantRules, buildMcpSpawnConfig, buildPermissionDecision, describeToolCall, isApproved } from "./mcpSpawnConfig.js";
+import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildDeferredDecision, buildMcpSpawnConfig, buildPermissionDecision, describeToolCall, isApproved } from "./mcpSpawnConfig.js";
 import { CHOICE_MCP_SERVER_NAME } from "../../../bridges/mcpBridge.js";
 import { PERMISSION_MCP_SERVER_NAME } from "../../../bridges/permissionBridge.js";
 
@@ -178,44 +178,6 @@ test("buildDeferredDecision: refuses on the spot and tells the model to end its 
   assert.deepEqual(buildDeferredDecision(), { behavior: "deny", message: "awaiting user approval; end your turn" });
 });
 
-test("buildGrantRules: Write/Edit/MultiEdit on an absolute path become the one path rule that grants in the CLI", () => {
-  // `Write(/abs)` does not grant; `Edit(//abs)` does, and covers Write.
-  for (const tool of ["Write", "Edit", "MultiEdit"]) {
-    assert.deepEqual(buildGrantRules([{ tool, input: { file_path: "/tmp/p/out.txt" } }]), ["Edit(//tmp/p/out.txt)"], tool);
-  }
-  assert.deepEqual(buildGrantRules([{ tool: "Write", input: { file_path: "/tmp/p/../q/out.txt" } }]), ["Edit(//tmp/q/out.txt)"], "dot segments are resolved first");
-  assert.deepEqual(buildGrantRules([{ tool: "Write", input: { file_path: "/tmp/my file.txt" } }]), ["Edit(//tmp/my file.txt)"]);
-});
-
-test("buildGrantRules: a path the rule grammar cannot carry safely falls back to the tool-wide rule", () => {
-  for (const file_path of ["relative/out.txt", "/tmp/*.txt", "/tmp/a?b", "/tmp/[x]", "/tmp/{a,b}", "/tmp/a(1)", "/tmp/a,b"]) {
-    assert.deepEqual(buildGrantRules([{ tool: "Write", input: { file_path } }]), ["Write"], file_path);
-  }
-  assert.deepEqual(buildGrantRules([{ tool: "Edit", input: {} }]), ["Edit"], "no path at all");
-  assert.deepEqual(buildGrantRules([{ tool: "NotebookEdit", input: { notebook_path: "/tmp/n.ipynb" } }]), ["NotebookEdit"]);
-});
-
-test("buildGrantRules: Bash is granted for the exact command; a command the grammar would widen gets the tool-wide rule", () => {
-  assert.deepEqual(buildGrantRules([{ tool: "Bash", input: { command: "git status --short" } }]), ["Bash(git status --short)"]);
-  for (const command of ["rm -rf build/*", "echo (hi)", "a, b", "echo \\n", "ls\nrm x", "echo hi > /tmp/out.txt", "cat a | wc -l", "a && b", "a; b", "echo $HOME", "echo `id`", "cat < in"]) {
-    assert.deepEqual(buildGrantRules([{ tool: "Bash", input: { command } }]), ["Bash"], command);
-  }
-  assert.deepEqual(buildGrantRules([{ tool: "Bash", input: {} }]), ["Bash"]);
-});
-
-test("buildGrantRules: MCP and every other tool are granted by name; ExitPlanMode and duplicates add nothing", () => {
-  assert.deepEqual(buildGrantRules([{ tool: "mcp__github__create_issue", input: { title: "x" } }, { tool: "WebFetch", input: { url: "https://a.b" } }]), ["mcp__github__create_issue", "WebFetch"]);
-  assert.deepEqual(buildGrantRules([{ tool: "ExitPlanMode", input: {} }]), []);
-  assert.deepEqual(
-    buildGrantRules([
-      { tool: "Write", input: { file_path: "/tmp/a" } },
-      { tool: "Write", input: { file_path: "/tmp/a" } },
-      { tool: "Write", input: { file_path: "/tmp/b" } },
-    ]),
-    ["Edit(//tmp/a)", "Edit(//tmp/b)"],
-  );
-});
-
 test("buildMcpSpawnConfig: granted rules ride in --allowedTools next to present_choice, even with no bridge at all", () => {
   const base = { mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: false };
   const both = buildMcpSpawnConfig({ ...base, choiceToken: "tok-choice", permissionToken: "tok-perm", grantedRules: ["Edit(//tmp/a)", "Bash(ls -la)"] });
@@ -225,4 +187,12 @@ test("buildMcpSpawnConfig: granted rules ride in --allowedTools next to present_
   assert.equal(alone.allowedTools, "Write");
   assert.deepEqual(JSON.parse(alone.configJson), { mcpServers: {} });
   assert.equal(buildMcpSpawnConfig({ ...base, choiceToken: undefined, permissionToken: undefined, grantedRules: [] }), undefined);
+});
+
+test("buildApprovalQuestion: a call that can only be granted tool-wide warns what approving allows", () => {
+  const question = buildApprovalQuestion("Bash", { command: "ls | head" }, undefined, true);
+  assert.equal(question.approval?.tool, "Bash");
+  assert.match(question.approval?.detail ?? "", /^ls \| head — approving allows every Bash call during the next turn$/);
+  assert.match(question.question, /approving allows every Bash call during the next turn/);
+  assert.equal(buildApprovalQuestion("Bash", { command: "ls" }).approval?.detail, "ls", "a narrow grant has nothing to warn about");
 });

@@ -7,9 +7,7 @@
 // through TurnHost, not an MCP bridge).
 import { CHOICE_ALLOWED_TOOL, CHOICE_MCP_SERVER_NAME, CHOICE_USAGE_HINT, type ChoiceAnswer, type ChoiceQuestion } from "../../../bridges/mcpBridge.js";
 import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type PermissionDecision } from "../../../bridges/permissionBridge.js";
-import type { ToolGrant } from "../../types.js";
 import type { McpSpawnConfig } from "./session.js";
-import { posix } from "node:path";
 
 /** Human-readable summary of a tool call for the generic
  * approval question in `buildApprovalQuestion` below. Only the field that
@@ -53,9 +51,13 @@ export const DENY_OPTION_ID = "deny";
  * speaking MCP's Streamable HTTP transport mid-turn, which the fake claude
  * fixture doesn't implement, so no integration test can reach it.
  */
-export function buildApprovalQuestion(toolName: string, input: unknown, agentId?: string): ChoiceQuestion {
+export function buildApprovalQuestion(toolName: string, input: unknown, agentId?: string, broadGrant = false): ChoiceQuestion {
   const isExitPlanMode = toolName === "ExitPlanMode";
-  const detail = isExitPlanMode ? "" : describeToolCall(toolName, input);
+  // A grant that can only name the whole tool is wider than the call on the
+  // card: say so where the person decides.
+  const detail = isExitPlanMode
+    ? ""
+    : `${describeToolCall(toolName, input)}${broadGrant ? ` — approving allows every ${toolName} call during the next turn` : ""}`;
   // A native subagent has no card of its own: its request is shown on the
   // parent session, so say whose it is.
   const who = agentId === undefined ? "The model" : `The model's subagent ${agentId}`;
@@ -112,52 +114,6 @@ export const DEFERRED_APPROVAL_MESSAGE = "awaiting user approval; end your turn"
 
 export function buildDeferredDecision(): PermissionDecision {
   return { behavior: "deny", message: DEFERRED_APPROVAL_MESSAGE };
-}
-
-// Characters that mean something in a permission rule's argument (wildcards,
-// grouping, the list separator) or that no rule can spell (line breaks). An
-// argument containing one is never put in a rule, because the rule might then
-// match more than the one call the human approved.
-const RULE_SPECIAL = /[*?[\]{}(),\\\n\r]/;
-
-// Shell syntax that makes a command more than one thing to check (redirects,
-// pipes, lists, substitutions). Measured with CLI 2.1.303: an exact
-// `Bash(<command>)` rule does not grant a command with an output redirect
-// (the model is asked again for the very same command), so for these the only
-// grant that works is the whole tool.
-const SHELL_OPERATORS = /[<>|&;`$]/;
-
-/**
- * The `--allowedTools` rules that let a turn repeat calls a human approved.
- * Measured against Claude Code 2.1.303: a path-specific rule only grants as
- * `Edit(//absolute/path)` (it covers Write too; `Write(/abs)` does not
- * grant), and `Write`/`Edit` with no argument grant every call of the tool.
- *
- * Narrow where the grammar is known to be safe: file edits by absolute path,
- * Bash by exact command text (verified for a plain command with spaces).
- * Anything else (MCP tools, WebFetch, a path or command holding rule syntax or
- * shell operators, notebooks) is granted for the whole tool, for
- * that one turn only, because there is no per-call rule to write for it;
- * the call may have been approved narrower than it ends up being allowed.
- * `ExitPlanMode` needs no rule (the session leaves plan mode instead).
- */
-export function buildGrantRules(grants: readonly ToolGrant[]): string[] {
-  const rules = new Set<string>();
-  for (const { tool, input } of grants) {
-    if (tool === "ExitPlanMode") continue;
-    const record = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
-    if (tool === "Write" || tool === "Edit" || tool === "MultiEdit") {
-      const filePath = record.file_path;
-      const path = typeof filePath === "string" ? posix.normalize(filePath) : undefined;
-      rules.add(path !== undefined && path.startsWith("/") && !RULE_SPECIAL.test(path) ? `Edit(/${path})` : tool);
-    } else if (tool === "Bash") {
-      const command = record.command;
-      rules.add(typeof command === "string" && command.trim() !== "" && !RULE_SPECIAL.test(command) && !SHELL_OPERATORS.test(command) ? `Bash(${command})` : "Bash");
-    } else {
-      rules.add(tool);
-    }
-  }
-  return [...rules];
 }
 
 /** Per-server `timeout` for the permission MCP server, which stays silent
