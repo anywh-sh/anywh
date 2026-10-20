@@ -51,6 +51,8 @@ function threadIdOf(params: unknown): string | undefined {
 export class CodexPool {
   private daemon: CodexDaemon | undefined;
   private starting: Promise<CodexDaemon> | undefined;
+  /** Threads the current app-server started or resumed. */
+  private readonly attached = new Set<string>();
   private readonly def: AgentRuntimeDef;
   private readonly plan: JsonRpcDaemonPlan;
 
@@ -89,6 +91,8 @@ export class CodexPool {
     }).then(
       (daemon) => {
         this.daemon = daemon;
+        // A new app-server knows none of the threads by itself.
+        this.attached.clear();
         this.starting = undefined;
         return daemon;
       },
@@ -119,11 +123,20 @@ export class CodexPool {
     const daemon = await this.ensure();
     const spec = this.plan.thread.start(ctx);
     const result = (await daemon.request(spec.method, spec.params)) as { thread: { id: string } };
+    this.attached.add(result.thread.id);
     return result.thread.id;
   }
 
   async startTurn(ctx: TurnContext, threadId: string): Promise<string> {
     const daemon = await this.ensure();
+    // A thread from an earlier app-server (a restarted daemon or host): its
+    // per-thread settings (a room principal's subagents off, …) are given
+    // again before its next turn.
+    if (!this.attached.has(threadId) && this.plan.thread.resume) {
+      const resume = this.plan.thread.resume(ctx, threadId);
+      await daemon.request(resume.method, resume.params);
+      this.attached.add(threadId);
+    }
     const spec = this.plan.turn.start(ctx, threadId);
     const result = (await daemon.request(spec.method, spec.params)) as { turn: { id: string } };
     return result.turn.id;

@@ -172,12 +172,47 @@ function startThread(ctx: TurnContext): JsonRpcRequestSpec {
       // are part of the thread: a resumed thread keeps them.
       dynamicTools: room.tools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
       developerInstructions: room.instructions,
-      // A principal must delegate through the room, not to Codex's own
-      // subagents (left on, the model reached for `spawn_agent` first in most
-      // runs). Only the nested form turned them off; the dotted key
-      // `features.multi_agent` did not.
-      ...(room.role === "principal" ? { config: { features: { multi_agent: false } } } : {}),
+      ...roomThreadConfig(room),
     },
+  };
+}
+
+/**
+ * Per-thread config of a room agent (`ThreadStartParams.config`, a map of
+ * config.toml keys, deep-merged over the user's file). A principal:
+ *   - must delegate through the room, not to Codex's own subagents (left on,
+ *     the model reached for `spawn_agent` first in most runs). Only the
+ *     nested form turned them off; the dotted key `features.multi_agent` did
+ *     not.
+ *   - gets no web search (`web_search: "disabled"`, `Config.web_search` in
+ *     the bindings) and no tool of the user's MCP servers
+ *     (`mcp_servers.<name>.enabled_tools = []`, a key the 0.154.0 binary
+ *     knows; the bindings do not describe server entries): its sandbox does
+ *     not cover what those reach. The servers themselves still start.
+ *     Restricting behavior, not a security boundary — never run against a
+ *     real Codex.
+ */
+function roomThreadConfig(room: NonNullable<TurnContext["room"]>): { config?: Record<string, unknown> } {
+  if (room.role !== "principal") return {};
+  const servers = room.disableMcpServers ?? [];
+  return {
+    config: {
+      features: { multi_agent: false },
+      web_search: "disabled",
+      ...(servers.length > 0 ? { mcp_servers: Object.fromEntries(servers.map((name) => [name, { enabled_tools: [] }])) } : {}),
+    },
+  };
+}
+
+/** `thread/resume` on a daemon that did not start the thread (a restarted
+ * app-server): the room's per-thread config and instructions are given
+ * again — the dynamic tools themselves survive a resume and the params have
+ * no field for them. Outside a room, just the thread and its cwd. */
+function resumeThread(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
+  const room = ctx.room;
+  return {
+    method: "thread/resume",
+    params: { threadId, cwd: ctx.cwd, ...(room ? { developerInstructions: room.instructions, ...roomThreadConfig(room) } : {}) },
   };
 }
 
@@ -604,7 +639,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   exec: {
     kind: "jsonRpcDaemon",
     framing: "ndjson",
-    thread: { start: startThread },
+    thread: { start: startThread, resume: resumeThread },
     turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
     // Stored turns of a thread, read back over the same daemon.
     replayHistoryMethod: "thread/turns/list",

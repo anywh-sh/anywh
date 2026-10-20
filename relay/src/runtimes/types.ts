@@ -339,6 +339,10 @@ export interface RoomTurnSetup {
    * first request, so they never change afterwards. */
   readonly instructions: string;
   readonly tools: readonly RoomToolSpec[];
+  /** MCP servers of the user's own CLI configuration to switch off for this
+   * agent (a read-only principal must not reach them). Filled by whoever
+   * can read that configuration (the agent host). */
+  readonly disableMcpServers?: readonly string[];
 }
 
 /** `RoomTurnSetup` plus where the relay serves the tools for this agent: an
@@ -401,6 +405,10 @@ export interface JsonRpcDaemonPlan {
   readonly framing: "ndjson" | "lsp-headers";
   readonly thread: {
     readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
+    /** Re-attaches an existing thread to a daemon process that did not start
+     * it, re-applying the per-thread settings `start` gave it. Optional: a
+     * daemon that needs no explicit resume leaves it out. */
+    readonly resume?: (ctx: TurnContext, threadId: string) => JsonRpcRequestSpec;
   };
   readonly turn: {
     /** `threadId` is whatever the engine captured off `thread.start`'s own

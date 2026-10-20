@@ -16,6 +16,9 @@ interface Fixture {
   threadStartParamsFields: string[];
   serverRequestMethods: string[];
   dynamicToolCallItem: string;
+  threadResumeParamsFields: string[];
+  configFields: string[];
+  webSearchMode: string;
 }
 
 const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../tests/fixtures/codex-app-server-0.154.0-dynamic-tools.json"), "utf8")) as Fixture;
@@ -61,10 +64,16 @@ test("a room agent's thread declares the room tools as dynamic tools, in the rec
   assert.equal(params.config, undefined, "a worker keeps Codex's own defaults");
 });
 
-test("a principal's thread turns Codex's native subagents off, and its turns are read-only whatever the mode", () => {
-  const params = plan.thread.start(ctx({ room: room("principal") })).params as Record<string, unknown>;
+test("a principal's thread turns Codex's native subagents, web search and the user's MCP tools off, and its turns are read-only whatever the mode", () => {
+  const params = plan.thread.start(ctx({ room: { ...room("principal"), disableMcpServers: ["figma", "linear"] } })).params as Record<string, unknown>;
   // The nested form: the dotted key `features.multi_agent` did not turn it off.
-  assert.deepEqual(params.config, { features: { multi_agent: false } });
+  assert.deepEqual(params.config, {
+    features: { multi_agent: false },
+    web_search: "disabled",
+    mcp_servers: { figma: { enabled_tools: [] }, linear: { enabled_tools: [] } },
+  });
+  assert.ok(fixture.configFields.includes("web_search") && fixture.webSearchMode.includes('"disabled"'), "web_search: disabled is in the recorded Config");
+  assert.deepEqual((plan.thread.start(ctx({ room: room("principal") })).params as { config: unknown }).config, { features: { multi_agent: false }, web_search: "disabled" });
   for (const mode of ["workspace-write", "full-access", "read-only"]) {
     const turn = plan.turn.start(ctx({ room: room("principal"), permissionModeId: mode }), "thr-1").params as Record<string, unknown>;
     assert.deepEqual(turn.sandboxPolicy, { type: "readOnly", networkAccess: false }, mode);
@@ -128,4 +137,19 @@ test("a dynamicToolCall item is shown like an MCP call of the room's server", ()
   assert.equal(done[0].type, "tool_ended");
   assert.equal((done[0] as { content: string }).content, '{"agentId":"a1"}');
   assert.equal((done[0] as { isError: boolean }).isError, false);
+});
+
+test("thread/resume on a new app-server gives a room thread its settings again; outside a room it only names the thread", () => {
+  assert.ok(plan.thread.resume, "the Codex def resumes threads explicitly");
+  const resumed = plan.thread.resume!(ctx({ room: room("principal") }), "thr-9");
+  assert.equal(resumed.method, "thread/resume");
+  const params = resumed.params as Record<string, unknown>;
+  for (const key of Object.keys(params)) assert.ok(fixture.threadResumeParamsFields.includes(key), `thread/resume param ${key} is not in ThreadResumeParams`);
+  assert.deepEqual(params, {
+    threadId: "thr-9",
+    cwd: "/work",
+    developerInstructions: "instructions for the principal",
+    config: { features: { multi_agent: false }, web_search: "disabled" },
+  });
+  assert.deepEqual(plan.thread.resume!(ctx(), "thr-9").params, { threadId: "thr-9", cwd: "/work" });
 });

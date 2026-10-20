@@ -1,6 +1,7 @@
 // Checks the installed `codex` against the protocol shapes the room tools
 // rely on for a Codex agent (dynamic tools: `thread/start.dynamicTools`, the
-// `item/tool/call` server request, its response, the `dynamicToolCall` item),
+// `item/tool/call` server request, its response, the `dynamicToolCall` item,
+// `thread/resume`'s config, `Config.web_search`),
 // recorded in tests/fixtures/codex-app-server-0.154.0-dynamic-tools.json.
 //
 // Only generates the protocol bindings (`codex app-server generate-ts
@@ -29,6 +30,9 @@ try {
     types: Object.fromEntries(Object.keys(fixture.types).map((name) => [name, typeBody(`v2/${name}.ts`, name)])),
     threadStartParamsFields: [...new Set([...readFileSync(join(out, "v2/ThreadStartParams.ts"), "utf8").matchAll(/(\w+)\?:/g)].map((m) => m[1]))].sort(),
     serverRequestMethods: [...new Set([...readFileSync(join(out, "ServerRequest.ts"), "utf8").matchAll(/"method": "([^"]+)"/g)].map((m) => m[1]))].sort(),
+    threadResumeParamsFields: [...new Set([...readFileSync(join(out, "v2/ThreadResumeParams.ts"), "utf8").split("export type ThreadResumeParams = ")[1].matchAll(/(\w+)\??:/g)].map((m) => m[1]))].sort(),
+    configFields: [...new Set([...readFileSync(join(out, "v2/Config.ts"), "utf8").split("export type Config = ")[1].split("} & (")[0].matchAll(/(\w+): /g)].map((m) => m[1]))].sort(),
+    webSearchMode: /export type WebSearchMode = (.*?);/.exec(readFileSync(join(out, "WebSearchMode.ts"), "utf8"))?.[1],
     dynamicToolCallItem: (/\{ "type": "dynamicToolCall",[\s\S]*?\}/.exec(readFileSync(join(out, "v2/ThreadItem.ts"), "utf8"))?.[0] ?? "")
       .replace(/\/\*\*[\s\S]*?\*\//g, "")
       .replace(/\s+/g, " "),
@@ -39,6 +43,11 @@ try {
     if (!current.threadStartParamsFields.includes(field)) drift.push(`ThreadStartParams lost ${field}`);
   }
   if (!current.serverRequestMethods.includes("item/tool/call")) drift.push("ServerRequest lost item/tool/call");
+  for (const field of ["threadId", "config", "developerInstructions", "cwd"]) {
+    if (!current.threadResumeParamsFields.includes(field)) drift.push(`ThreadResumeParams lost ${field}`);
+  }
+  if (!current.configFields.includes("web_search")) drift.push("Config lost web_search");
+  if (current.webSearchMode !== fixture.webSearchMode) drift.push(`WebSearchMode:\n  recorded: ${fixture.webSearchMode}\n  now:      ${current.webSearchMode}`);
   if (current.dynamicToolCallItem !== fixture.dynamicToolCallItem) drift.push(`dynamicToolCall item:\n  recorded: ${fixture.dynamicToolCallItem}\n  now:      ${current.dynamicToolCallItem}`);
   console.log(`installed: ${version}; recorded: codex-cli ${fixture.cliVersion}`);
   if (drift.length === 0) {

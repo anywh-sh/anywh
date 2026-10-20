@@ -39,6 +39,7 @@ import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
 import { agentProcessMap, detachedAgentProcesses, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
 import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
+import { userCodexMcpServers } from "./codexConfig.js";
 import { AGENT_HOST_DIR_MARKER, isAgentHostDirEntry } from "./paths.js";
 import { AgentHostSocketServer } from "./socketServer.js";
 
@@ -780,7 +781,16 @@ export class AgentHost {
       effortId: agent.spec.effort,
       permissionModeId: agent.spec.permissionMode ?? this.codex().defaultPermissionModeId,
       resumeSessionId: agent.sessionId,
-      ...(agent.spec.room ? { room: { role: agent.spec.room.role, instructions: agent.spec.room.instructions, tools: agent.spec.room.tools } } : {}),
+      ...(agent.spec.room
+        ? {
+            room: {
+              role: agent.spec.room.role,
+              instructions: agent.spec.room.instructions,
+              tools: agent.spec.room.tools,
+              ...(agent.spec.room.role === "principal" ? { disableMcpServers: userCodexMcpServers(this.options.homeOverride ?? homedir()) } : {}),
+            },
+          }
+        : {}),
     };
   }
 

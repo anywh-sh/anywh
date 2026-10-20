@@ -119,6 +119,14 @@ process.stdin.on("data", (chunk) => {
         send({ id: message.id, result: { thread: { id: `thr-${threads}` }, model: "gpt-fake" } });
         break;
       }
+      case "thread/resume": {
+        const { threadId } = message.params;
+        // Dynamic tools survive a resume in the real app-server; this fake
+        // keeps them per process only, so a resumed thread declares none.
+        if (!threadTools.has(threadId)) threadTools.set(threadId, []);
+        send({ id: message.id, result: { thread: { id: threadId }, model: "gpt-fake" } });
+        break;
+      }
       case "turn/start": {
         turns++;
         const turnId = `turn-${turns}`;
