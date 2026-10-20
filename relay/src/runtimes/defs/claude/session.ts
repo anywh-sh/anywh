@@ -110,14 +110,20 @@ export const CLAUDE_AGENT_ENV_OVERRIDES: Readonly<Record<string, string>> = {
  * matters for a swarm but not for one session. Not global because the
  * umbrella flag also removes the Monitor tool and the /ultrareview,
  * /advisor and /import commands. The three narrower variables are redundant
- * with the umbrella on this CLI; they guard CLIs that lack it. Never changes
- * model output or authentication. */
+ * with the umbrella on this CLI; they guard CLIs that lack it. Does not
+ * affect authentication or the protocol format; it does remove Monitor and
+ * some slash commands, and suppresses feature flags. */
 export const CLAUDE_AGENT_WORKER_ENV: Readonly<Record<string, string>> = {
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   DISABLE_AUTOUPDATER: "1",
   DISABLE_TELEMETRY: "1",
   DISABLE_ERROR_REPORTING: "1",
 };
+
+/** Env overrides for a turn's `claude`: the worker opt-outs only for an agent worker. */
+function agentEnvFor(worker: boolean): Readonly<Record<string, string>> {
+  return worker ? { ...CLAUDE_AGENT_ENV_OVERRIDES, ...CLAUDE_AGENT_WORKER_ENV } : CLAUDE_AGENT_ENV_OVERRIDES;
+}
 
 export interface ClaudeEvent {
   type: string;
@@ -491,7 +497,7 @@ export class ClaudeSession {
       }
 
       const child = spawn(AGENT_BIN, args, {
-        env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, this.options.agentWorker === true ? { ...CLAUDE_AGENT_ENV_OVERRIDES, ...CLAUDE_AGENT_WORKER_ENV } : CLAUDE_AGENT_ENV_OVERRIDES),
+        env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, agentEnvFor(this.options.agentWorker === true)),
         cwd,
       });
       this.currentChild = child;

@@ -76,10 +76,16 @@ async function spawnedEnvs(agentWorker: boolean | undefined): Promise<Record<str
   const dir = mkdtempSync(join(tmpdir(), "anywh-claude-env-test-"));
   const file = join(dir, "env.jsonl");
   process.env.FAKE_CLAUDE_ENV_FILE = file;
+  // A private HOME keeps worker mode from reading or sweeping the real one,
+  // and the opt-outs are cleared so a dev/CI machine that exports them can't
+  // make the "ordinary session" assertion pass or fail by accident.
+  const saved = PACK_VARS.map((name) => [name, process.env[name]] as const);
+  for (const name of PACK_VARS) delete process.env[name];
   try {
-    await new ClaudeSessionDriver({ host: noopHost, agentWorker }).sendTurn(turnContext(), () => {});
+    await new ClaudeSessionDriver({ host: noopHost, agentWorker, homeOverride: dir }).sendTurn(turnContext(), () => {});
     return readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, string>);
   } finally {
+    for (const [name, value] of saved) if (value !== undefined) process.env[name] = value;
     delete process.env.FAKE_CLAUDE_ENV_FILE;
     rmSync(dir, { recursive: true, force: true });
   }
