@@ -27,7 +27,7 @@ export {
   isApproved,
   isApprovedAt,
 } from "./mcpSpawnConfig.js";
-export { grantRuleFor, planDeferredGrants, resolveGrant, type GrantOutcome } from "./grantRules.js";
+export { grantRuleFor, grantsAllow, planDeferredGrants, resolveGrant, type GrantOutcome } from "./grantRules.js";
 export { ClaudeSessionDriver, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
 export { buildPersistentArgs, encodeInterrupt, encodeStopTask, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
 export { writePersistentMcpConfig, type AgentWorkerMcpFile } from "./agentWorker.js";

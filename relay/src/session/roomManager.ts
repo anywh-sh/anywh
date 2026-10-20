@@ -38,6 +38,7 @@ import {
   parseMessageAgentArgs,
   parseReportArgs,
   principalInstructions,
+  APPROVE_TOOL,
   roomToolsFor,
   workerInstructions,
 } from "./roomTools.js";
@@ -165,7 +166,8 @@ export class RoomManager implements RoomToolHost {
   toolsFor(sessionId: string): readonly RoomToolSpec[] | undefined {
     const room = this.store.getRoom(sessionId);
     if (!room || this.admit(sessionId) !== undefined) return undefined;
-    return roomToolsFor(room.role);
+    // A worker's CLI also asks the relay about tool calls that need approval.
+    return room.role === "worker" ? [...roomToolsFor(room.role), APPROVE_TOOL] : roomToolsFor(room.role);
   }
 
   callTool(sessionId: string, name: string, args: unknown): Promise<RoomToolResult> {
@@ -180,6 +182,8 @@ export class RoomManager implements RoomToolHost {
         return Promise.resolve(this.messageAgent(sessionId, room, args));
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
+      case "approve":
+        return this.approve(sessionId, room, args);
       default:
         return Promise.resolve(fail(`Unknown tool "${name}".`));
     }
@@ -844,6 +848,19 @@ export class RoomManager implements RoomToolHost {
       return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; the agent host is not running, so it is delivered once it is back.`);
     }
     return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; it is delivered as its next turn.`);
+  }
+
+  /** The CLI of a worker asks whether a tool call may run. The worker's
+   * session answers at once (it defers: the call is refused, the turn ends,
+   * the person is asked) so nothing is held open for a person. */
+  private async approve(callerId: string, caller: RoomMembership, args: unknown): Promise<RoomToolResult> {
+    if (caller.role !== "worker") return fail("Only an agent started in the room is asked about tool calls.");
+    const input = typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {};
+    const toolName = typeof input.tool_name === "string" ? input.tool_name : "";
+    const decision = await this.options.sessions
+      .getOrCreate(callerId)
+      .checkPermission(toolName, input.input, typeof input.tool_use_id === "string" ? input.tool_use_id : undefined, typeof input.agent_id === "string" ? input.agent_id : undefined);
+    return ok(JSON.stringify(decision));
   }
 
   private roomStatus(callerId: string, caller: RoomMembership): RoomToolResult {

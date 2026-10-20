@@ -130,7 +130,9 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
-  undefined,
+  // A room's workers never hold a tool-permission call open for a person: the
+  // request becomes an approval card and the turn ends.
+  (id) => (sessionStore.getRoom(id)?.role === "worker" ? { deferredApproval: true } : {}),
   {
     agentHost,
     roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),

@@ -1,5 +1,5 @@
 import type { WebSocket } from "ws";
-import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants, resolveGrant } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, grantsAllow, isApproved, isApprovedAt, planDeferredGrants, resolveGrant } from "../runtimes/defs/claude/index.js";
 import { compactToolInput } from "./approvalInput.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
@@ -354,6 +354,9 @@ export class SharedSession implements SessionDriverHost {
   /** A queued turn has left the queue and has not started yet (it reads the
    * conversation's history first): cleared as `turnStartedAt` takes over. */
   private runningFromQueue = false;
+  /** Tool calls the person approved for the turn in flight (see
+   * `checkPermission`); only for an agent whose CLI lives in the host. */
+  private turnGrants: readonly ToolGrant[] = [];
   private dequeuedSeq = 0;
   private discardedUpTo = 0;
   private cwd: string;
@@ -814,6 +817,13 @@ export class SharedSession implements SessionDriverHost {
    * Claude-specific framing at all. */
   async checkPermission(toolName: string, input: unknown, toolUseId: string | undefined, agentId?: string): Promise<PermissionDecision> {
     if (this.options.deferredApproval ?? this.options.agentWorker ?? false) {
+      // An agent in the agent host keeps one CLI process for good, so a
+      // turn's grants cannot be handed to it as `--allowedTools`: calls the
+      // person already approved are allowed here instead.
+      const compact = compactToolInput(input);
+      if (this.turnGrants.length > 0 && grantsAllow(this.turnGrants, { tool: toolName, input: compact }, this.cwd)) {
+        return { behavior: "allow", updatedInput: input };
+      }
       // The call is refused right here, so the CLI is never left waiting on a
       // human: the turn ends, the request is kept (and persisted), and the
       // verdict comes back as a new turn (`answerChoice`).
@@ -1610,6 +1620,7 @@ export class SharedSession implements SessionDriverHost {
     let turnStopped = false;
     let turnError: string | undefined;
     let planChoiceText: string | undefined;
+    this.turnGrants = this.options.hostAgent && grants ? grants : [];
     try {
       const effortId = this.effortForTurn();
       const ctx: TurnContext = {
@@ -1731,6 +1742,7 @@ export class SharedSession implements SessionDriverHost {
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
       this.notify(turnFailedDraft(this.title));
     } finally {
+      this.turnGrants = [];
       // Only `pendingApproval` — `pendingChoice` deliberately survives the
       // turn that created it (see the doc
       // comment on `cancelPendingApproval`). This is THE inversion this
