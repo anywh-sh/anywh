@@ -331,7 +331,7 @@ test("answerChoice on a deferred approval: hands back the calls and answers, cle
   clock.now += 6 * 60 * 60 * 1000;
   const answers = [{ question: "write?", selected: ["yes"] }, { question: "bash?", selected: ["no"] }];
   const result = machine.answerChoice(prompt.promptId, answers);
-  assert.deepEqual(result, { kind: "deferredApproval", calls: [WRITE, BASH], answers });
+  assert.deepEqual(result, { kind: "deferredApproval", calls: [WRITE, BASH], questions: [question("write?"), question("bash?")], answers });
   assert.equal(stored.at(-1), undefined);
   assert.equal((client.sent.at(-1) as Sent).type, "choice_resolved");
   assert.deepEqual(machine.answerChoice(prompt.promptId, answers), { kind: "not_found" }, "first answer wins");

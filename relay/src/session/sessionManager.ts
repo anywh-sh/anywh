@@ -21,6 +21,14 @@ export type SessionListEvent =
   | { type: "upsert"; id: string; title: string; lastActiveAt: number }
   | { type: "remove"; id: string };
 
+/** What makes a session different from one a person types into. */
+export interface SessionTraits {
+  /** See `SharedSessionOptions.agentWorker`. */
+  agentWorker?: boolean;
+  /** See `SharedSessionOptions.deferredApproval`. */
+  deferredApproval?: boolean;
+}
+
 /** A notification-worthy moment in one session, as `server.ts` receives it. */
 export type SessionPushEvent = PushNotificationDraft & { sessionId: string; ts: number; watched: boolean };
 
@@ -82,6 +90,9 @@ export class SessionManager {
     /** The probed model catalogs, read at call time (they arrive after boot).
      * `undefined` in tests that don't exercise effort. */
     private readonly getModelCatalog?: (agentId: string) => ModelCatalog | undefined,
+    /** Per-session behaviour switches, read when the session is created.
+     * `undefined` means every session is an ordinary one. */
+    private readonly sessionTraits?: (id: string) => SessionTraits,
   ) {
     // `this.sessions` needs to exist BEFORE `BackgroundJobTracker` is
     // constructed: if there are persisted jobs from a session that already
@@ -331,6 +342,9 @@ export class SessionManager {
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
       initialPendingChoice: this.sessionStore.getPendingChoice(id),
       onPendingChoiceChange: (choice) => this.sessionStore.setPendingChoice(id, choice),
+      initialPendingApproval: this.sessionStore.getPendingApproval(id),
+      onPendingApprovalChange: (approval) => this.sessionStore.setPendingApproval(id, approval),
+      ...this.sessionTraits?.(id),
       mcpChoiceBridge: this.mcpChoiceBridge,
       mcpBridgeBaseUrl: this.mcpBridgeBaseUrl,
       mcpPermissionBridge: this.mcpPermissionBridge,

@@ -15,7 +15,7 @@ export type AnswerChoiceResult =
   | { kind: "choice"; answers: ChoiceAnswer[] }
   /** The held-back tool calls of a deferred approval, with the answers in
    * the same order (`answers[i]` is about `calls[i]`). */
-  | { kind: "deferredApproval"; calls: DeferredToolCall[]; answers: ChoiceAnswer[] };
+  | { kind: "deferredApproval"; calls: DeferredToolCall[]; questions: ChoiceQuestion[]; answers: ChoiceAnswer[] };
 
 /** Where the deferred-approval slot is rehydrated from and mirrored to. */
 export interface DeferredApprovalStorage {
@@ -330,11 +330,11 @@ export class ChoiceMachine {
       return { kind: "choice", answers };
     }
     if (this.deferredApproval?.promptId === promptId) {
-      const { calls } = this.deferredApproval;
+      const { calls, questions } = this.deferredApproval;
       this.deferredApproval = undefined;
       broadcastChoiceResolved(this.clients, promptId);
       this.mirrorApproval(undefined);
-      return { kind: "deferredApproval", calls, answers };
+      return { kind: "deferredApproval", calls, questions, answers };
     }
     return { kind: "not_found" };
   }

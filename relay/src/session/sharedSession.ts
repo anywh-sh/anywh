@@ -1,9 +1,9 @@
 import type { WebSocket } from "ws";
-import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, isApproved, isApprovedAt } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
-import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
+import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -13,11 +13,11 @@ import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { ActivityClock } from "./activityClock.js";
 import { BridgeToolFilter } from "./bridgeToolFilter.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
-import { buildBackgroundJobFollowupPrompt, offersSilence } from "./turnMessages.js";
+import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offersSilence } from "./turnMessages.js";
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
-import type { ContextUsage, ModelChoice, PermissionMode, PersistedChoice } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import {
@@ -189,6 +189,20 @@ export interface SharedSessionOptions {
   /** Called whenever the deferred question is set or cleared (`undefined`) —
    * this is how SessionManager writes it to SessionStore. */
   onPendingChoiceChange?: (choice: PersistedChoice | undefined) => void;
+  /** Deferred tool approval persisted before a relay restart, if any. */
+  initialPendingApproval?: PersistedApproval;
+  /** Called whenever the deferred approval is set or cleared (`undefined`). */
+  onPendingApprovalChange?: (approval: PersistedApproval | undefined) => void;
+  /** The session is driven on behalf of another agent rather than typed into
+   * by a person (Claude: inherits the user's MCP servers, none of their
+   * plugins/skills/hooks). Turns deferred approval on unless
+   * `deferredApproval` says otherwise. */
+  agentWorker?: boolean;
+  /** Answer a tool approval request on the spot with a refusal that ends the
+   * turn, keep the request as a persisted pending approval, and run the
+   * human's verdict as a new turn. Off for an ordinary session, whose
+   * approval blocks the turn until answered. Defaults to `agentWorker`. */
+  deferredApproval?: boolean;
   /** Shared by every session in the process (like
    * `SessionManager` itself); `undefined` only in tests that don't exercise
    * this feature, in which case `present_choice` is simply never offered to
@@ -411,6 +425,8 @@ export class SharedSession implements SessionDriverHost {
       this.notify(promptDraft({ title: this.title, kind, firstQuestion: questions[0]?.question })),
       options.initialPendingChoice,
       options.onPendingChoiceChange,
+      undefined,
+      { initial: options.initialPendingApproval, onChange: options.onPendingApprovalChange },
     );
     // A rehydrated question belongs to a conversation; with no session_id
     // left for the active agent (cleared, lost, never created) answering it
@@ -438,6 +454,7 @@ export class SharedSession implements SessionDriverHost {
       homeOverride: this.homeOverride,
       initialSessionId,
       host: this,
+      agentWorker: this.options.agentWorker,
       claudeMcp:
         this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
           ? {
@@ -731,7 +748,17 @@ export class SharedSession implements SessionDriverHost {
    * (`presentApprovalChoice`), reusable by a native approval path (Codex's
    * driver, via `requestApproval` below) that never needs this
    * Claude-specific framing at all. */
-  async checkPermission(toolName: string, input: unknown, _toolUseId: string | undefined): Promise<PermissionDecision> {
+  async checkPermission(toolName: string, input: unknown, toolUseId: string | undefined, agentId?: string): Promise<PermissionDecision> {
+    if (this.options.deferredApproval ?? this.options.agentWorker ?? false) {
+      // The call is refused right here, so the CLI is never left waiting on a
+      // human: the turn ends, the request is kept (and persisted), and the
+      // verdict comes back as a new turn (`answerChoice`).
+      this.choiceMachine.deferApproval(
+        { tool: toolName, input, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(agentId !== undefined ? { agentId } : {}) },
+        buildApprovalQuestion(toolName, input, agentId),
+      );
+      return buildDeferredDecision();
+    }
     const answers = await this.choiceMachine.presentApprovalChoice([buildApprovalQuestion(toolName, input)]);
     return buildPermissionDecision(toolName, input, isApproved(answers));
   }
@@ -848,6 +875,25 @@ export class SharedSession implements SessionDriverHost {
     if (result.kind === "choice") {
       const text = formatPlanChoiceAnswerText(result.answers);
       this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text));
+    }
+    if (result.kind === "deferredApproval") {
+      // The calls were refused when they were asked; now the human has
+      // decided, a new turn repeats the approved ones with the permission
+      // granted and tells the model about the rest.
+      const decisions = result.calls.map((call, index) => ({
+        tool: call.tool,
+        detail: result.questions[index]?.approval?.detail ?? "",
+        approved: isApprovedAt(result.answers, index),
+        ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
+      }));
+      const grants: ToolGrant[] = result.calls.filter((_, index) => decisions[index].approved).map(({ tool, input }) => ({ tool, input }));
+      // Approving the plan is what takes the session out of plan mode; the
+      // refused call cannot do it on its own.
+      if (grants.some((grant) => grant.tool === "ExitPlanMode") && this.permissionMode === "plan" && isOfferedMode(this.permissionModes, "default")) {
+        this.setPermissionMode("default");
+      }
+      const text = buildDeferredApprovalFollowup(decisions);
+      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, undefined, grants));
     }
     return true;
   }
@@ -1265,6 +1311,8 @@ export class SharedSession implements SessionDriverHost {
       /** Runs once the turn is over, with whether it was silenced. */
       onSettled?: (silenced: boolean) => void;
     },
+    /** Tool calls a human approved after an earlier turn was told to wait. */
+    grants?: readonly ToolGrant[],
   ): Promise<void> {
     this.options.onActivity?.();
 
@@ -1367,6 +1415,7 @@ export class SharedSession implements SessionDriverHost {
         modelId: this.model,
         ...(effortId !== undefined ? { effortId } : {}),
         permissionModeId: this.permissionMode,
+        ...(grants && grants.length > 0 ? { grants } : {}),
       };
       const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
         // Timing first, so every consumer below (the log, the job tracker)
