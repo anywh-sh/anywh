@@ -10,11 +10,11 @@ WorkingDirectory={{WORKING_DIRECTORY}}
 # Same env files as anywh-relay@%i, so both sides agree on the profile's
 # paths (the socket, $HOME override, AGENT_BIN, EXTRA_PATH_DIRS...). A user
 # unit does not inherit the login shell's PATH; AGENT_BIN/EXTRA_PATH_DIRS
-# there are what let it find the agent CLI and the tools it runs.
-Environment=ANYWH_PROFILE=%i
+# there are what let it find the agent CLI and the tools it runs. The
+# profile is an argument, never inherited from the environment.
 EnvironmentFile=-{{WORKING_DIRECTORY}}/.env
 EnvironmentFile=-{{ENV_DIR}}/%i.env
-ExecStart={{NODE_BIN}} dist/agentHost/main.js
+ExecStart={{NODE_BIN}} dist/agentHost/main.js --profile %i
 Restart=always
 RestartSec=3
 # SIGTERM only to the host, which drains: waits for turns in flight

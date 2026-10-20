@@ -26,6 +26,7 @@
 //     `memoryFraction` of `memoryBytes`, oldest-idle first;
 //   - plus a cap of live agents per room: starting one more hibernates the
 //     room's oldest idle agent, or fails when none is idle.
+import { randomBytes } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -155,6 +156,8 @@ export class AgentHost {
   private policyTimer: NodeJS.Timeout | undefined;
   private codexPool: CodexPool | undefined;
   private lock: InstanceLock | undefined;
+  /** This run of the host, carried in every agent's mark. */
+  private readonly incarnation = randomBytes(4).toString("hex");
   private policyRunning = false;
   private draining = false;
   private closed = false;
@@ -174,6 +177,7 @@ export class AgentHost {
    * lock comes first: a second host for the same profile must fail before
    * its sweep or its restore could touch the first one's agents. */
   static async start(options: AgentHostOptions): Promise<AgentHost> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(options.hostId)) throw new Error(`invalid agent host id ${JSON.stringify(options.hostId)}`);
     const host = new AgentHost(options);
     mkdirSync(join(options.dataDir, "logs"), { recursive: true, mode: 0o700 });
     host.lock = await acquireInstanceLock(
@@ -505,6 +509,7 @@ export class AgentHost {
   private codex(): CodexPool {
     this.codexPool ??= new CodexPool({
       hostId: this.options.hostId,
+      incarnation: this.incarnation,
       homeOverride: this.options.homeOverride,
       def: this.options.codexDef,
       cwd: this.options.dataDir,
@@ -639,6 +644,7 @@ export class AgentHost {
       proc = await ClaudeProcess.spawn({
         hostId: this.options.hostId,
         agentId: agent.agentId,
+        incarnation: this.incarnation,
         bin: this.bin,
         homeOverride: this.options.homeOverride,
         home: this.options.homeOverride ?? homedir(),

@@ -45,14 +45,10 @@ function makeEnv(): Env {
 
 function startHost(env: Env): { proc: ChildProcess; output: string[] } {
   const output: string[] = [];
-  const proc = spawn(process.execPath, ["--import", "tsx", HOST_ENTRY], {
+  const proc = spawn(process.execPath, ["--import", "tsx", HOST_ENTRY, "--profile", "e2e", "--host-id", env.hostId, "--socket", env.socketPath, "--data-dir", env.dataDir], {
     cwd: RELAY_ROOT,
     env: {
       ...process.env,
-      ANYWH_PROFILE: "e2e",
-      ANYWH_AGENT_HOST_ID: env.hostId,
-      ANYWH_AGENT_HOST_SOCKET: env.socketPath,
-      ANYWH_AGENT_HOST_DIR: env.dataDir,
       ANYWH_AGENT_HOST_DRAIN_GRACE_MS: "1000",
       ANYWH_AGENT_HOST_HIBERNATE: "off",
       RELAY_HOME_OVERRIDE: env.home,
@@ -233,6 +229,25 @@ test("the relay reports the host as unavailable instead of an empty machine", as
     assert.equal(body.hostConnected, false);
   } finally {
     relay.cleanup();
+    rmSync(env.dir, { recursive: true, force: true });
+  }
+});
+
+test("the host refuses to start without an explicit profile, even with ANYWH_PROFILE inherited from the environment", async () => {
+  const env = makeEnv();
+  try {
+    const proc = spawn(process.execPath, ["--import", "tsx", HOST_ENTRY], {
+      cwd: RELAY_ROOT,
+      env: { ...process.env, ANYWH_PROFILE: "pessoal", ANYWH_AGENT_HOST_SOCKET: env.socketPath, ANYWH_AGENT_HOST_DIR: env.dataDir, AGENT_BIN: FAKE_AGENT_BIN },
+    });
+    let stderr = "";
+    proc.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    const { code } = await exited(proc);
+    assert.notEqual(code, 0);
+    assert.match(stderr, /--profile/);
+    assert.equal(existsSync(env.socketPath), false);
+    assert.equal(existsSync(env.dataDir), false);
+  } finally {
     rmSync(env.dir, { recursive: true, force: true });
   }
 });

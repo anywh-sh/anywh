@@ -1,11 +1,15 @@
 // Where one profile's agent host keeps its socket and its data. The relay and
-// the host must agree on the socket path; both read the same per-profile env
-// file under systemd, so an explicit `ANYWH_AGENT_HOST_SOCKET` there wins.
-// Without it, both derive the same default from the profile id.
+// the host must agree on the socket path: an explicit `ANYWH_AGENT_HOST_SOCKET`
+// in the profile's env file (read by both units) wins; otherwise both derive
+// the same default from the profile id — the relay from `ANYWH_PROFILE` (its
+// unit sets it), the host from its required `--profile` argument.
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-export function agentHostProfile(env: NodeJS.ProcessEnv = process.env): string {
+/** The relay's profile. Never inherited by the relay's children (see
+ * host/childEnv.ts), so a relay started from inside a session does not
+ * silently take over the session's profile. */
+export function relayProfile(env: NodeJS.ProcessEnv = process.env): string {
   return env.ANYWH_PROFILE || "default";
 }
 
@@ -17,11 +21,18 @@ export function defaultAgentHostSocketPath(profile: string, env: NodeJS.ProcessE
   return join(base, `agent-host-${profile}.sock`);
 }
 
-export function agentHostSocketPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ANYWH_AGENT_HOST_SOCKET || defaultAgentHostSocketPath(agentHostProfile(env), env);
+export function agentHostSocketPath(profile: string, env: NodeJS.ProcessEnv = process.env): string {
+  return env.ANYWH_AGENT_HOST_SOCKET || defaultAgentHostSocketPath(profile, env);
 }
 
-/** Registry and per-agent logs. Next to the relay's own per-profile files. */
-export function agentHostDataDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ANYWH_AGENT_HOST_DIR || join(homedir(), ".anywh-sessions", `${agentHostProfile(env)}-agent-host`);
+/** Where per-profile files live (`~/.anywh-sessions`, like the relay's
+ * sessions file). `ANYWH_SESSIONS_ROOT` moves it — tests point it at a temp
+ * dir so nothing they do can reach a real profile's data. */
+export function sessionsRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return env.ANYWH_SESSIONS_ROOT || join(homedir(), ".anywh-sessions");
+}
+
+/** Registry and per-agent logs of a profile's host. */
+export function agentHostDataDir(profile: string, env: NodeJS.ProcessEnv = process.env): string {
+  return env.ANYWH_AGENT_HOST_DIR || join(sessionsRoot(env), `${profile}-agent-host`);
 }

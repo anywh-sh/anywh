@@ -85,10 +85,15 @@ over a unix socket, so restarting or upgrading `anywh-relay@<profile>`
 leaves every agent — and any turn in flight — running. The relay reconnects
 and replays what it missed from each agent's log.
 
-- Same env files as the relay (`relay/.env`, then `<profile>.env`); the unit
-  sets `ANYWH_PROFILE=%i`, and both sides derive the socket path from it
-  (`$XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock`) unless
-  `ANYWH_AGENT_HOST_SOCKET` says otherwise. Data (registry, per-agent logs)
+- Same env files as the relay (`relay/.env`, then `<profile>.env`). The host
+  gets its profile as an argument (`--profile %i`), never from the
+  environment; the relay's unit sets `ANYWH_PROFILE=%i`, which the relay does
+  not pass on to anything it spawns. Both derive the socket path from the
+  profile (`$XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock`) unless
+  `ANYWH_AGENT_HOST_SOCKET` says otherwise. For development,
+  `npm run dev:agent-host` runs a host for a separate `dev` profile;
+  `ANYWH_PROFILE=<id> npm run dev:agent-host:profile` targets a real one,
+  on purpose. Data (registry, per-agent logs)
   lives in `~/.anywh-sessions/<profile>-agent-host/` unless
   `ANYWH_AGENT_HOST_DIR` says otherwise. A user unit does not inherit your
   shell's `PATH`: `AGENT_BIN`/`EXTRA_PATH_DIRS` in the env files are how it

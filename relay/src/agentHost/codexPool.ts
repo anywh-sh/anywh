@@ -20,13 +20,14 @@
 import { codexRuntimeDef } from "../runtimes/defs/codex.js";
 import { daemonPlanOf, spawnCodexDaemon, type CodexDaemon } from "../runtimes/transports/codexDaemon.js";
 import type { AgentRuntimeDef, ApprovalRequest, JsonRpcDaemonPlan, TurnContext, TurnHost, UserInputQuestion } from "../runtimes/types.js";
-import { AGENT_ID_ENV, HOST_ID_ENV } from "./processTree.js";
+import { AGENT_MARK_ENV, agentMark } from "./processTree.js";
 
 /** The agent id the shared app-server carries in its environment marker. */
 export const CODEX_DAEMON_MARKER = "codex-app-server";
 
 export interface CodexPoolOptions {
   readonly hostId: string;
+  readonly incarnation: string;
   readonly homeOverride?: string;
   /** Overridable so a test can point the real def at a fake app-server. */
   readonly def?: AgentRuntimeDef;
@@ -60,7 +61,7 @@ export class CodexPool {
       ...base,
       identity: {
         ...base.identity,
-        env: { ...base.identity.env, set: { ...base.identity.env.set, [HOST_ID_ENV]: options.hostId, [AGENT_ID_ENV]: CODEX_DAEMON_MARKER } },
+        env: { ...base.identity.env, set: { ...base.identity.env.set, [AGENT_MARK_ENV]: agentMark(options.hostId, CODEX_DAEMON_MARKER, options.incarnation) } },
       },
     };
   }

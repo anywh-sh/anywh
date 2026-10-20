@@ -11,15 +11,32 @@
 // So stopping is SIGTERM to the process and its group, a grace period, then
 // SIGKILL to the group — and then a sweep for anything of that agent still
 // alive, found by an environment marker every agent process inherits
-// (`ANYWH_AGENT_HOST_ID`/`ANYWH_AGENT_ID`). The sweep reads
+// (`ANYWH_AGENT_MARK=<host id>:<agent id>:<host incarnation>`). The marker is
+// deliberately not one of the host's configuration variables: those can sit
+// in an env file shared with the relay, and a sweep keyed on them would
+// match the relay and everything it runs. A mark is only valid with a
+// non-empty agent id, and the sweep never matches anything else. The sweep reads
 // /proc/<pid>/environ, so it is Linux-only; elsewhere only the group is
 // covered. A process that rewrites its own environment (`env -i ...`) also
 // escapes the sweep — a known limit, as is anything that detaches on purpose
 // and clears its environment; containing those would need a cgroup per agent.
 import { readFile, readdir } from "node:fs/promises";
 
-export const HOST_ID_ENV = "ANYWH_AGENT_HOST_ID";
-export const AGENT_ID_ENV = "ANYWH_AGENT_ID";
+export const AGENT_MARK_ENV = "ANYWH_AGENT_MARK";
+
+/** The mark an agent's process tree carries. Neither id may contain ":"
+ * (host ids are profile slugs, agent ids are validated). */
+export function agentMark(hostId: string, agentId: string, incarnation: string): string {
+  return `${hostId}:${agentId}:${incarnation}`;
+}
+
+/** `{hostId, agentId}` of a well-formed mark; `undefined` for anything else,
+ * including a mark with an empty agent id. */
+export function parseAgentMark(value: string): { hostId: string; agentId: string } | undefined {
+  const parts = value.split(":");
+  if (parts.length !== 3 || !parts[0] || !parts[1]) return undefined;
+  return { hostId: parts[0], agentId: parts[1] };
+}
 
 export function isAlive(pid: number): boolean {
   try {
@@ -66,8 +83,7 @@ async function selfAndAncestors(): Promise<Set<number>> {
 export async function agentProcessMap(hostId: string): Promise<Map<string, number[]>> {
   const byAgent = new Map<string, number[]>();
   if (process.platform !== "linux") return byAgent;
-  const hostMarker = `${HOST_ID_ENV}=${hostId}`;
-  const agentPrefix = `${AGENT_ID_ENV}=`;
+  const prefix = `${AGENT_MARK_ENV}=`;
   const excluded = await selfAndAncestors();
   let entries: string[];
   try {
@@ -86,12 +102,12 @@ export async function agentProcessMap(hostId: string): Promise<Map<string, numbe
       } catch {
         return; // gone, or not ours to read
       }
-      const vars = environ.split("\0");
-      if (!vars.includes(hostMarker)) return;
-      const agentId = vars.find((entry) => entry.startsWith(agentPrefix))?.slice(agentPrefix.length) ?? "";
-      const list = byAgent.get(agentId) ?? [];
+      const raw = environ.split("\0").find((entry) => entry.startsWith(prefix));
+      const mark = raw === undefined ? undefined : parseAgentMark(raw.slice(prefix.length));
+      if (!mark || mark.hostId !== hostId) return;
+      const list = byAgent.get(mark.agentId) ?? [];
       list.push(pid);
-      byAgent.set(agentId, list);
+      byAgent.set(mark.agentId, list);
     }),
   );
   for (const list of byAgent.values()) list.sort((a, b) => a - b);

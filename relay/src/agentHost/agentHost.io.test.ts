@@ -133,8 +133,9 @@ test("a turn runs through the host: the CLI's events land in the log, the state 
     assert.ok((JSON.parse(copy.content) as { mcpServers: Record<string, unknown> }).mcpServers["anywh-room"]);
 
     const env = JSON.parse(readFileSync(envFile, "utf8").trim()) as Record<string, string>;
-    assert.equal(env.ANYWH_AGENT_HOST_ID, h.hostId);
-    assert.equal(env.ANYWH_AGENT_ID, "a1");
+    assert.match(env.ANYWH_AGENT_MARK, new RegExp(`^${h.hostId}:a1:[0-9a-f]+$`));
+    // The host's own configuration never reaches an agent.
+    for (const name of ["ANYWH_AGENT_HOST_ID", "ANYWH_AGENT_HOST_SOCKET", "ANYWH_AGENT_HOST_DIR", "ANYWH_PROFILE"]) assert.equal(Object.keys(env).includes(name), false, name);
     assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
     assert.equal(env.HOME, h.home);
     assert.equal(Object.keys(env).includes("ANTHROPIC_API_KEY"), false);
@@ -243,18 +244,26 @@ test("a crashed agent is reported failed, and the next message resumes its sessi
 test("on start the host ends processes a previous run of it left behind, and only those", async () => {
   const dir = mkdtempSync(join(tmpdir(), "anywh-orphans-"));
   const hostId = `orphan-test-${process.pid}`;
-  const orphan = spawn("sleep", ["300"], { detached: true, stdio: "ignore", env: { ...process.env, ANYWH_AGENT_HOST_ID: hostId, ANYWH_AGENT_ID: "gone" } });
-  const otherHost = spawn("sleep", ["300"], { detached: true, stdio: "ignore", env: { ...process.env, ANYWH_AGENT_HOST_ID: `${hostId}-other` } });
-  const unrelated = spawn("sleep", ["300"], { detached: true, stdio: "ignore" });
+  const sleeper = (env: Record<string, string>) => spawn("sleep", ["300"], { detached: true, stdio: "ignore", env: { ...process.env, ...env } });
+  // An agent (or one of its tools) of a previous run of this host.
+  const orphan = sleeper({ ANYWH_AGENT_MARK: `${hostId}:gone:oldnonce` });
+  // Another host's agent.
+  const otherHost = sleeper({ ANYWH_AGENT_MARK: `${hostId}-other:a1:n` });
+  // A process that merely carries the host's CONFIG (a relay or a session
+  // started from the same env file) — never an agent.
+  const configOnly = sleeper({ ANYWH_AGENT_HOST_ID: hostId, ANYWH_PROFILE: hostId });
+  // A malformed mark with no agent id.
+  const noAgent = sleeper({ ANYWH_AGENT_MARK: `${hostId}::n` });
+  const unrelated = sleeper({});
+  const all = [orphan, otherHost, configOnly, noAgent, unrelated];
   try {
-    await waitFor(() => [orphan, otherHost, unrelated].every((child) => child.pid !== undefined && isAlive(child.pid)), 3000, "sleepers");
+    await waitFor(() => all.every((child) => child.pid !== undefined && isAlive(child.pid)), 3000, "sleepers");
     const host = await AgentHost.start({ hostId, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), agentBin: FAKE_CLAUDE });
     await host.close();
     assert.equal(isAlive(orphan.pid!), false);
-    assert.equal(isAlive(otherHost.pid!), true);
-    assert.equal(isAlive(unrelated.pid!), true);
+    for (const survivor of [otherHost, configOnly, noAgent, unrelated]) assert.equal(isAlive(survivor.pid!), true);
   } finally {
-    for (const child of [orphan, otherHost, unrelated]) if (child.pid && isAlive(child.pid)) process.kill(child.pid, "SIGKILL");
+    for (const child of all) if (child.pid && isAlive(child.pid)) process.kill(child.pid, "SIGKILL");
     rmSync(dir, { recursive: true, force: true });
   }
 });

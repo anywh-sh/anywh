@@ -11,7 +11,7 @@ import { buildRegistry } from "./runtimes/registry.js";
 import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
 import type { ModelCatalog } from "./runtimes/types.js";
 import { HostClient } from "./agentHost/hostClient.js";
-import { agentHostSocketPath } from "./agentHost/paths.js";
+import { agentHostSocketPath, relayProfile } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleAgentRoutes } from "./routes/agents.js";
 import { handleFilesRoutes } from "./routes/files.js";
@@ -113,7 +113,7 @@ const sessionManager = new SessionManager(
 // alive across relay restarts). Always connecting in the background: the
 // host may start after the relay, or not be installed at all, and neither
 // is an error until something actually asks it for work.
-const agentHost = new HostClient({ socketPath: agentHostSocketPath(), clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 });
+const agentHost = new HostClient({ socketPath: agentHostSocketPath(relayProfile()), clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 });
 agentHost.start();
 
 const routeContext: RouteContext = {

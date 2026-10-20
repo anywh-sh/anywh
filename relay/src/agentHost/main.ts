@@ -1,27 +1,30 @@
 // Entrypoint of the agent host service (`anywh-agent-host@<profile>`): one
 // per profile, next to that profile's relay, built from the same package.
 //
-//   node dist/agentHost/main.js
+//   node dist/agentHost/main.js --profile <id> [--socket <path>] [--data-dir <dir>] [--host-id <id>]
 //
-// Configuration comes from the same env files as the relay's:
-//   ANYWH_PROFILE              profile id (default "default")
-//   ANYWH_AGENT_HOST_SOCKET    socket path (default under $XDG_RUNTIME_DIR)
+// `--profile` is required and never read from the environment: ANYWH_PROFILE
+// is set on the relay's unit, and a dev host started from a shell that
+// inherited it would otherwise take over the real profile's socket and
+// agents. Paths default from the profile, unless the profile's env file sets:
+//   ANYWH_AGENT_HOST_SOCKET    socket path (default $XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock)
 //   ANYWH_AGENT_HOST_DIR       registry and logs (default ~/.anywh-sessions/<profile>-agent-host)
-//   ANYWH_AGENT_HOST_ID        marker for this host's processes (default: the profile)
 //   RELAY_HOME_OVERRIDE        $HOME for the agents, as for the relay's own turns
 //   AGENT_BIN, EXTRA_PATH_DIRS as for the relay
 //
-// Hibernation (see agentHost.ts):
+// Hibernation and shutdown (see agentHost.ts):
 //   ANYWH_AGENT_HOST_HIBERNATE          idle (default) | memory | off
 //   ANYWH_AGENT_HOST_IDLE_MS            idle: quiet time before hibernating, in ms (default 600000)
 //   ANYWH_AGENT_HOST_MEMORY_BYTES       memory: the machine's budget (default: total RAM)
 //   ANYWH_AGENT_HOST_MEMORY_FRACTION    memory: share of it agents may use (default 0.6)
 //   ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM live agents per room (default 10)
-//   ANYWH_AGENT_HOST_DRAIN_GRACE_MS     shutdown: wait for turns this long before interrupting (default 120000)
+//   ANYWH_AGENT_HOST_DRAIN_GRACE_MS     shutdown: wait for turns this long before interrupting
 //   ANYWH_AGENT_HOST_STOP_GRACE_MS      SIGTERM → SIGKILL grace per agent (default 5000)
 import { totalmem } from "node:os";
+import { parseArgs } from "node:util";
 import { AgentHost } from "./agentHost.js";
-import { agentHostDataDir, agentHostProfile, agentHostSocketPath } from "./paths.js";
+import { agentHostDataDir, agentHostSocketPath } from "./paths.js";
+import { AGENT_MARK_ENV } from "./processTree.js";
 
 function numberEnv(name: string): number | undefined {
   const raw = process.env[name];
@@ -35,11 +38,28 @@ function hibernationPolicy(): "idle" | "memory" | "off" {
   return raw === "memory" || raw === "off" ? raw : "idle";
 }
 
-const profile = agentHostProfile();
+const { values: args } = parseArgs({
+  options: { profile: { type: "string" }, socket: { type: "string" }, "data-dir": { type: "string" }, "host-id": { type: "string" } },
+  strict: true,
+});
+const profile = args.profile;
+if (!profile || !/^[a-z0-9][a-z0-9-]*$/.test(profile)) {
+  console.error("[agent-host] --profile <id> is required (never taken from ANYWH_PROFILE), e.g. --profile default");
+  process.exit(2);
+}
+const socketPath = args.socket ?? agentHostSocketPath(profile);
+const dataDir = args["data-dir"] ?? agentHostDataDir(profile);
+const hostId = args["host-id"] ?? profile;
+// The host's own configuration and any agent mark it was started under are
+// not passed on to what it spawns (agent children also get a fresh mark).
+for (const name of ["ANYWH_PROFILE", "ANYWH_AGENT_HOST_SOCKET", "ANYWH_AGENT_HOST_DIR", "ANYWH_AGENT_HOST_ID", "ANYWH_SESSIONS_ROOT", AGENT_MARK_ENV]) {
+  delete process.env[name];
+}
+
 const host = await AgentHost.start({
-  hostId: process.env.ANYWH_AGENT_HOST_ID || profile,
-  dataDir: agentHostDataDir(),
-  socketPath: agentHostSocketPath(),
+  hostId,
+  dataDir,
+  socketPath,
   homeOverride: process.env.RELAY_HOME_OVERRIDE || undefined,
   stopGraceMs: numberEnv("ANYWH_AGENT_HOST_STOP_GRACE_MS"),
   drainGraceMs: numberEnv("ANYWH_AGENT_HOST_DRAIN_GRACE_MS"),

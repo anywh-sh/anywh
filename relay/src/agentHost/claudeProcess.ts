@@ -14,7 +14,7 @@ import {
   type AgentWorkerMcpFile,
   type PersistentClaudeSpec,
 } from "../runtimes/defs/claude/index.js";
-import { AGENT_ID_ENV, HOST_ID_ENV, signal, sweepAgentProcesses } from "./processTree.js";
+import { AGENT_MARK_ENV, agentMark, signal, sweepAgentProcesses } from "./processTree.js";
 
 export interface ClaudeAgentSpec extends PersistentClaudeSpec {
   readonly cwd: string;
@@ -33,6 +33,8 @@ export interface ExitInfo {
 export interface ClaudeProcessOptions {
   readonly hostId: string;
   readonly agentId: string;
+  /** This run of the host, carried in the mark (diagnostics). */
+  readonly incarnation: string;
   readonly bin: string;
   readonly homeOverride?: string;
   /** Home used to find the user's MCP servers for an agent worker. */
@@ -91,8 +93,7 @@ export class ClaudeProcess {
     const env = buildChildEnv(options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, {
       ...persistentEnvOverrides(spec.agentWorker),
       ...(spec.env ?? {}),
-      [HOST_ID_ENV]: options.hostId,
-      [AGENT_ID_ENV]: options.agentId,
+      [AGENT_MARK_ENV]: agentMark(options.hostId, options.agentId, options.incarnation),
     });
     // `spec.env` is applied after the strip above; strip again so a caller
     // cannot hand a billed credential back in.

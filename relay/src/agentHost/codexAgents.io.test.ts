@@ -62,7 +62,7 @@ test("Codex agents share one app-server, each on its own thread, with turns, int
     assert.equal(a.runtime, "codex");
     assert.notEqual(a.sessionId, b.sessionId, "one thread per agent");
     const env = JSON.parse(readFileSync(envFile, "utf8")) as Record<string, string>;
-    assert.equal(env.ANYWH_AGENT_HOST_ID, hostId, "the shared app-server carries the host's marker");
+    assert.match(env.ANYWH_AGENT_MARK, new RegExp(`^${hostId}:codex-app-server:[0-9a-f]+$`), "the shared app-server carries the host's mark");
 
     const c1 = watch(client, "c1");
     await waitFor(() => completed(c1).length === 1, 5000, "c1 turn");
