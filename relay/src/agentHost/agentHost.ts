@@ -117,6 +117,9 @@ interface Agent {
   failure?: string;
   /** Codex only: the turn in flight on the agent's thread. */
   codexTurnId?: string;
+  /** Codex only: an interrupt arrived before the turn had an id to name;
+   * sent as soon as it has one. */
+  codexInterruptPending?: boolean;
   /** The sweep of what a crashed process left behind; a new process for
    * this agent must not start before it ends (it matches by agent id). */
   pendingSweep?: Promise<unknown>;
@@ -519,11 +522,15 @@ export class AgentHost {
 
   private interrupt(agent: Agent): { interrupted: boolean } {
     if (agent.runtime === "codex") {
-      if (!agent.turnInFlight || !agent.sessionId || !agent.codexTurnId) return { interrupted: false };
+      if (!agent.turnInFlight || !agent.sessionId) return { interrupted: false };
       this.record(agent, { type: "host_interrupt" });
-      void this.codex()
-        .interrupt(agent.sessionId, agent.codexTurnId)
-        .catch((error: unknown) => console.error(`[agent-host] interrupting ${agent.agentId} failed:`, (error as Error).message));
+      if (!agent.codexTurnId) {
+        // The turn is starting (its `turn/start` not answered yet): it is
+        // interrupted the moment it has an id.
+        agent.codexInterruptPending = true;
+        return { interrupted: true };
+      }
+      this.interruptCodexTurn(agent);
       return { interrupted: true };
     }
     if (!agent.proc || agent.proc.hasExited || !agent.turnInFlight) return { interrupted: false };
@@ -541,6 +548,14 @@ export class AgentHost {
     this.record(agent, { type: "host_stop_task", taskId });
     agent.proc.writeStopTask(taskId);
     return { sent: true };
+  }
+
+  private interruptCodexTurn(agent: Agent): void {
+    agent.codexInterruptPending = false;
+    if (!agent.sessionId || !agent.codexTurnId) return;
+    void this.codex()
+      .interrupt(agent.sessionId, agent.codexTurnId)
+      .catch((error: unknown) => console.error(`[agent-host] interrupting ${agent.agentId} failed:`, (error as Error).message));
   }
 
   private async stop(agent: Agent): Promise<AgentActivity> {
@@ -820,6 +835,7 @@ export class AgentHost {
       this.record(agent, { type: "host_user_message", text, duringTurn: false });
       agent.awaitingUser = false;
       agent.turnInFlight = true;
+      agent.codexInterruptPending = false;
       agent.turnStartedAt = this.now();
       agent.lifecycle = "alive";
       agent.stopReason = undefined;
@@ -827,6 +843,7 @@ export class AgentHost {
       this.touch(agent);
       try {
         agent.codexTurnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+        if (agent.codexInterruptPending && agent.turnInFlight) this.interruptCodexTurn(agent);
       } catch (error) {
         agent.turnInFlight = false;
         agent.lifecycle = "failed";
@@ -855,6 +872,7 @@ export class AgentHost {
       agent.turnInFlight = true;
       const id = (params as { turn?: { id?: unknown } }).turn?.id;
       if (typeof id === "string") agent.codexTurnId = id;
+      if (agent.codexInterruptPending) this.interruptCodexTurn(agent);
     } else if (method === "turn/completed") {
       agent.turnInFlight = false;
       agent.codexTurnId = undefined;

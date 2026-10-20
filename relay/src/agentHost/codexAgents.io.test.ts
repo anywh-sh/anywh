@@ -245,3 +245,23 @@ test("a room's Codex principal gets the room's settings again on a new app-serve
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a Stop sent before Codex has named the turn still interrupts it once it has", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const { host, client } = await start(dir, `codex-slow-${process.pid}`, {});
+  try {
+    await client.request("spawn", { agentId: "s1", runtime: "codex", spec: { cwd: dir }, message: "warm" });
+    const events = watch(client, "s1");
+    await waitFor(() => completed(events).length === 1, 5000, "first turn");
+    const sending = client.request("send", { agentId: "s1", message: "work [[slow-start]]" });
+    await waitFor(() => host.activity().find((agent) => agent.agentId === "s1")?.state === "working", 5000, "turn in flight");
+    assert.deepEqual(await client.request("interrupt", { agentId: "s1" }), { interrupted: true });
+    await sending;
+    await waitFor(() => completed(events).length === 2, 5000, "the turn ended");
+    assert.equal((completed(events)[1].ev.params as { turn: { status: string } }).turn.status, "interrupted");
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

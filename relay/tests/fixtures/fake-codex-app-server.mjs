@@ -7,6 +7,7 @@
 // Not a model: what a turn does is scripted by markers in its input text.
 //   (default)       one agentMessage item echoing the input, then completed
 //   [[hang]]        turn stays in progress until `turn/interrupt`
+//   [[slow-start]]  like [[hang]], but `turn/start` is answered 300 ms late
 //   [[die]]         the whole app-server exits mid-turn
 //   [[approval]]    asks for a command approval first; the answer is
 //                   appended to FAKE_CODEX_RESPONSES (if set), then the turn
@@ -137,6 +138,16 @@ process.stdin.on("data", (chunk) => {
         const turnId = `turn-${turns}`;
         const { threadId } = message.params;
         const text = (message.params.input ?? []).map((part) => part.text ?? "").join("");
+        if (text.includes("[[slow-start]]")) {
+          // The turn runs, but its id reaches the client only later: a Stop
+          // sent meanwhile has no turn id to name yet.
+          hanging.set(turnId, threadId);
+          setTimeout(() => {
+            send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
+            send({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
+          }, 300);
+          break;
+        }
         send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
         send({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
         if (text.includes("[[die]]")) {
