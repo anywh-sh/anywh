@@ -24,7 +24,7 @@ test("the principal is read-only for real: only Read/Grep/Glob exist, writing an
   const args = buildPersistentArgs(spec, { mcpConfigPath: "/tmp/x.json" });
   assert.equal(flag(args, "--tools"), "Read,Grep,Glob");
   const denied = flag(args, "--disallowedTools")!.split(",");
-  for (const tool of ["Agent", "Bash", "Write", "Edit", "NotebookEdit", "WebFetch"]) assert.ok(denied.includes(tool), `${tool} denied`);
+  for (const tool of ["Agent", "Task", "Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "EnterWorktree", "CronCreate", "RemoteTrigger", "Skill", "SlashCommand", "KillShell", "Monitor", "ScheduleWakeup"]) assert.ok(denied.includes(tool), `${tool} denied`);
   assert.deepEqual(flag(args, "--allowedTools")!.split(","), ["Read", "Grep", "Glob", "mcp__anywh-room__delegate", "mcp__anywh-room__room_status"]);
   assert.ok(args.includes("--strict-mcp-config"), "the user's MCP servers are not loaded into the principal");
   assert.equal(spec.strictMcp, true);
