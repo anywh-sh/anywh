@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useDict } from "@/i18n";
 import { effectiveModel, getModelCatalogs } from "@/lib/composer/modelCatalog";
 import type { LaunchAgentInput, RoomAgent } from "@/lib/relay/roomClient";
-import { runtimeTile } from "@/lib/sala/agentCard";
+import { AgentLogo } from "@/components/chat/AgentLogo";
 import type { Profile } from "@/lib/profiles/profiles";
 
 export type LaunchOutcome = { ok: true } | { ok: false; reason: "full" | "failed" };
@@ -107,9 +107,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button type="button" className="sala-launcher-parent" aria-label={text.pickParent}>
-              <span className="sala-tile" aria-hidden="true">
-                {parent ? runtimeTile(parent.runtime) : "—"}
-              </span>
+              {parent ? <AgentLogo agentId={parent.runtime} className="sala-logo" /> : <span aria-hidden="true">—</span>}
               <span className="trunc">{text.delegatedBy.replace("{title}", parent?.role === "principal" ? dict.sala.panel.agent.principal : (parent?.title ?? dict.sala.card.untitled))}</span>
               <ChevronDown size={12} aria-hidden="true" />
             </button>
@@ -117,9 +115,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
           <DropdownMenuContent side="top" align="start" className="min-w-56">
             {candidates.map((a) => (
               <DropdownMenuItem key={a.agentId} onSelect={() => onParent(a.agentId)}>
-                <span className="sala-tile" aria-hidden="true">
-                  {runtimeTile(a.runtime)}
-                </span>
+                <AgentLogo agentId={a.runtime} className="sala-logo" />
                 <span className="trunc">{a.role === "principal" ? dict.sala.panel.agent.principal : (a.title ?? dict.sala.card.untitled)}</span>
               </DropdownMenuItem>
             ))}

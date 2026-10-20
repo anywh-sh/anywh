@@ -123,13 +123,6 @@ export function trackStateSince(
   return next;
 }
 
-/** The two-letter tile of an agent's runtime. */
-export function runtimeTile(runtime: string): string {
-  if (runtime === "claude") return "CC";
-  if (runtime === "codex") return "CX";
-  return runtime.slice(0, 2).toUpperCase();
-}
-
 /** How many segments the card's progress bar draws, and how many are lit.
  * The relay reports no progress, so the bar is honest about it: lit only for
  * an agent that finished. */

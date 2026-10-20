@@ -1,7 +1,8 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
 import { useDict } from "@/i18n";
+import { AgentLogo } from "@/components/chat/AgentLogo";
 import { cn } from "@/lib/utils";
-import { cardActivity, cardClock, cardStatus, formatClock, progressSegments, PROGRESS_SEGMENTS, runtimeTile, type CardClock } from "@/lib/sala/agentCard";
+import { cardActivity, cardClock, cardStatus, formatClock, progressSegments, PROGRESS_SEGMENTS, type CardClock } from "@/lib/sala/agentCard";
 import type { RoomAgent } from "@/lib/relay/roomClient";
 import { CheckIcon, CloseIcon, ConversationGlyph, LayersIcon, AreaIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
@@ -98,9 +99,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
         <button type="button" className="sala-node-hit" tabIndex={0} onClick={() => props.onSelect(agent.agentId)} aria-label={dict.aria.replace("{title}", title).replace("{status}", dict.status[status.label])} />
         <div className="sala-node-body">
           <div className="sala-node-head">
-            <span className="sala-tile" aria-hidden="true">
-              {runtimeTile(agent.runtime)}
-            </span>
+            <AgentLogo agentId={agent.runtime} className="sala-logo" />
             <span className="sala-model">{modelLabel}</span>
             {main && <span className="sala-role">· {dict.main}</span>}
             <span className={cn("sala-pill", status.tone)} data-status={status.label}>

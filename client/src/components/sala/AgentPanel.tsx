@@ -4,6 +4,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
+import { AgentLogo } from "@/components/chat/AgentLogo";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { Clock } from "@/components/sala/SalaCard";
 import { CheckIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
@@ -12,7 +13,7 @@ import { useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { useDict } from "@/i18n";
 import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
-import { cardClock, cardStatus, runtimeTile } from "@/lib/sala/agentCard";
+import { cardClock, cardStatus } from "@/lib/sala/agentCard";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { agentWork, formatBytes } from "@/lib/sala/roomFigures";
 import { cn } from "@/lib/utils";
@@ -36,11 +37,7 @@ interface AgentPanelProps {
 }
 
 function Tile({ runtime }: { runtime: string }) {
-  return (
-    <span className="sala-tile big" aria-hidden="true">
-      {runtimeTile(runtime)}
-    </span>
-  );
+  return <AgentLogo agentId={runtime} className="sala-logo big" />;
 }
 
 /**

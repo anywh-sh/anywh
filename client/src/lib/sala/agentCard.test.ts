@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent } from "@/lib/relay/roomClient";
-import { cardActivity, cardClock, cardStatus, firstLine, formatClock, progressSegments, runtimeTile, trackStateSince } from "@/lib/sala/agentCard";
+import { cardActivity, cardClock, cardStatus, firstLine, formatClock, progressSegments, trackStateSince } from "@/lib/sala/agentCard";
 
 function agent(over: Partial<RoomAgent> = {}): RoomAgent {
   return {
@@ -137,12 +137,7 @@ describe("trackStateSince", () => {
   });
 });
 
-describe("runtimeTile and progress", () => {
-  it("names the runtimes the design draws and shortens the rest", () => {
-    expect(runtimeTile("claude")).toBe("CC");
-    expect(runtimeTile("codex")).toBe("CX");
-    expect(runtimeTile("gemini")).toBe("GE");
-  });
+describe("progress", () => {
   it("lights the whole bar only for a finished agent", () => {
     expect(progressSegments("done").lit).toBeGreaterThan(0);
     expect(progressSegments("run")).toEqual({ lit: 0, live: true });
