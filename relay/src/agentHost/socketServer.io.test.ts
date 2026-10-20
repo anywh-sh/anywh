@@ -521,3 +521,27 @@ test("a cursor with no incarnation (from before it was recorded) is not trusted 
     await f.cleanup();
   }
 });
+
+test("the host never loosens or tightens a directory it did not create, and never deletes what is not a socket", async () => {
+  const { mkdirSync, chmodSync, writeFileSync, readFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "anywh-shared-"));
+  try {
+    // A shared directory someone pointed the socket into.
+    const shared = join(dir, "shared");
+    mkdirSync(shared);
+    chmodSync(shared, 0o755);
+    const options = { hostId: "x", logFor: () => undefined, handleRequest: () => Promise.resolve(null) };
+    await assert.rejects(AgentHostSocketServer.listen({ ...options, socketPath: join(shared, "h.sock") }), /open to other users/);
+    assert.equal(statSync(shared).mode & 0o777, 0o755, "left as it was");
+
+    // A regular file where the socket should go.
+    const own = join(dir, "own");
+    mkdirSync(own, { mode: 0o700 });
+    const file = join(own, "h.sock");
+    writeFileSync(file, "important");
+    await assert.rejects(AgentHostSocketServer.listen({ ...options, socketPath: file }), /not a socket/);
+    assert.equal(readFileSync(file, "utf8"), "important");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

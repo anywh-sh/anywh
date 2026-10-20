@@ -49,15 +49,22 @@ export interface SocketServerOptions {
   readonly protocolVersion?: number;
 }
 
-/** Makes `dir` private to this user, creating it if needed. Refuses a
- * directory owned by another user rather than trusting it. */
+/** Makes sure the socket's directory is private to this user, creating it
+ * (0700) if needed. An existing directory is never changed — it may be a
+ * shared one (someone pointed ANYWH_AGENT_HOST_SOCKET into $HOME) — so one
+ * that is open to others, or owned by someone else, is refused. */
 export function ensurePrivateDir(dir: string): void {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const created = mkdirSync(dir, { recursive: true, mode: 0o700 });
   const info = lstatSync(dir);
   if (!info.isDirectory()) throw new Error(`${dir} is not a directory`);
   const uid = process.getuid?.();
   if (uid !== undefined && info.uid !== uid) throw new Error(`${dir} is owned by uid ${info.uid}, not ${uid}`);
-  if ((info.mode & 0o077) !== 0) chmodSync(dir, 0o700);
+  if ((info.mode & 0o077) !== 0) {
+    // Only a directory this call created may be fixed up (a umask cannot
+    // widen mkdir's mode, but be explicit).
+    if (created !== undefined) chmodSync(dir, 0o700);
+    else throw new Error(`${dir} is open to other users (mode ${(info.mode & 0o777).toString(8)}); the agent host's socket needs a private directory`);
+  }
 }
 
 function probeListening(socketPath: string): Promise<boolean> {
@@ -348,10 +355,12 @@ export class AgentHostSocketServer {
     ensurePrivateDir(dirname(options.socketPath));
     let stale = false;
     try {
-      lstatSync(options.socketPath);
+      // Only ever a socket left by a previous host: anything else at this
+      // path is someone's file, and is not deleted.
+      if (!lstatSync(options.socketPath).isSocket()) throw new Error(`${options.socketPath} exists and is not a socket; refusing to replace it`);
       stale = true;
-    } catch {
-      // nothing there
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     if (stale) {
       if (await probeListening(options.socketPath)) {
