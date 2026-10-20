@@ -859,3 +859,39 @@ test("memory pressure may hibernate an agent with a detached job, and its log sa
     await h.cleanup();
   }
 });
+
+test("an id being removed cannot be spawned again until its old log is gone", async () => {
+  // Tiny segments: removing the log takes a while, which is the window.
+  const h = await harness({ log: { segmentBytes: 300 } });
+  try {
+    const gate = h.file("gate");
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: `[[gate:${gate}]] [[events:1500]]` });
+    const events = h.watch("a1");
+    await waitFor(() => events.length > 1400, 15_000, "many events");
+    writeFileSync(gate, "");
+    await waitFor(() => results(events).length === 1, 10_000, "turn");
+    let removeDoneAt = 0;
+    const remove = h.client.request("remove", { agentId: "a1" }).then(() => (removeDoneAt = Date.now()));
+    let spawnedAt = 0;
+    const refusals = new Set<string>();
+    while (!spawnedAt) {
+      try {
+        await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "second life" });
+        spawnedAt = Date.now();
+      } catch (error) {
+        refusals.add((error as { code?: string }).code ?? String(error));
+        if (removeDoneAt && Date.now() - removeDoneAt > 5000) throw new Error("spawn never accepted after the remove", { cause: error });
+      }
+    }
+    await remove;
+    assert.ok(spawnedAt >= removeDoneAt, "a spawn was accepted while the old agent was still being removed");
+    for (const code of refusals) assert.match(code, /agent_exists|agent_removing/);
+    const fresh: EventMessage[] = [];
+    h.client.subscribe("a1", START_OF_LOG, { onEvent: (event) => fresh.push(event) });
+    await waitFor(() => results(fresh).length === 1, 5000, "new agent's turn");
+    assert.equal(fresh[0].seq, 0);
+    assert.equal(existsSync(join(h.dir, "data", "logs", "a1")), true);
+  } finally {
+    await h.cleanup();
+  }
+});

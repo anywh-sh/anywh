@@ -182,6 +182,10 @@ export class AgentHost {
   /** Agents being hibernated to make room in their room; not counted as
    * live, and never picked twice. */
   private readonly roomVictims = new Set<Agent>();
+  /** Ids whose agent is gone from `agents` but whose log is still being
+   * deleted: reusing one before that finishes would reopen the old log
+   * directory and have it deleted from under the new agent. */
+  private readonly removing = new Map<string, Promise<void>>();
   /** This run of the host, carried in every agent's mark. */
   private readonly incarnation = randomBytes(4).toString("hex");
   private policyRunning = false;
@@ -362,6 +366,7 @@ export class AgentHost {
     const agentId = params.agentId;
     if (!isValidAgentId(agentId)) throw new HostError("bad_agent_id", "agentId is missing or invalid");
     if (this.agents.has(agentId)) throw new HostError("agent_exists", `agent ${agentId} already exists`);
+    if (this.removing.has(agentId)) throw new HostError("agent_removing", `agent ${agentId} is still being removed`);
     const runtime = params.runtime ?? "claude";
     if (runtime !== "claude" && runtime !== "codex") throw new HostError("unsupported_runtime", `runtime ${JSON.stringify(runtime)} is not supported`);
     const spec = parseSpec(params.spec);
@@ -385,9 +390,7 @@ export class AgentHost {
     try {
       await this.serialize(agent, () => (runtime === "codex" ? this.startCodexThread(agent) : this.startProcess(agent)));
     } catch (error) {
-      this.agents.delete(agentId);
-      await agent.log.destroy();
-      this.persist();
+      await this.forget(agent);
       throw error;
     }
     const message = str(params.message);
@@ -469,11 +472,25 @@ export class AgentHost {
     await this.serialize(agent, async () => {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "remove");
     });
-    this.agents.delete(agent.agentId);
     this.server.closeSubscriptions(agent.agentId, "removed");
-    await agent.log.destroy();
-    this.persist();
+    await this.forget(agent);
     return { removed: true };
+  }
+
+  /** Drops an agent and deletes its log, keeping its id reserved until the
+   * deletion is done. */
+  private async forget(agent: Agent): Promise<void> {
+    const done = (async () => {
+      this.agents.delete(agent.agentId);
+      this.persist();
+      await agent.log.destroy();
+    })();
+    this.removing.set(agent.agentId, done);
+    try {
+      await done;
+    } finally {
+      this.removing.delete(agent.agentId);
+    }
   }
 
   private hibernatable(agent: Agent): boolean {
