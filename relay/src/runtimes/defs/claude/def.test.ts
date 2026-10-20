@@ -123,12 +123,7 @@ test("portability.mcp.loginArgs: headless by construction — the flag that prin
   assert.deepEqual(claudeRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "--no-browser", "sentry"]);
 });
 
-test("identity.env.set: probes and daemon-less spawns get the opt-outs, the terminal set stays limited to the MCP timeout", () => {
-  const set = claudeRuntimeDef.identity.env.set ?? {};
-  assert.equal(set.DISABLE_AUTOUPDATER, "1");
-  assert.equal(set.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
-  assert.equal(set.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
-  // An interactive shell is where a user may run `claude` by hand: it must
-  // keep its own updater and telemetry choices.
+test("identity.env.set: probes and the terminal keep only the MCP timeout override, never the background-traffic opt-outs", () => {
+  assert.deepEqual(claudeRuntimeDef.identity.env.set, CLAUDE_AGENT_ENV_OVERRIDES);
   assert.deepEqual(CLAUDE_AGENT_ENV_OVERRIDES, { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "0" });
 });
