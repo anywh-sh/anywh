@@ -102,6 +102,13 @@ relay/src/
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking
+  agentHost/               the agent host — a separate service per profile
+                           (own entrypoint, main.ts) that owns long-lived
+                           agent processes so they outlive a relay restart,
+                           plus the relay's client for it (hostClient.ts).
+                           Not `host/`: that folder is the relay's own
+                           machine; this is another process. See
+                           docs/agent-host.md
 ```
 
 ## `server.ts` doesn't move

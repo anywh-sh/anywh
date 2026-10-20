@@ -206,6 +206,13 @@ spawn-per-turn CLI could ever fill in. The contract has to fit its worst
 member as comfortably as its best one, or the "worst" member is the one that
 proves it was never generic in the first place.
 
+A second, long-lived way to run Claude exists for the agent host
+(`docs/agent-host.md`): `defs/claude/persistent.ts` builds the argv and stdin
+lines of one `claude` process that serves many turns over stream-json. It
+is pure like the rest of the def; the process itself is owned by
+`agentHost/claudeProcess.ts`, outside `runtimes/`, because the host — not a
+session — decides when it starts and ends.
+
 ## §8 — testing a def without the CLI installed
 
 Because every def function is pure (§2), a def's test is a table: feed
