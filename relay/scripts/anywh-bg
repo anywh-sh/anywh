@@ -49,7 +49,6 @@ write_exit() {
 # batimento junto do wrapper — sem isso um "pkill -9" que só casa a
 # cmdline do wrapper deixaria o batimento eterno e o job preso na UI.
 WRAPPER=$$
-: > "$ALIVEFILE"
 while :; do
   sleep 5
   # Checa ANTES de bater, não depois: invertido, o laço ainda gravava um
@@ -92,6 +91,12 @@ forward() {
 trap "forward TERM" TERM
 trap "forward INT" INT
 trap "forward HUP" HUP
+
+# First heartbeat only now that the traps are installed: `start` waits for
+# this file, so by the time it returns an immediate `stop` finds a wrapper
+# that forwards TERM gracefully instead of one that dies before it can write
+# `.exit`. (The loop above only touches the file after its first sleep.)
+: > "$ALIVEFILE"
 
 # `wait` devolve 128+N quando um sinal com trap o interrompe, e nesse ponto
 # o comando pode continuar vivo (o trap só repassou o sinal) — daí o laço:
@@ -160,6 +165,18 @@ cmd_start() {
   # `stop` only receives the id, and `setsid` made this PID the process
   # group leader, so persist it next to the other per-job files.
   printf '%s\n' "$!" > "$JOBS_DIR/$id.pid"
+
+  # Do not hand the marker back until the job is really up. The fork returns
+  # before the child has called `setsid()` (no process group yet, so an
+  # immediate `stop` would answer "not running" and leave the job running) and
+  # before it has installed its signal traps. The wrapper writes `.alive` once
+  # both are done, and a job that is already finished has `.exit`. Bounded:
+  # if neither shows up in 2s, print the marker anyway rather than fail.
+  local waited
+  for ((waited = 0; waited < 200; waited++)); do
+    [[ -e "$alivefile" || -e "$exitfile" ]] && break
+    sleep 0.01
+  done
 
   printf '{"anywh_bg":"started","id":"%s","pid":%d,"log":"%s","exitFile":"%s","alive":"%s","label":"%s"}\n' \
     "$(json_escape "$id")" "$pid" "$(json_escape "$log")" "$(json_escape "$exitfile")" \

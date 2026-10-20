@@ -561,26 +561,38 @@ function runBg(home: string, ...args: string[]) {
   return spawnSync("bash", [ANYWH_BG, ...args], { env: { ...process.env, HOME: home }, encoding: "utf8" });
 }
 
+function killGroup(pid: number): void {
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // already gone
+  }
+}
+
 /**
- * `anywh-bg start` returns as soon as it has forked the wrapper, i.e. possibly
- * before the child has called `setsid()` (its process group does not exist yet,
- * so `stop` would answer "not running") and before the wrapper has written its
- * first heartbeat. Wait for that heartbeat, which the wrapper writes right
- * after `setsid`, so the job is really up before a test touches it.
+ * Starts a real job and waits until its wrapper is up (heartbeat written, or
+ * already finished). `anywh-bg start` waits for that itself; this is the
+ * test-side belt, with a startup budget generous enough for a loaded CI box.
+ * If the wait fails the job's group is killed so nothing outlives the test.
  */
 async function startRealJob(home: string, cmd: string): Promise<{ id: string; pid: number; log: string; exitFile: string }> {
   const out = runBg(home, "start", "--label", "t", "--cmd", cmd);
   assert.equal(out.status, 0, out.stderr);
   const marker = JSON.parse(out.stdout.trim()) as { id: string; pid: number; log: string; exitFile: string; alive: string };
-  await waitFor(() => existsSync(marker.alive) || existsSync(marker.exitFile));
+  try {
+    await waitFor(() => existsSync(marker.alive) || existsSync(marker.exitFile), 15_000);
+  } catch (err) {
+    killGroup(marker.pid);
+    throw err;
+  }
   return marker;
 }
 
-async function waitFor(cond: () => boolean, ms = 10_000): Promise<void> {
+async function waitFor(cond: () => boolean, ms = 5000): Promise<void> {
   const end = Date.now() + ms;
   while (!cond()) {
     if (Date.now() > end) throw new Error("waitFor timed out");
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
   }
 }
 
@@ -590,8 +602,10 @@ test("cancelledMarkerPath: sits next to the .exit file", () => {
 
 test("anywh-bg stop: a stopped real job fires NO onFinished and the marker is cleaned up", async () => {
   const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  let jobPid: number | undefined;
   try {
     const job = await startRealJob(home, "sleep 30");
+    jobPid = job.pid;
     const finished: FinishedBackgroundJob[] = [];
     const tracker = new BackgroundJobTracker({ onFinished: (j) => finished.push(j) });
     tracker.observeEvent("sess-1", startedEvent(job.id, job.log, job.exitFile, "t", job.pid));
@@ -608,6 +622,66 @@ test("anywh-bg stop: a stopped real job fires NO onFinished and the marker is cl
     assert.equal(existsSync(cancelledMarkerPath(job.exitFile)), false, "marker removed once consumed");
     tracker.stopPolling();
   } finally {
+    if (jobPid) killGroup(jobPid);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg: start does not return before the job is up (slow setsid), so an immediate stop works", () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  let pid: number | undefined;
+  try {
+    // `setsid` shim that stalls: stands in for a loaded machine where the
+    // forked child has not yet created its process group when `start` returns.
+    const real = spawnSync("bash", ["-c", "command -v setsid"], { encoding: "utf8" }).stdout.trim();
+    const shimDir = join(home, "shim");
+    mkdirSync(shimDir);
+    writeFileSync(join(shimDir, "setsid"), `#!/bin/bash\nsleep 0.5\nexec "${real}" "$@"\n`);
+    chmodSync(join(shimDir, "setsid"), 0o755);
+    const env = { ...process.env, HOME: home, PATH: `${shimDir}:${process.env.PATH ?? ""}` };
+    const start = spawnSync("bash", [ANYWH_BG, "start", "--label", "t", "--cmd", "sleep 30"], { env, encoding: "utf8" });
+    assert.equal(start.status, 0, start.stderr);
+    const job = JSON.parse(start.stdout.trim()) as { id: string; pid: number };
+    pid = job.pid;
+    const stop = spawnSync("bash", [ANYWH_BG, "stop", job.id], { env, encoding: "utf8" });
+    assert.equal(stop.status, 0, stop.stderr);
+    assert.match(stop.stdout, /"stopped":true/);
+  } finally {
+    if (pid) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("anywh-bg: a stop issued immediately after start always stops the job", () => {
+  const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  const iterations = Number(process.env.BG_RACE_ITERATIONS ?? 15);
+  const started: number[] = [];
+  try {
+    for (let i = 0; i < iterations; i++) {
+      // Deliberately no wait between the two: that is the race under test.
+      const out = runBg(home, "start", "--label", "t", "--cmd", "sleep 30");
+      assert.equal(out.status, 0, out.stderr);
+      const job = JSON.parse(out.stdout.trim()) as { id: string; pid: number; exitFile: string };
+      started.push(job.pid);
+      const stop = runBg(home, "stop", job.id);
+      assert.equal(stop.status, 0, stop.stderr);
+      assert.match(stop.stdout, /"stopped":true/, `iteration ${String(i)}: ${stop.stdout}`);
+      assert.equal(readFileSync(job.exitFile, "utf8").trim(), "143", "a graceful stop records the TERM status");
+    }
+  } finally {
+    for (const pid of started) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
     rmSync(home, { recursive: true, force: true });
   }
 });
@@ -615,7 +689,9 @@ test("anywh-bg stop: a stopped real job fires NO onFinished and the marker is cl
 test("anywh-bg stop: a job that already finished is NOT silenced", async () => {
   const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
   try {
-    const job = await startRealJob(home, "echo done");
+    const started = runBg(home, "start", "--label", "t", "--cmd", "echo done");
+    assert.equal(started.status, 0, started.stderr);
+    const job = JSON.parse(started.stdout.trim()) as { id: string; pid: number; log: string; exitFile: string };
     await waitFor(() => existsSync(job.exitFile));
     const stop = runBg(home, "stop", job.id);
     assert.equal(stop.status, 0, stop.stderr);
@@ -700,8 +776,10 @@ test("BackgroundJobTracker: a cancel marker never swallows a real failure (exit 
 
 test("anywh-bg stop: a job that finishes with exit 1 right after the marker is written is reported, not silenced", async () => {
   const home = mkdtempSync(join(tmpdir(), "anywh-bgstop-test-"));
+  let jobPid: number | undefined;
   try {
     const job = await startRealJob(home, "sleep 30");
+    jobPid = job.pid;
     // `touch` shim: creates the marker like the real one, then makes the job
     // "finish by itself with exit 1" at exactly the racy moment.
     const shimDir = join(home, "shim");
@@ -724,8 +802,8 @@ test("anywh-bg stop: a job that finishes with exit 1 right after the marker is w
     tracker.pollOnce();
     assert.equal(finished[0]?.exitCode, 1, "the real failure is reported");
     tracker.stopPolling();
-    process.kill(-job.pid, "SIGKILL");
   } finally {
+    if (jobPid) killGroup(jobPid);
     rmSync(home, { recursive: true, force: true });
   }
 });
