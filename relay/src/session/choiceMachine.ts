@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
-import type { ChoicePrompt, PersistedChoice } from "./sessionStore.js";
+import type { ChoicePrompt, DeferredToolCall, PersistedApproval, PersistedChoice } from "./sessionStore.js";
 import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from "./broadcast.js";
 
 /** What `answerChoice` resolved, told apart so `SharedSession` (the only
@@ -12,10 +12,21 @@ import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from
 export type AnswerChoiceResult =
   | { kind: "not_found" }
   | { kind: "approval" }
-  | { kind: "choice"; answers: ChoiceAnswer[] };
+  | { kind: "choice"; answers: ChoiceAnswer[] }
+  /** The held-back tool calls of a deferred approval, with the answers in
+   * the same order (`answers[i]` is about `calls[i]`). */
+  | { kind: "deferredApproval"; calls: DeferredToolCall[]; answers: ChoiceAnswer[] };
+
+/** Where the deferred-approval slot is rehydrated from and mirrored to. */
+export interface DeferredApprovalStorage {
+  /** A deferred approval persisted before a relay restart, if any. */
+  initial?: PersistedApproval;
+  /** Fires whenever the slot is set or emptied (`undefined`). */
+  onChange?: (approval: PersistedApproval | undefined) => void;
+}
 
 /**
- * Owns the two pending-question slots a session can have open at once.
+ * Owns the pending-question slots a session can have open at once.
  * Two SEPARATE slots, not one
  * discriminated union anymore. They used to share a single field (told
  * apart by a `kind: "mcp" | "planText"` tag) because both were "a question
@@ -49,6 +60,14 @@ export type AnswerChoiceResult =
  * only by `answerChoice` (human answered) or `discardStaleChoice` (human
  * moved on without answering: new message, edit, `/clear`).
  *
+ * A third slot, `deferredApproval`, is the non-blocking form of
+ * `pendingApproval` for sessions that turned deferral on: the tool call was
+ * already refused on the spot (the turn ends, no child and no HTTP call is
+ * left waiting), and the human's verdict arrives later as a new turn, exactly
+ * like `pendingChoice`. It has the same lifecycle as `pendingChoice`
+ * (persisted, rehydrated, cleared by an answer or by the human moving on) and
+ * holds one entry per refused call of the turn, published as one prompt.
+ *
  * `pendingApproval` is in-memory only: on a relay restart there's nothing
  * meaningful left to resume for it (its underlying `claude` child dies too,
  * see `McpChoiceBridge`'s per-turn `unregister`). `pendingChoice` is
@@ -59,6 +78,7 @@ export type AnswerChoiceResult =
 export class ChoiceMachine {
   private pendingApproval: (ChoicePrompt & { resolve: (answers: ChoiceAnswer[]) => void }) | undefined;
   private pendingChoice: PersistedChoice | undefined;
+  private deferredApproval: PersistedApproval | undefined;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
@@ -72,26 +92,36 @@ export class ChoiceMachine {
     private readonly onChoiceChange?: (choice: PersistedChoice | undefined) => void,
     /** Injectable clock (epoch ms) for `askedAt`. */
     private readonly now: () => number = Date.now,
+    private readonly deferredStorage: DeferredApprovalStorage = {},
   ) {
     this.pendingChoice = initialChoice;
+    this.deferredApproval = deferredStorage.initial;
   }
 
-  /** Mirrors the deferred slot into the store. Always runs AFTER the
+  /** Mirrors a deferred slot into the store. Always runs AFTER the
    * in-memory transition and the broadcast, and never throws: the write is
    * sync (`writeFileSync`) and can fail (disk full, read-only file), which
    * must cost at most a stale record on disk — not the user's answer, the
    * dismissal of the card, or the model's tool call. */
   private mirror(choice: PersistedChoice | undefined): void {
+    this.mirrorWith(() => this.onChoiceChange?.(choice), "choice");
+  }
+
+  private mirrorApproval(approval: PersistedApproval | undefined): void {
+    this.mirrorWith(() => this.deferredStorage.onChange?.(approval), "approval");
+  }
+
+  private mirrorWith(write: () => void, what: string): void {
     // One retry: a failed CLEAR leaves the old question on disk, and after a
     // restart an answered question would come back. (The store's in-memory
     // records are already updated, so any later successful write of the
     // file fixes it too.)
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        this.onChoiceChange?.(choice);
+        write();
         return;
       } catch (error) {
-        if (attempt === 2) console.error("[relay] could not persist the pending choice:", error instanceof Error ? error.message : String(error));
+        if (attempt === 2) console.error(`[relay] could not persist the pending ${what}:`, error instanceof Error ? error.message : String(error));
       }
     }
   }
@@ -100,9 +130,14 @@ export class ChoiceMachine {
    * conversation (see `SharedSession`'s constructor). Silent: nothing was
    * shown to anyone yet. Only the stored copy needs clearing. */
   dropRehydrated(): void {
-    if (!this.pendingChoice) return;
-    this.pendingChoice = undefined;
-    this.mirror(undefined);
+    if (this.pendingChoice) {
+      this.pendingChoice = undefined;
+      this.mirror(undefined);
+    }
+    if (this.deferredApproval) {
+      this.deferredApproval = undefined;
+      this.mirrorApproval(undefined);
+    }
   }
 
   /** Called by the MCP bridge
@@ -181,6 +216,32 @@ export class ChoiceMachine {
     });
   }
 
+  /** The non-blocking counterpart of `presentApprovalChoice`: the caller has
+   * ALREADY refused `call` (the CLI got its answer and the turn will end), so
+   * this only records that a human still has to say yes or no, and returns at
+   * once — no promise, nothing for `cancelPendingApproval` to settle. The
+   * verdict comes back through `answerChoice` as a `deferredApproval` result.
+   *
+   * One prompt per turn's worth of calls: a model that issues several
+   * tool calls before it notices the refusal produces several of these, so a
+   * later call is appended and the prompt re-published under a fresh id (the
+   * previous card is dismissed; `askedAt` keeps meaning "since when is a human
+   * wanted"). A repeat of a `toolUseId` already held is ignored. */
+  deferApproval(call: DeferredToolCall, question: ChoiceQuestion): void {
+    const held = this.deferredApproval;
+    if (held && call.toolUseId !== undefined && held.calls.some((existing) => existing.toolUseId === call.toolUseId)) return;
+    if (held) broadcastChoiceResolved(this.clients, held.promptId);
+    this.deferredApproval = {
+      promptId: randomUUID(),
+      questions: [...(held?.questions ?? []), question],
+      calls: [...(held?.calls ?? []), call],
+      askedAt: held?.askedAt ?? this.now(),
+    };
+    broadcastChoicePrompt(this.clients, this.deferredApproval, "approval");
+    this.mirrorApproval(this.deferredApproval);
+    if (!held) this.onPromptShown?.("approval", [question]);
+  }
+
   /** Whatever's left pending in `pendingApproval` when a turn ends, for ANY
    * reason (normal completion, error, or `stopTurn`/SIGINT — `runTurn`'s
    * `finally` calls this unconditionally), must be force-resolved: the
@@ -220,11 +281,20 @@ export class ChoiceMachine {
    * `plan`-mode text marker) uniformly — from here on they're
    * indistinguishable, both just "a deferred prompt nobody answered yet". */
   discardStaleChoice(): void {
-    if (!this.pendingChoice) return;
-    const { promptId } = this.pendingChoice;
-    this.pendingChoice = undefined;
-    broadcastChoiceResolved(this.clients, promptId);
-    this.mirror(undefined);
+    if (this.pendingChoice) {
+      const { promptId } = this.pendingChoice;
+      this.pendingChoice = undefined;
+      broadcastChoiceResolved(this.clients, promptId);
+      this.mirror(undefined);
+    }
+    // A deferred approval is the same kind of leftover: the refused call
+    // belongs to a conversation the human has now moved past.
+    if (this.deferredApproval) {
+      const { promptId } = this.deferredApproval;
+      this.deferredApproval = undefined;
+      broadcastChoiceResolved(this.clients, promptId);
+      this.mirrorApproval(undefined);
+    }
   }
 
   /** Called from the WS handler (`server.ts`) when any connected device
@@ -259,6 +329,13 @@ export class ChoiceMachine {
       this.mirror(undefined);
       return { kind: "choice", answers };
     }
+    if (this.deferredApproval?.promptId === promptId) {
+      const { calls } = this.deferredApproval;
+      this.deferredApproval = undefined;
+      broadcastChoiceResolved(this.clients, promptId);
+      this.mirrorApproval(undefined);
+      return { kind: "deferredApproval", calls, answers };
+    }
     return { kind: "not_found" };
   }
 
@@ -272,6 +349,7 @@ export class ChoiceMachine {
    * set at once — see the class doc comment above. */
   sendPendingTo(socket: WebSocket): void {
     if (this.pendingChoice) sendChoicePrompt(socket, this.pendingChoice, "choice");
+    if (this.deferredApproval) sendChoicePrompt(socket, this.deferredApproval, "approval");
     if (this.pendingApproval) sendChoicePrompt(socket, this.pendingApproval, "approval");
   }
 }
