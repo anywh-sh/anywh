@@ -73,3 +73,10 @@ test("titleFromTask takes the first line and cuts long ones at a word", () => {
   assert.ok(long.endsWith("…"));
   assert.ok(!long.includes("  "));
 });
+
+test("contextSeenAt is a timestamp or absent", () => {
+  const base = { roomId: "r", role: "principal", createdBy: "user", task: "" };
+  assert.equal(isRoomMembership({ ...base, contextSeenAt: 1700000000000 }), true);
+  assert.equal(isRoomMembership({ ...base, contextSeenAt: "soon" }), false);
+  assert.equal(isRoomMembership({ ...base, contextSeenAt: -1 }), false);
+});

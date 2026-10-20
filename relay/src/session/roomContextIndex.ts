@@ -5,6 +5,7 @@
 // fixed budget. Reading the files is up to each agent, on demand.
 //
 // Pure: no I/O, so the format and the budget are testable as tables.
+import { ROOM_CONTEXT_NOTE_PREFIX } from "../protocol/relayNote.js";
 
 export type ContextItemKind = "text" | "pdf" | "image" | "binary";
 
@@ -94,7 +95,8 @@ export function buildIndex(dir: string, items: readonly ContextItem[], maxChars 
 
 /** The notice an agent already alive gets when items arrive after it was
  * born (its prompt is frozen, so it hears about them in a message). */
-export const CONTEXT_NOTE_PREFIX = "New in the room's context since you started:";
+
+const CONTEXT_NOTE_PREFIX = ROOM_CONTEXT_NOTE_PREFIX;
 
 export function buildNotice(items: readonly ContextItem[], limit = 5): string {
   const shown = items.slice(0, limit).map((item) => line(item).slice(2));

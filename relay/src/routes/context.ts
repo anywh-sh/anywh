@@ -4,6 +4,7 @@ import type { PushStore } from "../push/pushStore.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
 import type { RoomCanvasStore } from "../session/roomCanvas.js";
+import type { RoomContextStore } from "../session/roomContextStore.js";
 import type { RoomManager } from "../session/roomManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
 
@@ -33,6 +34,8 @@ export interface RouteContext {
   /** Each room's canvas (layout only), persisted beside the sessions file. */
   readonly roomCanvas: RoomCanvasStore;
   readonly roomManager: RoomManager;
+  /** Each room's context folder and its index. */
+  readonly roomContext: RoomContextStore;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

@@ -241,11 +241,17 @@ export class RoomContextStore {
       }
       let changed = false;
       const items: ContextItem[] = [];
-      for (const item of before) {
+      for (let item of before) {
         if (!present.has(item.name)) {
           changed = true;
           if (item.extraction) rmSync(join(dir, item.extraction), { force: true });
           continue;
+        }
+        // Seen first by a sync with no one to credit: the agent that lists it
+        // in its report is credited now.
+        if (attribution && (item.author === "agent" || item.author === "unknown") && attribution.artifacts.some((artifact) => basename(artifact) === item.name)) {
+          item = { ...item, author: attribution.author };
+          changed = true;
         }
         const size = statSync(join(dir, item.name)).size;
         if (size !== item.bytes && item.kind === "text") {
@@ -294,6 +300,25 @@ export class RoomContextStore {
     } catch {
       return buildIndex(this.dirFor(roomId), []);
     }
+  }
+
+  /** The index as it stands on disk, without looking at the folder: what a
+   * prompt built right now carries. Every change the relay itself makes
+   * rewrites it, and `sync` catches up with what agents wrote. */
+  indexNow(roomId: string): string {
+    const dir = this.dirFor(roomId);
+    try {
+      return readFileSync(join(dir, INDEX_FILE), "utf8");
+    } catch {
+      return buildIndex(dir, []);
+    }
+  }
+
+  /** Items the relay learned of after `at` (epoch ms), oldest first. */
+  itemsAfter(roomId: string, at: number): ContextItem[] {
+    return this.readManifest(this.dirFor(roomId))
+      .filter((item) => item.at > at)
+      .sort((a, b) => a.at - b.at);
   }
 
   /** The folder and everything in it (the room is gone). */

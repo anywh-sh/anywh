@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { readRawBody } from "../fs/uploads.js";
 import { readJsonBody } from "../protocol/httpBody.js";
 import { parseRoomCanvas } from "../session/roomCanvas.js";
+import { CONTEXT_ITEM_MAX_BYTES } from "../session/roomContextStore.js";
 import type { RouteContext, RouteHandler } from "./context.js";
 
 /** `undefined` for a malformed escape, which is answered rather than thrown. */
@@ -80,6 +82,41 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
   send(res, 200, { canvas });
 }
 
+/** `/rooms/:roomId/context[/:name]`: the room's shared files and their index. */
+async function handleContext(req: IncomingMessage, res: ServerResponse, ctx: RouteContext, roomId: string, name: string | undefined): Promise<void> {
+  const { roomContext } = ctx;
+  if (req.method === "GET" && name === undefined) {
+    const items = await roomContext.list(roomId);
+    send(res, 200, { dir: roomContext.dirFor(roomId), items, index: await roomContext.index(roomId) });
+    return;
+  }
+  if (req.method === "POST" && name === undefined) {
+    const url = new URL(req.url ?? "/", "http://relay");
+    const fileName = url.searchParams.get("name");
+    if (!fileName) {
+      send(res, 400, { error: "name is required" });
+      return;
+    }
+    let data: Buffer;
+    try {
+      data = await readRawBody(req, CONTEXT_ITEM_MAX_BYTES);
+    } catch {
+      send(res, 413, { error: `the file is larger than ${CONTEXT_ITEM_MAX_BYTES} bytes` });
+      return;
+    }
+    const added = await roomContext.add(roomId, { name: fileName, data, author: "user" });
+    if (added.ok) send(res, 201, { item: added.item, ...(added.warning ? { warning: added.warning } : {}) });
+    else send(res, added.status, { error: added.error });
+    return;
+  }
+  if (req.method === "DELETE" && name !== undefined) {
+    if (await roomContext.remove(roomId, name)) send(res, 200, { removed: true });
+    else send(res, 404, { error: "no such item in this room's context" });
+    return;
+  }
+  send(res, 405, { error: "method not allowed" });
+}
+
 /**
  * Rooms over HTTP:
  *   POST /rooms                  opens a room: `{ agentId?, model?, effort?,
@@ -99,6 +136,14 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
  *                                longer counts under the room's cap
  *   POST /rooms/:roomId/agents/:agentId/resume
  *                                lets a stopped worker take turns again
+ *   GET  /rooms/:roomId/context  the room's shared files, their index, and
+ *                                the folder agents read them from
+ *   POST /rooms/:roomId/context?name=<file>
+ *                                adds the raw request body as an item
+ *                                (extracted to text when it is a PDF)
+ *   DELETE /rooms/:roomId/context/:name
+ *                                removes an item: its file, its extraction,
+ *                                its line of the index
  * 404 for a room whose principal does not exist.
  */
 /** `/rooms/:roomId/agents/:agentId/subtasks[/:taskId/stop]`: a member's
@@ -163,6 +208,20 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
     const created = ctx.roomManager.createRoom(typeof body === "object" && body !== null ? body : {});
     if (created.ok) send(res, 201, { roomId: created.roomId });
     else send(res, 400, { error: created.error });
+    return true;
+  }
+  const contextRoute = /^\/rooms\/([^/]+)\/context(?:\/([^/]+))?$/.exec(url.pathname);
+  if (contextRoute) {
+    const [roomId, name] = [decode(contextRoute[1]), contextRoute[2] === undefined ? undefined : decode(contextRoute[2])];
+    if (roomId === undefined || (contextRoute[2] !== undefined && name === undefined)) {
+      send(res, 400, { error: "malformed path" });
+      return true;
+    }
+    if (!roomExists(ctx, roomId)) {
+      send(res, 404, { error: "room not found" });
+      return true;
+    }
+    await handleContext(req, res, ctx, roomId, name);
     return true;
   }
   const match = /^\/rooms\/([^/]+)(\/canvas)?$/.exec(url.pathname);

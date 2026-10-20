@@ -32,6 +32,8 @@ export interface SessionManagerRoomOptions {
   readonly owner?: string;
   /** A room member's session was deleted. */
   readonly onMemberDeleted?: (sessionId: string) => void;
+  /** See `SharedSessionOptions.roomTurnNote`. */
+  readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -384,6 +386,7 @@ export class SessionManager {
         ? {
             hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
+            roomTurnNote: () => this.rooms.turnNote?.(id),
           }
         : {}),
       // Nobody types into a worker: no suggestion to generate after its turns.

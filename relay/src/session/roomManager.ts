@@ -38,6 +38,8 @@ import {
   roomToolsFor,
   workerInstructions,
 } from "./roomTools.js";
+import { buildNotice } from "./roomContextIndex.js";
+import type { RoomContextStore } from "./roomContextStore.js";
 import type { SessionStore } from "./sessionStore.js";
 import type { SharedSession, TurnOutcome } from "./sharedSession.js";
 
@@ -76,6 +78,8 @@ export interface RoomManagerOptions {
   /** Removes an agent from the host. */
   readonly removeFromHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
+  /** The rooms' context folders. Without it a room has no shared context. */
+  readonly context?: RoomContextStore;
 }
 
 export interface CreateRoomInput {
@@ -126,10 +130,15 @@ export class RoomManager implements RoomToolHost {
   setupFor(sessionId: string): RoomAgentSetup | undefined {
     const room = this.store.getRoom(sessionId);
     if (!room || this.admit(sessionId) !== undefined) return undefined;
+    const context = this.options.context && { dir: this.options.context.dirFor(room.roomId), index: this.options.context.indexNow(room.roomId) };
+    // Its prompt, index included, is built now and frozen by the CLI at its
+    // first request: what arrives after this is told in a message.
+    if (room.contextSeenAt === undefined && context) this.store.setRoom(sessionId, { ...room, contextSeenAt: this.now() });
     return {
       role: room.role,
-      instructions: room.role === "principal" ? principalInstructions(this.runtimes()) : workerInstructions(),
+      instructions: room.role === "principal" ? principalInstructions(this.runtimes(), context) : workerInstructions(context),
       tools: roomToolsFor(room.role),
+      ...(context ? { addDirs: [context.dir] } : {}),
       bridgeServerName: ROOM_MCP_SERVER_NAME,
       bridgeUrl: this.options.bridge.urlFor(sessionId),
     };
@@ -143,20 +152,57 @@ export class RoomManager implements RoomToolHost {
     return roomToolsFor(room.role);
   }
 
-  callTool(sessionId: string, name: string, args: unknown): Promise<RoomToolResult> {
+  /** A note for the model alone on an agent's next turn when items joined the
+   * room's context after it was born, and the commit that marks them told
+   * (called once the turn went through). */
+  turnNote(sessionId: string): { text: string; commit: () => void } | undefined {
     const room = this.store.getRoom(sessionId);
-    if (!room) return Promise.resolve(fail("This session is not an agent of a room."));
+    const context = this.options.context;
+    if (!room || !context || room.contextSeenAt === undefined) return undefined;
+    const fresh = context.itemsAfter(room.roomId, room.contextSeenAt);
+    if (fresh.length === 0) return undefined;
+    const seenAt = fresh[fresh.length - 1].at;
+    return {
+      text: buildNotice(fresh),
+      commit: () => {
+        const current = this.store.getRoom(sessionId);
+        if (current && (current.contextSeenAt ?? 0) < seenAt) this.store.setRoom(sessionId, { ...current, contextSeenAt: seenAt });
+      },
+    };
+  }
+
+  async callTool(sessionId: string, name: string, args: unknown): Promise<RoomToolResult> {
+    const room = this.store.getRoom(sessionId);
+    if (!room) return fail("This session is not an agent of a room.");
     switch (name) {
       case "delegate":
-        return Promise.resolve(this.delegate(sessionId, room, args));
-      case "report":
-        return Promise.resolve(this.report(sessionId, room, args));
+        // What agents wrote into the folder since the last look is in the
+        // index the new worker is born with.
+        await this.options.context?.sync(room.roomId).catch(() => undefined);
+        return this.delegate(sessionId, room, args);
+      case "report": {
+        const result = this.report(sessionId, room, args);
+        if (!result.isError) await this.adoptResultFiles(sessionId, room, args);
+        return result;
+      }
       case "message_agent":
-        return Promise.resolve(this.messageAgent(sessionId, room, args));
+        return this.messageAgent(sessionId, room, args);
       case "room_status":
-        return Promise.resolve(this.roomStatus(sessionId, room));
+        return this.roomStatus(sessionId, room);
       default:
-        return Promise.resolve(fail(`Unknown tool "${name}".`));
+        return fail(`Unknown tool "${name}".`);
+    }
+  }
+
+  /** A report may name files the agent wrote into the room's folder: they
+   * join the index, credited to it. */
+  private async adoptResultFiles(sessionId: string, room: RoomMembership, args: unknown): Promise<void> {
+    const parsed = parseReportArgs(args);
+    if (!this.options.context || !parsed.ok) return;
+    try {
+      await this.options.context.sync(room.roomId, { author: this.store.getTitle(sessionId) ?? "agent", artifacts: parsed.value.artifacts });
+    } catch (error) {
+      console.warn(`[relay] could not index the room's context after a report: ${(error as Error).message}`);
     }
   }
 
