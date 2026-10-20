@@ -202,11 +202,18 @@ agentHost?.on("status", (status) => {
   if (status !== "connected") return;
   roomManager
     .reconcileHost()
-    .catch((error: unknown) => console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message))
-    .finally(() => {
-      roomManager.resumeQueues();
-      sweepWorktrees();
-    });
+    .then(
+      () => {
+        // Only once the host's turns in flight have been picked up: the sweep
+        // trusts the sessions' own idea of who is at work.
+        roomManager.resumeQueues();
+        sweepWorktrees();
+      },
+      (error: unknown) => {
+        console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message);
+        roomManager.resumeQueues();
+      },
+    );
 });
 
 

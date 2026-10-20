@@ -289,6 +289,8 @@ export class RoomManager implements RoomToolHost {
    * running, is done (reported, nothing queued), and where it works. */
   worktreeAgentFacts(agentId: string): { exists: boolean; busy: boolean; done: boolean; title?: string; cwd?: string; roomId?: string } {
     const room = this.store.getRoom(agentId);
+    // A store that did not load whole says nothing of who is gone.
+    if (!room && !this.store.loadedOk) return { exists: true, busy: true, done: false };
     if (!room) return { exists: false, busy: false, done: true };
     // With the host away a turn may be running that this relay cannot see:
     // nothing is removed under an agent it cannot tell is idle.

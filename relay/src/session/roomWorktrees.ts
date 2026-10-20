@@ -336,6 +336,8 @@ export class RoomWorktrees {
     // not for newer commits: they are decided on again, from the start.
     const moved = async (): Promise<boolean> => !force && record.removing?.tip !== undefined && (await branchExists(repo, record.branch)) && (await branchTip(repo, record.branch)) !== record.removing.tip;
     if (await moved()) return this.reopen(record, "its branch moved after the removal was decided");
+    // Nor for files made since that git itself would delete unasked (ignored ones).
+    if (!force && existsSync(record.path) && !(await isClean(record.path))) return this.reopen(record, "its worktree changed after the removal was decided");
     if (existsSync(record.path)) {
       const removed = await removeWorktree(repo, record.path, force);
       if (!removed.ok && existsSync(record.path)) return refuse(removed.stderr.trim() || "git refused to remove it");
