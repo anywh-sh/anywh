@@ -28,6 +28,11 @@
 //   [[bg-task:<path>]]   report a background task and end the turn; the
 //                        task is reported finished once <path> exists
 //   [[crash]]            exit with code 3 in the middle of the turn
+//   [[stale-result:<path>]] end the turn normally; when the NEXT message
+//                        arrives, first print one more lone `result` (as if
+//                        a background-triggered turn's result were still in
+//                        the pipe when the host wrote it), then wait until
+//                        <path> exists before starting that message's turn
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, writeFileSync } from "node:fs";
@@ -43,6 +48,7 @@ export async function runPersistent(args) {
   const children = [];
   let turn = null; // { absorbed: string[], interrupt: () => void }
   let inputEnded = false;
+  let staleBeforeNext = null; // gate path, see [[stale-result]]
   let turns = 0;
 
   const emit = (event) => process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
@@ -100,6 +106,8 @@ export async function runPersistent(args) {
     emit({ type: "system", subtype: "init", model, cwd: process.cwd(), tools: ["Bash"] });
     if (partial) emit({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" } } });
 
+    const stale = /\[\[stale-result:([^\]]+)\]\]/.exec(text)?.[1];
+    if (stale) staleBeforeNext = stale;
     if (text.includes("[[crash]]")) {
       process.exit(3);
     }
@@ -174,6 +182,17 @@ export async function runPersistent(args) {
       const text = (message.message?.content ?? []).map((block) => block.text ?? "").join("");
       if (turn) {
         turn.absorbed.push(text);
+        continue;
+      }
+      if (staleBeforeNext) {
+        const gate = staleBeforeNext;
+        staleBeforeNext = null;
+        emit({ type: "result", subtype: "success", is_error: false, terminal_reason: "completed", result: "late result of an earlier turn", num_turns: turns });
+        turn = { absorbed: [], interrupt: null };
+        void waitForFile(gate).then(() => {
+          turn = null;
+          void runTurn(text);
+        });
         continue;
       }
       void runTurn(text);

@@ -68,6 +68,11 @@ export interface AgentHostOptions {
   readonly maxAlivePerRoom?: number;
   /** How long a shutdown waits for turns in flight before interrupting them. */
   readonly drainGraceMs?: number;
+  /** After interrupting during a drain, how long to wait for the turns to end. */
+  readonly drainInterruptGraceMs?: number;
+  /** After a `result`, how long a message written since the turn began may
+   * still turn out to start a turn of its own (see `onLine`). */
+  readonly turnSettleMs?: number;
   readonly log?: EventLogOptions;
   readonly now?: () => number;
   /** The Codex def to drive Codex agents with (tests point it at a fake
@@ -101,6 +106,11 @@ interface Agent {
   lastActivityAt: number;
   awaitingUser: boolean;
   backgroundTasks: number;
+  /** Messages written since the CLI last announced a turn (`system`/`init`).
+   * A `result` arriving while this is non-zero may belong to an earlier
+   * turn, with the message still to be read: see `onLine`. */
+  messagesSinceInit: number;
+  settleTimer?: NodeJS.Timeout;
   stopReason?: StopReason;
   failure?: string;
   /** Codex only: the turn in flight on the agent's thread. */
@@ -117,6 +127,7 @@ const DEFAULT_MAX_ALIVE_PER_ROOM = 10;
 const DEFAULT_DRAIN_GRACE_MS = 120_000;
 /** After interrupting during a drain, how long to wait for the turns to end. */
 const DRAIN_INTERRUPT_GRACE_MS = 10_000;
+const DEFAULT_TURN_SETTLE_MS = 2000;
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -241,6 +252,7 @@ export class AgentHost {
         lastActivityAt: saved.lastActivityAt,
         awaitingUser: saved.awaitingUser,
         backgroundTasks: 0,
+        messagesSinceInit: 0,
         stopReason: wasRunning ? "host_restart" : saved.stopReason,
         failure: opened.error ? `log_error: ${opened.error}` : saved.failure,
         queue: Promise.resolve(),
@@ -361,6 +373,7 @@ export class AgentHost {
       lastActivityAt: now,
       awaitingUser: false,
       backgroundTasks: 0,
+      messagesSinceInit: 0,
       queue: Promise.resolve(),
     };
     this.agents.set(agentId, agent);
@@ -399,11 +412,13 @@ export class AgentHost {
    * (the CLI then folds it into that turn instead of starting a new one). */
   private write(agent: Agent, text: string): boolean {
     this.refuseRemoved(agent);
+    this.refuseWhileDraining();
     const proc = agent.proc;
     if (!proc) throw new HostError("not_running", `agent ${agent.agentId} has no process`);
     const duringTurn = agent.turnInFlight;
     this.record(agent, { type: "host_user_message", text, duringTurn });
     proc.writeUserMessage(text);
+    agent.messagesSinceInit++;
     const wasAwaiting = agent.awaitingUser;
     agent.awaitingUser = false;
     if (!duringTurn) {
@@ -708,6 +723,7 @@ export class AgentHost {
 
   private async startProcess(agent: Agent): Promise<void> {
     this.refuseRemoved(agent);
+    this.refuseWhileDraining();
     await this.makeRoomFor(agent);
     this.refuseRemoved(agent);
     const resumeSessionId = agent.sessionId;
@@ -740,9 +756,15 @@ export class AgentHost {
     agent.proc = proc;
     agent.lifecycle = "alive";
     this.record(agent, { type: "host_process", subtype: "spawned", pid: proc.pid, resumed: resumeSessionId !== undefined });
+    void proc.exited.then((info) => this.onExit(agent, proc, info.code, info.signal));
+    if (this.draining) {
+      // The drain began while this process was starting: nothing may run
+      // past it. Ended before any message reaches it.
+      await this.endProcess(agent, "shutdown");
+      throw new HostError("draining", "the agent host is shutting down");
+    }
     this.touch(agent);
     this.persist();
-    void proc.exited.then((info) => this.onExit(agent, proc, info.code, info.signal));
   }
 
   /** Ends the agent's process for `reason` and waits until it is gone. */
@@ -767,6 +789,9 @@ export class AgentHost {
     agent.proc = undefined;
     agent.turnInFlight = false;
     agent.backgroundTasks = 0;
+    agent.messagesSinceInit = 0;
+    if (agent.settleTimer) clearTimeout(agent.settleTimer);
+    agent.settleTimer = undefined;
     const known = this.agents.get(agent.agentId) === agent;
     if (known && agent.ending !== "remove") {
       this.record(agent, { type: "host_process", subtype: "exited", code, signal: sig, expected });
@@ -823,9 +848,18 @@ export class AgentHost {
     }
     switch (event.type) {
       case "result":
-        agent.turnInFlight = false;
-        agent.lastTurnEndedAt = this.now();
-        this.notifyTurnWaiters();
+        if (agent.messagesSinceInit > 0) {
+          // A message was written after the CLI announced the turn this
+          // result ends. Folded into that turn ("steering") nothing more
+          // comes; read as a turn of its own, a `system`/`init` follows
+          // shortly. Until one or the other is clear the agent counts as
+          // working, so a drain or hibernation cannot drop the message.
+          this.settleAfterResult(agent);
+        } else {
+          agent.turnInFlight = false;
+          agent.lastTurnEndedAt = this.now();
+          this.notifyTurnWaiters();
+        }
         break;
       case "assistant":
         // Output with no turn of ours in flight: the CLI started one on its
@@ -838,12 +872,36 @@ export class AgentHost {
         break;
       case "system":
         if (event.subtype === "background_tasks_changed" && Array.isArray(event.tasks)) agent.backgroundTasks = event.tasks.length;
+        if (event.subtype === "init") {
+          // The CLI announces every turn it starts with `init`.
+          agent.messagesSinceInit = 0;
+          if (agent.settleTimer) clearTimeout(agent.settleTimer);
+          agent.settleTimer = undefined;
+          if (!agent.turnInFlight) {
+            agent.turnInFlight = true;
+            agent.turnStartedAt = this.now();
+          }
+        }
         break;
       default:
         break;
     }
     agent.lastActivityAt = this.now();
     if (this.stateOf(agent) !== before) this.broadcast(agent);
+  }
+
+  private settleAfterResult(agent: Agent): void {
+    if (agent.settleTimer) clearTimeout(agent.settleTimer);
+    agent.settleTimer = setTimeout(() => {
+      agent.settleTimer = undefined;
+      if (agent.messagesSinceInit === 0) return;
+      agent.messagesSinceInit = 0;
+      agent.turnInFlight = false;
+      agent.lastTurnEndedAt = this.now();
+      this.broadcast(agent);
+      this.notifyTurnWaiters();
+    }, this.options.turnSettleMs ?? DEFAULT_TURN_SETTLE_MS);
+    agent.settleTimer.unref();
   }
 
   // ------------------------------------------------------------ state
@@ -981,20 +1039,22 @@ export class AgentHost {
         cut.add(agent);
         this.interrupt(agent);
       }
-      await this.waitForTurns(DRAIN_INTERRUPT_GRACE_MS);
+      await this.waitForTurns(this.options.drainInterruptGraceMs ?? DRAIN_INTERRUPT_GRACE_MS);
     }
-    for (const agent of this.agents.values()) if (agent.turnInFlight || agent.backgroundTasks > 0) cut.add(agent);
     await Promise.all(
       [...this.agents.values()].map((agent) =>
         this.serialize(agent, async () => {
           if (!agent.proc || agent.proc.hasExited) return;
-          await this.endProcess(agent, cut.has(agent) ? "shutdown" : "hibernate");
+          // Decided here, in the agent's own queue, not before: anything
+          // queued ahead of this task (a start, a write) has happened by now.
+          const workCut = cut.has(agent) || agent.turnInFlight || agent.backgroundTasks > 0 || agent.messagesSinceInit > 0;
+          await this.endProcess(agent, workCut ? "shutdown" : "hibernate");
         }),
       ),
     );
     for (const agent of this.agents.values()) {
       if (agent.runtime !== "codex" || agent.lifecycle !== "alive") continue;
-      if (cut.has(agent)) {
+      if (cut.has(agent) || agent.turnInFlight) {
         agent.lifecycle = "stopped";
         agent.stopReason = "host_shutdown";
       } else {

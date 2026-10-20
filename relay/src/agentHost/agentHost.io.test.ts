@@ -50,6 +50,7 @@ async function harness(options: HostOverrides & { reuse?: { dir: string; hostId:
     homeOverride: home,
     stopGraceMs: 3000,
     drainGraceMs: 2000,
+    turnSettleMs: 300,
     ...options,
   });
   const client = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
@@ -164,7 +165,8 @@ test("a message sent during a turn is acknowledged as such and folded into that 
     assert.match(String(results(events)[0].ev.result), /absorbed: also update the docs/);
     const userMessages = events.filter((event) => event.ev.type === "host_user_message").map((event) => event.ev.duringTurn);
     assert.deepEqual(userMessages, [false, true]);
-    assert.equal((await h.activity("a1")).state, "idle");
+    // Idle once it is clear the second message started no turn of its own.
+    await waitFor(() => h.host.activity()[0]?.state === "idle", 5000, "idle after the steered turn");
   } finally {
     await h.cleanup();
   }
@@ -637,5 +639,69 @@ test("concurrent resumes in a full room never exceed its cap", async () => {
     writeFileSync(gate, "");
   } finally {
     await h.cleanup();
+  }
+});
+
+// ---------------------------------------------------------------- drain edge cases
+
+test("a message written while the previous turn's result was still in the pipe keeps the agent working, and a drain cuts it instead of hibernating it", async () => {
+  const h = await harness({ drainGraceMs: 200, drainInterruptGraceMs: 200, turnSettleMs: 5000 });
+  const reuse = { dir: h.dir, hostId: h.hostId };
+  let again: Harness | undefined;
+  try {
+    const gate = h.file("gate");
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: `first [[stale-result:${gate}]]` });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "first turn");
+    await h.client.request("send", { agentId: "a1", message: "second" });
+    // The stale result arrives after the second message was written.
+    await waitFor(() => results(events).length === 2, 5000, "stale result");
+    assert.equal((await h.activity("a1")).state, "working", "the second message's turn has not even started");
+    h.client.close();
+    await h.host.close();
+    again = await harness({ reuse });
+    const after = await again.activity("a1");
+    assert.equal(after.state, "stopped");
+    assert.equal(after.stopReason, "host_shutdown");
+  } finally {
+    if (again) await again.cleanup();
+    else await h.cleanup();
+  }
+});
+
+test("a send accepted just before a drain never starts a turn that the drain then hibernates silently", async () => {
+  const h = await harness({ drainGraceMs: 200, drainInterruptGraceMs: 200 });
+  const reuse = { dir: h.dir, hostId: h.hostId };
+  let again: Harness | undefined;
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "hi" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    await h.client.request("hibernate", { agentId: "a1" });
+    let starting = false;
+    h.client.on("agent_state", (agent) => {
+      if (agent.agentId === "a1" && agent.state === "starting") starting = true;
+    });
+    const send = h.client.request("send", { agentId: "a1", message: "late" });
+    await waitFor(() => starting, 5000, "start in progress");
+    const closing = h.host.close();
+    const [sent] = await Promise.allSettled([send, closing]);
+    h.client.close();
+    again = await harness({ reuse });
+    const after = await again.activity("a1");
+    if (sent.status === "fulfilled") {
+      // Accepted: either its turn finished before the drain (its result is in
+      // the log), or the drain cut it and says so — never a silent loss.
+      const log = again.watch("a1");
+      await waitFor(() => log.some((event) => event.ev.type === "host_process" && event.ev.subtype === "exited"), 5000, "log replayed");
+      const late = log.findIndex((event) => event.ev.type === "host_user_message" && event.ev.text === "late");
+      const answered = log.slice(late).some((event) => event.ev.type === "result");
+      assert.ok(answered || (after.state === "stopped" && after.stopReason === "host_shutdown"), `state ${after.state}, answered ${answered}`);
+    } else {
+      assert.match(String(sent.reason), /draining|shutting down/);
+    }
+  } finally {
+    if (again) await again.cleanup();
+    else await h.cleanup();
   }
 });
