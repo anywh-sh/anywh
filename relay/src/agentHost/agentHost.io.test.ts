@@ -953,3 +953,36 @@ test("the host refuses a data directory holding someone else's files or another 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("remove racing spawns of the same id leaves either no agent or one whose log works", async () => {
+  const h = await harness();
+  try {
+    for (let round = 0; round < 8; round++) {
+      const spawnArgs = { agentId: "a1", spec: spec(h), message: `round ${round}` };
+      const first = h.client.request("spawn", spawnArgs);
+      const outcomes = await Promise.allSettled([first, h.client.request("remove", { agentId: "a1" }), h.client.request("spawn", spawnArgs), h.client.request("spawn", spawnArgs)]);
+      for (const outcome of outcomes) {
+        if (outcome.status === "rejected") assert.match(String(outcome.reason), /no agent|agent_exists|already exists|still being removed|removed/);
+      }
+      const present = h.host.activity().find((agent) => agent.agentId === "a1");
+      if (present) {
+        // Whatever survived must be a sound agent: its log takes events.
+        const events: EventMessage[] = [];
+        const sub = h.client.subscribe("a1", START_OF_LOG, { onEvent: (event) => events.push(event) });
+        await h.client.request("send", { agentId: "a1", message: "check" });
+        await waitFor(() => events.some((event) => event.ev.type === "result" && event.ev.result === "echo: check"), 5000, "a working log");
+        sub.close();
+        assert.notEqual(h.host.activity().find((agent) => agent.agentId === "a1")?.state, "failed");
+        await h.client.request("remove", { agentId: "a1" });
+      }
+      // The id is usable again once everything settled.
+      await waitFor(() => !h.host.activity().some((agent) => agent.agentId === "a1"), 5000, "gone");
+    }
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "final" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "final turn");
+    assert.equal(events[0].seq, 0);
+  } finally {
+    await h.cleanup();
+  }
+});

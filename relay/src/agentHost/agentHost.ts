@@ -510,19 +510,22 @@ export class AgentHost {
   }
 
   /** Drops an agent and deletes its log, keeping its id reserved until the
-   * deletion is done. */
-  private async forget(agent: Agent): Promise<void> {
-    const done = (async () => {
+   * deletion is done. Idempotent per id: a remove and a failing spawn can
+   * both get here for one agent, and must share one deletion — otherwise
+   * the first to finish would release the id while the other still
+   * deletes. */
+  private forget(agent: Agent): Promise<void> {
+    const pending = this.removing.get(agent.agentId);
+    if (pending) return pending;
+    const done: Promise<void> = (async () => {
       this.agents.delete(agent.agentId);
       this.persist();
       await agent.log.destroy();
-    })();
+    })().finally(() => {
+      if (this.removing.get(agent.agentId) === done) this.removing.delete(agent.agentId);
+    });
     this.removing.set(agent.agentId, done);
-    try {
-      await done;
-    } finally {
-      this.removing.delete(agent.agentId);
-    }
+    return done;
   }
 
   private hibernatable(agent: Agent): boolean {
