@@ -99,3 +99,23 @@ test("a sessions file with no rooms loads and saves exactly as before", () => {
     assert.deepEqual({ ...after.s1, draft: "hi" }, before.s1);
   });
 });
+
+test("a worker whose room is gone (its principal missing or dropped as malformed) is listed, so it can be found and removed", () => {
+  withDir((file) => {
+    const base = { agentId: "claude", sessionId: {}, cwd: { cwd: "/x", locked: false }, lastActiveAt: 5 };
+    writeFileSync(
+      file,
+      JSON.stringify({
+        p1: { ...base, title: "Broken room", room: { roomId: "p1", role: "lead", createdBy: "user", task: "" } },
+        w1: { ...base, title: "Orphan worker", room: worker },
+        w2: { ...base, title: "Worker of a vanished room", room: { ...worker, roomId: "gone", parentId: "gone" } },
+      }),
+    );
+    const store = new SessionStore(file, DEFAULT_CWD);
+    assert.deepEqual(
+      store.listTitled().map((row) => row.id).sort(),
+      ["p1", "w1", "w2"],
+    );
+    assert.equal(store.isHiddenWorker("w1"), false);
+  });
+});
