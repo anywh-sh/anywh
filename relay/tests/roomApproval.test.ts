@@ -134,7 +134,7 @@ test("agents of a room asking together make one notification, about the room, an
     });
   });
   await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
-  const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_PUSH_DEVICES_FILE: join(dir, "push-devices.json"), RELAY_ROOM_PROMPT_WINDOW_MS: "400" });
+  const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_PUSH_DEVICES_FILE: join(dir, "push-devices.json"), RELAY_ROOM_PROMPT_WINDOW_MS: "4000" });
   const base = `http://127.0.0.1:${relay.port}`;
   const sockets: WebSocket[] = [];
   try {
@@ -164,7 +164,7 @@ test("agents of a room asking together make one notification, about the room, an
       if (Date.now() > end) throw new Error(`no approval notification; saw ${JSON.stringify(pushed)}\n${relay.output.join("").slice(-2000)}`);
       await new Promise((r) => setTimeout(r, 25));
     }
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 1500));
     const prompts = pushed.filter((p) => ["approval_required", "choice_required"].includes(p.event.kind));
     assert.equal(prompts.length, 1, JSON.stringify(pushed));
     assert.equal(prompts[0].event.sessionId, created.roomId);

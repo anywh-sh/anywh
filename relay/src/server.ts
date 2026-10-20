@@ -20,6 +20,7 @@ import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handlePushRoutes } from "./routes/push.js";
+import { killAllTerminalsForSession } from "./host/terminalSession.js";
 import { handleRoomRoutes } from "./routes/rooms.js";
 import { handleRoomWatchConnection } from "./ws/room.js";
 import { RoomChannel } from "./session/roomChannel.js";
@@ -170,6 +171,10 @@ const roomManager: RoomManager = new RoomManager({
   ...(process.env.RELAY_ROOM_DIGEST_WINDOW_MS ? { digestWindowMs: Number(process.env.RELAY_ROOM_DIGEST_WINDOW_MS) } : {}),
   ...(process.env.RELAY_ROOM_PROMPT_WINDOW_MS ? { promptWindowMs: Number(process.env.RELAY_ROOM_PROMPT_WINDOW_MS) } : {}),
   ...(pushDispatcher ? { notifyPerson: ({ roomId, draft, watched }) => pushDispatcher.notify({ ...draft, sessionId: roomId, ts: Date.now(), watched }) } : {}),
+  // A removed agent's subtree is deleted for good: its terminals go with it.
+  onPurged: (ids) => {
+    for (const id of ids) killAllTerminalsForSession(PORT, id).catch((error: unknown) => console.error("[relay] failed to clean up terminals for a purged agent:", error));
+  },
   owner: roomBridge.ownerId,
   tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
   stopInHost: async (agentId) => {

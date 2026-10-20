@@ -129,6 +129,10 @@ export class RoomManager implements RoomToolHost {
   /** Per agent, the digest turn queued or running for it: at most one at a
    * time, so a round of reports is one turn however they arrive. */
   private readonly digests = new Map<string, { delivered: boolean }>();
+  /** Agents whose last digest turn ended (failed, or was stopped) before the
+   * host took it: not tried again until a new report arrives, so a turn that
+   * cannot start does not loop. */
+  private readonly digestFailed = new Set<string>();
   /** Per removed root, the timer that deletes its subtree once the undo
    * window is over. */
   private readonly purgeTimers = new Map<string, NodeJS.Timeout>();
@@ -268,6 +272,7 @@ export class RoomManager implements RoomToolHost {
     if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
     if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is resumed this way" };
     if (!room.stopped) return { ok: true };
+    if (room.stopped.reason === "removed") return { ok: false, status: 404, error: "no such agent in this room" };
     const { stopped: _stopped, ...rest } = room;
     void _stopped;
     this.store.setRoom(agentId, rest);
@@ -296,7 +301,10 @@ export class RoomManager implements RoomToolHost {
 
   /** Tells the person about the prompts of a room it has not told them about. */
   private notifyPrompts(roomId: string, watched: boolean): void {
-    if (this.store.getRoom(roomId)?.role !== "principal") return;
+    if (this.store.getRoom(roomId)?.role !== "principal") {
+      this.notifiedPrompts.delete(roomId);
+      return;
+    }
     const known = this.notifiedPrompts.get(roomId) ?? new Set<string>();
     const current = new Set<string>();
     const entries: RoomPromptEntry[] = [];
@@ -403,7 +411,14 @@ export class RoomManager implements RoomToolHost {
         }
       }),
     );
-    this.schedulePurge(agentId, at);
+    // The window starts when the agents are really gone from the host, not
+    // when the person asked: a slow stop must not use it up.
+    const from = this.now();
+    for (const id of ids) {
+      const member = this.store.getRoom(id);
+      if (member?.stopped?.reason === "removed" && member.stopped.at === at) this.store.setRoom(id, { ...member, stopped: { reason: "removed", at: from } });
+    }
+    this.schedulePurge(agentId, from);
     return { ok: true, removed: ids, undoMs: this.undoMs() };
   }
 
@@ -486,7 +501,11 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
-    if (outcome.synthetic === "room_digest") this.digests.delete(sessionId);
+    if (outcome.synthetic === "room_digest") {
+      const digest = this.digests.get(sessionId);
+      this.digests.delete(sessionId);
+      if (digest && !digest.delivered && (outcome.error !== undefined || outcome.stopped)) this.digestFailed.add(sessionId);
+    }
     const sending = this.sending.get(sessionId);
     this.sending.delete(sessionId);
     const room = this.store.getRoom(sessionId);
@@ -524,6 +543,9 @@ export class RoomManager implements RoomToolHost {
       }
     }
     this.pump(sessionId);
+    // Its own digest may have been waiting for this turn; so may whoever
+    // reads what this agent reported.
+    this.considerDigest(sessionId);
     this.considerDigestFor(sessionId);
   }
 
@@ -566,6 +588,7 @@ export class RoomManager implements RoomToolHost {
     if (timer) clearTimeout(timer);
     this.digestTimers.delete(sessionId);
     this.digests.delete(sessionId);
+    this.digestFailed.delete(sessionId);
     // Once it is really gone, whoever it was working for may have nothing
     // left to wait for.
     const above = liveAncestorId(sessionId, (id) => this.store.getRoom(id));
@@ -658,12 +681,16 @@ export class RoomManager implements RoomToolHost {
   /** Stores a worker's report and puts it in the outbox of the agent that
    * reads it: the closest one above it that is still there. */
   private recordReport(workerId: string, worker: RoomMembership, report: Omit<NonNullable<RoomMembership["report"]>, "at">): void {
-    this.store.setRoom(workerId, { ...worker, report: { ...report, at: this.now() } });
+    // Read again: `worker` may predate a change made since (a queued
+    // message that was just dropped).
+    this.store.setRoom(workerId, { ...(this.store.getRoom(workerId) ?? worker), report: { ...report, at: this.now() } });
     const recipientId = liveAncestorId(workerId, (id) => this.store.getRoom(id));
     const recipient = recipientId === undefined ? undefined : this.store.getRoom(recipientId);
     if (recipientId === undefined || !recipient) return;
     const outbox = recipient.undeliveredReports ?? [];
     if (!outbox.includes(workerId)) this.store.setRoom(recipientId, { ...recipient, undeliveredReports: [...outbox, workerId] });
+    // News for whoever was left alone after a digest that failed.
+    this.digestFailed.delete(recipientId);
     this.considerDigest(recipientId);
   }
 
@@ -684,6 +711,8 @@ export class RoomManager implements RoomToolHost {
     for (const workerId of recipient?.undeliveredReports ?? []) {
       const worker = this.store.getRoom(workerId);
       if (!worker?.report || worker.roomId !== recipient?.roomId) continue;
+      // Taken out of the room by the person: not reported on unless brought back.
+      if (worker.stopped?.reason === "removed") continue;
       entries.push({
         entry: {
           agentId: workerId,
@@ -704,7 +733,7 @@ export class RoomManager implements RoomToolHost {
    * nothing under it is still running (the round is over). Never while one
    * is already on its way. */
   private digestDue(recipientId: string): boolean {
-    if (this.digests.has(recipientId) || this.admit(recipientId) !== undefined) return false;
+    if (this.digests.has(recipientId) || this.digestFailed.has(recipientId) || this.admit(recipientId) !== undefined) return false;
     const entries = this.outboxEntries(recipientId);
     if (entries.length === 0) return false;
     return entries.some(({ entry }) => isUrgent(entry.status)) || this.countBelow(recipientId, ["working", "queued"]) === 0;

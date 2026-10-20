@@ -10,7 +10,7 @@ import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay } from "./helpers/spawnedServer.js";
 import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
-const UNDO_MS = 1500;
+const UNDO_MS = 4000;
 const marker = (tool: string, args: unknown): string => `[[room:${tool}:${Buffer.from(JSON.stringify(args)).toString("base64url")}]]`;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

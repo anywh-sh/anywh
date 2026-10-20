@@ -274,3 +274,32 @@ test("reports left in an outbox before a restart are handed over once the host i
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("an agent the person removed is not reported on: its report stays out of the digest", async () => {
+  const stack = await startStack();
+  try {
+    const roomId = await createRoom(stack);
+    const socket = await connectSession(stack.relay.port, roomId);
+    const seen = record(socket);
+    const gates = [1, 2].map((n) => join(stack.dir, `gate-${n}`));
+    const ids = await delegateVia(
+      socket,
+      ...gates.map((gate, index) => ({ task: taskWith(gate, { status: "done", summary: `result ${index + 1}`, artifacts: [] }), runtime: "claude", model: "haiku" })),
+    );
+    await waitFor(stack, async () => (await members(stack, roomId)).filter((m) => m.room.role === "worker").length === 2);
+    writeFileSync(gates[0], "");
+    await waitFor(stack, async () => (await members(stack, roomId)).find((m) => m.id === ids[0])?.room.report !== undefined, 20_000, "the first report");
+    assert.equal((await fetch(`${stack.base}/rooms/${roomId}/agents/${ids[0]}/remove`, { method: "POST" })).status, 200);
+
+    writeFileSync(gates[1], "");
+    await waitFor(stack, () => digestsIn(seen).length > 0, 20_000, "the digest");
+    await sleep(WINDOW_MS * 4);
+    const digests = digestsIn(seen);
+    assert.equal(digests.length, 1);
+    assert.ok(digests[0].includes("result 2") && digests[0].includes(ids[1]));
+    assert.ok(!digests[0].includes("result 1") && !digests[0].includes(ids[0]), "nothing about the removed agent");
+    socket.close();
+  } finally {
+    await stopStack(stack);
+  }
+});
