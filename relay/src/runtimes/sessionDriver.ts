@@ -86,7 +86,9 @@ export interface AgentSessionDriver {
   stopSubtask?(taskId: string): Promise<"stopping" | "unknown" | "unsupported">;
   /** Follows a turn that was already running before this driver existed (an
    * agent that outlives the relay), to its end. */
-  followTurnInFlight?(onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult>;
+  /** `fromTranscript`: the session has just read the turn so far from the
+   * agent's own transcript. */
+  followTurnInFlight?(onEvent: (event: AgentEvent) => void, options?: { readonly fromTranscript?: boolean }): Promise<DriverTurnResult>;
   dispose(): void;
 }
 

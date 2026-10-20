@@ -267,3 +267,39 @@ test("a Stop that lands while the driver looks the agent up keeps the message fr
     }
   });
 });
+
+test("following a Claude turn without a fresh transcript load reads from the saved cursor, missing nothing of it", async () => {
+  await withHost(async ({ dir, client }) => {
+    const gate = join(dir, "follow-gate");
+    await client.request("spawn", { agentId: "w13", roomId: "room-a", spec: { cwd: dir }, message: `long [[gate:${gate}]] [[events:3]]` });
+    // Where a relay that saw the turn begin would have stopped reading.
+    let cursor: { nextOffset: number; lastSeq: number; incarnation?: string } | undefined;
+    const seen: string[] = [];
+    const watcher = new HostClient({ socketPath: (client as unknown as { options: { socketPath: string } }).options.socketPath });
+    watcher.start();
+    await watcher.waitUntilConnected();
+    watcher.subscribe("w13", { nextOffset: 0, lastSeq: -1 }, {
+      onEvent: (record) => {
+        seen.push(String(record.ev.type));
+        if (record.ev.type === "host_user_message") cursor = { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc };
+      },
+    });
+    await waitFor(() => seen.filter((type) => type === "assistant").length >= 4, 8000, "the turn's first output");
+    watcher.close();
+
+    const driver = new HostSessionDriver(claudeRuntimeDef, {
+      binding: { client, agentId: "w13", roomId: "room-a", setup: workerSetup, cursors: { get: () => cursor, set: () => {} } },
+    });
+    const events: AgentEvent[] = [];
+    const following = driver.followTurnInFlight((event) => events.push(event));
+    await waitFor(() => events.some((event) => event.type === "text" && event.text === "progress 3/3"), 8000, "the output from before the follow");
+    writeFileSync(gate, "");
+    const result = await following;
+    assert.equal(result.stopped, false);
+    assert.deepEqual(
+      events.filter((event) => event.type === "text").map((event) => (event as { text: string }).text),
+      ["progress 1/3", "progress 2/3", "progress 3/3", "done after gate"],
+    );
+    driver.dispose();
+  });
+});

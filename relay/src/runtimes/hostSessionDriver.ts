@@ -276,7 +276,7 @@ export class HostSessionDriver implements AgentSessionDriver {
    * like a turn of its own, to its end. Resolves at once when the agent is
    * not in a turn.
    */
-  async followTurnInFlight(onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult> {
+  async followTurnInFlight(onEvent: (event: AgentEvent) => void, options: { fromTranscript?: boolean } = {}): Promise<DriverTurnResult> {
     const client = this.options.binding.client;
     if (!client || this.retired || this.turn) return { stopped: false };
     let resolveTurn!: (result: DriverTurnResult) => void;
@@ -317,12 +317,19 @@ export class HostSessionDriver implements AgentSessionDriver {
       if (!agent || (agent.state !== "working" && agent.state !== "starting")) return { stopped: false };
       if (agent.sessionId && this.daemonPlan) this.sessionId = agent.sessionId;
       this.turn = turn;
-      // Claude's transcript (read into the session's log before this) holds
-      // the turn so far: following from the log's end shows only what is
-      // new, without repeating it. Codex has no such transcript here, so its
-      // log is replayed from the last record this relay processed.
-      const saved = this.daemonPlan ? this.options.binding.cursors?.get(this.agentId) : undefined;
-      this.subscribe(client, saved ?? { nextOffset: agent.nextOffset, lastSeq: -1 });
+      // Where to read from:
+      // - the session just read the turn so far from Claude's transcript:
+      //   from the log's end, so nothing is shown twice;
+      // - otherwise from the last record this relay processed (a relay that
+      //   stayed up and reconnected, Codex, which has no transcript here);
+      // - no such record: from the end, unless the agent has no session yet
+      //   (its first turn is starting), whose whole short log is the turn.
+      const end: AgentCursor = { nextOffset: agent.nextOffset, lastSeq: -1 };
+      const from =
+        options.fromTranscript === true && !this.daemonPlan
+          ? end
+          : (this.options.binding.cursors?.get(this.agentId) ?? (agent.sessionId ? end : START_OF_LOG));
+      this.subscribe(client, from);
       return await done;
     } finally {
       client.off("agent_state", onState);

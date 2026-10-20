@@ -1371,8 +1371,10 @@ export class SharedSession implements SessionDriverHost {
     // device connected (an agent's queued message, a turn picked up after a
     // relay restart) would otherwise leave the log looking loaded, and the
     // earlier conversation would never be read.
+    const freshLoad = this.historyLoad === undefined && this.needsHistoryLoad();
     const loading = this.ensureHistoryLoaded();
     if (loading) await loading;
+    const fromTranscript = freshLoad && this.history.length > 0;
     this.options.onActivity?.();
 
     // A turn in progress is "current" state (same reasoning as
@@ -1522,7 +1524,7 @@ export class SharedSession implements SessionDriverHost {
         this.options.onEvent?.(agentEvent);
       };
       const { stopped, contextUsage, lastAssistantText } =
-        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);
+        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent, { fromTranscript }) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
       const sessionId = this.driver.getSessionId();
