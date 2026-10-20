@@ -45,6 +45,8 @@ export const HOST_RUNTIMES: readonly string[] = ["claude", "codex"];
 
 export interface RoomSessions {
   getOrCreate(id: string): SharedSession;
+  /** The live session, if it exists, without creating one. */
+  peek(id: string): SharedSession | undefined;
   renameTitle(id: string, title: string): boolean;
 }
 
@@ -224,7 +226,7 @@ export class RoomManager implements RoomToolHost {
   }
 
   private stateOf(id: string, room: RoomMembership): RoomAgentState {
-    return roomAgentState(room, this.options.sessions.getOrCreate(id).isBusy());
+    return roomAgentState(room, this.options.sessions.peek(id)?.isBusy() ?? false);
   }
 
   /** Agents of a room that take a place under its cap right now. */

@@ -149,6 +149,10 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
     }, "the report through the new relay");
     const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { undeliveredReports?: string[] } }>;
     assert.deepEqual(onDisk[roomId].room?.undeliveredReports, [workerId], "persisted in the principal's outbox");
+    const cursorsFile = join(dir, "profile-room-cursors.json");
+    await waitFor(async () => workerId in (JSON.parse(readFileSync(cursorsFile, "utf8")) as Record<string, unknown>), "the worker's read cursor kept");
+    assert.equal((await fetch(`${base()}/sessions/delete`, { method: "POST", body: JSON.stringify({ id: workerId }) })).status, 200);
+    assert.equal(workerId in (JSON.parse(readFileSync(cursorsFile, "utf8")) as Record<string, unknown>), false, "and dropped with the agent");
   } finally {
     relay.cleanup();
     await host.stop();

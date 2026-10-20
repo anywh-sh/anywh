@@ -347,7 +347,9 @@ test("stopping a worker frees its place, drops what was queued for it and never 
     const again = await principalTurn(socket, marker("delegate", { task: "now it fits", runtime: "claude", model: "haiku" }));
     assert.equal(again.results[0].isError, false, again.results[0].content);
     assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${roomId}/stop`, { method: "POST" })).status, 400, "the principal is not stopped this way");
-    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/resume`, { method: "POST" })).status, 200);
+    const resumed = await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/resume`, { method: "POST" });
+    assert.equal(resumed.status, 200);
+    assert.deepEqual(await resumed.json(), { resumed: true });
     assert.equal(((await members(roomId)).find((member) => member.id === ids[0]) as Member & { room: { stopped?: unknown } }).room.stopped, undefined);
   } finally {
     socket.close();

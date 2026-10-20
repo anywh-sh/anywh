@@ -27,7 +27,7 @@ export interface SessionManagerRoomOptions {
   /** A member's turn ended. */
   readonly onTurnSettled?: (sessionId: string, outcome: TurnOutcome) => void;
   /** Where each room agent's log was last read up to. */
-  readonly cursors?: Pick<FileCursorStore, "get" | "set">;
+  readonly cursors?: Pick<FileCursorStore, "get" | "set" | "delete" | "flush">;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -239,6 +239,13 @@ export class SessionManager {
    * defense. */
   disposeAll(): void {
     for (const session of this.sessions.values()) session.dispose();
+    // Its writes are debounced on a timer that does not hold the process.
+    this.rooms.cursors?.flush();
+  }
+
+  /** The session if it is live, without creating it. */
+  peek(id: string): SharedSession | undefined {
+    return this.sessions.get(id);
   }
 
   getOrCreate(id: string): SharedSession {
@@ -310,6 +317,7 @@ export class SessionManager {
         this.sessionStore.setRoom(room.roomId, { ...principal, undeliveredReports: principal.undeliveredReports.filter((other) => other !== id) });
       }
     }
+    if (room) this.rooms.cursors?.delete(id);
     const session = this.sessions.get(id);
     // Nothing still queued for it runs (its driver refuses anyway once disposed).
     session?.discardQueuedTurns();

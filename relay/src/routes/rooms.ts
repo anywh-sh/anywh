@@ -148,7 +148,7 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
       return true;
     }
     const outcome = stopAgent[3] === "stop" ? await ctx.roomManager.stopAgent(roomId, agentId) : ctx.roomManager.resumeAgent(roomId, agentId);
-    if (outcome.ok) send(res, 200, { stopped: true });
+    if (outcome.ok) send(res, 200, stopAgent[3] === "stop" ? { stopped: true } : { resumed: true });
     else send(res, outcome.status, { error: outcome.error });
     return true;
   }
