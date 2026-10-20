@@ -6,6 +6,7 @@ import type { useSessionDock } from "@/hooks/tabs/useSessionDock";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import { getDictionary } from "@/i18n";
+import { setCachedSessions } from "@/lib/format/sessionListCache";
 import type { Profile } from "@/lib/profiles/profiles";
 
 const activeProfile: Profile = {
@@ -90,7 +91,7 @@ describe("useSessionActions — focusSession family", () => {
     const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState, setActiveProfileId }) as never));
     result.current.focusSession("profile-b", "s1", "Title");
     expect(setActiveProfileId).toHaveBeenCalledWith("profile-b");
-    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title");
+    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title", false, false);
   });
 
   it("handleSelectSession delegates to focusSession and closes the drawer", () => {
@@ -100,8 +101,25 @@ describe("useSessionActions — focusSession family", () => {
     const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState, setActiveProfileId, setDrawerOpen }) as never));
     result.current.handleSelectSession({ profileId: "profile-b", id: "s1", title: "Title" } as never);
     expect(setActiveProfileId).toHaveBeenCalledWith("profile-b");
-    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title");
+    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title", false, false);
     expect(setDrawerOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("opens a room's row as a room tab, and a plain row as a conversation", () => {
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.handleSelectSession({ profileId: "profile-b", id: "r1", title: "Room", room: true } as never);
+    expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "r1", "Room", false, true);
+  });
+
+  it("knows a room from the session list this device holds when it is reached by id alone", () => {
+    setCachedSessions("profile-b", [{ id: "r1", title: "Room", lastActiveAt: 1, room: true }, { id: "c1", title: "Chat", lastActiveAt: 1 }]);
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.handleSearchSelectSession("profile-b", "r1", "Room");
+    expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "r1", "Room", false, true);
+    result.current.handleSearchSelectSession("profile-b", "c1", "Chat");
+    expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "c1", "Chat", false, false);
   });
 
   it("handleSearchSelectSession delegates to focusSession without touching the drawer", () => {

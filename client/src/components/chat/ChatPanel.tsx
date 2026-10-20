@@ -36,6 +36,8 @@ import { activeModelLabel, catalogHasModel } from "@/lib/composer/modelCatalog";
 import { effortChoicesFor, modelAcceptsEffort } from "@/lib/composer/effortCatalog";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
+import { createRoom } from "@/lib/relay/roomClient";
+import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
 
 /** See `ChatPanelProps.onBackgroundActionsReady`. */
 export interface BackgroundJobActions {
@@ -65,6 +67,9 @@ interface ChatPanelProps {
   /** Tab opened via "new conversation" — shows the idle state instead of the
    * loading skeleton while the log is still empty. */
   isNewConversation?: boolean;
+  /** A new-session tab opened a room instead of a conversation: `roomId` is
+   * the room's id, and `firstMessage` is still to be handed to its principal. */
+  onRoomCreated?: (roomId: string, title: string, firstMessage: string) => void;
   /** `lastUserText`/`lastAssistantText` are this turn's last user message and
    * the assistant's final text reply — both extracted synchronously from the
    * log, no round-trip needed. `App` uses `lastAssistantText` (cleaned up and
@@ -176,6 +181,7 @@ export function ChatPanel({
   profile,
   sessionId,
   isNewConversation,
+  onRoomCreated,
   onTurnComplete,
   onTurnActiveChange,
   onBackgroundJobsChange,
@@ -732,11 +738,42 @@ export function ChatPanel({
 
   // The message log itself is on screen (not the idle state or the skeleton).
   const showingIdle = (isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0;
+  // The new-session screen's type choice: a room is opened from the same
+  // composer, whose agent/model/effort become its principal.
+  const [sessionType, setSessionType] = useState<SessionType>("conversation");
+  const canChooseType = Boolean(isNewConversation) && showingIdle && !isIOS();
+  const roomMode = canChooseType && sessionType === "room";
+  const openingRoomRef = useRef(false);
   const showingLog = ready && !showingIdle;
   useEffect(() => {
     if (!showingLog) setScrollToEndVisible(false);
   }, [showingLog]);
   const logBottomPadding = nativeBottomInset + 8 + floatingStackHeight;
+
+  const openRoom = (text: string, sentImages: PendingAttachment[]): void => {
+    if (openingRoomRef.current) return;
+    openingRoomRef.current = true;
+    const firstLine = text.trim().split("\n")[0] ?? "";
+    const title = firstLine.length > 80 ? `${firstLine.slice(0, 79).trimEnd()}…` : firstLine;
+    createRoom(profile, {
+      agentId: agentId ?? undefined,
+      model: model ?? undefined,
+      effort: effort ?? undefined,
+      permissionMode: permissionMode ?? undefined,
+      cwd: cwd ?? undefined,
+      title: title === "" ? undefined : title,
+    }).then(
+      (roomId) => {
+        images.clearWithoutRevoke();
+        onRoomCreated?.(roomId, title, buildWireMessage(text, sentImages));
+      },
+      (error: unknown) => {
+        openingRoomRef.current = false;
+        console.error("[anywh] failed to open a room", error);
+        window.alert(dict.sala.newSession.createFailed);
+      },
+    );
+  };
 
   const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
     // Editing via composer (iOS) — the normal send (slash
@@ -768,6 +805,10 @@ export function ChatPanel({
     }
     if (command?.name === "effort") {
       setEffort(command.effort);
+      return;
+    }
+    if (roomMode) {
+      openRoom(text, sentImages);
       return;
     }
     log.addUserMessage(text, sentImages);
@@ -807,7 +848,7 @@ export function ChatPanel({
         // second condition the screen would just be blank (neither idle nor
         // skeleton) until the next turn, because `isNewConversation` had
         // already been `false` for a long time.
-        <ChatIdleState />
+        <ChatIdleState selector={canChooseType ? <SessionTypeSelector value={sessionType} onChange={setSessionType} /> : undefined} />
       ) : ready ? (
         <MessageLog
           ref={messageLogRef}
@@ -952,6 +993,7 @@ export function ChatPanel({
                 onChangeDraft={setDraft}
                 onSend={handleSend}
                 className={showingIdle ? "shadow-lift" : undefined}
+                placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
                   <WorkingDirectoryButton
                     profile={profile}

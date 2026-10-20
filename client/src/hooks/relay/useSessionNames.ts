@@ -177,12 +177,13 @@ export function useSessionNames(profile: Profile): {
               return;
             }
             if (typeof parsed !== "object" || parsed === null) return;
-            const { type, id, title, lastActiveAt, sessions } = parsed as {
+            const { type, id, title, lastActiveAt, sessions, room } = parsed as {
               type?: unknown;
               id?: unknown;
               title?: unknown;
               lastActiveAt?: unknown;
               sessions?: unknown;
+              room?: unknown;
             };
             if (type === "pong") {
               window.clearTimeout(pongTimer);
@@ -202,7 +203,7 @@ export function useSessionNames(profile: Profile): {
             }
             if (typeof id !== "string") return;
             if (type === "session_list_upsert" && typeof title === "string")
-              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined);
+              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true);
             else if (type === "session_list_removed") removeCachedSession(profileId, id);
           });
           ws.addEventListener("close", () => {

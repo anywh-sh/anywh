@@ -7,6 +7,7 @@ import { formatAbsoluteTime, formatCompactTime } from "@/lib/format/relativeTime
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
+import { RoomGlyph } from "@/components/sala/SalaIcons";
 
 interface SessionListItemProps {
   session: MergedSession;
@@ -89,6 +90,7 @@ export const SessionListItem = memo(function SessionListItem({
             )
           )}
         </span>
+        {session.room === true && <RoomGlyph size={14} className="shrink-0 text-text-faint" aria-label={dict.sala.roomGlyph} role="img" />}
         <span
           className={cn(
             "min-w-0 flex-1 truncate",

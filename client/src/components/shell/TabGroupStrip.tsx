@@ -4,6 +4,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { RoomGlyph } from "@/components/sala/SalaIcons";
 import { useDict } from "@/i18n";
 import { cn, scrollHorizontallyOnWheel, truncateWords } from "@/lib/utils";
 import type { Tab } from "@/hooks/tabs/useTabs";
@@ -186,6 +187,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 )
               )}
             </span>
+            {tab.room && <RoomGlyph size={14} className="shrink-0" aria-label={dict.sala.roomGlyph} role="img" />}
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </button>
           <button

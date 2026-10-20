@@ -19,6 +19,9 @@ export interface Tab {
    * for the rest of the tab's life, but is only consulted while the log is
    * empty, so it loses effect on its own after the first message. */
   isNew: boolean;
+  /** The tab shows a room's canvas, not a conversation. `id` is the room's
+   * id (its principal's session id). */
+  room?: boolean;
 }
 
 /** One column of the split — up to `MAX_GROUPS` side by side (see the
@@ -32,7 +35,7 @@ export interface TabGroup {
   size: number;
 }
 
-interface TabsState {
+export interface TabsState {
   /** Flat pool, unordered w.r.t. display — every consumer that doesn't care
    * about visual order (running/background-job lookups, the `tabId -> Tab`
    * map) keeps reading this directly, same as before groups existed. Visual
@@ -48,6 +51,7 @@ interface PersistedTab {
   id: string;
   profileId: string;
   title: string | null;
+  room?: boolean;
 }
 
 interface PersistedTabs {
@@ -132,6 +136,20 @@ function createGroup(tabIds: string[] = [], activeTabId: string | null = null, s
 function initialState(): TabsState {
   const group = createGroup();
   return { tabs: [], groups: [group], focusedGroupId: group.id };
+}
+
+/** The state with tab `tabId` renamed `roomId` and turned into a room tab,
+ * wherever it sits (pool, group order, active marker). Unchanged when there
+ * is no such tab. Pure. */
+export function replaceTabWithRoom(state: TabsState, tabId: string, roomId: string, title: string | null): TabsState {
+  if (!state.tabs.some((tab) => tab.id === tabId)) return state;
+  const tabs = state.tabs.map((tab) => (tab.id === tabId ? { ...tab, id: roomId, title, isNew: false, room: true } : tab));
+  const groups = state.groups.map((group) => ({
+    ...group,
+    tabIds: group.tabIds.map((id) => (id === tabId ? roomId : id)),
+    activeTabId: group.activeTabId === tabId ? roomId : group.activeTabId,
+  }));
+  return normalize({ tabs, groups, focusedGroupId: state.focusedGroupId });
 }
 
 function findGroupOfTab(groups: TabGroup[], tabId: string): TabGroup | undefined {
@@ -276,7 +294,7 @@ export function useTabs() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    const persistedTabs: PersistedTab[] = state.tabs.map((tab) => ({ id: tab.id, profileId: tab.profileId, title: tab.title }));
+    const persistedTabs: PersistedTab[] = state.tabs.map((tab) => ({ id: tab.id, profileId: tab.profileId, title: tab.title, ...(tab.room ? { room: true } : {}) }));
     localStorage.setItem(TABS_KEY, JSON.stringify(persistedTabs));
     const focusedGroup = state.groups.find((group) => group.id === state.focusedGroupId);
     if (focusedGroup?.activeTabId) localStorage.setItem(ACTIVE_TAB_KEY, focusedGroup.activeTabId);
@@ -289,7 +307,7 @@ export function useTabs() {
     localStorage.setItem(TAB_LAYOUT_KEY, JSON.stringify(layout));
   }, [state]);
 
-  const openTab = useCallback((profileId: string, id: string, title: string | null = null, isNew = false) => {
+  const openTab = useCallback((profileId: string, id: string, title: string | null = null, isNew = false, room = false) => {
     hydratedRef.current = true;
     setState((prev) => {
       const existingGroup = findGroupOfTab(prev.groups, id);
@@ -301,10 +319,16 @@ export function useTabs() {
         };
       }
 
-      const tabs = [...prev.tabs, { id, profileId, title, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew }];
+      const tabs = [...prev.tabs, { id, profileId, title, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew, ...(room ? { room: true } : {}) }];
       const groups = prev.groups.map((group) => (group.id === prev.focusedGroupId ? { ...group, tabIds: [...group.tabIds, id], activeTabId: id } : group));
       return normalize({ tabs, groups, focusedGroupId: prev.focusedGroupId });
     });
+  }, []);
+
+  /** A new-session tab became a room: the same tab, now under the room's id
+   * and showing its canvas, in the same place of the same group. */
+  const convertToRoom = useCallback((tabId: string, roomId: string, title: string | null) => {
+    setState((prev) => replaceTabWithRoom(prev, tabId, roomId, title));
   }, []);
 
   const closeTab = useCallback((tabId: string) => {
@@ -515,6 +539,7 @@ export function useTabs() {
         isRunning: false,
         hasBackgroundJob: false,
         isNew: false,
+        ...(persisted.room === true ? { room: true } : {}),
       }));
       const layout = getPersistedLayout(persistedTabs, activeTabId ?? tabs[tabs.length - 1]?.id ?? null);
       return normalize({ tabs, groups: layout.groups, focusedGroupId: layout.focusedGroupId });
@@ -535,6 +560,7 @@ export function useTabs() {
     activeTabId,
     visibleTabIds,
     openTab,
+    convertToRoom,
     closeTab,
     setActiveTab,
     focusGroup,

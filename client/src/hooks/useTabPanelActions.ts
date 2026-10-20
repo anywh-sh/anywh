@@ -10,6 +10,7 @@ import type { Dictionary } from "@/i18n";
 import { removeCachedSession, touchCachedSession, upsertCachedSession } from "@/lib/format/sessionListCache";
 import { notifyTurnComplete } from "@/lib/platform/notifications";
 import type { Profile } from "@/lib/profiles/profiles";
+import { deliverFirstRoomMessage, discardBlankSession } from "@/lib/sala/firstMessage";
 
 interface UseTabPanelActionsArgs {
   dict: Dictionary;
@@ -105,7 +106,7 @@ export function useTabPanelActions({
         // one currently selected. No timestamp: this also fires for a rename
         // made on another device, which must not move the row, and a session
         // not listed yet is stamped "now" by the cache on its own.
-        upsertCachedSession(tab.profileId, tab.id, title);
+        upsertCachedSession(tab.profileId, tab.id, title, undefined, tab.room);
       },
       onActivity: (tab) => {
         touchCachedSession(tab.profileId, tab.id);
@@ -137,6 +138,14 @@ export function useTabPanelActions({
       onDockWidthChange: (tabId, width) => sessionDock.setWidth(tabId, width),
       onDockSplitRatioChange: (tabId, ratio) => sessionDock.setSplitRatio(tabId, ratio),
       onDockDragEnd: () => sessionDock.commitDock(),
+      onRoomCreated: (tab, profile, roomId, title, firstMessage) => {
+        tabsState.convertToRoom(tab.id, roomId, title);
+        sessionDock.removeSession(tab.id);
+        upsertCachedSession(profile.id, roomId, title, undefined, true);
+        // The blank session the new tab opened on the relay is not the room.
+        void discardBlankSession(profile, tab.id);
+        void deliverFirstRoomMessage(profile, roomId, firstMessage, () => window.alert(dict.sala.newSession.sendFailed));
+      },
     }),
     [
       dict,

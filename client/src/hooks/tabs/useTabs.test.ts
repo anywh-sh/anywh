@@ -411,3 +411,46 @@ describe("useTabs — no-op calls cost no render", () => {
     expect(result.current.activeTabId).toBe("s2");
   });
 });
+
+describe("useTabs — rooms", () => {
+  it("turns a new-session tab into a room tab in place, keeping its group and position", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => {
+      result.current.openTab("p1", "a");
+      result.current.openTab("p1", "draft", null, true);
+      result.current.openTab("p1", "c");
+    });
+    act(() => result.current.setActiveTab("draft"));
+    act(() => result.current.convertToRoom("draft", "room-1", "Profile page"));
+    expect(result.current.groups[0].tabIds).toEqual(["a", "room-1", "c"]);
+    expect(result.current.activeTabId).toBe("room-1");
+    const tab = result.current.tabs.find((t) => t.id === "room-1");
+    expect(tab).toMatchObject({ room: true, isNew: false, title: "Profile page", profileId: "p1" });
+    expect(result.current.tabs.some((t) => t.id === "draft")).toBe(false);
+  });
+
+  it("does nothing for a tab that is not there", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => result.current.openTab("p1", "a"));
+    const before = result.current.tabs;
+    act(() => result.current.convertToRoom("ghost", "room-1", null));
+    expect(result.current.tabs).toBe(before);
+  });
+
+  it("opens a room tab straight from the sidebar, and remembers it is one across a restart", () => {
+    const first = renderHook(() => useTabs());
+    act(() => first.result.current.openTab("p1", "room-1", "Profile page", false, true));
+    act(() => first.result.current.openTab("p1", "chat-1", "A chat"));
+    cleanup();
+
+    const second = renderHook(() => useTabs());
+    const persisted = second.result.current.getPersistedTabs();
+    expect(persisted?.tabs).toEqual([
+      { id: "room-1", profileId: "p1", title: "Profile page", room: true },
+      { id: "chat-1", profileId: "p1", title: "A chat" },
+    ]);
+    act(() => second.result.current.restoreTabs(persisted!.tabs, persisted!.activeTabId));
+    expect(second.result.current.tabs.find((t) => t.id === "room-1")?.room).toBe(true);
+    expect(second.result.current.tabs.find((t) => t.id === "chat-1")?.room).toBeUndefined();
+  });
+});

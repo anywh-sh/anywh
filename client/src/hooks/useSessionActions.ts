@@ -5,7 +5,7 @@ import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import type { Dictionary } from "@/i18n";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
-import { removeCachedSession, upsertCachedSession } from "@/lib/format/sessionListCache";
+import { getCachedSessions, removeCachedSession, upsertCachedSession } from "@/lib/format/sessionListCache";
 import { findProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { deleteSession, renameSession } from "@/lib/relay/relayClient";
@@ -42,7 +42,7 @@ export function useSessionActions({
   handleNewConversation: () => void;
   handleNewTabInGroup: (groupId: string) => void;
   handleSelectSession: (session: MergedSession) => void;
-  focusSession: (profileId: string, sessionId: string, title?: string | null) => void;
+  focusSession: (profileId: string, sessionId: string, title?: string | null, room?: boolean) => void;
   handleSearchSelectSession: (profileId: string, sessionId: string, title: string) => void;
   handleRenameSession: (profileId: string, id: string, title: string) => void;
   handleDeleteSession: (profileId: string, id: string) => void;
@@ -84,7 +84,7 @@ export function useSessionActions({
    * target for a new conversation pointing at the profile the user just
    * navigated away from. */
   function handleSelectSession(session: MergedSession): void {
-    focusSession(session.profileId, session.id, session.title);
+    focusSession(session.profileId, session.id, session.title, session.room === true);
     setDrawerOpen(false);
   }
 
@@ -92,9 +92,12 @@ export function useSessionActions({
    * session search (Cmd/Ctrl+K) and by clicking a notification, the two
    * cases of "jump straight to a session that may not belong to the
    * currently selected profile". */
-  function focusSession(profileId: string, sessionId: string, title: string | null = null): void {
+  function focusSession(profileId: string, sessionId: string, title: string | null = null, room?: boolean): void {
     setActiveProfileId(profileId);
-    tabsState.openTab(profileId, sessionId, title);
+    // Search and notifications know a session only by id: the list this
+    // device already holds says whether it is a room's principal.
+    const isRoom = room ?? getCachedSessions(profileId).sessions.some((session) => session.id === sessionId && session.room === true);
+    tabsState.openTab(profileId, sessionId, title, false, isRoom);
   }
 
   function handleSearchSelectSession(profileId: string, sessionId: string, title: string): void {

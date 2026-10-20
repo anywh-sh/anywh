@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
+import { RoomPanel } from "@/components/sala/RoomPanel";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
@@ -47,6 +48,9 @@ export interface TabPanelActions {
   onDockWidthChange: (tabId: string, width: number) => void;
   onDockSplitRatioChange: (tabId: string, ratio: number) => void;
   onDockDragEnd: () => void;
+  /** A new-session tab opened a room: `tab` is now the room, `roomId` its id,
+   * and `firstMessage` is still to be handed to its principal. */
+  onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string, firstMessage: string) => void;
 }
 
 interface TabChatProps {
@@ -99,6 +103,7 @@ const TabChat = memo(function TabChat({
       profile={profile}
       sessionId={tab.id}
       isNewConversation={tab.isNew}
+      onRoomCreated={(roomId, title, firstMessage) => actions.onRoomCreated(tab, profile, roomId, title, firstMessage)}
       onTurnActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
       onBackgroundJobsChange={(jobs, failedJobs) => actions.onBackgroundJobsChange(tab.id, jobs, failedJobs)}
       onTurnProgressChange={(progress) => actions.onTurnProgressChange(tab.id, progress)}
@@ -156,6 +161,22 @@ export const TabPanel = memo(function TabPanel({
   fileTabs,
   actions,
 }: TabPanelProps) {
+  // A room has no conversation of its own here and no dock: its canvas fills
+  // the tab (the principal's conversation and the side panels come later).
+  if (tab.room) {
+    return (
+      <RoomPanel
+        key={tab.id}
+        profile={profile}
+        roomId={tab.id}
+        onTitle={(title) => actions.onTitle(tab, title)}
+        onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
+        onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
+        onGone={() => actions.onDeleted(tab)}
+      />
+    );
+  }
+
   const chat = (
     <TabChat
       tab={tab}
