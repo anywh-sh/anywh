@@ -10,15 +10,14 @@
 //
 // What this checks:
 //   1. The turn completes quickly after the model calls `present_choice` —
-//      NOT after minutes, and NOT hanging until the CLI's ~6-minute MCP
-//      timeout (the bug this whole rework exists to
-//      route around). Under the old blocking design this exact scenario
-//      (nobody answers right away) is what used to eventually fail with
-//      "The operation timed out".
+//      NOT after minutes, and NOT held open until a human answers
+//      (the coupling this whole rework exists to remove). Under the old blocking design this exact scenario
+//      (nobody answers right away) kept the tool call, and so the turn,
+//      open until a human answered.
 //   2. A `choice_prompt` was broadcast with the expected question.
 //   3. Waiting past the point where a human would plausibly still be
 //      reading the prompt (here: a few seconds — the point isn't to
-//      reproduce the full 6-minute wait, it's to prove elapsed time doesn't
+//      reproduce a long wait, it's to prove elapsed time doesn't
 //      matter anymore because the turn ISN'T waiting on anything), then
 //      answering, correctly starts a brand new turn whose response reflects
 //      the answer.
@@ -75,8 +74,8 @@ socket.send(
 );
 
 // If this hangs past a handful of seconds, the deferred lifecycle isn't
-// working — the old blocking design would have hung here for ~6 minutes
-// before degrading, not failed fast.
+// working — the old blocking design would have held the turn open until
+// a human answered, not returned within seconds.
 await waitFor(() => turnCompleteCount === 1, 60_000, "first turn_ended");
 const elapsedMs = turnCompleteAt - sentAt;
 console.log(`[test] first turn completed in ${elapsedMs}ms (must be seconds, not minutes)`);

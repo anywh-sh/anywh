@@ -229,23 +229,17 @@ export const httpServer = createServer((req, res) => {
   void dispatchRoute(req, res);
 });
 
-// Real-session finding (2026-09-09): the permission-approval MCP bridge
-// (permissionBridge.ts) holds a `tools/call` POST open for as long as a
-// human takes to answer — genuinely minutes, not milliseconds (the
-// present_choice bridge, mcpBridge.ts, USED to as well, but its deferred
-// lifecycle rework replies immediately now, see the comment on
-// `SharedSession.presentChoice` — kept the request timeout disabled below
-// regardless, since it's still real for the permission bridge and costs
-// nothing for every other route on this server, which all respond in
-// milliseconds). Node's `http.Server` has defaulted `requestTimeout` to
-// 300000ms (5 minutes) since Node 18: past that, Node itself would abort
-// the request on its own, regardless of anything passed to the `claude`
-// child's own `--mcp-config`. Live testing showed
-// this was NOT the actual cause of the real "The operation timed out"
-// failure a session hit at ~5m53s: an isolated reproduction with this exact
-// override applied still failed at ~6 minutes. The real culprit is still
-// unidentified, tracked as an open upstream CLI limitation — see
-// `sharedSession.ts`'s `mcpServers` comment for the full investigation.
+// The permission-approval MCP bridge (permissionBridge.ts) holds a
+// `tools/call` POST open for as long as a human takes to answer — minutes, not
+// milliseconds. (The present_choice bridge, mcpBridge.ts, replies immediately
+// now, see the comment on `SharedSession.presentChoice`.) Node's
+// `http.Server` has defaulted `requestTimeout` to 300000ms (5 minutes) since
+// Node 18: past that, Node itself would abort the request on its own,
+// regardless of anything passed to the `claude` child's own `--mcp-config`.
+// Disabled here as a guard; it costs nothing for every other route on this
+// server, which all respond in milliseconds. The per-server `timeout` in
+// `--mcp-config` is what keeps the CLI itself from cutting a pending approval
+// (see `buildMcpSpawnConfig`).
 httpServer.requestTimeout = 0;
 
 export const wss = new WebSocketServer({ server: httpServer });
@@ -284,7 +278,7 @@ if (HOST !== "127.0.0.1") {
   // `tools/call` traffic for every profile where it exists (`HOST !==
   // "127.0.0.1"` — i.e. every real deployed profile) — see the
   // matching comment on `httpServer.requestTimeout` above for why this is
-  // disabled here too (and why it turned out not to be the real fix).
+  // disabled here too.
   loopbackServer.requestTimeout = 0;
   loopbackServer.listen(PORT, "127.0.0.1", () => {
     console.log(`[relay] mcp/permission bridge also listening on http://127.0.0.1:${PORT} (local-only, for own children)`);

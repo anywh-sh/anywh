@@ -116,31 +116,22 @@ const HUMAN_RESPONSE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
  * error, or `stopTurn`) must not leave a token alive that a since-exited
  * `claude` child could no longer call anyway.
  *
- * `permissionToken`'s server (`anywh-permission`) still waits on a real
- * human (an approve/deny decision) with no bytes sent back until that
- * happens — from the CLI's point of view that's indistinguishable from a
- * hung connection. Real finding (2026-09-09): the CLI's own default idle
- * timeout for `"http"` MCP servers is 5 minutes (undocumented in `--help`,
- * confirmed against the CLI's own docs), well inside how long a human can
- * plausibly take to notice a prompt and answer it — the panel was observed
- * disappearing out from under the human mid-decision. `timeout` here is
- * meant to override that per server (also acts as a floor under the idle
- * timeout, per the same docs).
+ * `permissionToken`'s server (`anywh-permission`) waits on a real human (an
+ * approve/deny decision) with no bytes sent back until that happens — from
+ * the CLI's point of view that's indistinguishable from a hung connection.
+ * Without a per-server `timeout` the CLI cuts such a pending call at ~60 s
+ * (measured on CLI 2.1.303) and repeats the request. `timeout` here overrides
+ * that per server (it also acts as a floor under the idle timeout).
  *
- * UPDATE: the per-server `timeout` override DOES work. Re-measured with CLI
- * 2.1.303 by `scripts/manual/test-long-approval.mjs`: a permission approval
- * left pending for 120 s is still answerable and the approved tool runs.
- * Without the field the CLI cuts a pending MCP call at ~60 s (the call
- * degrades to a denial). An older measurement (2026-09-09, an earlier CLI)
- * saw a cut at ~6 minutes even with `timeout: 24h`, matching an upstream
- * regression where the field was ignored for HTTP transport; that is not
- * reproduced on 2.1.303, but the manual test only covers 120 s, NOT waits
- * near 6 minutes, so a human taking that long is unverified. The
+ * The override DOES work. Re-measured with CLI 2.1.303 by
+ * `scripts/manual/test-long-approval.mjs`: a permission approval left pending
+ * for 120 s is still answerable and the approved tool runs. The manual test
+ * only covers 120 s, so waits much longer than that are unverified. The
  * `requestTimeout = 0` on this relay's own HTTP servers (server.ts) and
- * `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` in the child env
- * (session.ts) are kept as additional guards. If an
- * approval is ever cut, `sendTurn` surfaces it as a normal tool error (the
- * turn doesn't hang, it just can't get the approval it asked for).
+ * `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` in the child env (session.ts) are
+ * kept as additional guards. If an approval is ever cut, `sendTurn` surfaces
+ * it as a normal tool error (the turn doesn't hang, it just can't get the
+ * approval it asked for).
  *
  * `choiceToken`'s server (`anywh-choice`) no longer needs any of this:
  * `presentChoice` (mcpBridge.ts's `ChoiceHost`) replies to `present_choice`

@@ -62,10 +62,9 @@ export interface ChoiceAnswer {
  *
  * Synchronous and fire-and-forget on purpose (this
  * used to be `Promise<ChoiceAnswer[]>`, held open by `handleRequest` until a
- * human answered): the CLI kills any MCP `tools/call` that takes longer than
- * ~6 minutes to resolve, no documented override actually prevents it, and a
- * human reading a prompt on their phone routinely takes longer than that.
- * `presentChoice` now just records the question and returns immediately —
+ * human answered): a held-open `tools/call` would tie the human's answer to a
+ * live `claude` child, and a human reading a prompt on their phone can take
+ * arbitrarily long. `presentChoice` now just records the question and returns immediately —
  * `handleRequest` replies to the tool call right away (see
  * `CHOICE_DEFERRED_RESPONSE_TEXT` below), the turn ends normally, and the
  * eventual human answer arrives as a brand new turn instead of a resolved
@@ -220,10 +219,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  * shapes below).
  *
  * `tools/call` used to hold the HTTP response open until a human answered —
- * confirmed working (no token cost while waiting) but abandoned: the CLI
- * kills a `tools/call` that takes longer than ~6
- * minutes to resolve, with no working override, and a human on their phone
- * routinely takes longer than that. `ChoiceHost.presentChoice` is now
+ * confirmed working (no token cost while waiting) but abandoned: the
+ * answer would depend on a live `claude` child, and a human on their phone
+ * can take arbitrarily long. `ChoiceHost.presentChoice` is now
  * synchronous — this bridge replies immediately, telling the model to end
  * its turn, and the human's actual answer arrives as a new turn instead
  * (`SharedSession.answerChoice`). See `ChoiceHost`'s doc comment for the
