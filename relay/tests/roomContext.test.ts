@@ -203,8 +203,8 @@ test("workers of one model launched together start one behind the first, so the 
         socket,
         [
           marker("delegate", { task: `leader [[gate:${gate}]]`, runtime: "claude", model: "haiku" }),
-          marker("delegate", { task: "follower one", runtime: "claude", model: "haiku" }),
-          marker("delegate", { task: "follower two", runtime: "claude", model: "haiku" }),
+          marker("delegate", { task: "follower one [[hang]]", runtime: "claude", model: "haiku" }),
+          marker("delegate", { task: "follower two [[hang]]", runtime: "claude", model: "haiku" }),
           marker("delegate", { task: "another model", runtime: "claude", model: "sonnet" }),
         ].join(" "),
       );
@@ -214,7 +214,13 @@ test("workers of one model launched together start one behind the first, so the 
       await new Promise((r) => setTimeout(r, 500));
       assert.equal(await workers(), 2, "the followers are held while the leader's window is open");
       // The window closes by itself, the leader's turn still running.
-      await waitFor(async () => (await workers()) === 4, 20_000, "followers released when the window closes");
+      let thirdAt = 0;
+      await waitFor(async () => {
+        const count = await workers();
+        if (count >= 3 && thirdAt === 0) thirdAt = Date.now();
+        return count === 4;
+      }, 20_000, "followers released when the window closes");
+      assert.ok(Date.now() - thirdAt < 1000, "the followers are released together, not one window after another");
       writeFileSync(gate, "open");
     } finally {
       socket.close();

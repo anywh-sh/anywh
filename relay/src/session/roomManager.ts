@@ -124,6 +124,9 @@ export class RoomManager implements RoomToolHost {
    * whole prompt to the cache; behind the first, the rest read it. */
   private readonly warming = new Map<string, { leader: string; waiting: Set<string>; cancel?: () => void }>();
   private readonly warmingKeyOf = new Map<string, string>();
+  /** Agents let go when their leader's window closed: they start, none of them
+   * waits behind another (the cache is warm). */
+  private readonly released = new Set<string>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -381,6 +384,7 @@ export class RoomManager implements RoomToolHost {
    * it becomes the one the others wait behind. A later turn of an agent
    * already born is never held. */
   private parkBehindLeader(sessionId: string): boolean {
+    if (this.released.delete(sessionId)) return false;
     const runtime = this.store.getAgentId(sessionId);
     if (runtime !== "claude" || this.store.getSessionId(sessionId, runtime) !== undefined) return false;
     // Per room: the system prompt (and so the cache prefix) is the room's own.
@@ -410,6 +414,7 @@ export class RoomManager implements RoomToolHost {
     if (warming?.leader !== leaderId) return;
     this.warming.delete(key);
     warming.cancel?.();
+    for (const id of warming.waiting) this.released.add(id);
     for (const id of warming.waiting) this.pump(id);
   }
 
