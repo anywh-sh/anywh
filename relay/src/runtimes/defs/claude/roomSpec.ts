@@ -19,7 +19,9 @@ export const PRINCIPAL_TOOLS = ["Read", "Grep", "Glob"] as const;
 
 /** Denied to the principal on top of `--tools`, in case a CLI version
  * ignores that flag: anything that writes, runs commands, leaves the machine,
- * or starts a native subagent. */
+ * or starts a native subagent (listed as `Task` in Claude Code 2.1.303's
+ * `init`, `Agent` in its docs — both denied). Checked against the real CLI:
+ * the principal's `init` lists only Read, Grep, Glob and the room's tools. */
 export const PRINCIPAL_DENIED_TOOLS = ["Agent", "Task", "Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "AskUserQuestion"] as const;
 
 /** Native subagents inside a worker: at most 5 at once, and they cannot
