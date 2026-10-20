@@ -12,6 +12,14 @@ export const NO_REPLY = "NO_REPLY";
  * happens to contain the word cannot fake an offer. */
 export const SILENCE_OFFER_MARKER = `responda exatamente ${NO_REPLY} e nada mais`;
 
+/** The same offer worded in English, for the prompts the relay writes in
+ * English (a room's digest). Recognised wherever `SILENCE_OFFER_MARKER` is. */
+export const NO_REPLY_OFFER_EN = `answer exactly ${NO_REPLY} and nothing else`;
+
+/** First line of a room's digest prompt: how a transcript read back later
+ * tells one from a message the person typed. */
+export const ROOM_DIGEST_PREFIX = "[anywh-room]";
+
 /** Whether `text` is the model answering `NO_REPLY` and nothing else:
  * trimmed, with wrapping backticks/quotes and a trailing period tolerated. */
 export function isNoReply(text: string): boolean {
@@ -22,7 +30,7 @@ export function isNoReply(text: string): boolean {
  * a transcript) offered the `NO_REPLY` escape. */
 export function promptOffersSilence(prompt: string): boolean {
   const afterLog = prompt.slice(prompt.lastIndexOf("```") + 3);
-  return afterLog.includes(SILENCE_OFFER_MARKER);
+  return afterLog.includes(SILENCE_OFFER_MARKER) || afterLog.includes(NO_REPLY_OFFER_EN);
 }
 
 /**

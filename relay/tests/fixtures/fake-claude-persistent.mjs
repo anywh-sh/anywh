@@ -50,6 +50,10 @@
 //                        control request names it (then `task_updated`
 //                        killed, `task_notification` stopped), as measured
 //                        on Claude Code 2.1.303
+//   FAKE_CLAUDE_DIGEST_REPLY=<text> (env, not a marker): a message that
+//                        starts with `[anywh-room]` (a room's digest) is
+//                        answered with exactly this text, as a principal
+//                        would answer NO_REPLY when it has nothing to do
 //   [[stale-result:<path>]] end the turn normally; when the NEXT message
 //                        arrives, first print one more lone `result` (as if
 //                        a background-triggered turn's result were still in
@@ -163,6 +167,10 @@ export async function runPersistent(args) {
       emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent", description: "survey the repo" })) });
       emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
       finish("started a subagent");
+      return;
+    }
+    if (process.env.FAKE_CLAUDE_DIGEST_REPLY !== undefined && text.startsWith("[anywh-room]")) {
+      finish(process.env.FAKE_CLAUDE_DIGEST_REPLY);
       return;
     }
     const roomCalls = [...text.matchAll(/\[\[room:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)];

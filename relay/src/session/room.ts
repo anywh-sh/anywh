@@ -60,9 +60,10 @@ export interface RoomMembership {
   stopped?: RoomStop;
   /** Worker only: messages (its task first) still to be delivered. */
   queuedMessages?: QueuedMessage[];
-  /** Principal only: workers whose report has not been handed to the
-   * principal yet. Persisted so a restart between a report and the turn
-   * that delivers it loses nothing. */
+  /** Workers whose report has not been handed to this agent yet: the
+   * outbox of the agent that started them (the principal, or a worker that
+   * has agents under it). Persisted so a restart between a report and the
+   * turn that delivers it loses nothing. */
   undeliveredReports?: string[];
 }
 
@@ -120,7 +121,7 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
   if (stopped !== undefined && !(isRecord(stopped) && typeof stopped.reason === "string" && STOP_REASONS.has(stopped.reason) && isTimestamp(stopped.at))) return false;
   if (role === "worker") {
     if (typeof parentId !== "string" || parentId === "") return false;
-    if (undeliveredReports !== undefined) return false;
+    if (undeliveredReports !== undefined && !isStringList(undeliveredReports)) return false;
     if (
       queuedMessages !== undefined &&
       !(Array.isArray(queuedMessages) && queuedMessages.length <= ROOM_QUEUE_PER_AGENT_MAX + 1 && queuedMessages.every((m) => isRecord(m) && typeof m.text === "string" && isTimestamp(m.at)))
@@ -134,20 +135,24 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
   return true;
 }
 
-/** Where an agent of a room stands, as `room_status` shows it:
+/** Where an agent of a room stands, as `room_status` and the room's channel
+ * show it:
  * - `working`: a turn of it is running;
+ * - `awaiting_user`: it asked the person something (a question or a tool
+ *   approval) and its turn is over; nothing runs until they answer;
  * - `queued`: it has messages (its task, or one for it) not delivered yet;
  * - `waiting`: idle, never reported (only before its first turn ends);
  * - `done` / `blocked` / `failed`: its last report (a turn that failed or
  *   ended without a report gets one from the relay);
  * - `stopped`: the person stopped it.
  * Only `working` and `queued` take a place under the room's cap: an agent
- * that is idle has nothing running for it. */
-export type RoomAgentState = "working" | "queued" | "waiting" | RoomReportStatus | "stopped";
+ * that is idle, or waiting for the person, has nothing running for it. */
+export type RoomAgentState = "working" | "awaiting_user" | "queued" | "waiting" | RoomReportStatus | "stopped";
 
-export function roomAgentState(room: RoomMembership, busy: boolean): RoomAgentState {
+export function roomAgentState(room: RoomMembership, busy: boolean, awaitingUser = false): RoomAgentState {
   if (room.stopped) return "stopped";
   if (busy) return "working";
+  if (awaitingUser) return "awaiting_user";
   if ((room.queuedMessages?.length ?? 0) > 0) return "queued";
   return room.report?.status ?? "waiting";
 }
@@ -168,6 +173,22 @@ export function isDescendant(candidateId: string, ancestorId: string, parentOf: 
     current = parentOf(current);
   }
   return false;
+}
+
+/** Who a report from `workerId` goes to: the closest agent above it that is
+ * still there and not stopped (an agent the person stopped or removed is not
+ * going to read it), up to the principal. `undefined` when the chain ends
+ * without one (the room is gone). Stops on a cycle. */
+export function liveAncestorId(workerId: string, getRoom: (id: string) => RoomMembership | undefined): string | undefined {
+  const seen = new Set<string>([workerId]);
+  let current = getRoom(workerId)?.parentId;
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    const room = getRoom(current);
+    if (room && !room.stopped) return current;
+    current = room?.parentId;
+  }
+  return undefined;
 }
 
 /** A short title for a worker's session out of its task: its first line,

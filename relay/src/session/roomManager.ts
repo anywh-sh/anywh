@@ -23,12 +23,14 @@ import {
   ROOM_QUEUE_PER_ROOM_MAX,
   ROOM_REPORT_SUMMARY_MAX,
   isDescendant,
+  liveAncestorId,
   roomAgentState,
   takesRoomPlace,
   titleFromTask,
   type RoomAgentState,
   type RoomMembership,
 } from "./room.js";
+import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
 import {
   ROOM_MCP_SERVER_NAME,
   parseDelegateArgs,
@@ -76,6 +78,9 @@ export interface RoomManagerOptions {
   /** Removes an agent from the host. */
   readonly removeFromHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
+  /** How long a wake-up waits for more reports before the digest goes out:
+   * agents that finish together share one turn. Default 2 s. */
+  readonly digestWindowMs?: number;
 }
 
 export interface CreateRoomInput {
@@ -99,6 +104,11 @@ export class RoomManager implements RoomToolHost {
   private readonly now: () => number;
   /** Per worker, the queued message its current turn is delivering. */
   private readonly sending = new Map<string, { text: string; at: number; delivered: boolean }>();
+  /** Per agent, the coalescing timer of a digest about to go out. */
+  private readonly digestTimers = new Map<string, NodeJS.Timeout>();
+  /** Per agent, the digest turn queued or running for it: at most one at a
+   * time, so a round of reports is one turn however they arrive. */
+  private readonly digests = new Map<string, { delivered: boolean }>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -212,6 +222,7 @@ export class RoomManager implements RoomToolHost {
     const session = this.options.sessions.getOrCreate(agentId);
     session.discardQueuedTurns();
     session.stopTurn();
+    this.handOffOutbox(agentId);
     try {
       await this.options.stopInHost?.(agentId);
     } catch (error) {
@@ -233,8 +244,14 @@ export class RoomManager implements RoomToolHost {
     return { ok: true };
   }
 
+  /** Whether a question or a tool approval of `id` waits for the person: read
+   * from what is persisted, not from the process, which may be asleep. */
+  private awaitingUser(id: string): boolean {
+    return this.store.getPendingChoice(id) !== undefined || this.store.getPendingApproval(id) !== undefined;
+  }
+
   private stateOf(id: string, room: RoomMembership): RoomAgentState {
-    return roomAgentState(room, this.options.sessions.peek(id)?.isBusy() ?? false);
+    return roomAgentState(room, this.options.sessions.peek(id)?.isBusy() ?? false, this.awaitingUser(id));
   }
 
   /** Agents of a room that take a place under its cap right now. */
@@ -247,10 +264,16 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    if (outcome.synthetic === "room_digest") this.digests.delete(sessionId);
     const sending = this.sending.get(sessionId);
     this.sending.delete(sessionId);
     const room = this.store.getRoom(sessionId);
-    if (!room || room.role !== "worker" || room.stopped) return;
+    if (!room) return;
+    if (room.role !== "worker" || room.stopped) {
+      // The principal's own turn is over: reports that waited for it go out.
+      if (room.role === "principal") this.considerDigest(sessionId);
+      return;
+    }
     if (sending && !sending.delivered) {
       // The queued message never reached the agent. With the host away it
       // stays queued, untouched, for when the host is back (the queues are
@@ -259,7 +282,9 @@ export class RoomManager implements RoomToolHost {
       if (!this.options.hostConnected()) return;
       this.removeQueued(sessionId, sending);
     }
-    if (!outcome.stopped) {
+    // A digest is about the agents below this one: no report of its own is
+    // owed for it.
+    if (!outcome.stopped && outcome.synthetic !== "room_digest") {
       // A followed turn began before this relay saw it: any report of the
       // agent's own may be this turn's.
       const reportedThisTurn = room.report !== undefined && !room.report.synthetic && (outcome.adopted === true || room.report.at >= outcome.startedAt);
@@ -270,11 +295,14 @@ export class RoomManager implements RoomToolHost {
         this.recordReport(sessionId, room, { ...room.report, summary: `${room.report.summary}${note}`.slice(0, ROOM_REPORT_SUMMARY_MAX + note.length) });
       } else if (outcome.error !== undefined) {
         this.recordReport(sessionId, room, { status: "failed", summary: `The agent's turn failed: ${outcome.error}`.slice(0, ROOM_REPORT_SUMMARY_MAX), artifacts: [], synthetic: true });
-      } else if (!reportedThisTurn) {
+      } else if (!reportedThisTurn && !this.awaitingUser(sessionId)) {
+        // Not blocked when it ended its turn to wait for the person: it is
+        // waiting for them, which is its own state.
         this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });
       }
     }
     this.pump(sessionId);
+    this.considerDigestFor(sessionId);
   }
 
   /** Hands the next queued message of an idle worker to its session. It
@@ -310,8 +338,16 @@ export class RoomManager implements RoomToolHost {
   }
 
   /** A room member's session was deleted: its agent is to leave the host,
-   * now or on a later connection. */
+   * now or on a later connection, and the round it was part of may be over. */
   onMemberDeleted(sessionId: string): void {
+    const timer = this.digestTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.digestTimers.delete(sessionId);
+    this.digests.delete(sessionId);
+    // Once it is really gone, whoever it was working for may have nothing
+    // left to wait for.
+    const above = liveAncestorId(sessionId, (id) => this.store.getRoom(id));
+    if (above !== undefined) setImmediate(() => this.considerDigest(above));
     const tombstones = this.readTombstones();
     if (tombstones.includes(sessionId)) return;
     this.writeTombstones([...tombstones, sessionId]);
@@ -394,15 +430,147 @@ export class RoomManager implements RoomToolHost {
   /** Delivers what was queued before a relay restart. */
   resumeQueues(): void {
     for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.queuedMessages?.length ?? 0) > 0) this.pump(id);
+    this.considerAllDigests();
   }
 
+  /** Stores a worker's report and puts it in the outbox of the agent that
+   * reads it: the closest one above it that is still there. */
   private recordReport(workerId: string, worker: RoomMembership, report: Omit<NonNullable<RoomMembership["report"]>, "at">): void {
     this.store.setRoom(workerId, { ...worker, report: { ...report, at: this.now() } });
-    const principal = this.store.getRoom(worker.roomId);
-    if (principal?.role === "principal") {
-      const outbox = principal.undeliveredReports ?? [];
-      if (!outbox.includes(workerId)) this.store.setRoom(worker.roomId, { ...principal, undeliveredReports: [...outbox, workerId] });
+    const recipientId = liveAncestorId(workerId, (id) => this.store.getRoom(id));
+    const recipient = recipientId === undefined ? undefined : this.store.getRoom(recipientId);
+    if (recipientId === undefined || !recipient) return;
+    const outbox = recipient.undeliveredReports ?? [];
+    if (!outbox.includes(workerId)) this.store.setRoom(recipientId, { ...recipient, undeliveredReports: [...outbox, workerId] });
+    this.considerDigest(recipientId);
+  }
+
+  // ------------------------------------------------------------ digest
+
+  /** The agents below `recipientId` (at any depth) in one of `states`. */
+  private countBelow(recipientId: string, states: readonly RoomAgentState[]): number {
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    const roomId = this.store.getRoom(recipientId)?.roomId;
+    return this.members(roomId ?? recipientId).filter((member) => member.id !== recipientId && isDescendant(member.id, recipientId, parentOf) && states.includes(this.stateOf(member.id, member.room))).length;
+  }
+
+  /** What `recipientId` has not been told yet, from the reports as they are
+   * now (a report made again replaces the earlier one). */
+  private outboxEntries(recipientId: string): { entry: DigestEntry; at: number }[] {
+    const recipient = this.store.getRoom(recipientId);
+    const entries: { entry: DigestEntry; at: number }[] = [];
+    for (const workerId of recipient?.undeliveredReports ?? []) {
+      const worker = this.store.getRoom(workerId);
+      if (!worker?.report || worker.roomId !== recipient?.roomId) continue;
+      entries.push({
+        entry: {
+          agentId: workerId,
+          title: this.store.getTitle(workerId),
+          status: worker.report.status,
+          summary: worker.report.summary,
+          artifacts: worker.report.artifacts,
+          fromRelay: worker.report.synthetic === true,
+        },
+        at: worker.report.at,
+      });
     }
+    return entries;
+  }
+
+  /** Whether a digest to `recipientId` is due now: it has reports waiting,
+   * and either one of them failed or blocked (somebody has to decide) or
+   * nothing under it is still running (the round is over). Never while one
+   * is already on its way. */
+  private digestDue(recipientId: string): boolean {
+    if (this.digests.has(recipientId) || this.admit(recipientId) !== undefined) return false;
+    const entries = this.outboxEntries(recipientId);
+    if (entries.length === 0) return false;
+    return entries.some(({ entry }) => isUrgent(entry.status)) || this.countBelow(recipientId, ["working", "queued"]) === 0;
+  }
+
+  /** Schedules the digest if one is due; the window lets agents that report
+   * together share it. Called whenever something that can make one due
+   * happens. */
+  private considerDigest(recipientId: string): void {
+    if (this.digestTimers.has(recipientId) || !this.digestDue(recipientId)) return;
+    const timer = setTimeout(() => {
+      this.digestTimers.delete(recipientId);
+      this.deliverDigest(recipientId);
+    }, this.options.digestWindowMs ?? 2000);
+    timer.unref();
+    this.digestTimers.set(recipientId, timer);
+  }
+
+  /** `considerDigest` for whoever reads the reports of `workerId`'s side of
+   * the tree: it just stopped working, so the round may be over. */
+  private considerDigestFor(workerId: string): void {
+    const recipientId = liveAncestorId(workerId, (id) => this.store.getRoom(id));
+    if (recipientId !== undefined) this.considerDigest(recipientId);
+  }
+
+  private deliverDigest(recipientId: string): void {
+    // The host being away is no reason to fail a turn nobody asked for: the
+    // reports stay in the outbox and go out when it is back.
+    if (!this.digestDue(recipientId) || !this.options.hostConnected()) return;
+    const entries = this.outboxEntries(recipientId);
+    const text = buildRoomDigest(
+      entries.map(({ entry }) => entry),
+      { stillWorking: this.countBelow(recipientId, ["working", "queued"]), awaitingPerson: this.countBelow(recipientId, ["awaiting_user"]) },
+    );
+    const taken = new Map(entries.map(({ entry, at }) => [entry.agentId, at]));
+    const digest = { delivered: false };
+    this.digests.set(recipientId, digest);
+    this.options.sessions.getOrCreate(recipientId).submitRoomDigest(text, {
+      onDelivered: () => {
+        digest.delivered = true;
+        this.clearFromOutbox(recipientId, taken);
+      },
+    });
+  }
+
+  /** Takes reports out of an outbox once they were handed over — those that
+   * were not made again since (`at` is when the one that was handed over
+   * arrived). Also drops entries whose agent is gone. */
+  private clearFromOutbox(recipientId: string, handed: ReadonlyMap<string, number>): void {
+    const recipient = this.store.getRoom(recipientId);
+    if (!recipient?.undeliveredReports) return;
+    const kept = recipient.undeliveredReports.filter((workerId) => {
+      const report = this.store.getRoom(workerId)?.report;
+      if (!report) return false;
+      const at = handed.get(workerId);
+      return at === undefined || report.at !== at;
+    });
+    const { undeliveredReports: _old, ...rest } = recipient;
+    void _old;
+    this.store.setRoom(recipientId, recipient.role === "principal" || kept.length > 0 ? { ...rest, undeliveredReports: kept } : rest);
+  }
+
+  /** An agent leaves the room's active work (stopped, removed): reports
+   * waiting for it go to the next agent above, and the round may be over. */
+  private handOffOutbox(agentId: string): void {
+    const timer = this.digestTimers.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.digestTimers.delete(agentId);
+    this.digests.delete(agentId);
+    const room = this.store.getRoom(agentId);
+    const waiting = room?.undeliveredReports ?? [];
+    const targetId = liveAncestorId(agentId, (id) => this.store.getRoom(id));
+    const target = targetId === undefined ? undefined : this.store.getRoom(targetId);
+    if (room && waiting.length > 0 && targetId !== undefined && target) {
+      const { undeliveredReports: _old, ...rest } = room;
+      void _old;
+      this.store.setRoom(agentId, rest);
+      const merged = [...(target.undeliveredReports ?? [])];
+      for (const workerId of waiting) if (!merged.includes(workerId)) merged.push(workerId);
+      this.store.setRoom(targetId, { ...target, undeliveredReports: merged });
+    }
+    if (targetId !== undefined) this.considerDigest(targetId);
+  }
+
+  /** Looks at every agent that may owe someone a digest (after a restart, or
+   * once the host is back). */
+  considerAllDigests(): void {
+    for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.undeliveredReports?.length ?? 0) > 0) this.considerDigest(id);
   }
 
   /** A model the runtime will take: the catalog's own ids, and for Claude

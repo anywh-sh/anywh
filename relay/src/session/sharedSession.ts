@@ -256,6 +256,9 @@ export interface TurnOutcome {
   readonly stopped: boolean;
   /** The failure's message, when the turn failed. */
   readonly error?: string;
+  /** What started the turn when it was neither a person's message nor an
+   * agent's: the relay's own follow-ups. */
+  readonly synthetic?: "background_job" | "wakeup" | "approval" | "room_digest";
 }
 
 /**
@@ -1398,6 +1401,15 @@ export class SharedSession implements SessionDriverHost {
     return this.driver.runsOutsideRelay === true;
   }
 
+  /** The reports of the agents this one started, handed over as one turn
+   * that may end in silence (`NO_REPLY`): nothing of it is shown unless the
+   * agent does or says something. `onDelivered` runs once the agent has the
+   * message. */
+  submitRoomDigest(text: string, hooks?: TurnHooks): void {
+    this.clearSuggestion();
+    this.enqueue(() => this.runTurn(undefined, text, { kind: "room_digest", silenceOffered: true }, false, hooks));
+  }
+
   /** A turn asked by another agent of the room (a delegated task, a message
    * from the principal) rather than typed by a person on a device: no
    * device has its bubble yet, so everyone connected gets it. */
@@ -1464,7 +1476,7 @@ export class SharedSession implements SessionDriverHost {
     text: string,
     synthetic?: {
       label?: string;
-      kind: "background_job" | "wakeup" | "approval";
+      kind: "background_job" | "wakeup" | "approval" | "room_digest";
       /** The prompt offered the model the `NO_REPLY` escape: hold the turn's
        * events until it is known whether they will ever be shown. */
       silenceOffered?: boolean;
@@ -1515,7 +1527,7 @@ export class SharedSession implements SessionDriverHost {
     // For a turn that may end up silent (`hold`) nothing below reaches a
     // client or `history` until the turn proves it has something to show —
     // see `HeldTurn`.
-    const hold = synthetic?.kind === "background_job" && synthetic.silenceOffered ? new HeldTurn() : undefined;
+    const hold = synthetic?.silenceOffered ? new HeldTurn() : undefined;
     const emit = (message: BroadcastMessage): void => {
       if (hold && !hold.released) hold.buffer.push(message);
       else this.broadcast(message);
@@ -1726,7 +1738,13 @@ export class SharedSession implements SessionDriverHost {
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
-    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(follow ? { adopted: true } : {}), ...(turnError !== undefined ? { error: turnError } : {}) });
+    this.options.onTurnSettled?.({
+      startedAt: clock.startedAt,
+      stopped: turnStopped,
+      ...(follow ? { adopted: true } : {}),
+      ...(turnError !== undefined ? { error: turnError } : {}),
+      ...(synthetic ? { synthetic: synthetic.kind } : {}),
+    });
 
     // Plan mode's `present_choice` fallback: Claude's driver never
     // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s

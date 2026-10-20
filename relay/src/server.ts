@@ -153,6 +153,7 @@ const roomManager: RoomManager = new RoomManager({
   bridge: roomBridge,
   runtimes: () => roomRuntimes,
   hostConnected: () => agentHost?.status === "connected",
+  ...(process.env.RELAY_ROOM_DIGEST_WINDOW_MS ? { digestWindowMs: Number(process.env.RELAY_ROOM_DIGEST_WINDOW_MS) } : {}),
   owner: roomBridge.ownerId,
   tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
   stopInHost: async (agentId) => {

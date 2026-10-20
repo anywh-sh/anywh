@@ -4,7 +4,7 @@ import { isToolResultOnly, type ClaudeEvent } from "./session.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
-import { isNoReply, markSilent, promptOffersSilence } from "../../../protocol/silentEvents.js";
+import { isNoReply, markSilent, promptOffersSilence, ROOM_DIGEST_PREFIX } from "../../../protocol/silentEvents.js";
 import { stripRelayNote } from "../../../protocol/relayNote.js";
 
 /** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
@@ -246,11 +246,15 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
         ...(typeof line.timestamp === "string" ? { timestamp: line.timestamp } : {}),
       });
       const synthetic = backgroundJobPrompt(humanText);
+      const digest = humanText.startsWith(ROOM_DIGEST_PREFIX);
       const pushed = messages.at(-1)?.event;
-      if (synthetic && pushed?.type === "user_message") {
-        // A job report is not something the user typed: mark it the way the
-        // live relay does so the client renders a note, not a user bubble.
-        const event: AgentEvent = { ...pushed, synthetic: "background_job", ...(synthetic.label !== undefined ? { label: synthetic.label } : {}) };
+      if ((synthetic || digest) && pushed?.type === "user_message") {
+        // A job report or a room's digest is not something the user typed:
+        // mark it the way the live relay does so the client renders a note,
+        // not a user bubble.
+        const event: AgentEvent = digest
+          ? { ...pushed, synthetic: "room_digest" }
+          : { ...pushed, synthetic: "background_job", ...(synthetic?.label !== undefined ? { label: synthetic.label } : {}) };
         messages[messages.length - 1] = { type: "agent_event", event };
         turnUserEvent = event;
         turnOffered = promptOffersSilence(humanText);

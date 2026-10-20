@@ -323,13 +323,14 @@ export class SessionManager {
       this.rooms.onRoomDeleted?.(id);
     } else if (room?.role === "worker") {
       // Removing an agent removes the agents below it (they report to it),
-      // and its report no longer waits for the principal.
+      // and its report no longer waits for whoever it was to be handed to.
       for (const member of this.sessionStore.listRoomMembers(room.roomId)) {
         if (member.room.parentId === id && member.id !== id) this.deleteSession(member.id);
       }
-      const principal = this.sessionStore.getRoom(room.roomId);
-      if (principal?.undeliveredReports?.includes(id)) {
-        this.sessionStore.setRoom(room.roomId, { ...principal, undeliveredReports: principal.undeliveredReports.filter((other) => other !== id) });
+      for (const member of this.sessionStore.listRoomMembers(room.roomId)) {
+        if (member.room.undeliveredReports?.includes(id)) {
+          this.sessionStore.setRoom(member.id, { ...member.room, undeliveredReports: member.room.undeliveredReports.filter((other) => other !== id) });
+        }
       }
     }
     if (room) {
