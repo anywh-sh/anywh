@@ -91,8 +91,16 @@
 //                        one deterministically.
 
 import { randomUUID } from "node:crypto";
+import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
+
+// FAKE_CLAUDE_ARGV_FILE - if set, the argv of every invocation is appended to
+// this file as one JSON array per line, so a test can assert on the flags the
+// relay actually spawned with.
+if (process.env.FAKE_CLAUDE_ARGV_FILE) {
+  appendFileSync(process.env.FAKE_CLAUDE_ARGV_FILE, `${JSON.stringify(args)}\n`);
+}
 
 function emit(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
