@@ -301,7 +301,7 @@ export function parseClientMessage(line: string): ParseResult<ClientMessage> {
       if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_unsubscribe", id };
       return { ok: true, message: { op: "unsubscribe", id: value.id, agentId: value.agentId } };
     case "request":
-      if (!isRequestId(value.id) || typeof value.method !== "string") return { ok: false, error: "bad_request" };
+      if (!isRequestId(value.id) || typeof value.method !== "string") return { ok: false, error: "bad_request", id };
       return { ok: true, message: { op: "request", id: value.id, method: value.method, params: isRecord(value.params) ? value.params : {} } };
     default:
       return { ok: false, error: "unknown_op", id };

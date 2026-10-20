@@ -31,6 +31,8 @@ test("parseClientMessage rejects malformed input instead of guessing", () => {
     assert.equal(parsed.ok, false, line);
     if (!parsed.ok) assert.equal(parsed.error, error, line);
   }
+  // A request with an id but no method is answered, not left to time out.
+  assert.deepEqual(parseClientMessage('{"op":"request","id":4}'), { ok: false, error: "bad_request", id: 4 });
   // The id survives a rejection, so the error can be answered.
   assert.deepEqual(parseClientMessage('{"op":"subscribe","id":9,"agentId":"../x","fromOffset":0}'), { ok: false, error: "bad_subscribe", id: 9 });
 });
