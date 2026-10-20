@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { AgentEventLog } from "./eventLog.js";
 import { HostClient, START_OF_LOG, type AgentCursor } from "./hostClient.js";
 import { AGENT_HOST_PROTOCOL_VERSION, HostError, type EventMessage, type HelloRefusedMessage } from "./protocol.js";
+import { RELEASE_VERSION } from "./release.js";
 import { AgentHostSocketServer } from "./socketServer.js";
 
 async function waitFor(check: () => boolean, timeoutMs = 5000, what = "condition"): Promise<void> {
@@ -106,6 +107,7 @@ test("a client from another protocol version is refused explicitly and gets noth
     await waitFor(() => refusals.length > 0, 5000, "refusal");
     assert.equal(refusals[0].reason, "protocol_version_mismatch");
     assert.equal(refusals[0].hostVersion, AGENT_HOST_PROTOCOL_VERSION);
+    assert.equal(refusals[0].hostRelease, RELEASE_VERSION);
     assert.equal(client.status, "refused");
     await assert.rejects(client.request("echo"), /not connected/);
     assert.deepEqual(events, []);
@@ -119,6 +121,7 @@ test("requests are answered, and a host error keeps its code", async () => {
   try {
     const client = newClient(f);
     await client.waitUntilConnected();
+    assert.equal(client.hostRelease, RELEASE_VERSION);
     assert.deepEqual(await client.request("echo"), { pong: true });
     await assert.rejects(client.request("nope"), (error: Error & { code?: string }) => error.code === "unknown_method");
     // A handler that throws synchronously answers with an error, and the host keeps serving.

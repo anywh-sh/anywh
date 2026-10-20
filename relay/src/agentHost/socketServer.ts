@@ -25,6 +25,7 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { LogReader, type AgentEventLog, type RawRecord } from "./eventLog.js";
 import { AGENT_HOST_PROTOCOL_VERSION, HostError, encodeMessage, parseClientMessage, type HostMessage } from "./protocol.js";
+import { RELEASE_VERSION } from "./release.js";
 
 export const DEFAULT_HIGH_WATER_BYTES = 1024 * 1024;
 /** A connection whose buffer still grows past this (only small control
@@ -267,13 +268,16 @@ class Connection {
         return;
       }
       if (parsed.message.version !== version) {
-        this.send({ type: "hello_refused", reason: "protocol_version_mismatch", hostVersion: version, clientVersion: parsed.message.version });
+        console.error(
+          `[agent-host] refused a client speaking protocol ${parsed.message.version} (release ${parsed.message.release ?? "unknown"}); this host speaks ${version} (release ${RELEASE_VERSION})`,
+        );
+        this.send({ type: "hello_refused", reason: "protocol_version_mismatch", hostVersion: version, clientVersion: parsed.message.version, hostRelease: RELEASE_VERSION });
         this.socket.end();
         this.ending = true;
         return;
       }
       this.helloed = true;
-      this.send({ type: "hello_ok", version, hostPid: process.pid, hostId: this.server.hostId });
+      this.send({ type: "hello_ok", version, hostPid: process.pid, hostId: this.server.hostId, release: RELEASE_VERSION });
       return;
     }
     if (!parsed.ok) return; // nothing to correlate an error with

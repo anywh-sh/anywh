@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { isValidAgentId, parseClientMessage, parseHostMessage } from "./protocol.js";
 
 test("parseClientMessage accepts the four ops with their required fields", () => {
-  assert.deepEqual(parseClientMessage('{"op":"hello","version":1,"client":"relay"}'), { ok: true, message: { op: "hello", version: 1, client: "relay" } });
+  assert.deepEqual(parseClientMessage('{"op":"hello","version":1,"client":"relay","release":"0.1.8"}'), {
+    ok: true,
+    message: { op: "hello", version: 1, client: "relay", release: "0.1.8" },
+  });
   assert.deepEqual(parseClientMessage('{"op":"subscribe","id":3,"agentId":"a-1","fromOffset":120}'), {
     ok: true,
     message: { op: "subscribe", id: 3, agentId: "a-1", fromOffset: 120 },

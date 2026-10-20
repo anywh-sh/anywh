@@ -31,6 +31,8 @@ export interface HelloMessage {
   readonly version: number;
   /** Free text for the host's log only. */
   readonly client?: string;
+  /** The client's release, informational (see `HelloOkMessage.release`). */
+  readonly release?: string;
 }
 
 /** Starts (or resumes) streaming one agent's log to this connection: every
@@ -68,6 +70,9 @@ export interface HelloOkMessage {
   readonly hostPid: number;
   /** The profile (or test instance) this host serves. */
   readonly hostId: string;
+  /** The host's release (package version). Informational: compatibility is
+   * decided by `version` alone. */
+  readonly release?: string;
 }
 
 export interface HelloRefusedMessage {
@@ -75,6 +80,7 @@ export interface HelloRefusedMessage {
   readonly reason: "protocol_version_mismatch" | "hello_required";
   readonly hostVersion: number;
   readonly clientVersion?: number;
+  readonly hostRelease?: string;
 }
 
 export interface ErrorPayload {
@@ -229,7 +235,15 @@ export function parseClientMessage(line: string): ParseResult<ClientMessage> {
   switch (value.op) {
     case "hello":
       if (typeof value.version !== "number") return { ok: false, error: "bad_hello" };
-      return { ok: true, message: { op: "hello", version: value.version, client: typeof value.client === "string" ? value.client : undefined } };
+      return {
+        ok: true,
+        message: {
+          op: "hello",
+          version: value.version,
+          client: typeof value.client === "string" ? value.client : undefined,
+          release: typeof value.release === "string" ? value.release : undefined,
+        },
+      };
     case "subscribe":
       if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_subscribe" };
       if (typeof value.fromOffset !== "number" || !Number.isSafeInteger(value.fromOffset) || value.fromOffset < 0) {

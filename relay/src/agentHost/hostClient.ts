@@ -25,6 +25,7 @@ import {
   type HostMessage,
   type ReplayGapMessage,
 } from "./protocol.js";
+import { RELEASE_VERSION } from "./release.js";
 
 export type HostClientStatus = "connecting" | "connected" | "disconnected" | "refused" | "closed";
 
@@ -102,6 +103,7 @@ export interface HostClientEvents {
 export class HostClient extends EventEmitter<HostClientEvents> {
   private socket: Socket | undefined;
   private statusValue: HostClientStatus = "disconnected";
+  private hostReleaseValue: string | undefined;
   private inbound = "";
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
@@ -123,6 +125,11 @@ export class HostClient extends EventEmitter<HostClientEvents> {
 
   get status(): HostClientStatus {
     return this.statusValue;
+  }
+
+  /** The connected host's release, once the handshake succeeded. */
+  get hostRelease(): string | undefined {
+    return this.hostReleaseValue;
   }
 
   /** Starts connecting; keeps reconnecting until `close()`. */
@@ -231,7 +238,9 @@ export class HostClient extends EventEmitter<HostClientEvents> {
     this.socket = socket;
     socket.setEncoding("utf8");
     socket.on("connect", () => {
-      socket.write(encodeMessage({ op: "hello", version: this.options.protocolVersion ?? AGENT_HOST_PROTOCOL_VERSION, client: this.options.clientName }));
+      socket.write(
+        encodeMessage({ op: "hello", version: this.options.protocolVersion ?? AGENT_HOST_PROTOCOL_VERSION, client: this.options.clientName, release: RELEASE_VERSION }),
+      );
     });
     socket.on("data", (chunk: string) => {
       if (this.socket !== socket) return;
@@ -280,13 +289,14 @@ export class HostClient extends EventEmitter<HostClientEvents> {
   private onMessage(message: HostMessage): void {
     switch (message.type) {
       case "hello_ok":
+        this.hostReleaseValue = message.release;
         this.reconnectDelay = this.reconnectMinMs;
         this.setStatus("connected");
         for (const state of this.subscriptions.values()) this.sendSubscribe(state);
         return;
       case "hello_refused":
         console.error(
-          `[relay] agent host refused the connection: ${message.reason} (host protocol ${message.hostVersion}, ours ${this.options.protocolVersion ?? AGENT_HOST_PROTOCOL_VERSION}) — the relay and the agent host must come from the same release`,
+          `[relay] agent host refused the connection: ${message.reason} (host protocol ${message.hostVersion}, release ${message.hostRelease ?? "unknown"}; ours ${this.options.protocolVersion ?? AGENT_HOST_PROTOCOL_VERSION}, release ${RELEASE_VERSION}) — the relay and the agent host must come from the same release; restart the one that is older`,
         );
         this.setStatus("refused");
         this.emit("refused", message);
