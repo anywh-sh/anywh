@@ -137,8 +137,12 @@ test("workers born with the same index get byte-identical system prompts; a resu
 
     await turn(socket, marker("delegate", { task: `Worker gamma ${report}`, runtime: "claude", model: "haiku" }));
     type Listing = { items: { name: string; author: string; summary: string }[] };
+    // A worker is credited by its title: the task's first line, or the short
+    // one generated for it (the fake `claude` answers the title probe "ok"),
+    // whichever it has when its report is read.
+    const isGamma = (author: string | undefined): boolean => author?.startsWith("Worker gamma") === true || author === "ok";
     const result = async (): Promise<Listing["items"][number] | undefined> => ((await (await fetch(`${base}/rooms/${roomId}/context`)).json()) as Listing).items.find((item) => item.name === "result-a.md");
-    await waitFor(async () => (await result())?.author.startsWith("Worker gamma") === true, 20_000, "the result credited to its worker");
+    await waitFor(async () => isGamma((await result())?.author), 20_000, "the result credited to its worker");
     const found = (await result())!;
     assert.equal(found.summary, "Findings of A");
   } finally {
