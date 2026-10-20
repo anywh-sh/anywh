@@ -10,7 +10,7 @@
 // knows what it durably processed — it passes that cursor back in to
 // `subscribe` (`FileCursorStore` is a ready-made place to keep it).
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync, type Stats } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { dirname } from "node:path";
 import {
@@ -28,7 +28,9 @@ import {
 } from "./protocol.js";
 import { RELEASE_VERSION } from "./release.js";
 
-export type HostClientStatus = "connecting" | "connected" | "disconnected" | "refused" | "closed";
+/** `unsafe`: the socket or its directory is not private to this user, so
+ * nothing was sent to it (see `untrustedSocketReason`). */
+export type HostClientStatus = "connecting" | "connected" | "disconnected" | "refused" | "unsafe" | "closed";
 
 /** Where a subscription stands: the offset to resume from, the last `seq`
  * delivered (-1 before any), and which incarnation of the agent's log those
@@ -56,6 +58,32 @@ export interface SubscriptionHandlers {
 export interface HostSubscription {
   cursor(): AgentCursor;
   close(): void;
+}
+
+/**
+ * Why the socket at `socketPath` must not be trusted, or `undefined`. The
+ * host creates it 0600 inside a 0700 directory it owns; anything else could
+ * be another user's socket planted where ours is expected (the fallback
+ * directory under /tmp has a predictable name), and the relay would hand it
+ * agent specs and messages. A socket that does not exist yet is not
+ * untrusted — the connect simply fails and is retried.
+ */
+export function untrustedSocketReason(socketPath: string): string | undefined {
+  const uid = process.getuid?.();
+  if (uid === undefined) return undefined;
+  const check = (path: string, what: string, isRightKind: (info: Stats) => boolean): string | undefined => {
+    let info: Stats;
+    try {
+      info = lstatSync(path);
+    } catch {
+      return undefined;
+    }
+    if (!isRightKind(info)) return `${what} ${path} is not what it should be`;
+    if (info.uid !== uid) return `${what} ${path} belongs to uid ${info.uid}, not ${uid}`;
+    if ((info.mode & 0o077) !== 0) return `${what} ${path} is open to other users (mode ${(info.mode & 0o777).toString(8)})`;
+    return undefined;
+  };
+  return check(dirname(socketPath), "directory", (info) => info.isDirectory()) ?? check(socketPath, "socket", (info) => info.isSocket());
 }
 
 export class HostUnavailableError extends Error {
@@ -251,6 +279,14 @@ export class HostClient extends EventEmitter<HostClientEvents> {
   private connectNow(): void {
     this.reconnectTimer = undefined;
     if (!this.started) return;
+    const untrusted = untrustedSocketReason(this.options.socketPath);
+    if (untrusted) {
+      if (this.statusValue !== "unsafe") console.error(`[relay] not connecting to the agent host: ${untrusted}`);
+      this.setStatus("unsafe");
+      this.reconnectTimer = setTimeout(() => this.connectNow(), this.reconnectMaxMs);
+      this.reconnectTimer.unref();
+      return;
+    }
     this.setStatus("connecting");
     this.inbound = "";
     const socket = connect(this.options.socketPath);

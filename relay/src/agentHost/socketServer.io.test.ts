@@ -411,3 +411,35 @@ test("FileCursorStore drops entries of the wrong shape instead of trusting them"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+for (const layout of ["directory open to others", "socket open to others"] as const) {
+  test(`the client refuses a socket it cannot trust (${layout}) without sending anything`, async () => {
+    const { mkdirSync, chmodSync } = await import("node:fs");
+    const { createServer } = await import("node:net");
+    const dir = mkdtempSync(join(tmpdir(), "anywh-untrusted-"));
+    const runDir = join(dir, "run");
+    mkdirSync(runDir, { mode: 0o700 });
+    const socketPath = join(runDir, "h.sock");
+    let received = 0;
+    const server = createServer((socket) => socket.on("data", () => received++));
+    await new Promise<void>((resolve) => server.listen(socketPath, () => resolve()));
+    if (layout === "directory open to others") {
+      chmodSync(runDir, 0o755);
+      chmodSync(socketPath, 0o600);
+    } else {
+      chmodSync(socketPath, 0o666);
+    }
+    const client = new HostClient({ socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
+    const statuses: string[] = [];
+    client.on("status", (status) => statuses.push(status));
+    try {
+      client.start();
+      await waitFor(() => statuses.includes("unsafe"), 3000, "refusal");
+      assert.equal(received, 0, "nothing was sent to the untrusted socket");
+    } finally {
+      client.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
