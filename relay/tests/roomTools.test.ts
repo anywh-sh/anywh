@@ -413,3 +413,13 @@ test("messages wait in a bounded, persisted queue; removing a worker removes the
     socket.close();
   }
 });
+
+test("a canvas up to its validator's size is stored; a larger body is answered 413, not cut off", async () => {
+  const roomId = await createRoom();
+  const big = { positions: {}, areas: [], texts: Array.from({ length: 150 }, (_, index) => ({ id: `t${index}`, text: "x".repeat(3000), x: index, y: 0 })) };
+  const stored = await fetch(`${base}/rooms/${roomId}/canvas`, { method: "PUT", body: JSON.stringify({ canvas: big }) });
+  assert.equal(stored.status, 200, "~450 KB is a valid canvas");
+  const tooBig = await fetch(`${base}/rooms/${roomId}/canvas`, { method: "PUT", body: JSON.stringify({ canvas: big, padding: "y".repeat(1100 * 1024) }) });
+  assert.equal(tooBig.status, 413);
+  assert.match(((await tooBig.json()) as { error: string }).error, /too large/);
+});

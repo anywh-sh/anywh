@@ -25,6 +25,35 @@ function roomExists(ctx: RouteContext, roomId: string): boolean {
   return room?.role === "principal" && room.roomId === roomId;
 }
 
+/** A whole canvas can be far larger than other JSON bodies (its validator
+ * allows ~1 MB of text). */
+const MAX_CANVAS_BODY_BYTES = 1024 * 1024;
+
+/** Reads a JSON body up to `limit`. Past it the rest is read and dropped, so
+ * the answer (413) still reaches the client instead of a cut connection. */
+function readLimitedJson(req: IncomingMessage, limit: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size <= limit) chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (size > limit) {
+        resolve({ tooLarge: true });
+        return;
+      }
+      try {
+        resolve({ tooLarge: false, value: JSON.parse(Buffer.concat(chunks).toString("utf8")) });
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: RouteContext, roomId: string): Promise<void> {
   if (req.method === "GET") {
     send(res, 200, { canvas: ctx.roomCanvas.get(roomId) });
@@ -32,7 +61,12 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
   }
   let body: unknown;
   try {
-    body = await readJsonBody(req);
+    const read = await readLimitedJson(req, MAX_CANVAS_BODY_BYTES);
+    if (read.tooLarge) {
+      send(res, 413, { error: `canvas body too large (limit ${MAX_CANVAS_BODY_BYTES} bytes)` });
+      return;
+    }
+    body = read.value;
   } catch {
     send(res, 400, { error: "invalid body" });
     return;
