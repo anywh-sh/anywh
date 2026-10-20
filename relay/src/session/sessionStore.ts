@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
@@ -312,6 +312,12 @@ export class SessionStore {
    * that removes things the store does not list (the rooms' agents in the
    * host) only trusts a store loaded this way. */
   private loadedFromFile = false;
+  /** Set while `<file>.recovered-from-corrupt` exists (see `load`). */
+  private recovered = false;
+
+  private get recoveryMarker(): string {
+    return `${this.filePath}.recovered-from-corrupt`;
+  }
 
   constructor(
     private readonly filePath: string,
@@ -354,11 +360,20 @@ export class SessionStore {
   }
 
   private loadAndMigrate(): SessionRecord {
+    this.recovered = existsSync(this.recoveryMarker);
     let text: string;
     try {
       text = readFileSync(this.filePath, "utf8");
     } catch {
-      // Missing the first time: start with an empty mapping.
+      // Missing the first time: start with an empty mapping — a trustworthy
+      // one when the file can be created where it belongs (a new profile),
+      // not when its directory cannot even be written.
+      try {
+        accessSync(dirname(this.filePath), constants.W_OK);
+        this.loadedFromFile = true;
+      } catch {
+        // stays untrusted
+      }
       return {};
     }
     let parsed: unknown;
@@ -370,8 +385,14 @@ export class SessionStore {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       // Corrupted — never crash the relay because of this, start empty, and
       // keep the file aside instead of overwriting it on the next write.
+      const aside = `${this.filePath}.corrupt-${Date.now()}`;
       try {
-        renameSync(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
+        renameSync(this.filePath, aside);
+        // Until someone confirms the records (by deleting this marker), the
+        // store is not taken as the full list of what exists: whatever the
+        // unreadable file held may still be recovered from its copy.
+        writeFileSync(this.recoveryMarker, `${aside}\n`);
+        this.recovered = true;
       } catch {
         // best effort
       }
@@ -466,6 +487,13 @@ export class SessionStore {
   /** See `loadedFromFile`. */
   get loadedOk(): boolean {
     return this.loadedFromFile;
+  }
+
+  /** The store started over from an unreadable file and nobody has
+   * confirmed its records since: a missing record is not proof that
+   * something is gone. Cleared by deleting `<file>.recovered-from-corrupt`. */
+  get recoveredFromCorrupt(): boolean {
+    return this.recovered;
   }
 
   /** Whether any record exists for `id` (with or without a room). */

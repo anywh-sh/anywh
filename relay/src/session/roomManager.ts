@@ -340,8 +340,11 @@ export class RoomManager implements RoomToolHost {
    * this relay created (their `owner` is its own id) — another relay on the
    * same host is left alone — and never when the sessions file did not load
    * from a valid file (an unreadable file would make every agent look
-   * unknown). A record whose room this release cannot read still counts as
-   * known. Returns the ids removed.
+   * unknown); after starting over from an unreadable file, only tombstoned
+   * ones until the marker is removed. A missing file of a new profile is a
+   * valid, empty store. A record whose room this release cannot read still
+   * counts as known. Agents created before owners existed carry none and
+   * are never touched. Returns the ids removed.
    */
   async reconcileHost(): Promise<string[]> {
     if (!this.options.listHostRoomAgents || !this.options.removeFromHost) return [];
@@ -353,7 +356,10 @@ export class RoomManager implements RoomToolHost {
     const removed: string[] = [];
     for (const agent of agents) {
       if (agent.roomId === undefined || agent.owner !== owner) continue;
-      if (!tombstones.has(agent.agentId) && this.store.has(agent.agentId)) continue;
+      // A missing record only counts once the store's records are trusted
+      // as complete (not after starting over from an unreadable file).
+      const deleted = tombstones.has(agent.agentId);
+      if (!deleted && (this.store.has(agent.agentId) || this.store.recoveredFromCorrupt)) continue;
       try {
         await this.options.removeFromHost(agent.agentId);
         removed.push(agent.agentId);

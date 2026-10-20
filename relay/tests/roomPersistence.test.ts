@@ -315,6 +315,17 @@ test("the relay removes only its own room agents, and never when its sessions fi
     relay.cleanup();
 
     writeFileSync(sessionsFile, JSON.stringify({ "rolled-back": { ...entry("Kept", { roomId: "r1", role: "a-role-from-the-future" }) } }));
+    // The next boot, from a valid file, still removes nothing for lack of a
+    // record: what the unreadable file held may come back from its copy.
+    relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile });
+    relays.push(relay);
+    await reconciled(relay);
+    assert.deepEqual(await ids(), ["rolled-back", "theirs", "unknown"], "nothing removed after recovering from an unreadable file");
+    relay.cleanup();
+    // Until the person says the records are right, by removing the marker.
+    const marker = `${sessionsFile}.recovered-from-corrupt`;
+    assert.ok(readdirSync(dir).includes("mine.json.recovered-from-corrupt"), "the marker is there");
+    rmSync(marker);
     relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile });
     relays.push(relay);
     const deadline = Date.now() + 15_000;
@@ -323,6 +334,18 @@ test("the relay removes only its own room agents, and never when its sessions fi
       await new Promise((r) => setTimeout(r, 50));
     }
     assert.deepEqual(await ids(), ["rolled-back", "theirs"], "only ours with no record went; another relay's and a record we cannot read stay");
+
+    // A new profile, whose sessions file does not exist yet, reconciles too.
+    const freshFile = join(dir, "fresh.json");
+    const freshKey = randomBytes(32);
+    writeFileSync(roomKeyPathFor(freshFile), freshKey, { mode: 0o600 });
+    await control.request("spawn", { agentId: "fresh-orphan", roomId: "r3", owner: roomOwnerOf(freshKey), spec: { cwd: dir } });
+    relays.push(await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: freshFile }));
+    const freshDeadline = Date.now() + 15_000;
+    while ((await ids()).includes("fresh-orphan")) {
+      if (Date.now() > freshDeadline) throw new Error("a new profile never reconciled");
+      await new Promise((r) => setTimeout(r, 50));
+    }
   } finally {
     control.close();
     for (const relay of relays) relay.cleanup();
