@@ -9,10 +9,11 @@
 //   - Approvals and structured questions from Codex are declined/deferred
 //     and recorded in the agent's log: deferring a human intervention to a
 //     later turn is not designed for Codex yet.
-//   - Nothing is hibernated per agent (the process is shared; the daemon's
-//     own idle reaper frees it when nothing runs). After the daemon or the
-//     host restarts, a turn is sent on the agent's existing thread id, the
-//     same assumption the relay's own Codex driver makes.
+//   - Hibernating a Codex agent ends no process (the app-server is shared;
+//     its own idle reaper frees it when nothing runs): it only gives up the
+//     agent's room slot. After the daemon or the host restarts, a turn is
+//     sent on the agent's existing thread id, the same assumption the
+//     relay's own Codex driver makes.
 //   - A message sent while a turn is in flight is refused rather than
 //     steering the turn.
 //   - Stopping a Codex agent interrupts its turn; its tools' processes are
