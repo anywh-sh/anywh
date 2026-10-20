@@ -1266,9 +1266,6 @@ export interface Dictionary {
       room: string;
       placeholderRoom: string;
       createFailed: string;
-      /** The room opened but its first message did not reach the principal;
-       * `{message}` is that message, so what was typed is not lost. */
-      sendFailed: string;
     };
     /** Accessible name of the room glyph in the session list and tab strip. */
     roomGlyph: string;

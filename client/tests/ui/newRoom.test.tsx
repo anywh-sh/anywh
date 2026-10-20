@@ -74,7 +74,7 @@ describe("a new session in room mode", () => {
     expect(document.querySelector("[data-placeholder]")?.getAttribute("data-placeholder")).toBe(en.sala.newSession.placeholderRoom);
   });
 
-  it("opens the room on the picked agent and model, turns the tab into its canvas, and hands the principal the message", async () => {
+  it("opens the room on the picked agent and model, turns the tab into its canvas, and sends the message along with it", async () => {
     const user = userEvent.setup();
     renderApp();
     await openNewSession(user);
@@ -91,6 +91,8 @@ describe("a new session in room mode", () => {
     const created = rooms.find((r) => r.url === "/rooms")!.body as Record<string, unknown>;
     expect(created.agentId).toBe("claude");
     expect(created.title).toBe("Redo the profile page");
+    // The message travels with the room, so no second socket has to deliver it.
+    expect(created.firstMessage).toBe("Redo the profile page");
 
     // The same tab is now the room, not the conversation: nothing to draw yet.
     expect(await screen.findByText(en.sala.canvas.loading)).toBeInTheDocument();
@@ -102,10 +104,7 @@ describe("a new session in room mode", () => {
     await vi.waitFor(() => expect(rooms.find((r) => r.url === "/sessions/delete" && r.method === "POST")).toBeDefined());
     expect((rooms.find((r) => r.url === "/sessions/delete")!.body as { id: string }).id).not.toBe("room-1");
 
-    // The first message went to the principal's own session, after its replay.
-    await vi.waitFor(() =>
-      expect(relay.sent.find((s) => s.url.includes("session=room-1") && s.message.type === "user_message")?.message.text).toBe("Redo the profile page"),
-    );
+    expect(relay.sent.some((s) => s.url.includes("session=room-1") && s.message.type === "user_message")).toBe(false);
 
     // The room's channel is opened for the room, and what it says is drawn.
     await vi.waitFor(() => expect(relay.sockets.some((s) => s.url.includes("/rooms/room-1/watch"))).toBe(true));

@@ -10,7 +10,7 @@ import type { Dictionary } from "@/i18n";
 import { removeCachedSession, touchCachedSession, upsertCachedSession } from "@/lib/format/sessionListCache";
 import { notifyTurnComplete } from "@/lib/platform/notifications";
 import type { Profile } from "@/lib/profiles/profiles";
-import { deliverFirstRoomMessage, discardBlankSession } from "@/lib/sala/firstMessage";
+import { discardBlankSession } from "@/lib/sala/firstMessage";
 
 interface UseTabPanelActionsArgs {
   dict: Dictionary;
@@ -139,7 +139,7 @@ export function useTabPanelActions({
       onDockWidthChange: (tabId, width) => sessionDock.setWidth(tabId, width),
       onDockSplitRatioChange: (tabId, ratio) => sessionDock.setSplitRatio(tabId, ratio),
       onDockDragEnd: () => sessionDock.commitDock(),
-      onRoomCreated: (tab, profile, roomId, title, firstMessage) => {
+      onRoomCreated: (tab, profile, roomId, title) => {
         // No title typed (an image alone): the relay names the room and says so.
         const shown = title === "" ? null : title;
         tabsState.convertToRoom(tab.id, roomId, shown);
@@ -154,7 +154,6 @@ export function useTabPanelActions({
         // Only a tab that never had a title can be that: anything else is a
         // real conversation, whatever the screen was showing.
         if (tab.title === null) void discardBlankSession(profile, tab.id);
-        void deliverFirstRoomMessage(profile, roomId, firstMessage, () => window.alert(dict.sala.newSession.sendFailed.replace("{message}", firstMessage.slice(0, 2000))));
       },
     }),
     [

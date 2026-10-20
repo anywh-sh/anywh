@@ -48,9 +48,8 @@ export interface TabPanelActions {
   onDockWidthChange: (tabId: string, width: number) => void;
   onDockSplitRatioChange: (tabId: string, ratio: number) => void;
   onDockDragEnd: () => void;
-  /** A new-session tab opened a room: `tab` is now the room, `roomId` its id,
-   * and `firstMessage` is still to be handed to its principal. */
-  onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string, firstMessage: string) => void;
+  /** A new-session tab opened a room: `tab` is now the room, `roomId` its id. */
+  onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string) => void;
   /** Opens (or focuses) another session of the profile as a tab: a room's
    * agent, from its panel. */
   onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
@@ -106,7 +105,7 @@ const TabChat = memo(function TabChat({
       profile={profile}
       sessionId={tab.id}
       isNewConversation={tab.isNew}
-      onRoomCreated={(roomId, title, firstMessage) => actions.onRoomCreated(tab, profile, roomId, title, firstMessage)}
+      onRoomCreated={(roomId, title) => actions.onRoomCreated(tab, profile, roomId, title)}
       onTurnActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
       onBackgroundJobsChange={(jobs, failedJobs) => actions.onBackgroundJobsChange(tab.id, jobs, failedJobs)}
       onTurnProgressChange={(progress) => actions.onTurnProgressChange(tab.id, progress)}

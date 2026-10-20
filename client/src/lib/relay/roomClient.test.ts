@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addRoomContextFile, createRoom, fetchRoomCanvas, fetchRoomContextCount, parseRoomChannelMessage, removeRoomAgent, saveRoomCanvas, stopRoomAgent } from "@/lib/relay/roomClient";
+import { addRoomContextFile, createRoom, DiscardNeededError, fetchRoomWorktrees, launchRoomAgent, RoomRequestError, fetchRoomCanvas, fetchRoomContextCount, parseRoomChannelMessage, removeRoomAgent, saveRoomCanvas, stopRoomAgent } from "@/lib/relay/roomClient";
 import type { Profile } from "@/lib/profiles/profiles";
 
 const profile: Profile = { id: "p", label: "P", host: "10.0.0.5", relayPort: 8765, connectToken: "secret" };
@@ -78,6 +78,49 @@ describe("room HTTP calls", () => {
     reply(200, { removed: ["w1", "w2"], undoMs: 8000 });
     await expect(removeRoomAgent(profile, "r1", "w1")).resolves.toEqual({ removed: ["w1", "w2"], undoMs: 8000 });
     expect(calls[1].url).toBe("http://10.0.0.5:8765/rooms/r1/agents/w1/remove");
+  });
+});
+
+describe("what the room's panels ask of the relay", () => {
+  it("starts an agent under a parent and answers its id", async () => {
+    reply(201, { agentId: "w9" });
+    await expect(launchRoomAgent(profile, "r1", { task: "look", parentId: "w1", agentId: "codex" })).resolves.toBe("w9");
+    expect(calls[0].url).toBe("http://10.0.0.5:8765/rooms/r1/agents");
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({ task: "look", parentId: "w1", agentId: "codex" });
+  });
+
+  it("keeps the status of a refusal, so a full room can be told from a failure", async () => {
+    reply(409, { error: "the room is full" });
+    const error = await launchRoomAgent(profile, "r1", { task: "x" }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RoomRequestError);
+    expect((error as RoomRequestError).status).toBe(409);
+  });
+
+  it("raises what would be lost when a removal waits for the person to discard", async () => {
+    const worktree = { id: "w", agentId: "w1", branch: "anywh/x", integrated: false };
+    reply(409, { error: "work not integrated", needsDiscard: true, worktrees: [worktree] });
+    const error = await removeRoomAgent(profile, "r1", "w1").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DiscardNeededError);
+    expect((error as DiscardNeededError).worktrees).toEqual([worktree]);
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({});
+  });
+
+  it("sends the discard when the person confirmed it", async () => {
+    reply(200, { removed: ["w1"], undoMs: 8000 });
+    await removeRoomAgent(profile, "r1", "w1", { discard: true });
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({ discard: true });
+  });
+
+  it("reads the worktrees with their total size", async () => {
+    reply(200, { worktrees: [], totalSizeBytes: 12 });
+    await expect(fetchRoomWorktrees(profile, "r1")).resolves.toEqual({ worktrees: [], totalSizeBytes: 12 });
+    expect(calls[0].url).toBe("http://10.0.0.5:8765/rooms/r1/worktrees");
+  });
+
+  it("sends a first message along with the room", async () => {
+    reply(201, { roomId: "r2" });
+    await createRoom(profile, { firstMessage: "hello" });
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({ firstMessage: "hello" });
   });
 });
 

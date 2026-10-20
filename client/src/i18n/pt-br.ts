@@ -904,7 +904,6 @@ export const ptBr: Dictionary = {
       room: "Sala",
       placeholderRoom: "Descreva a demanda. Na sala você lança agentes, agrupa e anexa contexto",
       createFailed: "Não foi possível abrir a sala.",
-      sendFailed: "A sala foi aberta, mas o agente principal não recebeu sua mensagem:\n\n{message}",
     },
     roomGlyph: "Sala",
     canvas: {

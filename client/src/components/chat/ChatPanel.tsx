@@ -68,8 +68,8 @@ interface ChatPanelProps {
    * loading skeleton while the log is still empty. */
   isNewConversation?: boolean;
   /** A new-session tab opened a room instead of a conversation: `roomId` is
-   * the room's id, and `firstMessage` is still to be handed to its principal. */
-  onRoomCreated?: (roomId: string, title: string, firstMessage: string) => void;
+   * the room's id. */
+  onRoomCreated?: (roomId: string, title: string) => void;
   /** `lastUserText`/`lastAssistantText` are this turn's last user message and
    * the assistant's final text reply — both extracted synchronously from the
    * log, no round-trip needed. `App` uses `lastAssistantText` (cleaned up and
@@ -757,7 +757,11 @@ export function ChatPanel({
     openingRoomRef.current = true;
     const firstLine = text.trim().split("\n")[0] ?? "";
     const title = firstLine.length > 80 ? `${firstLine.slice(0, 79).trimEnd()}…` : firstLine;
+    const firstMessage = buildWireMessage(text, sentImages);
     createRoom(profile, {
+      // Delivered by the relay with the room, so it cannot be lost between
+      // two sockets.
+      firstMessage,
       agentId: agentId ?? undefined,
       model: model ?? undefined,
       effort: effort ?? undefined,
@@ -767,7 +771,7 @@ export function ChatPanel({
     }).then(
       (roomId) => {
         images.clearWithoutRevoke();
-        onRoomCreated?.(roomId, title, buildWireMessage(text, sentImages));
+        onRoomCreated?.(roomId, title);
       },
       (error: unknown) => {
         openingRoomRef.current = false;

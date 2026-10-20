@@ -347,34 +347,3 @@ export function parseRoomChannelMessage(value: unknown): RoomChannelMessage | nu
   }
 }
 
-/** Hands the room's first message to its principal. Opens the principal's
- * session socket once, waits for the history replay to end (`caught_up`),
- * sends the text, and closes shortly after — the room's own screen shows
- * what the principal does with it. Resolves `true` when the message went. */
-export async function sendFirstRoomMessage(profile: Profile, roomId: string, text: string): Promise<boolean> {
-  const { host, port, token } = await resolveConnection(profile);
-  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : "";
-  return new Promise<boolean>((resolve) => {
-    const socket = new WebSocket(`ws://${host}:${String(port)}/?session=${encodeURIComponent(roomId)}${tokenParam}`);
-    let sent = false;
-    const giveUp = window.setTimeout(() => socket.close(), 15_000);
-    socket.addEventListener("message", (event) => {
-      if (sent) return;
-      try {
-        const parsed = JSON.parse(event.data as string) as { type?: string };
-        if (parsed.type !== "caught_up") return;
-      } catch {
-        return;
-      }
-      sent = true;
-      socket.send(JSON.stringify({ type: "user_message", text }));
-      // The relay reads the frame before it reads the close that follows.
-      window.setTimeout(() => socket.close(), 400);
-    });
-    socket.addEventListener("close", () => {
-      window.clearTimeout(giveUp);
-      resolve(sent);
-    });
-    socket.addEventListener("error", () => socket.close());
-  });
-}
