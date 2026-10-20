@@ -1023,6 +1023,7 @@ export const ptBr: Dictionary = {
         worktreesTotal: "{size} em disco",
         completedTitle: "Sala concluída",
         completedKept: "{count} worktrees mantidos com trabalho não integrado",
+        completedKeptOne: "1 worktree mantido com trabalho não integrado",
         completedClean: "Tudo o que os agentes fizeram está integrado.",
       },
       agent: {
@@ -1080,6 +1081,7 @@ export const ptBr: Dictionary = {
     completed: {
       title: "Sala concluída",
       kept: "{count} worktrees mantidos",
+      keptOne: "1 worktree mantido",
       review: "Revisar",
     },
     discard: {

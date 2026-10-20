@@ -61,6 +61,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   const [panel, setPanel] = useState<PanelState>(null);
   const [launcher, setLauncher] = useState<{ open: boolean; parentId: string | undefined }>({ open: false, parentId: undefined });
   const canvasHandle = useRef<SalaCanvasHandle>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const gone = channel.status === "gone" || layout.status === "missing";
   const goneNotified = useRef(false);
 
@@ -186,6 +187,20 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     if (panel?.kind === "agent" && !panelAgent && ready) setPanel(null);
   }, [panel, panelAgent, ready]);
 
+  // Esc closes the panel from anywhere on a visible room: whatever has its own
+  // use for the key (a menu, a dialog, the launcher) stops it first.
+  const panelOpen = panel !== null;
+  useEffect(() => {
+    if (!panelOpen) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if ((rootRef.current?.getClientRects().length ?? 0) === 0) return;
+      setPanel(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [panelOpen]);
+
   if (gone) {
     return <div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-text-faint">{dict.canvas.gone}</div>;
   }
@@ -200,7 +215,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   };
 
   return (
-    <div className="flex h-full min-w-0 bg-background" data-room-id={roomId}>
+    <div ref={rootRef} className="flex h-full min-w-0 bg-background" data-room-id={roomId}>
       <div className="relative h-full min-w-0 flex-1">
         <SalaCanvas
           handleRef={canvasHandle}
@@ -243,7 +258,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           <div className="sala-float sala-done" data-float role="status">
             <CheckIcon size={12} />
             <b>{dict.completed.title}</b>
-            {kept > 0 && <span>{dict.completed.kept.replace("{count}", String(kept))}</span>}
+            {kept > 0 && <span>{kept === 1 ? dict.completed.keptOne : dict.completed.kept.replace("{count}", String(kept))}</span>}
             <button type="button" onClick={() => setPanel({ kind: "about" })}>
               {dict.completed.review}
             </button>

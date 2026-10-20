@@ -10,7 +10,7 @@ import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { ageUnits, formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
 import { isRoomCompleted } from "@/lib/sala/roomStatus";
 import { cardStatus } from "@/lib/sala/agentCard";
-import type { Profile } from "@/lib/profiles/profiles";
+import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
 
 interface AboutRoomPanelProps {
   profile: Profile;
@@ -116,7 +116,7 @@ export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refresh
         {completed && (
           <div className="sala-side-note done" role="status">
             <b>{dict.completedTitle}</b>
-            <span>{retained.length > 0 ? dict.completedKept.replace("{count}", String(retained.length)) : dict.completedClean}</span>
+            <span>{retained.length === 1 ? dict.completedKeptOne : retained.length > 0 ? dict.completedKept.replace("{count}", String(retained.length)) : dict.completedClean}</span>
           </div>
         )}
 
@@ -129,7 +129,7 @@ export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refresh
             </span>
           </div>
           <div className="sala-side-row">
-            <span className="sala-dot" aria-hidden="true" />
+            <span className="sala-dot" aria-hidden="true" style={{ background: profileColorVar(profile.id) }} />
             <span className="grow">{dict.profile}</span>
             <span className="mono">{profile.label}</span>
           </div>

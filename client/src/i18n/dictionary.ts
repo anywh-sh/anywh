@@ -1407,6 +1407,7 @@ export interface Dictionary {
         completedTitle: string;
         /** `{count}` worktrees kept. */
         completedKept: string;
+        completedKeptOne: string;
         completedClean: string;
       };
       agent: {
@@ -1475,6 +1476,7 @@ export interface Dictionary {
       title: string;
       /** `{count}`. */
       kept: string;
+      keptOne: string;
       review: string;
     };
     /** Removing an agent whose work was never integrated. */

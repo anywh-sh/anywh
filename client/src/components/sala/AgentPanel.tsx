@@ -149,7 +149,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
           </span>
         </div>
 
-        {parent && <div className={cn("sala-side-by", agent.needsYou.length > 0 && "wait")}>{text.delegatedBy.replace("{title}", parent.title ?? dict.sala.card.untitled)}</div>}
+        <div className={cn("sala-side-by", agent.needsYou.length > 0 && "wait")}>{text.delegatedBy.replace("{title}", parent ? (parent.title ?? dict.sala.card.untitled) : text.principal)}</div>
 
         {agent.needsYou.length > 0 && (
           <div className="sala-side-q">

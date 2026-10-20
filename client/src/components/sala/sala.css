@@ -487,7 +487,6 @@
 }
 .sala-frame-bar {
   position: absolute;
-  left: -1px;
   bottom: 100%;
   transform: scale(var(--inv, 1));
   transform-origin: 0 100%;
@@ -499,9 +498,12 @@
   cursor: grab;
   white-space: nowrap;
   /* A link coming down into the frame is never drawn across the label: the
-     bar is cut short of it (its meta line goes first). The bar is scaled by
-     --inv, so the link's distance from the frame edge is divided by it. */
-  max-width: calc(var(--link-x, 100000px) / var(--inv, 1) - 12px);
+     bar sits in a gap between links (`--label-x`, world units; the bar is
+     scaled by --inv, so it is divided by it), and where no gap is wide enough
+     the links are drawn under it, behind a plate of the plane's colour. */
+  left: calc(-1px + var(--label-x, 0px) / var(--inv, 1));
+  background: var(--background);
+  padding-left: 2px;
 }
 .sala-frame-meta {
   display: flex;

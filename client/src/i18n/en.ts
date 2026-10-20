@@ -1023,6 +1023,7 @@ export const en: Dictionary = {
         worktreesTotal: "{size} on disk",
         completedTitle: "Room completed",
         completedKept: "{count} worktrees kept with work that was not integrated",
+        completedKeptOne: "1 worktree kept with work that was not integrated",
         completedClean: "Everything the agents made is integrated.",
       },
       agent: {
@@ -1080,6 +1081,7 @@ export const en: Dictionary = {
     completed: {
       title: "Room completed",
       kept: "{count} worktrees kept",
+      keptOne: "1 worktree kept",
       review: "Review",
     },
     discard: {
