@@ -24,7 +24,7 @@ import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { LogReader, type AgentEventLog, type RawRecord } from "./eventLog.js";
-import { AGENT_HOST_PROTOCOL_VERSION, HostError, encodeMessage, parseClientMessage, type HostMessage } from "./protocol.js";
+import { AGENT_HOST_PROTOCOL_VERSION, HostError, encodeMessage, parseClientMessage, type HostMessage, type SubscribeResult } from "./protocol.js";
 import { RELEASE_VERSION } from "./release.js";
 
 export const DEFAULT_HIGH_WATER_BYTES = 1024 * 1024;
@@ -69,11 +69,11 @@ function probeListening(socketPath: string): Promise<boolean> {
   });
 }
 
-function eventWireLine(agentId: string, record: RawRecord): string {
+function eventWireLine(agentId: string, sub: number, record: RawRecord): string {
   // The stored line is `{"seq":..,"off":..,"t":..,"ev":..}`; splice the
   // envelope fields in front of it instead of re-serializing `ev`, which can
   // be a large tool result.
-  return `{"type":"event","agentId":${JSON.stringify(agentId)},"next":${record.next},${record.line.slice(1)}\n`;
+  return `{"type":"event","agentId":${JSON.stringify(agentId)},"sub":${sub},"next":${record.next},${record.line.slice(1)}\n`;
 }
 
 class Subscription {
@@ -88,6 +88,7 @@ class Subscription {
     readonly agentId: string,
     private readonly log: AgentEventLog,
     fromOffset: number,
+    readonly sub: number,
   ) {
     this.cursor = fromOffset;
   }
@@ -116,11 +117,11 @@ class Subscription {
       switch (step.kind) {
         case "gap":
           this.cursor = step.resumeOffset;
-          this.connection.send({ type: "replay_gap", agentId: this.agentId, requestedOffset: step.requestedOffset, resumeOffset: step.resumeOffset, reason: step.reason });
+          this.connection.send({ type: "replay_gap", agentId: this.agentId, sub: this.sub, requestedOffset: step.requestedOffset, resumeOffset: step.resumeOffset, reason: step.reason });
           break;
         case "records":
           for (const record of step.records) {
-            this.connection.write(eventWireLine(this.agentId, record));
+            this.connection.write(eventWireLine(this.agentId, this.sub, record));
             this.cursor = record.next;
           }
           break;
@@ -135,7 +136,7 @@ class Subscription {
             this.stopLive = this.log.onAppend((record) => this.onLive(record));
             if (!this.sentCaughtUp) {
               this.sentCaughtUp = true;
-              this.connection.send({ type: "caught_up", agentId: this.agentId, nextOffset: this.cursor });
+              this.connection.send({ type: "caught_up", agentId: this.agentId, sub: this.sub, nextOffset: this.cursor });
             }
             return;
           }
@@ -152,7 +153,7 @@ class Subscription {
       this.enterCatchUp();
       return;
     }
-    this.connection.write(eventWireLine(this.agentId, record));
+    this.connection.write(eventWireLine(this.agentId, this.sub, record));
     this.cursor = record.next;
   }
 
@@ -229,9 +230,12 @@ class Connection {
     this.onClose();
   }
 
-  closeSubscription(agentId: string): void {
-    this.subscriptions.get(agentId)?.close();
+  closeSubscription(agentId: string, reason?: "removed"): void {
+    const subscription = this.subscriptions.get(agentId);
+    if (!subscription) return;
+    subscription.close();
     this.subscriptions.delete(agentId);
+    if (reason) this.send({ type: "stream_closed", agentId, sub: subscription.sub, reason });
   }
 
   private onClose(): void {
@@ -292,8 +296,10 @@ class Connection {
           return;
         }
         this.closeSubscription(message.agentId);
-        this.send({ type: "response", id: message.id, ok: true, result: { firstOffset: log.firstOffset, endOffset: log.endOffset } });
-        const subscription = new Subscription(this, message.agentId, log, message.fromOffset);
+        const reset = message.incarnation !== undefined && message.incarnation !== log.incarnation;
+        const result: SubscribeResult = { firstOffset: log.firstOffset, endOffset: log.endOffset, incarnation: log.incarnation, reset };
+        this.send({ type: "response", id: message.id, ok: true, result });
+        const subscription = new Subscription(this, message.agentId, log, reset ? log.firstOffset : message.fromOffset, message.id);
         this.subscriptions.set(message.agentId, subscription);
         subscription.start();
         return;
@@ -388,9 +394,9 @@ export class AgentHostSocketServer {
     }
   }
 
-  /** Ends every subscription to an agent (it was removed). */
-  closeSubscriptions(agentId: string): void {
-    for (const connection of this.connections) connection.closeSubscription(agentId);
+  /** Ends every subscription to an agent and tells its subscribers why. */
+  closeSubscriptions(agentId: string, reason: "removed"): void {
+    for (const connection of this.connections) connection.closeSubscription(agentId, reason);
   }
 
   /** Outbound bytes queued in this process, per connection: diagnostics, and

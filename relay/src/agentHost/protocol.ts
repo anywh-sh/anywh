@@ -44,9 +44,16 @@ export interface HelloMessage {
  * `next` of the last record a client processed is the value to resume from. */
 export interface SubscribeMessage {
   readonly op: "subscribe";
+  /** Also the subscription's id: every message streamed for it carries it
+   * as `sub`, so records still in flight for a replaced subscription are
+   * told apart from the new one's. */
   readonly id: number;
   readonly agentId: string;
   readonly fromOffset: number;
+  /** The log incarnation `fromOffset` refers to. A different one (the agent
+   * was removed and recreated) makes the host stream from the start of the
+   * current log and answer `reset: true`. */
+  readonly incarnation?: string;
 }
 
 export interface UnsubscribeMessage {
@@ -111,6 +118,7 @@ export interface EventRecord {
 export interface EventMessage extends EventRecord {
   readonly type: "event";
   readonly agentId: string;
+  readonly sub: number;
 }
 
 /** The requested offset is no longer in the log (retention dropped it), or is
@@ -119,6 +127,7 @@ export interface EventMessage extends EventRecord {
 export interface ReplayGapMessage {
   readonly type: "replay_gap";
   readonly agentId: string;
+  readonly sub: number;
   readonly requestedOffset: number;
   readonly resumeOffset: number;
   readonly reason: "truncated" | "ahead";
@@ -129,7 +138,26 @@ export interface ReplayGapMessage {
 export interface CaughtUpMessage {
   readonly type: "caught_up";
   readonly agentId: string;
+  readonly sub: number;
   readonly nextOffset: number;
+}
+
+/** The subscription ended on the host's side (the agent was removed). */
+export interface StreamClosedMessage {
+  readonly type: "stream_closed";
+  readonly agentId: string;
+  readonly sub: number;
+  readonly reason: "removed";
+}
+
+/** What a subscribe is answered with (before anything is streamed). */
+export interface SubscribeResult {
+  readonly firstOffset: number;
+  readonly endOffset: number;
+  readonly incarnation: string;
+  /** The requested incarnation was not the current one: streaming starts at
+   * `firstOffset` of the current log. */
+  readonly reset: boolean;
 }
 
 /** Pushed to every connection after any change of an agent's activity. */
@@ -145,6 +173,7 @@ export type HostMessage =
   | EventMessage
   | ReplayGapMessage
   | CaughtUpMessage
+  | StreamClosedMessage
   | AgentStateMessage;
 
 // ---------------------------------------------------------------- agent model
@@ -252,7 +281,16 @@ export function parseClientMessage(line: string): ParseResult<ClientMessage> {
       if (typeof value.fromOffset !== "number" || !Number.isSafeInteger(value.fromOffset) || value.fromOffset < 0) {
         return { ok: false, error: "bad_subscribe" };
       }
-      return { ok: true, message: { op: "subscribe", id: value.id, agentId: value.agentId, fromOffset: value.fromOffset } };
+      return {
+        ok: true,
+        message: {
+          op: "subscribe",
+          id: value.id,
+          agentId: value.agentId,
+          fromOffset: value.fromOffset,
+          incarnation: typeof value.incarnation === "string" ? value.incarnation : undefined,
+        },
+      };
     case "unsubscribe":
       if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_unsubscribe" };
       return { ok: true, message: { op: "unsubscribe", id: value.id, agentId: value.agentId } };
@@ -281,6 +319,7 @@ export function parseHostMessage(line: string): ParseResult<HostMessage> {
     case "event":
     case "replay_gap":
     case "caught_up":
+    case "stream_closed":
     case "agent_state":
       return { ok: true, message: value as unknown as HostMessage };
     default:

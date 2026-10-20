@@ -7,9 +7,9 @@ test("parseClientMessage accepts the four ops with their required fields", () =>
     ok: true,
     message: { op: "hello", version: 1, client: "relay", release: "0.1.8" },
   });
-  assert.deepEqual(parseClientMessage('{"op":"subscribe","id":3,"agentId":"a-1","fromOffset":120}'), {
+  assert.deepEqual(parseClientMessage('{"op":"subscribe","id":3,"agentId":"a-1","fromOffset":120,"incarnation":"abc"}'), {
     ok: true,
-    message: { op: "subscribe", id: 3, agentId: "a-1", fromOffset: 120 },
+    message: { op: "subscribe", id: 3, agentId: "a-1", fromOffset: 120, incarnation: "abc" },
   });
   assert.deepEqual(parseClientMessage('{"op":"unsubscribe","id":4,"agentId":"a-1"}'), { ok: true, message: { op: "unsubscribe", id: 4, agentId: "a-1" } });
   assert.deepEqual(parseClientMessage('{"op":"request","id":5,"method":"activity"}'), { ok: true, message: { op: "request", id: 5, method: "activity", params: {} } });

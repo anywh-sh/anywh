@@ -24,16 +24,19 @@ import {
   type HelloRefusedMessage,
   type HostMessage,
   type ReplayGapMessage,
+  type SubscribeResult,
 } from "./protocol.js";
 import { RELEASE_VERSION } from "./release.js";
 
 export type HostClientStatus = "connecting" | "connected" | "disconnected" | "refused" | "closed";
 
-/** Where a subscription stands: the offset to resume from and the last
- * `seq` delivered (-1 before any). */
+/** Where a subscription stands: the offset to resume from, the last `seq`
+ * delivered (-1 before any), and which incarnation of the agent's log those
+ * refer to (unknown before the first subscribe answered). */
 export interface AgentCursor {
   readonly nextOffset: number;
   readonly lastSeq: number;
+  readonly incarnation?: string;
 }
 
 export const START_OF_LOG: AgentCursor = { nextOffset: 0, lastSeq: -1 };
@@ -45,7 +48,8 @@ export interface SubscriptionHandlers {
   onGap?(gap: ReplayGapMessage): void;
   /** The replay reached the live end (once per connection). */
   onCaughtUp?(nextOffset: number): void;
-  /** The host refused the subscription (e.g. unknown agent); it is dropped. */
+  /** The subscription ended: the host refused it (e.g. unknown agent), or
+   * the agent was removed (`code: "removed"`). It is dropped. */
   onError?(error: ErrorPayload): void;
 }
 
@@ -90,6 +94,9 @@ interface PendingRequest {
 interface SubscriptionState {
   readonly agentId: string;
   cursor: AgentCursor;
+  /** Id of the subscribe currently in force; streamed messages carrying any
+   * other belong to a replaced subscription and are dropped. */
+  sub?: number;
   readonly handlers: SubscriptionHandlers;
   closed: boolean;
 }
@@ -204,8 +211,15 @@ export class HostClient extends EventEmitter<HostClientEvents> {
 
   private sendSubscribe(state: SubscriptionState): void {
     const id = this.nextId++;
+    state.sub = id;
     this.pending.set(id, {
-      resolve: () => {},
+      resolve: (value) => {
+        if (state.closed || state.sub !== id) return;
+        const result = value as SubscribeResult;
+        state.cursor = result.reset
+          ? { nextOffset: result.firstOffset, lastSeq: -1, incarnation: result.incarnation }
+          : { ...state.cursor, incarnation: result.incarnation };
+      },
       reject: (error) => {
         if (state.closed || this.subscriptions.get(state.agentId) !== state) return;
         if (error instanceof HostRequestError) {
@@ -216,7 +230,7 @@ export class HostClient extends EventEmitter<HostClientEvents> {
       },
       timer: setTimeout(() => this.pending.delete(id), this.requestTimeoutMs),
     });
-    this.write({ op: "subscribe", id, agentId: state.agentId, fromOffset: state.cursor.nextOffset });
+    this.write({ op: "subscribe", id, agentId: state.agentId, fromOffset: state.cursor.nextOffset, incarnation: state.cursor.incarnation });
   }
 
   private write(message: ClientMessage): void {
@@ -313,12 +327,12 @@ export class HostClient extends EventEmitter<HostClientEvents> {
       }
       case "event": {
         const state = this.subscriptions.get(message.agentId);
-        if (!state || state.closed) return;
+        if (!state || state.closed || message.sub !== state.sub) return;
         if (message.seq <= state.cursor.lastSeq) {
           // Already delivered (an overlapping replay); keep the furthest cursor.
           return;
         }
-        state.cursor = { nextOffset: message.next, lastSeq: message.seq };
+        state.cursor = { nextOffset: message.next, lastSeq: message.seq, incarnation: state.cursor.incarnation };
         try {
           state.handlers.onEvent(message);
         } catch (error) {
@@ -328,15 +342,23 @@ export class HostClient extends EventEmitter<HostClientEvents> {
       }
       case "replay_gap": {
         const state = this.subscriptions.get(message.agentId);
-        if (!state || state.closed) return;
-        state.cursor = { nextOffset: message.resumeOffset, lastSeq: state.cursor.lastSeq };
+        if (!state || state.closed || message.sub !== state.sub) return;
+        state.cursor = { ...state.cursor, nextOffset: message.resumeOffset };
         state.handlers.onGap?.(message);
         return;
       }
       case "caught_up": {
         const state = this.subscriptions.get(message.agentId);
-        if (!state || state.closed) return;
+        if (!state || state.closed || message.sub !== state.sub) return;
         state.handlers.onCaughtUp?.(message.nextOffset);
+        return;
+      }
+      case "stream_closed": {
+        const state = this.subscriptions.get(message.agentId);
+        if (!state || state.closed || message.sub !== state.sub) return;
+        state.closed = true;
+        this.subscriptions.delete(message.agentId);
+        state.handlers.onError?.({ code: message.reason, message: `agent ${message.agentId} was ${message.reason}` });
         return;
       }
       case "agent_state":

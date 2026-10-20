@@ -306,3 +306,34 @@ test("FileCursorStore keeps cursors across instances, written atomically", async
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("replacing a subscription mid-replay: records in flight for the old one never reach the new one", async () => {
+  const f = await fixture({ replayChunkBytes: 4096 });
+  try {
+    const log = AgentEventLog.open(join(f.dir, "logs", "a1"));
+    f.logs.set("a1", log);
+    for (let i = 0; i < 5000; i++) log.append({ type: "assistant", i, pad: "r".repeat(60) });
+    const client = newClient(f);
+    await client.waitUntilConnected();
+    const first: EventMessage[] = [];
+    client.subscribe("a1", START_OF_LOG, { onEvent: (event) => first.push(event) });
+    await waitFor(() => first.length >= 300, 5000, "first subscription under way");
+    // Rewind: re-read from seq 100 with a new handler, while the old
+    // subscription still has records on the wire.
+    const rewind = { nextOffset: first[99].next, lastSeq: 99 };
+    const second: EventMessage[] = [];
+    let caughtUp = 0;
+    client.subscribe("a1", rewind, {
+      onEvent: (event) => second.push(event),
+      onCaughtUp: () => caughtUp++,
+    });
+    await waitFor(() => caughtUp === 1, 10_000, "second subscription caught up");
+    assert.equal(second[0].seq, 100);
+    assert.deepEqual(
+      second.map((event) => event.seq),
+      Array.from({ length: 4900 }, (_, i) => i + 100),
+    );
+  } finally {
+    await f.cleanup();
+  }
+});

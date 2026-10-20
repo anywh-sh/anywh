@@ -705,3 +705,28 @@ test("a send accepted just before a drain never starts a turn that the drain the
     else await h.cleanup();
   }
 });
+
+test("removing an agent tells its subscribers, and a recreated agent with the same id is read from its start", async () => {
+  const h = await harness();
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "old life" });
+    const old: EventMessage[] = [];
+    const errors: string[] = [];
+    let cursor = START_OF_LOG;
+    const sub = h.client.subscribe("a1", START_OF_LOG, { onEvent: (event) => old.push(event), onError: (error) => errors.push(error.code) });
+    await waitFor(() => results(old).length === 1, 5000, "old turn");
+    cursor = sub.cursor();
+    await h.client.request("remove", { agentId: "a1" });
+    await waitFor(() => errors.includes("removed"), 5000, "removal notice");
+
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "new life" });
+    // A consumer that kept the old cursor resubscribes with it.
+    const fresh: EventMessage[] = [];
+    h.client.subscribe("a1", cursor, { onEvent: (event) => fresh.push(event) });
+    await waitFor(() => results(fresh).length === 1, 5000, "new agent's turn");
+    assert.equal(fresh[0].seq, 0, "read from the new log's start");
+    assert.equal(results(fresh)[0].ev.result, "echo: new life");
+  } finally {
+    await h.cleanup();
+  }
+});

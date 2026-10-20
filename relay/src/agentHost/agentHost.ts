@@ -465,7 +465,7 @@ export class AgentHost {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "remove");
     });
     this.agents.delete(agent.agentId);
-    this.server.closeSubscriptions(agent.agentId);
+    this.server.closeSubscriptions(agent.agentId, "removed");
     await agent.log.destroy();
     this.persist();
     return { removed: true };

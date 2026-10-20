@@ -22,7 +22,8 @@
 // subscriber sees it, and a subscriber that catches up from disk and then
 // switches to live delivery can do the switch in the same tick it checks the
 // end offset, with no append able to slip in between.
-import { closeSync, fstatSync, ftruncateSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync, writeSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { closeSync, fstatSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { open, readFile, rename, rm, writeFile, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -109,6 +110,7 @@ function readTail(fd: number, size: number): { lastLine: string | undefined; val
 }
 
 export class AgentEventLog {
+  readonly incarnation: string;
   private segments: Segment[];
   private fd: number;
   private activeSize: number;
@@ -133,6 +135,22 @@ export class AgentEventLog {
     this.retainBytes = options.retainBytes ?? DEFAULT_RETAIN_BYTES;
     this.now = options.now ?? Date.now;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Identifies this log among all logs that ever lived in `dir`: an agent
+    // removed and recreated under the same id starts again at seq 0 / offset
+    // 0, and a reader holding a cursor into the old one must know to start
+    // over instead of skipping what it thinks it already has.
+    const incarnationPath = join(dir, "incarnation");
+    let incarnation: string | undefined;
+    try {
+      incarnation = readFileSync(incarnationPath, "utf8").trim() || undefined;
+    } catch {
+      // new log
+    }
+    if (!incarnation) {
+      incarnation = randomBytes(8).toString("hex");
+      writeFileSync(incarnationPath, incarnation, { mode: 0o600 });
+    }
+    this.incarnation = incarnation;
     this.segments = listSegments(dir);
     if (this.segments.length === 0) {
       const first = { base: 0, baseSeq: 0, path: join(dir, segmentName(0, 0)) };
