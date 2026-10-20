@@ -51,7 +51,9 @@
 //                        test can assert on it, then the turn ends normally
 //                        — proving the process doesn't stay blocked waiting
 //                        for a human the way the pre-rework version did.
-//   FAKE_CLAUDE_REQUEST_TOOLS - if set (JSON `[{tool, input, agent_id?}]`),
+//   FAKE_CLAUDE_REQUEST_TOOLS - if set (JSON `[{tool, input, agent_id?,
+//                        subagent_of?}]`; `subagent_of` is the id of the Agent
+//                        call the tool call is made under),
 //                        behaves like a model that issues all of these tool
 //                        calls at once: a call covered by an `--allowedTools`
 //                        rule of this invocation runs; any other goes to the
@@ -415,6 +417,22 @@ if (args[0] === "--version") {
     const outcomes = await Promise.all(
       calls.map(async (call, index) => {
         const label = `${call.tool} ${call.input.file_path ?? call.input.command ?? ""}`.trim();
+        if (call.subagent_of) {
+          // A call made inside a native subagent is announced in the stream
+          // with the id of the Agent call that started it. Written and flushed
+          // before the permission request goes out, as the CLI does.
+          await new Promise((resolve) =>
+            process.stdout.write(
+              `${JSON.stringify({
+                type: "assistant",
+                session_id: sessionId,
+                parent_tool_use_id: call.subagent_of,
+                message: { content: [{ type: "tool_use", id: `toolu_fake_${index}`, name: call.tool, input: call.input }], usage: { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+              })}\n`,
+              resolve,
+            ),
+          );
+        }
         if (coveredByRules(rules, call)) {
           performCall(call);
           return `ran: ${label}`;

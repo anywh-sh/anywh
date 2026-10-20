@@ -385,6 +385,13 @@ export class SharedSession implements SessionDriverHost {
    * here. See the class doc comment on `ChoiceMachine` for the full
    * reasoning on why they're separate slots. */
   private readonly choiceMachine: ChoiceMachine;
+  /** `parentToolUseId` of the tool calls the current turn has announced, by
+   * their own tool-use id. The permission request carries no agent id (measured
+   * with CLI 2.1.303), but a call made by a native subagent is announced in the
+   * stream with the id of the `Agent` call that started it; this is how a
+   * deferred approval learns it came from a subagent. Best effort: the stream
+   * line and the permission request travel on different channels. */
+  private readonly parentToolUse = new Map<string, string>();
   /** Correlates each response's `usage` with whatever ran since the last
    * one — see its own doc comment. Seeded once, at construction: a session
    * whose driver already has a session id (resuming after a relay restart)
@@ -753,9 +760,10 @@ export class SharedSession implements SessionDriverHost {
       // The call is refused right here, so the CLI is never left waiting on a
       // human: the turn ends, the request is kept (and persisted), and the
       // verdict comes back as a new turn (`answerChoice`).
+      const origin = agentId ?? (toolUseId !== undefined ? this.parentToolUse.get(toolUseId) : undefined);
       this.choiceMachine.deferApproval(
-        { tool: toolName, input, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(agentId !== undefined ? { agentId } : {}) },
-        buildApprovalQuestion(toolName, input, agentId),
+        { tool: toolName, input, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
+        buildApprovalQuestion(toolName, input, origin),
       );
       return buildDeferredDecision();
     }
@@ -1315,6 +1323,7 @@ export class SharedSession implements SessionDriverHost {
     grants?: readonly ToolGrant[],
   ): Promise<void> {
     this.options.onActivity?.();
+    this.parentToolUse.clear();
 
     // A turn in progress is "current" state (same reasoning as
     // cwd/permission/model), not a `history` event — a real finding from
@@ -1421,6 +1430,9 @@ export class SharedSession implements SessionDriverHost {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
         const agentEvent = clock.stamp(rawEvent);
+        if (agentEvent.type === "tool_started" && agentEvent.toolUseId !== undefined && agentEvent.parentToolUseId !== undefined) {
+          this.parentToolUse.set(agentEvent.toolUseId, agentEvent.parentToolUseId);
+        }
         // Must run BEFORE the broadcast below: a device reconnecting
         // mid-turn right as this arrives should see the updated mode, not a
         // stale one from before this same event was processed. Checked

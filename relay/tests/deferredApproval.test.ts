@@ -256,6 +256,14 @@ test("a call from a native subagent is held on the parent session with its agent
   assert.deepEqual(question.approval, { tool: "Write", detail: OUT() }, "the wire shape of the approval is unchanged");
 });
 
+test("a subagent's call is recognised from the stream when the permission request carries no agent id", async () => {
+  const relay = await boot("deferred-agent-derived");
+  await ask(relay, "delegate", [{ ...writeCall(), subagent_of: "toolu_agent_call" }]);
+
+  assert.equal(storedApproval(relay, "deferred-agent-derived")?.calls[0].agentId, "toolu_agent_call");
+  assert.match(prompts(relay)[0].questions![0].question, /subagent toolu_agent_call/);
+});
+
 test("several calls in one turn become ONE prompt; each is approved or denied on its own", async () => {
   const relay = await boot("deferred-many");
   const second = join(workDir, "second.txt");
