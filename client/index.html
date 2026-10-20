@@ -4,10 +4,10 @@
 <html lang="en" data-appearance="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- `maximum-scale`/`user-scalable=no` evita o auto-zoom do WebKit ao
-         focar um input com font-size < 16px (o composer usa ~14px) — sem
-         isso, tocar no composer no iOS zoom a página inteira, exigindo
-         scroll horizontal/vertical pra ver o resto. -->
+    <!-- `maximum-scale`/`user-scalable=no` prevents WebKit's auto-zoom when
+         focusing an input with font-size < 16px (the composer uses ~14px) —
+         without it, tapping the composer on iOS zooms the whole page,
+         requiring horizontal/vertical scrolling to see the rest. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>anywh.sh</title>
     <script type="module" src="/src/main.tsx" defer></script>
