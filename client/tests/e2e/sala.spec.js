@@ -217,7 +217,7 @@ describe("anywh room canvas", () => {
   });
 
   it("reads at 100%: a card in full, as it is worked with", async () => {
-    await browser.execute(() => document.querySelector('[aria-label^="Zoom "]').click());
+    await browser.execute(() => document.querySelector('[aria-label$="back to 100%"]').click());
     await browser.waitUntil(async () => (await (await $('[aria-label^="Zoom "] span')).getText()) === "100%", { timeout: 5000 });
     // Brings the card that is waiting for the person to the middle.
     await browser.execute(() => {
@@ -291,6 +291,8 @@ describe("anywh room canvas", () => {
       // "Fit to screen"
       document.querySelector('[aria-label="Fit to screen"]').click();
     });
+    // Nothing selected, so the shot shows the room and not an action bar.
+    await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     await browser.pause(800);
     await shot("A-sala-10-agentes");
     // What the canvas itself costs a frame while panning, in the real

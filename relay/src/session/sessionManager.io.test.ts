@@ -146,3 +146,26 @@ test("createSession falls back to claudeRuntimeDef, without throwing, when regis
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the live list update of a room's principal is marked as a room; an ordinary session's is not", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-sessionmanager-room-test-"));
+  try {
+    const store = new SessionStore(join(dir, "sessions.json"), "/home/user");
+    const events: unknown[] = [];
+    const manager = new SessionManager(undefined, store, buildRegistry([claudeRuntimeDef]), undefined, undefined, undefined, undefined, undefined, undefined, (event) => events.push(event));
+    store.setTitle("plain", "Plain");
+    store.setTitle("p1", "Room");
+    store.setRoom("p1", { roomId: "p1", role: "principal", createdBy: "user", task: "", undeliveredReports: [] });
+    manager.renameTitle("plain", "Plain renamed");
+    manager.renameTitle("p1", "Room renamed");
+    assert.deepEqual(
+      events.map((e) => ({ id: (e as { id: string }).id, room: (e as { room?: true }).room })),
+      [
+        { id: "plain", room: undefined },
+        { id: "p1", room: true },
+      ],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
