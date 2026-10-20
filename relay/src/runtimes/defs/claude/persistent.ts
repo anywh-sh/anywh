@@ -35,6 +35,11 @@ export interface PersistentClaudeSpec {
   readonly appendSystemPrompt?: string;
   readonly allowedTools?: string;
   readonly disallowedTools?: string;
+  /** `--tools`: the built-in tools that exist at all (absent = every one). */
+  readonly tools?: string;
+  /** Only the servers of `--mcp-config` (`--strict-mcp-config`): none of the
+   * user's, account connectors included. */
+  readonly strictMcp?: boolean;
   readonly permissionPromptTool?: string;
   /** Inherits the user's MCP servers but not their plugins, skills or hooks
    * (agentWorker.ts). */
@@ -66,6 +71,8 @@ export function buildPersistentArgs(spec: PersistentClaudeSpec, launch: Persiste
     ...(mode === "bypassPermissions" ? ["--dangerously-skip-permissions"] : ["--permission-mode", mode]),
     ...(spec.agentWorker ? ["--setting-sources", AGENT_WORKER_SETTING_SOURCES] : []),
     ...(launch.mcpConfigPath ? ["--mcp-config", launch.mcpConfigPath] : []),
+    ...(spec.strictMcp ? ["--strict-mcp-config"] : []),
+    ...(spec.tools !== undefined ? ["--tools", spec.tools] : []),
     ...(spec.allowedTools ? ["--allowedTools", spec.allowedTools] : []),
     ...(spec.permissionPromptTool ? ["--permission-prompt-tool", spec.permissionPromptTool] : []),
     ...(spec.disallowedTools ? ["--disallowedTools", spec.disallowedTools] : []),
@@ -87,4 +94,10 @@ export function encodeUserMessage(text: string): string {
 /** Ends the turn in flight without ending the process. */
 export function encodeInterrupt(requestId: string): string {
   return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "interrupt" } })}\n`;
+}
+
+/** Stops one native subagent (`task_id` from its `task_started`), leaving
+ * the turn and the other subagents running. */
+export function encodeStopTask(requestId: string, taskId: string): string {
+  return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "stop_task", task_id: taskId } })}\n`;
 }

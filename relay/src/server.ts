@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { WebSocketServer, type WebSocket } from "ws";
 import { McpChoiceBridge } from "./bridges/mcpBridge.js";
 import { McpPermissionBridge } from "./bridges/permissionBridge.js";
+import { ROOM_BRIDGE_PATH, RoomBridge, roomKeyPathFor } from "./bridges/roomBridge.js";
 import { defaultCwd } from "./host/paths.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
@@ -9,8 +10,8 @@ import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { detectRuntimes, parseCliVersion } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
-import type { ModelCatalog } from "./runtimes/types.js";
-import { HostClient } from "./agentHost/hostClient.js";
+import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
+import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleAgentRoutes } from "./routes/agents.js";
@@ -19,12 +20,15 @@ import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handlePushRoutes } from "./routes/push.js";
+import { handleRoomRoutes } from "./routes/rooms.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
 import { PushDispatcher } from "./push/dispatcher.js";
 import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
+import { RoomCanvasStore, roomCanvasPathFor } from "./session/roomCanvas.js";
+import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -63,6 +67,9 @@ const pushStore = PUSH_DISABLED ? null : new PushStore(PUSH_DEVICES_FILE);
 const pushDispatcher = pushStore ? new PushDispatcher({ store: pushStore }) : null;
 
 const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
+// Each room's canvas layout, beside the sessions file (`<profile>-rooms.json`
+// for a profile whose sessions file is `<profile>.json`).
+const roomCanvas = new RoomCanvasStore(process.env.RELAY_ROOMS_FILE ?? roomCanvasPathFor(SESSIONS_FILE));
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
 // machine (see the comment on `SharedSessionOptions.mcpBridgeBaseUrl`), not
@@ -72,6 +79,10 @@ const mcpChoiceBridge = new McpChoiceBridge();
 // namespace, own route below) even though both are the same "local-only MCP
 // server the relay's own `claude` children call into" idea.
 const mcpPermissionBridge = new McpPermissionBridge();
+// The room tools (`anywh-room`), for the agents of a room — which run in
+// the agent host and keep their bridge URL for their whole life, across
+// relay restarts (see roomBridge.ts for why its token is not per turn).
+const roomBridge = new RoomBridge(process.env.RELAY_ROOM_KEY_FILE ?? roomKeyPathFor(SESSIONS_FILE), `http://127.0.0.1:${PORT}${ROOM_BRIDGE_PATH}`);
 // Sockets connected to `/sessions/watch` (client/src/hooks/relay/useSessionNames.ts)
 // — one per device showing the sidebar, independent of which session tabs
 // (if any) it has open. `SessionManager` doesn't know about WebSocket at
@@ -84,6 +95,16 @@ const sessionListWatchers = new Set<WebSocket>();
 // resolves a session's persisted agentId against this instead of a
 // hardcoded literal.
 const registry = buildRegistry([claudeRuntimeDef, codexRuntimeDef]);
+
+// This profile's agent host (a separate service that keeps agent processes
+// alive across relay restarts). Always connecting in the background: the
+// host may start after the relay, or not be installed at all, and neither
+// is an error until something actually asks it for work.
+// No profile and no explicit socket (a bare `node dist/server.js`): no host.
+const agentHostSocket = relayAgentHostSocket();
+const agentHost = agentHostSocket ? new HostClient({ socketPath: agentHostSocket, clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 }) : undefined;
+agentHost?.start();
+if (!agentHost) console.log("[relay] no ANYWH_PROFILE or ANYWH_AGENT_HOST_SOCKET set: not connecting to an agent host");
 const sessionManager = new SessionManager(
   HOME_OVERRIDE,
   sessionStore,
@@ -107,17 +128,57 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
+  undefined,
+  {
+    agentHost,
+    roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),
+    admit: (id): string | undefined => roomManager.admit(id),
+    onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
+    onRoomDeleted: (roomId) => roomCanvas.delete(roomId),
+    // How far each room agent's log was read: a turn in flight across a
+    // relay restart is picked up from there.
+    owner: roomBridge.ownerId,
+    onMemberDeleted: (id): void => roomManager.onMemberDeleted(id),
+    cursors: new FileCursorStore(process.env.RELAY_ROOM_CURSORS_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-cursors.json")),
+  },
 );
 
-// This profile's agent host (a separate service that keeps agent processes
-// alive across relay restarts). Always connecting in the background: the
-// host may start after the relay, or not be installed at all, and neither
-// is an error until something actually asks it for work.
-// No profile and no explicit socket (a bare `node dist/server.js`): no host.
-const agentHostSocket = relayAgentHostSocket();
-const agentHost = agentHostSocket ? new HostClient({ socketPath: agentHostSocket, clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 }) : undefined;
-agentHost?.start();
-if (!agentHost) console.log("[relay] no ANYWH_PROFILE or ANYWH_AGENT_HOST_SOCKET set: not connecting to an agent host");
+// Runtimes a room can use: the installed ones the agent host can run. Until
+// detection answers, every one the registry has.
+let roomRuntimes: readonly string[] = registry.defs.map((def) => def.identity.id).filter((id) => HOST_RUNTIMES.includes(id));
+const roomManager: RoomManager = new RoomManager({
+  store: sessionStore,
+  sessions: sessionManager,
+  registry,
+  bridge: roomBridge,
+  runtimes: () => roomRuntimes,
+  hostConnected: () => agentHost?.status === "connected",
+  owner: roomBridge.ownerId,
+  tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
+  stopInHost: async (agentId) => {
+    if (!agentHost) throw new Error("this relay has no agent host");
+    await agentHost.request("stop", { agentId });
+  },
+  listHostRoomAgents: async () => {
+    if (!agentHost) return [];
+    return (await agentHost.request<{ agents: { agentId: string; roomId?: string }[] }>("activity")).agents;
+  },
+  removeFromHost: async (agentId) => {
+    await agentHost?.request("remove", { agentId });
+  },
+  getModelCatalog: (agentId) => modelCatalogs[agentId],
+});
+roomBridge.attach(roomManager);
+// Every time the relay (re)connects to its host: agents the rooms no longer
+// have are removed there, then messages queued before a restart go out.
+agentHost?.on("status", (status) => {
+  if (status !== "connected") return;
+  roomManager
+    .reconcileHost()
+    .catch((error: unknown) => console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message))
+    .finally(() => roomManager.resumeQueues());
+});
+
 
 const routeContext: RouteContext = {
   sessionStore,
@@ -128,6 +189,8 @@ const routeContext: RouteContext = {
   defaultSession: DEFAULT_SESSION,
   pushStore,
   agentHost,
+  roomCanvas,
+  roomManager,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -141,6 +204,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleHostRoutes,
   handlePushRoutes,
   handleAgentRoutes,
+  handleRoomRoutes,
 ];
 
 /**
@@ -164,6 +228,19 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
   const permissionMatch = req.url?.match(/^\/permission\/([^/]+)$/);
   if (permissionMatch) {
     void mcpPermissionBridge.handleRequest(permissionMatch[1], req, res);
+    return true;
+  }
+  const roomMatch = req.url?.match(/^\/room\/([^/]+)\/([^/]+)$/);
+  if (roomMatch) {
+    let sessionId: string;
+    try {
+      sessionId = decodeURIComponent(roomMatch[1]);
+    } catch {
+      // A malformed escape: answered, never thrown out of the request listener.
+      res.writeHead(404).end();
+      return true;
+    }
+    void roomBridge.handleRequest(sessionId, roomMatch[2], req, res);
     return true;
   }
   return false;
@@ -197,6 +274,7 @@ detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
   .then((detections) => {
     const selectable = detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id));
     setSelectableAgents(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities, version: parseCliVersion(detection.version) })));
+    roomRuntimes = selectable.map((detection) => detection.id).filter((id) => HOST_RUNTIMES.includes(id));
     for (const def of [claudeRuntimeDef, codexRuntimeDef]) {
       if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
       probeModelCatalog(def, HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))

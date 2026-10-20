@@ -307,6 +307,7 @@ function mapSubagentEvent(event: ClaudeEvent): AgentEvent | undefined {
   const at = Date.now();
   const usage = (event.usage ?? {}) as RawTaskUsage;
   const totals = {
+    ...(typeof event.task_id === "string" ? { taskId: event.task_id } : {}),
     ...(typeof usage.tool_uses === "number" ? { toolUses: usage.tool_uses } : {}),
     ...(typeof usage.total_tokens === "number" ? { totalTokens: usage.total_tokens } : {}),
   };
@@ -315,6 +316,7 @@ function mapSubagentEvent(event: ClaudeEvent): AgentEvent | undefined {
     return {
       type: "subagent",
       toolUseId,
+      ...(typeof event.task_id === "string" ? { taskId: event.task_id } : {}),
       status: "running",
       at,
       ...(typeof event.description === "string" ? { description: event.description } : {}),

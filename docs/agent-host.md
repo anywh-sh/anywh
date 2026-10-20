@@ -6,8 +6,11 @@ long-lived agent processes so that restarting the relay — a deploy, a crash,
 a `systemctl restart` — leaves every agent and every turn in flight running.
 The relay is a client of it over a unix socket (`relay/src/agentHost/`).
 
-Today only the relay's `GET /agents/activity` uses it; ordinary chat sessions
-still spawn one `claude -p` per turn inside the relay.
+The agents of a room run in it: the relay drives each one through
+`relay/src/runtimes/hostSessionDriver.ts` (write the message, read the agent's
+log, map the CLI's own events like a direct session does). Ordinary chat
+sessions still spawn one `claude -p` per turn inside the relay. A relay
+shutdown neither waits for nor interrupts a room agent's turn.
 
 ## Pieces
 
@@ -38,7 +41,11 @@ half-understood. Then:
 
 - `request` (`id`, `method`, `params`) → `response` (`ok` + `result`, or an
   `error` with a stable `code`). Methods: `spawn`, `send`, `interrupt`,
-  `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`.
+  `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`, `stop_task`
+  (stops one native subagent of a Claude agent by its `taskId`, through the
+  CLI's `stop_task` control request; the agent and its turn go on). `spawn` takes
+  an optional `sessionId`: the agent's first process resumes that session
+  (an agent the host no longer has, recreated by the relay).
 - `subscribe` (`agentId`, `fromOffset`, `incarnation`) → that agent's log
   from the offset, then live: `event` records (`seq`, `off`, `next`, `t`,
   `ev`), one `caught_up` when the replay reaches the end, `replay_gap` when
@@ -90,6 +97,12 @@ settings (the user's MCP servers through a 0600 file; no personal plugins,
 skills or hooks). States: `starting`, `working`, `awaiting_user`, `idle`,
 `hibernated`, `stopped`, `failed`.
 
+- A room's principal is started read-only (`--tools Read,Grep,Glob`, writing
+  tools and `Agent` denied, `--strict-mcp-config` with only the room's MCP
+  server); a room's worker keeps every tool and the user's MCP servers, with
+  native subagents capped (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=5`,
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`). The relay builds these specs
+  (`runtimes/defs/claude/roomSpec.ts`); the host only applies them.
 - A message sent while a turn is in flight is answered `duringTurn: true`:
   the CLI folds it into that turn at its next tool boundary ("steering")
   instead of running it as the next turn.
@@ -134,6 +147,14 @@ skills or hooks). States: `starting`, `working`, `awaiting_user`, `idle`,
   background; its data directory is removed only once the host is no
   longer active, the profile was not recreated meanwhile, and the
   directory carries the host's marker. Every outcome is logged.
+- A Codex agent of a room gets the room's tools as Codex dynamic tools
+  (`thread/start.dynamicTools`, an experimental part of the app-server); its
+  `item/tool/call` requests are forwarded by the host to the relay's room
+  endpoint for that agent (`spec.room.bridgeUrl`, loopback only) — the same
+  endpoint a Claude agent calls over MCP — and answered at once. A room's
+  Codex principal runs read-only with Codex's own subagents off
+  (`features.multi_agent: false`). A Codex that refuses dynamic tools fails
+  the principal's turn visibly; nothing switches it to another runtime.
 - Idle Codex agents (no turn in flight) are hibernatable: nothing to end,
   they only give up their room slot; their thread resumes on the next
   message.

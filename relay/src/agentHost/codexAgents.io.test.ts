@@ -4,7 +4,7 @@
 // per agent, turns, interrupt, stop, restore), not Codex's behaviour.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { codexRuntimeDef } from "../runtimes/defs/codex.js";
@@ -192,6 +192,96 @@ test("memory pressure never picks a Codex agent: it has no memory of its own to 
     await waitFor(() => completed(events).length === 1, 5000, "turn");
     assert.deepEqual(await host.runHibernationPolicy(), []);
     assert.equal((await activity(client, "c1")).state, "idle");
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a room's Codex principal gets the room's settings again on a new app-server, and none of the user's MCP tools", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const home = join(dir, "home");
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  writeFileSync(join(home, ".codex", "config.toml"), '[mcp_servers.figma]\ncommand = "figma-mcp"\n\n[mcp_servers.linear]\nurl = "https://example.invalid/mcp"\n');
+  const requests = join(dir, "requests.jsonl");
+  const host = await AgentHost.start({
+    hostId: `codex-resume-${process.pid}`,
+    dataDir: join(dir, "data"),
+    socketPath: join(dir, "run", "h.sock"),
+    homeOverride: home,
+    codexDef: fakeCodexDef({ FAKE_CODEX_REQUESTS: requests }),
+    drainGraceMs: 500,
+  });
+  const client = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
+  client.start();
+  await client.waitUntilConnected();
+  const room = { role: "principal", instructions: "only delegate", tools: [{ name: "delegate", description: "d", inputSchema: { type: "object" } }], bridgeUrl: "http://127.0.0.1:9/room/p/t" };
+  const sent = (): { method: string; params: Record<string, unknown> }[] =>
+    readFileSync(requests, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+  try {
+    await client.request("spawn", { agentId: "p1", runtime: "codex", roomId: "p1", spec: { cwd: dir, room }, message: "hello" });
+    const events = watch(client, "p1");
+    await waitFor(() => completed(events).length === 1, 5000, "first turn");
+    const start = sent().find((request) => request.method === "thread/start")!;
+    assert.deepEqual(start.params.config, {
+      features: { multi_agent: false },
+      web_search: "disabled",
+      mcp_servers: { figma: { enabled_tools: [] }, linear: { enabled_tools: [] } },
+    });
+
+    await client.request("send", { agentId: "p1", message: "[[die]]" });
+    await waitFor(() => host.activity().find((agent) => agent.agentId === "p1")?.state === "failed", 5000, "app-server died");
+    await client.request("send", { agentId: "p1", message: "again" });
+    await waitFor(() => completed(events).length === 2, 5000, "turn on the new app-server");
+    const resume = sent().find((request) => request.method === "thread/resume");
+    assert.ok(resume, "the thread was resumed on the new app-server before its turn");
+    assert.equal(resume.params.threadId, start.params.threadId ?? (await activity(client, "p1")).sessionId);
+    assert.deepEqual(resume.params.config, start.params.config, "the principal's settings are given again");
+    assert.equal(resume.params.developerInstructions, "only delegate");
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Stop sent before Codex has named the turn still interrupts it once it has", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const { host, client } = await start(dir, `codex-slow-${process.pid}`, {});
+  try {
+    await client.request("spawn", { agentId: "s1", runtime: "codex", spec: { cwd: dir }, message: "warm" });
+    const events = watch(client, "s1");
+    await waitFor(() => completed(events).length === 1, 5000, "first turn");
+    const sending = client.request("send", { agentId: "s1", message: "work [[slow-start]]" });
+    await waitFor(() => host.activity().find((agent) => agent.agentId === "s1")?.state === "working", 5000, "turn in flight");
+    assert.deepEqual(await client.request("interrupt", { agentId: "s1" }), { interrupted: true });
+    await sending;
+    await waitFor(() => completed(events).length === 2, 5000, "the turn ended");
+    assert.equal((completed(events)[1].ev.params as { turn: { status: string } }).turn.status, "interrupted");
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Codex agent stopped while its thread is still starting never starts the turn it was spawned with", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-slow-thread-"));
+  const requests = join(dir, "requests.jsonl");
+  const { host, client } = await start(dir, `codex-stopspawn-${process.pid}`, { FAKE_CODEX_REQUESTS: requests });
+  try {
+    const spawning = client.request("spawn", { agentId: "z1", runtime: "codex", spec: { cwd: dir }, message: "must not run" });
+    await waitFor(() => existsSync(requests) && readFileSync(requests, "utf8").includes("thread/start"), 5000, "thread starting");
+    await client.request("stop", { agentId: "z1" });
+    await assert.rejects(spawning, /stopped/);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(readFileSync(requests, "utf8").includes("turn/start"), false, "no turn was started");
+    assert.equal((await activity(client, "z1")).state, "stopped");
+    // A message sent after the stop is a new decision and runs.
+    await client.request("send", { agentId: "z1", message: "now yes" });
+    const events = watch(client, "z1");
+    await waitFor(() => completed(events).length === 1, 5000, "the later turn");
   } finally {
     client.close();
     await host.close();

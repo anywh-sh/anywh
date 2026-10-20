@@ -334,7 +334,7 @@ function withoutAt(events: ReturnType<typeof mapClaudeEvent>): unknown[] {
   });
 }
 
-test("task_started/task_progress/task_notification of an agent map to its subagent lifecycle", () => {
+test("task_started/task_progress/task_notification of an agent map to its subagent lifecycle, carrying the task id that stops it", () => {
   const started: ClaudeEvent = {
     type: "system",
     subtype: "task_started",
@@ -365,13 +365,13 @@ test("task_started/task_progress/task_notification of an agent map to its subage
     usage: { total_tokens: 21377, tool_uses: 2, duration_ms: 4294 },
   };
   assert.deepEqual(withoutAt(mapClaudeEvent(started)), [
-    { type: "subagent", toolUseId: "toolu_agent", status: "running", description: "Read a.txt and b.txt", background: true },
+    { type: "subagent", toolUseId: "toolu_agent", taskId: "a1", status: "running", description: "Read a.txt and b.txt", background: true },
   ]);
   assert.deepEqual(withoutAt(mapClaudeEvent(progress)), [
-    { type: "subagent", toolUseId: "toolu_agent", status: "running", activity: "Reading a.txt", toolUses: 1, totalTokens: 18440 },
+    { type: "subagent", toolUseId: "toolu_agent", status: "running", activity: "Reading a.txt", taskId: "a1", toolUses: 1, totalTokens: 18440 },
   ]);
   assert.deepEqual(withoutAt(mapClaudeEvent(done)), [
-    { type: "subagent", toolUseId: "toolu_agent", status: "completed", summary: "alpha, beta", toolUses: 2, totalTokens: 21377 },
+    { type: "subagent", toolUseId: "toolu_agent", status: "completed", summary: "alpha, beta", taskId: "a1", toolUses: 2, totalTokens: 21377 },
   ]);
 });
 

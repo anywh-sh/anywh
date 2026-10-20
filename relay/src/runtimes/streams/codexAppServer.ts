@@ -103,6 +103,23 @@ interface McpToolCallItem {
   error: unknown;
 }
 
+/** `dynamicToolCall` (codex-cli 0.154.0): a call to a tool the relay
+ * declared on the thread — only ever the room's tools here. */
+interface DynamicToolCallItem {
+  type: "dynamicToolCall";
+  id: string;
+  namespace: string | null;
+  tool: string;
+  arguments: unknown;
+  status: "inProgress" | "completed" | "failed";
+  contentItems: { type: string; text?: string }[] | null;
+  success: boolean | null;
+}
+
+/** The only dynamic tools the relay declares are the room's, served under
+ * this name on the Claude side too — so both runtimes show them alike. */
+const DYNAMIC_TOOL_SERVER = "anywh-room";
+
 interface WebSearchItem {
   type: "webSearch";
   id: string;
@@ -124,7 +141,7 @@ interface PlanItem {
 }
 
 /** Every other `ThreadItem` variant (`userMessage`, `hookPrompt`,
- * `functionCallOutput`, `dynamicToolCall`, `imageGeneration`, `sleep`, the
+ * `functionCallOutput`, `imageGeneration`, `sleep`, the
  * realtime/collab-agent items, ...) — not mapped yet, falls through to the
  * unrecognized-item log. */
 type ThreadItemSubset =
@@ -133,6 +150,7 @@ type ThreadItemSubset =
   | CommandExecutionItem
   | FileChangeItem
   | McpToolCallItem
+  | DynamicToolCallItem
   | WebSearchItem
   | PlanItem
   | { type: string };
@@ -213,6 +231,21 @@ function mapItemStarted(params: ItemLifecycleParams): AgentEvent[] {
           kind: "mcp",
           input: toolInputFrom(mcpItem.arguments),
           subject: { kind: "mcp", server: mcpItem.server, tool: mcpItem.tool },
+          ...startedAt,
+        },
+      ];
+    }
+    case "dynamicToolCall": {
+      const dynamicItem = item as DynamicToolCallItem;
+      const server = dynamicItem.namespace ?? DYNAMIC_TOOL_SERVER;
+      return [
+        {
+          type: "tool_started",
+          toolUseId: dynamicItem.id,
+          name: `${server}:${dynamicItem.tool}`,
+          kind: "mcp",
+          input: toolInputFrom(dynamicItem.arguments),
+          subject: { kind: "mcp", server, tool: dynamicItem.tool },
           ...startedAt,
         },
       ];
@@ -301,6 +334,20 @@ function mapItemCompleted(params: ItemLifecycleParams): AgentEvent[] {
           content,
           isError: mcpItem.status !== "completed",
           outcome: { kind: "payload", request: JSON.stringify(mcpItem.arguments ?? {}, null, 2), response: content },
+          ...endedAt,
+        },
+      ];
+    }
+    case "dynamicToolCall": {
+      const dynamicItem = item as DynamicToolCallItem;
+      const content = (dynamicItem.contentItems ?? []).map((part) => part.text ?? "").join("");
+      return [
+        {
+          type: "tool_ended",
+          toolUseId: dynamicItem.id,
+          content,
+          isError: dynamicItem.status !== "completed" || dynamicItem.success === false,
+          outcome: { kind: "payload", request: JSON.stringify(dynamicItem.arguments ?? {}, null, 2), response: content },
           ...endedAt,
         },
       ];

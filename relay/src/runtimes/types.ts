@@ -268,8 +268,21 @@ export interface UserInputAnswer {
   readonly values: readonly string[];
 }
 
+/** A room tool the agent called through its runtime's own mechanism
+ * (Codex's dynamic tools: an `item/tool/call` server request). */
+export interface RoomToolCall {
+  readonly threadId?: string;
+  readonly turnId?: string;
+  readonly callId?: string;
+  readonly tool: string;
+  readonly arguments: unknown;
+}
+
 export interface TurnHost {
   requestApproval(request: ApprovalRequest): Promise<string>;
+  /** Runs a room tool for the agent and answers at once. Absent where no
+   * room tool can be reached; the def then fails the call visibly. */
+  callRoomTool?(call: RoomToolCall): Promise<{ readonly text: string; readonly isError: boolean }>;
   /** `"deferred"` is a first-class answer, not a failure: the anywh answers
    * a structured question as the *next* turn (`present_choice`'s existing
    * behavior, commit `a964d12`), so a runtime that can hold the request open
@@ -309,7 +322,39 @@ export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => re
  * envelope to unwrap) doesn't share. */
 export type NotificationMapper = (method: string, params: unknown, ctx: { readonly turnId: string }) => readonly AgentEvent[];
 
+/** One tool of a room (`delegate`, `report`, ...) as plain data: a name, a
+ * description for the model, and a JSON Schema for its arguments — the shape
+ * both an MCP `tools/list` and Codex's `dynamicTools` take. */
+export interface RoomToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+}
+
+/** What an agent of a room needs in every turn: its role, its standing
+ * instructions, and the room tools it may call. */
+export interface RoomTurnSetup {
+  readonly role: "principal" | "worker";
+  /** Standing instructions. A long-lived CLI only reads them on a session's
+   * first request, so they never change afterwards. */
+  readonly instructions: string;
+  readonly tools: readonly RoomToolSpec[];
+  /** MCP servers of the user's own CLI configuration to switch off for this
+   * agent (a read-only principal must not reach them). Filled by whoever
+   * can read that configuration (the agent host). */
+  readonly disableMcpServers?: readonly string[];
+}
+
+/** `RoomTurnSetup` plus where the relay serves the tools for this agent: an
+ * MCP endpoint (Streamable HTTP) whose URL carries the agent's own token. */
+export interface RoomAgentSetup extends RoomTurnSetup {
+  readonly bridgeServerName: string;
+  readonly bridgeUrl: string;
+}
+
 export interface TurnContext {
+  /** Present only for an agent of a room. */
+  readonly room?: RoomTurnSetup;
   readonly cwd: string;
   readonly prompt: string;
   readonly modelId?: string;
@@ -319,6 +364,20 @@ export interface TurnContext {
   readonly permissionModeId: string;
   /** Set when resuming — absent on a session's first turn. */
   readonly resumeSessionId?: string;
+  /** Tool calls a human approved after an earlier turn was told to wait: the
+   * turn runs with exactly these permitted, so the agent can repeat them
+   * without asking again. Absent on an ordinary turn. */
+  readonly grants?: readonly ToolGrant[];
+}
+
+/** One approved tool call, as the agent asked for it. How a driver turns it
+ * into a permission its CLI accepts is the driver's business. */
+export interface ToolGrant {
+  readonly tool: string;
+  readonly input: unknown;
+  /** The permission the session already decided on when the call was first
+   * refused, for a driver whose permissions are rules; used as is. */
+  readonly rule?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +419,10 @@ export interface JsonRpcDaemonPlan {
   readonly framing: "ndjson" | "lsp-headers";
   readonly thread: {
     readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
+    /** Re-attaches an existing thread to a daemon process that did not start
+     * it, re-applying the per-thread settings `start` gave it. Optional: a
+     * daemon that needs no explicit resume leaves it out. */
+    readonly resume?: (ctx: TurnContext, threadId: string) => JsonRpcRequestSpec;
   };
   readonly turn: {
     /** `threadId` is whatever the engine captured off `thread.start`'s own

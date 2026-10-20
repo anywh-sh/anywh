@@ -15,6 +15,7 @@ export interface PersistedAgent {
   readonly agentId: string;
   readonly runtime: AgentRuntimeId;
   readonly roomId?: string;
+  readonly owner?: string;
   readonly spec: ClaudeAgentSpec;
   readonly createdAt: number;
   readonly sessionId?: string;

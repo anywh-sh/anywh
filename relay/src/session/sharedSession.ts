@@ -1,9 +1,12 @@
 import type { WebSocket } from "ws";
-import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants, resolveGrant } from "../runtimes/defs/claude/index.js";
+import { compactToolInput } from "./approvalInput.js";
+import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
-import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
+import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
+import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
-import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
+import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
 import { type McpPermissionBridge, type PermissionDecision } from "../bridges/permissionBridge.js";
@@ -13,11 +16,11 @@ import { generateSuggestion } from "../runtimes/probes/suggestionGenerator.js";
 import { ActivityClock } from "./activityClock.js";
 import { BridgeToolFilter } from "./bridgeToolFilter.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
-import { buildBackgroundJobFollowupPrompt, offersSilence } from "./turnMessages.js";
+import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offersSilence } from "./turnMessages.js";
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
-import type { ContextUsage, ModelChoice, PermissionMode, PersistedChoice } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import {
@@ -189,6 +192,26 @@ export interface SharedSessionOptions {
   /** Called whenever the deferred question is set or cleared (`undefined`) —
    * this is how SessionManager writes it to SessionStore. */
   onPendingChoiceChange?: (choice: PersistedChoice | undefined) => void;
+  /** Deferred tool approval persisted before a relay restart, if any. */
+  initialPendingApproval?: PersistedApproval;
+  /** Called whenever the deferred approval is set or cleared (`undefined`). */
+  onPendingApprovalChange?: (approval: PersistedApproval | undefined) => void;
+  /** Refused calls waiting behind an approval card on screen, persisted. */
+  initialQueuedApproval?: PersistedApproval;
+  onQueuedApprovalChange?: (approval: PersistedApproval | undefined) => void;
+  /** An approval was withdrawn without the model being told. */
+  initialWithdrawnApproval?: boolean;
+  onWithdrawnApprovalChange?: (withdrawn: boolean) => void;
+  /** The session is driven on behalf of another agent rather than typed into
+   * by a person (Claude: inherits the user's MCP servers, none of their
+   * plugins/skills/hooks). Turns deferred approval on unless
+   * `deferredApproval` says otherwise. */
+  agentWorker?: boolean;
+  /** Answer a tool approval request on the spot with a refusal that ends the
+   * turn, keep the request as a persisted pending approval, and run the
+   * human's verdict as a new turn. Off for an ordinary session, whose
+   * approval blocks the turn until answered. Defaults to `agentWorker`. */
+  deferredApproval?: boolean;
   /** Shared by every session in the process (like
    * `SessionManager` itself); `undefined` only in tests that don't exercise
    * this feature, in which case `present_choice` is simply never offered to
@@ -215,6 +238,24 @@ export interface SharedSessionOptions {
    * `SharedSession` only ever hands this to `createSessionDriver`, it never
    * branches on it itself. */
   def: AgentRuntimeDef;
+  /** Set for an agent of a room: its turns run in the agent host. */
+  hostAgent?: HostAgentBinding;
+  /** `false` for a session no person types into (a room's worker): no
+   * next-message suggestion is generated after its turns. Default on. */
+  suggestNextMessage?: boolean;
+  /** Called once each turn is over, with how it ended — how a room learns
+   * that a worker's turn failed or ended without a report. */
+  onTurnSettled?: (outcome: TurnOutcome) => void;
+}
+
+/** How a turn ended, as `onTurnSettled` reports it. */
+export interface TurnOutcome {
+  readonly startedAt: number;
+  /** The turn was already running when this relay started following it. */
+  readonly adopted?: boolean;
+  readonly stopped: boolean;
+  /** The failure's message, when the turn failed. */
+  readonly error?: string;
 }
 
 /**
@@ -301,6 +342,12 @@ export class SharedSession implements SessionDriverHost {
    * push/presence.ts for why a claim is a lease. */
   private readonly presenceExpiry = new Map<WebSocket, number>();
   private turnQueue: Promise<void> = Promise.resolve();
+  /** Sequence numbers of enqueued turns: the last enqueued, the last that
+   * reached the front of the queue, and the last dropped by
+   * `discardQueuedTurns` (waiting turns up to it never run). */
+  private enqueuedSeq = 0;
+  private dequeuedSeq = 0;
+  private discardedUpTo = 0;
   private cwd: string;
   private locked: boolean;
   private title: string | null;
@@ -371,6 +418,17 @@ export class SharedSession implements SessionDriverHost {
    * here. See the class doc comment on `ChoiceMachine` for the full
    * reasoning on why they're separate slots. */
   private readonly choiceMachine: ChoiceMachine;
+  /** `parentToolUseId` of the tool calls the current turn has announced, by
+   * their own tool-use id. The permission request carries no agent id (measured
+   * with CLI 2.1.303), but a call made by a native subagent is announced in the
+   * stream with the id of the `Agent` call that started it; this is how a
+   * deferred approval learns it came from a subagent. Best effort: the stream
+   * line and the permission request travel on different channels. */
+  private readonly parentToolUse = new Map<string, string>();
+  /** Id of the latest turn started, and of the one running now: refusals are
+   * staged per turn so one turn's interruption cannot drop another's. */
+  private turnSeq = 0;
+  private currentTurnId = 0;
   /** Correlates each response's `usage` with whatever ran since the last
    * one — see its own doc comment. Seeded once, at construction: a session
    * whose driver already has a session id (resuming after a relay restart)
@@ -411,6 +469,15 @@ export class SharedSession implements SessionDriverHost {
       this.notify(promptDraft({ title: this.title, kind, firstQuestion: questions[0]?.question })),
       options.initialPendingChoice,
       options.onPendingChoiceChange,
+      undefined,
+      {
+        initial: options.initialPendingApproval,
+        onChange: options.onPendingApprovalChange,
+        initialQueued: options.initialQueuedApproval,
+        onQueuedChange: options.onQueuedApprovalChange,
+        initialWithdrawn: options.initialWithdrawnApproval,
+        onWithdrawnChange: options.onWithdrawnApprovalChange,
+      },
     );
     // A rehydrated question belongs to a conversation; with no session_id
     // left for the active agent (cleared, lost, never created) answering it
@@ -438,6 +505,8 @@ export class SharedSession implements SessionDriverHost {
       homeOverride: this.homeOverride,
       initialSessionId,
       host: this,
+      ...(this.options.hostAgent ? { hostAgent: this.options.hostAgent } : {}),
+      agentWorker: this.options.agentWorker,
       claudeMcp:
         this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
           ? {
@@ -482,7 +551,11 @@ export class SharedSession implements SessionDriverHost {
     // out of nowhere.
     // Only on a REAL change: a redundant set_agent for the current agent
     // (e.g. a client re-sending its picked agent on reconnect) keeps it.
-    if (next.def.identity.id !== this.def.identity.id) this.discardStaleChoice();
+    if (next.def.identity.id !== this.def.identity.id && this.discardStaleChoice()) {
+      // Not told to the incoming agent (it never waited for it); owed to the
+      // next turn of one that did.
+      this.choiceMachine.markWithdrawn();
+    }
     this.driver.dispose();
     this.def = next.def;
     this.driver = this.createDriver(next.def, next.initialSessionId);
@@ -731,7 +804,26 @@ export class SharedSession implements SessionDriverHost {
    * (`presentApprovalChoice`), reusable by a native approval path (Codex's
    * driver, via `requestApproval` below) that never needs this
    * Claude-specific framing at all. */
-  async checkPermission(toolName: string, input: unknown, _toolUseId: string | undefined): Promise<PermissionDecision> {
+  async checkPermission(toolName: string, input: unknown, toolUseId: string | undefined, agentId?: string): Promise<PermissionDecision> {
+    if (this.options.deferredApproval ?? this.options.agentWorker ?? false) {
+      // The call is refused right here, so the CLI is never left waiting on a
+      // human: the turn ends, the request is kept (and persisted), and the
+      // verdict comes back as a new turn (`answerChoice`).
+      const origin = agentId ?? (toolUseId !== undefined ? this.parentToolUse.get(toolUseId) : undefined);
+      // Kept small (it is written to disk); the fields a grant is derived
+      // from are kept whole.
+      const kept = compactToolInput(input);
+      // Decided once, here: the card is built from it and the answer, hours
+      // later, uses it as is rather than looking at the disk again.
+      const grant = grantRuleFor({ tool: toolName, input: kept });
+      const broad = grant?.broad === true;
+      this.choiceMachine.deferApproval(
+        { tool: toolName, input: kept, ...(grant ? { grant } : {}), ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
+        buildApprovalQuestion(toolName, kept, origin, broad),
+        this.currentTurnId,
+      );
+      return buildDeferredDecision();
+    }
     const answers = await this.choiceMachine.presentApprovalChoice([buildApprovalQuestion(toolName, input)]);
     return buildPermissionDecision(toolName, input, isApproved(answers));
   }
@@ -814,8 +906,23 @@ export class SharedSession implements SessionDriverHost {
    * conversation's context. NOT called for wakeup / background-job turns:
    * those are the agent talking to itself, the human hasn't moved on, so the
    * card (and its persisted copy, which always mirrors it) stays. */
-  private discardStaleChoice(): void {
-    this.choiceMachine.discardStaleChoice();
+  private discardStaleChoice(): boolean {
+    return this.choiceMachine.discardStaleChoice(this.turnSeq);
+  }
+
+  /** `discardStaleChoice` for a message that carries on the conversation: the
+   * note, when the model was left waiting for an approval that is gone (one
+   * discarded now, or one dropped earlier with an interrupted turn). */
+  private discardAndNote(): string | undefined {
+    const dropped = this.discardStaleChoice();
+    // Only an agent that defers approvals was left waiting for one; the debt
+    // stays on the books for the next turn of one that did.
+    if (!this.def.bridges.includes("permission")) {
+      if (dropped) this.choiceMachine.markWithdrawn();
+      return undefined;
+    }
+    const flagged = this.choiceMachine.takeWithdrawn();
+    return dropped || flagged ? WITHDRAWN_APPROVAL_NOTE : undefined;
   }
 
   /** Called from the same three sites as `discardStaleChoice`
@@ -847,7 +954,33 @@ export class SharedSession implements SessionDriverHost {
     if (result.kind === "not_found") return false;
     if (result.kind === "choice") {
       const text = formatPlanChoiceAnswerText(result.answers);
-      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text));
+      this.enqueue(() => this.runTurn(undefined, text));
+    }
+    if (result.kind === "deferredApproval") {
+      // The calls were refused when they were asked; now the human has
+      // decided, a new turn repeats the approved ones with the permission
+      // granted and tells the model about the rest.
+      const verdicts = result.calls.map((call, index) => ({ tool: call.tool, input: call.input, stored: call.grant, approved: isApprovedAt(result.answers, index) }));
+      const outcomes = planDeferredGrants(verdicts, { waiting: result.waiting, cwd: this.cwd });
+      const decisions = result.calls.map((call, index) => ({
+        tool: call.tool,
+        detail: result.questions[index]?.approval?.detail ?? "",
+        approved: verdicts[index].approved,
+        granted: outcomes[index] === "granted",
+        ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
+      }));
+      const grants: ToolGrant[] = result.calls.flatMap((call, index) => {
+        if (outcomes[index] !== "granted") return [];
+        const rule = resolveGrant(call.grant, call)?.rule;
+        return [{ tool: call.tool, input: call.input, ...(rule !== undefined ? { rule } : {}) }];
+      });
+      // Approving the plan is what takes the session out of plan mode; the
+      // refused call cannot do it on its own.
+      if (verdicts.some((verdict) => verdict.approved && verdict.tool === "ExitPlanMode") && this.permissionMode === "plan" && isOfferedMode(this.permissionModes, "default")) {
+        this.setPermissionMode("default");
+      }
+      const text = buildDeferredApprovalFollowup(decisions);
+      this.enqueue(() => this.runTurn(undefined, text, { kind: "approval" }, false, undefined, grants));
     }
     return true;
   }
@@ -968,7 +1101,10 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private needsHistoryLoad(): boolean {
-    return this.history.length === 0 && !this.historyCleared && this.options.initialSessionId !== undefined && this.driver.readHistory !== undefined;
+    // The driver's id, not only the one this session was created with: an
+    // agent's turn followed after a relay restart may be the first time
+    // this relay learns it.
+    return this.history.length === 0 && !this.historyCleared && this.driver.getSessionId() !== undefined && this.driver.readHistory !== undefined;
   }
 
   private async loadHistory(): Promise<void> {
@@ -1002,12 +1138,13 @@ export class SharedSession implements SessionDriverHost {
     // normal message directly is now stale — dismiss it rather than leave
     // the card showing a question for a plan/tool call the conversation has
     // already moved past.
-    this.discardStaleChoice();
+    // The model may have been told to wait for an answer that is not coming.
+    const note = this.discardAndNote();
     // Same reasoning for a wakeup a previous turn armed for itself — a real
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(origin, text));
+    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1033,7 +1170,7 @@ export class SharedSession implements SessionDriverHost {
     };
     if (!silenceOffered) addFailed();
     const text = buildBackgroundJobFollowupPrompt(job);
-    this.turnQueue = this.turnQueue.then(() =>
+    this.enqueue(() =>
       this.runTurn(undefined, text, {
         label: job.label,
         kind: "background_job",
@@ -1080,7 +1217,7 @@ export class SharedSession implements SessionDriverHost {
    * `prompt` is already literal text either way. */
   submitWakeup(prompt: string): void {
     this.clearSuggestion();
-    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
+    this.enqueue(() => this.runTurn(undefined, prompt, { kind: "wakeup" }));
   }
 
   /** Interrupts the turn in progress, if any — doesn't touch the queue
@@ -1112,10 +1249,10 @@ export class SharedSession implements SessionDriverHost {
     // `driver.stop()` below only unblocks a live `pendingApproval` (it's
     // tied to the turn being interrupted) — a deferred `pendingChoice`
     // outlives its turn and needs the same explicit dismissal as `submitTurn`.
-    this.discardStaleChoice();
+    const note = this.discardAndNote();
     this.cancelPendingWakeup();
     this.driver.stop();
-    this.turnQueue = this.turnQueue.then(() => this.performEdit(origin, target, text));
+    this.enqueue(() => this.performEdit(origin, target, text, note));
   }
 
   /** Reuses the normal `runTurn` for the turn with the edited text — same
@@ -1124,7 +1261,7 @@ export class SharedSession implements SessionDriverHost {
    * streaming, same `turn_ended`. Only what comes before (rewinding the
    * driver's continuity + the in-memory `history` + notifying the OTHER
    * devices of the cut) is edit-specific. */
-  private async performEdit(origin: WebSocket, target: EditTarget, text: string): Promise<void> {
+  private async performEdit(origin: WebSocket, target: EditTarget, text: string, note: string | undefined): Promise<void> {
     try {
       if (target.turnsBefore > 0) {
         const sessionId = this.driver.getSessionId();
@@ -1189,7 +1326,7 @@ export class SharedSession implements SessionDriverHost {
       if (client !== origin) client.send(payload);
     }
 
-    await this.runTurn(origin, text);
+    await this.runTurn(origin, text, undefined, false, undefined, undefined, note);
   }
 
   /** Resolves when there's no turn in progress (nor queued) in this session
@@ -1197,8 +1334,76 @@ export class SharedSession implements SessionDriverHost {
    * safe to exit without interrupting anything mid-flight. `turnQueue`
    * never rejects (`runTurn` handles its own errors and never rethrows), so
    * it's fine to return it directly without a try/catch here. */
+  /** Queues a turn behind the ones already waiting. */
+  private enqueue(run: () => Promise<void>): void {
+    const seq = ++this.enqueuedSeq;
+    this.turnQueue = this.turnQueue.then(async () => {
+      this.dequeuedSeq = seq;
+      if (seq <= this.discardedUpTo) return;
+      await run();
+    });
+  }
+
+  /** Drops every turn still waiting to start (a stopped or removed agent of
+   * a room): none of them runs. The turn in flight, if any, is the
+   * caller's to stop. */
+  discardQueuedTurns(): void {
+    this.discardedUpTo = this.enqueuedSeq;
+  }
+
+  /** Follows a turn the agent was already running when this relay started
+   * (or reconnected to the agent host): shown to every client like any
+   * other turn, to its end. Messages sent meanwhile wait their turn behind
+   * it. A no-op while this session is busy with its own turns. */
+  followTurnInFlight(sessionId?: string): void {
+    if (!this.driver.followTurnInFlight || this.isBusy()) return;
+    // The agent's conversation id, as the host knows it, when this relay
+    // never got to record it (it went down during the agent's first turn).
+    if (sessionId && this.driver.getSessionId() === undefined) {
+      this.driver.setSessionId(sessionId);
+      this.options.onSessionIdChange?.(sessionId);
+    }
+    this.enqueue(() => this.runTurn(undefined, "", undefined, true));
+  }
+
+  /** A turn is running, or one is waiting to. */
+  isBusy(): boolean {
+    return this.turnStartedAt !== null || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
+  }
+
   waitForIdle(): Promise<void> {
+    // An agent in the host goes on through a relay restart: nothing to wait for.
+    if (this.runsOutsideRelay()) return Promise.resolve();
     return this.turnQueue;
+  }
+
+  /** The native subagents this session's agent ran as its subtasks. */
+  listSubtasks(): SubtaskInfo[] {
+    return this.driver.listSubtasks?.() ?? [];
+  }
+
+  /** Stops one running subtask of this session's agent. */
+  stopSubtask(taskId: string): Promise<"stopping" | "unknown" | "unsupported"> {
+    return this.driver.stopSubtask ? this.driver.stopSubtask(taskId) : Promise.resolve("unsupported");
+  }
+
+  /** Whether a turn is running in this session right now. */
+  isTurnInFlight(): boolean {
+    return this.turnStartedAt !== null;
+  }
+
+  /** Whether this session's agent lives in the agent host, outside the
+   * relay process. */
+  runsOutsideRelay(): boolean {
+    return this.driver.runsOutsideRelay === true;
+  }
+
+  /** A turn asked by another agent of the room (a delegated task, a message
+   * from the principal) rather than typed by a person on a device: no
+   * device has its bubble yet, so everyone connected gets it. */
+  submitAgentTurn(text: string, hooks?: TurnHooks): void {
+    this.clearSuggestion();
+    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1212,7 +1417,8 @@ export class SharedSession implements SessionDriverHost {
    * lock in `runTurn`), so the session can pick another one again, just
    * like a new session. */
   clearConversation(): void {
-    this.discardStaleChoice();
+    // A fresh conversation: nothing left that the model could be waiting for.
+    this.discardAndNote();
     this.cancelPendingWakeup();
     this.turnQueue = this.turnQueue.then(() => {
       this.driver.resetSessionId();
@@ -1258,15 +1464,34 @@ export class SharedSession implements SessionDriverHost {
     text: string,
     synthetic?: {
       label?: string;
-      kind: "background_job" | "wakeup";
+      kind: "background_job" | "wakeup" | "approval";
       /** The prompt offered the model the `NO_REPLY` escape: hold the turn's
        * events until it is known whether they will ever be shown. */
       silenceOffered?: boolean;
       /** Runs once the turn is over, with whether it was silenced. */
       onSettled?: (silenced: boolean) => void;
     },
+    /** Follow a turn already running in the agent host instead of sending one. */
+    follow = false,
+    hooks?: TurnHooks,
+    /** Tool calls a human approved after an earlier turn was told to wait. */
+    grants?: readonly ToolGrant[],
+    /** A note for the model alone, added to the prompt but not shown. */
+    note?: string,
   ): Promise<void> {
+    // The conversation so far is read from the agent's own storage before
+    // anything of this turn enters the log: a turn that starts before any
+    // device connected (an agent's queued message, a turn picked up after a
+    // relay restart) would otherwise leave the log looking loaded, and the
+    // earlier conversation would never be read.
+    const freshLoad = this.historyLoad === undefined && this.needsHistoryLoad();
+    const loading = this.ensureHistoryLoaded();
+    if (loading) await loading;
+    const fromTranscript = freshLoad && this.history.length > 0;
     this.options.onActivity?.();
+    const turnId = ++this.turnSeq;
+    this.currentTurnId = turnId;
+    this.parentToolUse.clear();
 
     // A turn in progress is "current" state (same reasoning as
     // cwd/permission/model), not a `history` event — a real finding from
@@ -1313,7 +1538,7 @@ export class SharedSession implements SessionDriverHost {
     // already committed the bubble locally optimistically (`ChatPanel`),
     // getting it back would duplicate it.
     let syntheticUserEvent: AgentEvent | undefined;
-    {
+    if (!follow) {
       const event: AgentEvent = synthetic
         ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}) }
         : { type: "user_message", text };
@@ -1325,7 +1550,7 @@ export class SharedSession implements SessionDriverHost {
       }
     }
 
-    if (!synthetic) {
+    if (!synthetic && !follow) {
       // Locks the folder at the exact moment of the first real turn — not
       // at the WS connection (which already happens before any message)
       // nor in `submitTurn` (avoids a race between two `submitTurn` calls
@@ -1358,20 +1583,25 @@ export class SharedSession implements SessionDriverHost {
     // position regardless, since the turn's outcome (`stopped`,
     // `lastAssistantText`) genuinely isn't known until `sendTurn` resolves.
     let turnStopped = false;
+    let turnError: string | undefined;
     let planChoiceText: string | undefined;
     try {
       const effortId = this.effortForTurn();
       const ctx: TurnContext = {
         cwd: this.cwd,
-        prompt: text,
+        prompt: note ? withRelayNote(text, note) : text,
         modelId: this.model,
         ...(effortId !== undefined ? { effortId } : {}),
         permissionModeId: this.permissionMode,
+        ...(grants && grants.length > 0 ? { grants } : {}),
       };
-      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, (rawEvent) => {
+      const onDriverEvent = (rawEvent: AgentEvent): void => {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
         const agentEvent = clock.stamp(rawEvent);
+        if (agentEvent.type === "tool_started" && agentEvent.toolUseId !== undefined && agentEvent.parentToolUseId !== undefined) {
+          this.parentToolUse.set(agentEvent.toolUseId, agentEvent.parentToolUseId);
+        }
         // Must run BEFORE the broadcast below: a device reconnecting
         // mid-turn right as this arrives should see the updated mode, not a
         // stale one from before this same event was processed. Checked
@@ -1412,7 +1642,9 @@ export class SharedSession implements SessionDriverHost {
         // the start marker. Purely observational: never throws nor
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
-      });
+      };
+      const { stopped, contextUsage, lastAssistantText } =
+        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent, { fromTranscript }) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
       const sessionId = this.driver.getSessionId();
@@ -1455,7 +1687,7 @@ export class SharedSession implements SessionDriverHost {
       // synthetic turn (`synthetic`) never suggests: the "user text" that
       // would feed the generator is the follow-up's internal instruction,
       // not something that makes sense to offer as a real next message.
-      if (!stopped && !synthetic) {
+      if (!stopped && !synthetic && !follow && this.options.suggestNextMessage !== false) {
         generateSuggestion(this.def, this.homeOverride, this.cwd, text, lastAssistantText)
           .then((suggestion) => {
             this.suggestion = suggestion ?? null;
@@ -1468,6 +1700,7 @@ export class SharedSession implements SessionDriverHost {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      turnError = message;
       console.error("[relay] turn failed:", message);
       release();
       this.broadcast({ type: "agent_event", event: { type: "error", message } });
@@ -1483,12 +1716,17 @@ export class SharedSession implements SessionDriverHost {
       // the instant it was created. `present_choice` now needs that same
       // survival property, which is what motivated splitting the field.
       this.cancelPendingApproval();
+      // The refusals of this turn become one card now that it is over (not
+      // for a turn the person stopped).
+      if (turnStopped) this.choiceMachine.dropStagedApprovals(turnId);
+      else this.choiceMachine.flushDeferredApprovals(turnId);
       // Before the idle `turn_state` goes out, so a client that sees the turn
       // end already has the failure tray the turn's outcome decided.
       synthetic?.onSettled?.(silenced);
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
+    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(follow ? { adopted: true } : {}), ...(turnError !== undefined ? { error: turnError } : {}) });
 
     // Plan mode's `present_choice` fallback: Claude's driver never
     // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s

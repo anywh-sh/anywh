@@ -35,6 +35,21 @@
 //                        process's stdout/stderr (a tool that daemonized
 //                        without closing them) and is not cleaned up on
 //                        SIGTERM, then end the turn
+//   [[room:<tool>:<base64url JSON args>]] call that tool of the relay's
+//                        `anywh-room` MCP server (the URL comes from the
+//                        `--mcp-config` file, as the real CLI reads it): a
+//                        `tool_use`, the real HTTP `tools/call`, its
+//                        `tool_result`; repeatable, run in order; the turn
+//                        then ends with the last result's text; with a
+//                        [[gate:<path>]] too, the calls wait for the gate;
+//                        with [[crash-after]], the process exits (code 3)
+//                        right after them
+//   [[subagent]]         start a native subagent in the background (the
+//                        CLI's `task_started`/`background_tasks_changed`)
+//                        and end the turn; it runs until a `stop_task`
+//                        control request names it (then `task_updated`
+//                        killed, `task_notification` stopped), as measured
+//                        on Claude Code 2.1.303
 //   [[stale-result:<path>]] end the turn normally; when the NEXT message
 //                        arrives, first print one more lone `result` (as if
 //                        a background-triggered turn's result were still in
@@ -42,7 +57,7 @@
 //                        <path> exists before starting that message's turn
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export async function runPersistent(args) {
   const flag = (name) => {
@@ -57,6 +72,7 @@ export async function runPersistent(args) {
   let inputEnded = false;
   let staleBeforeNext = null; // gate path, see [[stale-result]]
   let turns = 0;
+  const subagents = new Map(); // task id -> tool use id, still running
 
   const emit = (event) => process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
   const waitForFile = (path) =>
@@ -107,12 +123,71 @@ export async function runPersistent(args) {
       turn.interrupt = resolve;
     });
 
+  // What the real CLI does for an MCP tool call, minus the handshake: the
+  // `anywh-room` server's URL from the `--mcp-config` file, one `tools/call`.
+  async function callRoomTool(tool, input) {
+    const configPath = flag("--mcp-config");
+    let url;
+    try {
+      url = JSON.parse(readFileSync(configPath, "utf8")).mcpServers?.["anywh-room"]?.url;
+    } catch {
+      url = undefined;
+    }
+    if (!url) return { text: "anywh-room is not configured", isError: true };
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: input } }),
+      });
+      if (!response.ok) return { text: `HTTP ${response.status}`, isError: true };
+      const body = await response.json();
+      return { text: body.result?.content?.map((part) => part.text).join("") ?? "", isError: body.result?.isError === true };
+    } catch (error) {
+      return { text: `call failed: ${error.message}`, isError: true };
+    }
+  }
+
   async function runTurn(text) {
     turns++;
     turn = { absorbed: [], interrupt: null };
     emit({ type: "system", subtype: "init", model, cwd: process.cwd(), tools: ["Bash"] });
     if (partial) emit({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" } } });
 
+    if (text.includes("[[subagent]]")) {
+      const taskId = `task-${turns}`;
+      const toolUseId = `toolu_agent_${turns}`;
+      emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id: toolUseId, name: "Agent", input: { description: "survey the repo", prompt: "look around", run_in_background: true } }] } });
+      emit({ type: "system", subtype: "task_started", task_id: taskId, tool_use_id: toolUseId, task_type: "local_agent", description: "survey the repo", subagent_type: "general-purpose", is_backgrounded: true });
+      subagents.set(taskId, toolUseId);
+      emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent", description: "survey the repo" })) });
+      emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
+      finish("started a subagent");
+      return;
+    }
+    const roomCalls = [...text.matchAll(/\[\[room:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)];
+    if (roomCalls.length > 0) {
+      // With a gate as well: the turn is in flight, waiting, before any call.
+      const roomGate = /\[\[gate:([^\]]+)\]\]/.exec(text)?.[1];
+      if (roomGate) {
+        toolCall("toolu_gate", "make build");
+        await waitForFile(roomGate);
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_gate", content: "built" }] } });
+      }
+      let last = "";
+      for (const [index, [, tool, encoded]] of roomCalls.entries()) {
+        const input = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
+        const id = `toolu_room_${turns}_${index}`;
+        emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id, name: `mcp__anywh-room__${tool}`, input }] } });
+        const { text: resultText, isError } = await callRoomTool(tool, input);
+        last = resultText;
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: resultText, is_error: isError }] } });
+      }
+      // The turn fails after its calls: the report was made, the turn not.
+      if (text.includes("[[crash-after]]")) process.exit(3);
+      finish(`room: ${last}`);
+      return;
+    }
     const stale = /\[\[stale-result:([^\]]+)\]\]/.exec(text)?.[1];
     if (stale) staleBeforeNext = stale;
     if (text.includes("[[detach]]")) {
@@ -187,6 +262,18 @@ export async function runPersistent(args) {
         continue;
       }
       if (message.type === "control_request") {
+        if (message.request?.subtype === "stop_task") {
+          const taskId = message.request.task_id;
+          const toolUseId = subagents.get(taskId);
+          if (!toolUseId) {
+            emit({ type: "control_response", response: { subtype: "error", request_id: message.request_id, error: `no task ${taskId}` } });
+            continue;
+          }
+          subagents.delete(taskId);
+          emit({ type: "system", subtype: "task_updated", task_id: taskId, patch: { status: "killed", end_time: Date.now() } });
+          emit({ type: "system", subtype: "task_notification", task_id: taskId, tool_use_id: toolUseId, status: "stopped", summary: "The agent was stopped by the user" });
+          emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent" })) });
+        }
         emit({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
         if (message.request?.subtype === "interrupt") turn?.interrupt?.();
         continue;

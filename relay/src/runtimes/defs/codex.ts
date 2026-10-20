@@ -159,8 +159,66 @@ function settingsFor(id: string, cwd: string, extraWritableRoots: readonly strin
  * thread itself never have a chance to drift from what the session's
  * dropdown actually shows. */
 function startThread(ctx: TurnContext): JsonRpcRequestSpec {
-  return { method: "thread/start", params: { cwd: ctx.cwd } };
+  const room = ctx.room;
+  if (!room) return { method: "thread/start", params: { cwd: ctx.cwd } };
+  return {
+    method: "thread/start",
+    params: {
+      cwd: ctx.cwd,
+      // The room's tools as Codex dynamic tools (`ThreadStartParams.dynamicTools`,
+      // experimental API — generated bindings of codex-cli 0.154.0, recorded in
+      // tests/fixtures/codex-app-server-0.154.0-dynamic-tools.json). Calls come
+      // back as `item/tool/call` server requests (`handleServerRequest`). They
+      // are part of the thread: a resumed thread keeps them.
+      dynamicTools: room.tools.map((tool) => ({ type: "function", name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
+      developerInstructions: room.instructions,
+      ...roomThreadConfig(room),
+    },
+  };
 }
+
+/**
+ * Per-thread config of a room agent (`ThreadStartParams.config`, a map of
+ * config.toml keys, deep-merged over the user's file). A principal:
+ *   - must delegate through the room, not to Codex's own subagents (left on,
+ *     the model reached for `spawn_agent` first in most runs). Only the
+ *     nested form turned them off; the dotted key `features.multi_agent` did
+ *     not.
+ *   - gets no web search (`web_search: "disabled"`, `Config.web_search` in
+ *     the bindings) and no tool of the user's MCP servers
+ *     (`mcp_servers.<name>.enabled_tools = []`, a key the 0.154.0 binary
+ *     knows; the bindings do not describe server entries): its sandbox does
+ *     not cover what those reach. The servers themselves still start.
+ *     Restricting behavior, not a security boundary — never run against a
+ *     real Codex.
+ */
+function roomThreadConfig(room: NonNullable<TurnContext["room"]>): { config?: Record<string, unknown> } {
+  if (room.role !== "principal") return {};
+  const servers = room.disableMcpServers ?? [];
+  return {
+    config: {
+      features: { multi_agent: false },
+      web_search: "disabled",
+      ...(servers.length > 0 ? { mcp_servers: Object.fromEntries(servers.map((name) => [name, { enabled_tools: [] }])) } : {}),
+    },
+  };
+}
+
+/** `thread/resume` on a daemon that did not start the thread (a restarted
+ * app-server): the room's per-thread config and instructions are given
+ * again — the dynamic tools themselves survive a resume and the params have
+ * no field for them. Outside a room, just the thread and its cwd. */
+function resumeThread(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
+  const room = ctx.room;
+  return {
+    method: "thread/resume",
+    params: { threadId, cwd: ctx.cwd, ...(room ? { developerInstructions: room.instructions, ...roomThreadConfig(room) } : {}) },
+  };
+}
+
+/** A room's principal only reads and delegates, whatever mode its session
+ * was opened with: no writes, no network, and nothing to approve. */
+const PRINCIPAL_SETTINGS: CodexPermissionSettings = { approvalPolicy: "never", sandboxPolicy: { type: "readOnly", networkAccess: false } };
 
 /** `threadId` comes from the engine, not `ctx` — see `JsonRpcDaemonPlan.turn.start`'s
  * own doc comment on why. Real `TurnStartParams.input` is a content array,
@@ -174,7 +232,8 @@ function startThread(ctx: TurnContext): JsonRpcRequestSpec {
  * `sandboxPolicy`"/"...`sandbox`") confirms the daemon distinguishes
  * "absent" from "present but empty". */
 function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
-  const settings = settingsFor(ctx.permissionModeId, ctx.cwd, ctx.permissionModeId === "workspace-write" ? gitWritableRoots(ctx.cwd) : []);
+  const settings =
+    ctx.room?.role === "principal" ? PRINCIPAL_SETTINGS : settingsFor(ctx.permissionModeId, ctx.cwd, ctx.permissionModeId === "workspace-write" ? gitWritableRoots(ctx.cwd) : []);
   return {
     method: "turn/start",
     params: {
@@ -374,9 +433,39 @@ function toUserInputQuestions(params: ToolRequestUserInputParams): readonly User
 // configured) and `item/tool/call` (Codex asking the relay to execute a
 // tool on its behalf) are real methods in the generated bindings but
 // materially different features from item-level approval/user-input —
-// deliberately left unhandled, falling through to `undefined` like any
-// other unrecognized method.
+// deliberately left unhandled (except `item/tool/call`, which carries the
+// room tools), falling through to `undefined` like any other unrecognized
+// method.
+/** `DynamicToolCallResponse` (codex-cli 0.154.0): text content and whether
+ * the call succeeded. */
+function dynamicToolResponse(text: string, success: boolean): { contentItems: { type: "inputText"; text: string }[]; success: boolean } {
+  return { contentItems: [{ type: "inputText", text }], success };
+}
+
+/** `item/tool/call` (`DynamicToolCallParams`): a room tool the model called.
+ * Answered at once — every room tool does. A request in an unknown shape, or
+ * with nothing to run it, is answered as a failed call the model can read,
+ * never left pending. */
+function handleDynamicToolCall(params: unknown, host: TurnHost): Promise<unknown> {
+  const call = params as { threadId?: unknown; turnId?: unknown; callId?: unknown; tool?: unknown; arguments?: unknown } | null;
+  if (!call || typeof call.tool !== "string") {
+    console.error("[codex] item/tool/call in an unexpected shape:", JSON.stringify(params)?.slice(0, 300));
+    return Promise.resolve(dynamicToolResponse("The relay received this tool call in an unexpected shape (a Codex version it does not know); it was not run.", false));
+  }
+  if (!host.callRoomTool) {
+    return Promise.resolve(dynamicToolResponse("The room tools are not available to this agent.", false));
+  }
+  const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+  return host
+    .callRoomTool({ threadId: str(call.threadId), turnId: str(call.turnId), callId: str(call.callId), tool: call.tool, arguments: call.arguments })
+    .then(
+      (result) => dynamicToolResponse(result.text, !result.isError),
+      (error: unknown) => dynamicToolResponse(`The room could not run ${call.tool as string}: ${(error as Error).message}`, false),
+    );
+}
+
 function handleServerRequest(method: string, params: unknown, host: TurnHost): Promise<unknown> | undefined {
+  if (method === "item/tool/call") return handleDynamicToolCall(params, host);
   if (method === "item/commandExecution/requestApproval") {
     return host
       .requestApproval(buildCommandApprovalRequest(params as CommandExecutionRequestApprovalParams))
@@ -550,7 +639,7 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   exec: {
     kind: "jsonRpcDaemon",
     framing: "ndjson",
-    thread: { start: startThread },
+    thread: { start: startThread, resume: resumeThread },
     turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
     // Stored turns of a thread, read back over the same daemon.
     replayHistoryMethod: "thread/turns/list",

@@ -567,3 +567,125 @@ test("a failed write of the clear is not lost: the next successful persist write
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const APPROVAL = {
+  promptId: "a1",
+  questions: [
+    { question: "Run Write?", approval: { tool: "Write", detail: "/tmp/x" }, options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }] },
+    { question: "Run Bash?", approval: { tool: "Bash", detail: "ls" }, options: [{ id: "approve", label: "Approve" }, { id: "deny", label: "Deny" }] },
+  ],
+  calls: [
+    { tool: "Write", input: { file_path: "/tmp/x", content: "hi" }, toolUseId: "toolu_1" },
+    { tool: "Bash", input: { command: "ls" }, agentId: "agent-7" },
+  ],
+  askedAt: 1700000000000,
+};
+
+test("pendingApproval: round-trips through disk (calls, agent id, askedAt), clears on undefined, absent on older records", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    assert.equal(store.getPendingApproval("s1"), undefined);
+    store.setPendingApproval("s1", undefined);
+    assert.equal(store.listIds().includes("s1"), false, "clearing a never-set value must not create a record");
+
+    store.setPendingApproval("s1", APPROVAL);
+    assert.deepEqual(new SessionStore(file, DEFAULT_CWD).getPendingApproval("s1"), APPROVAL);
+    // Independent of the deferred question slot.
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getPendingChoice("s1"), undefined);
+
+    store.setPendingApproval("s1", undefined);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getPendingApproval("s1"), undefined);
+  });
+});
+
+test("pendingApproval: load drops a malformed record (and rewrites the file) without touching valid ones", () => {
+  withStoreFile(undefined, (file) => {
+    const seed = new SessionStore(file, DEFAULT_CWD);
+    const ids = ["good", "noCalls", "callsNotArray", "lengthMismatch", "badTool", "badAgentId", "badToolUseId", "noQuestions"];
+    for (const id of ids) seed.setPendingApproval(id, APPROVAL);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingApproval: Record<string, unknown> }>;
+    delete records.noCalls.pendingApproval.calls;
+    records.callsNotArray.pendingApproval.calls = "nope";
+    records.lengthMismatch.pendingApproval.calls = [APPROVAL.calls[0]];
+    records.badTool.pendingApproval.calls = [{ tool: "", input: {} }, APPROVAL.calls[1]];
+    records.badAgentId.pendingApproval.calls = [{ tool: "Write", input: {}, agentId: 3 }, APPROVAL.calls[1]];
+    records.badToolUseId.pendingApproval.calls = [{ tool: "Write", input: {}, toolUseId: {} }, APPROVAL.calls[1]];
+    records.noQuestions.pendingApproval.questions = [];
+    writeFileSync(file, JSON.stringify(records));
+
+    const store = new SessionStore(file, DEFAULT_CWD);
+    assert.deepEqual(store.getPendingApproval("good"), APPROVAL);
+    for (const id of ids.slice(1)) assert.equal(store.getPendingApproval(id), undefined, id);
+    const onDisk = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingApproval?: unknown }>;
+    assert.equal(onDisk.noCalls.pendingApproval, undefined, "the bad record must not come back on the next boot");
+  });
+});
+
+test("pendingApproval: a malformed askedAt costs only the timestamp, same as pendingChoice", () => {
+  withStoreFile(undefined, (file) => {
+    const seed = new SessionStore(file, DEFAULT_CWD);
+    const { askedAt: _omit, ...withoutAskedAt } = APPROVAL;
+    seed.setPendingApproval("s1", APPROVAL);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingApproval: Record<string, unknown> }>;
+    records.s1.pendingApproval.askedAt = "yesterday";
+    writeFileSync(file, JSON.stringify(records));
+    assert.deepEqual(new SessionStore(file, DEFAULT_CWD).getPendingApproval("s1"), withoutAskedAt);
+  });
+});
+
+test("setPendingApproval stores a copy, not the caller's reference", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    const mine = structuredClone(APPROVAL);
+    store.setPendingApproval("s1", mine);
+    mine.calls[0].tool = "Mutated";
+    assert.equal(store.getPendingApproval("s1")?.calls[0].tool, "Write");
+  });
+});
+
+test("queuedApproval: the calls waiting behind the card on screen round-trip and are validated like pendingApproval", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    assert.equal(store.getQueuedApproval("s1"), undefined);
+    store.setQueuedApproval("s1", APPROVAL);
+    store.setQueuedApproval("bad", APPROVAL);
+    assert.deepEqual(new SessionStore(file, DEFAULT_CWD).getQueuedApproval("s1"), APPROVAL);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getPendingApproval("s1"), undefined, "a different slot");
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { queuedApproval: Record<string, unknown> }>;
+    records.bad.queuedApproval.calls = [];
+    writeFileSync(file, JSON.stringify(records));
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getQueuedApproval("bad"), undefined);
+    store.setQueuedApproval("s1", undefined);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getQueuedApproval("s1"), undefined);
+  });
+});
+
+test("withdrawnApproval: round-trips, and false clears it without creating a record", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    store.setWithdrawnApproval("s1", false);
+    assert.equal(store.listIds().includes("s1"), false);
+    store.setWithdrawnApproval("s1", true);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getWithdrawnApproval("s1"), true);
+    store.setWithdrawnApproval("s1", false);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getWithdrawnApproval("s1"), false);
+  });
+});
+
+test("pendingApproval: the permission rule decided for each call is stored with it and validated on load", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    const withGrant = { ...APPROVAL, calls: [{ ...APPROVAL.calls[0], grant: { rule: "Edit(//tmp/x)", broad: false } }, { ...APPROVAL.calls[1], grant: { rule: "Bash", broad: true } }] };
+    store.setPendingApproval("good", withGrant);
+    store.setPendingApproval("badRule", withGrant);
+    store.setPendingApproval("badBroad", withGrant);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingApproval: { calls: { grant: Record<string, unknown> }[] } }>;
+    records.badRule.pendingApproval.calls[0].grant.rule = "";
+    records.badBroad.pendingApproval.calls[1].grant.broad = "yes";
+    writeFileSync(file, JSON.stringify(records));
+    const reopened = new SessionStore(file, DEFAULT_CWD);
+    assert.deepEqual(reopened.getPendingApproval("good"), withGrant);
+    assert.equal(reopened.getPendingApproval("badRule"), undefined);
+    assert.equal(reopened.getPendingApproval("badBroad"), undefined);
+  });
+});

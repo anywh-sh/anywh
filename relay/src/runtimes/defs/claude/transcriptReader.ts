@@ -5,6 +5,7 @@ import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { isNoReply, markSilent, promptOffersSilence } from "../../../protocol/silentEvents.js";
+import { stripRelayNote } from "../../../protocol/relayNote.js";
 
 /** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
  * independently (rather than imported) so this file has no reason to reach
@@ -213,7 +214,9 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
 
     if (line.type !== "user") continue; // the rest is noise with no visual representation (see module).
 
-    const humanText = extractHumanText(line);
+    const rawHumanText = extractHumanText(line);
+    // The relay's own note to the model is not part of what the person said.
+    const humanText = rawHumanText === undefined ? undefined : stripRelayNote(rawHumanText);
     if (humanText !== undefined) {
       // Closes the previous turn (if one was open) before opening this one
       // — `stopped: false` because a turn that made it into the transcript

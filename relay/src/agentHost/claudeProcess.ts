@@ -8,6 +8,7 @@ import { EXTRA_PATH_DIRS, stripBilledCredentials } from "../runtimes/executables
 import {
   buildPersistentArgs,
   encodeInterrupt,
+  encodeStopTask,
   encodeUserMessage,
   persistentEnvOverrides,
   writePersistentMcpConfig,
@@ -23,6 +24,19 @@ export interface ClaudeAgentSpec extends PersistentClaudeSpec {
   /** Extra environment for this agent (e.g. subagent limits). Billed
    * credentials are stripped from it like from everything else. */
   readonly env?: Readonly<Record<string, string>>;
+  /** A room agent driven through a runtime with no MCP client of its own in
+   * this setup (Codex): its role, instructions and tools, and the relay's
+   * room endpoint the host forwards its tool calls to. A Claude agent
+   * reaches the room through `mcpConfigJson` instead. */
+  readonly room?: HostRoomSpec;
+}
+
+export interface HostRoomSpec {
+  readonly role: "principal" | "worker";
+  readonly instructions: string;
+  readonly tools: readonly { readonly name: string; readonly description: string; readonly inputSchema: Readonly<Record<string, unknown>> }[];
+  /** The relay's `anywh-room` MCP endpoint for this agent (loopback only). */
+  readonly bridgeUrl: string;
 }
 
 export interface ExitInfo {
@@ -131,7 +145,8 @@ export class ClaudeProcess {
    * the binary cannot be started at all. */
   static async spawn(options: ClaudeProcessOptions): Promise<ClaudeProcess> {
     const { spec } = options;
-    const mcpFile = await writePersistentMcpConfig(spec.mcpConfigJson, spec.agentWorker, options.home, spec.cwd);
+    // A strict agent gets the relay's bridges only, never the user's servers.
+    const mcpFile = await writePersistentMcpConfig(spec.mcpConfigJson, spec.agentWorker && spec.strictMcp !== true, options.home, spec.cwd);
     const args = buildPersistentArgs(spec, { mcpConfigPath: mcpFile?.path, resumeSessionId: options.resumeSessionId });
     const env = buildChildEnv(options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, {
       ...persistentEnvOverrides(spec.agentWorker),
@@ -186,6 +201,11 @@ export class ClaudeProcess {
   writeInterrupt(): void {
     this.interruptCount++;
     this.child.stdin.write(encodeInterrupt(`anywh-interrupt-${this.interruptCount}`));
+  }
+
+  writeStopTask(taskId: string): void {
+    this.interruptCount++;
+    this.child.stdin.write(encodeStopTask(`anywh-stop-task-${this.interruptCount}`, taskId));
   }
 
   /** Closing stdin with no turn in flight makes the CLI exit on its own. */

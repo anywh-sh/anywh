@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
+import { isRoomMembership, type RoomMembership } from "./room.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -154,6 +155,21 @@ export interface SessionEntry {
    * `undefined` via `getPendingChoice`). `promptId` is stored too, so a
    * reconnecting device sees the same prompt it saw before the restart. */
   pendingChoice?: PersistedChoice;
+  /** Membership in a room (see `room.ts`). Absent on every session that is
+   * not an agent of a room, which is every session written before rooms
+   * existed: they need no migration and behave exactly as before. */
+  room?: RoomMembership;
+  /** The deferred tool approval still waiting for a human (a session with
+   * `deferredApproval` on): the calls the CLI was told to hold off on, with
+   * one question per call. Kept for the same reason as `pendingChoice`; read
+   * as `undefined` via `getPendingApproval` on records that predate it. */
+  pendingApproval?: PersistedApproval;
+  /** Refused calls that arrived while an approval card was already on screen:
+   * they become the next card when it is answered. */
+  queuedApproval?: PersistedApproval;
+  /** A deferred approval was withdrawn without the model being told (its turn
+   * was interrupted); the next message says so. */
+  withdrawnApproval?: true;
 }
 
 /** A question as the relay publishes it (`choice_prompt`). */
@@ -175,6 +191,26 @@ export interface PersistedChoice {
    * undefined for legacy records and for a malformed value (`load()` drops
    * just that field). */
   askedAt?: number;
+}
+
+/** A tool call the CLI asked permission for and was told to wait on. */
+export interface DeferredToolCall {
+  tool: string;
+  input: unknown;
+  toolUseId?: string;
+  /** Set when the call came from a native subagent of the session's agent;
+   * the approval still belongs to the parent session. */
+  agentId?: string;
+  /** The permission rule decided when the call was refused and the card
+   * built (and warned about): the answer uses it, it does not look again. */
+  grant?: { rule: string; broad: boolean };
+}
+
+/** The deferred approval as published and stored: a question per call
+ * (`questions[i]` is about `calls[i]`), plus the same prompt identity and
+ * `askedAt` as a deferred question. */
+export interface PersistedApproval extends PersistedChoice {
+  calls: DeferredToolCall[];
 }
 
 /** Runtime check for what `load()` reads back: this field is the first one
@@ -200,6 +236,20 @@ function isPersistedChoice(value: unknown): value is PersistedChoice {
       const { label, description, id } = o as Record<string, unknown>;
       return typeof label === "string" && optionalString(description) && optionalString(id);
     });
+  });
+}
+
+function isPersistedApproval(value: unknown): value is PersistedApproval {
+  if (!isPersistedChoice(value)) return false;
+  const { calls } = value as unknown as { calls?: unknown };
+  if (!Array.isArray(calls) || calls.length !== value.questions.length) return false;
+  return calls.every((call) => {
+    if (!call || typeof call !== "object") return false;
+    const { tool, toolUseId, agentId, grant } = call as Record<string, unknown>;
+    const validGrant =
+      grant === undefined ||
+      (!!grant && typeof grant === "object" && typeof (grant as Record<string, unknown>).rule === "string" && (grant as Record<string, unknown>).rule !== "" && typeof (grant as Record<string, unknown>).broad === "boolean");
+    return typeof tool === "string" && tool !== "" && (toolUseId === undefined || typeof toolUseId === "string") && (agentId === undefined || typeof agentId === "string") && validGrant;
   });
 }
 
@@ -303,6 +353,16 @@ function hasFlatContextUsage(value: object): value is PreContextUsageAgentRecord
 export class SessionStore {
   private records: SessionRecord;
   private migrated = false;
+  /** Whether the records came from a file that exists and parsed. Anything
+   * that removes things the store does not list (the rooms' agents in the
+   * host) only trusts a store loaded this way. */
+  private loadedFromFile = false;
+  /** Set while `<file>.recovered-from-corrupt` exists (see `load`). */
+  private recovered = false;
+
+  private get recoveryMarker(): string {
+    return `${this.filePath}.recovered-from-corrupt`;
+  }
 
   constructor(
     private readonly filePath: string,
@@ -315,39 +375,85 @@ export class SessionStore {
   private load(): SessionRecord {
     const records = this.loadAndMigrate();
     for (const entry of Object.values(records)) {
-      if (entry && typeof entry === "object" && entry.pendingChoice !== undefined && !isPersistedChoice(entry.pendingChoice)) {
-        // Drop the bad record instead of crashing or adopting it; rewrite so
-        // it doesn't come back on the next boot.
-        delete entry.pendingChoice;
+      if (!entry || typeof entry !== "object") continue;
+      if (this.sanitizeStoredPrompt(entry, "pendingChoice", isPersistedChoice)) this.migrated = true;
+      if (this.sanitizeStoredPrompt(entry, "pendingApproval", isPersistedApproval)) this.migrated = true;
+      if (this.sanitizeStoredPrompt(entry, "queuedApproval", isPersistedApproval)) this.migrated = true;
+      if (entry.room !== undefined && !isRoomMembership(entry.room)) {
+        // Same treatment as a bad pendingChoice: the session survives, as an
+        // ordinary one, and the bad record is not written back.
+        delete entry.room;
         this.migrated = true;
-      } else if (entry?.pendingChoice && "askedAt" in entry.pendingChoice) {
-        const { askedAt } = entry.pendingChoice as { askedAt: unknown };
-        // Keep the question; only a non-negative finite number survives as the
-        // timestamp (decimals truncated), anything else leaves it undefined.
-        if (typeof askedAt === "number" && Number.isFinite(askedAt) && askedAt >= 0) {
-          if (!Number.isInteger(askedAt)) {
-            entry.pendingChoice.askedAt = Math.trunc(askedAt);
-            this.migrated = true;
-          }
-        } else {
-          delete entry.pendingChoice.askedAt;
-          this.migrated = true;
-        }
       }
     }
     return records;
   }
 
+  /** Drops a stored prompt that fails `isValid` (so it cannot reach the WS
+   * broadcast code malformed) and repairs a bad `askedAt` on one that passes.
+   * Returns whether the entry changed, i.e. the file needs rewriting. */
+  private sanitizeStoredPrompt(entry: SessionEntry, field: "pendingChoice" | "pendingApproval" | "queuedApproval", isValid: (value: unknown) => boolean): boolean {
+    const stored = entry[field];
+    if (stored === undefined) return false;
+    if (!isValid(stored)) {
+      // Drop the bad record instead of crashing or adopting it; rewrite so
+      // it doesn't come back on the next boot.
+      delete entry[field];
+      return true;
+    }
+    if (!("askedAt" in stored)) return false;
+    const { askedAt } = stored as { askedAt: unknown };
+    // Keep the question; only a non-negative finite number survives as the
+    // timestamp (decimals truncated), anything else leaves it undefined.
+    if (typeof askedAt === "number" && Number.isFinite(askedAt) && askedAt >= 0) {
+      if (Number.isInteger(askedAt)) return false;
+      stored.askedAt = Math.trunc(askedAt);
+      return true;
+    }
+    delete stored.askedAt;
+    return true;
+  }
+
   private loadAndMigrate(): SessionRecord {
-    let parsed: unknown;
+    this.recovered = existsSync(this.recoveryMarker);
+    let text: string;
     try {
-      parsed = JSON.parse(readFileSync(this.filePath, "utf8"));
+      text = readFileSync(this.filePath, "utf8");
     } catch {
-      // File missing the first time, or corrupted — never crash the relay
-      // because of this, just start with an empty mapping.
+      // Missing the first time: start with an empty mapping — a trustworthy
+      // one when the file can be created where it belongs (a new profile),
+      // not when its directory cannot even be written.
+      try {
+        accessSync(dirname(this.filePath), constants.W_OK);
+        this.loadedFromFile = true;
+      } catch {
+        // stays untrusted
+      }
       return {};
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = undefined;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      // Corrupted — never crash the relay because of this, start empty, and
+      // keep the file aside instead of overwriting it on the next write.
+      const aside = `${this.filePath}.corrupt-${Date.now()}`;
+      try {
+        renameSync(this.filePath, aside);
+        // Until someone confirms the records (by deleting this marker), the
+        // store is not taken as the full list of what exists: whatever the
+        // unreadable file held may still be recovered from its copy.
+        writeFileSync(this.recoveryMarker, `${aside}\n`);
+        this.recovered = true;
+      } catch {
+        // best effort
+      }
+      return {};
+    }
+    this.loadedFromFile = true;
 
     // A single timestamp for the whole migration batch (not `Date.now()`
     // per entry): keeps existing sessions tied in the `lastActiveAt`
@@ -433,6 +539,23 @@ export class SessionStore {
     writeFileSync(this.filePath, JSON.stringify(this.records, null, 2));
   }
 
+  /** See `loadedFromFile`. */
+  get loadedOk(): boolean {
+    return this.loadedFromFile;
+  }
+
+  /** The store started over from an unreadable file and nobody has
+   * confirmed its records since: a missing record is not proof that
+   * something is gone. Cleared by deleting `<file>.recovered-from-corrupt`. */
+  get recoveredFromCorrupt(): boolean {
+    return this.recovered;
+  }
+
+  /** Whether any record exists for `id` (with or without a room). */
+  has(id: string): boolean {
+    return id in this.records;
+  }
+
   /** All known ids, titled or not — used only to materialize the
    * `SharedSession` instances in memory at boot (SessionManager), which
    * need to exist even for a session without a title yet (cwd/lock/session_id
@@ -448,7 +571,9 @@ export class SessionStore {
    * moves it to the top. */
   listTitled(): TitledSession[] {
     return Object.entries(this.records)
-      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null)
+      // A room's workers are reached through the room, never listed on their
+      // own — unless their room is gone, so they can still be found and removed.
+      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && !this.isHiddenWorker(entry[0]))
       .sort(([, a], [, b]) => b.lastActiveAt - a.lastActiveAt)
       .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt }));
   }
@@ -670,6 +795,85 @@ export class SessionStore {
       this.ensureEntry(id);
       // Copy: the caller (ChoiceMachine) keeps its own reference.
       this.records[id].pendingChoice = structuredClone(choice);
+    }
+    this.persist();
+  }
+
+  /** A worker of a room whose principal exists: reached through the room. */
+  isHiddenWorker(id: string): boolean {
+    const room = this.records[id]?.room;
+    return room?.role === "worker" && this.records[room.roomId]?.room?.role === "principal";
+  }
+
+  getRoom(id: string): RoomMembership | undefined {
+    const stored = this.records[id]?.room;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  /** `undefined` takes the session out of its room. */
+  setRoom(id: string, room: RoomMembership | undefined): void {
+    if (room === undefined) {
+      if (this.records[id]?.room === undefined) return;
+      delete this.records[id].room;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].room = structuredClone(room);
+    }
+    this.persist();
+  }
+
+  getPendingApproval(id: string): PersistedApproval | undefined {
+    const stored = this.records[id]?.pendingApproval;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  /** Same contract as `setPendingChoice`. */
+  setPendingApproval(id: string, approval: PersistedApproval | undefined): void {
+    if (approval === undefined) {
+      if (this.records[id]?.pendingApproval === undefined) return;
+      delete this.records[id].pendingApproval;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].pendingApproval = structuredClone(approval);
+    }
+    this.persist();
+  }
+
+  getQueuedApproval(id: string): PersistedApproval | undefined {
+    const stored = this.records[id]?.queuedApproval;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  setQueuedApproval(id: string, approval: PersistedApproval | undefined): void {
+    if (approval === undefined) {
+      if (this.records[id]?.queuedApproval === undefined) return;
+      delete this.records[id].queuedApproval;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].queuedApproval = structuredClone(approval);
+    }
+    this.persist();
+  }
+
+  /** Every session of room `roomId` (its principal included), as id and
+   * membership. */
+  listRoomMembers(roomId: string): { id: string; room: RoomMembership }[] {
+    return Object.entries(this.records)
+      .filter(([, entry]) => entry.room?.roomId === roomId)
+      .map(([id, entry]) => ({ id, room: structuredClone(entry.room!) }));
+  }
+
+  getWithdrawnApproval(id: string): boolean {
+    return this.records[id]?.withdrawnApproval === true;
+  }
+
+  setWithdrawnApproval(id: string, withdrawn: boolean): void {
+    if (!withdrawn) {
+      if (this.records[id]?.withdrawnApproval === undefined) return;
+      delete this.records[id].withdrawnApproval;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].withdrawnApproval = true;
     }
     this.persist();
   }
