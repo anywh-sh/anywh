@@ -77,29 +77,23 @@ const APPEND_SYSTEM_PROMPT =
   "can tell them that. To stop a job you started with `anywh-bg`, run `anywh-bg stop <id>` " +
   "(never `kill`/`pkill`): a job stopped that way does not trigger a report turn.";
 
-// Real-session finding (2026-09-09): the per-server `timeout` field in
-// `--mcp-config` (sharedSession.ts, mcpServers) is a documented, confirmed
-// regression in this CLI generation — silently ignored for `"http"`-type
-// servers, which is exactly `anywh-permission`'s transport
-// (permissionBridge.ts; `anywh-choice`, mcpBridge.ts, no longer needs it
-// at all — its `tools/call` replies immediately now, see the "deferred
-// lifecycle" comment on `SharedSession.presentChoice`). Verified live: a
-// never-resolving `checkPermission` call still errored with "The
-// operation timed out" at ~6 minutes with that field set to 24h.
-// `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` isn't documented as broken the same
-// way, so set to `0` here too (disables the check entirely, not just
-// raises it) as an env var instead — a separate code path in the CLI from
-// the JSON field, and confirmed via a debug log to actually reach the
-// child's env this time. It STILL didn't help: same live test, same ~6
-// minute failure. Kept anyway (harmless, forward-compatible if the
-// underlying CLI bug ever gets fixed) but this is an open, unresolved
-// upstream limitation for the permission-approval path specifically, not
-// something this env var actually fixes today. Applies to every child built
-// with this def's env (this turn's `claude -p`, and the interactive
-// terminal in terminalSession.ts) — it's not scoped to a single MCP server
-// (it can't be, it's a process-wide env var), but it's harmless outside a
-// `checkPermission` call actually waiting on a human, so no reason to scope
-// it tighter.
+// The per-server `timeout` field in `--mcp-config` (sharedSession.ts,
+// mcpServers; see `buildMcpSpawnConfig`) is what actually keeps a pending
+// `anywh-permission` approval alive: measured on CLI 2.1.303, an approval
+// left pending for 120 s is still answerable, while without the field the CLI
+// cuts the call at ~60 s. (`anywh-choice` needs none of this: its `tools/call`
+// replies immediately, see the "deferred lifecycle" comment on
+// `SharedSession.presentChoice`.)
+//
+// `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0` (disables the idle check entirely
+// instead of raising it) is set here as an extra guard, via an env var, which
+// is a separate code path in the CLI from the JSON field. It was not shown to
+// be what fixes long approvals; it is kept because it is harmless. Applies to
+// every child built with this def's env (this turn's `claude -p`, and the
+// interactive terminal in terminalSession.ts) — it is a process-wide env var
+// so it can't be scoped to a single MCP server, but it only matters during a
+// `checkPermission` call waiting on a human, so there is no reason to scope it
+// tighter.
 export const CLAUDE_AGENT_ENV_OVERRIDES: Readonly<Record<string, string>> = {
   CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "0",
 };

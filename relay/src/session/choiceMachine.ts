@@ -108,10 +108,10 @@ export class ChoiceMachine {
   /** Called by the MCP bridge
    * (`McpChoiceBridge`, `ChoiceHost.presentChoice`) when the model calls
    * `present_choice`. Used to return a `Promise<ChoiceAnswer[]>` and hold the
-   * tool call open until `answerChoice` resolved it — abandoned because the
-   * CLI kills a `tools/call` after ~6 minutes with no working override
-   * (Descoberta 8), and a human reading a prompt on their phone routinely
-   * takes longer than that. Now synchronous: publishes the prompt and
+   * tool call open until `answerChoice` resolved it — abandoned because a
+   * human reading a prompt on their phone can take arbitrarily long, and a
+   * held-open `tools/call` ties the answer to a live `claude` child. Now
+   * synchronous: publishes the prompt and
    * returns immediately, `true` if accepted. `McpChoiceBridge.handleRequest`
    * turns that into the tool's `tool_result` (an instruction to end the
    * turn, see `CHOICE_DEFERRED_RESPONSE_TEXT`) — the eventual human answer
@@ -156,10 +156,9 @@ export class ChoiceMachine {
    * unlike `presentChoice`, no acceptance check is needed here. The
    * returned promise only settles from `answerChoice` below — genuinely
    * unbounded wait, by design (matches how the real interactive CLI already
-   * behaves, still subject to the SAME ~6 minute CLI timeout as
-   * `present_choice` used to be — that remains a known, open limitation for
-   * THIS path, deliberately out of scope for the present rework, see
-   * `SharedSession.runTurn`'s `mcpServers` comment). Every lifecycle path
+   * behaves; the CLI's own cut of a pending MCP call is overridden by the
+   * per-server `timeout` in `--mcp-config`, see `buildMcpSpawnConfig`).
+   * Every lifecycle path
    * that could leave this dangling — client disconnect, session delete,
    * relay shutdown — resolves through the SAME turn-in-progress machinery
    * `stopTurn`/`waitForIdle` use, via `cancelPendingApproval` in `runTurn`'s

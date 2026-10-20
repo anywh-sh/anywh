@@ -96,8 +96,8 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
             checkPermission: (toolName, input, toolUseId) => this.host.checkPermission(toolName, input, toolUseId),
           })
         : undefined;
-    // The actual CLI-arg assembly (which servers, which flags, the known-
-    // ineffective idle-timeout override, the alwaysLoad fix) is pure and
+    // The actual CLI-arg assembly (which servers, which flags, the per-server
+    // timeout override, the alwaysLoad fix) is pure and
     // lives in `buildMcpSpawnConfig` (mcpSpawnConfig.ts) — this is only the
     // "which mode gets which bridge" decision, which needs `permissionMode`.
     const mcpConfig = buildMcpSpawnConfig({
