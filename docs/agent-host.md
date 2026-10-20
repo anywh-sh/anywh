@@ -39,11 +39,21 @@ half-understood. Then:
 - `request` (`id`, `method`, `params`) → `response` (`ok` + `result`, or an
   `error` with a stable `code`). Methods: `spawn`, `send`, `interrupt`,
   `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`.
-- `subscribe` (`agentId`, `fromOffset`) → that agent's log from the offset,
-  then live: `event` records (`seq`, `off`, `next`, `t`, `ev`), one
-  `caught_up` when the replay reaches the end, `replay_gap` when retention
-  dropped what was asked for.
+- `subscribe` (`agentId`, `fromOffset`, `incarnation`) → that agent's log
+  from the offset, then live: `event` records (`seq`, `off`, `next`, `t`,
+  `ev`), one `caught_up` when the replay reaches the end, `replay_gap` when
+  retention dropped what was asked for, `stream_closed` when the agent is
+  removed. Every streamed message carries `sub` (the subscribe's id), so a
+  replaced subscription's records still in flight are dropped. Each log has
+  an incarnation id: an agent removed and recreated under the same id
+  starts over at seq 0, and a cursor from the old incarnation is answered
+  `reset: true` and read from the new log's start. A malformed subscribe
+  is answered with `bad_request` under its id.
 - `agent_state` is pushed to every connection on any change.
+
+The relay's client refuses (status `unsafe`) a socket or socket directory
+that is not owned by the user or is open to others, before sending
+anything.
 
 `ev` is the agent CLI's own event verbatim (stream-json for Claude, the
 notification for Codex) or one of the host's `host_*` events (user message,
@@ -57,7 +67,11 @@ already has, so a reconnect never loses or repeats an event. Segments rotate
 at 4 MiB; a sealed segment drops its partial-message lines (`stream_event`)
 without moving any offset; past 64 MiB the oldest segments go. A subscriber
 whose socket buffer passes 1 MiB is moved back to reading from disk, so a
-stalled client costs the host a bounded amount of memory.
+stalled client costs the host a bounded amount of memory. A record is at
+most 1 MiB: a larger event (a huge tool result) is stored truncated —
+type, subtype, session id, original size and the start of its JSON, marked
+`host_truncated`. A write error (disk full, I/O) fails that agent
+(`failed`, `log_error: ...`) and never the host.
 
 ## Agents
 
@@ -82,17 +96,36 @@ skills or hooks). States: `starting`, `working`, `awaiting_user`, `idle`,
   background task, keeping its session; the next message resumes it with
   `--resume`. Policies: `idle` (10 min), `memory` (only while the agents'
   PSS exceeds 60% of a budget), plus at most 10 live agents per room.
-- On start, the host ends processes a previous run of it left behind, and
-  agents that were running come back `stopped` (`host_restart`),
-  resumable, never running on their own.
-- On SIGTERM it drains: turns get 2 minutes, then are interrupted; idle
-  agents are hibernated, agents whose work was cut are `stopped`
-  (`host_shutdown`).
+- The idle policy never hibernates an agent that has a process outside its
+  CLI's tree (a job it detached on purpose, like a dev server); memory
+  pressure, an explicit hibernate or making room in a full room may, and
+  the log records it (`killed_detached`). Stop and remove end everything.
+- A `result` read after a new message was written does not by itself mean
+  the agent is idle: the CLI announces every turn with `system`/`init`, so
+  until one arrives (or a short settle shows the message was folded into
+  the turn that ended) the agent counts as working.
+- Every agent process carries `ANYWH_AGENT_MARK=<host>:<agent>:<run>`; the
+  sweeps match only that, never the host's configuration variables, which
+  the relay and the host strip from everything they spawn. The host takes
+  its profile only from `--profile` (never from `ANYWH_PROFILE`).
+- On start, the host first takes an exclusive lock on its id, data
+  directory and socket (abstract unix sockets on Linux, released by the
+  kernel on death; pid lock files elsewhere), and only then ends processes
+  a previous run left behind and restores its agents: those that were
+  running come back `stopped` (`host_restart`), resumable, never running on
+  their own. A registry that cannot be parsed is kept aside as
+  `registry.json.corrupt-<time>`; one that cannot be read fails the start.
+- On SIGTERM (or an uncaught error) it drains: turns get 50 s, then are
+  interrupted; idle agents are hibernated, agents whose work was cut are
+  `stopped` (`host_shutdown`). The unit's `TimeoutStopSec=75` covers this
+  and stays under the user manager's ~90 s; a test keeps them in sync.
+- Deleting a profile through the relay disables its host in the
+  background and then removes its data directory.
 
 ## Known limits
 
 - A process that detaches **and** rewrites its environment escapes the
-  marker sweep; under systemd the unit's cgroup still ends it when the host
+  marker sweep (and the detached-job check); under systemd the unit's cgroup still ends it when the host
   stops, but not when one agent is stopped. Outside Linux (no `/proc`) only
   the process group is covered.
 - The socket is protected by permissions only (0600 in a 0700 directory):
