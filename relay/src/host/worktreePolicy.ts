@@ -45,7 +45,7 @@ export interface WorktreeRecord {
   retained?: { reason: string; at: number };
   /** Set with `state: "removing"`: what was decided, so a crash half way
    * is finished rather than reconsidered. */
-  removing?: { force: boolean; reason: string };
+  removing?: { force: boolean; reason: string; /** The branch tip the decision was made of: a removal resumed after a crash is for that tip only. */ tip?: string };
 }
 
 /** A name safe as a branch segment and a directory: lowercase letters,

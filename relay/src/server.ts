@@ -192,7 +192,9 @@ const sweepWorktrees = (): void => {
     })
     .catch((error: unknown) => console.warn("[relay] worktree sweep failed:", (error as Error).message));
 };
-sweepWorktrees();
+// Not before the host has said which turns are running: the sweep takes no
+// worktree from under an agent the relay cannot yet see at work.
+if (!agentHost) sweepWorktrees();
 setInterval(sweepWorktrees, 24 * 60 * 60 * 1000).unref();
 // Every time the relay (re)connects to its host: agents the rooms no longer
 // have are removed there, then messages queued before a restart go out.
@@ -201,7 +203,10 @@ agentHost?.on("status", (status) => {
   roomManager
     .reconcileHost()
     .catch((error: unknown) => console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message))
-    .finally(() => roomManager.resumeQueues());
+    .finally(() => {
+      roomManager.resumeQueues();
+      sweepWorktrees();
+    });
 });
 
 

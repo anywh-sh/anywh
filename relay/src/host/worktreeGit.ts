@@ -119,11 +119,13 @@ export async function hasInitializedSubmodules(path: string): Promise<boolean> {
 }
 
 /** Ignored folders a build recreates: removing them loses nothing. */
-const REBUILDABLE = /(^|\/)(node_modules|dist|build|target|coverage|__pycache__|\.next|\.cache|\.venv)\/?$/;
+const REBUILDABLE = /^(node_modules|dist|build|target|coverage|__pycache__|\.next|\.cache|\.venv)\/?$|(^|\/)node_modules\/?$/;
 
 /** No uncommitted or untracked changes, and no ignored file that is not a
  * rebuildable folder (a `.env` is not in git and `worktree remove` deletes it). */
 export async function isClean(path: string): Promise<boolean> {
+  // Without its own `.git` git would answer for a repository around it.
+  if (!existsSync(join(path, ".git"))) return false;
   const r = await runGit(path, ["status", "--porcelain", "--untracked-files=normal", "--ignored=traditional"]);
   if (!r.ok) return false;
   return r.stdout.split("\n").every((line) => line.trim() === "" || (line.startsWith("!! ") && REBUILDABLE.test(line.slice(3))));
@@ -131,6 +133,7 @@ export async function isClean(path: string): Promise<boolean> {
 
 /** What a worktree's own HEAD is on: a branch, or a bare commit. */
 export async function worktreeHead(path: string): Promise<{ branch?: string; sha: string } | undefined> {
+  if (!existsSync(join(path, ".git"))) return undefined;
   const sha = await runGit(path, ["rev-parse", "--verify", "-q", "HEAD"]);
   if (!sha.ok) return undefined;
   const ref = await runGit(path, ["symbolic-ref", "--short", "-q", "HEAD"]);

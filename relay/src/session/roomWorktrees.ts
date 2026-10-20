@@ -234,10 +234,15 @@ export class RoomWorktrees {
 
   private async decide(record: WorktreeRecord, mode: { auto: boolean; discard: boolean }): Promise<CleanupDecision> {
     const agent = this.options.agents.facts(record.agentId);
+    // The cheap refusals first: nothing below (git, `gh`) is asked for them.
+    if (agent.busy) return { action: "skip", reason: "the agent has a turn running" };
+    if (mode.auto && agent.exists && !agent.done) return { action: "skip", reason: "the agent is not done" };
     const repo = this.repoDirOf(record);
     const worktreeExists = existsSync(record.path);
     const branchThere = repo !== undefined && (await branchExists(repo, record.branch));
     const tip = branchThere && repo ? await branchTip(repo, record.branch) : undefined;
+    // A git that would not say what the branch is at decides nothing.
+    if (branchThere && tip === undefined) return { action: "skip", reason: "git could not read its branch" };
     // A branch still at its starting point is trivially "merged", which says
     // nothing while its agent may yet use it: left alone until it moves, or
     // its agent is gone, or someone says it is done with.
@@ -245,8 +250,8 @@ export class RoomWorktrees {
       return { action: "skip", reason: "nothing has been committed in it yet" };
     }
     // A branch that is already gone has no work left to lose.
-    const ancestor = !branchThere ? true : await isAncestorOfBase(repo, record.branch, record.base);
-    const declared = record.declaredIntegrated !== undefined && (record.declaredIntegrated.tip === undefined || record.declaredIntegrated.tip === tip || tip === undefined);
+    const ancestor = repo === undefined || !branchThere ? true : await isAncestorOfBase(repo, record.branch, record.base);
+    const declared = record.declaredIntegrated !== undefined && record.declaredIntegrated.tip === tip;
     // Commits made in the worktree off its branch (a detached HEAD) are on no
     // branch to look at: only a base that already holds them makes them safe.
     let strayCommits = false;
@@ -254,6 +259,10 @@ export class RoomWorktrees {
       const head = await worktreeHead(record.path);
       if (head && head.sha !== tip) strayCommits = !(await isCommitInBase(repo, head.sha, record.base));
     }
+    const clean = worktreeExists ? await isClean(record.path) : true;
+    const hasSubmodules = worktreeExists ? await hasInitializedSubmodules(record.path) : false;
+    // Last, and only when the rest would allow a removal: it is the slow one.
+    const askPullRequest = repo !== undefined && !ancestor && !declared && !mode.discard && !strayCommits && clean && !hasSubmodules;
     return decideCleanup(
       {
         agentBusy: agent.busy,
@@ -262,11 +271,10 @@ export class RoomWorktrees {
         ancestor,
         declaredIntegrated: declared,
         strayCommits,
-        // Asked only when nothing else already proves it.
-        prMerged: !ancestor && !declared && !mode.discard && repo ? await pullRequestMerged(repo, record.branch, tip, this.options.gh) : false,
+        prMerged: askPullRequest ? await pullRequestMerged(repo, record.branch, tip, this.options.gh) : false,
         worktreeExists,
-        clean: worktreeExists ? await isClean(record.path) : true,
-        hasSubmodules: worktreeExists ? await hasInitializedSubmodules(record.path) : false,
+        clean,
+        hasSubmodules,
       },
       mode.auto,
     );
@@ -289,7 +297,9 @@ export class RoomWorktrees {
     // The decision took awaits (git, `gh`): the agent may have a turn now.
     if (this.options.agents.facts(record.agentId).busy) return { id: record.id, branch: record.branch, result: "skipped", reason: "the agent has a turn running" };
     // The decision is on disk before the first removal.
-    const removing: WorktreeRecord = { ...this.fresh(record), state: "removing", removing: { force: decision.force, reason: decision.evidence } };
+    const repo = this.repoDirOf(record);
+    const tip = repo ? await branchTip(repo, record.branch) : undefined;
+    const removing: WorktreeRecord = { ...this.fresh(record), state: "removing", removing: { force: decision.force, reason: decision.evidence, ...(tip ? { tip } : {}) } };
     this.options.registry.put(removing);
     this.options.crashPoint?.("afterRemoving");
     this.inFlight.add(record.id);
@@ -298,6 +308,15 @@ export class RoomWorktrees {
     } finally {
       this.inFlight.delete(record.id);
     }
+  }
+
+  /** Takes back a removal decided of work that has since changed: it becomes
+   * a retained worktree, to be decided on again at the next cleanup. */
+  private reopen(record: WorktreeRecord, reason: string): CleanupOutcome {
+    const { removing: _removing, ...rest } = this.fresh(record);
+    void _removing;
+    this.options.registry.put({ ...rest, state: "retained", retained: { reason, at: this.now() } });
+    return { id: record.id, branch: record.branch, result: "retained", reason };
   }
 
   /** Carries out a removal already decided: the worktree, then the branch,
@@ -312,6 +331,11 @@ export class RoomWorktrees {
     if (this.options.agents.facts(record.agentId).busy) return { id: record.id, branch: record.branch, result: "skipped", reason: "the agent has a turn running" };
     const repo = this.repoDirOf(record);
     if (!repo) return refuse("its repository is not where it was");
+    // The decision was for the work the branch held then. A removal resumed
+    // after a crash (the agent may have gone on committing meanwhile) is
+    // not for newer commits: they are decided on again, from the start.
+    const moved = async (): Promise<boolean> => !force && record.removing?.tip !== undefined && (await branchExists(repo, record.branch)) && (await branchTip(repo, record.branch)) !== record.removing.tip;
+    if (await moved()) return this.reopen(record, "its branch moved after the removal was decided");
     if (existsSync(record.path)) {
       const removed = await removeWorktree(repo, record.path, force);
       if (!removed.ok && existsSync(record.path)) return refuse(removed.stderr.trim() || "git refused to remove it");
@@ -320,6 +344,7 @@ export class RoomWorktrees {
       if (!("error" in facts)) forgetMissingWorktree(facts.commonDir, record.path);
     }
     this.options.crashPoint?.("afterWorktreeRemoved");
+    if (await moved()) return this.reopen(record, "its branch moved after the removal was decided");
     if (await branchExists(repo, record.branch)) {
       // `-D`, on the evidence already established (or the person's discard):
       // `-d` judges by the checkout's HEAD, not the base the branch started from.
@@ -377,7 +402,7 @@ export class RoomWorktrees {
         phase: this.options.agents.facts(record.agentId).busy ? "in_use" : "idle",
         ...(branchThere ? { commitsAhead: await commitsAhead(repo, record.branch, record.base) } : {}),
         ...(exists ? { clean: await isClean(record.path) } : {}),
-        integrated: record.declaredIntegrated !== undefined || (branchThere && (await isAncestorOfBase(repo, record.branch, record.base))),
+        integrated: (record.declaredIntegrated !== undefined && record.declaredIntegrated.tip === (branchThere ? await branchTip(repo, record.branch) : undefined)) || (branchThere && (await isAncestorOfBase(repo, record.branch, record.base))),
         ...(record.retained ? { retainedReason: record.retained.reason } : {}),
         ...(options.size && exists ? { sizeBytes: await directorySize(record.path) } : {}),
       });

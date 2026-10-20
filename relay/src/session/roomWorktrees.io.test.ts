@@ -271,7 +271,7 @@ test("a worktree with an initialized submodule is retained when integrated, and 
  * the branch's current tip for "@tip") after $GH_SLEEP seconds. */
 function fakeGh(): string {
   const path = join(dir, `gh-${++counter}.sh`);
-  writeFileSync(path, '#!/bin/sh\nsleep "${GH_SLEEP:-0}"\ntip=$(git rev-parse "refs/heads/$3")\necho "$GH_ANSWER" | sed "s/@tip/$tip/"\n');
+  writeFileSync(path, '#!/bin/sh\n[ -n "$GH_MARK" ] && echo called >> "$GH_MARK"\nsleep "${GH_SLEEP:-0}"\ntip=$(git rev-parse "refs/heads/$3")\necho "$GH_ANSWER" | sed "s/@tip/$tip/"\n');
   chmodSync(path, 0o755);
   return path;
 }
@@ -436,6 +436,46 @@ for (const point of ["afterRemoving", "afterWorktreeRemoved"]) {
     assertNoTrace(h);
   });
 }
+
+test("a removal decided before a crash is not carried out for commits made after it: the worktree is kept and decided on again", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  git(h.repo, "merge", "-q", "--no-edit", wt.branch);
+  crash(h, "afterRemoving", "cleanup");
+  // The agent kept running in the host while the relay was down.
+  commitIn(wt.path, "after-the-crash.txt");
+  const fresh = new RoomWorktrees({ registry: new WorktreeRegistry(h.registryFile), root: h.root, agents: { facts: () => ({ exists: true, busy: false, done: true }) }, gh: "/nonexistent/gh" });
+  const [outcome] = await fresh.sweep();
+  assert.equal(outcome?.result, "retained");
+  assert.match(outcome?.reason ?? "", /moved/);
+  assert.ok(existsSync(join(wt.path, "after-the-crash.txt")));
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal(new WorktreeRegistry(h.registryFile).all()[0]?.state, "retained");
+});
+
+test("gh is not asked about a worktree that cannot be removed anyway", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = "MERGED @tip";
+  try {
+    const h = harness(makeRepo(), fakeGh());
+    const wt = await created(h);
+    commitIn(wt.path);
+    h.agent.busy = true;
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "skipped");
+    h.agent.busy = false;
+    writeFileSync(join(wt.path, "dirty.txt"), "x");
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    assert.equal(existsSync(mark), false, "gh was never called");
+    rmSync(join(wt.path, "dirty.txt"));
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
+    assert.equal(existsSync(mark), true);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+  }
+});
 
 test("a crash during creation of a worktree that already holds commits would never lose them: it is retained", async () => {
   const h = harness();
