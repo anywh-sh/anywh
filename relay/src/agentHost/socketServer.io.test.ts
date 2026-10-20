@@ -337,3 +337,77 @@ test("replacing a subscription mid-replay: records in flight for the old one nev
     await f.cleanup();
   }
 });
+
+test("a malformed subscribe is answered with an error carrying its id", async () => {
+  const f = await fixture();
+  try {
+    const socket = connect(f.socketPath);
+    const replies: { type: string; id?: number; ok?: boolean; error?: { code: string } }[] = [];
+    let inbound = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      inbound += chunk;
+      let nl: number;
+      while ((nl = inbound.indexOf("\n")) >= 0) {
+        replies.push(JSON.parse(inbound.slice(0, nl)) as (typeof replies)[number]);
+        inbound = inbound.slice(nl + 1);
+      }
+    });
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    socket.write(`${JSON.stringify({ op: "hello", version: AGENT_HOST_PROTOCOL_VERSION })}\n`);
+    socket.write(`${JSON.stringify({ op: "subscribe", id: 7, agentId: "../etc", fromOffset: 0 })}\n`);
+    await waitFor(() => replies.some((reply) => reply.type === "response"), 3000, "an answer");
+    const reply = replies.find((r) => r.type === "response")!;
+    assert.equal(reply.id, 7);
+    assert.equal(reply.ok, false);
+    assert.equal(reply.error?.code, "bad_request");
+    socket.destroy();
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a subscribe the host never answers is reported to the subscriber as a timeout", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-silent-"));
+  const socketPath = join(dir, "run", "silent.sock");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(dir, "run"), { mode: 0o700 });
+  // Completes the handshake, then answers nothing.
+  const { createServer } = await import("node:net");
+  const server = createServer((socket) => {
+    socket.once("data", () => socket.write(`${JSON.stringify({ type: "hello_ok", version: AGENT_HOST_PROTOCOL_VERSION, hostPid: 1, hostId: "silent" })}\n`));
+  });
+  await new Promise<void>((resolve) => server.listen(socketPath, () => resolve()));
+  const { chmodSync } = await import("node:fs");
+  chmodSync(socketPath, 0o600);
+  const client = new HostClient({ socketPath, requestTimeoutMs: 200, reconnectMinMs: 10, reconnectMaxMs: 50 });
+  try {
+    client.start();
+    await client.waitUntilConnected();
+    const errors: string[] = [];
+    client.subscribe("a1", START_OF_LOG, { onEvent: () => {}, onError: (error) => errors.push(error.code) });
+    await waitFor(() => errors.length > 0, 3000, "timeout reported");
+    assert.deepEqual(errors, ["timeout"]);
+  } finally {
+    client.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("FileCursorStore drops entries of the wrong shape instead of trusting them", async () => {
+  const { FileCursorStore } = await import("./hostClient.js");
+  const { writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "anywh-cursors-"));
+  try {
+    const path = join(dir, "cursors.json");
+    writeFileSync(path, JSON.stringify({ bad1: { nextOffset: "x", lastSeq: 1 }, bad2: 5, bad3: { nextOffset: -1, lastSeq: 0 }, good: { nextOffset: 10, lastSeq: 2, incarnation: "i" } }));
+    const store = new FileCursorStore(path);
+    assert.equal(store.get("bad1"), undefined);
+    assert.equal(store.get("bad2"), undefined);
+    assert.equal(store.get("bad3"), undefined);
+    assert.deepEqual(store.get("good"), { nextOffset: 10, lastSeq: 2, incarnation: "i" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -284,7 +284,11 @@ class Connection {
       this.send({ type: "hello_ok", version, hostPid: process.pid, hostId: this.server.hostId, release: RELEASE_VERSION });
       return;
     }
-    if (!parsed.ok) return; // nothing to correlate an error with
+    if (!parsed.ok) {
+      // Answer whoever is waiting on it; with no id there is no one to tell.
+      if (parsed.id !== undefined) this.send({ type: "response", id: parsed.id, ok: false, error: { code: "bad_request", message: parsed.error } });
+      return;
+    }
     const message = parsed.message;
     switch (message.op) {
       case "hello":

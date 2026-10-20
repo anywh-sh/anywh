@@ -253,7 +253,9 @@ function isRequestId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-export type ParseResult<T> = { readonly ok: true; readonly message: T } | { readonly ok: false; readonly error: string };
+/** On failure, `id` is the request id when one could be read, so the error
+ * can still be answered to whoever is waiting on it. */
+export type ParseResult<T> = { readonly ok: true; readonly message: T } | { readonly ok: false; readonly error: string; readonly id?: number };
 
 /** Validates one line received by the host. Never throws. */
 export function parseClientMessage(line: string): ParseResult<ClientMessage> {
@@ -264,6 +266,7 @@ export function parseClientMessage(line: string): ParseResult<ClientMessage> {
     return { ok: false, error: "bad_json" };
   }
   if (!isRecord(value)) return { ok: false, error: "not_an_object" };
+  const id = isRequestId(value.id) ? value.id : undefined;
   switch (value.op) {
     case "hello":
       if (typeof value.version !== "number") return { ok: false, error: "bad_hello" };
@@ -277,9 +280,9 @@ export function parseClientMessage(line: string): ParseResult<ClientMessage> {
         },
       };
     case "subscribe":
-      if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_subscribe" };
+      if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_subscribe", id };
       if (typeof value.fromOffset !== "number" || !Number.isSafeInteger(value.fromOffset) || value.fromOffset < 0) {
-        return { ok: false, error: "bad_subscribe" };
+        return { ok: false, error: "bad_subscribe", id };
       }
       return {
         ok: true,
@@ -292,13 +295,13 @@ export function parseClientMessage(line: string): ParseResult<ClientMessage> {
         },
       };
     case "unsubscribe":
-      if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_unsubscribe" };
+      if (!isRequestId(value.id) || !isValidAgentId(value.agentId)) return { ok: false, error: "bad_unsubscribe", id };
       return { ok: true, message: { op: "unsubscribe", id: value.id, agentId: value.agentId } };
     case "request":
       if (!isRequestId(value.id) || typeof value.method !== "string") return { ok: false, error: "bad_request" };
       return { ok: true, message: { op: "request", id: value.id, method: value.method, params: isRecord(value.params) ? value.params : {} } };
     default:
-      return { ok: false, error: "unknown_op" };
+      return { ok: false, error: "unknown_op", id };
   }
 }
 

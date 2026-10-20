@@ -228,7 +228,12 @@ export class HostClient extends EventEmitter<HostClientEvents> {
           state.handlers.onError?.({ code: error.code, message: error.message });
         }
       },
-      timer: setTimeout(() => this.pending.delete(id), this.requestTimeoutMs),
+      timer: setTimeout(() => {
+        if (!this.pending.delete(id) || state.closed || state.sub !== id) return;
+        state.closed = true;
+        if (this.subscriptions.get(state.agentId) === state) this.subscriptions.delete(state.agentId);
+        state.handlers.onError?.({ code: "timeout", message: `agent host did not answer the subscription to ${state.agentId} within ${this.requestTimeoutMs}ms` });
+      }, this.requestTimeoutMs),
     });
     this.write({ op: "subscribe", id, agentId: state.agentId, fromOffset: state.cursor.nextOffset, incarnation: state.cursor.incarnation });
   }
@@ -384,11 +389,33 @@ export class FileCursorStore {
     private readonly path: string,
     private readonly debounceMs = 200,
   ) {
+    this.cursors = {};
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-      this.cursors = typeof parsed === "object" && parsed !== null ? (parsed as Record<string, AgentCursor>) : {};
+      parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch {
-      this.cursors = {};
+      return;
+    }
+    if (typeof parsed !== "object" || parsed === null) return;
+    // Only entries of the right shape: a bad cursor would silently skip or
+    // repeat an agent's events.
+    for (const [agentId, value] of Object.entries(parsed)) {
+      const cursor = value as Partial<AgentCursor> | null;
+      if (
+        typeof cursor === "object" &&
+        cursor !== null &&
+        Number.isSafeInteger(cursor.nextOffset) &&
+        (cursor.nextOffset as number) >= 0 &&
+        Number.isSafeInteger(cursor.lastSeq) &&
+        (cursor.lastSeq as number) >= -1 &&
+        (cursor.incarnation === undefined || typeof cursor.incarnation === "string")
+      ) {
+        this.cursors[agentId] = {
+          nextOffset: cursor.nextOffset as number,
+          lastSeq: cursor.lastSeq as number,
+          ...(cursor.incarnation !== undefined ? { incarnation: cursor.incarnation } : {}),
+        };
+      }
     }
   }
 

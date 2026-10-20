@@ -27,8 +27,12 @@ test("parseClientMessage rejects malformed input instead of guessing", () => {
     ['{"op":"teleport"}', "unknown_op"],
   ];
   for (const [line, error] of cases) {
-    assert.deepEqual(parseClientMessage(line), { ok: false, error }, line);
+    const parsed = parseClientMessage(line);
+    assert.equal(parsed.ok, false, line);
+    if (!parsed.ok) assert.equal(parsed.error, error, line);
   }
+  // The id survives a rejection, so the error can be answered.
+  assert.deepEqual(parseClientMessage('{"op":"subscribe","id":9,"agentId":"../x","fromOffset":0}'), { ok: false, error: "bad_subscribe", id: 9 });
 });
 
 test("agent ids are limited to what is safe in a file name and an environment value", () => {
