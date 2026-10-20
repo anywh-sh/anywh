@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
@@ -119,10 +119,12 @@ export function useRoomChannel(profile: Profile, roomId: string): RoomChannelSta
   // The rest of the shell (sidebar, tabs, status bar) reads this room's
   // totals from a small store; whoever watches the room feeds it.
   const status = useMemo(() => (state.status === "connecting" ? undefined : roomStatusOf(state.agents)), [state.status, state.agents]);
+  const owner = useId();
   useEffect(() => {
-    if (state.status === "gone") forgetRoomStatus(roomId);
-    else if (status) publishRoomStatus(roomId, status);
-  }, [roomId, state.status, status]);
+    if (state.status === "gone") forgetRoomStatus(roomId, owner);
+    else if (status) publishRoomStatus(roomId, status, owner);
+  }, [roomId, state.status, status, owner]);
+  useEffect(() => () => forgetRoomStatus(roomId, owner), [roomId, owner]);
 
   return state;
 }

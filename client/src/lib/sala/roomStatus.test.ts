@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { RoomAgent } from "@/lib/relay/roomClient";
-import { isRoomCompleted, roomStatusOf, totalRoomStatuses } from "@/lib/sala/roomStatus";
+import { forgetRoomStatus, isRoomCompleted, publishRoomStatus, resetRoomStatuses, roomStatusOf, totalRoomStatuses } from "@/lib/sala/roomStatus";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
   return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [], ...over };
@@ -40,5 +40,20 @@ describe("isRoomCompleted", () => {
 describe("totalRoomStatuses", () => {
   it("adds the rooms up", () => {
     expect(totalRoomStatuses([{ agents: 3, working: 1, needsYou: 2, failed: 0, completed: false }, { agents: 2, working: 0, needsYou: 1, failed: 1, completed: false }])).toEqual({ working: 1, needsYou: 3, failed: 1 });
+  });
+});
+
+describe("the status store", () => {
+  afterEach(() => resetRoomStatuses());
+  const status = { agents: 2, working: 1, needsYou: 0, failed: 0, completed: false };
+
+  it("keeps a room's status while anyone still watches it, and drops it with the last one", async () => {
+    const { getRoomStatusForTest } = await import("@/lib/sala/roomStatus");
+    publishRoomStatus("r", status, "canvas");
+    publishRoomStatus("r", status, "probe");
+    forgetRoomStatus("r", "canvas");
+    expect(getRoomStatusForTest("r")).toEqual(status);
+    forgetRoomStatus("r", "probe");
+    expect(getRoomStatusForTest("r")).toBeUndefined();
   });
 });

@@ -1373,13 +1373,8 @@ export interface Dictionary {
       /** The "i" button over the canvas. */
       about: string;
       aboutRoom: {
-        /** `{age}`. */
+        /** `{count}` agents. */
         subtitle: string;
-        ageNow: string;
-        /** `{count}`. */
-        ageMin: string;
-        ageHour: string;
-        ageDay: string;
         statAgents: string;
         statRunning: string;
         statWaiting: string;

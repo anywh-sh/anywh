@@ -57,14 +57,26 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
-export function publishRoomStatus(roomId: string, status: RoomStatus): void {
+/** Who is feeding each room's status (a canvas, a sidebar probe): the entry
+ * goes when the last of them lets go, so a room nobody watches any more is
+ * not counted in the status bar for good. */
+const owners = new Map<string, Set<string>>();
+
+export function publishRoomStatus(roomId: string, status: RoomStatus, owner = "anonymous"): void {
+  const set = owners.get(roomId) ?? new Set<string>();
+  set.add(owner);
+  owners.set(roomId, set);
   const before = statuses.get(roomId);
   if (before && sameRoomStatus(before, status)) return;
   statuses.set(roomId, status);
   emit();
 }
 
-export function forgetRoomStatus(roomId: string): void {
+export function forgetRoomStatus(roomId: string, owner = "anonymous"): void {
+  const set = owners.get(roomId);
+  set?.delete(owner);
+  if (set && set.size > 0) return;
+  owners.delete(roomId);
   if (statuses.delete(roomId)) emit();
 }
 
@@ -85,6 +97,7 @@ export function useRoomStatus(roomId: string): RoomStatus | undefined {
 /** For tests. */
 export function resetRoomStatuses(): void {
   statuses.clear();
+  owners.clear();
   emit();
 }
 
@@ -102,4 +115,9 @@ export function totalRoomStatuses(all: Iterable<RoomStatus>): RoomTotals {
     totals.failed += s.failed;
   }
   return totals;
+}
+
+/** For tests: what the store holds for a room. */
+export function getRoomStatusForTest(roomId: string): RoomStatus | undefined {
+  return statuses.get(roomId);
 }

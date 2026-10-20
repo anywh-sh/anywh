@@ -7,7 +7,7 @@ import { useRoomWorktrees } from "@/hooks/sala/useRoomWorktrees";
 import { useDict } from "@/i18n";
 import { fetchRoomContext, fetchRoomMembers, type RoomAgent, type RoomCanvas, type RoomContextItem, type RoomMemberInfo } from "@/lib/relay/roomClient";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
-import { ageUnits, formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
+import { formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
 import { isRoomCompleted } from "@/lib/sala/roomStatus";
 import { cardStatus } from "@/lib/sala/agentCard";
 import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
@@ -40,7 +40,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  */
 export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refreshKey, onClose }: AboutRoomPanelProps) {
   const dict = useDict().sala.panel.aboutRoom;
-  const [now] = useState(() => Date.now());
   const [members, setMembers] = useState<RoomMemberInfo[]>([]);
   const [context, setContext] = useState<RoomContextItem[] | null>(null);
   const worktrees = useRoomWorktrees(profile, roomId, refreshKey);
@@ -67,11 +66,7 @@ export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refresh
   }, [profile.id, roomId, refreshKey]);
 
   const counts = useMemo(() => roomCounts(agents), [agents]);
-  const principal = agents.find((a) => a.role === "principal");
   const principalMember = members.find((m) => m.id === roomId);
-  const startedAt = principal?.startedAt;
-  const age = ageUnits(startedAt === undefined ? 0 : now - startedAt);
-  const ageText = age.unit === "now" ? dict.ageNow : (age.unit === "min" ? dict.ageMin : age.unit === "hour" ? dict.ageHour : dict.ageDay).replace("{count}", String(age.value));
   const usage = useMemo(() => usageRows(members), [members]);
   const titleOf = (id: string): string => agents.find((a) => a.agentId === id)?.title ?? members.find((m) => m.id === id)?.title ?? id;
   const connectors = useMemo(() => {
@@ -92,7 +87,7 @@ export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refresh
   const completed = isRoomCompleted(agents);
 
   return (
-    <SalaSidePanel mark={<RoomGlyph size={16} />} title={title} subtitle={dict.subtitle.replace("{age}", ageText)} kind="about" onClose={onClose}>
+    <SalaSidePanel mark={<RoomGlyph size={16} />} title={title} subtitle={dict.subtitle.replace("{count}", String(counts.agents))} kind="about" onClose={onClose}>
       <div className="sala-side-body">
         <div className="sala-stats">
           <div>

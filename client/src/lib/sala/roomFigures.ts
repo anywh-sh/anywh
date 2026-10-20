@@ -94,14 +94,3 @@ export function agentWork(worktrees: readonly RoomWorktree[], agentId: string): 
 export function retainedWorktrees(worktrees: readonly RoomWorktree[]): RoomWorktree[] {
   return worktrees.filter((w) => !w.integrated || w.retainedReason !== undefined);
 }
-
-/** How long ago, in whole units: `now`, `3 min`, `2 h`, `5 d` (the words are
- * the caller's). */
-export function ageUnits(ms: number): { unit: "now" | "min" | "hour" | "day"; value: number } {
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return { unit: "now", value: 0 };
-  if (minutes < 60) return { unit: "min", value: minutes };
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return { unit: "hour", value: hours };
-  return { unit: "day", value: Math.floor(hours / 24) };
-}

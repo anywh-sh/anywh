@@ -852,6 +852,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
     const target = event.target as HTMLElement;
     const typing = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
     if (event.key === "Escape") {
+      // Whatever this press closes is the whole of what it does: the room's
+      // panel listens for it too and must not close along.
+      if (typing || tool !== "select" || answering !== null || selected !== null || selectedArea !== null) event.preventDefault();
       if (typing) {
         target.blur();
         vpRef.current?.focus({ preventScroll: true });

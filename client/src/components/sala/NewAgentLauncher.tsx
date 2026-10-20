@@ -3,7 +3,7 @@ import { ArrowUp, ChevronDown, Layers } from "lucide-react";
 import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useDict } from "@/i18n";
-import { getModelCatalogs } from "@/lib/composer/modelCatalog";
+import { effectiveModel, getModelCatalogs } from "@/lib/composer/modelCatalog";
 import type { LaunchAgentInput, RoomAgent } from "@/lib/relay/roomClient";
 import { runtimeTile } from "@/lib/sala/agentCard";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -51,10 +51,13 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
     if (value === "" || busy) return;
     setBusy(true);
     setError(null);
+    // The relay wants a model for any agent but the principal's own: what the
+    // menu shows as the default is sent as the choice it stands for.
+    const chosen = effectiveModel(catalog, model);
     const outcome = await onLaunch({
       task: value,
       agentId: runtime,
-      ...(model !== null ? { model } : {}),
+      ...(chosen !== null ? { model: chosen } : {}),
       ...(effort !== null ? { effort } : {}),
       parentId: parent?.agentId ?? parentId,
     });

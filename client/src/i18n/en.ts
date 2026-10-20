@@ -995,11 +995,7 @@ export const en: Dictionary = {
       close: "Close panel",
       about: "About this room",
       aboutRoom: {
-        subtitle: "Room · open for {age}",
-        ageNow: "a moment",
-        ageMin: "{count} min",
-        ageHour: "{count} h",
-        ageDay: "{count} d",
+        subtitle: "Room · {count} agents",
         statAgents: "agents",
         statRunning: "running",
         statWaiting: "waiting for you",

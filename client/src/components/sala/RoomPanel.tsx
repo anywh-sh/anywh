@@ -177,7 +177,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
 
   const principalId = channel.agents.find((a) => a.role === "principal")?.agentId;
   const panelAgent = panel?.kind === "agent" ? channel.agents.find((a) => a.agentId === panel.id) : undefined;
-  const refreshKey = channel.agents.map((a) => `${a.agentId}:${a.state}:${String(a.report?.at ?? 0)}`).join("|");
+  const refreshKey = channel.agents.map((a) => `${a.agentId}:${String(a.report?.at ?? 0)}`).join("|");
   const completed = isRoomCompleted(channel.agents);
   const worktrees = useRoomWorktrees(profile, roomId, refreshKey, completed || panelAgent !== undefined);
   const kept = retainedWorktrees(worktrees.data.worktrees).length;
@@ -238,7 +238,6 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           launcher={
             launcher.open && (
               <NewAgentLauncher
-                key={launcher.parentId}
                 profile={profile}
                 agents={channel.agents}
                 parentId={launcher.parentId ?? principalId ?? roomId}
@@ -270,6 +269,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       )}
       {panelAgent && (
         <AgentPanel
+          key={panelAgent.agentId}
           profile={profile}
           roomId={roomId}
           agent={panelAgent}

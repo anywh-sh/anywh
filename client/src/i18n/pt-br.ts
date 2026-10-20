@@ -995,11 +995,7 @@ export const ptBr: Dictionary = {
       close: "Fechar painel",
       about: "Sobre a sala",
       aboutRoom: {
-        subtitle: "Sala · aberta há {age}",
-        ageNow: "instantes",
-        ageMin: "{count} min",
-        ageHour: "{count} h",
-        ageDay: "{count} d",
+        subtitle: "Sala · {count} agentes",
         statAgents: "agentes",
         statRunning: "rodando",
         statWaiting: "esperam você",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomMemberInfo, RoomWorktree } from "@/lib/relay/roomClient";
-import { ageUnits, agentWork, formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
+import { agentWork, formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
 
 const usage = (input: number, create: number, read: number) => ({ responses: 1, inputTokens: input, cacheCreationInputTokens: create, cacheReadInputTokens: read, cacheHitRate: null });
 const member = (id: string, u: ReturnType<typeof usage>): RoomMemberInfo => ({ id, title: id, agentId: "claude", model: null, usage: u });
@@ -58,14 +58,5 @@ describe("worktrees", () => {
     const list = [wt({ commitsAhead: 3, sizeBytes: 10 }), wt({ id: "x", agentId: "b", integrated: true }), wt({ id: "y", agentId: "a", integrated: true, retainedReason: "dirty" })];
     expect(agentWork(list, "a")).toHaveLength(2);
     expect(retainedWorktrees(list).map((w) => w.id)).toEqual(["w", "y"]);
-  });
-});
-
-describe("ageUnits", () => {
-  it("rounds down to the biggest whole unit", () => {
-    expect(ageUnits(10_000)).toEqual({ unit: "now", value: 0 });
-    expect(ageUnits(40 * 60_000)).toEqual({ unit: "min", value: 40 });
-    expect(ageUnits(5 * 3_600_000)).toEqual({ unit: "hour", value: 5 });
-    expect(ageUnits(72 * 3_600_000)).toEqual({ unit: "day", value: 3 });
   });
 });
