@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
 import type { AgentRuntimeDef, TurnContext } from "../runtimes/types.js";
-import { ClaudeProcess, type ClaudeAgentSpec } from "./claudeProcess.js";
+import { ClaudeProcess, worstCaseEndMs, type ClaudeAgentSpec } from "./claudeProcess.js";
 import { CodexPool } from "./codexPool.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
 import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
@@ -128,11 +128,18 @@ interface Agent {
 // together. Exceeding it is safe (agents come back `host_restart`), just
 // avoidable.
 export const DEFAULT_STOP_GRACE_MS = 5000;
+
+/** Longest a shutdown with default settings can take: waiting for turns,
+ * waiting after interrupting them, then ending every agent's process (in
+ * parallel) along its slowest path. */
+export function worstCaseShutdownMs(drainGraceMs = DEFAULT_DRAIN_GRACE_MS, stopGraceMs = DEFAULT_STOP_GRACE_MS): number {
+  return drainGraceMs + DRAIN_INTERRUPT_GRACE_MS + worstCaseEndMs(stopGraceMs);
+}
 const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const DEFAULT_MEMORY_FRACTION = 0.6;
 const DEFAULT_POLICY_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_ALIVE_PER_ROOM = 10;
-export const DEFAULT_DRAIN_GRACE_MS = 50_000;
+export const DEFAULT_DRAIN_GRACE_MS = 40_000;
 /** After interrupting during a drain, how long to wait for the turns to end. */
 export const DRAIN_INTERRUPT_GRACE_MS = 10_000;
 const DEFAULT_TURN_SETTLE_MS = 2000;

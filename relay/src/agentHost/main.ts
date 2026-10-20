@@ -19,7 +19,7 @@
 //   ANYWH_AGENT_HOST_MEMORY_FRACTION    memory: share of it agents may use (default 0.6)
 //   ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM live agents per room (default 10)
 //   ANYWH_AGENT_HOST_DRAIN_GRACE_MS     shutdown: wait for turns this long before interrupting
-//                                       (default 50000; keep under the unit's TimeoutStopSec)
+//                                       (default 40000; the unit's TimeoutStopSec is sized for it)
 //   ANYWH_AGENT_HOST_STOP_GRACE_MS      SIGTERM → SIGKILL grace per agent (default 5000)
 import { totalmem } from "node:os";
 import { parseArgs } from "node:util";

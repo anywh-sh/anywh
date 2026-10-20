@@ -103,9 +103,10 @@ and replays what it missed from each agent's log.
   upgrade that changed the relay↔host protocol: a relay that meets a host
   from another release is refused explicitly and logs both releases).
   Stopping it drains: turns in flight get `ANYWH_AGENT_HOST_DRAIN_GRACE_MS`
-  (50 s) to finish, then are interrupted; idle agents are hibernated and
+  (40 s) to finish, then are interrupted; idle agents are hibernated and
   resume transparently later; agents whose work was cut come back
-  "stopped", resumable. The unit's `TimeoutStopSec=75` covers that and stays
+  "stopped", resumable. The unit's `TimeoutStopSec=75` covers the worst case
+  (64 s, with every agent's SIGKILL, sweep and pipe waits) and stays
   under the user manager's own ~90 s stop budget (logout, shutdown);
   raising the drain grace means raising it too. A crash or `SIGKILL` (or a
   drain cut short) brings every agent back stopped and resumable — never

@@ -14,7 +14,7 @@ import {
   type AgentWorkerMcpFile,
   type PersistentClaudeSpec,
 } from "../runtimes/defs/claude/index.js";
-import { AGENT_MARK_ENV, agentMark, signal, sweepAgentProcesses } from "./processTree.js";
+import { AGENT_MARK_ENV, SWEEP_KILL_WAIT_MS, agentMark, signal, sweepAgentProcesses } from "./processTree.js";
 
 export interface ClaudeAgentSpec extends PersistentClaudeSpec {
   readonly cwd: string;
@@ -50,7 +50,22 @@ const STDERR_FILE_CAP_BYTES = 1024 * 1024;
 /** After the process exits, how long to wait for its stdout to reach EOF.
  * A descendant that inherited the pipes (a tool that daemonized without
  * closing them) keeps them open indefinitely. */
-const PIPE_DRAIN_MS = 3000;
+export const PIPE_DRAIN_MS = 3000;
+/** After SIGKILL to the process and its group, how long to wait for it. */
+export const KILL_WAIT_MS = 2000;
+/** The longest grace given to the processes a sweep finds outside the group. */
+export const SWEEP_GRACE_MS = 2000;
+/** `finish` already waited its grace for a voluntary exit; the SIGTERM that
+ * follows gets only this much more. */
+export const FINISH_TERMINATE_GRACE_MS = 1000;
+
+/** Longest a `terminate(graceMs)` (or a `finish(graceMs)`) can take,
+ * including the wait for the pipes to close: the stop budget is built from
+ * this, against the unit's TimeoutStopSec. */
+export function worstCaseEndMs(graceMs: number): number {
+  const terminate = (grace: number): number => grace + KILL_WAIT_MS + Math.min(grace, SWEEP_GRACE_MS) + SWEEP_KILL_WAIT_MS;
+  return Math.max(terminate(graceMs), graceMs + terminate(FINISH_TERMINATE_GRACE_MS)) + PIPE_DRAIN_MS;
+}
 
 export class ClaudeProcess {
   /** The process is gone AND its output has been read (or given up on). */
@@ -206,13 +221,13 @@ export class ClaudeProcess {
       if (!graceful) {
         signal(-pid, "SIGKILL");
         signal(pid, "SIGKILL");
-        await this.waitExit(5000);
+        await this.waitExit(KILL_WAIT_MS);
       }
     }
     // Whatever survived in the group (the leader is gone), then whatever
     // left the group.
     if (pid > 0) signal(-pid, "SIGKILL");
-    const swept = await sweepAgentProcesses(this.options.hostId, this.options.agentId, Math.min(graceMs, 2000));
+    const swept = await sweepAgentProcesses(this.options.hostId, this.options.agentId, Math.min(graceMs, SWEEP_GRACE_MS));
     return { graceful, swept };
   }
 
@@ -220,10 +235,10 @@ export class ClaudeProcess {
    * not within `graceMs`, ends it like `terminate`. */
   async finish(graceMs: number): Promise<void> {
     if (!(await this.waitExit(graceMs))) {
-      await this.terminate(graceMs);
+      await this.terminate(FINISH_TERMINATE_GRACE_MS);
       return;
     }
     if (this.pid > 0) signal(-this.pid, "SIGKILL");
-    await sweepAgentProcesses(this.options.hostId, this.options.agentId, Math.min(graceMs, 2000));
+    await sweepAgentProcesses(this.options.hostId, this.options.agentId, Math.min(graceMs, SWEEP_GRACE_MS));
   }
 }

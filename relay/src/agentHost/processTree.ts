@@ -24,6 +24,8 @@ import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 
 export const AGENT_MARK_ENV = "ANYWH_AGENT_MARK";
+/** After SIGKILL in a sweep, how long to wait for the processes to go. */
+export const SWEEP_KILL_WAIT_MS = 2000;
 
 /** The mark an agent's process tree carries. Neither id may contain ":"
  * (host ids are profile slugs, agent ids are validated). */
@@ -176,7 +178,7 @@ export async function sweepAgentProcesses(hostId: string, agentId: string | unde
   if (!(await waitForExit(pids, graceMs))) {
     const remaining = pids.filter((pid) => !isGone(pid) && stillMarked(pid, hostId, agentId));
     for (const pid of remaining) signal(pid, "SIGKILL");
-    await waitForExit(remaining, 2000);
+    await waitForExit(remaining, SWEEP_KILL_WAIT_MS);
   }
   return pids.length;
 }
