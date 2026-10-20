@@ -279,3 +279,11 @@ test("nobody types into a worker: its turns leave no next-message suggestion, wh
     socket.close();
   }
 });
+
+test("a malformed room URL is refused, never taking the relay down", async () => {
+  for (const path of ["/room/%ZZ/token", "/rooms/%ZZ", "/rooms/%ZZ/canvas", "/rooms/x/agents/%ZZ/subtasks"]) {
+    const res = await fetch(`${base}${path}`, { method: path.startsWith("/room/") ? "POST" : "GET", body: path.startsWith("/room/") ? "{}" : undefined });
+    assert.ok(res.status === 400 || res.status === 404, `${path}: ${res.status}`);
+  }
+  assert.equal((await fetch(`${base}/sessions`)).status, 200, "still up");
+});

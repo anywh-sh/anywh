@@ -3,6 +3,15 @@ import { readJsonBody } from "../protocol/httpBody.js";
 import { parseRoomCanvas } from "../session/roomCanvas.js";
 import type { RouteContext, RouteHandler } from "./context.js";
 
+/** `undefined` for a malformed escape, which is answered rather than thrown. */
+function decode(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
@@ -81,9 +90,14 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
   const url = new URL(req.url ?? "/", "http://relay");
   const subtasks = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/subtasks(?:\/([^/]+)\/stop)?$/.exec(url.pathname);
   if (subtasks) {
-    const stopTaskId = subtasks[3] === undefined ? undefined : decodeURIComponent(subtasks[3]);
-    if ((stopTaskId === undefined && req.method !== "GET") || (stopTaskId !== undefined && req.method !== "POST")) return false;
-    await handleSubtasks(res, ctx, decodeURIComponent(subtasks[1]), decodeURIComponent(subtasks[2]), stopTaskId);
+    if ((subtasks[3] === undefined && req.method !== "GET") || (subtasks[3] !== undefined && req.method !== "POST")) return false;
+    const [roomId, agentId] = [decode(subtasks[1]), decode(subtasks[2])];
+    const stopTaskId = subtasks[3] === undefined ? undefined : decode(subtasks[3]);
+    if (roomId === undefined || agentId === undefined || (subtasks[3] !== undefined && stopTaskId === undefined)) {
+      send(res, 400, { error: "malformed path" });
+      return true;
+    }
+    await handleSubtasks(res, ctx, roomId, agentId, stopTaskId);
     return true;
   }
   if (req.method === "POST" && url.pathname === "/rooms") {
@@ -101,7 +115,11 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
   }
   const match = /^\/rooms\/([^/]+)(\/canvas)?$/.exec(url.pathname);
   if (!match) return false;
-  const roomId = decodeURIComponent(match[1]);
+  const roomId = decode(match[1]);
+  if (roomId === undefined) {
+    send(res, 400, { error: "malformed path" });
+    return true;
+  }
   const isCanvas = match[2] !== undefined;
   if (req.method !== "GET" && !(isCanvas && req.method === "PUT")) return false;
   if (!roomExists(ctx, roomId)) {

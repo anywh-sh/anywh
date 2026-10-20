@@ -198,7 +198,15 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
   }
   const roomMatch = req.url?.match(/^\/room\/([^/]+)\/([^/]+)$/);
   if (roomMatch) {
-    void roomBridge.handleRequest(decodeURIComponent(roomMatch[1]), roomMatch[2], req, res);
+    let sessionId: string;
+    try {
+      sessionId = decodeURIComponent(roomMatch[1]);
+    } catch {
+      // A malformed escape: answered, never thrown out of the request listener.
+      res.writeHead(404).end();
+      return true;
+    }
+    void roomBridge.handleRequest(sessionId, roomMatch[2], req, res);
     return true;
   }
   return false;
