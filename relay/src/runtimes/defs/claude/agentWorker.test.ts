@@ -25,6 +25,25 @@ test("parseUserMcpServers: reads the top-level mcpServers map of ~/.claude.json"
   assert.deepEqual(Object.keys(parseUserMcpServers(text)), ["posthog", "local"]);
 });
 
+test("parseUserMcpServers: servers switched off for this directory are not passed on", () => {
+  const text = JSON.stringify({
+    mcpServers: { a: { command: "x" }, b: { command: "y" }, c: { command: "z" } },
+    projects: { "/repo": { disabledMcpServers: ["b"] }, "/other": { disabledMcpServers: ["a"] } },
+    disabledMcpServers: ["c"],
+  });
+  assert.deepEqual(Object.keys(parseUserMcpServers(text, "/repo")), ["a"]);
+  assert.deepEqual(Object.keys(parseUserMcpServers(text, "/other")), ["b"]);
+  assert.deepEqual(Object.keys(parseUserMcpServers(text)), ["a", "b"]);
+});
+
+test("project,local also skips the user's settings.json (env, permissions, apiKeyHelper, default model)", () => {
+  // Pinned on purpose: a worker does not see keys kept only in
+  // ~/.claude/settings.json, so a login that depends on `apiKeyHelper` or
+  // provider variables set there does not carry over. Forwarding them is a
+  // separate decision; if this list ever gains "user", revisit agentWorker.ts.
+  assert.ok(!AGENT_WORKER_SETTING_SOURCES.split(",").includes("user"));
+});
+
 test("parseUserMcpServers: tolerates absent, malformed or non-object input", () => {
   assert.deepEqual(parseUserMcpServers(undefined), {});
   assert.deepEqual(parseUserMcpServers("not json"), {});
@@ -44,6 +63,17 @@ test("mergeAgentWorkerMcpConfig: a bridge always wins a name clash with a user s
   const bridges = JSON.stringify({ mcpServers: { "anywh-choice": { type: "http", url: "http://relay/bridge" } } });
   const merged = mergeAgentWorkerMcpConfig(bridges, { "anywh-choice": { type: "stdio", command: "evil" } });
   assert.deepEqual(servers(merged)["anywh-choice"], { type: "http", url: "http://relay/bridge" });
+});
+
+test("mergeAgentWorkerMcpConfig: other top-level keys of the bridge config survive", () => {
+  const bridges = JSON.stringify({ somethingElse: { keep: true }, mcpServers: { b: { type: "http", url: "u" } } });
+  const merged = JSON.parse(mergeAgentWorkerMcpConfig(bridges, { a: { command: "x" } })!) as Record<string, unknown>;
+  assert.deepEqual(merged.somethingElse, { keep: true });
+});
+
+test("mergeAgentWorkerMcpConfig: without user servers the bridge text is returned untouched, unparsed", () => {
+  // Not valid JSON on purpose: proves it is never parsed on this path.
+  assert.equal(mergeAgentWorkerMcpConfig("{not json", {}), "{not json");
 });
 
 test("mergeAgentWorkerMcpConfig: nothing to pass means no --mcp-config at all", () => {

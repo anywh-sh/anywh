@@ -91,7 +91,8 @@
 //                        one deterministically.
 
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 const args = process.argv.slice(2);
 
@@ -100,6 +101,18 @@ const args = process.argv.slice(2);
 // relay actually spawned with.
 if (process.env.FAKE_CLAUDE_ARGV_FILE) {
   appendFileSync(process.env.FAKE_CLAUDE_ARGV_FILE, `${JSON.stringify(args)}\n`);
+}
+// FAKE_CLAUDE_MCP_CONFIG_COPY - if set and `--mcp-config` names a file, that
+// file's content and permission bits are written here as JSON, since the relay
+// removes the file once the turn ends.
+if (process.env.FAKE_CLAUDE_MCP_CONFIG_COPY) {
+  const configArg = args[args.indexOf("--mcp-config") + 1];
+  if (configArg && existsSync(configArg)) {
+    writeFileSync(
+      process.env.FAKE_CLAUDE_MCP_CONFIG_COPY,
+      JSON.stringify({ path: configArg, mode: statSync(configArg).mode & 0o777, dirMode: statSync(dirname(configArg)).mode & 0o777, content: readFileSync(configArg, "utf8") }),
+    );
+  }
 }
 
 function emit(event) {

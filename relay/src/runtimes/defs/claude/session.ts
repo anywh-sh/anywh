@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
 import { buildChildEnv } from "../../../host/childEnv.js";
-import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readUserMcpServers } from "./agentWorker.js";
+import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
 // Known reverse-direction dependency, surfaced by turning on the boundary
 // lint (not by this file changing): a def reaching into session/ for two
@@ -399,19 +399,32 @@ export class ClaudeSession {
   }
 
   /** `--mcp-config` and its companion flags for one turn, plus the settings
-   * restriction when this is an agent worker. */
-  private mcpArgs(mcp: McpSpawnConfig | undefined): string[] {
+   * restriction when this is an agent worker. A worker's config holds the
+   * user's server secrets, so it travels as a private file (removed by
+   * `remove`) instead of inline JSON in argv. */
+  private async mcpArgs(mcp: McpSpawnConfig | undefined, cwd: string): Promise<{ args: string[]; remove: () => Promise<void> }> {
     const worker = this.options.agentWorker === true;
-    const configJson = worker
-      ? mergeAgentWorkerMcpConfig(mcp?.configJson, readUserMcpServers(this.options.homeOverride ?? homedir()))
-      : mcp?.configJson;
-    return [
-      ...(worker ? ["--setting-sources", AGENT_WORKER_SETTING_SOURCES] : []),
-      ...(configJson ? ["--mcp-config", configJson] : []),
-      ...(mcp?.allowedTools ? ["--allowedTools", mcp.allowedTools] : []),
-      ...(mcp?.permissionPromptTool ? ["--permission-prompt-tool", mcp.permissionPromptTool] : []),
-      ...(mcp?.disallowedTools ? ["--disallowedTools", mcp.disallowedTools] : []),
-    ];
+    let remove = async (): Promise<void> => {};
+    let configArg = mcp?.configJson;
+    if (worker) {
+      await sweepStaleAgentWorkerMcpFiles();
+      const merged = mergeAgentWorkerMcpConfig(mcp?.configJson, await readUserMcpServers(this.options.homeOverride ?? homedir(), cwd));
+      if (merged) {
+        const file = await writeAgentWorkerMcpFile(merged);
+        configArg = file.path;
+        remove = file.remove;
+      }
+    }
+    return {
+      remove,
+      args: [
+        ...(worker ? ["--setting-sources", AGENT_WORKER_SETTING_SOURCES] : []),
+        ...(configArg ? ["--mcp-config", configArg] : []),
+        ...(mcp?.allowedTools ? ["--allowedTools", mcp.allowedTools] : []),
+        ...(mcp?.permissionPromptTool ? ["--permission-prompt-tool", mcp.permissionPromptTool] : []),
+        ...(mcp?.disallowedTools ? ["--disallowedTools", mcp.disallowedTools] : []),
+      ],
+    };
   }
 
   async sendTurn(
@@ -424,6 +437,7 @@ export class ClaudeSession {
     effort?: string,
   ): Promise<SendTurnResult> {
     this.stopRequested = false;
+    const mcpArgs = await this.mcpArgs(mcp, cwd);
     const args = [
       ...buildTurnArgs(text, permissionMode, model, mcp?.extraSystemPrompt, effort),
       // `mcp` combines whichever of the two independent bridges
@@ -436,7 +450,7 @@ export class ClaudeSession {
       // `acceptEdits` for every action the CLI itself decides needs
       // approval). Validated against the real binary that both flags
       // coexist fine in the same spawn — `default`/`acceptEdits` pass both.
-      ...this.mcpArgs(mcp),
+      ...mcpArgs.args,
     ];
     // If a previous `--resume` failed (invalid session, history not found,
     // etc.), sessionId was already cleared below — the next call
@@ -541,6 +555,7 @@ export class ClaudeSession {
       return { stopped: false, contextUsage, lastAssistantText };
     } finally {
       this.currentChild = undefined;
+      await mcpArgs.remove();
     }
   }
 }
