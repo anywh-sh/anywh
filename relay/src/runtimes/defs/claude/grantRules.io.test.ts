@@ -25,40 +25,43 @@ test("Write/Edit/MultiEdit on a plain absolute path become the one path rule tha
   });
 });
 
-test("a path that would name more than one file gets NO grant at all, never the tool-wide fallback", () => {
+test("a path no single rule can name safely gets the tool-wide edit rule, flagged broad (never a narrow rule that would cover a subtree)", () => {
   withDir((dir) => {
-    const bad = [
+    const unsafe = [
       `${dir}/x/..`, // the parent: a whole subtree
       `${dir}/.`,
       `${dir}/`,
       `${dir}//x`,
       `${dir}/a/../b`,
       "relative/out.txt",
-      "/",
       `${dir}/*.txt`,
       `${dir}/a?b`,
-      `${dir}/[x]`,
+      `${dir}/app/[id]/page.tsx`,
+      `${dir}/app/(auth)/login.tsx`,
       `${dir}/{a,b}`,
-      `${dir}/a(1)`,
       `${dir}/a,b`,
     ];
-    for (const file_path of bad) assert.equal(grantRuleFor({ tool: "Write", input: { file_path } }), undefined, file_path);
-    assert.equal(grantRuleFor({ tool: "Edit", input: {} }), undefined, "no path at all");
+    for (const file_path of unsafe) {
+      assert.deepEqual(grantRuleFor({ tool: "Write", input: { file_path } }), { rule: "Write", broad: true }, file_path);
+    }
+    assert.deepEqual(grantRuleFor({ tool: "Edit", input: { file_path: `${dir}/app/[id]/page.tsx` } }), { rule: "Edit", broad: true });
+    assert.deepEqual(grantRuleFor({ tool: "MultiEdit", input: { file_path: "rel" } }), { rule: "Edit", broad: true });
+    assert.equal(grantRuleFor({ tool: "Edit", input: {} }), undefined, "no path at all: nothing to grant");
     assert.equal(grantRuleFor({ tool: "Write", input: { file_path: 3 } }), undefined);
   });
 });
 
-test("a path through a symlinked directory, or that is itself a symlink, gets no grant; a not-yet-existing file in a real directory does", () => {
+test("a path through a symlinked directory, or that is itself a symlink, is broad; a not-yet-existing file in a real directory is narrow", () => {
   withDir((dir) => {
     mkdirSync(`${dir}/real`);
     symlinkSync(`${dir}/real`, `${dir}/link`);
     writeFileSync(`${dir}/real/f.txt`, "x");
     symlinkSync(`${dir}/real/f.txt`, `${dir}/real/alias.txt`);
-    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/link/f.txt` } }), undefined, "symlinked directory");
-    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/alias.txt` } }), undefined, "symlink file");
-    assert.ok(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/f.txt` } }));
-    assert.ok(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/new.txt` } }));
-    assert.ok(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/missing-dir/new.txt` } }), "an unresolvable parent is not a symlink");
+    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/link/f.txt` } })?.broad, true, "symlinked directory");
+    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/alias.txt` } })?.broad, true, "symlink file");
+    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/f.txt` } })?.broad, false);
+    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/real/new.txt` } })?.broad, false);
+    assert.equal(grantRuleFor({ tool: "Write", input: { file_path: `${dir}/missing-dir/new.txt` } })?.broad, false, "an unresolvable parent is not a symlink");
   });
 });
 
@@ -78,7 +81,7 @@ test("MCP tools and every other tool are broad by name; ExitPlanMode has no rule
   assert.equal(grantRuleFor({ tool: "ExitPlanMode", input: {} }), undefined);
 });
 
-test("buildGrantRules: dedupes, skips what has no rule", () => {
+test("buildGrantRules: dedupes, skips ExitPlanMode", () => {
   withDir((dir) => {
     assert.deepEqual(
       buildGrantRules([
@@ -88,7 +91,7 @@ test("buildGrantRules: dedupes, skips what has no rule", () => {
         { tool: "Write", input: { file_path: "relative" } },
         { tool: "ExitPlanMode", input: {} },
       ]),
-      [`Edit(/${dir}/a)`, `Edit(/${dir}/b)`],
+      [`Edit(/${dir}/a)`, `Edit(/${dir}/b)`, "Write"],
     );
   });
 });
@@ -109,8 +112,32 @@ test("planDeferredGrants: the same rule holds for MCP and WebFetch, and a narrow
   });
 });
 
-test("planDeferredGrants: an approved call no rule can name is asked again, not widened", () => {
-  assert.deepEqual(planDeferredGrants([{ tool: "Write", input: { file_path: "relative" }, approved: true }]), ["asked-again"]);
+test("planDeferredGrants: approving /repo/app/[id]/page.tsx is granted tool-wide when nothing of the edit tools was refused, so it converges", () => {
+  withDir((dir) => {
+    const page = { tool: "Edit", input: { file_path: `${dir}/app/[id]/page.tsx` } };
+    assert.deepEqual(planDeferredGrants([{ ...page, approved: true }]), ["granted"]);
+    assert.deepEqual(buildGrantRules([page]), ["Edit"]);
+  });
+});
+
+test("planDeferredGrants: with a refused sibling in the edit family, the broad edit grant is withheld (Write, Edit and MultiEdit count as one)", () => {
+  withDir((dir) => {
+    const page = { tool: "Write", input: { file_path: `${dir}/app/[id]/page.tsx` } };
+    assert.deepEqual(planDeferredGrants([{ ...page, approved: true }, { tool: "Write", input: { file_path: `${dir}/b.ts` }, approved: false }]), ["asked-again", "denied"]);
+    assert.deepEqual(planDeferredGrants([{ ...page, approved: true }, { tool: "Edit", input: { file_path: `${dir}/b.ts` }, approved: false }]), ["asked-again", "denied"]);
+  });
+});
+
+test("planDeferredGrants: a narrow rule is not given when a refused call names the same target (Edit a.ts approved, Write a.ts denied)", () => {
+  withDir((dir) => {
+    const a = `${dir}/a.ts`;
+    assert.deepEqual(planDeferredGrants([{ tool: "Edit", input: { file_path: a }, approved: true }, { tool: "Write", input: { file_path: a }, approved: false }]), ["asked-again", "denied"]);
+    assert.deepEqual(planDeferredGrants([{ tool: "Bash", input: { command: "ls" }, approved: true }, { tool: "Bash", input: { command: "ls" }, approved: false }]), ["asked-again", "denied"]);
+  });
+});
+
+test("planDeferredGrants: an approved call with nothing to grant (no path) is asked again", () => {
+  assert.deepEqual(planDeferredGrants([{ tool: "Write", input: {}, approved: true }]), ["asked-again"]);
 });
 
 test("planDeferredGrants: an approved ExitPlanMode is cleared (it needs no rule), a denied one is denied", () => {

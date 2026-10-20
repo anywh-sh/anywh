@@ -54,7 +54,12 @@ export function grantRuleFor({ tool, input }: ToolGrant): GrantRule | undefined 
   if (tool === "ExitPlanMode") return undefined;
   if (tool === "Write" || tool === "Edit" || tool === "MultiEdit") {
     const path = stringField(input, "file_path");
-    return path !== undefined && isPlainAbsolutePath(path) ? { rule: `Edit(/${path})`, broad: false } : undefined;
+    if (path === undefined) return undefined;
+    if (isPlainAbsolutePath(path)) return { rule: `Edit(/${path})`, broad: false };
+    // No rule can name this one file (rule syntax in the name, a symlink in
+    // the way, a relative or non-canonical path): only the tool can be
+    // granted, under the same condition as any broad grant.
+    return { rule: tool === "MultiEdit" ? "Edit" : tool, broad: true };
   }
   if (tool === "Bash") {
     const command = stringField(input, "command");
@@ -74,6 +79,12 @@ export function buildGrantRules(grants: readonly ToolGrant[]): string[] {
   return [...rules];
 }
 
+/** The edit tools overlap (`Edit` covers `Write`), so a refusal of one is a
+ * refusal for all of them. */
+function groupOf(tool: string): string {
+  return tool === "Write" || tool === "Edit" || tool === "MultiEdit" ? "file-edit" : tool;
+}
+
 export type GrantOutcome = "granted" | "asked-again" | "denied";
 
 /**
@@ -85,13 +96,17 @@ export type GrantOutcome = "granted" | "asked-again" | "denied";
  * be asked about again.
  */
 export function planDeferredGrants(calls: readonly (ToolGrant & { approved: boolean })[]): GrantOutcome[] {
-  const refusedTools = new Set(calls.filter((call) => !call.approved).map((call) => call.tool));
+  const refused = calls.filter((call) => !call.approved);
+  const refusedGroups = new Set(refused.map((call) => groupOf(call.tool)));
+  // A narrow rule also covers a refused call that names the same target.
+  const refusedRules = new Set(refused.flatMap((call) => grantRuleFor(call)?.rule ?? []));
   return calls.map((call) => {
     if (!call.approved) return "denied";
     // Needs no rule: approving it is what leaves plan mode.
     if (call.tool === "ExitPlanMode") return "granted";
     const found = grantRuleFor(call);
-    if (!found || (found.broad && refusedTools.has(call.tool))) return "asked-again";
+    if (!found) return "asked-again";
+    if (found.broad ? refusedGroups.has(groupOf(call.tool)) : refusedRules.has(found.rule)) return "asked-again";
     return "granted";
   });
 }
