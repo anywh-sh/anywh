@@ -70,6 +70,45 @@ test("sendTurn: without any bridge configured, no --mcp-config is built and the 
   }
 });
 
+const PACK_VARS = ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING"];
+
+async function spawnedEnvs(agentWorker: boolean | undefined): Promise<Record<string, string>[]> {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-claude-env-test-"));
+  const file = join(dir, "env.jsonl");
+  process.env.FAKE_CLAUDE_ENV_FILE = file;
+  // A private HOME keeps worker mode from reading or sweeping the real one,
+  // and the opt-outs are cleared so a dev/CI machine that exports them can't
+  // make the "ordinary session" assertion pass or fail by accident.
+  const saved = PACK_VARS.map((name) => [name, process.env[name]] as const);
+  for (const name of PACK_VARS) delete process.env[name];
+  try {
+    await new ClaudeSessionDriver({ host: noopHost, agentWorker, homeOverride: dir }).sendTurn(turnContext(), () => {});
+    return readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, string>);
+  } finally {
+    for (const [name, value] of saved) if (value !== undefined) process.env[name] = value;
+    delete process.env.FAKE_CLAUDE_ENV_FILE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("sendTurn: an agent worker's claude gets the background-traffic opt-outs", async () => {
+  const envs = await spawnedEnvs(true);
+  assert.ok(envs.length >= 1);
+  for (const env of envs) {
+    for (const name of PACK_VARS) assert.equal(env[name], "1", name);
+    assert.equal(env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+  }
+});
+
+test("sendTurn: an ordinary session's claude gets none of the opt-outs", async () => {
+  for (const agentWorker of [false, undefined]) {
+    for (const env of await spawnedEnvs(agentWorker)) {
+      for (const name of PACK_VARS) assert.equal(env[name], undefined, name);
+      assert.equal(env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+    }
+  }
+});
+
 test("getSessionId/setSessionId/resetSessionId delegate to the underlying ClaudeSession", () => {
   const driver = new ClaudeSessionDriver({ host: noopHost });
   assert.equal(driver.getSessionId(), undefined);

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../../registry.js";
 import { claudeRuntimeDef } from "./def.js";
+import { CLAUDE_AGENT_ENV_OVERRIDES, CLAUDE_AGENT_WORKER_ENV } from "./session.js";
 import type { TurnContext } from "../../types.js";
 
 function turnContext(overrides: Partial<TurnContext> = {}): TurnContext {
@@ -120,4 +121,12 @@ test("portability.mcp.needsAuthSignal.parse: a missing, empty or reshaped file m
 test("portability.mcp.loginArgs: headless by construction — the flag that prints the URL instead of opening a browser", () => {
   if (claudeRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
   assert.deepEqual(claudeRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "--no-browser", "sentry"]);
+});
+
+test("identity.env.set: probes and the terminal never carry the agent-worker opt-outs, and the terminal keeps the MCP timeout", () => {
+  for (const name of Object.keys(CLAUDE_AGENT_WORKER_ENV)) {
+    assert.ok(!(name in (claudeRuntimeDef.identity.env.set ?? {})), `identity.env.set has ${name}`);
+    assert.ok(!(name in CLAUDE_AGENT_ENV_OVERRIDES), `terminal env has ${name}`);
+  }
+  assert.equal(CLAUDE_AGENT_ENV_OVERRIDES.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
 });
