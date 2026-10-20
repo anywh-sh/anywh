@@ -97,6 +97,7 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
       SYSTEMCTL_BIN: FAKE_SYSTEMCTL_BIN,
       // Never the machine's real agent host socket (see testServer.ts).
       ANYWH_AGENT_HOST_SOCKET: join(workDir, "agent-host.sock"),
+      ANYWH_SESSIONS_ROOT: join(workDir, "sessions-root"),
       ...extraEnv,
     },
   });

@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import { agentHostDataDir } from "../agentHost/paths.js";
+import { applyEnvFileContent } from "../host/envFile.js";
 import { isCreateProfileBody, isPatchProfileBody } from "../protocol/guards.js";
 import { readJsonBody, readOptionalJsonBody } from "../protocol/httpBody.js";
 import { resolveShipped } from "../host/paths.js";
@@ -48,6 +51,37 @@ function resolveRuntime(registry: Registry, runtimeId: unknown): { def: AgentRun
   const id = typeof runtimeId === "string" && runtimeId.length > 0 ? runtimeId : DEFAULT_RUNTIME_ID;
   const def = registry.get(id);
   return def ? { def } : { error: `unknown runtime "${id}"` };
+}
+
+/** Where profile `id`'s agent host keeps its data: its env file's
+ * `ANYWH_AGENT_HOST_DIR`, or the default next to the relay's own files.
+ * Read before the env file is deleted. */
+function agentHostDataDirOf(id: string): string {
+  const fileEnv: NodeJS.ProcessEnv = {};
+  try {
+    applyEnvFileContent(readFileSync(envFileFor(id), "utf8"), fileEnv);
+  } catch {
+    // no env file: defaults
+  }
+  return agentHostDataDir(id, { ...fileEnv, ANYWH_SESSIONS_ROOT: fileEnv.ANYWH_SESSIONS_ROOT ?? process.env.ANYWH_SESSIONS_ROOT });
+}
+
+/** Removes an agent host's data directory — only if it holds nothing but
+ * what a host writes there, so a mistyped ANYWH_AGENT_HOST_DIR can never
+ * turn a profile delete into deleting something else. */
+function removeAgentHostData(dir: string): void {
+  try {
+    if (!isAbsolute(dir) || dir === "/") return;
+    const entries = readdirSync(dir);
+    const ours = /^(registry\.json(\.tmp|\.corrupt-\d+)?|logs|\.anywh-agent-host-[0-9a-f]+\.lock)$/;
+    if (!entries.every((entry) => ours.test(entry))) {
+      console.error("[relay] not removing", dir, "— it holds files an agent host does not write");
+      return;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("[relay] failed to remove agent host data", dir, ":", error);
+  }
 }
 
 export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
@@ -260,9 +294,16 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           resolveDisable();
         });
       });
-    void disableUnit(`anywh-relay@${id}`)
-      .then(() => disableUnit(`anywh-agent-host@${id}`))
-      .then(finishDelete);
+    const hostData = agentHostDataDirOf(id);
+    // The relay first, as before; the agent host after the response: its
+    // stop drains (up to minutes), and the caller should not wait on that.
+    // Its data (agent specs, which can carry MCP secrets, and logs) goes once
+    // it is stopped, so a profile recreated under the same id does not bring
+    // the old agents back.
+    void disableUnit(`anywh-relay@${id}`).then(() => {
+      finishDelete();
+      void disableUnit(`anywh-agent-host@${id}`).then(() => removeAgentHostData(hostData));
+    });
     return true;
   }
 

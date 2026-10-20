@@ -18,7 +18,14 @@
 // can check which units the relay asked to disable.
 import { appendFileSync } from "node:fs";
 
+// FAKE_SYSTEMCTL_HOST_DELAY_MS, if set, makes a call naming an
+// `anywh-agent-host@` unit take that long, like a real `disable --now` that
+// waits for the host to drain.
 if (process.env.FAKE_SYSTEMCTL_ARGV_FILE) {
   appendFileSync(process.env.FAKE_SYSTEMCTL_ARGV_FILE, `${JSON.stringify(process.argv.slice(2))}\n`);
+}
+const delay = Number(process.env.FAKE_SYSTEMCTL_HOST_DELAY_MS ?? 0);
+if (delay > 0 && process.argv.some((arg) => arg.startsWith("anywh-agent-host@"))) {
+  await new Promise((resolve) => setTimeout(resolve, delay));
 }
 process.exit(0);
