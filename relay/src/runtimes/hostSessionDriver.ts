@@ -49,6 +49,8 @@ export interface HostAgentBinding {
   readonly cursors?: Pick<FileCursorStore, "get" | "set">;
   /** This relay's id, recorded on the agent in the host (see `roomOwnerOf`). */
   readonly owner?: string;
+  /** The number of native subagents the agent has running changed. */
+  readonly onSubtasksChanged?: () => void;
 }
 
 export interface HostSessionDriverOptions {
@@ -450,11 +452,19 @@ export class HostSessionDriver implements AgentSessionDriver {
     return "stopping";
   }
 
+  private runningSubtasks(): number {
+    return this.subtasks.list().filter((task) => task.status === "running").length;
+  }
+
   private onRecord(record: EventMessage): void {
     this.options.binding.cursors?.set(this.agentId, { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc });
     const event = record.ev;
     if (!this.daemonPlan && !this.resetPending && typeof event.session_id === "string") this.sessionId = event.session_id;
-    if (!this.daemonPlan) this.subtasks.observe(event);
+    if (!this.daemonPlan) {
+      const before = this.runningSubtasks();
+      this.subtasks.observe(event);
+      if (this.runningSubtasks() !== before) this.options.binding.onSubtasksChanged?.();
+    }
     // A native subagent's permission request carries its `agent_id`: once
     // approvals are deferred to the person, it belongs to this agent's card
     // as a pending approval named after the subtask

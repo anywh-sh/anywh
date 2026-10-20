@@ -387,7 +387,7 @@ export class SessionManager {
       def,
       ...(room
         ? {
-            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}) },
+            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}), onSubtasksChanged: () => this.rooms.onMemberChanged?.(id) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
             onTurnStateChange: () => this.rooms.onMemberChanged?.(id),
           }

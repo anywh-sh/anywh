@@ -662,6 +662,7 @@ export class SessionStore {
     this.ensureEntry(id);
     this.records[id].title = title;
     this.persist();
+    this.notifyRoom(id);
   }
 
   recordSessionId(id: string, agentId: AgentId, sessionId: string): void {
@@ -738,6 +739,7 @@ export class SessionStore {
     this.records[id].model ??= {};
     this.records[id].model[agentId] = model;
     this.persist();
+    this.notifyRoom(id);
   }
 
   getEffort(id: string, agentId: AgentId): string | undefined {
