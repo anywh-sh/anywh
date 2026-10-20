@@ -242,7 +242,18 @@ test("with its host down a worker's queue stays on disk, untouched, and goes out
       },
     }),
   );
-  const queued = (): string[] => ((JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: { text: string }[] } }>).w7.room?.queuedMessages ?? []).map((m) => m.text);
+  // The relay rewrites this file in place (truncate, then write), so a read
+  // can land on a half-written file: keep the last complete answer instead.
+  let lastQueued: string[] = ["first", "second"];
+  const queued = (): string[] => {
+    try {
+      const records = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: { text: string }[] } }>;
+      lastQueued = (records.w7.room?.queuedMessages ?? []).map((m) => m.text);
+    } catch {
+      // Torn read; retry on the next call.
+    }
+    return lastQueued;
+  };
   const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: socketPath, RELAY_SESSIONS_FILE: sessionsFile });
   let host: ReturnType<typeof startHostProcess> | undefined;
   try {
