@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { WebSocketServer, type WebSocket } from "ws";
 import { McpChoiceBridge } from "./bridges/mcpBridge.js";
 import { McpPermissionBridge } from "./bridges/permissionBridge.js";
+import { ROOM_BRIDGE_PATH, RoomBridge, roomKeyPathFor } from "./bridges/roomBridge.js";
 import { defaultCwd } from "./host/paths.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
@@ -9,7 +10,7 @@ import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { detectRuntimes, parseCliVersion } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
-import type { ModelCatalog } from "./runtimes/types.js";
+import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
 import { HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
@@ -27,6 +28,7 @@ import { PushDispatcher } from "./push/dispatcher.js";
 import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { RoomCanvasStore, roomCanvasPathFor } from "./session/roomCanvas.js";
+import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -77,6 +79,10 @@ const mcpChoiceBridge = new McpChoiceBridge();
 // namespace, own route below) even though both are the same "local-only MCP
 // server the relay's own `claude` children call into" idea.
 const mcpPermissionBridge = new McpPermissionBridge();
+// The room tools (`anywh-room`), for the agents of a room — which run in
+// the agent host and keep their bridge URL for their whole life, across
+// relay restarts (see roomBridge.ts for why its token is not per turn).
+const roomBridge = new RoomBridge(process.env.RELAY_ROOM_KEY_FILE ?? roomKeyPathFor(SESSIONS_FILE), `http://127.0.0.1:${PORT}${ROOM_BRIDGE_PATH}`);
 // Sockets connected to `/sessions/watch` (client/src/hooks/relay/useSessionNames.ts)
 // — one per device showing the sidebar, independent of which session tabs
 // (if any) it has open. `SessionManager` doesn't know about WebSocket at
@@ -122,8 +128,22 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
-  { agentHost },
+  { agentHost, roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id) },
 );
+
+// Runtimes a room can use: the installed ones the agent host can run. Until
+// detection answers, every one the registry has.
+let roomRuntimes: readonly string[] = registry.defs.map((def) => def.identity.id).filter((id) => HOST_RUNTIMES.includes(id));
+const roomManager: RoomManager = new RoomManager({
+  store: sessionStore,
+  sessions: sessionManager,
+  registry,
+  bridge: roomBridge,
+  runtimes: () => roomRuntimes,
+  hostConnected: () => agentHost?.status === "connected",
+  getModelCatalog: (agentId) => modelCatalogs[agentId],
+});
+roomBridge.attach(roomManager);
 
 
 const routeContext: RouteContext = {
@@ -136,6 +156,7 @@ const routeContext: RouteContext = {
   pushStore,
   agentHost,
   roomCanvas,
+  roomManager,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -175,6 +196,11 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
     void mcpPermissionBridge.handleRequest(permissionMatch[1], req, res);
     return true;
   }
+  const roomMatch = req.url?.match(/^\/room\/([^/]+)\/([^/]+)$/);
+  if (roomMatch) {
+    void roomBridge.handleRequest(decodeURIComponent(roomMatch[1]), roomMatch[2], req, res);
+    return true;
+  }
   return false;
 }
 
@@ -206,6 +232,7 @@ detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
   .then((detections) => {
     const selectable = detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id));
     setSelectableAgents(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities, version: parseCliVersion(detection.version) })));
+    roomRuntimes = selectable.map((detection) => detection.id).filter((id) => HOST_RUNTIMES.includes(id));
     for (const def of [claudeRuntimeDef, codexRuntimeDef]) {
       if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
       probeModelCatalog(def, HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))

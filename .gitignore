@@ -8,6 +8,7 @@ node_modules
 dist/
 relay/sessions.local.json
 relay/sessions.local-rooms.json
+relay/sessions.local-room.key
 relay/.env
 
 # systemd (rendered from *.service.template — machine-specific paths)

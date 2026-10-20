@@ -1207,6 +1207,11 @@ export class SharedSession implements SessionDriverHost {
     return this.turnQueue;
   }
 
+  /** Whether a turn is running in this session right now. */
+  isTurnInFlight(): boolean {
+    return this.turnStartedAt !== null;
+  }
+
   /** Whether this session's agent lives in the agent host, outside the
    * relay process. */
   runsOutsideRelay(): boolean {

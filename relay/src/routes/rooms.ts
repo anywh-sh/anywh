@@ -39,6 +39,10 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
 
 /**
  * Rooms over HTTP:
+ *   POST /rooms                  opens a room: `{ agentId?, model?, effort?,
+ *                                permissionMode?, cwd?, title? }` for its
+ *                                principal → `201 { roomId }` (the principal's
+ *                                session id: chat with it like any session)
  *   GET  /rooms/:roomId          the room's agents (principal first)
  *   GET  /rooms/:roomId/canvas   the room's canvas (layout only)
  *   PUT  /rooms/:roomId/canvas   replaces it: `{ canvas }`, validated whole
@@ -46,6 +50,19 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
  */
 export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
   const url = new URL(req.url ?? "/", "http://relay");
+  if (req.method === "POST" && url.pathname === "/rooms") {
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      send(res, 400, { error: "invalid body" });
+      return true;
+    }
+    const created = ctx.roomManager.createRoom(typeof body === "object" && body !== null ? body : {});
+    if (created.ok) send(res, 201, { roomId: created.roomId });
+    else send(res, 400, { error: created.error });
+    return true;
+  }
   const match = /^\/rooms\/([^/]+)(\/canvas)?$/.exec(url.pathname);
   if (!match) return false;
   const roomId = decodeURIComponent(match[1]);

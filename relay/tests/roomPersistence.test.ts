@@ -6,7 +6,10 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentActivity } from "../src/agentHost/protocol.js";
+import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay } from "./helpers/spawnedServer.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 const entry = (title: string, room?: unknown) => ({
   agentId: "claude",
@@ -72,6 +75,64 @@ test("rooms survive a relay restart: members, reports, outbox and canvas; worker
     assert.equal(onDisk.broken.room, undefined, "the malformed membership was dropped from the file");
   } finally {
     relay.cleanup();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a worker in the middle of its task when the relay restarts goes on in the host, and its report reaches the new relay", async () => {
+  const { dir, home } = hostEnvDir();
+  const host = startHostProcess(dir, home);
+  const sessionsFile = join(dir, "profile.json");
+  const env = { ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile };
+  let relay = await spawnRelay(env);
+  const port = String(relay.port);
+  const base = (): string => `http://127.0.0.1:${relay.port}`;
+  const waitFor = async (check: () => Promise<boolean>, what: string): Promise<void> => {
+    const deadline = Date.now() + 20_000;
+    while (!(await check().catch(() => false))) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}\n${relay.output.join("").slice(-2000)}\n${host.output.join("").slice(-2000)}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
+  const marker = (tool: string, args: unknown): string => `[[room:${tool}:${Buffer.from(JSON.stringify(args)).toString("base64url")}]]`;
+  const agents = async (): Promise<AgentActivity[]> => ((await (await fetch(`${base()}/agents/activity`)).json()) as { agents: AgentActivity[] }).agents;
+  try {
+    await waitFor(async () => (await fetch(`${base()}/agents/activity`)).status === 200, "relay connected to the host");
+    const created = (await (await fetch(`${base()}/rooms`, { method: "POST", body: JSON.stringify({ agentId: "claude", model: "haiku", cwd: dir }) })).json()) as { roomId: string };
+    const roomId = created.roomId;
+    const gate = join(dir, "gate");
+    const task = `long task [[gate:${gate}]] ${marker("report", { status: "done", summary: "finished after the restart", artifacts: [] })}`;
+    const socket = await connectSession(relay.port, roomId);
+    const done = collectUntil(socket, isTurnEnded, 30_000);
+    sendUserMessage(socket, marker("delegate", { task, runtime: "claude", model: "haiku" }));
+    await done;
+    socket.close();
+    let workerId = "";
+    await waitFor(async () => {
+      const worker = (await agents()).find((agent) => agent.roomId === roomId && agent.agentId !== roomId);
+      workerId = worker?.agentId ?? "";
+      return worker?.state === "working";
+    }, "the worker in the middle of its task");
+    const pid = (await agents()).find((agent) => agent.agentId === workerId)!.pid;
+
+    // The relay goes down hard, mid-task, and comes back on the same port.
+    relay.proc.kill("SIGKILL");
+    await relay.waitForExit();
+    relay.cleanup();
+    relay = await spawnRelay({ ...env, RELAY_PORT: port });
+    await waitFor(async () => (await agents()).some((agent) => agent.agentId === workerId), "the new relay connected to the host");
+    assert.equal((await agents()).find((agent) => agent.agentId === workerId)!.pid, pid, "the same worker process kept running");
+
+    writeFileSync(gate, "");
+    await waitFor(async () => {
+      const room = (await (await fetch(`${base()}/rooms/${roomId}`)).json()) as { members: { id: string; room: { report?: { summary: string }; undeliveredReports?: string[] } }[] };
+      return room.members.find((member) => member.id === workerId)?.room.report?.summary === "finished after the restart";
+    }, "the report through the new relay");
+    const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { undeliveredReports?: string[] } }>;
+    assert.deepEqual(onDisk[roomId].room?.undeliveredReports, [workerId], "persisted in the principal's outbox");
+  } finally {
+    relay.cleanup();
+    await host.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });

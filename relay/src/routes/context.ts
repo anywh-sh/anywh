@@ -4,6 +4,7 @@ import type { PushStore } from "../push/pushStore.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
 import type { RoomCanvasStore } from "../session/roomCanvas.js";
+import type { RoomManager } from "../session/roomManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
 
 /** Shared server-lifetime state a route handler needs — everything else
@@ -31,6 +32,7 @@ export interface RouteContext {
   readonly agentHost: HostClient | undefined;
   /** Each room's canvas (layout only), persisted beside the sessions file. */
   readonly roomCanvas: RoomCanvasStore;
+  readonly roomManager: RoomManager;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

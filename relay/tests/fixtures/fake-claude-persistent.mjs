@@ -35,6 +35,13 @@
 //                        process's stdout/stderr (a tool that daemonized
 //                        without closing them) and is not cleaned up on
 //                        SIGTERM, then end the turn
+//   [[room:<tool>:<base64url JSON args>]] call that tool of the relay's
+//                        `anywh-room` MCP server (the URL comes from the
+//                        `--mcp-config` file, as the real CLI reads it): a
+//                        `tool_use`, the real HTTP `tools/call`, its
+//                        `tool_result`; repeatable, run in order; the turn
+//                        then ends with the last result's text; with a
+//                        [[gate:<path>]] too, the calls wait for the gate
 //   [[stale-result:<path>]] end the turn normally; when the NEXT message
 //                        arrives, first print one more lone `result` (as if
 //                        a background-triggered turn's result were still in
@@ -42,7 +49,7 @@
 //                        <path> exists before starting that message's turn
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export async function runPersistent(args) {
   const flag = (name) => {
@@ -107,12 +114,58 @@ export async function runPersistent(args) {
       turn.interrupt = resolve;
     });
 
+  // What the real CLI does for an MCP tool call, minus the handshake: the
+  // `anywh-room` server's URL from the `--mcp-config` file, one `tools/call`.
+  async function callRoomTool(tool, input) {
+    const configPath = flag("--mcp-config");
+    let url;
+    try {
+      url = JSON.parse(readFileSync(configPath, "utf8")).mcpServers?.["anywh-room"]?.url;
+    } catch {
+      url = undefined;
+    }
+    if (!url) return { text: "anywh-room is not configured", isError: true };
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: input } }),
+      });
+      if (!response.ok) return { text: `HTTP ${response.status}`, isError: true };
+      const body = await response.json();
+      return { text: body.result?.content?.map((part) => part.text).join("") ?? "", isError: body.result?.isError === true };
+    } catch (error) {
+      return { text: `call failed: ${error.message}`, isError: true };
+    }
+  }
+
   async function runTurn(text) {
     turns++;
     turn = { absorbed: [], interrupt: null };
     emit({ type: "system", subtype: "init", model, cwd: process.cwd(), tools: ["Bash"] });
     if (partial) emit({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" } } });
 
+    const roomCalls = [...text.matchAll(/\[\[room:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)];
+    if (roomCalls.length > 0) {
+      // With a gate as well: the turn is in flight, waiting, before any call.
+      const roomGate = /\[\[gate:([^\]]+)\]\]/.exec(text)?.[1];
+      if (roomGate) {
+        toolCall("toolu_gate", "make build");
+        await waitForFile(roomGate);
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_gate", content: "built" }] } });
+      }
+      let last = "";
+      for (const [index, [, tool, encoded]] of roomCalls.entries()) {
+        const input = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
+        const id = `toolu_room_${turns}_${index}`;
+        emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id, name: `mcp__anywh-room__${tool}`, input }] } });
+        const { text: resultText, isError } = await callRoomTool(tool, input);
+        last = resultText;
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: resultText, is_error: isError }] } });
+      }
+      finish(`room: ${last}`);
+      return;
+    }
     const stale = /\[\[stale-result:([^\]]+)\]\]/.exec(text)?.[1];
     if (stale) staleBeforeNext = stale;
     if (text.includes("[[detach]]")) {
