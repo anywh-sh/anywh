@@ -245,9 +245,15 @@ export class HostClient extends EventEmitter<HostClientEvents> {
       resolve: (value) => {
         if (state.closed || state.sub !== id) return;
         const result = value as SubscribeResult;
+        // A different incarnation: the host restarts from the log's start.
+        // No incarnation at all (a cursor kept before it was recorded): the
+        // offset still says where to start, but its seq may belong to another
+        // log, so it must not drop anything.
         state.cursor = result.reset
           ? { nextOffset: result.firstOffset, lastSeq: -1, incarnation: result.incarnation }
-          : { ...state.cursor, incarnation: result.incarnation };
+          : state.cursor.incarnation === undefined
+            ? { nextOffset: state.cursor.nextOffset, lastSeq: -1, incarnation: result.incarnation }
+            : { ...state.cursor, incarnation: result.incarnation };
       },
       reject: (error) => {
         if (state.closed || this.subscriptions.get(state.agentId) !== state) return;
@@ -370,7 +376,7 @@ export class HostClient extends EventEmitter<HostClientEvents> {
           // Already delivered (an overlapping replay); keep the furthest cursor.
           return;
         }
-        state.cursor = { nextOffset: message.next, lastSeq: message.seq, incarnation: state.cursor.incarnation };
+        state.cursor = { nextOffset: message.next, lastSeq: message.seq, incarnation: message.inc };
         try {
           state.handlers.onEvent(message);
         } catch (error) {
@@ -381,7 +387,10 @@ export class HostClient extends EventEmitter<HostClientEvents> {
       case "replay_gap": {
         const state = this.subscriptions.get(message.agentId);
         if (!state || state.closed || message.sub !== state.sub) return;
-        state.cursor = { ...state.cursor, nextOffset: message.resumeOffset };
+        // "ahead": the log is shorter than the cursor says (it lost an
+        // unsynced tail in an OS crash, or was rewritten): the seqs that come
+        // next may repeat ones already seen, and they are new records.
+        state.cursor = { ...state.cursor, nextOffset: message.resumeOffset, lastSeq: message.reason === "ahead" ? -1 : state.cursor.lastSeq };
         state.handlers.onGap?.(message);
         return;
       }

@@ -17,8 +17,8 @@ let cursor: AgentCursor = START_OF_LOG;
 if (existsSync(out)) {
   const last = readFileSync(out, "utf8").trimEnd().split("\n").at(-1);
   if (last) {
-    const record = JSON.parse(last) as { seq: number; next: number };
-    cursor = { nextOffset: record.next, lastSeq: record.seq };
+    const record = JSON.parse(last) as { seq: number; next: number; inc: string };
+    cursor = { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc };
   }
 }
 
@@ -26,7 +26,7 @@ const client = new HostClient({ socketPath, clientName: "test-consumer", reconne
 client.start();
 client.subscribe(agentId, cursor, {
   onEvent: (event) => {
-    appendFileSync(out, `${JSON.stringify({ seq: event.seq, off: event.off, next: event.next, type: event.ev.type, subtype: event.ev.subtype ?? null })}\n`);
+    appendFileSync(out, `${JSON.stringify({ seq: event.seq, off: event.off, next: event.next, inc: event.inc, type: event.ev.type, subtype: event.ev.subtype ?? null })}\n`);
   },
   onCaughtUp: (nextOffset) => console.log(`caught_up ${nextOffset}`),
 });

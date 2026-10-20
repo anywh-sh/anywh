@@ -464,3 +464,60 @@ test("a huge event reaches a live subscriber truncated, and the connection survi
     await f.cleanup();
   }
 });
+
+test("events carry their log's incarnation, so a consumer can persist it with its cursor", async () => {
+  const f = await fixture();
+  try {
+    const log = AgentEventLog.open(join(f.dir, "logs", "a1"));
+    f.logs.set("a1", log);
+    log.append({ type: "assistant" });
+    const client = newClient(f);
+    const { events, sub } = collect(client, "a1");
+    await waitFor(() => events.length === 1, 5000, "event");
+    assert.equal(events[0].inc, log.incarnation);
+    assert.equal(sub.cursor().incarnation, log.incarnation);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a cursor past the end of the log (a log that lost its tail) does not swallow the records that come after", async () => {
+  const f = await fixture();
+  try {
+    const log = AgentEventLog.open(join(f.dir, "logs", "a1"));
+    f.logs.set("a1", log);
+    for (let i = 0; i < 10; i++) log.append({ type: "assistant", i });
+    const client = newClient(f);
+    // The consumer had seen up to seq 50 of a log that, after an OS crash,
+    // came back shorter (unsynced tail lost): same incarnation, offset ahead.
+    const { events, caughtUp } = collect(client, "a1", { nextOffset: log.endOffset + 5000, lastSeq: 50, incarnation: log.incarnation });
+    await waitFor(() => caughtUp(), 5000, "caught up");
+    for (let i = 0; i < 3; i++) log.append({ type: "assistant", late: i });
+    await waitFor(() => events.length === 3, 5000, "the new records");
+    assert.deepEqual(
+      events.map((event) => event.seq),
+      [10, 11, 12],
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("a cursor with no incarnation (from before it was recorded) is not trusted to drop records by seq", async () => {
+  const f = await fixture();
+  try {
+    const log = AgentEventLog.open(join(f.dir, "logs", "a1"));
+    f.logs.set("a1", log);
+    const records = [];
+    for (let i = 0; i < 20; i++) records.push(log.append({ type: "assistant", i }));
+    const client = newClient(f);
+    const { events } = collect(client, "a1", { nextOffset: records[5].next, lastSeq: 50 });
+    await waitFor(() => events.length === 14, 5000, "records after the offset");
+    assert.deepEqual(
+      events.map((event) => event.seq),
+      Array.from({ length: 14 }, (_, i) => i + 6),
+    );
+  } finally {
+    await f.cleanup();
+  }
+});

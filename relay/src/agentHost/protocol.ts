@@ -119,6 +119,9 @@ export interface EventMessage extends EventRecord {
   readonly type: "event";
   readonly agentId: string;
   readonly sub: number;
+  /** The log's incarnation, to be persisted with `next`/`seq`: a cursor is
+   * only meaningful within one incarnation. */
+  readonly inc: string;
 }
 
 /** The requested offset is no longer in the log (retention dropped it), or is

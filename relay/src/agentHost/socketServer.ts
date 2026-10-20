@@ -71,11 +71,11 @@ function probeListening(socketPath: string): Promise<boolean> {
   });
 }
 
-function eventWireLine(agentId: string, sub: number, record: RawRecord): string {
+function eventWireLine(agentId: string, sub: number, inc: string, record: RawRecord): string {
   // The stored line is `{"seq":..,"off":..,"t":..,"ev":..}`; splice the
   // envelope fields in front of it instead of re-serializing `ev`, which can
   // be a large tool result.
-  return `{"type":"event","agentId":${JSON.stringify(agentId)},"sub":${sub},"next":${record.next},${record.line.slice(1)}\n`;
+  return `{"type":"event","agentId":${JSON.stringify(agentId)},"sub":${sub},"inc":${JSON.stringify(inc)},"next":${record.next},${record.line.slice(1)}\n`;
 }
 
 class Subscription {
@@ -123,7 +123,7 @@ class Subscription {
           break;
         case "records":
           for (const record of step.records) {
-            this.connection.write(eventWireLine(this.agentId, this.sub, record));
+            this.connection.write(eventWireLine(this.agentId, this.sub, this.log.incarnation, record));
             this.cursor = record.next;
           }
           break;
@@ -155,7 +155,7 @@ class Subscription {
       this.enterCatchUp();
       return;
     }
-    this.connection.write(eventWireLine(this.agentId, this.sub, record));
+    this.connection.write(eventWireLine(this.agentId, this.sub, this.log.incarnation, record));
     this.cursor = record.next;
   }
 
