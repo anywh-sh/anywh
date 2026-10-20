@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, placeAgents, spawnUnder, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
   return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, ...over };
@@ -96,6 +97,37 @@ describe("placeAgents", () => {
   });
 });
 
+describe("placeAgents with areas that grow", () => {
+  function frames(out: RoomCanvas, agents: RoomAgent[]): Rect[] {
+    const cards = cardRects(agents, out.positions);
+    return out.areas.map((a) => areaRect(a, cards));
+  }
+  const apart = (a: Rect, b: Rect): boolean => a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+
+  it("never lets a new member stretch its area over another area, however the agents arrive", () => {
+    const agents = [
+      main,
+      agent("lead", { area: "Design" }),
+      agent("other", { area: "Code" }),
+      agent("deep1", { parentId: "lead" }),
+      agent("deep2", { parentId: "deep1" }),
+      agent("deep3", { parentId: "deep2" }),
+    ];
+    let canvas = empty;
+    for (let i = 1; i <= agents.length; i += 1) canvas = placeAgents(agents.slice(0, i), canvas);
+    const [design, code] = frames(canvas, agents);
+    expect(apart(design, code)).toBe(true);
+    expect(noOverlap(canvas, agents)).toBe(true);
+  });
+
+  it("does the same when every agent arrives at once", () => {
+    const agents = [main, agent("a", { area: "Left" }), agent("b", { area: "Right" }), agent("c", { parentId: "a" }), agent("d", { parentId: "b" }), agent("e", { parentId: "c" })];
+    const canvas = placeAgents(agents, empty);
+    const [left, right] = frames(canvas, agents);
+    expect(apart(left, right)).toBe(true);
+  });
+});
+
 describe("treeOrder", () => {
   it("lists parents before children", () => {
     const order = treeOrder([agent("c", { parentId: "b" }), agent("b", { parentId: "main" }), main]).map((a) => a.agentId);
@@ -141,9 +173,14 @@ describe("edgePath", () => {
 describe("spawnUnder", () => {
   it("skips a spot an obstacle covers", () => {
     const parent = { x: 0, y: 0, w: 264, h: 156 };
-    const free = spawnUnder(parent, [], { w: 264, h: 156 }, []);
+    const free = spawnUnder(parent, [], { w: 264, h: 156 }, [])!;
     const taken = spawnUnder(parent, [], { w: 264, h: 156 }, [{ x: free.x, y: free.y, w: 264, h: 156 }]);
+    expect(taken).toBeDefined();
     expect(taken).not.toEqual(free);
+  });
+
+  it("gives up (undefined) when no spot satisfies the extra condition", () => {
+    expect(spawnUnder({ x: 0, y: 0, w: 264, h: 156 }, [], { w: 264, h: 156 }, [], () => false)).toBeUndefined();
   });
 });
 
@@ -152,5 +189,71 @@ describe("worldBounds", () => {
     const box = worldBounds([{ x: 0, y: 0, w: 100, h: 100 }], [{ x: 0, y: 200, w: 100, h: 100 }], [{ x: 0, y: -10, text: "Title", big: true }]);
     expect(box.y).toBeLessThan(-10);
     expect(box.y + box.h).toBe(300);
+  });
+});
+
+describe("dragging between areas", () => {
+  const box = (x: number, y: number): Rect => ({ x, y, w: 264, h: 156 });
+  const areas = [
+    { id: "left", label: "Left", x: 0, y: 0, members: ["a", "b"] },
+    { id: "right", label: "Right", x: 1000, y: 0, members: ["c"] },
+  ];
+  const base = (): Map<string, Rect> =>
+    new Map([
+      ["a", box(0, 0)],
+      ["b", box(288, 0)],
+      ["c", box(1000, 0)],
+    ]);
+
+  it("stretches its own area while it stays near the others", () => {
+    const cards = base();
+    cards.set("b", box(500, 0));
+    expect(trackDrag(areas, cards, "b").leaving).toBe(false);
+    expect(membershipAfterDrop(areas, cards, "b").areas[0].members).toEqual(["a", "b"]);
+  });
+
+  it("leaves once it is more than a card away from the rest", () => {
+    const cards = base();
+    cards.set("b", box(288 + 900, 700));
+    expect(trackDrag(areas, cards, "b").leaving).toBe(true);
+    const after = membershipAfterDrop(areas, cards, "b");
+    expect(after.areas[0].members).toEqual(["a"]);
+    expect(after.left).toBe("left");
+    expect(after.entered).toBeUndefined();
+  });
+
+  it("changes area when dropped over another, however close it still is", () => {
+    const cards = base();
+    cards.set("b", box(1010, 10));
+    const track = trackDrag(areas, cards, "b");
+    expect(track.target?.id).toBe("right");
+    const after = membershipAfterDrop(areas, cards, "b");
+    expect(after.areas[0].members).toEqual(["a"]);
+    expect(after.areas[1].members).toEqual(["c", "b"]);
+    expect(after.entered).toBe("right");
+  });
+
+  it("does not let the last member of an area leave it by walking away", () => {
+    const cards = base();
+    cards.set("c", box(5000, 5000));
+    expect(trackDrag(areas, cards, "c").leaving).toBe(false);
+  });
+
+  it("is a no-op for a card with no area", () => {
+    const cards = base();
+    cards.set("z", box(4000, 4000));
+    expect(membershipAfterDrop(areas, cards, "z").areas).toEqual(areas);
+  });
+});
+
+describe("groupInto and subtreeIds", () => {
+  it("takes the cards out of their old areas", () => {
+    const next = groupInto([{ id: "old", label: "Old", x: 0, y: 0, members: ["a", "b"] }], ["a"], { x: 0, y: 0, w: 10, h: 10 }, "new");
+    expect(next[0].members).toEqual(["b"]);
+    expect(next[1]).toMatchObject({ id: "new", members: ["a"], label: "" });
+  });
+  it("lists an agent and all it delegated, deep", () => {
+    const agents = [main, agent("a"), agent("b", { parentId: "a" }), agent("c", { parentId: "b" }), agent("d")];
+    expect(subtreeIds(agents, "a").sort()).toEqual(["a", "b", "c"]);
   });
 });

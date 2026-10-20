@@ -115,16 +115,40 @@ function normalizeLabel(label: string): string {
  * then the rows after it, scanning sideways from where the siblings start.
  * `obstacles` are cards and area frames to stay clear of.
  */
-export function spawnUnder(parent: Rect, siblings: readonly Rect[], size: { w: number; h: number }, obstacles: readonly Rect[]): { x: number; y: number } {
+export function spawnUnder(
+  parent: Rect,
+  siblings: readonly Rect[],
+  size: { w: number; h: number },
+  obstacles: readonly Rect[],
+  /** A further condition a spot must meet (its area's frame staying clear of others). */
+  accept: (spot: Rect) => boolean = () => true,
+): { x: number; y: number } | undefined {
   const baseX = siblings.length > 0 ? Math.min(...siblings.map((s) => s.x)) : parent.x + parent.w / 2 - size.w / 2;
+  const centre = parent.x + parent.w / 2 - size.w / 2;
   for (let row = 1; row <= 6; row += 1) {
     const y = snap(parent.y + ROW * row);
+    const free = (x: number): { x: number; y: number } | undefined => {
+      const spot = { x: snap(x), y, ...size };
+      return !obstacles.some((o) => overlaps(spot, o)) && accept(spot) ? { x: spot.x, y: spot.y } : undefined;
+    }
+    // First the siblings' own sequence, so a row fills left to right ...
     for (let c = 0; c <= siblings.length + 1; c += 1) {
-      const spot = { x: snap(baseX + c * COL), y, ...size };
-      if (!obstacles.some((o) => overlaps(spot, o))) return { x: spot.x, y: spot.y };
+      const found = free(baseX + c * COL);
+      if (found) return found;
+    }
+    // ... then the gaps beside whatever is in the way, nearest to straight
+    // under the parent first.
+    const band = { x: -Infinity, y, w: Infinity, h: size.h };
+    const edges = obstacles
+      .filter((o) => o.y < band.y + band.h + GAP && o.y + o.h + GAP > band.y)
+      .flatMap((o) => [o.x + o.w + GAP, o.x - size.w - GAP])
+      .sort((a, b) => Math.abs(a - centre) - Math.abs(b - centre));
+    for (const x of edges) {
+      const found = free(x);
+      if (found) return found;
     }
   }
-  return { x: snap(baseX), y: snap(parent.y + ROW * 7) };
+  return undefined;
 }
 
 /**
@@ -172,12 +196,21 @@ export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): R
 
     const parentRect = parent ? rectOf(parent) : undefined;
     let spot: { x: number; y: number };
+    // The tree had no room near the parent that kept the area clear of the
+    // others: the card sits apart, outside the area, rather than stretching
+    // the area across the canvas.
+    let apart = false;
     if (parent && parentRect) {
       const siblings = (kids.get(parent.agentId) ?? []).flatMap((s) => {
         const rect = s.agentId === agent.agentId ? undefined : rectOf(s);
         return rect ? [rect] : [];
       });
-      spot = spawnUnder(parentRect, siblings, size, obstacles);
+      // An agent that names an area nobody has used yet starts one: its frame
+      // must fit around it just the same.
+      const growing = home ?? (agent.area ? { members: [] as string[] } : undefined);
+      const near = spawnUnder(parentRect, siblings, size, obstacles, (candidate) => !growing || areaStaysClear(growing, candidate, cards, areas));
+      spot = near ?? farFromEverything(cards, snap(parentRect.y + ROW));
+      apart = near === undefined;
     } else if (cards.size === 0) {
       spot = { x: 0, y: 0 };
     } else {
@@ -186,16 +219,41 @@ export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): R
     }
     positions[agent.agentId] = spot;
 
-    if (agent.area && !home) {
+    if (agent.area && !home && !apart) {
       const created = { id: `area-${normalizeLabel(agent.area).replace(/[^a-z0-9]+/g, "-")}-${String(areas.length + 1)}`, label: agent.area, x: spot.x, y: spot.y, members: [agent.agentId] };
       areas.push(created);
-    } else if (home && !home.members.includes(agent.agentId)) {
+    } else if (home && !apart && !home.members.includes(agent.agentId)) {
       home.members.push(agent.agentId);
     }
   }
 
   const cards = cardRects(agents, positions);
   return { ...canvas, positions, areas: areas.map((a) => storedArea(a, cards)) };
+}
+
+/** Whether `home` — an area — would still be clear of every other area and of
+ * every card outside it once it grew to take in a card at `candidate`. */
+function areaStaysClear(home: { members: string[] }, candidate: Rect, cards: ReadonlyMap<string, Rect>, areas: readonly (RoomCanvasArea & { members: string[] })[]): boolean {
+  const members = home.members.flatMap((id) => {
+    const rect = cards.get(id);
+    return rect ? [rect] : [];
+  });
+  const box = boundsOf([...members, candidate]);
+  const frame = { x: box.x - AREA_PAD, y: box.y - AREA_BAR, w: box.w + AREA_PAD * 2, h: box.h + AREA_PAD + AREA_BAR };
+  const homeIds = new Set(home.members);
+  const clear = [...cards.entries()].filter(([id]) => !homeIds.has(id)).map(([, rect]) => rect);
+  for (const other of areas) {
+    if (other.members === home.members) continue;
+    const f = areaRect(other, cards);
+    clear.push({ x: f.x, y: f.y - AREA_BAR, w: f.w, h: f.h + AREA_BAR });
+  }
+  return !clear.some((r) => overlaps(frame, r, 0));
+}
+
+/** A free place to the right of every card, for when the tree has no room. */
+function farFromEverything(cards: ReadonlyMap<string, Rect>, y: number): { x: number; y: number } {
+  const box = boundsOf([...cards.values()]);
+  return { x: snap(box.x + box.w + 48), y };
 }
 
 /** Everything the canvas shows, as one box: cards, area frames with their
@@ -208,6 +266,84 @@ export function worldBounds(cards: readonly Rect[], areas: readonly Rect[], text
     rects.push({ x: t.x, y: t.y - h, w: Math.max(60, t.text.length * (t.big ? 19 : 9)), h });
   }
   return boundsOf(rects);
+}
+
+/** How far a card may sit from the rest of its area before it counts as
+ * having left it. */
+export const AREA_LEAVE_GAP = 280;
+
+export interface DragTrack {
+  /** The area the card belongs to now, if any. */
+  home?: RoomCanvasArea;
+  /** Another area the card is over: dropping there changes its area. */
+  target?: RoomCanvasArea;
+  /** The card is far enough from its area, or over another one, to leave. */
+  leaving: boolean;
+}
+
+function inside(r: Rect, x: number, y: number): boolean {
+  return x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h;
+}
+
+/**
+ * What dragging card `id` to where `cards` has it means for the areas: it
+ * stretches its own area, and leaves it only once more than a card's width
+ * away from the others — or when it is over a different area, where
+ * changing area is plainly intended at any distance. Pure.
+ */
+export function trackDrag(areas: readonly RoomCanvasArea[], cards: ReadonlyMap<string, Rect>, id: string): DragTrack {
+  const card = cards.get(id);
+  if (!card) return { leaving: false };
+  const home = areas.find((a) => a.members?.includes(id));
+  const cx = card.x + card.w / 2;
+  const cy = card.y + card.h / 2;
+  const target = areas.find((a) => a !== home && inside(areaRect(a, cards), cx, cy));
+  let leaving = false;
+  if (home) {
+    const others = new Map(cards);
+    others.delete(id);
+    const base = areaRect(home, others);
+    const gx = Math.max(base.x - (card.x + card.w), card.x - (base.x + base.w), 0);
+    const gy = Math.max(base.y - (card.y + card.h), card.y - (base.y + base.h), 0);
+    const alone = (home.members ?? []).filter((m) => others.has(m)).length === 0;
+    leaving = target !== undefined || (!alone && Math.max(gx, gy) > AREA_LEAVE_GAP);
+  }
+  return { home, target, leaving };
+}
+
+/** The areas after card `id` is dropped where `cards` has it. */
+export function membershipAfterDrop(areas: readonly RoomCanvasArea[], cards: ReadonlyMap<string, Rect>, id: string): { areas: RoomCanvasArea[]; entered?: string; left?: string } {
+  const { home, target, leaving } = trackDrag(areas, cards, id);
+  if (!leaving && !target) return { areas: [...areas] };
+  const next = areas.map((a) => {
+    if (a === home && leaving) return { ...a, members: (a.members ?? []).filter((m) => m !== id) };
+    if (a === target) return { ...a, members: [...(a.members ?? []), id] };
+    return a;
+  });
+  return { areas: next, entered: target?.id, left: leaving ? home?.id : undefined };
+}
+
+/** A new area holding `ids` (and out of every other area). */
+export function groupInto(areas: readonly RoomCanvasArea[], ids: readonly string[], rect: Rect, newId: string): RoomCanvasArea[] {
+  const taken = new Set(ids);
+  const rest = areas.map((a) => ({ ...a, members: (a.members ?? []).filter((m) => !taken.has(m)) }));
+  return [...rest, { id: newId, label: "", x: rect.x, y: rect.y, width: rect.w, height: rect.h, members: [...ids] }];
+}
+
+/** `id` and everything below it in the tree. */
+export function subtreeIds(agents: readonly RoomAgent[], id: string): string[] {
+  const kids = childrenOf(agents);
+  const out: string[] = [];
+  const queue = [id];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const next = queue.shift()!;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    out.push(next);
+    for (const kid of kids.get(next) ?? []) queue.push(kid.agentId);
+  }
+  return out;
 }
 
 export { GRID };

@@ -16,9 +16,12 @@ export interface CardStatus {
 /** The label an agent's card wears. What waits for the person wins over
  * anything but a stop: an agent can have asked about something and gone on
  * working, and the person still has to look. */
-export function cardStatus(agent: Pick<RoomAgent, "state" | "needsYou">): CardStatus {
+export function cardStatus(agent: Pick<RoomAgent, "state" | "needsYou"> & { role?: RoomAgent["role"] }, liveWorkers = 0): CardStatus {
   if (agent.state === "stopped") return { tone: "stop", label: "stopped" };
   if (agent.needsYou.length > 0 || agent.state === "awaiting_user") return { tone: "wait", label: "yourTurn" };
+  // The principal's own turn ends as soon as it has delegated; while its
+  // workers are at it, the room's head is plainly running, not waiting.
+  if (agent.role === "principal" && (agent.state === "waiting" || agent.state === "done") && liveWorkers > 0) return { tone: "run", label: "running" };
   switch (agent.state) {
     case "working":
       return { tone: "run", label: "running" };
@@ -30,7 +33,7 @@ export function cardStatus(agent: Pick<RoomAgent, "state" | "needsYou">): CardSt
       return { tone: "done", label: "done" };
     case "failed":
       return { tone: "fail", label: "failed" };
-    default:
+    case "blocked":
       return { tone: "block", label: "blocked" };
   }
 }
@@ -52,11 +55,11 @@ export function firstLine(text: string, max = 140): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-export function cardActivity(agent: RoomAgent, workers: number): CardActivity {
+export function cardActivity(agent: RoomAgent, workers: number, liveWorkers = 0): CardActivity {
   const needs = agent.needsYou[0];
   if (agent.state === "stopped") return { kind: "stopped" };
   if (needs) return needs.kind === "approval" ? { kind: "needsApproval", count: needs.count } : { kind: "needsAnswer", count: needs.count };
-  if (agent.state === "working") {
+  if (agent.state === "working" || (agent.role === "principal" && liveWorkers > 0)) {
     if (agent.role === "principal" && workers > 0) return { kind: "coordinating", agents: workers };
     return { kind: "working", subtasks: agent.subtasksRunning };
   }
@@ -69,7 +72,7 @@ export function cardActivity(agent: RoomAgent, workers: number): CardActivity {
 }
 
 /** What the time under the card counts from, and the words for it. */
-export type CardClock = { kind: "running" | "waiting" | "done" | "failed" | "blocked" | "stopped" | "starting"; since: number };
+export type CardClock = { kind: "running" | "waiting" | "done" | "failed" | "blocked" | "stopped" | "starting" | "none"; since: number };
 
 /**
  * The instant a card's clock counts from, when it is knowable: a question's
@@ -77,12 +80,13 @@ export type CardClock = { kind: "running" | "waiting" | "done" | "failed" | "blo
  * agent in its state (`observedSince`). The channel carries no start time
  * for a turn, so "running for" is the time this screen has watched it run.
  */
-export function cardClock(agent: RoomAgent, observedSince: number): CardClock {
-  const status = cardStatus(agent);
+export function cardClock(agent: RoomAgent, observedSince: number, liveWorkers = 0): CardClock {
+  const status = cardStatus(agent, liveWorkers);
   const needs = agent.needsYou[0];
   if (status.tone === "wait") return { kind: "waiting", since: needs?.askedAt ?? observedSince };
   if (status.tone === "run") return { kind: "running", since: observedSince };
-  if (status.tone === "start" || status.tone === "idle") return { kind: "starting", since: observedSince };
+  if (status.tone === "start") return { kind: "starting", since: observedSince };
+  if (status.tone === "idle") return { kind: "none", since: observedSince };
   if (status.tone === "stop") return { kind: "stopped", since: observedSince };
   const kind = status.tone === "done" ? "done" : status.tone === "fail" ? "failed" : "blocked";
   return { kind, since: agent.report?.at ?? observedSince };

@@ -39,6 +39,16 @@ describe("cardStatus", () => {
     expect(cardStatus(agent({ state: "done", needsYou })).label).toBe("yourTurn");
   });
 
+  it("reads a principal that finished delegating as running while its workers work, and as waiting once they are not", () => {
+    const main = agent({ role: "principal", state: "waiting" });
+    expect(cardStatus(main, 3)).toEqual({ tone: "run", label: "running" });
+    expect(cardStatus(main, 0)).toEqual({ tone: "idle", label: "idle" });
+    // Only the principal: an idle worker is idle whatever its siblings do.
+    expect(cardStatus(agent({ state: "waiting" }), 3).tone).toBe("idle");
+    // And a question from it still outranks the coordinating.
+    expect(cardStatus({ ...main, state: "awaiting_user", needsYou: [{ kind: "choice", promptId: "q", count: 1 }] }, 3).label).toBe("yourTurn");
+  });
+
   it("but a stop is final, whatever was left waiting", () => {
     const needsYou = [{ kind: "approval" as const, promptId: "q", count: 1 }];
     expect(cardStatus(agent({ state: "stopped", needsYou })).label).toBe("stopped");
@@ -48,6 +58,10 @@ describe("cardStatus", () => {
 describe("cardActivity", () => {
   it("says a working principal coordinates its workers", () => {
     expect(cardActivity(agent({ role: "principal", state: "working" }), 3)).toEqual({ kind: "coordinating", agents: 3 });
+  });
+  it("says an idle principal coordinates while its workers work", () => {
+    expect(cardActivity(agent({ role: "principal", state: "waiting" }), 4, 2)).toEqual({ kind: "coordinating", agents: 4 });
+    expect(cardActivity(agent({ role: "principal", state: "waiting" }), 4, 0)).toEqual({ kind: "coordinating", agents: 4 });
   });
   it("counts a worker's running subtasks", () => {
     expect(cardActivity(agent({ subtasksRunning: 2 }), 0)).toEqual({ kind: "working", subtasks: 2 });
@@ -82,6 +96,10 @@ describe("cardClock", () => {
   });
   it("counts a finish from the report", () => {
     expect(cardClock(agent({ state: "done", report: { status: "done", summary: "x", artifacts: [], at: 700 } }), 9000)).toEqual({ kind: "done", since: 700 });
+  });
+  it("shows no clock for an agent that is only idle", () => {
+    expect(cardClock(agent({ state: "waiting" }), 9000).kind).toBe("none");
+    expect(cardClock(agent({ state: "queued" }), 9000).kind).toBe("starting");
   });
   it("falls back to when the screen first saw the state", () => {
     expect(cardClock(agent({ state: "working" }), 9000)).toEqual({ kind: "running", since: 9000 });
