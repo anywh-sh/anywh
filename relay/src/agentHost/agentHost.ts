@@ -495,6 +495,9 @@ export class AgentHost {
         throw new HostError("not_hibernatable", `cannot hibernate ${agent.agentId}: ${why}`);
       }
       const detached = await this.detachedJobs(agent);
+      // The process may have exited (or a turn started) during that await:
+      // ending it now would label a crash an expected hibernation.
+      if (!this.hibernatable(agent)) throw new HostError("not_hibernatable", `cannot hibernate ${agent.agentId}: it changed state`);
       if (detached > 0) this.record(agent, { type: "host_process", subtype: "killed_detached", count: detached });
       await this.endProcess(agent, "hibernate");
     });
