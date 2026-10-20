@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +6,7 @@ import { StatusBar } from "@/components/shell/StatusBar";
 import { en } from "@/i18n/en";
 import type { BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { addProfile } from "@/lib/profiles/profiles";
+import { publishRoomStatus, resetRoomStatuses } from "@/lib/sala/roomStatus";
 
 const { getBackgroundJobLog } = vi.hoisted(() => ({ getBackgroundJobLog: vi.fn() }));
 vi.mock("@/lib/relay/backgroundJobClient", () => ({ getBackgroundJobLog }));
@@ -74,8 +75,29 @@ describe("StatusBar background activity chip", () => {
         onStopAllBackgroundActivity={() => {}}
       />,
     );
-    const expected = `${copy.running.replace("{count}", "1")} · ${copy.failedSuffix.replace("{count}", "1")}`;
-    expect(screen.getByText(expected)).toBeInTheDocument();
+    // One segment per state, each with its own mark.
+    expect(screen.getByText(copy.running.replace("{count}", "1"))).toBeInTheDocument();
+    expect(screen.getByText(copy.failedSuffix.replace("{count}", "1"))).toBeInTheDocument();
+  });
+
+  it("folds the open rooms' agents into the same line: running, waiting for the person, failed", () => {
+    render(
+      <StatusBar
+        {...baseProps()}
+        backgroundActivity={[runningAgent]}
+        onOpenBackgroundActivityItem={() => {}}
+        onStopBackgroundActivityItem={() => {}}
+        onDismissBackgroundActivityItem={() => {}}
+        onStopAllBackgroundActivity={() => {}}
+      />,
+    );
+    act(() => {
+      publishRoomStatus("r1", { agents: 4, working: 2, needsYou: 3, failed: 1, completed: false });
+    });
+    expect(screen.getByText(copy.running.replace("{count}", "3"))).toBeInTheDocument();
+    expect(screen.getByText(copy.needYou.replace("{count}", "3"))).toBeInTheDocument();
+    expect(screen.getByText(copy.failedSuffix.replace("{count}", "1"))).toBeInTheDocument();
+    resetRoomStatuses();
   });
 
   it("opens the panel on click and shows every item, running before failed", async () => {

@@ -113,6 +113,18 @@ const press = async (selector) => {
   await element.click();
 };
 
+/** Waits for the side panel to finish opening (it grows from nothing), so a
+ * photograph shows the panel and not a frame of it. */
+const panelSettled = () =>
+  browser.waitUntil(() => browser.execute(() => (document.querySelector("aside.sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
+
+/** A button of the selected card's action bar, by its words. */
+const pressBar = async (words) => {
+  const button = await $(`//*[contains(@class, "sala-bar")]//button[contains(., "${words}")]`);
+  await button.waitForClickable({ timeout: 15000 });
+  await button.click();
+};
+
 const cards = () => $$("[data-agent-id]");
 const cardState = (id) => browser.execute((agent) => document.querySelector(`[data-agent-id="${agent}"]`)?.getAttribute("data-state"), id);
 const savedCanvas = async (base, roomId) => (await (await fetch(`${base}/rooms/${roomId}/canvas`)).json()).canvas;
@@ -457,7 +469,7 @@ describe("anywh room canvas", () => {
     // The tab carries the state dot and the status bar sums the room's agents.
     const status = await browser.execute(() => document.body.innerText);
     expect(status).toMatch(/\d+ running/);
-    expect(status).toMatch(/1 need you/);
+    expect(status).toMatch(/\d+ need you/);
     await expect(await $('[role="tab"] [aria-label$="need you"]')).toBeExisting();
     await shot("B-sala-feature-grande-shell");
   });
@@ -475,6 +487,7 @@ describe("anywh room canvas", () => {
     // The "i" button gives way to the panel.
     expect(await $$('button[aria-label="About this room"]').length).toBe(0);
     await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
+    await panelSettled();
     await shot("B-sobre-a-sala");
     await browser.keys("Escape");
     await browser.waitUntil(async () => !(await $('aside[data-panel="about"]').isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
@@ -500,6 +513,7 @@ describe("anywh room canvas", () => {
     expect(text).toContain("Work");
     await expect(await panel.$("textarea")).toBeExisting();
     for (const action of ["Open in tab", "Delegate", "Stop", "Remove"]) expect(text).toContain(action);
+    await panelSettled();
     await shot("B-resumo-do-agente");
     await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
     await browser.waitUntil(async () => !(await $('aside[data-panel="agent"]').isExisting()), { timeout: 5000 });
@@ -526,6 +540,7 @@ describe("anywh room canvas", () => {
     const aboutText = await aboutPt.getText();
     expect(aboutText).toContain("Onde roda");
     expect(aboutText).toContain("Contexto compartilhado");
+    await panelSettled();
     await shot("B-sobre-a-sala-pt");
     await press('aside[data-panel="about"] button[aria-label="Fechar painel"]');
     await $('[aria-label="Nova sessão"]').click();
@@ -553,6 +568,8 @@ describe("anywh room canvas", () => {
     );
     await browser.execute(
       (id) => {
+        // The Portuguese test is over: the rest of the file reads English.
+        localStorage.removeItem("anywh:locale");
         localStorage.setItem("anywh:tabs", JSON.stringify([{ id, profileId: "e2e-room", title: "Fix the spinner stuck on the phone", room: true }]));
         localStorage.setItem("anywh:active-tab", id);
         localStorage.removeItem("anywh:tab-layout");
@@ -581,12 +598,13 @@ describe("anywh room canvas", () => {
 
   it("shows the principal's whole conversation in the side panel", async () => {
     await press('[data-agent-id].main .sala-node-hit');
-    await press('.sala-bar button*=Open conversation');
+    await pressBar("Open conversation");
     const panel = await $('aside[data-panel="principal"]');
     await panel.waitForExist({ timeout: 15000 });
     // The same chat a session tab shows: its history and its composer.
     await panel.$(".composer-editor").waitForExist({ timeout: 30000, timeoutMsg: "the principal's composer never appeared" });
     await browser.waitUntil(async () => (await panel.getText()).includes("[[room:delegate"), { timeout: 30000, timeoutMsg: "the principal's history never showed what was said to it" });
+    await panelSettled();
     await shot("B-conversa-do-principal");
     await press('aside[data-panel="principal"] button[aria-label="Close panel"]');
   });
@@ -627,12 +645,13 @@ describe("anywh room canvas", () => {
     await roomInView();
     await shot("B-sala-agente-falhou");
     await press('[data-state="failed"] .sala-node-hit');
-    await press('.sala-bar button*=Open conversation');
+    await pressBar("Open conversation");
     const panel = await $('aside[data-panel="agent"]');
     await panel.waitForExist({ timeout: 15000 });
     const text = await panel.getText();
     expect(text).toContain("Failed");
     expect(text).toContain("This agent failed");
+    await panelSettled();
     await shot("B-agente-falhou");
   });
 
@@ -679,13 +698,14 @@ describe("anywh room canvas", () => {
     await panel.waitForExist({ timeout: 15000 });
     await browser.waitUntil(async () => (await panel.getText()).includes("anywh/"), { timeout: 15000, timeoutMsg: "the worktree never showed" });
     expect(await panel.getText()).toContain("1 worktree kept with work that was not integrated");
+    await panelSettled();
     await shot("B-sala-concluida-sobre");
     await press('aside[data-panel="about"] button[aria-label="Close panel"]');
 
     // Removing the agent that made it asks first: the work would be lost.
     const spike = await browser.execute(() => [...document.querySelectorAll("[data-agent-id]")].find((el) => el.textContent.includes("Spike the avatar crop")).getAttribute("data-agent-id"));
     await press(`[data-agent-id="${spike}"] .sala-node-hit`);
-    await press('.sala-bar button*=Remove');
+    await pressBar("Remove");
     const dialog = await $('[role="alertdialog"]');
     await dialog.waitForExist({ timeout: 15000, timeoutMsg: "the relay's refusal never became a question" });
     expect(await dialog.getText()).toContain("not integrated");

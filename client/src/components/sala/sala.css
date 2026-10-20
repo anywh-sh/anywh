@@ -1369,3 +1369,6 @@
   color: var(--foreground);
   background: var(--surface-hover);
 }
+.sala-launcher:focus-within .sala-launcher-box {
+  box-shadow: inset 0 0 0 2px var(--foreground);
+}
