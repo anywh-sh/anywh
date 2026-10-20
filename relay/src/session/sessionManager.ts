@@ -53,7 +53,7 @@ export interface SessionManagerRoomOptions {
  * never opened this session as a tab — e.g. a session created on mobile,
  * appearing live in the desktop sidebar. */
 export type SessionListEvent =
-  | { type: "upsert"; id: string; title: string; lastActiveAt: number }
+  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true }
   | { type: "remove"; id: string };
 
 /** What makes a session different from one a person types into. */
@@ -180,7 +180,7 @@ export class SessionManager {
    * `listTitled` leaves them out the same way). */
   private announce(event: SessionListEvent): void {
     if (event.type === "upsert" && this.sessionStore.isHiddenWorker(event.id)) return;
-    this.onListChanged?.(event);
+    this.onListChanged?.(event.type === "upsert" && this.sessionStore.getRoom(event.id)?.role === "principal" ? { ...event, room: true } : event);
   }
 
   /** Called by `BackgroundJobTracker` when a job finishes.

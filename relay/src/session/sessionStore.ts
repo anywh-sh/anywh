@@ -263,6 +263,9 @@ export interface TitledSession {
   id: string;
   title: string;
   lastActiveAt: number;
+  /** Present (`true`) on a room's principal: the row stands for the whole
+   * room, and a client opens it as a canvas rather than a conversation. */
+  room?: true;
 }
 
 /** Shape prior to this change: id -> { session_id, cwd/lock }, without
@@ -575,7 +578,7 @@ export class SessionStore {
       // own — unless their room is gone, so they can still be found and removed.
       .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && !this.isHiddenWorker(entry[0]))
       .sort(([, a], [, b]) => b.lastActiveAt - a.lastActiveAt)
-      .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt }));
+      .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt, ...(entry.room?.role === "principal" ? { room: true as const } : {}) }));
   }
 
   /** Last-turn timestamp of a single session, for the callers that report a
