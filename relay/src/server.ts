@@ -191,7 +191,10 @@ roomBridge.attach(roomManager);
 // A room's folder outlives nothing: those of rooms the sessions file no
 // longer has are removed. Skipped when that file did not load whole (an
 // unreadable one would make every room look gone).
-if (sessionStore.loadedOk && !sessionStore.recoveredFromCorrupt) {
+// Not for a store with no session at all unless the folder was named by the
+// operator: a relay started by hand with default paths would otherwise see
+// every room of the profile it shares the folder with as gone.
+if (sessionStore.loadedOk && !sessionStore.recoveredFromCorrupt && (sessionStore.listIds().length > 0 || process.env.RELAY_ROOM_CONTEXT_DIR)) {
   const liveRooms = new Set(sessionStore.listIds().filter((id) => sessionStore.getRoom(id)?.role === "principal"));
   const pruned = roomContext.pruneOrphans(liveRooms);
   if (pruned.length > 0) console.log(`[relay] removed the context folders of ${pruned.length} room(s) that no longer exist`);

@@ -84,6 +84,17 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
 
 /** `/rooms/:roomId/context[/:name]`: the room's shared files and their index. */
 async function handleContext(req: IncomingMessage, res: ServerResponse, ctx: RouteContext, roomId: string, name: string | undefined): Promise<void> {
+  try {
+    await handleContextNow(req, res, ctx, roomId, name);
+  } catch (error) {
+    // The folder is one agents can write to: a file they made unreadable is
+    // an answer, not a crash of every session on this relay.
+    console.warn(`[relay] room context of ${roomId}: ${(error as Error).message}`);
+    if (!res.headersSent) send(res, 500, { error: "the room's context folder could not be read or written" });
+  }
+}
+
+async function handleContextNow(req: IncomingMessage, res: ServerResponse, ctx: RouteContext, roomId: string, name: string | undefined): Promise<void> {
   const { roomContext } = ctx;
   if (req.method === "GET" && name === undefined) {
     const items = await roomContext.list(roomId);

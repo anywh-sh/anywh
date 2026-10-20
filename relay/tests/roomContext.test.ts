@@ -4,7 +4,7 @@
 // arrive after an agent was born, and the folder's cleanup.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type WebSocket from "ws";
@@ -144,6 +144,29 @@ test("workers born with the same index get byte-identical system prompts; a resu
   } finally {
     socket.close();
   }
+});
+
+test("a folder an agent made unwritable or unreadable is answered with an error and the relay carries on", { skip: process.getuid?.() === 0 && "root ignores file modes" }, async () => {
+  const roomId = await createRoom();
+  assert.equal((await addItem(roomId, "brief.md", "brief")).status, 201);
+  const dir = join(contextRoot, roomId);
+  chmodSync(dir, 0o500);
+  try {
+    const refused = await addItem(roomId, "more.md", "more");
+    assert.equal(refused.status, 500);
+    assert.match(((await refused.json()) as { error: string }).error, /could not be read or written/);
+  } finally {
+    chmodSync(dir, 0o700);
+  }
+  writeFileSync(join(dir, "brief.md"), "brief, grown by an agent");
+  chmodSync(join(dir, "brief.md"), 0o000);
+  try {
+    const listed = await fetch(`${base}/rooms/${roomId}/context`);
+    assert.equal(listed.status, 200, "an unreadable item keeps its line");
+  } finally {
+    chmodSync(join(dir, "brief.md"), 0o600);
+  }
+  assert.equal((await addItem(roomId, "later.md", "later")).status, 201, "the relay is still serving");
 });
 
 test("deleting a room removes its folder", async () => {

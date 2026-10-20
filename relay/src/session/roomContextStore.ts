@@ -13,7 +13,7 @@
 // rebuilt from the folder's own state, so a crash between a file landing and
 // the index catching up is repaired by the next `sync`.
 import { randomBytes } from "node:crypto";
-import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import type { ExtractedText } from "../host/pdfText.js";
 import { LARGE_ITEM_TOKENS, buildIndex, estimateTokens, summarize, type ContextItem } from "./roomContextIndex.js";
@@ -111,7 +111,8 @@ function countLines(text: string): number {
 
 /** The first bytes of a file, without reading the rest of it. */
 function readHead(path: string, size: number): Buffer {
-  const fd = openSync(path, "r");
+  // Never blocks on a FIFO swapped in since the check, never follows a link.
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
   try {
     const head = Buffer.alloc(Math.min(size, 4096));
     return head.subarray(0, readSync(fd, head, 0, head.length, 0));
@@ -128,6 +129,8 @@ function looksLikeText(data: Buffer): boolean {
 export class RoomContextStore {
   private readonly now: () => number;
   private readonly queues = new Map<string, Promise<unknown>>();
+  /** Rooms deleted by this process: a late upload must not bring one back. */
+  private readonly gone = new Set<string>();
 
   constructor(private readonly options: RoomContextStoreOptions) {
     this.now = options.now ?? Date.now;
@@ -211,6 +214,7 @@ export class RoomContextStore {
     return this.serial(roomId, async () => {
       const name = sanitizeItemName(input.name);
       if (!name) return { ok: false, status: 400, error: "name is not a usable file name" };
+      if (this.gone.has(roomId)) return { ok: false, status: 404, error: "room not found" };
       if (input.data.length === 0) return { ok: false, status: 400, error: "the file is empty" };
       if (input.data.length > CONTEXT_ITEM_MAX_BYTES) return { ok: false, status: 413, error: `the file is larger than ${CONTEXT_ITEM_MAX_BYTES} bytes` };
       const dir = this.dirFor(roomId);
@@ -278,6 +282,7 @@ export class RoomContextStore {
   sync(roomId: string, attribution?: { author: string; artifacts: readonly string[] }): Promise<ContextItem[]> {
     return this.serial(roomId, () => {
       const dir = this.dirFor(roomId);
+      if (this.gone.has(roomId)) return [];
       let entries: string[];
       try {
         entries = readdirSync(dir);
@@ -316,16 +321,22 @@ export class RoomContextStore {
           item = { ...item, author: attribution.author };
           changed = true;
         }
-        const size = statSync(join(dir, item.name)).size;
-        if (size !== item.bytes && item.kind === "text" && size <= CONTEXT_ITEM_MAX_BYTES) {
-          const text = readFileSync(join(dir, item.name), "utf8");
-          const { largeTokens: _old, ...rest } = item;
-          void _old;
-          items.push({ ...rest, bytes: size, ...this.describeText(text, undefined) });
-          changed = true;
-        } else {
-          items.push(item);
+        // One file an agent made unreadable (or removed meanwhile) keeps its
+        // old line; it does not stop the others from being looked at.
+        try {
+          const size = statSync(join(dir, item.name)).size;
+          if (size !== item.bytes && item.kind === "text" && size <= CONTEXT_ITEM_MAX_BYTES) {
+            const text = readFileSync(join(dir, item.name), "utf8");
+            const { largeTokens: _old, ...rest } = item;
+            void _old;
+            items.push({ ...rest, bytes: size, ...this.describeText(text, undefined) });
+            changed = true;
+            continue;
+          }
+        } catch {
+          // keeps its line
         }
+        items.push(item);
       }
       for (const name of [...present].sort()) {
         if (known.has(name) || items.length >= CONTEXT_ITEMS_MAX) continue;
@@ -347,8 +358,15 @@ export class RoomContextStore {
         const base = { name, bytes: size, author, at: this.now() };
         if (ext === ".pdf") items.push({ ...base, kind: "pdf", summary: "PDF added by an agent" });
         else if (IMAGE_EXTENSIONS.has(ext)) items.push({ ...base, kind: "image", summary: "image; open it with Read to see it" });
-        else if (looksLikeText(head)) items.push({ ...base, kind: "text", ...this.describeText(readFileSync(join(dir, name), "utf8"), undefined) });
-        else items.push({ ...base, kind: "binary", summary: "binary file" });
+        else if (looksLikeText(head)) {
+          let text: string;
+          try {
+            text = readFileSync(join(dir, name), "utf8");
+          } catch {
+            continue;
+          }
+          items.push({ ...base, kind: "text", ...this.describeText(text, undefined) });
+        } else items.push({ ...base, kind: "binary", summary: "binary file" });
         changed = true;
       }
       let indexCurrent = false;
@@ -397,6 +415,7 @@ export class RoomContextStore {
 
   /** The folder and everything in it (the room is gone). */
   deleteRoom(roomId: string): void {
+    this.gone.add(roomId);
     rmSync(this.dirFor(roomId), { recursive: true, force: true });
   }
 

@@ -279,3 +279,14 @@ test("a long name in a wide script is cut by bytes, so the file can be written",
   assert.ok(Buffer.byteLength(added.item.name) <= 255);
   assert.ok(existsSync(join(s.dirFor(room), added.item.name)));
 });
+
+test("a room deleted while an upload waits is not brought back by it", async () => {
+  const s = store();
+  const room = newRoom();
+  await s.add(room, { name: "brief.md", data: Buffer.from("brief"), author: "user" });
+  s.deleteRoom(room);
+  const late = await s.add(room, { name: "late.md", data: Buffer.from("late"), author: "user" });
+  assert.equal(late.ok, false);
+  assert.equal(existsSync(s.dirFor(room)), false);
+  assert.deepEqual(await s.sync(room), []);
+});
