@@ -156,12 +156,25 @@ export interface SessionEntry {
   pendingChoice?: PersistedChoice;
 }
 
+/** A question as the relay publishes it (`choice_prompt`). */
+export interface ChoicePrompt {
+  promptId: string;
+  questions: ChoiceQuestion[];
+  /** Epoch ms when the question was asked; absent for a question persisted
+   * before the field existed (the client treats absence as "unknown"). */
+  askedAt?: number;
+}
+
 /** The deferred question as stored on disk. The single definition of this
  * shape: `ChoiceMachine` and `SharedSession` import it from here (type-only),
  * so the store never has to import from `session/choiceMachine.ts`. */
 export interface PersistedChoice {
   promptId: string;
   questions: ChoiceQuestion[];
+  /** Set once when the question is created and never changed. Left
+   * undefined for legacy records and for a malformed value (`load()` drops
+   * just that field). */
+  askedAt?: number;
 }
 
 /** Runtime check for what `load()` reads back: this field is the first one
@@ -169,6 +182,8 @@ export interface PersistedChoice {
  * future-schema file must not be able to reach it malformed. */
 function isPersistedChoice(value: unknown): value is PersistedChoice {
   if (!value || typeof value !== "object") return false;
+  // `askedAt` is deliberately not checked here: a bad timestamp must not cost
+  // the user their question. `load()` clears just that field instead.
   const { promptId, questions } = value as { promptId?: unknown; questions?: unknown };
   if (typeof promptId !== "string" || promptId === "") return false;
   if (!Array.isArray(questions) || questions.length === 0) return false;
@@ -305,6 +320,19 @@ export class SessionStore {
         // it doesn't come back on the next boot.
         delete entry.pendingChoice;
         this.migrated = true;
+      } else if (entry?.pendingChoice && "askedAt" in entry.pendingChoice) {
+        const { askedAt } = entry.pendingChoice as { askedAt: unknown };
+        // Keep the question; only a non-negative finite number survives as the
+        // timestamp (decimals truncated), anything else leaves it undefined.
+        if (typeof askedAt === "number" && Number.isFinite(askedAt) && askedAt >= 0) {
+          if (!Number.isInteger(askedAt)) {
+            entry.pendingChoice.askedAt = Math.trunc(askedAt);
+            this.migrated = true;
+          }
+        } else {
+          delete entry.pendingChoice.askedAt;
+          this.migrated = true;
+        }
       }
     }
     return records;

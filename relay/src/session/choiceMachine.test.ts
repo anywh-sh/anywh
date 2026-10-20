@@ -217,3 +217,43 @@ test("a failed CLEAR write is retried once, so an answered question can't come b
   assert.equal(calls.length, 2);
   assert.equal(calls[1], undefined, "the clear must have been written on the retry");
 });
+
+test("askedAt: stamped once from the injected clock, broadcast, persisted and identical when resent", () => {
+  let clock = 1000;
+  const client = fakeSocket();
+  const changes: Array<{ askedAt?: number } | undefined> = [];
+  const machine = new ChoiceMachine(new Set([client]), undefined, undefined, (c) => changes.push(c), () => clock);
+  machine.presentChoice([question()]);
+  clock = 9000;
+  const late = fakeSocket();
+  machine.sendPendingTo(late);
+  assert.equal((client.sent[0] as { askedAt: number }).askedAt, 1000);
+  assert.equal((late.sent[0] as { askedAt: number }).askedAt, 1000, "a reconnect must not restamp");
+  assert.equal(changes[0]?.askedAt, 1000);
+});
+
+test("askedAt: survives a restart with the same value (rehydrated from the persisted record, not the new clock)", () => {
+  let persisted: { promptId: string; askedAt?: number } | undefined;
+  const machine = new ChoiceMachine(new Set(), undefined, undefined, (c) => (persisted = c), () => 1000);
+  machine.presentChoice([question()]);
+  const restarted = new ChoiceMachine(new Set(), undefined, structuredClone(persisted) as never, undefined, () => 50_000);
+  const client = fakeSocket();
+  restarted.sendPendingTo(client);
+  assert.equal((client.sent[0] as { askedAt: number }).askedAt, 1000);
+});
+
+test("askedAt: a record from before the field existed stays undefined: omitted on the wire, nothing written", () => {
+  const changes: unknown[] = [];
+  const machine = new ChoiceMachine(new Set(), undefined, { promptId: "old", questions: [question()] }, (c) => changes.push(c), () => 7000);
+  const client = fakeSocket();
+  machine.sendPendingTo(client);
+  assert.equal("askedAt" in (client.sent[0] as object), false);
+  assert.deepEqual(changes, []);
+});
+
+test("askedAt: approval prompts carry it too", () => {
+  const client = fakeSocket();
+  const machine = new ChoiceMachine(new Set([client]), undefined, undefined, undefined, () => 4242);
+  void machine.presentApprovalChoice([question()]);
+  assert.equal((client.sent[0] as { askedAt: number }).askedAt, 4242);
+});

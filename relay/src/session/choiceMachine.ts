@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
-import type { PersistedChoice } from "./sessionStore.js";
+import type { ChoicePrompt, PersistedChoice } from "./sessionStore.js";
 import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from "./broadcast.js";
 
 /** What `answerChoice` resolved, told apart so `SharedSession` (the only
@@ -57,7 +57,7 @@ export type AnswerChoiceResult =
  * not make it vanish.
  */
 export class ChoiceMachine {
-  private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
+  private pendingApproval: (ChoicePrompt & { resolve: (answers: ChoiceAnswer[]) => void }) | undefined;
   private pendingChoice: PersistedChoice | undefined;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
@@ -70,6 +70,8 @@ export class ChoiceMachine {
     /** Fires whenever the deferred slot is set (the prompt) or emptied
      * (`undefined`), so the session can mirror it into the store. */
     private readonly onChoiceChange?: (choice: PersistedChoice | undefined) => void,
+    /** Injectable clock (epoch ms) for `askedAt`. */
+    private readonly now: () => number = Date.now,
   ) {
     this.pendingChoice = initialChoice;
   }
@@ -131,7 +133,7 @@ export class ChoiceMachine {
   presentChoice(questions: ChoiceQuestion[]): boolean {
     if (this.pendingChoice) return false;
     const promptId = randomUUID();
-    this.pendingChoice = { promptId, questions };
+    this.pendingChoice = { promptId, questions, askedAt: this.now() };
     broadcastChoicePrompt(this.clients, this.pendingChoice, "choice");
     this.mirror(this.pendingChoice);
     this.onPromptShown?.("choice", questions);
@@ -174,7 +176,7 @@ export class ChoiceMachine {
   presentApprovalChoice(questions: ChoiceQuestion[]): Promise<ChoiceAnswer[]> {
     return new Promise((resolve) => {
       const promptId = randomUUID();
-      this.pendingApproval = { promptId, questions, resolve };
+      this.pendingApproval = { promptId, questions, askedAt: this.now(), resolve };
       broadcastChoicePrompt(this.clients, this.pendingApproval, "approval");
       this.onPromptShown?.("approval", questions);
     });
