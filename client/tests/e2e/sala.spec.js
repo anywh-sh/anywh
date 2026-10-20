@@ -70,6 +70,27 @@ async function drag(selector, dx, dy) {
   );
 }
 
+/** Waits until the camera is at rest and every card is inside the viewport
+ * (the canvas keeps the whole room in view as it grows), so that what is
+ * measured or photographed is the room and not a frame of a move. */
+async function roomInView() {
+  await browser.waitUntil(
+    () =>
+      browser.execute(() => {
+        const vp = document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect();
+        const moving = document.querySelector(".sala-world").classList.contains("moving");
+        return (
+          !moving &&
+          [...document.querySelectorAll("[data-agent-id]")].every((el) => {
+            const r = el.getBoundingClientRect();
+            return r.left >= vp.left - 1 && r.right <= vp.right + 1 && r.top >= vp.top - 1 && r.bottom <= vp.bottom + 1;
+          })
+        );
+      }),
+    { timeout: 20000, timeoutMsg: "the camera never came to rest with the whole room in view" },
+  );
+}
+
 const cards = () => $$("[data-agent-id]");
 const cardState = (id) => browser.execute((agent) => document.querySelector(`[data-agent-id="${agent}"]`)?.getAttribute("data-state"), id);
 const savedCanvas = async (base, roomId) => (await (await fetch(`${base}/rooms/${roomId}/canvas`)).json()).canvas;
@@ -99,13 +120,15 @@ describe("anywh room canvas", () => {
   });
 
   after(async () => {
-    await browser.execute((saved) => {
-      for (const [key, value] of Object.entries(saved)) {
-        if (value === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
-      }
-    }, previous);
-    await stack.stop();
+    if (previous) {
+      await browser.execute((saved) => {
+        for (const [key, value] of Object.entries(saved)) {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        }
+      }, previous);
+    }
+    await stack?.stop();
   });
 
   it("offers Conversation and Room on the new-session screen, and Room changes what the composer asks for", async () => {
@@ -196,7 +219,6 @@ describe("anywh room canvas", () => {
     // One link per worker, and the three areas the principal named.
     expect((await $$("path[data-edge]")).length).toBeGreaterThanOrEqual(7);
     expect((await $$("[data-area-id]")).length).toBe(3);
-    await browser.pause(1500);
     // "Your turn" is what the waiting card says it is, with its Reply button.
     const waiting = await $('[data-agent-id][data-state="awaiting_user"]');
     await expect(waiting).toHaveText(expect.stringContaining("Your turn"));
@@ -213,6 +235,7 @@ describe("anywh room canvas", () => {
       return hits;
     });
     expect(overlap).toEqual([]);
+    await roomInView();
     await shot("A-sala-feature-grande");
   });
 
@@ -226,10 +249,19 @@ describe("anywh room canvas", () => {
       const card = document.querySelector('[data-agent-id][data-state="awaiting_user"]').getBoundingClientRect();
       vp.dispatchEvent(new WheelEvent("wheel", { deltaX: card.left + card.width / 2 - (box.left + box.width / 2), deltaY: card.top + card.height / 2 - (box.top + box.height / 2), bubbles: true, cancelable: true }));
     });
-    await browser.pause(1200);
+    await browser.waitUntil(
+      () =>
+        browser.execute(() => {
+          const vp = document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect();
+          const card = document.querySelector('[data-agent-id][data-state="awaiting_user"]').getBoundingClientRect();
+          const moving = document.querySelector(".sala-world").classList.contains("moving");
+          return !moving && Math.abs(card.left + card.width / 2 - (vp.left + vp.width / 2)) < 2 && Math.abs(card.top + card.height / 2 - (vp.top + vp.height / 2)) < 2;
+        }),
+      { timeout: 20000, timeoutMsg: "the waiting card never came to the middle" },
+    );
     await shot("A-sala-feature-grande-100");
     await browser.execute(() => document.querySelector('[aria-label="Fit to screen"]').click());
-    await browser.pause(800);
+    await roomInView();
   });
 
   it("keeps the layout the relay was given: a card dragged lands on the grid and is saved", async () => {
@@ -293,7 +325,7 @@ describe("anywh room canvas", () => {
     });
     // Nothing selected, so the shot shows the room and not an action bar.
     await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    await browser.pause(800);
+    await roomInView();
     await shot("A-sala-10-agentes");
     // What the canvas itself costs a frame while panning, in the real
     // engine with every card live: the time the camera's write takes on the
@@ -324,8 +356,16 @@ describe("anywh room canvas", () => {
   });
 
   it("finds the saved layout again after the app reloads", async () => {
-    // The camera is written back a moment after it settles.
-    await browser.pause(1500);
+    // The camera is written back a moment after it settles: wait until the
+    // relay has the zoom the toolbar shows.
+    await browser.waitUntil(
+      async () => {
+        const shown = Number.parseInt(await (await $('[aria-label^="Zoom "] span')).getText(), 10);
+        const camera = (await savedCanvas(stack.base, roomId)).camera;
+        return camera !== undefined && Math.round(camera.zoom * 100) === shown;
+      },
+      { timeout: 15000, timeoutMsg: "the relay never got the camera the screen shows" },
+    );
     const saved = await savedCanvas(stack.base, roomId);
     const ids = Object.keys(saved.positions);
     expect(ids.length).toBeGreaterThanOrEqual(10);
@@ -361,13 +401,13 @@ describe("anywh room canvas", () => {
     expect(text).toMatch(/espera você/);
     await expect(await $('[aria-label="Ajustar à tela"]')).toBeExisting();
     await browser.execute(() => document.querySelector('[aria-label="Ajustar à tela"]').click());
-    await browser.pause(1000);
+    await roomInView();
     await shot("A-sala-10-agentes-pt");
     await $('[aria-label="Nova sessão"]').click();
     const group = await $('[role="radiogroup"][aria-label="Tipo de sessão"]');
     await group.waitForExist({ timeout: 15000 });
     await group.$('//*[@role="radio"][contains(., "Sala")]').click();
-    await browser.pause(500);
+    await browser.waitUntil(async () => (await (await group.$('[role="radio"][aria-checked="true"]')).getText()).includes("Sala"), { timeout: 5000 });
     await shot("A-nova-sessao-sala-pt");
   });
 
@@ -396,7 +436,7 @@ describe("anywh room canvas", () => {
     );
     await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000, timeoutMsg: "the small room's three cards never appeared" });
     await browser.waitUntil(async () => (await browser.execute(() => !!document.querySelector('[data-state="awaiting_user"]'))), { timeout: 60000 });
-    await browser.pause(1200);
+    await roomInView();
     await shot("A-sala-tarefa-pequena");
   });
 });

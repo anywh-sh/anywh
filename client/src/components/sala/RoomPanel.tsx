@@ -131,7 +131,9 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   if (gone) {
     return <div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-text-faint">{dict.canvas.gone}</div>;
   }
-  if (layout.status !== "ready") {
+  // Until the first snapshot there is nothing to draw but an empty room, and
+  // an empty room is a claim ("no agents") this screen cannot make yet.
+  if (layout.status !== "ready" || !ready) {
     return <div className="flex h-full items-center justify-center font-mono text-[13px] text-text-faint">{dict.canvas.loading}</div>;
   }
 
@@ -144,6 +146,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
         contextCount={contextCount}
         modelLabelOf={modelLabelOf}
         reconnecting={channel.status === "reconnecting"}
+        saveFailed={layout.saveFailed}
         onCanvasChange={layout.update}
         onCameraSettled={onCameraSettled}
         onStopAgent={onStopAgent}

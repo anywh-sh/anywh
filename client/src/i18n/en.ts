@@ -898,7 +898,7 @@ export const en: Dictionary = {
       room: "Room",
       placeholderRoom: "Describe the demand. In the room you launch agents, group them and attach context",
       createFailed: "The room could not be opened.",
-      sendFailed: "The room is open, but your message did not reach its main agent. Send it again from the room.",
+      sendFailed: "The room is open, but its main agent did not receive your message:\n\n{message}",
     },
     roomGlyph: "Room",
     canvas: {

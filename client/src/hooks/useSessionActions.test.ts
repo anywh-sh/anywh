@@ -7,7 +7,7 @@ import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import { getDictionary } from "@/i18n";
 import { setCachedSessions } from "@/lib/format/sessionListCache";
-import type { Profile } from "@/lib/profiles/profiles";
+import { setProfiles, type Profile } from "@/lib/profiles/profiles";
 
 const activeProfile: Profile = {
   id: "profile-a",
@@ -19,6 +19,7 @@ const activeProfile: Profile = {
 function makeTabsState(): ReturnType<typeof useTabs> {
   return {
     openTab: vi.fn(),
+    convertToRoom: vi.fn(),
     focusGroup: vi.fn(),
     setTabTitle: vi.fn(),
     closeTab: vi.fn(),
@@ -120,6 +121,40 @@ describe("useSessionActions — focusSession family", () => {
     expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "r1", "Room", false, true);
     result.current.handleSearchSelectSession("profile-b", "c1", "Chat");
     expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "c1", "Chat", false, false);
+  });
+
+  it("asks the relay about a session it has no row for, and turns the tab into a canvas when it is a room", async () => {
+    setProfiles([activeProfile]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({ canvas: { positions: {}, areas: [], texts: [] } }), { status: 200 }))));
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.focusSession("profile-a", "unseen", "Unseen");
+    await vi.waitFor(() => expect(tabsState.convertToRoom).toHaveBeenCalledWith("unseen", "unseen", "Unseen"));
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves an ordinary session alone when the relay says it is no room", async () => {
+    setProfiles([activeProfile]);
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: "room not found" }), { status: 404 })));
+    vi.stubGlobal("fetch", fetchSpy);
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.focusSession("profile-a", "chat", "Chat");
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(tabsState.convertToRoom).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not ask when the list already says what it is", () => {
+    setCachedSessions("profile-a", [{ id: "c1", title: "Chat", lastActiveAt: 1 }]);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { result } = renderHook(() => useSessionActions(makeArgs() as never));
+    result.current.focusSession("profile-a", "c1", "Chat");
+    result.current.focusSession("profile-a", "c2", "Other", false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("handleSearchSelectSession delegates to focusSession without touching the drawer", () => {

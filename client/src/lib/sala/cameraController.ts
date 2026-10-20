@@ -76,9 +76,13 @@ export class CameraController {
     this.hooks.apply(cam);
   }
 
+  /** Stops whatever is moving the camera. A motion cut short still ended
+   * somewhere, and that is reported like any other end. */
   stop(): void {
+    const interrupted = this.raf !== 0;
     this.cancelMotion();
     if (!this.isZooming) this.hooks.moving(false);
+    if (interrupted) this.hooks.settled(this.cam);
   }
 
   private cancelMotion(): void {

@@ -46,8 +46,8 @@
 .sala.hand .sala-text {
   cursor: grab;
 }
-.sala.panning,
-.sala.panning * {
+.sala[data-panning],
+.sala[data-panning] * {
   cursor: grabbing !important;
 }
 .sala.tool-area,
@@ -120,7 +120,7 @@
   stroke-dasharray: 3 6;
   animation: none;
 }
-.sala.moving .sala-edge-flow {
+.sala-world.moving .sala-edge-flow {
   animation-play-state: paused;
 }
 @keyframes sala-flow {
@@ -262,7 +262,7 @@
   border-radius: 9999px;
   animation: sala-spin 0.9s linear infinite;
 }
-.sala.moving .sala-spin {
+.sala-world.moving .sala-spin {
   animation-play-state: paused;
 }
 @keyframes sala-spin {
@@ -351,7 +351,7 @@
   background: linear-gradient(90deg, transparent, var(--state-run), transparent);
   animation: sala-sweep 1.15s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
-.sala.moving .sala-segs > span.live::after {
+.sala-world.moving .sala-segs > span.live::after {
   animation-play-state: paused;
 }
 @keyframes sala-sweep {

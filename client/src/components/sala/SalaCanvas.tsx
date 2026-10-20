@@ -26,7 +26,7 @@ import {
 } from "@/lib/sala/camera";
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
-import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
 import { CloseIcon } from "@/components/sala/SalaIcons";
@@ -38,6 +38,8 @@ export interface SalaCanvasProps {
   contextCount: number;
   modelLabelOf: (agent: RoomAgent) => string;
   reconnecting: boolean;
+  /** The relay refused or could not take the last write of the layout. */
+  saveFailed: boolean;
   onCanvasChange: (next: RoomCanvas) => void;
   /** The camera came to rest (or was set): where it is now. */
   onCameraSettled: (camera: Camera) => void;
@@ -57,10 +59,14 @@ type Drag =
   | { kind: "pan"; pointerId: number; sx: number; sy: number; cx: number; cy: number; moved: boolean; samples: [number, number, number][] }
   | { kind: "node"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; el: HTMLElement | null }
   | { kind: "frame"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; members: { id: string; ox: number; oy: number }[] }
-  | { kind: "text"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; el: HTMLElement | null; input: HTMLInputElement | null }
+  | { kind: "text"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; off: number; moved: boolean; el: HTMLElement | null; input: HTMLInputElement | null }
   | { kind: "draw"; pointerId: number; sx: number; sy: number; ox: number; oy: number; moved: boolean };
 
 const TEXT_BIG_AT = 0; // the first text is a heading: see `isBigText`
+/** What the relay accepts: a longer label or text would be refused, and with it
+ * the whole layout. */
+const AREA_LABEL_MAX = 200;
+const TEXT_MAX = 4000;
 const MIN_DRAWN = 48;
 const DEFAULT_AREA = { w: 480, h: 312 };
 
@@ -69,6 +75,9 @@ const DEFAULT_AREA = { w: 480, h: 312 };
 function isBigText(texts: readonly RoomCanvasText[], id: string): boolean {
   return texts[TEXT_BIG_AT]?.id === id;
 }
+
+/** How far above its `y` a text's box starts: its baseline sits on `y`. */
+const textLift = (big: boolean): number => (big ? 42 : 22);
 
 const translate = (x: number, y: number): string => `translate(${String(x)}px, ${String(y)}px)`;
 
@@ -92,7 +101,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const [toast, setToast] = useState<Toast | null>(null);
   const [zoomPct, setZoomPct] = useState(100);
   const [measured, setMeasured] = useState(false);
-  const [draw, setDraw] = useState<Rect | null>(null);
+  const drawEl = useRef<HTMLDivElement>(null);
 
   // What event handlers need, as of the latest render.
   const latest = useRef({ ...props, tool, spaceDown, selected });
@@ -190,7 +199,6 @@ export function SalaCanvas(props: SalaCanvasProps) {
     apply: applyCamera,
     moving: (on) => {
       worldRef.current?.classList.toggle("moving", on);
-      vpRef.current?.classList.toggle("moving", on);
     },
     zooming: (on) => {
       zooming.current = on;
@@ -281,6 +289,19 @@ export function SalaCanvas(props: SalaCanvasProps) {
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+  const wasSaveFailed = useRef(false);
+  useEffect(() => {
+    if (props.saveFailed && !wasSaveFailed.current) showToast(dict.toast.saveFailed, undefined, 6000);
+    wasSaveFailed.current = props.saveFailed;
+  }, [props.saveFailed, showToast, dict.toast.saveFailed]);
+
+  /** Every change to the layout goes through here: an area is stored with the
+   * frame it draws now, so that when its members are gone it does not fall
+   * back to wherever it was first made. */
+  const commit = useCallback((next: RoomCanvas): void => {
+    const cards = cardRects(latest.current.agents, next.positions);
+    latest.current.onCanvasChange({ ...next, areas: next.areas.map((a) => storedArea(a, cards)) });
+  }, []);
 
   // ─── helpers over the canvas ───
   const withRects = useCallback((): Map<string, Rect> => {
@@ -324,6 +345,21 @@ export function SalaCanvas(props: SalaCanvasProps) {
     return screenToWorld(cam().cam, event.clientX - rect.left, event.clientY - rect.top);
   };
 
+  /** The rectangle being drawn by the Area tool, written straight to the DOM:
+   * a render per pointer move would redraw every card for it. */
+  const paintDraw = (rect: Rect | null): void => {
+    const el = drawEl.current;
+    if (!el) return;
+    if (!rect) {
+      el.style.display = "none";
+      return;
+    }
+    el.style.display = "";
+    el.style.transform = translate(rect.x, rect.y);
+    el.style.width = `${String(rect.w)}px`;
+    el.style.height = `${String(rect.h)}px`;
+  };
+
   /** Keeps the pointer's events coming here once it leaves the viewport. A
    * pointer that is already gone (cancelled, or synthetic) cannot be captured,
    * and that must not stop the gesture. */
@@ -357,13 +393,13 @@ export function SalaCanvas(props: SalaCanvasProps) {
       if (current === "text") {
         const text: RoomCanvasText = { id: newId("text"), text: "", x: snap(p.x), y: snap(p.y) };
         pendingFocus.current = `text:${text.id}`;
-        latest.current.onCanvasChange({ ...latest.current.canvas, texts: [...latest.current.canvas.texts, text] });
+        commit({ ...latest.current.canvas, texts: [...latest.current.canvas.texts, text] });
         setTool("select");
         return;
       }
       dragRef.current = { kind: "draw", pointerId: event.pointerId, sx: event.clientX, sy: event.clientY, ox: snap(p.x), oy: snap(p.y), moved: false };
       capture(event.pointerId);
-      setDraw({ x: snap(p.x), y: snap(p.y), w: 0, h: 0 });
+      paintDraw({ x: snap(p.x), y: snap(p.y), w: 0, h: 0 });
       return;
     }
     beginPan(event);
@@ -409,6 +445,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         sy: event.clientY,
         ox: text.x,
         oy: text.y,
+        off: textLift(isBigText(cv.texts, id)),
         moved: false,
         el: root?.querySelector<HTMLElement>(`[data-text-id="${CSS.escape(id)}"]`) ?? null,
         input: target.tagName === "INPUT" ? (target as HTMLInputElement) : null,
@@ -436,6 +473,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
     capture(event.pointerId);
   };
 
+  const onItemDownRef = useRef(onItemDown);
+  onItemDownRef.current = onItemDown;
+  /** The same function for every card, for as long as the canvas lives: a new
+   * one per render would make every card's `memo` useless. */
+  const onNodeDown = useCallback((id: string, event: ReactPointerEvent<HTMLElement>): void => onItemDownRef.current("node", id, event), []);
+
   const onViewportMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
     const d = dragRef.current;
     if (!d || d.pointerId !== event.pointerId) return;
@@ -444,11 +487,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (!d.moved) {
       if (dx * dx + dy * dy < 10) return;
       d.moved = true;
-      if (d.kind === "pan") vpRef.current?.classList.add("panning");
-      else {
-        vpRef.current?.classList.add("moving");
-        worldRef.current?.classList.add("moving");
-      }
+      if (d.kind === "pan") vpRef.current?.setAttribute("data-panning", "");
+      else worldRef.current?.classList.add("moving");
       if (d.kind === "node") d.el?.classList.add("drag");
     }
     if (d.kind === "pan") {
@@ -463,13 +503,13 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const p = worldAt(event);
       const x2 = p.x;
       const y2 = p.y;
-      setDraw({ x: Math.min(d.ox, x2), y: Math.min(d.oy, y2), w: Math.abs(x2 - d.ox), h: Math.abs(y2 - d.oy) });
+      paintDraw({ x: Math.min(d.ox, x2), y: Math.min(d.oy, y2), w: Math.abs(x2 - d.ox), h: Math.abs(y2 - d.oy) });
       return;
     }
     if (d.kind === "text") {
       const nx = d.ox + dx / z;
       const ny = d.oy + dy / z;
-      if (d.el) d.el.style.transform = translate(nx, ny);
+      if (d.el) d.el.style.transform = translate(nx, ny - d.off);
       return;
     }
     if (d.kind === "node") {
@@ -507,7 +547,33 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
   };
 
-  const finishDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
+  /** Puts every card, link, area and text where the layout says it is. */
+  const restoreDom = (): void => {
+    const { canvas: cv, agents: list } = latest.current;
+    const root = worldRef.current;
+    live.current.clear();
+    if (!root) return;
+    const cards = cardRects(list, cv.positions);
+    for (const [id, rect] of cards) {
+      const el = root.querySelector<HTMLElement>(`[data-agent-id="${CSS.escape(id)}"]`);
+      if (el) {
+        el.style.transform = translate(rect.x, rect.y);
+        el.classList.remove("drag");
+      }
+      writeEdges(cards, id);
+    }
+    for (const area of cv.areas) {
+      writeFrame(area.id, areaRect(area, cards));
+      flag(area.id, "release", false);
+      flag(area.id, "drop", false);
+    }
+    for (const t of cv.texts) {
+      const el = root.querySelector<HTMLElement>(`[data-text-id="${CSS.escape(t.id)}"]`);
+      if (el) el.style.transform = translate(t.x, t.y - textLift(isBigText(cv.texts, t.id)));
+    }
+  };
+
+  const finishDrag = (event: ReactPointerEvent<HTMLDivElement>, cancelled = false): void => {
     const d = dragRef.current;
     if (!d || d.pointerId !== event.pointerId) return;
     dragRef.current = null;
@@ -516,8 +582,18 @@ export function SalaCanvas(props: SalaCanvasProps) {
     } catch {
       // Already released (cancelled pointer).
     }
-    vpRef.current?.classList.remove("panning");
+    vpRef.current?.removeAttribute("data-panning");
     const { canvas: cv, agents: list } = latest.current;
+
+    if (cancelled) {
+      // The system took the pointer (a gesture, a notification): nothing was
+      // meant by where it stopped, so everything goes back where it was.
+      worldRef.current?.classList.remove("moving");
+      paintDraw(null);
+      if (d.kind === "pan") latest.current.onCameraSettled(cam().cam);
+      else restoreDom();
+      return;
+    }
 
     if (d.kind === "pan") {
       if (!d.moved) {
@@ -525,7 +601,6 @@ export function SalaCanvas(props: SalaCanvasProps) {
         setSelectedArea(null);
         return;
       }
-      vpRef.current?.classList.remove("moving");
       const { vx, vy } = releaseVelocity(d.samples, performance.now());
       if (Math.hypot(vx, vy) > 2) cam().glide(vx, vy);
       else {
@@ -536,7 +611,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
 
     if (d.kind === "draw") {
-      setDraw(null);
+      paintDraw(null);
       const drawn = { x: d.ox, y: d.oy, w: 0, h: 0 };
       const p = worldAt(event);
       let rect: Rect = { x: Math.min(d.ox, p.x), y: Math.min(d.oy, p.y), w: Math.abs(p.x - d.ox), h: Math.abs(p.y - d.oy) };
@@ -546,13 +621,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const inside = [...cards.entries()].filter(([, r]) => r.x + r.w / 2 > rect.x && r.x + r.w / 2 < rect.x + rect.w && r.y + r.h / 2 > rect.y && r.y + r.h / 2 < rect.y + rect.h).map(([id]) => id);
       const id = newId("area");
       pendingFocus.current = `area:${id}`;
-      latest.current.onCanvasChange({ ...cv, areas: groupInto(cv.areas, inside, rect, id) });
+      commit({ ...cv, areas: groupInto(cv.areas, inside, rect, id) });
       setTool("select");
       return;
     }
 
     worldRef.current?.classList.remove("moving");
-    vpRef.current?.classList.remove("moving");
 
     if (d.kind === "text") {
       d.el?.classList.remove("drag");
@@ -564,8 +638,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const z = cam().cam.z;
       const x = snap(d.ox + (event.clientX - d.sx) / z);
       const y = snap(d.oy + (event.clientY - d.sy) / z);
-      if (d.el) d.el.style.transform = translate(x, y);
-      latest.current.onCanvasChange({ ...cv, texts: cv.texts.map((t) => (t.id === d.id ? { ...t, x, y } : t)) });
+      if (d.el) d.el.style.transform = translate(x, y - d.off);
+      commit({ ...cv, texts: cv.texts.map((t) => (t.id === d.id ? { ...t, x, y } : t)) });
       return;
     }
 
@@ -590,7 +664,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       if (d.el) d.el.style.transform = translate(x, y);
       writeEdges(cards, d.id);
       for (const area of areas) writeFrame(area.id, areaRect(area, cards));
-      latest.current.onCanvasChange({ ...cv, positions, areas });
+      commit({ ...cv, positions, areas });
       return;
     }
 
@@ -607,7 +681,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     const positions = { ...cv.positions };
     for (const m of d.members) positions[m.id] = { x: m.ox + sx, y: m.oy + sy };
     const areas = cv.areas.map((a) => (a.id === d.id && d.members.length === 0 ? { ...a, x: d.ox + sx, y: d.oy + sy } : a));
-    latest.current.onCanvasChange({ ...cv, positions, areas });
+    commit({ ...cv, positions, areas });
     const cards = cardRects(list, positions);
     for (const area of areas) writeFrame(area.id, areaRect(area, cards));
     for (const m of d.members) {
@@ -631,10 +705,10 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const rect = areaRectForIds(ids, cards);
       const id = newId("area");
       pendingFocus.current = `area:${id}`;
-      latest.current.onCanvasChange({ ...cv, areas: groupInto(cv.areas, ids, rect, id) });
+      commit({ ...cv, areas: groupInto(cv.areas, ids, rect, id) });
       setSelected(null);
     },
-    [],
+    [commit],
   );
 
   const stopAgent = useCallback(
@@ -709,8 +783,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
     if (typing || event.altKey || event.metaKey || event.ctrlKey) return;
     const key = event.key;
-    // Space and Enter on a focused toolbar button activate it: they are not shortcuts there.
-    if ((key === " " || key === "Enter") && target.closest("[data-float]")) return;
+    // Space and Enter on a focused button activate it: they are not shortcuts there.
+    if ((key === " " || key === "Enter") && target.closest("button, a, [role=button], [data-float]")) return;
     if (key === " ") {
       event.preventDefault();
       setSpaceDown(true);
@@ -781,7 +855,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
   }, [measured, rects]);
 
   // ─── area and text editing ───
-  const setAreas = (areas: RoomCanvasArea[]): void => props.onCanvasChange({ ...canvas, areas });
+  const setAreas = (areas: RoomCanvasArea[]): void => commit({ ...canvas, areas });
   const renameArea = (id: string, label: string): void => {
     if (canvas.areas.find((a) => a.id === id)?.label === label) return;
     setAreas(canvas.areas.map((a) => (a.id === id ? { ...a, label } : a)));
@@ -789,11 +863,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const removeArea = (id: string): void => setAreas(canvas.areas.filter((a) => a.id !== id));
   const editText = (id: string, text: string): void => {
     if (text.trim() === "") {
-      props.onCanvasChange({ ...canvas, texts: canvas.texts.filter((t) => t.id !== id) });
+      commit({ ...canvas, texts: canvas.texts.filter((t) => t.id !== id) });
       return;
     }
     if (canvas.texts.find((t) => t.id === id)?.text === text) return;
-    props.onCanvasChange({ ...canvas, texts: canvas.texts.map((t) => (t.id === id ? { ...t, text } : t)) });
+    commit({ ...canvas, texts: canvas.texts.map((t) => (t.id === id ? { ...t, text } : t)) });
   };
 
   // ─── minimap ───
@@ -834,7 +908,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       onPointerDown={onViewportDown}
       onPointerMove={onViewportMove}
       onPointerUp={finishDrag}
-      onPointerCancel={finishDrag}
+      onPointerCancel={(event) => finishDrag(event, true)}
       onKeyDown={onKeyDown}
       onKeyUp={onKeyUp}
       onBlur={() => setSpaceDown(false)}
@@ -855,6 +929,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 key={`${area.id}:${area.label}`}
                 className="sala-frame-input"
                 aria-label={dict.area.nameLabel}
+                maxLength={AREA_LABEL_MAX}
                 placeholder={dict.area.namePlaceholder}
                 defaultValue={area.label}
                 size={Math.max(8, area.label.length || dict.area.namePlaceholder.length)}
@@ -898,11 +973,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
         {canvas.texts.map((t) => {
           const big = isBigText(canvas.texts, t.id);
           return (
-            <div key={t.id} data-text-id={t.id} className="sala-text" style={{ transform: translate(t.x, t.y - (big ? 42 : 22)) }} onPointerDown={(event) => onItemDown("text", t.id, event)}>
+            <div key={t.id} data-text-id={t.id} className="sala-text" style={{ transform: translate(t.x, t.y - textLift(big)) }} onPointerDown={(event) => onItemDown("text", t.id, event)}>
               <input
                 key={`${t.id}:${t.text}`}
                 className={cn("sala-text-input", big && "big")}
                 aria-label={dict.text.label}
+                maxLength={TEXT_MAX}
                 placeholder={dict.text.placeholder}
                 defaultValue={t.text}
                 size={Math.max(6, t.text.length)}
@@ -938,7 +1014,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
               canGroup={agent.role === "worker"}
               canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}
               canRemove={agent.role === "worker"}
-              onPointerDown={(id, event) => onItemDown("node", id, event)}
+              onPointerDown={onNodeDown}
               onSelect={select}
               onGroup={groupAgent}
               onStop={stopAgent}
@@ -946,7 +1022,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
             />
           );
         })}
-        {draw && <div className="sala-frame" style={{ transform: translate(draw.x, draw.y), width: draw.w, height: draw.h, borderStyle: "dashed" }} />}
+        <div ref={drawEl} className="sala-frame empty" aria-hidden="true" style={{ display: "none" }} />
       </div>
 
       {!hasAgents && <div className="sala-empty">{dict.canvas.empty}</div>}

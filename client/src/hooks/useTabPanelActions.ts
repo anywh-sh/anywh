@@ -141,10 +141,17 @@ export function useTabPanelActions({
       onRoomCreated: (tab, profile, roomId, title, firstMessage) => {
         tabsState.convertToRoom(tab.id, roomId, title);
         sessionDock.removeSession(tab.id);
+        // What the tab had been keyed by (its old id) goes with it.
+        setConnectedByTab(({ [tab.id]: _connected, ...rest }) => rest);
+        setModelLabelByTab(({ [tab.id]: _label, ...rest }) => rest);
+        setBackgroundActivityByTab(({ [tab.id]: _activity, ...rest }) => rest);
+        backgroundActionsRef.current.delete(tab.id);
         upsertCachedSession(profile.id, roomId, title, undefined, true);
         // The blank session the new tab opened on the relay is not the room.
-        void discardBlankSession(profile, tab.id);
-        void deliverFirstRoomMessage(profile, roomId, firstMessage, () => window.alert(dict.sala.newSession.sendFailed));
+        // Only a tab that never had a title can be that: anything else is a
+        // real conversation, whatever the screen was showing.
+        if (tab.title === null) void discardBlankSession(profile, tab.id);
+        void deliverFirstRoomMessage(profile, roomId, firstMessage, () => window.alert(dict.sala.newSession.sendFailed.replace("{message}", firstMessage.slice(0, 2000))));
       },
     }),
     [

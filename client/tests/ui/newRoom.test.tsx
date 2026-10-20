@@ -52,6 +52,8 @@ afterEach(async () => {
   relay.uninstall();
 });
 
+const composerOf = (root: Document): HTMLElement => root.querySelector<HTMLElement>(".composer-editor .ProseMirror")!;
+
 async function openNewSession(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
 }
@@ -90,8 +92,8 @@ describe("a new session in room mode", () => {
     expect(created.agentId).toBe("claude");
     expect(created.title).toBe("Redo the profile page");
 
-    // The same tab is now the room: its canvas, not the conversation.
-    expect(await screen.findByTestId("sala-canvas")).toBeInTheDocument();
+    // The same tab is now the room, not the conversation: nothing to draw yet.
+    expect(await screen.findByText(en.sala.canvas.loading)).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: en.sala.newSession.modeLabel })).not.toBeInTheDocument();
     expect(screen.getAllByRole("tab")).toHaveLength(1);
     expect(within(screen.getByRole("tab")).getByRole("img", { name: en.sala.roomGlyph })).toBeInTheDocument();
@@ -105,9 +107,18 @@ describe("a new session in room mode", () => {
     await vi.waitFor(() => expect(relay.sockets.some((s) => s.url.includes("/rooms/room-1/watch"))).toBe(true));
     const summary = { counts: { working: 1, awaiting_user: 0, queued: 0, waiting: 0, done: 0, blocked: 0, failed: 0, stopped: 0 }, needsYou: 0, live: 1, liveLimit: 10 };
     relay.emit({ type: "room_snapshot", roomId: "room-1", agents: [principal()], summary });
-    const card = await screen.findByRole("button", { name: /Profile page, Running/ });
-    expect(card).toBeInTheDocument();
-    expect(card).toBeInTheDocument();
+    expect(await screen.findByTestId("sala-canvas")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Profile page, Running/ })).toBeInTheDocument();
+  });
+
+  it("does not offer Room on a session that has had a turn, even when its log is empty again (/clear)", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await openNewSession(user);
+    await screen.findByRole("radiogroup", { name: en.sala.newSession.modeLabel });
+    // The relay locks a conversation's folder with its first turn.
+    relay.emit({ type: "cwd_state", cwd: "/work", locked: true });
+    await vi.waitFor(() => expect(screen.queryByRole("radiogroup", { name: en.sala.newSession.modeLabel })).not.toBeInTheDocument());
   });
 
   it("keeps the session a conversation when Conversation is chosen: no room is opened", async () => {
@@ -139,6 +150,8 @@ describe("a new session in room mode", () => {
     await vi.waitFor(() => expect(send).toBeEnabled());
     await user.click(send);
     await vi.waitFor(() => expect(alert).toHaveBeenCalledWith(en.sala.newSession.createFailed));
+    // What was typed is back in the composer, not lost with the failure.
+    await vi.waitFor(() => expect(composerOf(document).textContent).toContain("x"));
     expect(screen.queryByTestId("sala-canvas")).not.toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: en.sala.newSession.modeLabel })).toBeInTheDocument();
   });

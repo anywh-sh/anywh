@@ -1,8 +1,9 @@
 // A real relay, a real agent host and the fake `claude` (the relay's own
 // sanctioned test boundary), started as separate processes for the specs that
 // need a room to exist. Everything the app talks to is real except the
-// agent: its behaviour is scripted by markers in the messages it is sent
-// (see relay/tests/fixtures/fake-claude-persistent.mjs).
+// agent: its behaviour is scripted by markers in the messages it is sent (the
+// host drives it in the persistent mode of relay/tests/fixtures/fake-claude.mjs,
+// whose markers are listed in fake-claude-persistent.mjs).
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, connect } from "node:net";
@@ -44,11 +45,39 @@ function waitForPort(port, timeoutMs = 30_000) {
 
 /** Starts the stack. `stop()` ends exactly the processes started here. */
 export async function startRoomRelay() {
+  const started = [];
+  try {
+    return await start(started);
+  } catch (error) {
+    // A stack that never came up must not leave its processes behind: they
+    // would keep the test run from ever exiting.
+    await stopAll(started);
+    throw error;
+  }
+}
+
+async function stopAll(started) {
+  for (const child of started) if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+  await Promise.all(
+    started.map(
+      (child) =>
+        new Promise((resolveExit) => {
+          if (child.exitCode !== null || child.signalCode !== null) return resolveExit();
+          const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+          child.once("exit", () => {
+            clearTimeout(timer);
+            resolveExit();
+          });
+        }),
+    ),
+  );
+}
+
+async function start(children) {
   const dir = mkdtempSync(join(tmpdir(), "anywh-e2e-room-"));
   const home = join(dir, "home");
   mkdirSync(home, { recursive: true });
   const output = [];
-  const children = [];
   const run = (args, env) => {
     const child = spawn(process.execPath, ["--import", "tsx", ...args], { cwd: RELAY_ROOT, env: { ...process.env, ...env } });
     child.stdout.on("data", (chunk) => output.push(chunk.toString()));
@@ -95,20 +124,7 @@ export async function startRoomRelay() {
     dir,
     output,
     async stop() {
-      for (const child of children) if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
-      await Promise.all(
-        children.map(
-          (child) =>
-            new Promise((resolveExit) => {
-              if (child.exitCode !== null || child.signalCode !== null) return resolveExit();
-              const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
-              child.once("exit", () => {
-                clearTimeout(timer);
-                resolveExit();
-              });
-            }),
-        ),
-      );
+      await stopAll(children);
       rmSync(dir, { recursive: true, force: true });
     },
   };

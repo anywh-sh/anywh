@@ -741,7 +741,9 @@ export function ChatPanel({
   // The new-session screen's type choice: a room is opened from the same
   // composer, whose agent/model/effort become its principal.
   const [sessionType, setSessionType] = useState<SessionType>("conversation");
-  const canChooseType = Boolean(isNewConversation) && showingIdle && !isIOS();
+  // Only before the conversation has had a turn: a tab that was emptied with
+  // /clear is still the same session, and a room cannot be made out of it.
+  const canChooseType = Boolean(isNewConversation) && showingIdle && !isIOS() && !cwdLocked;
   const roomMode = canChooseType && sessionType === "room";
   const openingRoomRef = useRef(false);
   const showingLog = ready && !showingIdle;
@@ -770,6 +772,9 @@ export function ChatPanel({
       (error: unknown) => {
         openingRoomRef.current = false;
         console.error("[anywh] failed to open a room", error);
+        // The composer was cleared when the message was sent; what was typed
+        // comes back, so a failure costs a retry and not the text.
+        composerRef.current?.setContent(text);
         window.alert(dict.sala.newSession.createFailed);
       },
     );

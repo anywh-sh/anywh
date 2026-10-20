@@ -9,6 +9,7 @@ import { getCachedSessions, removeCachedSession, upsertCachedSession } from "@/l
 import { findProfile, type Profile } from "@/lib/profiles/profiles";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { deleteSession, renameSession } from "@/lib/relay/relayClient";
+import { fetchRoomCanvas } from "@/lib/relay/roomClient";
 
 interface UseSessionActionsArgs {
   activeProfile: Profile;
@@ -96,8 +97,23 @@ export function useSessionActions({
     setActiveProfileId(profileId);
     // Search and notifications know a session only by id: the list this
     // device already holds says whether it is a room's principal.
-    const isRoom = room ?? getCachedSessions(profileId).sessions.some((session) => session.id === sessionId && session.room === true);
+    const known = getCachedSessions(profileId).sessions.find((session) => session.id === sessionId);
+    const isRoom = room ?? known?.room === true;
     tabsState.openTab(profileId, sessionId, title, false, isRoom);
+    // Not in the list yet (a device that has not synced, a notification for
+    // something made elsewhere): the relay knows whether it is a room, and the
+    // tab becomes the canvas once it says so.
+    if (room === undefined && known === undefined) {
+      const profile = findProfile(profileId);
+      if (profile) {
+        fetchRoomCanvas(profile, sessionId).then(
+          (canvas) => {
+            if (canvas !== null) tabsState.convertToRoom(sessionId, sessionId, title);
+          },
+          () => undefined,
+        );
+      }
+    }
   }
 
   function handleSearchSelectSession(profileId: string, sessionId: string, title: string): void {

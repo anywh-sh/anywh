@@ -99,6 +99,19 @@ describe("CameraController", () => {
     expect(h.log.filter((e) => e === "settled")).toHaveLength(1);
   });
 
+  it("reports where a motion that was cut short ended, so the camera is not lost", async () => {
+    const h = hooks();
+    const c = new CameraController({ x: 0, y: 0, z: 1 }, h);
+    c.animate({ x: 500, y: 0, z: 1 }, 400);
+    await vi.advanceTimersByTimeAsync(120);
+    const before = h.log.filter((e) => e === "settled").length;
+    c.stop();
+    expect(h.log.filter((e) => e === "settled").length).toBe(before + 1);
+    // Stopping what is not moving says nothing.
+    c.stop();
+    expect(h.log.filter((e) => e === "settled").length).toBe(before + 1);
+  });
+
   it("glides to a stop", async () => {
     const h = hooks();
     const c = new CameraController({ x: 0, y: 0, z: 1 }, h);
