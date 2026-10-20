@@ -642,3 +642,32 @@ test("setPendingApproval stores a copy, not the caller's reference", () => {
     assert.equal(store.getPendingApproval("s1")?.calls[0].tool, "Write");
   });
 });
+
+test("queuedApproval: the calls waiting behind the card on screen round-trip and are validated like pendingApproval", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    assert.equal(store.getQueuedApproval("s1"), undefined);
+    store.setQueuedApproval("s1", APPROVAL);
+    store.setQueuedApproval("bad", APPROVAL);
+    assert.deepEqual(new SessionStore(file, DEFAULT_CWD).getQueuedApproval("s1"), APPROVAL);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getPendingApproval("s1"), undefined, "a different slot");
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { queuedApproval: Record<string, unknown> }>;
+    records.bad.queuedApproval.calls = [];
+    writeFileSync(file, JSON.stringify(records));
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getQueuedApproval("bad"), undefined);
+    store.setQueuedApproval("s1", undefined);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getQueuedApproval("s1"), undefined);
+  });
+});
+
+test("withdrawnApproval: round-trips, and false clears it without creating a record", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    store.setWithdrawnApproval("s1", false);
+    assert.equal(store.listIds().includes("s1"), false);
+    store.setWithdrawnApproval("s1", true);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getWithdrawnApproval("s1"), true);
+    store.setWithdrawnApproval("s1", false);
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getWithdrawnApproval("s1"), false);
+  });
+});

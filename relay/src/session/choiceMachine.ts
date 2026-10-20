@@ -23,6 +23,12 @@ export interface DeferredApprovalStorage {
   initial?: PersistedApproval;
   /** Fires whenever the slot is set or emptied (`undefined`). */
   onChange?: (approval: PersistedApproval | undefined) => void;
+  /** Refused calls waiting behind an approval card that is on screen. */
+  initialQueued?: PersistedApproval;
+  onQueuedChange?: (approval: PersistedApproval | undefined) => void;
+  /** An approval was withdrawn without the model being told. */
+  initialWithdrawn?: boolean;
+  onWithdrawnChange?: (withdrawn: boolean) => void;
 }
 
 /**
@@ -82,7 +88,14 @@ export class ChoiceMachine {
   /** Calls refused during the running turn, not yet a card: the card is
    * published once, when the turn ends (`flushDeferredApprovals`). Not
    * persisted — a turn that dies with the relay has nothing to ask about. */
-  private staged: Array<{ call: DeferredToolCall; question: ChoiceQuestion }> = [];
+  private staged: Array<{ call: DeferredToolCall; question: ChoiceQuestion; turnId: number }> = [];
+  /** Refused calls that arrived while an approval card was on screen: they
+   * become the next card once it is answered. Persisted. */
+  private queued: PersistedApproval | undefined;
+  private withdrawn: boolean;
+  /** Deferrals from turns up to this one are ignored: the person moved on
+   * while they were running. */
+  private ignoreUpTo = 0;
   /** Which deferred card a person is looking at. At most one of the two
    * deferred slots is on screen; the other waits, already persisted, and
    * appears when this one is resolved (the client shows one card at a time,
@@ -105,7 +118,15 @@ export class ChoiceMachine {
   ) {
     this.pendingChoice = initialChoice;
     this.deferredApproval = deferredStorage.initial;
-    this.active = initialChoice ? "choice" : deferredStorage.initial ? "approval" : undefined;
+    this.queued = deferredStorage.initialQueued;
+    this.withdrawn = deferredStorage.initialWithdrawn === true;
+    // Waiting calls with no card to wait behind (a hand-edited file) simply
+    // become the card.
+    if (!this.deferredApproval && this.queued) {
+      this.deferredApproval = this.queued;
+      this.queued = undefined;
+    }
+    this.active = initialChoice ? "choice" : this.deferredApproval ? "approval" : undefined;
   }
 
   /** Mirrors a deferred slot into the store. Always runs AFTER the
@@ -119,6 +140,24 @@ export class ChoiceMachine {
 
   private mirrorApproval(approval: PersistedApproval | undefined): void {
     this.mirrorWith(() => this.deferredStorage.onChange?.(approval), "approval");
+  }
+
+  private mirrorQueued(approval: PersistedApproval | undefined): void {
+    this.mirrorWith(() => this.deferredStorage.onQueuedChange?.(approval), "queued approval");
+  }
+
+  private setWithdrawn(value: boolean): void {
+    if (this.withdrawn === value) return;
+    this.withdrawn = value;
+    this.mirrorWith(() => this.deferredStorage.onWithdrawnChange?.(value), "withdrawal mark");
+  }
+
+  /** Whether an approval was withdrawn without the model being told; reading
+   * it clears it, so exactly one message carries the note. */
+  takeWithdrawn(): boolean {
+    const was = this.withdrawn;
+    this.setWithdrawn(false);
+    return was;
   }
 
   private mirrorWith(write: () => void, what: string): void {
@@ -148,6 +187,11 @@ export class ChoiceMachine {
       this.deferredApproval = undefined;
       this.mirrorApproval(undefined);
     }
+    if (this.queued) {
+      this.queued = undefined;
+      this.mirrorQueued(undefined);
+    }
+    this.setWithdrawn(false);
     this.active = undefined;
   }
 
@@ -237,42 +281,54 @@ export class ChoiceMachine {
    * card is published once, with a stable id, by `flushDeferredApprovals` when
    * the turn ends — republishing per call would reset the person's progress
    * through the card. A repeat of a `toolUseId` already held is ignored. */
-  deferApproval(call: DeferredToolCall, question: ChoiceQuestion): void {
+  deferApproval(call: DeferredToolCall, question: ChoiceQuestion, turnId: number): void {
+    if (turnId <= this.ignoreUpTo) return;
     if (call.toolUseId !== undefined) {
       const known = (other: DeferredToolCall): boolean => other.toolUseId === call.toolUseId;
-      if (this.staged.some((entry) => known(entry.call)) || this.deferredApproval?.calls.some(known)) return;
+      if (this.staged.some((entry) => known(entry.call)) || this.deferredApproval?.calls.some(known) || this.queued?.calls.some(known)) return;
     }
-    this.staged.push({ call, question });
+    this.staged.push({ call, question, turnId });
   }
 
-  /** Turns what the finished turn staged into the pending approval (persisted)
-   * and shows it unless another card is on screen. Calls that arrive while an
-   * approval card is on screen wait for the next cycle: they become a new card
-   * once that one is answered. */
-  flushDeferredApprovals(): void {
-    if (this.staged.length === 0) return;
-    if (this.deferredApproval && this.active === "approval") return;
-    const staged = this.staged;
-    this.staged = [];
-    const held = this.deferredApproval;
-    this.deferredApproval = {
+  /** Turns what the finished turn `turnId` staged into the pending approval
+   * (persisted) and shows it unless another card is on screen. Calls that
+   * arrive while an approval card is on screen wait, persisted, for the next
+   * cycle: they become a new card once that one is answered. */
+  flushDeferredApprovals(turnId: number): void {
+    const mine = this.staged.filter((entry) => entry.turnId === turnId);
+    if (mine.length === 0) return;
+    this.staged = this.staged.filter((entry) => entry.turnId !== turnId);
+    const add = (held: PersistedApproval | undefined): PersistedApproval => ({
       promptId: held?.promptId ?? randomUUID(),
-      questions: [...(held?.questions ?? []), ...staged.map((entry) => entry.question)],
-      calls: [...(held?.calls ?? []), ...staged.map((entry) => entry.call)],
+      questions: [...(held?.questions ?? []), ...mine.map((entry) => entry.question)],
+      calls: [...(held?.calls ?? []), ...mine.map((entry) => entry.call)],
       askedAt: held?.askedAt ?? this.now(),
-    };
+    });
+    if (this.deferredApproval && this.active === "approval") {
+      this.queued = add(this.queued);
+      this.mirrorQueued(this.queued);
+      return;
+    }
+    this.deferredApproval = add(this.deferredApproval);
     this.mirrorApproval(this.deferredApproval);
     this.publishNext();
   }
 
   /** A stopped turn's refusals are not worth asking about: the person
-   * interrupted the work they belonged to. */
-  dropStagedApprovals(): void {
-    this.staged = [];
+   * interrupted the work they belonged to. Only that turn's are dropped. The
+   * model did hear "wait for approval", so the next message must say it was
+   * withdrawn. Returns whether anything was dropped. */
+  dropStagedApprovals(turnId: number): boolean {
+    const before = this.staged.length;
+    this.staged = this.staged.filter((entry) => entry.turnId !== turnId);
+    const dropped = this.staged.length < before;
+    if (dropped) this.setWithdrawn(true);
+    return dropped;
   }
 
   /** Shows the next waiting deferred card if none is on screen: a question
-   * first, then an approval, then calls staged behind an earlier approval. */
+   * first, then an approval (the queue behind a finished approval card
+   * included). */
   private publishNext(): void {
     if (this.active) return;
     if (this.pendingChoice) {
@@ -281,8 +337,13 @@ export class ChoiceMachine {
       this.onPromptShown?.("choice", this.pendingChoice.questions);
       return;
     }
-    if (!this.deferredApproval && this.staged.length > 0) this.flushDeferredApprovals();
-    if (this.deferredApproval && !this.active) {
+    if (!this.deferredApproval && this.queued) {
+      this.deferredApproval = this.queued;
+      this.queued = undefined;
+      this.mirrorQueued(undefined);
+      this.mirrorApproval(this.deferredApproval);
+    }
+    if (this.deferredApproval) {
       this.active = "approval";
       broadcastChoicePrompt(this.clients, this.deferredApproval, "approval");
       this.onPromptShown?.("approval", this.deferredApproval.questions.slice(0, 1));
@@ -327,8 +388,17 @@ export class ChoiceMachine {
    * origins that feed `pendingChoice` (the MCP `present_choice` tool and the
    * `plan`-mode text marker) uniformly — from here on they're
    * indistinguishable, both just "a deferred prompt nobody answered yet". */
-  discardStaleChoice(): boolean {
+  discardStaleChoice(currentTurnId: number): boolean {
+    const hadStaged = this.staged.length > 0;
     this.staged = [];
+    // Refusals still to come from a turn that is running right now belong to
+    // a conversation the person has left.
+    this.ignoreUpTo = Math.max(this.ignoreUpTo, currentTurnId);
+    const hadQueued = this.queued !== undefined;
+    if (this.queued) {
+      this.queued = undefined;
+      this.mirrorQueued(undefined);
+    }
     if (this.pendingChoice) {
       const { promptId } = this.pendingChoice;
       this.pendingChoice = undefined;
@@ -337,7 +407,7 @@ export class ChoiceMachine {
     }
     // A deferred approval is the same kind of leftover: the refused call
     // belongs to a conversation the human has now moved past.
-    const withdrawn = this.deferredApproval !== undefined;
+    const withdrawn = this.deferredApproval !== undefined || hadStaged || hadQueued;
     if (this.deferredApproval) {
       const { promptId } = this.deferredApproval;
       this.deferredApproval = undefined;

@@ -159,6 +159,12 @@ export interface SessionEntry {
    * one question per call. Kept for the same reason as `pendingChoice`; read
    * as `undefined` via `getPendingApproval` on records that predate it. */
   pendingApproval?: PersistedApproval;
+  /** Refused calls that arrived while an approval card was already on screen:
+   * they become the next card when it is answered. */
+  queuedApproval?: PersistedApproval;
+  /** A deferred approval was withdrawn without the model being told (its turn
+   * was interrupted); the next message says so. */
+  withdrawnApproval?: true;
 }
 
 /** A question as the relay publishes it (`choice_prompt`). */
@@ -351,6 +357,7 @@ export class SessionStore {
       if (!entry || typeof entry !== "object") continue;
       if (this.sanitizeStoredPrompt(entry, "pendingChoice", isPersistedChoice)) this.migrated = true;
       if (this.sanitizeStoredPrompt(entry, "pendingApproval", isPersistedApproval)) this.migrated = true;
+      if (this.sanitizeStoredPrompt(entry, "queuedApproval", isPersistedApproval)) this.migrated = true;
     }
     return records;
   }
@@ -358,7 +365,7 @@ export class SessionStore {
   /** Drops a stored prompt that fails `isValid` (so it cannot reach the WS
    * broadcast code malformed) and repairs a bad `askedAt` on one that passes.
    * Returns whether the entry changed, i.e. the file needs rewriting. */
-  private sanitizeStoredPrompt(entry: SessionEntry, field: "pendingChoice" | "pendingApproval", isValid: (value: unknown) => boolean): boolean {
+  private sanitizeStoredPrompt(entry: SessionEntry, field: "pendingChoice" | "pendingApproval" | "queuedApproval", isValid: (value: unknown) => boolean): boolean {
     const stored = entry[field];
     if (stored === undefined) return false;
     if (!isValid(stored)) {
@@ -729,6 +736,37 @@ export class SessionStore {
     } else {
       this.ensureEntry(id);
       this.records[id].pendingApproval = structuredClone(approval);
+    }
+    this.persist();
+  }
+
+  getQueuedApproval(id: string): PersistedApproval | undefined {
+    const stored = this.records[id]?.queuedApproval;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  setQueuedApproval(id: string, approval: PersistedApproval | undefined): void {
+    if (approval === undefined) {
+      if (this.records[id]?.queuedApproval === undefined) return;
+      delete this.records[id].queuedApproval;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].queuedApproval = structuredClone(approval);
+    }
+    this.persist();
+  }
+
+  getWithdrawnApproval(id: string): boolean {
+    return this.records[id]?.withdrawnApproval === true;
+  }
+
+  setWithdrawnApproval(id: string, withdrawn: boolean): void {
+    if (!withdrawn) {
+      if (this.records[id]?.withdrawnApproval === undefined) return;
+      delete this.records[id].withdrawnApproval;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].withdrawnApproval = true;
     }
     this.persist();
   }
