@@ -13,6 +13,11 @@ export const handleAgentRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method !== "GET" || req.url !== "/agents/activity") return false;
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Access-Control-Allow-Origin", "*");
+  if (!ctx.agentHost) {
+    res.statusCode = 503;
+    res.end(JSON.stringify({ hostConnected: false, error: "this relay has no agent host: set ANYWH_PROFILE (or ANYWH_AGENT_HOST_SOCKET)" }));
+    return true;
+  }
   let agents: AgentActivity[];
   try {
     ({ agents } = await ctx.agentHost.request<{ agents: AgentActivity[] }>("activity"));

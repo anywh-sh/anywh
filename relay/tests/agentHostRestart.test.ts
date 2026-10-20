@@ -251,3 +251,32 @@ test("the host refuses to start without an explicit profile, even with ANYWH_PRO
     rmSync(env.dir, { recursive: true, force: true });
   }
 });
+
+test("a relay with no profile does not connect to the machine's `default` agent host", async () => {
+  const { mkdirSync, chmodSync } = await import("node:fs");
+  const { createServer } = await import("node:net");
+  const runtime = mkdtempSync(join(tmpdir(), "anywh-xdg-"));
+  // A live `default` host socket where the default path would point.
+  const socketDir = join(runtime, "anywh");
+  mkdirSync(socketDir, { mode: 0o700 });
+  const socketPath = join(socketDir, "agent-host-default.sock");
+  let connections = 0;
+  const listener = createServer((socket) => {
+    connections++;
+    socket.destroy();
+  });
+  await new Promise<void>((resolveListen) => listener.listen(socketPath, () => resolveListen()));
+  chmodSync(socketPath, 0o600);
+  const relay = await spawnRelay({ XDG_RUNTIME_DIR: runtime, ANYWH_PROFILE: "", ANYWH_AGENT_HOST_SOCKET: "" });
+  try {
+    const { status, body } = await relayActivity(relay);
+    assert.equal(status, 503);
+    assert.equal(body.hostConnected, false);
+    assert.match((body as { error?: string }).error ?? "", /ANYWH_PROFILE/);
+    assert.equal(connections, 0, "nothing dialed the default host");
+  } finally {
+    relay.cleanup();
+    await new Promise<void>((resolveClose) => listener.close(() => resolveClose()));
+    rmSync(runtime, { recursive: true, force: true });
+  }
+});

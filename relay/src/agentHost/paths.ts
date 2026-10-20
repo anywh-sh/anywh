@@ -6,11 +6,21 @@
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** The relay's profile. Never inherited by the relay's children (see
- * host/childEnv.ts), so a relay started from inside a session does not
- * silently take over the session's profile. */
-export function relayProfile(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ANYWH_PROFILE || "default";
+/** The relay's profile: its unit sets it, and so do the npm scripts (`dev`
+ * for `npm run dev`/`npm start`). `undefined` when nothing set it — then the
+ * relay connects to no agent host at all rather than guess "default" and
+ * reach the real one of whatever profile has that name on this machine.
+ * Never inherited by the relay's children (host/childEnv.ts). */
+export function relayProfile(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.ANYWH_PROFILE || undefined;
+}
+
+/** The socket the relay should use, or `undefined` when it has no profile
+ * and no explicit socket. */
+export function relayAgentHostSocket(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.ANYWH_AGENT_HOST_SOCKET) return env.ANYWH_AGENT_HOST_SOCKET;
+  const profile = relayProfile(env);
+  return profile ? defaultAgentHostSocketPath(profile, env) : undefined;
 }
 
 /** The socket's directory must be private to the user (the socket server

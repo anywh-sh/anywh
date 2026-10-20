@@ -90,10 +90,13 @@ and replays what it missed from each agent's log.
   environment; the relay's unit sets `ANYWH_PROFILE=%i`, which the relay does
   not pass on to anything it spawns. Both derive the socket path from the
   profile (`$XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock`) unless
-  `ANYWH_AGENT_HOST_SOCKET` says otherwise. For development,
-  `npm run dev:agent-host` runs a host for a separate `dev` profile;
-  `ANYWH_PROFILE=<id> npm run dev:agent-host:profile` targets a real one,
-  on purpose. Data (registry, per-agent logs)
+  `ANYWH_AGENT_HOST_SOCKET` says otherwise. For development, `npm run dev`
+  (relay) and `npm run dev:agent-host` (host) both use a separate `dev`
+  profile, so they find each other and never the machine's real ones;
+  `ANYWH_PROFILE=<id> npm run dev:profile` / `dev:agent-host:profile`
+  target a real profile, on purpose. A relay started with no profile and
+  no socket set connects to no agent host at all (`/agents/activity`
+  answers 503 saying so) instead of guessing `default`. Data (registry, per-agent logs)
   lives in `~/.anywh-sessions/<profile>-agent-host/` unless
   `ANYWH_AGENT_HOST_DIR` says otherwise. A user unit does not inherit your
   shell's `PATH`: `AGENT_BIN`/`EXTRA_PATH_DIRS` in the env files are how it

@@ -7,11 +7,11 @@
     "node": ">=20.12"
   },
   "scripts": {
-    "dev": "tsx --env-file-if-exists=.env src/server.ts",
+    "dev": "ANYWH_PROFILE=${ANYWH_PROFILE:-dev} tsx --env-file-if-exists=.env src/server.ts",
     "dev:profile": "tsx --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env src/server.ts",
     "build": "rm -rf dist && tsc",
     "build:sea": "node sea-build/build.mjs",
-    "start": "node --env-file-if-exists=.env dist/server.js",
+    "start": "ANYWH_PROFILE=${ANYWH_PROFILE:-dev} node --env-file-if-exists=.env dist/server.js",
     "start:profile": "node --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env dist/server.js",
     "dev:agent-host": "tsx --env-file-if-exists=.env src/agentHost/main.ts --profile dev",
     "dev:agent-host:profile": "tsx --env-file-if-exists=.env --env-file-if-exists=${ANYWH_ENV_DIR:-$HOME/.config/anywh/env}/$ANYWH_PROFILE.env src/agentHost/main.ts --profile ${ANYWH_PROFILE:?set ANYWH_PROFILE to the profile id}",

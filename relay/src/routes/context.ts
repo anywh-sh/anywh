@@ -25,8 +25,9 @@ export interface RouteContext {
    * this relay (`RELAY_PUSH_DISABLED=1`) — its routes then don't exist. */
   readonly pushStore: PushStore | null;
   /** The connection to this profile's agent host, kept open (and reopened)
-   * for the relay's whole life; requests fail fast while it is down. */
-  readonly agentHost: HostClient;
+   * for the relay's whole life; requests fail fast while it is down.
+   * Absent when the relay has no profile to find a host for. */
+  readonly agentHost: HostClient | undefined;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled
