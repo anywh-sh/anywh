@@ -216,6 +216,22 @@ describe("anywh room canvas", () => {
     await shot("A-sala-feature-grande");
   });
 
+  it("reads at 100%: a card in full, as it is worked with", async () => {
+    await browser.execute(() => document.querySelector('[aria-label^="Zoom "]').click());
+    await browser.waitUntil(async () => (await (await $('[aria-label^="Zoom "] span')).getText()) === "100%", { timeout: 5000 });
+    // Brings the card that is waiting for the person to the middle.
+    await browser.execute(() => {
+      const vp = document.querySelector('[data-testid="sala-canvas"]');
+      const box = vp.getBoundingClientRect();
+      const card = document.querySelector('[data-agent-id][data-state="awaiting_user"]').getBoundingClientRect();
+      vp.dispatchEvent(new WheelEvent("wheel", { deltaX: card.left + card.width / 2 - (box.left + box.width / 2), deltaY: card.top + card.height / 2 - (box.top + box.height / 2), bubbles: true, cancelable: true }));
+    });
+    await browser.pause(1200);
+    await shot("A-sala-feature-grande-100");
+    await browser.execute(() => document.querySelector('[aria-label="Fit to screen"]').click());
+    await browser.pause(800);
+  });
+
   it("keeps the layout the relay was given: a card dragged lands on the grid and is saved", async () => {
     const id = await browser.execute(() => document.querySelector('[data-agent-id][data-state="done"]').getAttribute("data-agent-id"));
     const before = (await savedCanvas(stack.base, roomId)).positions[id];
@@ -351,5 +367,34 @@ describe("anywh room canvas", () => {
     await group.$('//*[@role="radio"][contains(., "Sala")]').click();
     await browser.pause(500);
     await shot("A-nova-sessao-sala-pt");
+  });
+
+  it("shows a small task too: the principal and two agents, one waiting for the person", async () => {
+    const created = await fetch(`${stack.base}/rooms`, {
+      method: "POST",
+      body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: stack.dir, title: "Fix the spinner stuck on the phone" }),
+    });
+    const small = (await created.json()).roomId;
+    await say(
+      stack.port,
+      small,
+      [
+        roomMarker("delegate", { task: `Stop the spinner in MessageLog\n[[gate:${gate()}]]`, runtime: "claude", model: "haiku" }),
+        roomMarker("delegate", { task: `Review the retry in useSession\n${askMarker({ tool: "Write", input: { file_path: join(stack.dir, "retry.txt"), content: "x" } })}`, runtime: "claude", model: "haiku" }),
+      ].join(" "),
+    );
+    await browser.execute(
+      (id) => {
+        localStorage.setItem("anywh:tabs", JSON.stringify([{ id, profileId: "e2e-room", title: "Fix the spinner stuck on the phone", room: true }]));
+        localStorage.setItem("anywh:active-tab", id);
+        localStorage.removeItem("anywh:tab-layout");
+        window.location.reload();
+      },
+      small,
+    );
+    await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000, timeoutMsg: "the small room's three cards never appeared" });
+    await browser.waitUntil(async () => (await browser.execute(() => !!document.querySelector('[data-state="awaiting_user"]'))), { timeout: 60000 });
+    await browser.pause(1200);
+    await shot("A-sala-tarefa-pequena");
   });
 });

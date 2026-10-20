@@ -16,6 +16,8 @@ export const COL = 288;
 export const AREA_PAD = 24;
 /** The label bar above an area's frame. */
 export const AREA_BAR = 32;
+/** The least space between two areas' frames. */
+export const AREA_GAP = 96;
 const GAP = 12;
 
 export function cardSize(agent: Pick<RoomAgent, "role">): { w: number; h: number } {
@@ -241,13 +243,16 @@ function areaStaysClear(home: { members: string[] }, candidate: Rect, cards: Rea
   const box = boundsOf([...members, candidate]);
   const frame = { x: box.x - AREA_PAD, y: box.y - AREA_BAR, w: box.w + AREA_PAD * 2, h: box.h + AREA_PAD + AREA_BAR };
   const homeIds = new Set(home.members);
-  const clear = [...cards.entries()].filter(([id]) => !homeIds.has(id)).map(([, rect]) => rect);
+  const strangers = [...cards.entries()].filter(([id]) => !homeIds.has(id)).map(([, rect]) => rect);
+  if (strangers.some((r) => overlaps(frame, r, 0))) return false;
+  // Areas keep their distance from each other: a label bar is wider than a
+  // small frame, and two bars side by side would run into one another.
   for (const other of areas) {
     if (other.members === home.members) continue;
     const f = areaRect(other, cards);
-    clear.push({ x: f.x, y: f.y - AREA_BAR, w: f.w, h: f.h + AREA_BAR });
+    if (overlaps(frame, { x: f.x, y: f.y - AREA_BAR, w: f.w, h: f.h + AREA_BAR }, AREA_GAP)) return false;
   }
-  return !clear.some((r) => overlaps(frame, r, 0));
+  return true;
 }
 
 /** A free place to the right of every card, for when the tree has no room. */

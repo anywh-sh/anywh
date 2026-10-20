@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
@@ -118,6 +118,20 @@ describe("placeAgents with areas that grow", () => {
     const [design, code] = frames(canvas, agents);
     expect(apart(design, code)).toBe(true);
     expect(noOverlap(canvas, agents)).toBe(true);
+  });
+
+  it("leaves room between two areas for their label bars", () => {
+    const agents = [main, agent("a", { area: "Design" }), agent("b", { area: "Research" }), agent("c", { area: "Code" })];
+    let canvas = empty;
+    for (let i = 1; i <= agents.length; i += 1) canvas = placeAgents(agents.slice(0, i), canvas);
+    const rects = frames(canvas, agents);
+    for (const [i, a] of rects.entries()) {
+      for (const b of rects.slice(i + 1)) {
+        const gapX = Math.max(a.x - (b.x + b.w), b.x - (a.x + a.w));
+        const gapY = Math.max(a.y - (b.y + b.h), b.y - (a.y + a.h));
+        expect(Math.max(gapX, gapY)).toBeGreaterThanOrEqual(AREA_GAP - 1);
+      }
+    }
   });
 
   it("does the same when every agent arrives at once", () => {
