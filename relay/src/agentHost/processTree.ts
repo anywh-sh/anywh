@@ -20,6 +20,7 @@
 // covered. A process that rewrites its own environment (`env -i ...`) also
 // escapes the sweep — a known limit, as is anything that detaches on purpose
 // and clears its environment; containing those would need a cgroup per agent.
+import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 
 export const AGENT_MARK_ENV = "ANYWH_AGENT_MARK";
@@ -122,25 +123,60 @@ export async function findAgentProcesses(hostId: string, agentId?: string): Prom
   return [...byAgent.values()].flat().sort((a, b) => a - b);
 }
 
-/** Waits until none of `pids` is alive, or `timeoutMs` passes. */
+/** Gone for the sweep's purposes: no such process, not ours to signal, or a
+ * zombie (dead, only waiting for a parent that may never reap it). */
+function isGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return true;
+  }
+  if (process.platform !== "linux") return false;
+  const stat = readFileSyncSafe(`/proc/${pid}/stat`);
+  return stat === undefined || stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z");
+}
+
+function readFileSyncSafe(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether `pid` still carries this host's mark (for `agentId`, or any agent
+ * when omitted). Read again right before a SIGKILL: between finding a pid
+ * and killing it, the pid may have exited and been reused. */
+function stillMarked(pid: number, hostId: string, agentId: string | undefined): boolean {
+  if (process.platform !== "linux") return true;
+  const environ = readFileSyncSafe(`/proc/${pid}/environ`);
+  if (environ === undefined) return false;
+  const prefix = `${AGENT_MARK_ENV}=`;
+  const raw = environ.split("\0").find((entry) => entry.startsWith(prefix));
+  const mark = raw === undefined ? undefined : parseAgentMark(raw.slice(prefix.length));
+  return mark !== undefined && mark.hostId === hostId && (agentId === undefined || mark.agentId === agentId);
+}
+
+/** Waits until every one of `pids` is gone (zombies count), or `timeoutMs`. */
 export async function waitForExit(pids: readonly number[], timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (!pids.some(isAlive)) return true;
+    if (pids.every(isGone)) return true;
     if (Date.now() >= deadline) return false;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 
-/** Ends every process carrying the marker: SIGTERM, a short grace, SIGKILL.
- * Returns how many were found. */
+/** Ends every process carrying the mark: SIGTERM, a short grace, then
+ * SIGKILL to those that still carry it. Returns how many were found. */
 export async function sweepAgentProcesses(hostId: string, agentId: string | undefined, graceMs: number): Promise<number> {
   const pids = await findAgentProcesses(hostId, agentId);
   if (pids.length === 0) return 0;
   for (const pid of pids) signal(pid, "SIGTERM");
   if (!(await waitForExit(pids, graceMs))) {
-    for (const pid of pids) signal(pid, "SIGKILL");
-    await waitForExit(pids, 2000);
+    const remaining = pids.filter((pid) => !isGone(pid) && stillMarked(pid, hostId, agentId));
+    for (const pid of remaining) signal(pid, "SIGKILL");
+    await waitForExit(remaining, 2000);
   }
   return pids.length;
 }

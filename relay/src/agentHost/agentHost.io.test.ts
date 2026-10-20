@@ -260,7 +260,8 @@ test("on start the host ends processes a previous run of it left behind, and onl
     await waitFor(() => all.every((child) => child.pid !== undefined && isAlive(child.pid)), 3000, "sleepers");
     const host = await AgentHost.start({ hostId, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), agentBin: FAKE_CLAUDE });
     await host.close();
-    assert.equal(isAlive(orphan.pid!), false);
+    // The orphan is this test's own child: it is gone once Node reaps it.
+    await waitFor(() => !isAlive(orphan.pid!), 3000, "orphan reaped");
     for (const survivor of [otherHost, configOnly, noAgent, unrelated]) assert.equal(isAlive(survivor.pid!), true);
   } finally {
     for (const child of all) if (child.pid && isAlive(child.pid)) process.kill(child.pid, "SIGKILL");
