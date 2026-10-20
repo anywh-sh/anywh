@@ -188,11 +188,13 @@ test("delegate refuses an unknown runtime or model, a parent outside the room, a
   }
 });
 
-test("a room has at most 10 live agents: the next delegate fails with the limit, nothing is started", async () => {
+test("a room has at most 10 agents at work: the next delegate fails with the limit, nothing is started", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
   try {
-    const calls = Array.from({ length: 10 }, (_, index) => marker("delegate", { task: `idle helper ${index}`, runtime: "claude", model: "haiku" }));
+    // Busy until interrupted: an agent that finished its turn no longer
+    // takes a place, so the nine must still be at work for the tenth.
+    const calls = Array.from({ length: 10 }, (_, index) => marker("delegate", { task: `busy helper ${index} [[hang]]`, runtime: "claude", model: "haiku" }));
     const { results } = await principalTurn(socket, calls.join(" "));
     assert.equal(results.length, 10);
     assert.deepEqual(results.slice(0, 9).map((result) => result.isError), Array(9).fill(false), JSON.stringify(results.slice(0, 9)));
