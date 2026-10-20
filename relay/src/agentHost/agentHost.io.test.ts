@@ -897,3 +897,26 @@ test("an id being removed cannot be spawned again until its old log is gone", as
     await h.cleanup();
   }
 });
+
+test("a message sent right after a crash, while the dead CLI's pipes are still held, records the crash and sweeps before resuming", async () => {
+  const h = await harness();
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "daemonize [[inherit-stdout]]" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    const { pid: first } = await h.activity("a1");
+    await h.client.request("send", { agentId: "a1", message: "[[crash]]" });
+    // The process is gone (exit) but its pipes are not closed yet.
+    await waitFor(() => h.host.activity()[0]?.alive === false, 5000, "exit seen");
+    await h.client.request("send", { agentId: "a1", message: "back" });
+    await waitFor(() => results(events).length === 2, 8000, "resumed turn");
+    const lifecycle = events.filter((event) => event.ev.type === "host_process").map((event) => `${String(event.ev.subtype)}${event.ev.subtype === "exited" ? `:${String(event.ev.expected)}` : ""}`);
+    assert.deepEqual(lifecycle, ["spawned", "exited:false", "spawned"], "the crash is recorded before the new process starts");
+    const { pid: second } = await h.activity("a1");
+    assert.notEqual(second, first);
+    const { findAgentProcesses } = await import("./processTree.js");
+    assert.deepEqual(await findAgentProcesses(h.hostId, "a1"), [second], "the dead CLI's descendant was swept before the resume");
+  } finally {
+    await h.cleanup();
+  }
+});

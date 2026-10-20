@@ -115,6 +115,9 @@ interface Agent {
   failure?: string;
   /** Codex only: the turn in flight on the agent's thread. */
   codexTurnId?: string;
+  /** The sweep of what a crashed process left behind; a new process for
+   * this agent must not start before it ends (it matches by agent id). */
+  pendingSweep?: Promise<unknown>;
   /** Serializes process starts and stops for this agent. */
   queue: Promise<unknown>;
 }
@@ -764,6 +767,13 @@ export class AgentHost {
   private async startProcess(agent: Agent): Promise<void> {
     this.refuseRemoved(agent);
     this.refuseWhileDraining();
+    // A process that exited but whose pipes are still held (up to a few
+    // seconds) has not been handled yet: let its exit be recorded — crash,
+    // failure, sweep — before anything replaces it.
+    const previous = agent.proc;
+    if (previous) await previous.exited;
+    if (agent.pendingSweep) await agent.pendingSweep;
+    this.refuseRemoved(agent);
     await this.makeRoomFor(agent);
     this.refuseRemoved(agent);
     const resumeSessionId = agent.sessionId;
@@ -858,9 +868,11 @@ export class AgentHost {
         const tail = proc.stderrTail;
         if (!agent.logError) agent.failure = `the agent process exited (code ${String(code)}, signal ${String(sig)})${tail ? `: ${tail.slice(-500)}` : ""}`;
         // Its tools may still be running; nothing will ever stop them now.
-        // Queued with the agent's process starts: the sweep matches by agent
-        // id, so it must finish before a resumed process carries that id.
-        void this.serialize(agent, () => sweepAgentProcesses(this.options.hostId, agent.agentId, 2000));
+        // A resumed process waits for this (startProcess): the sweep matches
+        // by agent id.
+        agent.pendingSweep = sweepAgentProcesses(this.options.hostId, agent.agentId, 2000).finally(() => {
+          agent.pendingSweep = undefined;
+        });
         break;
       }
     }
