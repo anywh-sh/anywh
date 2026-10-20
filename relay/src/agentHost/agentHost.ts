@@ -171,6 +171,9 @@ function parseSpec(raw: unknown): ClaudeAgentSpec {
     appendSystemPrompt: str(spec.appendSystemPrompt),
     allowedTools: str(spec.allowedTools),
     disallowedTools: str(spec.disallowedTools),
+    // `""` is meaningful here (no built-in tool at all), unlike the others.
+    tools: typeof spec.tools === "string" ? spec.tools : undefined,
+    strictMcp: spec.strictMcp === true,
     permissionPromptTool: str(spec.permissionPromptTool),
     mcpConfigJson: str(spec.mcpConfigJson),
     agentWorker: spec.agentWorker !== false,

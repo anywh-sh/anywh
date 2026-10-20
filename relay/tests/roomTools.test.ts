@@ -179,3 +179,44 @@ test("a room has at most 10 live agents: the next delegate fails with the limit,
     socket.close();
   }
 });
+
+test("the principal runs read-only with no native subagents; workers run with native subagents capped", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { task: "plain worker", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    const envOf = (id: string): Record<string, string> | undefined =>
+      readFileSync(join(host.dir, "env.jsonl"), "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, string>)
+        .find((env) => env.ANYWH_AGENT_MARK?.split(":")[1] === id);
+    await waitFor(() => envOf(agentId) !== undefined, 15_000, "the worker's process");
+
+    const spawns = readFileSync(argvFile(), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[]);
+    const flag = (args: string[], name: string): string | undefined => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+    const principalArgs = spawns.find((args) => flag(args, "--append-system-prompt")?.startsWith("You are the principal agent of an anywh room"));
+    assert.ok(principalArgs, "a principal was spawned");
+    assert.equal(flag(principalArgs, "--tools"), "Read,Grep,Glob");
+    assert.ok(flag(principalArgs, "--disallowedTools")!.split(",").includes("Agent"));
+    assert.ok(principalArgs.includes("--strict-mcp-config"));
+    assert.ok(flag(principalArgs, "--allowedTools")!.includes("mcp__anywh-room__delegate"));
+    const principalEnv = envOf(roomId)!;
+    assert.equal(principalEnv.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, undefined);
+
+    const workerArgs = spawns.find((args) => flag(args, "--append-system-prompt")?.startsWith("You are an agent of an anywh room"));
+    assert.ok(workerArgs, "a worker was spawned");
+    assert.equal(flag(workerArgs, "--tools"), undefined, "a worker has every tool");
+    assert.equal(flag(workerArgs, "--allowedTools"), "mcp__anywh-room__report");
+    assert.equal(flag(workerArgs, "--model"), "haiku");
+    const workerEnv = envOf(agentId)!;
+    assert.equal(workerEnv.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, "5");
+    assert.equal(workerEnv.CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, "1");
+  } finally {
+    socket.close();
+  }
+});

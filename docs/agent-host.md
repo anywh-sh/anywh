@@ -95,6 +95,12 @@ settings (the user's MCP servers through a 0600 file; no personal plugins,
 skills or hooks). States: `starting`, `working`, `awaiting_user`, `idle`,
 `hibernated`, `stopped`, `failed`.
 
+- A room's principal is started read-only (`--tools Read,Grep,Glob`, writing
+  tools and `Agent` denied, `--strict-mcp-config` with only the room's MCP
+  server); a room's worker keeps every tool and the user's MCP servers, with
+  native subagents capped (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=5`,
+  `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`). The relay builds these specs
+  (`runtimes/defs/claude/roomSpec.ts`); the host only applies them.
 - A message sent while a turn is in flight is answered `duringTurn: true`:
   the CLI folds it into that turn at its next tool boundary ("steering")
   instead of running it as the next turn.
