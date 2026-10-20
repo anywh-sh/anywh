@@ -150,7 +150,7 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
     const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { undeliveredReports?: string[] } }>;
     assert.deepEqual(onDisk[roomId].room?.undeliveredReports, [workerId], "persisted in the principal's outbox");
     const cursorsFile = join(dir, "profile-room-cursors.json");
-    await waitFor(async () => workerId in (JSON.parse(readFileSync(cursorsFile, "utf8")) as Record<string, unknown>), "the worker's read cursor kept");
+    await waitFor(() => Promise.resolve().then(() => workerId in (JSON.parse(readFileSync(cursorsFile, "utf8")) as Record<string, unknown>)), "the worker's read cursor kept");
     assert.equal((await fetch(`${base()}/sessions/delete`, { method: "POST", body: JSON.stringify({ id: workerId }) })).status, 200);
     assert.equal(workerId in (JSON.parse(readFileSync(cursorsFile, "utf8")) as Record<string, unknown>), false, "and dropped with the agent");
   } finally {
@@ -196,6 +196,55 @@ test("on connecting to its host the relay delivers messages queued before a rest
     control.close();
     relay?.cleanup();
     await host.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("with its host down a worker's queue stays on disk, untouched, and goes out once the host is back", async () => {
+  const { dir, home } = hostEnvDir();
+  const socketPath = join(dir, "run", "host.sock");
+  const sessionsFile = join(dir, "profile.json");
+  writeFileSync(
+    sessionsFile,
+    JSON.stringify({
+      room7: entry("Room", { roomId: "room7", role: "principal", createdBy: "user", task: "", undeliveredReports: [] }),
+      w7: {
+        ...entry("Worker", { roomId: "room7", role: "worker", parentId: "room7", createdBy: "agent", task: "t", queuedMessages: [{ text: "first", at: 1 }, { text: "second", at: 2 }] }),
+        cwd: { cwd: dir, locked: false },
+      },
+    }),
+  );
+  const queued = (): string[] => ((JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: { text: string }[] } }>).w7.room?.queuedMessages ?? []).map((m) => m.text);
+  const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: socketPath, RELAY_SESSIONS_FILE: sessionsFile });
+  let host: ReturnType<typeof startHostProcess> | undefined;
+  try {
+    // A turn typed into the worker while the host is down fails...
+    const socket = await connectSession(relay.port, "w7");
+    const failed = collectUntil(socket, (message) => message.type === "agent_event" && (message.event as { type?: string }).type === "error", 20_000);
+    sendUserMessage(socket, "are you there?");
+    await failed;
+    socket.close();
+    // ...and takes nothing from the queue with it.
+    assert.deepEqual(queued(), ["first", "second"]);
+
+    host = startHostProcess(dir, home);
+    const deadline = Date.now() + 25_000;
+    while (queued().length > 0) {
+      if (Date.now() > deadline) throw new Error(`queue not delivered: ${JSON.stringify(queued())}\n${relay.output.join("").slice(-2000)}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const control = new HostClient({ socketPath, reconnectMinMs: 20, reconnectMaxMs: 200 });
+    control.start();
+    await control.waitUntilConnected(10_000);
+    const log: string[] = [];
+    control.subscribe("w7", { nextOffset: 0, lastSeq: -1 }, { onEvent: (record) => { if (record.ev.type === "host_user_message") log.push(String(record.ev.text)); } });
+    const until = Date.now() + 15_000;
+    while (log.length < 2 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    control.close();
+    assert.deepEqual(log, ["first", "second"], "each delivered once, in order");
+  } finally {
+    relay.cleanup();
+    await host?.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });

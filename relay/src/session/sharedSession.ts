@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
-import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo } from "../runtimes/sessionDriver.js";
+import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
@@ -1284,9 +1284,9 @@ export class SharedSession implements SessionDriverHost {
   /** A turn asked by another agent of the room (a delegated task, a message
    * from the principal) rather than typed by a person on a device: no
    * device has its bubble yet, so everyone connected gets it. */
-  submitAgentTurn(text: string): void {
+  submitAgentTurn(text: string, hooks?: TurnHooks): void {
     this.clearSuggestion();
-    this.enqueue(() => this.runTurn(undefined, text));
+    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1355,6 +1355,7 @@ export class SharedSession implements SessionDriverHost {
     },
     /** Follow a turn already running in the agent host instead of sending one. */
     follow = false,
+    hooks?: TurnHooks,
   ): Promise<void> {
     this.options.onActivity?.();
 
@@ -1505,7 +1506,7 @@ export class SharedSession implements SessionDriverHost {
         this.options.onEvent?.(agentEvent);
       };
       const { stopped, contextUsage, lastAssistantText } =
-        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent) : await this.driver.sendTurn(ctx, onDriverEvent);
+        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
       const sessionId = this.driver.getSessionId();

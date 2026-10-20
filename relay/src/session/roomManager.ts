@@ -91,6 +91,8 @@ const fail = (text: string): RoomToolResult => ({ text, isError: true });
 
 export class RoomManager implements RoomToolHost {
   private readonly now: () => number;
+  /** Per worker, the queued message its current turn is delivering. */
+  private readonly sending = new Map<string, { text: string; at: number; delivered: boolean }>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -239,8 +241,18 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    const sending = this.sending.get(sessionId);
+    this.sending.delete(sessionId);
     const room = this.store.getRoom(sessionId);
     if (!room || room.role !== "worker" || room.stopped) return;
+    if (sending && !sending.delivered) {
+      // The queued message never reached the agent. With the host away it
+      // stays queued, untouched, for when the host is back (the queues are
+      // resumed on every connection); with the host there, it was refused,
+      // and is dropped with the failure reported below.
+      if (!this.options.hostConnected()) return;
+      this.removeQueued(sessionId, sending);
+    }
     if (!outcome.stopped) {
       // A followed turn began before this relay saw it: any report of the
       // agent's own may be this turn's.
@@ -259,18 +271,36 @@ export class RoomManager implements RoomToolHost {
     this.pump(sessionId);
   }
 
-  /** Delivers the next queued message of a worker that is not busy. */
+  /** Hands the next queued message of an idle worker to its session. It
+   * leaves the queue (on disk) only once the host has taken it, so neither
+   * a host that is away nor a relay restart in between loses it; with the
+   * host away nothing is tried at all. */
   private pump(sessionId: string): void {
     const room = this.store.getRoom(sessionId);
     if (!room || room.role !== "worker" || this.admit(sessionId) !== undefined) return;
+    if (!this.options.hostConnected() || this.sending.has(sessionId)) return;
     const session = this.options.sessions.getOrCreate(sessionId);
     if (session.isBusy()) return;
-    const [next, ...rest] = room.queuedMessages ?? [];
+    const next = room.queuedMessages?.[0];
     if (!next) return;
+    const sending = { text: next.text, at: next.at, delivered: false };
+    this.sending.set(sessionId, sending);
+    session.submitAgentTurn(next.text, {
+      onDelivered: () => {
+        sending.delivered = true;
+        this.removeQueued(sessionId, sending);
+      },
+    });
+  }
+
+  /** Drops `message` from the head of a worker's queue, if it is still there. */
+  private removeQueued(sessionId: string, message: { text: string; at: number }): void {
+    const room = this.store.getRoom(sessionId);
+    const [head, ...rest] = room?.queuedMessages ?? [];
+    if (!room || !head || head.text !== message.text || head.at !== message.at) return;
     const { queuedMessages: _old, ...kept } = room;
     void _old;
     this.store.setRoom(sessionId, rest.length > 0 ? { ...kept, queuedMessages: rest } : kept);
-    session.submitAgentTurn(next.text);
   }
 
   /** Removes from the host every room agent this relay no longer knows (a
@@ -422,6 +452,9 @@ export class RoomManager implements RoomToolHost {
     }
     this.store.setRoom(agentId, { ...target, queuedMessages: [...queue, { text, at: this.now() }] });
     this.pump(agentId);
+    if (!this.options.hostConnected()) {
+      return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; the agent host is not running, so it is delivered once it is back.`);
+    }
     return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; it is delivered as its next turn.`);
   }
 

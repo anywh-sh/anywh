@@ -29,7 +29,7 @@ import {
 import { mapClaudeEvent } from "./streams/claudeStreamJson.js";
 import { ClaudeSubtaskTracker } from "./streams/claudeSubtasks.js";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
-import type { AgentSessionDriver, DriverTurnResult, SubtaskInfo } from "./sessionDriver.js";
+import type { AgentSessionDriver, DriverTurnResult, SubtaskInfo, TurnHooks } from "./sessionDriver.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, RoomAgentSetup, TurnContext } from "./types.js";
 
 export interface HostAgentBinding {
@@ -205,7 +205,7 @@ export class HostSessionDriver implements AgentSessionDriver {
     return Promise.resolve(entries.map((entry) => entry.event));
   }
 
-  async sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult> {
+  async sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void, hooks?: TurnHooks): Promise<DriverTurnResult> {
     const client = this.options.binding.client;
     if (!client) throw new Error("this room's agents run in the agent host, and this relay has none: set ANYWH_PROFILE (or ANYWH_AGENT_HOST_SOCKET) and start anywh-agent-host");
     const setup = this.checkAdmitted();
@@ -255,7 +255,7 @@ export class HostSessionDriver implements AgentSessionDriver {
         this.resetPending = false;
       }
       if (turn.stopRequested) return { stopped: true };
-      await this.deliver(client, ctx.prompt, spec);
+      if (await this.deliver(client, ctx.prompt, spec)) hooks?.onDelivered?.();
       return await done;
     } catch (error) {
       turn.settled = true;
@@ -342,7 +342,8 @@ export class HostSessionDriver implements AgentSessionDriver {
 
   /** Writes the message to the agent, creating it in the host first if the
    * host does not have it. */
-  private async deliver(client: HostClient, prompt: string, spec: Record<string, unknown>): Promise<void> {
+  /** Whether the host took the message (`false`: stopped before it left). */
+  private async deliver(client: HostClient, prompt: string, spec: Record<string, unknown>): Promise<boolean> {
     // Stopped (or stopped being allowed to run) before the message left: it
     // is never sent. Asked again after every await, right before any request
     // that could start the agent.
@@ -355,19 +356,19 @@ export class HostSessionDriver implements AgentSessionDriver {
       return false;
     };
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (halted()) return;
+      if (halted()) return false;
       const known = await this.ensureSubscription(client);
-      if (halted()) return;
+      if (halted()) return false;
       if (known) {
         try {
           await client.request("send", { agentId: this.agentId, message: prompt });
-          return;
+          return true;
         } catch (error) {
           if (!(error instanceof HostRequestError && error.code === "unknown_agent")) throw error;
           this.closeSubscription();
         }
       }
-      if (halted()) return;
+      if (halted()) return false;
       try {
         const created = await client.request<AgentActivity>("spawn", {
           agentId: this.agentId,
@@ -379,7 +380,7 @@ export class HostSessionDriver implements AgentSessionDriver {
         });
         if (created.sessionId) this.sessionId = created.sessionId;
         this.subscribe(client, START_OF_LOG);
-        return;
+        return true;
       } catch (error) {
         // Created meanwhile (a turn of another relay process, a retry): send to it.
         if (!(error instanceof HostRequestError && error.code === "agent_exists")) throw error;

@@ -10,6 +10,12 @@ import type { ContextUsage } from "../session/sessionStore.js";
 import type { ChoiceHost } from "../bridges/mcpBridge.js";
 import type { PermissionCheckHost } from "../bridges/permissionBridge.js";
 
+export interface TurnHooks {
+  /** The message reached the agent (for an agent in the agent host: the
+   * host accepted it). */
+  readonly onDelivered?: () => void;
+}
+
 export interface DriverTurnResult {
   /** `true` only when the turn ended because a human asked to stop it —
    * never because the driver genuinely finished or errored. Mirrors
@@ -45,7 +51,9 @@ export interface AgentSessionDriver {
   /** `true` for a driver whose agent lives outside the relay process (the
    * agent host): a relay shutdown neither waits for its turn nor stops it. */
   readonly runsOutsideRelay?: boolean;
-  sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult>;
+  /** `hooks.onDelivered` runs once the message is in the agent's hands (a
+   * driver that cannot tell simply never calls it). */
+  sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void, hooks?: TurnHooks): Promise<DriverTurnResult>;
   /** Interrupts the turn in progress, if any. Returns `false` if there was
    * nothing to interrupt — same contract as `ClaudeSession.stop` today. */
   stop(): boolean;
