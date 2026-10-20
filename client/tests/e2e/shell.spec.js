@@ -6,10 +6,15 @@
 // up. See client/tests/ui for the flows that need a relay.
 describe("anywh desktop shell", () => {
   it("renders the title bar controls", async () => {
-    for (const label of ["Menu", "Back", "Forward"]) {
+    for (const label of ["Menu", "Collapse sidebar"]) {
       const control = await $(`[aria-label="${label}"]`);
       await control.waitForExist({ timeout: 15000 });
       await expect(control).toBeExisting();
+    }
+
+    // The history buttons were removed from the redesigned bar.
+    for (const label of ["Back", "Forward"]) {
+      await expect(await $(`[aria-label="${label}"]`)).not.toBeExisting();
     }
   });
 
