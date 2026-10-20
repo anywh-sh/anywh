@@ -17,3 +17,5 @@ export {
   isApproved,
 } from "./mcpSpawnConfig.js";
 export { ClaudeSessionDriver, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
+export { buildPersistentArgs, encodeInterrupt, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
+export { writePersistentMcpConfig, type AgentWorkerMcpFile } from "./agentWorker.js";

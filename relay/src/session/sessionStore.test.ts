@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "./sessionStore.js";
@@ -466,3 +466,104 @@ test("setSuggestion(null) persists the clear, surviving reopening the file", () 
   });
 });
 
+
+test("pendingChoice: round-trips through disk, clears on undefined, and is absent on older records", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-store-pending-"));
+  try {
+    const file = join(dir, "sessions.json");
+    const store = new SessionStore(file, "/home/user");
+    assert.equal(store.getPendingChoice("s1"), undefined);
+    store.setPendingChoice("s1", undefined);
+    assert.equal(store.listIds().includes("s1"), false, "clearing a never-set value must not create a record");
+
+    const choice = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }], askedAt: 1700000000000 };
+    store.setPendingChoice("s1", choice);
+    assert.deepEqual(new SessionStore(file, "/home/user").getPendingChoice("s1"), choice);
+
+    store.setPendingChoice("s1", undefined);
+    assert.equal(new SessionStore(file, "/home/user").getPendingChoice("s1"), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("load keeps the question when only askedAt is malformed, clearing just the timestamp", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-store-pending-askedat-"));
+  try {
+    const file = join(dir, "sessions.json");
+    const good = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
+    const seed = new SessionStore(file, "/home/user");
+    const bad: Record<string, unknown> = { str: "yesterday", neg: -5, nan: null, obj: {} };
+    const decimal = 1700000000000.9;
+    for (const id of [...Object.keys(bad), "dec"]) seed.setPendingChoice(id, good);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: Record<string, unknown> }>;
+    for (const [id, value] of Object.entries(bad)) records[id].pendingChoice.askedAt = value;
+    records.dec.pendingChoice.askedAt = decimal;
+    writeFileSync(file, JSON.stringify(records));
+    const store = new SessionStore(file, "/home/user");
+    for (const id of Object.keys(bad)) assert.deepEqual(store.getPendingChoice(id), good, id);
+    assert.equal(store.getPendingChoice("dec")?.askedAt, 1700000000000, "decimals are truncated");
+    const onDisk = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: Record<string, unknown> }>;
+    assert.equal("askedAt" in onDisk.str.pendingChoice, false, "rewritten so the bad value does not come back");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("load drops a malformed pendingChoice (and rewrites the file) without touching valid ones or crashing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-store-pending-bad-"));
+  try {
+    const file = join(dir, "sessions.json");
+    const good = { promptId: "p1", questions: [{ question: "ok?", options: [{ id: "a", label: "A" }] }] };
+    const seed = new SessionStore(file, "/home/user");
+    for (const id of ["good", "empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar", "badOptions", "badOptions2"]) seed.setPendingChoice(id, good);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice: unknown }>;
+    records.empty.pendingChoice = {};
+    records.noQuestions.pendingChoice = { promptId: "p" };
+    records.emptyQuestions.pendingChoice = { promptId: "p", questions: [] };
+    records.strQuestions.pendingChoice = { promptId: "p", questions: "nope" };
+    records.badQuestion.pendingChoice = { promptId: "p", questions: [{ question: 1 }] };
+    records.noPromptId.pendingChoice = { questions: good.questions };
+    records.scalar.pendingChoice = "x";
+    records.badOptions.pendingChoice = { promptId: "p", questions: [{ question: "q", options: [{}] }] };
+    records.badOptions2.pendingChoice = { promptId: "p", questions: [{ question: "q", options: ["A"] }] };
+    writeFileSync(file, JSON.stringify(records));
+
+    const store = new SessionStore(file, "/home/user");
+    assert.deepEqual(store.getPendingChoice("good"), good, "a record without askedAt (older file) stays valid");
+    for (const id of ["empty", "noQuestions", "emptyQuestions", "strQuestions", "badQuestion", "noPromptId", "scalar", "badOptions", "badOptions2"]) {
+      assert.equal(store.getPendingChoice(id), undefined, id);
+    }
+    const onDisk = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingChoice?: unknown }>;
+    assert.equal(onDisk.empty.pendingChoice, undefined, "the bad record must not come back on the next boot");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setPendingChoice stores a copy, not the caller's reference", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    const choice = { promptId: "p1", questions: [{ question: "ok?", options: [{ label: "A" }] }] };
+    store.setPendingChoice("s1", choice);
+    choice.questions[0].question = "mutated";
+    assert.equal(store.getPendingChoice("s1")!.questions[0].question, "ok?");
+  });
+});
+
+test("a failed write of the clear is not lost: the next successful persist writes the cleared state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-store-failed-clear-"));
+  try {
+    const file = join(dir, "sessions.json");
+    const store = new SessionStore(file, DEFAULT_CWD);
+    store.setPendingChoice("s1", { promptId: "p1", questions: [{ question: "ok?", options: [{ label: "A" }] }] });
+    rmSync(file);
+    mkdirSync(file); // writeFileSync now fails with EISDIR
+    assert.throws(() => store.setPendingChoice("s1", undefined));
+    rmSync(file, { recursive: true });
+    store.setDraft("s1", "later write");
+    assert.equal(new SessionStore(file, DEFAULT_CWD).getPendingChoice("s1"), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

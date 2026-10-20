@@ -11,6 +11,7 @@ relay/.env
 
 # systemd (rendered from *.service.template — machine-specific paths)
 infra/systemd/anywh-relay@.service
+infra/systemd/anywh-agent-host@.service
 
 # rust / tauri
 client/src-tauri/target/

@@ -301,12 +301,35 @@ echo "Provisioned $ENV_FILE"
 # without a user systemd session does — so this branch runs on both, and
 # unconditionally `cd`-ing into a relay/ that doesn't exist used to take
 # `set -e` down with it, right after the profile had already been written.
+# The profile's agent host (anywh-agent-host@<id>): keeps agent processes
+# alive across relay restarts. Only enabled when its unit is installed —
+# install.sh renders it, and a machine provisioned before it existed keeps
+# working without one. Never restarted here: restarting it ends every
+# agent's process (idle ones are hibernated, turns in flight are cut).
+enable_agent_host() {
+  if [[ ! -f "$HOME/.config/systemd/user/anywh-agent-host@.service" ]]; then
+    echo "note: the anywh-agent-host@ unit isn't installed (re-run infra/systemd/install.sh); skipping anywh-agent-host@$ID"
+    return 0
+  fi
+  if systemctl --user is-active --quiet "anywh-agent-host@$ID"; then
+    echo "anywh-agent-host@$ID is already running; left as is"
+  elif systemctl --user enable --now "anywh-agent-host@$ID"; then
+    echo "Enabled anywh-agent-host@$ID (check: systemctl --user status anywh-agent-host@$ID)"
+  else
+    # Not fatal (`set -e` must not stop here): the relay works without its
+    # agent host; only what runs agents through the host is unavailable.
+    echo "warning: couldn't enable anywh-agent-host@$ID — the relay still works; check 'systemctl --user status anywh-agent-host@$ID'" >&2
+  fi
+}
+
 if [[ "$MODE" == "dev" && -d "$SCRIPT_DIR/../../relay" ]]; then
   RELAY_DIR="$(cd "$SCRIPT_DIR/../../relay" && pwd)"
   cat <<EOF
 
 Run it in dev mode with:
   cd "$RELAY_DIR" && ANYWH_PROFILE=$ID npm run dev:profile
+and, in another shell, its agent host:
+  cd "$RELAY_DIR" && ANYWH_PROFILE=$ID npm run dev:agent-host:profile
 EOF
 elif [[ "$MODE" == "dev" ]]; then
   : # macOS: brew services start anywh-relay is the actual next step,
@@ -316,7 +339,9 @@ elif systemctl --user is-active --quiet "anywh-relay@$ID"; then
   # harmless to systemd but a re-run of the installer must not be the thing
   # that restarts a relay with a conversation in flight.
   echo "anywh-relay@$ID is already running; left as is"
+  enable_agent_host
 else
+  enable_agent_host
   systemctl --user enable --now "anywh-relay@$ID"
   echo "Enabled anywh-relay@$ID (check: systemctl --user status anywh-relay@$ID)"
   # `enable --now` returns once systemd has forked the unit, not once the

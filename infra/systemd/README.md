@@ -75,6 +75,62 @@ scripting a setup or working before the app is even connected.
 Repeat with a second file (different port, paths, and — if it's a fully
 separate Claude Code login — `RELAY_HOME_OVERRIDE`) for a second profile.
 
+## The agent host (`anywh-agent-host@<profile>`)
+
+`anywh-agent-host@.service.template` is the relay's sibling: one per
+profile, rendered and installed by the same `install.sh`, enabled by
+`add-profile.sh` next to the relay. It owns long-lived agent processes (one
+`claude` per agent, each in its own process group) and talks to the relay
+over a unix socket, so restarting or upgrading `anywh-relay@<profile>`
+leaves every agent — and any turn in flight — running. The relay reconnects
+and replays what it missed from each agent's log.
+
+- Same env files as the relay (`relay/.env`, then `<profile>.env`). The host
+  gets its profile as an argument (`--profile %i`), never from the
+  environment; the relay's unit sets `ANYWH_PROFILE=%i`, which the relay does
+  not pass on to anything it spawns. Both derive the socket path from the
+  profile (`$XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock`) unless
+  `ANYWH_AGENT_HOST_SOCKET` says otherwise. For development, `npm run dev`
+  (relay) and `npm run dev:agent-host` (host) both use a separate `dev`
+  profile, so they find each other and never the machine's real ones;
+  `ANYWH_PROFILE=<id> npm run dev:profile` / `dev:agent-host:profile`
+  target a real profile, on purpose. `npm start` / `npm run
+  start:agent-host` use the ANYWH_PROFILE of the environment or relay/.env
+  (the host refuses to start without one). A relay started with no profile and
+  no socket set connects to no agent host at all (`/agents/activity`
+  answers 503 saying so) instead of guessing `default`. Data (registry, per-agent logs)
+  lives in `~/.anywh-sessions/<profile>-agent-host/` unless
+  `ANYWH_AGENT_HOST_DIR` says otherwise. A user unit does not inherit your
+  shell's `PATH`: `AGENT_BIN`/`EXTRA_PATH_DIRS` in the env files are how it
+  finds the agent CLI and the tools agents run.
+- It is not `PartOf=`/`BindsTo=` the relay on purpose, and
+  `restart-profiles.sh` does not touch it. Restart it only when needed (an
+  upgrade that changed the relay↔host protocol: a relay that meets a host
+  from another release is refused explicitly and logs both releases).
+  Stopping it drains: turns in flight get `ANYWH_AGENT_HOST_DRAIN_GRACE_MS`
+  (40 s) to finish, then are interrupted; idle agents are hibernated and
+  resume transparently later; agents whose work was cut come back
+  "stopped", resumable. The unit's `TimeoutStopSec=75` covers the worst case
+  (64 s, with every agent's SIGKILL, sweep and pipe waits) and stays
+  under the user manager's own ~90 s stop budget (logout, shutdown);
+  raising the drain grace means raising it too. A crash or `SIGKILL` (or a
+  drain cut short) brings every agent back stopped and resumable — never
+  running on its own.
+- Hibernation (ending an idle agent's process, keeping its session):
+  `ANYWH_AGENT_HOST_HIBERNATE=idle` (default; after
+  `ANYWH_AGENT_HOST_IDLE_MS`, 10 min), `memory` (only while agents use more
+  than `ANYWH_AGENT_HOST_MEMORY_FRACTION` (0.6) of
+  `ANYWH_AGENT_HOST_MEMORY_BYTES`, default the machine's RAM) or `off`. At
+  most `ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM` (10) live agents per room.
+
+```bash
+systemctl --user status anywh-agent-host@default
+journalctl --user -u anywh-agent-host@default -f
+curl -s http://127.0.0.1:8765/agents/activity   # through the relay
+```
+
+Not covered yet: macOS (`launchd`/Homebrew ships the relay only).
+
 ## Checking it
 
 ```bash

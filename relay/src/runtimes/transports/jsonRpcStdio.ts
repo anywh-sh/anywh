@@ -139,6 +139,10 @@ export interface JsonRpcConnection {
   /** Requests still awaiting a response — a daemon reaper checks this
    * before deciding a connection is idle enough to kill. */
   readonly pendingCount: number;
+  /** Rejects every in-flight request with `error` and clears them — the
+   * transport is gone (process exited), so no response can ever arrive and
+   * `pendingCount` must not stay above zero. */
+  close(error: Error): void;
 }
 
 interface PendingRequest {
@@ -218,8 +222,19 @@ export function createJsonRpcConnection(options: JsonRpcConnectionOptions): Json
       const id = nextId++;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
-        send({ jsonrpc: "2.0", id, method, params });
+        try {
+          send({ jsonrpc: "2.0", id, method, params });
+        } catch (error) {
+          // The frame never left: no response will ever clear this entry.
+          pending.delete(id);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
       });
+    },
+    close(error) {
+      const entries = [...pending.values()];
+      pending.clear();
+      for (const entry of entries) entry.reject(error);
     },
     notify(method, params) {
       send({ jsonrpc: "2.0", method, params });

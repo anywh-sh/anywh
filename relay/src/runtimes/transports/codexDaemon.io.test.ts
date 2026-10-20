@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnCodexDaemon, type CodexDaemonExitReason } from "./codexDaemon.js";
@@ -22,6 +22,10 @@ interface FixtureBehavior {
    * since the handshake's own response never reaches the caller (it resolves
    * with a `CodexDaemon`, not the raw `initialize` result). */
   initializeParamsFile?: string;
+  /** Path the fixture appends every JSON-RPC *response* it receives to
+   * (messages with an `id` and no `method`) — proves the client's answer to
+   * a server request was actually delivered. */
+  responseLogFile?: string;
 }
 
 function writeFixture(dir: string, behavior: FixtureBehavior): string {
@@ -52,6 +56,26 @@ process.stdin.on("data", (chunk) => {
       }
       continue;
     }
+    // A response to something the fixture sent (e.g. the client's answer to
+    // a server request): log it, never echo it back.
+    if (msg.method === undefined && msg.id !== undefined) {
+      if (behavior.responseLogFile) fs.appendFileSync(behavior.responseLogFile, JSON.stringify(msg) + "\\n");
+      continue;
+    }
+    // test/emit: params.notifications are pushed BEFORE the response, so by
+    // the time request() resolves the daemon has already seen them.
+    // params.serverRequest (optional) is pushed as a server->client request.
+    if (msg.method === "test/emit") {
+      for (const n of msg.params.notifications || []) send({ jsonrpc: "2.0", method: n.method, params: n.params });
+      if (msg.params.serverRequest) send({ jsonrpc: "2.0", id: msg.params.serverRequest.id, method: msg.params.serverRequest.method, params: msg.params.serverRequest.params });
+      send({ jsonrpc: "2.0", id: msg.id, result: {} });
+      continue;
+    }
+    // test/slow: answers only after params.ms — a client request in flight.
+    if (msg.method === "test/slow") {
+      setTimeout(() => send({ jsonrpc: "2.0", id: msg.id, result: {} }), msg.params.ms);
+      continue;
+    }
     send({ jsonrpc: "2.0", id: msg.id, result: { echoedMethod: msg.method, echoedParams: msg.params } });
   }
 });
@@ -75,7 +99,11 @@ const noopHost: TurnHost = {
   requestUserInput: () => Promise.reject(new Error("not exercised in this test")),
 };
 
-function fixtureDef(bin: string, overrides: Partial<Pick<AgentRuntimeDef, "identity">> = {}): AgentRuntimeDef {
+function fixtureDef(
+  bin: string,
+  overrides: Partial<Pick<AgentRuntimeDef, "identity">> = {},
+  handleServerRequest: () => Promise<unknown> | undefined = () => undefined,
+): AgentRuntimeDef {
   const startThread = (): JsonRpcRequestSpec => ({ method: "thread/start", params: {} });
   const startTurn = (): JsonRpcRequestSpec => ({ method: "turn/start", params: {} });
   return {
@@ -101,7 +129,7 @@ function fixtureDef(bin: string, overrides: Partial<Pick<AgentRuntimeDef, "ident
       thread: { start: startThread },
       turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },
       mapNotification: () => [],
-      handleServerRequest: () => undefined,
+      handleServerRequest,
     },
     portability: { authoredPaths: [".fixture/skills"], mcp: { kind: "none" } },
   };
@@ -293,6 +321,215 @@ test("spawnCodexDaemon: request() resets the idle timer, so activity keeps the d
       await new Promise((r) => setTimeout(r, 40));
       assert.equal(daemon.exited, false);
       assert.deepEqual(onExitCalls, []);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const poll = () => {
+      if (condition()) return resolve();
+      if (Date.now() - start > timeoutMs) return reject(new Error(`condition not met within ${timeoutMs}ms`));
+      setTimeout(poll, 10);
+    };
+    poll();
+  });
+}
+
+// Manual stand-in for the idle reaper's timer: tests assert on whether one is
+// armed and fire it by hand, so nothing here depends on wall-clock sleeps.
+function fakeIdleTimers() {
+  const armed = new Map<object, () => void>();
+  return {
+    timers: {
+      set: (callback: () => void) => {
+        const handle = {} as NodeJS.Timeout;
+        armed.set(handle, callback);
+        return handle;
+      },
+      clear: (handle: NodeJS.Timeout) => void armed.delete(handle),
+    },
+    armedCount: () => armed.size,
+    fire: () => {
+      for (const [handle, callback] of [...armed]) {
+        armed.delete(handle);
+        callback();
+      }
+    },
+  };
+}
+
+const startedTurn = (id: string) => ({ method: "turn/started", params: { threadId: "t", turn: { id } } });
+const completedTurn = (id: string) => ({ method: "turn/completed", params: { threadId: "t", turn: { id, status: "completed" } } });
+
+async function spawnWithFakeTimers(dir: string, behavior: FixtureBehavior, handleServerRequest?: () => Promise<unknown> | undefined) {
+  const bin = writeFixture(dir, behavior);
+  const onExitCalls: CodexDaemonExitReason[] = [];
+  const clock = fakeIdleTimers();
+  const daemon = await spawnCodexDaemon({
+    def: fixtureDef(bin, {}, handleServerRequest),
+    cwd: dir,
+    host: noopHost,
+    onNotification: () => {},
+    onExit: (reason) => onExitCalls.push(reason),
+    idleTimers: clock.timers,
+  });
+  return { daemon, onExitCalls, clock };
+}
+
+test("idle reaper: an active turn pauses the timer until turn/completed re-arms it", async () => {
+  await withTmpDir(async (dir) => {
+    const { daemon, onExitCalls, clock } = await spawnWithFakeTimers(dir, {});
+    try {
+      assert.equal(clock.armedCount(), 1); // armed after the handshake
+      await daemon.request("test/emit", { notifications: [startedTurn("a")] });
+      assert.equal(clock.armedCount(), 0);
+      await daemon.request("test/emit", { notifications: [completedTurn("a")] });
+      assert.equal(clock.armedCount(), 1);
+      clock.fire();
+      assert.deepEqual(onExitCalls, ["idle"]);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: overlapping turns are tracked per id — completing one does not re-arm while another runs", async () => {
+  await withTmpDir(async (dir) => {
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {});
+    try {
+      await daemon.request("test/emit", { notifications: [startedTurn("a"), startedTurn("b")] });
+      await daemon.request("test/emit", { notifications: [completedTurn("a")] });
+      assert.equal(clock.armedCount(), 0, "turn b is still running");
+      await daemon.request("test/emit", { notifications: [completedTurn("b")] });
+      assert.equal(clock.armedCount(), 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: a pending approval keeps the daemon alive; the answer is delivered and re-arms the timer", async () => {
+  await withTmpDir(async (dir) => {
+    const responseLogFile = join(dir, "responses.log");
+    let answer: (value: unknown) => void = () => {};
+    let requestSeen = false;
+    const pending = new Promise<unknown>((resolve) => (answer = resolve));
+    const { daemon, clock } = await spawnWithFakeTimers(dir, { responseLogFile }, () => {
+      requestSeen = true;
+      return pending;
+    });
+    try {
+      await daemon.request("test/emit", {
+        notifications: [startedTurn("a")],
+        serverRequest: { id: 900, method: "item/commandExecution/requestApproval", params: { turnId: "a" } },
+      });
+      await waitFor(() => requestSeen);
+      assert.equal(clock.armedCount(), 0);
+      answer({ decision: "accept" });
+      // The response must reach the fixture (not just be swallowed locally).
+      await waitFor(() => existsSync(responseLogFile) && readFileSync(responseLogFile, "utf8").includes('"id":900'));
+      const delivered = JSON.parse(readFileSync(responseLogFile, "utf8").trim().split("\n")[0]) as { id: number; result: unknown };
+      assert.deepEqual(delivered, { jsonrpc: "2.0", id: 900, result: { decision: "accept" } });
+      // Turn "a" is still active, so the timer stays paused until it completes.
+      assert.equal(clock.armedCount(), 0);
+      await daemon.request("test/emit", { notifications: [completedTurn("a")] });
+      assert.equal(clock.armedCount(), 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: a rejected approval promise also releases the pause", async () => {
+  await withTmpDir(async (dir) => {
+    let requestSeen = false;
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {}, () => {
+      requestSeen = true;
+      return Promise.reject(new Error("host gave up"));
+    });
+    try {
+      await daemon.request("test/emit", { notifications: [], serverRequest: { id: 901, method: "item/commandExecution/requestApproval", params: {} } });
+      await waitFor(() => requestSeen);
+      await waitFor(() => clock.armedCount() === 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: stop during a pending approval — turn/completed releases it even if the host promise never settles", async () => {
+  await withTmpDir(async (dir) => {
+    let requestSeen = false;
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {}, () => {
+      requestSeen = true;
+      return new Promise<unknown>(() => {}); // abandoned: never resolves or rejects
+    });
+    try {
+      await daemon.request("test/emit", {
+        notifications: [startedTurn("a")],
+        serverRequest: { id: 902, method: "item/commandExecution/requestApproval", params: { turnId: "a" } },
+      });
+      await waitFor(() => requestSeen);
+      assert.equal(clock.armedCount(), 0);
+      // turn/interrupt -> turn/completed(interrupted) for the same turn.
+      await daemon.request("test/emit", { notifications: [{ method: "turn/completed", params: { threadId: "t", turn: { id: "a", status: "interrupted" } } }] });
+      assert.equal(clock.armedCount(), 1, "the stale approval must not block the reaper forever");
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: stop during a pending approval WITHOUT a turnId — any turn/completed of the same thread releases it", async () => {
+  await withTmpDir(async (dir) => {
+    let requestSeen = false;
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {}, () => {
+      requestSeen = true;
+      return new Promise<unknown>(() => {}); // abandoned
+    });
+    try {
+      await daemon.request("test/emit", {
+        notifications: [startedTurn("a")],
+        serverRequest: { id: 903, method: "item/commandExecution/requestApproval", params: { threadId: "t" } },
+      });
+      await waitFor(() => requestSeen);
+      assert.equal(clock.armedCount(), 0);
+      await daemon.request("test/emit", { notifications: [completedTurn("a")] });
+      assert.equal(clock.armedCount(), 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: id-less turn/started events pair one-to-one with id-less turn/completed events", async () => {
+  await withTmpDir(async (dir) => {
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {});
+    const bare = (method: string) => ({ method, params: { threadId: "t" } });
+    try {
+      await daemon.request("test/emit", { notifications: [bare("turn/started"), bare("turn/started")] });
+      await daemon.request("test/emit", { notifications: [bare("turn/completed")] });
+      assert.equal(clock.armedCount(), 0, "the second id-less turn is still running");
+      await daemon.request("test/emit", { notifications: [bare("turn/completed")] });
+      assert.equal(clock.armedCount(), 1);
+    } finally {
+      daemon.kill();
+    }
+  });
+});
+
+test("idle reaper: a client request still awaiting its response is never reaped under, and re-arms when it lands", async () => {
+  await withTmpDir(async (dir) => {
+    const { daemon, clock } = await spawnWithFakeTimers(dir, {});
+    try {
+      const slow = daemon.request("test/slow", { ms: 80 });
+      assert.equal(clock.armedCount(), 0);
+      await slow;
+      assert.equal(clock.armedCount(), 1);
     } finally {
       daemon.kill();
     }

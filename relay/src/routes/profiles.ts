@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
+import { AGENT_HOST_DIR_MARKER, agentHostDataDir, isAgentHostDirEntry } from "../agentHost/paths.js";
+import { applyEnvFileContent } from "../host/envFile.js";
 import { isCreateProfileBody, isPatchProfileBody } from "../protocol/guards.js";
 import { readJsonBody, readOptionalJsonBody } from "../protocol/httpBody.js";
 import { resolveShipped } from "../host/paths.js";
@@ -48,6 +51,85 @@ function resolveRuntime(registry: Registry, runtimeId: unknown): { def: AgentRun
   const id = typeof runtimeId === "string" && runtimeId.length > 0 ? runtimeId : DEFAULT_RUNTIME_ID;
   const def = registry.get(id);
   return def ? { def } : { error: `unknown runtime "${id}"` };
+}
+
+// The relay's own .env: the first EnvironmentFile of both units, before
+// the profile's (which wins on a conflict).
+const RELAY_ENV_FILE = resolveShipped(import.meta.url, "../../.env", ".env");
+
+/** KEY=VALUE pairs of an env file as systemd reads them: one pair of
+ * surrounding quotes removed. Nothing for a missing file. */
+function readEnvFile(path: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  try {
+    applyEnvFileContent(readFileSync(path, "utf8"), env);
+  } catch {
+    return env;
+  }
+  for (const [key, value] of Object.entries(env)) {
+    const quoted = value !== undefined ? /^(["'])(.*)\1$/.exec(value) : null;
+    if (quoted) env[key] = quoted[2];
+  }
+  return env;
+}
+
+/** Where profile `id`'s agent host keeps its data, resolved like its unit
+ * does: relay/.env, then the profile's env file, then the default. Read
+ * before the env file is deleted. */
+function agentHostDataDirOf(id: string): string {
+  const env = { ...readEnvFile(RELAY_ENV_FILE), ...readEnvFile(envFileFor(id)) };
+  return agentHostDataDir(id, { ...env, ANYWH_SESSIONS_ROOT: env.ANYWH_SESSIONS_ROOT ?? process.env.ANYWH_SESSIONS_ROOT });
+}
+
+function runSystemctl(args: readonly string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolveRun) => {
+    const child = spawn(SYSTEMCTL_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")));
+    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")));
+    child.on("error", (error) => resolveRun({ code: null, stdout, stderr: String(error) }));
+    child.on("close", (code) => resolveRun({ code, stdout, stderr }));
+  });
+}
+
+/**
+ * Stops a deleted profile's agent host, then removes its data directory —
+ * agent specs (which can carry MCP secrets) and logs — so a profile created
+ * again under the same id does not bring the old agents back. Removed only
+ * when all of these hold, kept (and logged) otherwise:
+ *   - `systemctl disable --now` succeeded and the unit is no longer active;
+ *   - the profile was not created again while the host was draining;
+ *   - the directory carries the marker file of THIS profile's host, and
+ *     nothing a host does not write — so a mistyped or shared
+ *     ANYWH_AGENT_HOST_DIR can never make a delete remove something else.
+ */
+async function removeAgentHost(id: string, dir: string): Promise<void> {
+  const unit = `anywh-agent-host@${id}`;
+  const keep = (reason: string): void => console.error(`[relay] agent host data of ${id} kept (${reason}): ${dir}`);
+  const disabled = await runSystemctl(["--user", "disable", "--now", unit]);
+  if (disabled.code !== 0) return keep(`stopping ${unit} failed: ${disabled.stderr.trim() || `exit ${String(disabled.code)}`}`);
+  const state = (await runSystemctl(["--user", "is-active", unit])).stdout.trim();
+  if (["active", "activating", "deactivating", "reloading", "refreshing"].includes(state)) return keep(`${unit} is still ${state}`);
+  if (existsSync(envFileFor(id))) return keep("the profile was created again meanwhile");
+  if (!isAbsolute(dir)) return keep("not an absolute path");
+  let owner: string;
+  try {
+    owner = readFileSync(join(dir, AGENT_HOST_DIR_MARKER), "utf8").trim();
+  } catch {
+    return keep("not marked as an agent host's directory");
+  }
+  // Several profiles can resolve to one directory (ANYWH_AGENT_HOST_DIR in
+  // relay/.env): only the profile whose host marked it may remove it.
+  if (owner !== id) return keep(`marked by the agent host "${owner}", not "${id}"`);
+  const strangers = readdirSync(dir).filter((name) => !isAgentHostDirEntry(name));
+  if (strangers.length > 0) return keep(`it holds files an agent host does not write: ${strangers.slice(0, 3).join(", ")}`);
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    console.log(`[relay] agent host data of ${id} removed: ${dir}`);
+  } catch (error) {
+    keep(`removing it failed: ${(error as Error).message}`);
+  }
 }
 
 export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
@@ -243,18 +325,15 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         res.end(JSON.stringify({ error: "failed to delete profile files" }));
       }
     };
-    const disable = spawn(SYSTEMCTL_BIN, ["--user", "disable", "--now", `anywh-relay@${id}`], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let disableStderr = "";
-    disable.stderr.on("data", (chunk: Buffer) => (disableStderr += chunk.toString("utf8")));
-    disable.on("error", (error) => {
-      console.error("[relay] failed to run systemctl disable for", id, ":", error);
+    const hostData = agentHostDataDirOf(id);
+    // The relay first, as before; then the response; then the agent host,
+    // whose stop drains (up to about a minute) — the caller does not wait
+    // on it. One unit per call: `systemctl disable` given several fails as
+    // a whole when one does not exist (a machine set up before the host).
+    void runSystemctl(["--user", "disable", "--now", `anywh-relay@${id}`]).then((result) => {
+      if (result.code !== 0) console.error("[relay] systemctl disable for", `anywh-relay@${id}`, "exited", result.code, result.stderr.trim());
       finishDelete();
-    });
-    disable.on("close", (code) => {
-      if (code !== 0) console.error("[relay] systemctl disable for", id, "exited", code, disableStderr.trim());
-      finishDelete();
+      void removeAgentHost(id, hostData);
     });
     return true;
   }

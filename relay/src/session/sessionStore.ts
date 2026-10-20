@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
+import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -146,6 +147,60 @@ export interface SessionEntry {
    * as `null` via `getSuggestion`, the distinction doesn't matter to a
    * reconnecting client either way. */
   suggestion?: string | null;
+  /** The deferred `present_choice`/plan-marker question still waiting for a
+   * human, kept so it survives a relay restart — it can sit unanswered for
+   * days. Optional for the same reason as `permissionMode`/`draft`: records
+   * written before this feature existed simply have none (read as
+   * `undefined` via `getPendingChoice`). `promptId` is stored too, so a
+   * reconnecting device sees the same prompt it saw before the restart. */
+  pendingChoice?: PersistedChoice;
+}
+
+/** A question as the relay publishes it (`choice_prompt`). */
+export interface ChoicePrompt {
+  promptId: string;
+  questions: ChoiceQuestion[];
+  /** Epoch ms when the question was asked; absent for a question persisted
+   * before the field existed (the client treats absence as "unknown"). */
+  askedAt?: number;
+}
+
+/** The deferred question as stored on disk. The single definition of this
+ * shape: `ChoiceMachine` and `SharedSession` import it from here (type-only),
+ * so the store never has to import from `session/choiceMachine.ts`. */
+export interface PersistedChoice {
+  promptId: string;
+  questions: ChoiceQuestion[];
+  /** Set once when the question is created and never changed. Left
+   * undefined for legacy records and for a malformed value (`load()` drops
+   * just that field). */
+  askedAt?: number;
+}
+
+/** Runtime check for what `load()` reads back: this field is the first one
+ * fed straight to the WS broadcast code, so a hand-edited, truncated or
+ * future-schema file must not be able to reach it malformed. */
+function isPersistedChoice(value: unknown): value is PersistedChoice {
+  if (!value || typeof value !== "object") return false;
+  // `askedAt` is deliberately not checked here: a bad timestamp must not cost
+  // the user their question. `load()` clears just that field instead.
+  const { promptId, questions } = value as { promptId?: unknown; questions?: unknown };
+  if (typeof promptId !== "string" || promptId === "") return false;
+  if (!Array.isArray(questions) || questions.length === 0) return false;
+  const optionalString = (v: unknown) => v === undefined || typeof v === "string";
+  return questions.every((q) => {
+    if (!q || typeof q !== "object") return false;
+    const { question, options, header, multiSelect, approval } = q as Record<string, unknown>;
+    if (typeof question !== "string" || !optionalString(header)) return false;
+    if (multiSelect !== undefined && typeof multiSelect !== "boolean") return false;
+    if (approval !== undefined && (!approval || typeof approval !== "object")) return false;
+    if (!Array.isArray(options)) return false;
+    return options.every((o) => {
+      if (!o || typeof o !== "object") return false;
+      const { label, description, id } = o as Record<string, unknown>;
+      return typeof label === "string" && optionalString(description) && optionalString(id);
+    });
+  });
 }
 
 export type SessionRecord = Record<string, SessionEntry>;
@@ -258,6 +313,32 @@ export class SessionStore {
   }
 
   private load(): SessionRecord {
+    const records = this.loadAndMigrate();
+    for (const entry of Object.values(records)) {
+      if (entry && typeof entry === "object" && entry.pendingChoice !== undefined && !isPersistedChoice(entry.pendingChoice)) {
+        // Drop the bad record instead of crashing or adopting it; rewrite so
+        // it doesn't come back on the next boot.
+        delete entry.pendingChoice;
+        this.migrated = true;
+      } else if (entry?.pendingChoice && "askedAt" in entry.pendingChoice) {
+        const { askedAt } = entry.pendingChoice as { askedAt: unknown };
+        // Keep the question; only a non-negative finite number survives as the
+        // timestamp (decimals truncated), anything else leaves it undefined.
+        if (typeof askedAt === "number" && Number.isFinite(askedAt) && askedAt >= 0) {
+          if (!Number.isInteger(askedAt)) {
+            entry.pendingChoice.askedAt = Math.trunc(askedAt);
+            this.migrated = true;
+          }
+        } else {
+          delete entry.pendingChoice.askedAt;
+          this.migrated = true;
+        }
+      }
+    }
+    return records;
+  }
+
+  private loadAndMigrate(): SessionRecord {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(this.filePath, "utf8"));
@@ -570,6 +651,26 @@ export class SessionStore {
     this.ensureEntry(id);
     if (this.records[id].suggestion === text) return;
     this.records[id].suggestion = text;
+    this.persist();
+  }
+
+  getPendingChoice(id: string): PersistedChoice | undefined {
+    const stored = this.records[id]?.pendingChoice;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  /** `undefined` clears it. No-op when there's nothing to clear, so
+   * discarding a never-asked question doesn't create a record or rewrite
+   * the file. */
+  setPendingChoice(id: string, choice: PersistedChoice | undefined): void {
+    if (choice === undefined) {
+      if (this.records[id]?.pendingChoice === undefined) return;
+      delete this.records[id].pendingChoice;
+    } else {
+      this.ensureEntry(id);
+      // Copy: the caller (ChoiceMachine) keeps its own reference.
+      this.records[id].pendingChoice = structuredClone(choice);
+    }
     this.persist();
   }
 

@@ -30,10 +30,19 @@ const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { 
 
 // A daemon that never hears from its session again (tab closed without a
 // clean shutdown, client vanished) shouldn't sit there forever — 15 minutes
-// with no `request()` activity is generous for a coding session (an
-// in-flight turn's own requests count as activity, so this never fires
-// mid-turn) but short enough that an abandoned daemon doesn't outlive the
-// session that spawned it by much.
+// of true idleness is generous for a coding session but short enough that an
+// abandoned daemon doesn't outlive the session that spawned it by much.
+// "Idle" means no `request()` or notification traffic AND no turn in flight
+// (a `turn/started` whose id has not yet seen its `turn/completed`; turns are
+// tracked per id, so overlapping turns on one process don't clear each other)
+// AND no client request awaiting its response (`connection.pendingCount`)
+// AND no server request (approval, structured input) waiting for an answer:
+// a turn can sit for longer than the timeout on a human decision while the
+// daemon sends nothing. The timer is paused while any of those holds and
+// re-armed when the last one clears. There is deliberately no hard cap on a
+// pending approval, so a daemon whose approval is never answered keeps running
+// until its owner calls `kill()` (the session layer does so when it disposes
+// the session) or the process dies on its own; nothing here reaps it earlier.
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 // SIGTERM first, always — a daemon mid-write to its own on-disk state
 // deserves the chance to exit cleanly. SIGKILL only if it ignores that.
@@ -83,11 +92,45 @@ export interface SpawnCodexDaemonOptions {
    * surfaces as the returned promise rejecting instead. */
   readonly onExit: (reason: CodexDaemonExitReason) => void;
   readonly idleTimeoutMs?: number;
+  /** Timer functions for the idle reaper only — injectable so tests can
+   * assert "no idle timer is armed" and fire it deterministically instead of
+   * sleeping. Defaults to the globals. */
+  readonly idleTimers?: {
+    readonly set: (callback: () => void, ms: number) => NodeJS.Timeout;
+    readonly clear: (timer: NodeJS.Timeout) => void;
+  };
   readonly killGraceMs?: number;
 }
 
 function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { exec: JsonRpcDaemonPlan } {
   return def.exec.kind === "jsonRpcDaemon";
+}
+
+/** The def's daemon plan, or `undefined` for a def that is not a JSON-RPC
+ * daemon — so code outside `runtimes/` (the agent host) can drive a daemon
+ * def's thread/turn builders without naming its `exec.kind`. */
+export function daemonPlanOf(def: AgentRuntimeDef): JsonRpcDaemonPlan | undefined {
+  return isJsonRpcDaemonPlan(def) ? def.exec : undefined;
+}
+
+interface TurnRef {
+  readonly threadId: string | undefined;
+  readonly turnId: string | undefined;
+}
+
+// `turn/started`/`turn/completed` carry `{ threadId, turn: { id } }` and
+// server requests (approvals, user input) carry `{ threadId, turnId }`
+// (generated bindings; see codexDriver.ts). Either field may be missing.
+function toRef(threadId: unknown, turnId: unknown): TurnRef {
+  return { threadId: typeof threadId === "string" ? threadId : undefined, turnId: typeof turnId === "string" ? turnId : undefined };
+}
+function lifecycleRef(params: unknown): TurnRef {
+  const p = params as { threadId?: unknown; turn?: { id?: unknown } } | null | undefined;
+  return toRef(p?.threadId, p?.turn?.id);
+}
+function serverRequestRef(params: unknown): TurnRef {
+  const p = params as { threadId?: unknown; turnId?: unknown } | null | undefined;
+  return toRef(p?.threadId, p?.turnId);
 }
 
 function toError(value: unknown): Error {
@@ -109,6 +152,8 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   }
   const exec = options.def.exec;
   const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const setIdleTimer = options.idleTimers?.set ?? setTimeout;
+  const clearIdleTimerFn = options.idleTimers?.clear ?? clearTimeout;
   const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
   const bin = resolveAgentBin(options.def.identity.bin);
@@ -125,6 +170,18 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   }
 
   let exited = false;
+  // Ids of turns between `turn/started` and `turn/completed`.
+  const activeTurns = new Set<string>();
+  // `turn/started` without an id can't be paired by id: count them per
+  // thread so each id-less `turn/completed` retires exactly one.
+  const anonymousTurns = new Map<string, number>();
+  // Outstanding server->client requests (approval, structured input). Each
+  // entry is removed on settle (resolve OR reject), when its turn completes
+  // (an interrupted turn's host promise may never settle), or on exit.
+  const pendingServerRequests = new Map<symbol, TurnRef>();
+  // Assigned once the promise executor below runs; lets the connection
+  // callbacks (created before it) re-arm the idle timer.
+  let touchIdle: () => void = () => {};
   let idleTimer: NodeJS.Timeout | undefined;
   let killTimer: NodeJS.Timeout | undefined;
 
@@ -136,7 +193,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   // scheduled would be cancelled before it ever got to run, and a process
   // ignoring SIGTERM would never actually die.
   function clearIdleTimer(): void {
-    if (idleTimer) clearTimeout(idleTimer);
+    if (idleTimer) clearIdleTimerFn(idleTimer);
   }
 
   // `child.killed` is true as soon as a signal is successfully *sent* — it
@@ -156,8 +213,46 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   const connection = createJsonRpcConnection({
     framing: exec.framing,
     write: (chunk) => child.stdin.write(chunk),
-    onNotification: options.onNotification,
-    onRequest: (method, params) => exec.handleServerRequest(method, params, options.host),
+    onNotification: (method, params) => {
+      if (method === "turn/started") {
+        const { threadId, turnId } = lifecycleRef(params);
+        if (turnId !== undefined) activeTurns.add(turnId);
+        else anonymousTurns.set(threadId ?? "", (anonymousTurns.get(threadId ?? "") ?? 0) + 1);
+      } else if (method === "turn/completed") {
+        const done = lifecycleRef(params);
+        if (done.turnId !== undefined) activeTurns.delete(done.turnId);
+        else {
+          const key = done.threadId ?? "";
+          const left = (anonymousTurns.get(key) ?? 0) - 1;
+          if (left > 0) anonymousTurns.set(key, left);
+          else anonymousTurns.delete(key);
+        }
+        // A turn that ended (e.g. stopped mid-approval) can no longer be
+        // waiting on its server requests, whether or not the host ever
+        // settles their promises. A request with no turnId is attributed
+        // to its thread: any completion on that thread releases it.
+        for (const [token, ref] of pendingServerRequests) {
+          const sameThread = ref.threadId === undefined || done.threadId === undefined || ref.threadId === done.threadId;
+          const belongsToTurn = ref.turnId !== undefined && done.turnId !== undefined ? ref.turnId === done.turnId : sameThread;
+          if (belongsToTurn) pendingServerRequests.delete(token);
+        }
+      }
+      touchIdle();
+      options.onNotification(method, params);
+    },
+    onRequest: (method, params) => {
+      const result = exec.handleServerRequest(method, params, options.host);
+      if (result === undefined) return undefined;
+      const token = Symbol(method);
+      pendingServerRequests.set(token, serverRequestRef(params));
+      touchIdle();
+      const settle = (): void => {
+        pendingServerRequests.delete(token);
+        touchIdle();
+      };
+      result.then(settle, settle);
+      return result;
+    },
   });
   child.stdout.on("data", (chunk: Buffer) => connection.receive(chunk.toString("utf8")));
 
@@ -172,6 +267,10 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       if (exited) return;
       exited = true;
       clearIdleTimer();
+      activeTurns.clear();
+      anonymousTurns.clear();
+      connection.close(new Error(`codex daemon exited (reason: ${reason})`));
+      pendingServerRequests.clear();
       if (daemon) {
         options.onExit(reason);
       } else {
@@ -205,10 +304,19 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       finish("killed");
     }
 
+    // The single definition of "something is in flight": any of these pauses
+    // the reaper; the event that clears the last one calls `touchIdle`.
+    function isBusy(): boolean {
+      return activeTurns.size > 0 || anonymousTurns.size > 0 || pendingServerRequests.size > 0 || connection.pendingCount > 0;
+    }
+
     function scheduleIdleCheck(): void {
       if (exited) return;
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
+      if (idleTimer) clearIdleTimerFn(idleTimer);
+      idleTimer = undefined;
+      // Busy: no timer at all; the event that ends the busy state re-arms it.
+      if (isBusy()) return;
+      idleTimer = setIdleTimer(() => {
         sendKillSignal();
         finish("idle");
       }, idleTimeoutMs);
@@ -237,12 +345,17 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     connection.request("initialize", { clientInfo, capabilities: { experimentalApi: true, requestAttestation: false } }).then(
       () => {
         if (exited) return; // already settled via the exit/error listeners above
+        touchIdle = scheduleIdleCheck; // only after the handshake: no reaper before then
         scheduleIdleCheck();
         daemon = {
           request(method, params) {
             if (exited) return Promise.reject(new Error(`codex daemon already exited, cannot send "${method}"`));
-            scheduleIdleCheck();
-            return connection.request(method, params);
+            const response = connection.request(method, params);
+            scheduleIdleCheck(); // after the send: pendingCount now includes this request
+            // Re-arm once the response lands (or the request fails); the
+            // timer is paused while `connection.pendingCount > 0`.
+            response.then(scheduleIdleCheck, scheduleIdleCheck);
+            return response;
           },
           get exited() {
             return exited;

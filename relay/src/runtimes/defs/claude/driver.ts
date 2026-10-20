@@ -34,6 +34,8 @@ export interface ClaudeSessionDriverOptions {
   readonly initialSessionId?: string;
   readonly host: SessionDriverHost;
   readonly mcp?: ClaudeMcpWiring;
+  /** See `ClaudeSessionOptions.agentWorker`. Nothing sets this yet. */
+  readonly agentWorker?: boolean;
 }
 
 export class ClaudeSessionDriver implements AgentSessionDriver {
@@ -43,7 +45,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
   private readonly mcp: ClaudeMcpWiring | undefined;
 
   constructor(options: ClaudeSessionDriverOptions) {
-    this.claudeSession = new ClaudeSession({ homeOverride: options.homeOverride, initialSessionId: options.initialSessionId });
+    this.claudeSession = new ClaudeSession({ homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, agentWorker: options.agentWorker });
     this.homeOverride = options.homeOverride;
     this.host = options.host;
     this.mcp = options.mcp;
@@ -94,8 +96,8 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
             checkPermission: (toolName, input, toolUseId) => this.host.checkPermission(toolName, input, toolUseId),
           })
         : undefined;
-    // The actual CLI-arg assembly (which servers, which flags, the known-
-    // ineffective idle-timeout override, the alwaysLoad fix) is pure and
+    // The actual CLI-arg assembly (which servers, which flags, the per-server
+    // timeout override, the alwaysLoad fix) is pure and
     // lives in `buildMcpSpawnConfig` (mcpSpawnConfig.ts) — this is only the
     // "which mode gets which bridge" decision, which needs `permissionMode`.
     const mcpConfig = buildMcpSpawnConfig({

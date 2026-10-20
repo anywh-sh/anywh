@@ -102,6 +102,12 @@ export async function startTestServer(): Promise<TestServer> {
   // `anywh-relay@trabalho` service. Never point this at the real binary in
   // a test — see fixtures/fake-systemctl.mjs.
   process.env.SYSTEMCTL_BIN = FAKE_SYSTEMCTL_BIN;
+  // The relay always connects to its profile's agent host; without this it
+  // would look for one at the machine's real default socket.
+  process.env.ANYWH_AGENT_HOST_SOCKET = join(workDir, "agent-host.sock");
+  // Where per-profile data (an agent host's registry and logs) is looked
+  // for: never the real ~/.anywh-sessions, whatever profile id a test uses.
+  process.env.ANYWH_SESSIONS_ROOT = join(workDir, "sessions-root");
 
   const serverModule = await import("../../src/server.js");
   await waitForPort(port);

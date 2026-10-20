@@ -41,6 +41,9 @@
 // `initialize`'s capabilities (see `runtimes/transports/codexDaemon.ts`) —
 // without it every `turn/start` in `workspace-write` mode was rejected
 // outright, confirmed live the same way.
+import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
@@ -79,6 +82,46 @@ export interface CodexPermissionSettings {
   readonly sandboxPolicy: CodexSandboxPolicy;
 }
 
+/** `workspace-write` makes `.git` read-only even inside the writable cwd, and in a
+ * linked worktree the gitdir and the common dir (objects/refs/index) live
+ * outside the cwd entirely, so the agent could not commit. Resolved with real
+ * git from the session cwd (plain `--git-dir`/`--git-common-dir`, which work on
+ * old git too; relative answers are resolved against the cwd). Empty when the
+ * cwd is not in a repo, so nothing extra is granted there. */
+const GIT_LOCATION_VARS = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"];
+let warnedGitFailure = false;
+
+function gitWritableRoots(cwd: string): string[] {
+  // Ambient GIT_* location vars would make git answer for another repo; LC_ALL=C pins the stderr text matched below.
+  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" };
+  for (const v of GIT_LOCATION_VARS) delete env[v];
+  let out: string;
+  try {
+    out = execFileSync("git", ["rev-parse", "--git-dir", "--git-common-dir"], { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 2000 });
+  } catch (err) {
+    const e = err as { stderr?: unknown; status?: unknown; code?: unknown; message: string };
+    const stderr = typeof e.stderr === "string" ? e.stderr : Buffer.isBuffer(e.stderr) ? e.stderr.toString("utf8") : "";
+    // Not a repo (exit 128) is the normal case; a missing git (ENOENT) is warned about once, not per turn.
+    const quiet = /not a git repository/i.test(stderr) || e.status === 128 || (e.code === "ENOENT" && warnedGitFailure);
+    if (!quiet) {
+      if (e.code === "ENOENT") warnedGitFailure = true;
+      console.warn(`[codex] could not resolve git dirs for ${cwd}: ${e.message}`);
+    }
+    return [];
+  }
+  const lines = out.split("\n").filter(Boolean);
+  if (lines.length !== 2) console.warn(`[codex] unexpected git rev-parse output for ${cwd}: ${lines.length} lines`);
+  return lines.map((p) => canonical(resolve(cwd, p)));
+}
+
+function canonical(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 /** Maps a mode id to the real `turn/start` wire params — the one place this
  * mapping lives, reused by both `permissions.modesFor` (structural, `cwd`
  * unknown that early and irrelevant there: nothing reads `.settings` off
@@ -89,14 +132,14 @@ export interface CodexPermissionSettings {
  * unreachable in practice (`SharedSession` already validated the id against
  * this same def's `modesFor` before a turn ever starts) but costs nothing to
  * degrade safely if it somehow isn't. */
-function settingsFor(id: string, cwd: string): CodexPermissionSettings | undefined {
+function settingsFor(id: string, cwd: string, extraWritableRoots: readonly string[] = []): CodexPermissionSettings | undefined {
   switch (id) {
     case "read-only":
       return { approvalPolicy: "on-request", sandboxPolicy: { type: "readOnly", networkAccess: false } };
     case "workspace-write":
       return {
         approvalPolicy: { granular: { sandbox_approval: true, rules: false, skill_approval: false, request_permissions: false, mcp_elicitations: false } },
-        sandboxPolicy: { type: "workspaceWrite", writableRoots: [cwd], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+        sandboxPolicy: { type: "workspaceWrite", writableRoots: [...new Set([cwd, ...extraWritableRoots])], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
       };
     case "full-access":
       return { approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" } };
@@ -131,7 +174,7 @@ function startThread(ctx: TurnContext): JsonRpcRequestSpec {
  * `sandboxPolicy`"/"...`sandbox`") confirms the daemon distinguishes
  * "absent" from "present but empty". */
 function startTurn(ctx: TurnContext, threadId: string): JsonRpcRequestSpec {
-  const settings = settingsFor(ctx.permissionModeId, ctx.cwd);
+  const settings = settingsFor(ctx.permissionModeId, ctx.cwd, ctx.permissionModeId === "workspace-write" ? gitWritableRoots(ctx.cwd) : []);
   return {
     method: "turn/start",
     params: {
