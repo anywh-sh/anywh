@@ -196,6 +196,9 @@ export type HostEvent =
   | { readonly type: "host_process"; readonly subtype: "spawned"; readonly pid: number; readonly resumed: boolean }
   | { readonly type: "host_process"; readonly subtype: "exited"; readonly code: number | null; readonly signal: string | null; readonly expected: boolean }
   | { readonly type: "host_process"; readonly subtype: "stop_begin" | "killed" | "hibernating" }
+  /** The host that ran this agent's process went away without stopping it
+   * (crash, SIGKILL, reboot); written when the next host starts. */
+  | { readonly type: "host_process"; readonly subtype: "lost" }
   | { readonly type: "host_interrupt" };
 
 // ---------------------------------------------------------------- framing

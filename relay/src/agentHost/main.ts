@@ -10,6 +10,16 @@
 //   ANYWH_AGENT_HOST_ID        marker for this host's processes (default: the profile)
 //   RELAY_HOME_OVERRIDE        $HOME for the agents, as for the relay's own turns
 //   AGENT_BIN, EXTRA_PATH_DIRS as for the relay
+//
+// Hibernation (see agentHost.ts):
+//   ANYWH_AGENT_HOST_HIBERNATE          idle (default) | memory | off
+//   ANYWH_AGENT_HOST_IDLE_MS            idle: quiet time before hibernating, in ms (default 600000)
+//   ANYWH_AGENT_HOST_MEMORY_BYTES       memory: the machine's budget (default: total RAM)
+//   ANYWH_AGENT_HOST_MEMORY_FRACTION    memory: share of it agents may use (default 0.6)
+//   ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM live agents per room (default 10)
+//   ANYWH_AGENT_HOST_DRAIN_GRACE_MS     shutdown: wait for turns this long before interrupting (default 120000)
+//   ANYWH_AGENT_HOST_STOP_GRACE_MS      SIGTERM → SIGKILL grace per agent (default 5000)
+import { totalmem } from "node:os";
 import { AgentHost } from "./agentHost.js";
 import { agentHostDataDir, agentHostProfile, agentHostSocketPath } from "./paths.js";
 
@@ -20,6 +30,11 @@ function numberEnv(name: string): number | undefined {
   return Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function hibernationPolicy(): "idle" | "memory" | "off" {
+  const raw = process.env.ANYWH_AGENT_HOST_HIBERNATE;
+  return raw === "memory" || raw === "off" ? raw : "idle";
+}
+
 const profile = agentHostProfile();
 const host = await AgentHost.start({
   hostId: process.env.ANYWH_AGENT_HOST_ID || profile,
@@ -27,6 +42,14 @@ const host = await AgentHost.start({
   socketPath: agentHostSocketPath(),
   homeOverride: process.env.RELAY_HOME_OVERRIDE || undefined,
   stopGraceMs: numberEnv("ANYWH_AGENT_HOST_STOP_GRACE_MS"),
+  drainGraceMs: numberEnv("ANYWH_AGENT_HOST_DRAIN_GRACE_MS"),
+  maxAlivePerRoom: numberEnv("ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM"),
+  hibernation: {
+    policy: hibernationPolicy(),
+    idleMs: numberEnv("ANYWH_AGENT_HOST_IDLE_MS"),
+    memoryBytes: numberEnv("ANYWH_AGENT_HOST_MEMORY_BYTES") ?? totalmem(),
+    memoryFraction: numberEnv("ANYWH_AGENT_HOST_MEMORY_FRACTION"),
+  },
 });
 console.log(`[agent-host] profile ${profile} listening on ${host.socketPath} (pid ${process.pid})`);
 

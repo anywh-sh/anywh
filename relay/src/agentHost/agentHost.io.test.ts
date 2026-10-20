@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AgentHost } from "./agentHost.js";
+import { AgentHost, type AgentHostOptions } from "./agentHost.js";
 import { HostClient, START_OF_LOG } from "./hostClient.js";
 import { isAlive } from "./processTree.js";
 import type { AgentActivity, EventMessage } from "./protocol.js";
@@ -35,18 +35,22 @@ interface Harness {
   cleanup(): Promise<void>;
 }
 
-async function harness(options: { stopGraceMs?: number } = {}): Promise<Harness> {
-  const dir = mkdtempSync(join(tmpdir(), "anywh-agenthost-"));
+type HostOverrides = Partial<Omit<AgentHostOptions, "hostId" | "dataDir" | "socketPath">>;
+
+async function harness(options: HostOverrides & { reuse?: { dir: string; hostId: string } } = {}): Promise<Harness> {
+  const dir = options.reuse?.dir ?? mkdtempSync(join(tmpdir(), "anywh-agenthost-"));
   const home = join(dir, "home");
-  mkdirSync(home);
-  const hostId = `test-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  mkdirSync(home, { recursive: true });
+  const hostId = options.reuse?.hostId ?? `test-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   const host = await AgentHost.start({
     hostId,
     dataDir: join(dir, "data"),
     socketPath: join(dir, "run", "host.sock"),
     agentBin: FAKE_CLAUDE,
     homeOverride: home,
-    stopGraceMs: options.stopGraceMs ?? 3000,
+    stopGraceMs: 3000,
+    drainGraceMs: 2000,
+    ...options,
   });
   const client = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
   client.start();
@@ -270,5 +274,194 @@ test("remove ends the agent, deletes its log and forgets it", async () => {
     await assert.rejects(h.client.request("send", { agentId: "a1", message: "x" }), /no agent a1/);
   } finally {
     await h.cleanup();
+  }
+});
+
+// ---------------------------------------------------------------- hibernation, cap, drain, restore
+
+function lastArgv(file: string): string[] {
+  return JSON.parse(readFileSync(file, "utf8").trim().split("\n").at(-1)!) as string[];
+}
+
+test("an idle agent is hibernated after the idle time and its next message resumes the same session", async () => {
+  let clock = 1_000_000;
+  const h = await harness({ now: () => clock, hibernation: { policy: "idle", idleMs: 600_000 } });
+  try {
+    const argvFile = h.file("argv.jsonl");
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h, { env: { FAKE_CLAUDE_ARGV_FILE: argvFile } }), message: "remember 42" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "first turn");
+    const { pid, sessionId } = await h.activity("a1");
+    assert.deepEqual(await h.host.runHibernationPolicy(), []);
+
+    clock += 600_001;
+    assert.deepEqual(await h.host.runHibernationPolicy(), ["a1"]);
+    const hibernated = await h.activity("a1");
+    assert.equal(hibernated.state, "hibernated");
+    assert.equal(hibernated.alive, false);
+    assert.equal(hibernated.resumable, true);
+    assert.equal(isAlive(pid!), false);
+
+    assert.deepEqual(await h.client.request("send", { agentId: "a1", message: "what was it?" }), { duringTurn: false, resumed: true });
+    await waitFor(() => results(events).length === 2, 5000, "resumed turn");
+    assert.equal(lastArgv(argvFile)[lastArgv(argvFile).indexOf("--resume") + 1], sessionId);
+    const resumed = await h.activity("a1");
+    assert.equal(resumed.state, "idle");
+    assert.equal(resumed.sessionId, sessionId);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("an agent with a turn in flight or a background task still running is never hibernated", async () => {
+  let clock = 1_000_000;
+  const h = await harness({ now: () => clock, hibernation: { policy: "idle", idleMs: 1000 } });
+  try {
+    const gate = h.file("gate");
+    const bgGate = h.file("bg-gate");
+    await h.client.request("spawn", { agentId: "busy", spec: spec(h), message: `[[gate:${gate}]]` });
+    await h.client.request("spawn", { agentId: "bg", spec: spec(h), message: `[[bg-task:${bgGate}]]` });
+    const busy = h.watch("busy");
+    const bg = h.watch("bg");
+    await waitFor(() => busy.some((event) => event.ev.type === "assistant") && results(bg).length === 1, 5000, "both agents going");
+    assert.equal((await h.activity("bg")).backgroundTasks, 1);
+
+    clock += 3_600_000;
+    assert.deepEqual(await h.host.runHibernationPolicy(), []);
+    await assert.rejects(h.client.request("hibernate", { agentId: "busy" }), /a turn is in flight/);
+    await assert.rejects(h.client.request("hibernate", { agentId: "bg" }), /background tasks/);
+
+    writeFileSync(gate, "");
+    writeFileSync(bgGate, "");
+    await waitFor(() => results(busy).length === 1, 5000, "busy turn over");
+    await waitFor(() => bg.some((event) => event.ev.type === "system" && event.ev.subtype === "task_notification"), 5000, "bg task over");
+    await waitFor(() => (h.host.activity().find((agent) => agent.agentId === "bg")?.backgroundTasks ?? 1) === 0, 5000, "bg count");
+    clock += 3_600_000;
+    assert.deepEqual((await h.host.runHibernationPolicy()).sort(), ["bg", "busy"]);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("waiting for the person is its own state, survives hibernation, and ends with the next message", async () => {
+  const h = await harness();
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "ask me something" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    assert.equal((await h.client.request<AgentActivity>("mark_awaiting", { agentId: "a1", awaiting: true })).state, "awaiting_user");
+    const hibernated = await h.client.request<AgentActivity>("hibernate", { agentId: "a1" });
+    assert.equal(hibernated.state, "awaiting_user");
+    assert.equal(hibernated.alive, false);
+    await h.client.request("send", { agentId: "a1", message: "blue" });
+    await waitFor(() => results(events).length === 2, 5000, "answer turn");
+    const after = await h.activity("a1");
+    assert.equal(after.awaitingUser, false);
+    assert.equal(after.state, "idle");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("a full room hibernates its oldest idle agent to start another, and refuses when none is idle", async () => {
+  let clock = 1_000_000;
+  const h = await harness({ now: () => clock, maxAlivePerRoom: 2 });
+  try {
+    for (const agentId of ["a1", "a2"]) {
+      await h.client.request("spawn", { agentId, roomId: "r", spec: spec(h), message: "hi" });
+      const events = h.watch(agentId);
+      await waitFor(() => results(events).length === 1, 5000, `${agentId} turn`);
+      clock += 1000;
+    }
+    const a3 = await h.client.request<AgentActivity>("spawn", { agentId: "a3", roomId: "r", spec: spec(h) });
+    assert.equal(a3.alive, true);
+    assert.equal((await h.activity("a1")).state, "hibernated");
+    assert.equal((await h.activity("a2")).alive, true);
+
+    // Both live agents busy: nothing to make room with.
+    const gate = h.file("gate");
+    await h.client.request("send", { agentId: "a2", message: `[[gate:${gate}]]` });
+    await h.client.request("send", { agentId: "a3", message: `[[gate:${gate}]]` });
+    await assert.rejects(h.client.request("spawn", { agentId: "a4", roomId: "r", spec: spec(h) }), /room r already has 2 live agents/);
+    await assert.rejects(h.client.request("send", { agentId: "a1", message: "wake up" }), /room r already has 2 live agents/);
+    // Another room is not affected.
+    assert.equal((await h.client.request<AgentActivity>("spawn", { agentId: "b1", roomId: "s", spec: spec(h) })).alive, true);
+    writeFileSync(gate, "");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("the memory policy hibernates idle agents only while the agents use more than their share", async () => {
+  const roomy = await harness({ hibernation: { policy: "memory", memoryBytes: 1e15, memoryFraction: 0.6 } });
+  try {
+    await roomy.client.request("spawn", { agentId: "a1", spec: spec(roomy), message: "hi" });
+    const events = roomy.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    assert.deepEqual(await roomy.host.runHibernationPolicy(), []);
+  } finally {
+    await roomy.cleanup();
+  }
+  const tight = await harness({ hibernation: { policy: "memory", memoryBytes: 1, memoryFraction: 0.6 } });
+  try {
+    const gate = tight.file("gate");
+    await tight.client.request("spawn", { agentId: "idle1", spec: spec(tight), message: "hi" });
+    await tight.client.request("spawn", { agentId: "busy", spec: spec(tight), message: `[[gate:${gate}]]` });
+    const idle = tight.watch("idle1");
+    const busy = tight.watch("busy");
+    await waitFor(() => results(idle).length === 1 && busy.some((event) => event.ev.type === "assistant"), 5000, "agents going");
+    const expected = process.platform === "linux" ? ["idle1"] : [];
+    assert.deepEqual(await tight.host.runHibernationPolicy(), expected);
+    assert.equal((await tight.activity("busy")).alive, true);
+    writeFileSync(gate, "");
+  } finally {
+    await tight.cleanup();
+  }
+});
+
+test("shutdown hibernates idle agents and stops the ones whose turn it had to cut; the next host restores both, running neither", async () => {
+  const h = await harness({ drainGraceMs: 300 });
+  const reuse = { dir: h.dir, hostId: h.hostId };
+  let restarted: Harness | undefined;
+  try {
+    await h.client.request("spawn", { agentId: "idle1", spec: spec(h), message: "hi" });
+    await h.client.request("spawn", { agentId: "busy", spec: spec(h), message: "[[hang]]" });
+    const idle = h.watch("idle1");
+    const busy = h.watch("busy");
+    await waitFor(() => results(idle).length === 1 && busy.some((event) => event.ev.type === "assistant"), 5000, "agents going");
+    const pids = h.host.activity().map((agent) => agent.pid!);
+    const lastSeq = idle.at(-1)!.seq;
+
+    h.client.close();
+    await h.host.close();
+    assert.ok(pids.every((pid) => !isAlive(pid)), "every agent process ended");
+
+    restarted = await harness({ reuse });
+    const idleState = await restarted.activity("idle1");
+    assert.equal(idleState.state, "hibernated");
+    assert.equal(idleState.alive, false);
+    const busyState = await restarted.activity("busy");
+    assert.equal(busyState.state, "stopped");
+    assert.equal(busyState.stopReason, "host_shutdown");
+    assert.equal(busyState.resumable, true);
+
+    // The cut turn ended with the interrupt's own result before the stop.
+    const busyEvents = restarted.watch("busy");
+    await waitFor(() => busyEvents.some((event) => event.ev.type === "host_process" && event.ev.subtype === "exited"), 5000, "busy log");
+    assert.equal(results(busyEvents).at(-1)?.ev.terminal_reason, "aborted_tools");
+
+    const idleEvents = restarted.watch("idle1");
+    assert.deepEqual(await restarted.client.request("send", { agentId: "idle1", message: "back" }), { duringTurn: false, resumed: true });
+    await waitFor(() => results(idleEvents).length === 2, 5000, "resumed turn");
+    // The log continued where it was, across hosts.
+    const seqs = idleEvents.map((event) => event.seq);
+    assert.deepEqual(
+      seqs,
+      Array.from({ length: seqs.length }, (_, i) => i),
+    );
+    assert.ok(seqs.length > lastSeq + 1);
+  } finally {
+    if (restarted) await restarted.cleanup();
+    else await h.cleanup();
   }
 });

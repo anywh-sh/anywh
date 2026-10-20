@@ -61,19 +61,19 @@ async function selfAndAncestors(): Promise<Set<number>> {
   return pids;
 }
 
-/** Live processes carrying this host's marker, optionally only one agent's.
- * Empty on platforms without /proc. */
-export async function findAgentProcesses(hostId: string, agentId?: string): Promise<number[]> {
-  if (process.platform !== "linux") return [];
+/** Live processes carrying this host's marker, by agent id. Empty on
+ * platforms without /proc. */
+export async function agentProcessMap(hostId: string): Promise<Map<string, number[]>> {
+  const byAgent = new Map<string, number[]>();
+  if (process.platform !== "linux") return byAgent;
   const hostMarker = `${HOST_ID_ENV}=${hostId}`;
-  const agentMarker = agentId === undefined ? undefined : `${AGENT_ID_ENV}=${agentId}`;
+  const agentPrefix = `${AGENT_ID_ENV}=`;
   const excluded = await selfAndAncestors();
-  const found: number[] = [];
   let entries: string[];
   try {
     entries = await readdir("/proc");
   } catch {
-    return [];
+    return byAgent;
   }
   await Promise.all(
     entries.map(async (entry) => {
@@ -88,11 +88,22 @@ export async function findAgentProcesses(hostId: string, agentId?: string): Prom
       }
       const vars = environ.split("\0");
       if (!vars.includes(hostMarker)) return;
-      if (agentMarker !== undefined && !vars.includes(agentMarker)) return;
-      found.push(pid);
+      const agentId = vars.find((entry) => entry.startsWith(agentPrefix))?.slice(agentPrefix.length) ?? "";
+      const list = byAgent.get(agentId) ?? [];
+      list.push(pid);
+      byAgent.set(agentId, list);
     }),
   );
-  return found.sort((a, b) => a - b);
+  for (const list of byAgent.values()) list.sort((a, b) => a - b);
+  return byAgent;
+}
+
+/** Live processes carrying this host's marker, optionally only one agent's.
+ * Empty on platforms without /proc. */
+export async function findAgentProcesses(hostId: string, agentId?: string): Promise<number[]> {
+  const byAgent = await agentProcessMap(hostId);
+  if (agentId !== undefined) return byAgent.get(agentId) ?? [];
+  return [...byAgent.values()].flat().sort((a, b) => a - b);
 }
 
 /** Waits until none of `pids` is alive, or `timeoutMs` passes. */

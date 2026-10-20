@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { HostClient } from "../agentHost/hostClient.js";
 import type { PushStore } from "../push/pushStore.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
@@ -23,6 +24,9 @@ export interface RouteContext {
   /** The push-address registry, or `null` when push is switched off for
    * this relay (`RELAY_PUSH_DISABLED=1`) — its routes then don't exist. */
   readonly pushStore: PushStore | null;
+  /** The connection to this profile's agent host, kept open (and reopened)
+   * for the relay's whole life; requests fail fast while it is down. */
+  readonly agentHost: HostClient;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

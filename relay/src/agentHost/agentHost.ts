@@ -4,15 +4,50 @@
 // The relay asks for agents by id and streams their logs; it never holds an
 // agent process itself, so a relay restart leaves every agent — and any turn
 // in flight — untouched.
+//
+// Lifecycle of the host itself:
+//   - start: processes a previous run of this host left behind are ended
+//     (found by an environment marker), and every agent that run had alive
+//     comes back as `stopped` (`stopReason: "host_restart"`), resumable but
+//     not running: nothing restarts work on its own after a crash or reboot.
+//     The next message resumes the session with `--resume`.
+//   - drain (SIGTERM): no new agents or messages; turns in flight get
+//     `drainGraceMs` to end on their own, then are interrupted. Agents that
+//     were simply idle are hibernated (they resume transparently later);
+//     agents whose turn or background work had to be cut are `stopped`
+//     (`host_shutdown`), so whoever watches can tell work was lost.
+//
+// Hibernation ends an agent's process while keeping its session, to free
+// memory. Only an agent with no turn in flight and no background task still
+// running is hibernated (a pending question for the person is not a turn in
+// flight: the turn that asked it is over). Policies:
+//   - `idle` (own machine): after `idleMs` without activity;
+//   - `memory` (sized machine): only while the agents' summed PSS is above
+//     `memoryFraction` of `memoryBytes`, oldest-idle first;
+//   - plus a cap of live agents per room: starting one more hibernates the
+//     room's oldest idle agent, or fails when none is idle.
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
 import { ClaudeProcess, type ClaudeAgentSpec } from "./claudeProcess.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
-import { sweepAgentProcesses } from "./processTree.js";
+import { agentProcessMap, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
+import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
 import { AgentHostSocketServer } from "./socketServer.js";
+
+export interface HibernationOptions {
+  readonly policy: "idle" | "memory" | "off";
+  /** `idle`: hibernate after this long without activity. Default 10 min. */
+  readonly idleMs?: number;
+  /** `memory`: the machine's memory budget, and the share of it the agents
+   * may use before idle ones are hibernated. */
+  readonly memoryBytes?: number;
+  readonly memoryFraction?: number;
+  /** How often the policy runs. Default 30 s. */
+  readonly intervalMs?: number;
+}
 
 export interface AgentHostOptions {
   /** Profile (or test instance) id: marks every agent process, so a sweep
@@ -24,11 +59,14 @@ export interface AgentHostOptions {
   readonly homeOverride?: string;
   /** SIGTERM → SIGKILL grace when stopping an agent. */
   readonly stopGraceMs?: number;
+  readonly hibernation?: HibernationOptions;
+  /** Live agents per room. Default 10. */
+  readonly maxAlivePerRoom?: number;
+  /** How long a shutdown waits for turns in flight before interrupting them. */
+  readonly drainGraceMs?: number;
   readonly log?: EventLogOptions;
   readonly now?: () => number;
 }
-
-type Lifecycle = "starting" | "alive" | "hibernated" | "stopped" | "failed";
 
 interface Agent {
   readonly agentId: string;
@@ -38,7 +76,7 @@ interface Agent {
   readonly createdAt: number;
   readonly log: AgentEventLog;
   sessionId?: string;
-  lifecycle: Lifecycle;
+  lifecycle: PersistedLifecycle;
   proc?: ClaudeProcess;
   /** Set while the host itself is ending the process, so its exit is not
    * mistaken for a crash. */
@@ -56,6 +94,13 @@ interface Agent {
 }
 
 const DEFAULT_STOP_GRACE_MS = 5000;
+const DEFAULT_IDLE_MS = 10 * 60 * 1000;
+const DEFAULT_MEMORY_FRACTION = 0.6;
+const DEFAULT_POLICY_INTERVAL_MS = 30_000;
+const DEFAULT_MAX_ALIVE_PER_ROOM = 10;
+const DEFAULT_DRAIN_GRACE_MS = 120_000;
+/** After interrupting during a drain, how long to wait for the turns to end. */
+const DRAIN_INTERRUPT_GRACE_MS = 10_000;
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -94,35 +139,100 @@ function parseSpec(raw: unknown): ClaudeAgentSpec {
 export class AgentHost {
   private readonly agents = new Map<string, Agent>();
   private server!: AgentHostSocketServer;
+  private readonly registry: AgentRegistry;
   private readonly bin: string;
   private readonly stopGraceMs: number;
+  private readonly maxAlivePerRoom: number;
   private readonly now: () => number;
+  private policyTimer: NodeJS.Timeout | undefined;
+  private policyRunning = false;
+  private draining = false;
   private closed = false;
+  /** Resolved whenever a turn ends or a process exits — what a drain waits on. */
+  private turnWaiters: (() => void)[] = [];
 
   private constructor(private readonly options: AgentHostOptions) {
     this.bin = options.agentBin ?? AGENT_BIN;
     this.stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
+    this.maxAlivePerRoom = options.maxAlivePerRoom ?? DEFAULT_MAX_ALIVE_PER_ROOM;
     this.now = options.now ?? Date.now;
+    this.registry = new AgentRegistry(options.dataDir);
   }
 
-  /** Sweeps processes a previous instance of this host left behind, then
-   * starts serving. */
+  /** Ends what a previous run of this host left behind, restores its agents
+   * (none running), then starts serving. */
   static async start(options: AgentHostOptions): Promise<AgentHost> {
     const host = new AgentHost(options);
     mkdirSync(join(options.dataDir, "logs"), { recursive: true, mode: 0o700 });
     const orphans = await sweepAgentProcesses(options.hostId, undefined, 2000);
     if (orphans > 0) console.log(`[agent-host] ended ${orphans} process(es) left behind by a previous run`);
+    host.restore();
     host.server = await AgentHostSocketServer.listen({
       socketPath: options.socketPath,
       hostId: options.hostId,
       logFor: (agentId) => host.agents.get(agentId)?.log,
       handleRequest: (method, params) => host.handle(method, params),
     });
+    const hibernation = options.hibernation;
+    if (hibernation && hibernation.policy !== "off") {
+      host.policyTimer = setInterval(() => void host.runHibernationPolicy(), hibernation.intervalMs ?? DEFAULT_POLICY_INTERVAL_MS);
+      host.policyTimer.unref();
+    }
     return host;
   }
 
   get socketPath(): string {
     return this.options.socketPath;
+  }
+
+  private restore(): void {
+    for (const saved of this.registry.load()) {
+      if (!isValidAgentId(saved.agentId)) continue;
+      const wasRunning = saved.lifecycle === "alive" || saved.lifecycle === "starting";
+      const agent: Agent = {
+        agentId: saved.agentId,
+        runtime: saved.runtime,
+        roomId: saved.roomId,
+        spec: saved.spec,
+        createdAt: saved.createdAt,
+        log: AgentEventLog.open(join(this.options.dataDir, "logs", saved.agentId), this.options.log),
+        sessionId: saved.sessionId,
+        lifecycle: wasRunning ? "stopped" : saved.lifecycle,
+        turnInFlight: false,
+        lastTurnEndedAt: saved.lastTurnEndedAt,
+        lastActivityAt: saved.lastActivityAt,
+        awaitingUser: saved.awaitingUser,
+        backgroundTasks: 0,
+        stopReason: wasRunning ? "host_restart" : saved.stopReason,
+        failure: saved.failure,
+        queue: Promise.resolve(),
+      };
+      this.agents.set(agent.agentId, agent);
+      if (wasRunning) this.record(agent, { type: "host_process", subtype: "lost" });
+    }
+    this.persist();
+  }
+
+  private persist(): void {
+    const agents: PersistedAgent[] = [...this.agents.values()].map((agent) => ({
+      agentId: agent.agentId,
+      runtime: agent.runtime,
+      roomId: agent.roomId,
+      spec: agent.spec,
+      createdAt: agent.createdAt,
+      sessionId: agent.sessionId,
+      lifecycle: agent.lifecycle,
+      awaitingUser: agent.awaitingUser,
+      lastActivityAt: agent.lastActivityAt,
+      lastTurnEndedAt: agent.lastTurnEndedAt,
+      stopReason: agent.stopReason,
+      failure: agent.failure,
+    }));
+    try {
+      this.registry.save(agents);
+    } catch (error) {
+      console.error("[agent-host] could not save the registry:", (error as Error).message);
+    }
   }
 
   // ------------------------------------------------------------ requests
@@ -131,8 +241,10 @@ export class AgentHost {
     if (this.closed) return Promise.reject(new HostError("shutting_down", "the agent host is shutting down"));
     switch (method) {
       case "spawn":
+        this.refuseWhileDraining();
         return this.spawnAgent(params);
       case "send":
+        this.refuseWhileDraining();
         return this.send(this.agentParam(params), str(params.message) ?? "");
       case "interrupt":
         return Promise.resolve(this.interrupt(this.agentParam(params)));
@@ -140,11 +252,19 @@ export class AgentHost {
         return this.stop(this.agentParam(params));
       case "remove":
         return this.remove(this.agentParam(params));
+      case "hibernate":
+        return this.hibernate(this.agentParam(params));
+      case "mark_awaiting":
+        return Promise.resolve(this.markAwaiting(this.agentParam(params), params.awaiting === true));
       case "activity":
         return Promise.resolve({ agents: this.activity() });
       default:
         return Promise.reject(new HostError("unknown_method", `unknown method ${method}`));
     }
+  }
+
+  private refuseWhileDraining(): void {
+    if (this.draining) throw new HostError("draining", "the agent host is shutting down");
   }
 
   private agentParam(params: Readonly<Record<string, unknown>>): Agent {
@@ -178,10 +298,11 @@ export class AgentHost {
     };
     this.agents.set(agentId, agent);
     try {
-      await this.startProcess(agent);
+      await this.serialize(agent, () => this.startProcess(agent));
     } catch (error) {
       this.agents.delete(agentId);
       await agent.log.destroy();
+      this.persist();
       throw error;
     }
     const message = str(params.message);
@@ -209,12 +330,14 @@ export class AgentHost {
     const duringTurn = agent.turnInFlight;
     this.record(agent, { type: "host_user_message", text, duringTurn });
     proc.writeUserMessage(text);
+    const wasAwaiting = agent.awaitingUser;
     agent.awaitingUser = false;
     if (!duringTurn) {
       agent.turnInFlight = true;
       agent.turnStartedAt = this.now();
     }
     this.touch(agent);
+    if (wasAwaiting) this.persist();
     return duringTurn;
   }
 
@@ -227,12 +350,11 @@ export class AgentHost {
 
   private async stop(agent: Agent): Promise<AgentActivity> {
     await this.serialize(agent, async () => {
-      if (agent.proc && !agent.proc.hasExited) {
-        await this.endProcess(agent, "stop");
-      }
+      if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "stop");
       agent.lifecycle = "stopped";
       agent.stopReason = "user";
       this.touch(agent);
+      this.persist();
     });
     return this.describe(agent);
   }
@@ -244,7 +366,95 @@ export class AgentHost {
     this.agents.delete(agent.agentId);
     this.server.closeSubscriptions(agent.agentId);
     await agent.log.destroy();
+    this.persist();
     return { removed: true };
+  }
+
+  private hibernatable(agent: Agent): boolean {
+    return agent.lifecycle === "alive" && agent.proc !== undefined && !agent.proc.hasExited && !agent.turnInFlight && agent.backgroundTasks === 0;
+  }
+
+  private async hibernate(agent: Agent): Promise<AgentActivity> {
+    await this.serialize(agent, async () => {
+      if (agent.lifecycle === "hibernated") return;
+      if (!this.hibernatable(agent)) {
+        const why = agent.turnInFlight ? "a turn is in flight" : agent.backgroundTasks > 0 ? "background tasks are still running" : `the agent is ${this.stateOf(agent)}`;
+        throw new HostError("not_hibernatable", `cannot hibernate ${agent.agentId}: ${why}`);
+      }
+      await this.endProcess(agent, "hibernate");
+    });
+    return this.describe(agent);
+  }
+
+  private markAwaiting(agent: Agent, awaiting: boolean): AgentActivity {
+    if (agent.awaitingUser !== awaiting) {
+      agent.awaitingUser = awaiting;
+      this.touch(agent);
+      this.persist();
+    }
+    return this.describe(agent);
+  }
+
+  // ------------------------------------------------------------ hibernation policy
+
+  /** One pass of the configured policy. Public so a test can run it at a
+   * moment of its choosing (with an injected clock) instead of waiting. */
+  async runHibernationPolicy(): Promise<string[]> {
+    const policy = this.options.hibernation;
+    if (!policy || policy.policy === "off" || this.policyRunning || this.draining) return [];
+    this.policyRunning = true;
+    try {
+      const candidates = [...this.agents.values()].filter((agent) => this.hibernatable(agent)).sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+      const chosen: Agent[] = [];
+      if (policy.policy === "idle") {
+        const idleMs = policy.idleMs ?? DEFAULT_IDLE_MS;
+        const now = this.now();
+        chosen.push(...candidates.filter((agent) => now - agent.lastActivityAt >= idleMs));
+      } else {
+        const budget = (policy.memoryBytes ?? 0) * (policy.memoryFraction ?? DEFAULT_MEMORY_FRACTION);
+        const byAgent = await agentProcessMap(this.options.hostId);
+        const usage = new Map<string, number>();
+        let total = 0;
+        for (const [agentId, pids] of byAgent) {
+          const bytes = await pssBytes(pids);
+          usage.set(agentId, bytes);
+          total += bytes;
+        }
+        for (const agent of candidates) {
+          if (total <= budget) break;
+          chosen.push(agent);
+          total -= usage.get(agent.agentId) ?? 0;
+        }
+      }
+      const hibernated: string[] = [];
+      for (const agent of chosen) {
+        try {
+          await this.hibernate(agent);
+          hibernated.push(agent.agentId);
+        } catch {
+          // became busy meanwhile
+        }
+      }
+      return hibernated;
+    } finally {
+      this.policyRunning = false;
+    }
+  }
+
+  /** Before a process starts in a full room, makes room by hibernating its
+   * oldest idle agent; fails when every live agent there is busy. */
+  private async makeRoomFor(agent: Agent): Promise<void> {
+    if (agent.roomId === undefined) return;
+    const live = [...this.agents.values()].filter(
+      (other) => other !== agent && other.roomId === agent.roomId && (other.lifecycle === "alive" || other.lifecycle === "starting"),
+    );
+    if (live.length < this.maxAlivePerRoom) return;
+    const idle = live.filter((other) => this.hibernatable(other)).sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+    const needed = live.length - this.maxAlivePerRoom + 1;
+    if (idle.length < needed) {
+      throw new HostError("room_cap_reached", `room ${agent.roomId} already has ${live.length} live agents (limit ${this.maxAlivePerRoom}) and none is idle`);
+    }
+    for (const other of idle.slice(0, needed)) await this.hibernate(other);
   }
 
   // ------------------------------------------------------------ processes
@@ -256,6 +466,7 @@ export class AgentHost {
   }
 
   private async startProcess(agent: Agent): Promise<void> {
+    await this.makeRoomFor(agent);
     const resumeSessionId = agent.sessionId;
     agent.lifecycle = "starting";
     agent.failure = undefined;
@@ -279,12 +490,14 @@ export class AgentHost {
       agent.lifecycle = "failed";
       agent.failure = `could not start the agent: ${(error as Error).message}`;
       this.touch(agent);
+      this.persist();
       throw new HostError("spawn_failed", agent.failure);
     }
     agent.proc = proc;
     agent.lifecycle = "alive";
     this.record(agent, { type: "host_process", subtype: "spawned", pid: proc.pid, resumed: resumeSessionId !== undefined });
     this.touch(agent);
+    this.persist();
     void proc.exited.then((info) => this.onExit(agent, proc, info.code, info.signal));
   }
 
@@ -310,7 +523,8 @@ export class AgentHost {
     agent.proc = undefined;
     agent.turnInFlight = false;
     agent.backgroundTasks = 0;
-    if (this.agents.get(agent.agentId) === agent && agent.ending !== "remove") {
+    const known = this.agents.get(agent.agentId) === agent;
+    if (known && agent.ending !== "remove") {
       this.record(agent, { type: "host_process", subtype: "exited", code, signal: sig, expected });
     }
     switch (agent.ending) {
@@ -339,7 +553,11 @@ export class AgentHost {
       }
     }
     agent.ending = undefined;
-    if (this.agents.get(agent.agentId) === agent) this.touch(agent);
+    if (known) {
+      this.touch(agent);
+      this.persist();
+    }
+    this.notifyTurnWaiters();
   }
 
   private onLine(agent: Agent, line: string): void {
@@ -352,11 +570,15 @@ export class AgentHost {
     }
     agent.log.append(event);
     const before = this.stateOf(agent);
-    if (typeof event.session_id === "string" && event.session_id !== agent.sessionId) agent.sessionId = event.session_id;
+    if (typeof event.session_id === "string" && event.session_id !== agent.sessionId) {
+      agent.sessionId = event.session_id;
+      this.persist();
+    }
     switch (event.type) {
       case "result":
         agent.turnInFlight = false;
         agent.lastTurnEndedAt = this.now();
+        this.notifyTurnWaiters();
         break;
       case "assistant":
         // Output with no turn of ours in flight: the CLI started one on its
@@ -434,17 +656,62 @@ export class AgentHost {
     return [...this.agents.values()].map((agent) => this.describe(agent));
   }
 
-  /** Stops every agent process and the socket. */
-  async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
+  // ------------------------------------------------------------ shutdown
+
+  private notifyTurnWaiters(): void {
+    const waiters = this.turnWaiters;
+    this.turnWaiters = [];
+    for (const resolve of waiters) resolve();
+  }
+
+  /** Resolves when no agent has a turn in flight, or after `timeoutMs`. */
+  private async waitForTurns(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (![...this.agents.values()].some((agent) => agent.turnInFlight)) return true;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        new Promise<void>((resolve) => this.turnWaiters.push(resolve)),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, remaining);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Graceful shutdown (see the header): waits for turns, interrupts what is
+   * left, hibernates idle agents and stops the ones whose work was cut, then
+   * closes the socket. Idempotent.
+   */
+  async close(options: { drainGraceMs?: number } = {}): Promise<void> {
+    if (this.closed || this.draining) return;
+    this.draining = true;
+    if (this.policyTimer) clearInterval(this.policyTimer);
+    const grace = options.drainGraceMs ?? this.options.drainGraceMs ?? DEFAULT_DRAIN_GRACE_MS;
+    const cut = new Set<Agent>();
+    if (!(await this.waitForTurns(grace))) {
+      for (const agent of this.agents.values()) {
+        if (!agent.turnInFlight) continue;
+        cut.add(agent);
+        this.interrupt(agent);
+      }
+      await this.waitForTurns(DRAIN_INTERRUPT_GRACE_MS);
+    }
+    for (const agent of this.agents.values()) if (agent.turnInFlight || agent.backgroundTasks > 0) cut.add(agent);
     await Promise.all(
       [...this.agents.values()].map((agent) =>
         this.serialize(agent, async () => {
-          if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "shutdown");
+          if (!agent.proc || agent.proc.hasExited) return;
+          await this.endProcess(agent, cut.has(agent) ? "shutdown" : "hibernate");
         }),
       ),
     );
+    this.closed = true;
+    this.persist();
     await this.server.close();
     for (const agent of this.agents.values()) agent.log.close();
   }
