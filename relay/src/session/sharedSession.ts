@@ -994,7 +994,10 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private needsHistoryLoad(): boolean {
-    return this.history.length === 0 && !this.historyCleared && this.options.initialSessionId !== undefined && this.driver.readHistory !== undefined;
+    // The driver's id, not only the one this session was created with: an
+    // agent's turn followed after a relay restart may be the first time
+    // this relay learns it.
+    return this.history.length === 0 && !this.historyCleared && this.driver.getSessionId() !== undefined && this.driver.readHistory !== undefined;
   }
 
   private async loadHistory(): Promise<void> {
@@ -1244,8 +1247,14 @@ export class SharedSession implements SessionDriverHost {
    * (or reconnected to the agent host): shown to every client like any
    * other turn, to its end. Messages sent meanwhile wait their turn behind
    * it. A no-op while this session is busy with its own turns. */
-  followTurnInFlight(): void {
+  followTurnInFlight(sessionId?: string): void {
     if (!this.driver.followTurnInFlight || this.isBusy()) return;
+    // The agent's conversation id, as the host knows it, when this relay
+    // never got to record it (it went down during the agent's first turn).
+    if (sessionId && this.driver.getSessionId() === undefined) {
+      this.driver.setSessionId(sessionId);
+      this.options.onSessionIdChange?.(sessionId);
+    }
     this.enqueue(() => this.runTurn(undefined, "", undefined, true));
   }
 
@@ -1357,6 +1366,13 @@ export class SharedSession implements SessionDriverHost {
     follow = false,
     hooks?: TurnHooks,
   ): Promise<void> {
+    // The conversation so far is read from the agent's own storage before
+    // anything of this turn enters the log: a turn that starts before any
+    // device connected (an agent's queued message, a turn picked up after a
+    // relay restart) would otherwise leave the log looking loaded, and the
+    // earlier conversation would never be read.
+    const loading = this.ensureHistoryLoaded();
+    if (loading) await loading;
     this.options.onActivity?.();
 
     // A turn in progress is "current" state (same reasoning as

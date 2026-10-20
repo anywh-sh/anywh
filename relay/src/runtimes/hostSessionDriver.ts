@@ -315,7 +315,11 @@ export class HostSessionDriver implements AgentSessionDriver {
       if (!agent || (agent.state !== "working" && agent.state !== "starting")) return { stopped: false };
       if (agent.sessionId && this.daemonPlan) this.sessionId = agent.sessionId;
       this.turn = turn;
-      const saved = this.options.binding.cursors?.get(this.agentId);
+      // Claude's transcript (read into the session's log before this) holds
+      // the turn so far: following from the log's end shows only what is
+      // new, without repeating it. Codex has no such transcript here, so its
+      // log is replayed from the last record this relay processed.
+      const saved = this.daemonPlan ? this.options.binding.cursors?.get(this.agentId) : undefined;
       this.subscribe(client, saved ?? { nextOffset: agent.nextOffset, lastSeq: -1 });
       return await done;
     } finally {

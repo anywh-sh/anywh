@@ -66,7 +66,7 @@ export interface RoomManagerOptions {
   /** Ends an agent's process in the agent host (its session is kept). */
   readonly stopInHost?: (agentId: string) => Promise<void>;
   /** The agents the host has that belong to a room (ids and room ids). */
-  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string; state?: string }[]>;
+  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string; state?: string; sessionId?: string }[]>;
   /** Removes an agent from the host. */
   readonly removeFromHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
@@ -328,11 +328,11 @@ export class RoomManager implements RoomToolHost {
   /** Picks up the turns room agents were running in the host while this
    * relay was away, so their clients see them go on and they count as at
    * work. */
-  followTurnsInFlight(agents: readonly { agentId: string; state?: string }[]): void {
+  followTurnsInFlight(agents: readonly { agentId: string; state?: string; sessionId?: string }[]): void {
     for (const agent of agents) {
       if (agent.state !== "working" && agent.state !== "starting") continue;
       if (!this.store.getRoom(agent.agentId)) continue;
-      this.options.sessions.getOrCreate(agent.agentId).followTurnInFlight();
+      this.options.sessions.getOrCreate(agent.agentId).followTurnInFlight(agent.sessionId);
     }
   }
 

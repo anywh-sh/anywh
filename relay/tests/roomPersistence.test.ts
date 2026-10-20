@@ -3,9 +3,10 @@
 // canvas sidecar — all read back by a fresh relay process from the same files.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { transcriptPath } from "../src/runtimes/defs/claude/transcriptReader.js";
 import { HostClient } from "../src/agentHost/hostClient.js";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
@@ -115,12 +116,29 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
       return worker?.state === "working";
     }, "the worker in the middle of its task");
     const pid = (await agents()).find((agent) => agent.agentId === workerId)!.pid;
+    let workerSession = "";
+    await waitFor(async () => (workerSession = (await agents()).find((agent) => agent.agentId === workerId)?.sessionId ?? "") !== "", "the worker's session id");
 
     // The relay goes down hard, mid-task, and comes back on the same port.
     relay.proc.kill("SIGKILL");
     await relay.waitForExit();
     relay.cleanup();
-    relay = await spawnRelay({ ...env, RELAY_PORT: port });
+    // What the CLI's own transcript holds of the worker's conversation so far
+    // (the fake does not write one): the new relay must show it, then the
+    // turn's live rest.
+    const relayHome = join(dir, "relay-home");
+    const transcript = transcriptPath(relayHome, dir, workerSession);
+    mkdirSync(dirname(transcript), { recursive: true });
+    writeFileSync(
+      transcript,
+      [
+        { type: "user", message: { content: "an earlier question" } },
+        { type: "assistant", message: { content: [{ type: "text", text: "an earlier answer" }] } },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join("\n"),
+    );
+    relay = await spawnRelay({ ...env, RELAY_PORT: port, RELAY_HOME_OVERRIDE: relayHome });
     await waitFor(async () => (await agents()).some((agent) => agent.agentId === workerId), "the new relay connected to the host");
     assert.equal((await agents()).find((agent) => agent.agentId === workerId)!.pid, pid, "the same worker process kept running");
 
@@ -132,6 +150,11 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
       const room = (await (await fetch(`${base()}/rooms/${roomId}`)).json()) as { members: { id: string }[] };
       return room.members.some((member) => member.id === workerId);
     }, "room listed");
+    const page = burst.find((message) => message.type === "history_page") as { messages: { event: { type: string; text?: string } }[] } | undefined;
+    assert.ok(
+      page?.messages.some((message) => message.event.type === "text" && message.event.text === "an earlier answer"),
+      `the conversation before the restart is shown: ${JSON.stringify(page?.messages.map((message) => message.event.type))}`,
+    );
     assert.ok(
       burst.some((message) => message.type === "turn_state" && message.active === true),
       `the turn in flight shows as running after the restart: ${JSON.stringify(burst.filter((message) => message.type === "turn_state"))}`,
