@@ -15,7 +15,7 @@ import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
 import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
-import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
+import { buildTurnArgs, CLAUDE_SPAWN_ENV, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
 function buildArgs(ctx: TurnContext): string[] {
   // Known gap, not hidden: TurnContext doesn't carry MCP config or the
@@ -88,7 +88,7 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     // needs to agree with that, not re-derive a bare name that ignores the
     // override (and, in a test process, the fake-claude.mjs fixture).
     bin: AGENT_BIN,
-    env: { strip: BILLED_CREDENTIAL_VARS, set: CLAUDE_AGENT_ENV_OVERRIDES },
+    env: { strip: BILLED_CREDENTIAL_VARS, set: CLAUDE_SPAWN_ENV },
     projectInstructionsFile: "CLAUDE.md",
   },
   capabilities: {

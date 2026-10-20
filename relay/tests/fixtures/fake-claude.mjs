@@ -102,6 +102,12 @@ const args = process.argv.slice(2);
 if (process.env.FAKE_CLAUDE_ARGV_FILE) {
   appendFileSync(process.env.FAKE_CLAUDE_ARGV_FILE, `${JSON.stringify(args)}\n`);
 }
+// FAKE_CLAUDE_ENV_FILE - if set, the process env of every invocation is
+// appended to this file as one JSON object per line, so a test can assert on
+// the env the relay actually spawned with.
+if (process.env.FAKE_CLAUDE_ENV_FILE) {
+  appendFileSync(process.env.FAKE_CLAUDE_ENV_FILE, `${JSON.stringify(process.env)}\n`);
+}
 // FAKE_CLAUDE_MCP_CONFIG_COPY - if set and `--mcp-config` names a file, that
 // file's content and permission bits are written here as JSON, since the relay
 // removes the file once the turn ends.

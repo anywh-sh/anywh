@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../../registry.js";
 import { claudeRuntimeDef } from "./def.js";
+import { CLAUDE_AGENT_ENV_OVERRIDES } from "./session.js";
 import type { TurnContext } from "../../types.js";
 
 function turnContext(overrides: Partial<TurnContext> = {}): TurnContext {
@@ -120,4 +121,14 @@ test("portability.mcp.needsAuthSignal.parse: a missing, empty or reshaped file m
 test("portability.mcp.loginArgs: headless by construction — the flag that prints the URL instead of opening a browser", () => {
   if (claudeRuntimeDef.portability.mcp.kind !== "supported") throw new Error("expected supported");
   assert.deepEqual(claudeRuntimeDef.portability.mcp.loginArgs("sentry"), ["mcp", "login", "--no-browser", "sentry"]);
+});
+
+test("identity.env.set: probes and daemon-less spawns get the opt-outs, the terminal set stays limited to the MCP timeout", () => {
+  const set = claudeRuntimeDef.identity.env.set ?? {};
+  assert.equal(set.DISABLE_AUTOUPDATER, "1");
+  assert.equal(set.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
+  assert.equal(set.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+  // An interactive shell is where a user may run `claude` by hand: it must
+  // keep its own updater and telemetry choices.
+  assert.deepEqual(CLAUDE_AGENT_ENV_OVERRIDES, { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "0" });
 });

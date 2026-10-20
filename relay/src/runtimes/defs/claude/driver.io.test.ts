@@ -70,6 +70,27 @@ test("sendTurn: without any bridge configured, no --mcp-config is built and the 
   }
 });
 
+test("sendTurn: the spawned claude gets the background-traffic opt-outs and keeps the MCP idle timeout override", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-claude-env-test-"));
+  const file = join(dir, "env.jsonl");
+  process.env.FAKE_CLAUDE_ENV_FILE = file;
+  try {
+    await new ClaudeSessionDriver({ host: noopHost }).sendTurn(turnContext(), () => {});
+    const envs = readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, string>);
+    assert.ok(envs.length >= 1);
+    for (const env of envs) {
+      assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
+      assert.equal(env.DISABLE_AUTOUPDATER, "1");
+      assert.equal(env.DISABLE_TELEMETRY, "1");
+      assert.equal(env.DISABLE_ERROR_REPORTING, "1");
+      assert.equal(env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+    }
+  } finally {
+    delete process.env.FAKE_CLAUDE_ENV_FILE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("getSessionId/setSessionId/resetSessionId delegate to the underlying ClaudeSession", () => {
   const driver = new ClaudeSessionDriver({ host: noopHost });
   assert.equal(driver.getSessionId(), undefined);

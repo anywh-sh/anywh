@@ -104,6 +104,26 @@ export const CLAUDE_AGENT_ENV_OVERRIDES: Readonly<Record<string, string>> = {
   CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "0",
 };
 
+/** Opt-outs from the CLI's background traffic (feature-flag fetches,
+ * telemetry, error reports, update checks), so a relay-spawned agent does no
+ * network or CPU work that isn't its turn. None changes model output or
+ * authentication. `DISABLE_AUTOUPDATER` also keeps every agent on one binary
+ * for as long as it lives. Not applied to the interactive terminal: a user
+ * running `claude` by hand there should keep their own updater and telemetry
+ * choices, so the terminal uses `CLAUDE_AGENT_ENV_OVERRIDES` alone. */
+export const CLAUDE_BACKGROUND_TRAFFIC_ENV: Readonly<Record<string, string>> = {
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  DISABLE_AUTOUPDATER: "1",
+  DISABLE_TELEMETRY: "1",
+  DISABLE_ERROR_REPORTING: "1",
+};
+
+/** Env for every agent process the relay spawns on its own (turns, probes). */
+export const CLAUDE_SPAWN_ENV: Readonly<Record<string, string>> = {
+  ...CLAUDE_AGENT_ENV_OVERRIDES,
+  ...CLAUDE_BACKGROUND_TRAFFIC_ENV,
+};
+
 export interface ClaudeEvent {
   type: string;
   session_id?: string;
@@ -476,7 +496,7 @@ export class ClaudeSession {
       }
 
       const child = spawn(AGENT_BIN, args, {
-        env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_AGENT_ENV_OVERRIDES),
+        env: buildChildEnv(this.options.homeOverride, EXTRA_PATH_DIRS, stripBilledCredentials, CLAUDE_SPAWN_ENV),
         cwd,
       });
       this.currentChild = child;
