@@ -243,7 +243,12 @@ export class RoomManager implements RoomToolHost {
       // A followed turn began before this relay saw it: any report of the
       // agent's own may be this turn's.
       const reportedThisTurn = room.report !== undefined && !room.report.synthetic && (outcome.adopted === true || room.report.at >= outcome.startedAt);
-      if (outcome.error !== undefined) {
+      if (outcome.error !== undefined && reportedThisTurn && room.report) {
+        // The agent reported, then its turn failed: its report stands (it
+        // is what the agent said of its work), with the failure noted.
+        const note = ` (The turn then failed: ${outcome.error})`;
+        this.recordReport(sessionId, room, { ...room.report, summary: `${room.report.summary}${note}`.slice(0, ROOM_REPORT_SUMMARY_MAX + note.length) });
+      } else if (outcome.error !== undefined) {
         this.recordReport(sessionId, room, { status: "failed", summary: `The agent's turn failed: ${outcome.error}`.slice(0, ROOM_REPORT_SUMMARY_MAX), artifacts: [], synthetic: true });
       } else if (!reportedThisTurn) {
         this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });

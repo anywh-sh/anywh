@@ -425,3 +425,21 @@ test("a canvas up to its validator's size is stored; a larger body is answered 4
   assert.equal(tooBig.status, 413);
   assert.match(((await tooBig.json()) as { error: string }).error, /too large/);
 });
+
+test("a turn that fails after its agent reported keeps that report, with the failure noted", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const report = marker("report", { status: "done", summary: "counted 7 files", artifacts: ["count.md"] });
+    const { last } = await principalTurn(socket, marker("delegate", { task: `count ${report} [[crash-after]]`, runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    await waitFor(async () => /turn then failed/.test((await members(roomId)).find((member) => member.id === agentId)?.room.report?.summary ?? ""), 20_000, "the failure noted");
+    const kept = (await members(roomId)).find((member) => member.id === agentId)!.room.report as { status: string; summary: string; artifacts: string[]; synthetic?: boolean };
+    assert.equal(kept.status, "done", "the agent's own status stands");
+    assert.match(kept.summary, /^counted 7 files \(The turn then failed: the agent's process exited/);
+    assert.deepEqual(kept.artifacts, ["count.md"]);
+    assert.equal(kept.synthetic, undefined);
+  } finally {
+    socket.close();
+  }
+});

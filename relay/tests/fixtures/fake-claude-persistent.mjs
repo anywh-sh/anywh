@@ -41,7 +41,9 @@
 //                        `tool_use`, the real HTTP `tools/call`, its
 //                        `tool_result`; repeatable, run in order; the turn
 //                        then ends with the last result's text; with a
-//                        [[gate:<path>]] too, the calls wait for the gate
+//                        [[gate:<path>]] too, the calls wait for the gate;
+//                        with [[crash-after]], the process exits (code 3)
+//                        right after them
 //   [[subagent]]         start a native subagent in the background (the
 //                        CLI's `task_started`/`background_tasks_changed`)
 //                        and end the turn; it runs until a `stop_task`
@@ -181,6 +183,8 @@ export async function runPersistent(args) {
         last = resultText;
         emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: resultText, is_error: isError }] } });
       }
+      // The turn fails after its calls: the report was made, the turn not.
+      if (text.includes("[[crash-after]]")) process.exit(3);
       finish(`room: ${last}`);
       return;
     }
