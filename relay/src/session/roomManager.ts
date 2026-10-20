@@ -361,10 +361,15 @@ export class RoomManager implements RoomToolHost {
         console.warn(`[relay] could not remove agent ${agent.agentId} from the agent host: ${(error as Error).message}`);
       }
     }
-    // A tombstone is done once its agent is gone from the host.
+    // A tombstone is done once its agent is gone from the host. Applied to
+    // the file as it is now, not to the snapshot read above: a deletion
+    // recorded during the awaits keeps its tombstone.
     const present = new Set(agents.map((agent) => agent.agentId).filter((id) => !removed.includes(id)));
-    const left = [...tombstones].filter((id) => present.has(id));
-    if (left.length !== tombstones.size) this.writeTombstones(left);
+    const done = new Set([...tombstones].filter((id) => !present.has(id)));
+    if (done.size > 0) {
+      const current = this.readTombstones();
+      this.writeTombstones(current.filter((id) => !done.has(id)));
+    }
     if (removed.length > 0) console.log(`[relay] removed ${removed.length} agent(s) the rooms no longer have from the agent host`);
     return removed;
   }
