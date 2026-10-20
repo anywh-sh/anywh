@@ -74,14 +74,14 @@ const host = await AgentHost.start({
 console.log(`[agent-host] profile ${profile} listening on ${host.socketPath} (pid ${process.pid})`);
 
 let stopping = false;
-const shutdown = (signalName: string): void => {
+const shutdown = (signalName: string, exitCode = 0): void => {
   if (stopping) return;
   stopping = true;
-  console.log(`[agent-host] ${signalName} received, stopping agents...`);
+  console.log(`[agent-host] ${signalName}, stopping agents...`);
   void host.close().then(
     () => {
       console.log("[agent-host] exiting.");
-      process.exit(0);
+      process.exit(exitCode);
     },
     (error: unknown) => {
       console.error("[agent-host] shutdown failed:", (error as Error).message);
@@ -89,5 +89,17 @@ const shutdown = (signalName: string): void => {
     },
   );
 };
+// A bug that escapes every handler must not kill the host silently and
+// leave its agents running unsupervised: log it and drain like a SIGTERM
+// (agents are hibernated or stopped, the registry saved), then exit
+// non-zero so the service manager restarts it.
+process.on("uncaughtException", (error) => {
+  console.error("[agent-host] uncaught exception:", error);
+  shutdown("uncaughtException", 1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[agent-host] unhandled rejection:", reason);
+  shutdown("unhandledRejection", 1);
+});
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));

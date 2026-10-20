@@ -118,6 +118,10 @@ export class AgentEventLog {
   private readonly retainBytes: number;
   private readonly now: () => number;
   private closed = false;
+  /** Set by the first failed write: from then on the file may end in a torn
+   * record and offsets past it are not trustworthy, so every later append
+   * fails too. The log is fine again once reopened (a torn tail is cut). */
+  private failure: Error | undefined;
   /** Compactions run one at a time, in the order segments were sealed. */
   private maintenance: Promise<void> = Promise.resolve();
 
@@ -184,18 +188,39 @@ export class AgentEventLog {
    * record is written. */
   append(ev: Record<string, unknown>): AppendedRecord {
     if (this.closed) throw new Error("event log is closed");
+    if (this.failure) throw new EventLogWriteError(this.failure);
     const seq = this._nextSeq;
     const off = this.endOffset;
     const t = this.now();
     const line = JSON.stringify({ seq, off, t, ev });
     const bytes = Buffer.from(`${line}\n`, "utf8");
-    writeSync(this.fd, bytes);
+    try {
+      // `writeSync` may write less than asked; anything short of the whole
+      // record would shift every later offset against the file.
+      let written = 0;
+      while (written < bytes.length) written += writeSync(this.fd, bytes, written, bytes.length - written);
+    } catch (error) {
+      this.failure = error as Error;
+      throw new EventLogWriteError(this.failure);
+    }
     this.activeSize += bytes.length;
     this._nextSeq = seq + 1;
     const record: AppendedRecord = { line, seq, off, next: off + bytes.length, t, ev };
+    if (this.activeSize >= this.segmentBytes) {
+      try {
+        this.rotate();
+      } catch (error) {
+        this.failure = error as Error;
+      }
+    }
     for (const listener of this.listeners) listener(record);
-    if (this.activeSize >= this.segmentBytes) this.rotate();
+    if (this.failure) throw new EventLogWriteError(this.failure);
     return record;
+  }
+
+  /** The first write error, if any (see `failure`). */
+  get writeError(): Error | undefined {
+    return this.failure;
   }
 
   onAppend(listener: (record: AppendedRecord) => void): () => void {
@@ -205,9 +230,12 @@ export class AgentEventLog {
 
   private rotate(): void {
     const sealed = this.activeSegment;
-    closeSync(this.fd);
     const next: Segment = { base: this.endOffset, baseSeq: this._nextSeq, path: join(this.dir, segmentName(this.endOffset, this._nextSeq)) };
-    this.fd = openSync(next.path, "a", 0o600);
+    // Open the next segment before letting go of the current one, so a
+    // failure leaves the log on a valid file descriptor.
+    const fd = openSync(next.path, "a", 0o600);
+    closeSync(this.fd);
+    this.fd = fd;
     this.segments = [...this.segments, next];
     this.activeSize = 0;
     this.maintenance = this.maintenance.then(() => this.compact(sealed)).then(() => this.enforceRetention());
@@ -274,6 +302,13 @@ export class AgentEventLog {
     this.close();
     await this.maintenance;
     await rm(this.dir, { recursive: true, force: true });
+  }
+}
+
+export class EventLogWriteError extends Error {
+  constructor(readonly cause: Error) {
+    super(`the agent's event log could not be written: ${cause.message}`);
+    this.name = "EventLogWriteError";
   }
 }
 

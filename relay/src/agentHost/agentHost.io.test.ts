@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AgentHost, type AgentHostOptions } from "./agentHost.js";
@@ -520,5 +520,60 @@ test("two hosts starting at once on the same profile: exactly one wins", async (
     await again.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- log failures
+
+test("a log that cannot be written fails only its own agent; the host and the other agents carry on", async () => {
+  // Small segments, so the next events force a rotation into a directory
+  // that has become read-only.
+  const h = await harness({ log: { segmentBytes: 600 } });
+  try {
+    await h.client.request("spawn", { agentId: "ok1", spec: spec(h), message: "hi" });
+    await h.client.request("spawn", { agentId: "bad", spec: spec(h), message: "hi" });
+    const okEvents = h.watch("ok1");
+    const badEvents = h.watch("bad");
+    await waitFor(() => results(okEvents).length === 1 && results(badEvents).length === 1, 5000, "first turns");
+    const { pid } = await h.activity("bad");
+    chmodSync(join(h.dir, "data", "logs", "bad"), 0o500);
+    try {
+      await h.client.request("send", { agentId: "bad", message: "x".repeat(700) }).catch(() => {});
+      await waitFor(() => h.host.activity().find((agent) => agent.agentId === "bad")?.state === "failed", 5000, "bad agent failed");
+      const bad = await h.activity("bad");
+      assert.match(bad.failure ?? "", /log_error/);
+      await waitFor(() => !isAlive(pid!), 5000, "its process ended");
+      await assert.rejects(h.client.request("send", { agentId: "bad", message: "again" }), /log/);
+    } finally {
+      chmodSync(join(h.dir, "data", "logs", "bad"), 0o700);
+    }
+    await h.client.request("send", { agentId: "ok1", message: "still fine?" });
+    await waitFor(() => results(okEvents).length === 2, 5000, "other agent's turn");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("an agent whose log cannot be opened on restore comes back failed instead of failing the host's start", async () => {
+  const h = await harness();
+  const reuse = { dir: h.dir, hostId: h.hostId };
+  let again: Harness | undefined;
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "hi" });
+    await h.client.request("spawn", { agentId: "a2", spec: spec(h), message: "hi" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    h.client.close();
+    await h.host.close();
+    // a2's log directory is replaced by something that is not a directory.
+    rmSync(join(h.dir, "data", "logs", "a2"), { recursive: true, force: true });
+    writeFileSync(join(h.dir, "data", "logs", "a2"), "not a directory");
+    again = await harness({ reuse });
+    assert.equal((await again.activity("a2")).state, "failed");
+    assert.match((await again.activity("a2")).failure ?? "", /log_error/);
+    assert.equal((await again.activity("a1")).state, "hibernated");
+  } finally {
+    if (again) await again.cleanup();
+    else await h.cleanup();
   }
 });

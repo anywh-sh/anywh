@@ -27,7 +27,7 @@
 //   - plus a cap of live agents per room: starting one more hibernates the
 //     room's oldest idle agent, or fails when none is idle.
 import { randomBytes } from "node:crypto";
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
@@ -87,7 +87,10 @@ interface Agent {
   proc?: ClaudeProcess;
   /** Set while the host itself is ending the process, so its exit is not
    * mistaken for a crash. */
-  ending?: "stop" | "remove" | "hibernate" | "shutdown";
+  ending?: "stop" | "remove" | "hibernate" | "shutdown" | "log_error";
+  /** Set once the agent's log failed to take a write: the agent is failed
+   * for good (its history would have a hole) until it is removed. */
+  logError?: string;
   turnInFlight: boolean;
   turnStartedAt?: number;
   lastTurnEndedAt?: number;
@@ -215,28 +218,51 @@ export class AgentHost {
     for (const saved of this.registry.load()) {
       if (!isValidAgentId(saved.agentId)) continue;
       const wasRunning = saved.lifecycle === "alive" || saved.lifecycle === "starting";
+      const opened = this.openLogForRestore(saved.agentId);
+      if (!opened) continue;
       const agent: Agent = {
         agentId: saved.agentId,
         runtime: saved.runtime,
         roomId: saved.roomId,
         spec: saved.spec,
         createdAt: saved.createdAt,
-        log: AgentEventLog.open(join(this.options.dataDir, "logs", saved.agentId), this.options.log),
+        log: opened.log,
         sessionId: saved.sessionId,
-        lifecycle: wasRunning ? "stopped" : saved.lifecycle,
+        lifecycle: opened.error ? "failed" : wasRunning ? "stopped" : saved.lifecycle,
         turnInFlight: false,
         lastTurnEndedAt: saved.lastTurnEndedAt,
         lastActivityAt: saved.lastActivityAt,
         awaitingUser: saved.awaitingUser,
         backgroundTasks: 0,
         stopReason: wasRunning ? "host_restart" : saved.stopReason,
-        failure: saved.failure,
+        failure: opened.error ? `log_error: ${opened.error}` : saved.failure,
         queue: Promise.resolve(),
       };
       this.agents.set(agent.agentId, agent);
       if (wasRunning) this.record(agent, { type: "host_process", subtype: "lost" });
     }
     this.persist();
+  }
+
+  /** An agent's log for `restore`. A log that cannot be opened must not stop
+   * the host from starting: it is moved aside (kept for inspection) and the
+   * agent comes back `failed` on a fresh log. `undefined` (agent skipped)
+   * only if even that fails. */
+  private openLogForRestore(agentId: string): { log: AgentEventLog; error?: string } | undefined {
+    const dir = join(this.options.dataDir, "logs", agentId);
+    try {
+      return { log: AgentEventLog.open(dir, this.options.log) };
+    } catch (error) {
+      const message = (error as Error).message;
+      console.error(`[agent-host] the log of ${agentId} could not be opened (${message}); moving it aside`);
+      try {
+        renameSync(dir, `${dir}.broken-${Date.now()}`);
+        return { log: AgentEventLog.open(dir, this.options.log), error: message };
+      } catch (second) {
+        console.error(`[agent-host] giving up on restoring ${agentId}:`, (second as Error).message);
+        return undefined;
+      }
+    }
   }
 
   private persist(): void {
@@ -287,6 +313,10 @@ export class AgentHost {
       default:
         return Promise.reject(new HostError("unknown_method", `unknown method ${method}`));
     }
+  }
+
+  private refuseBrokenLog(agent: Agent): void {
+    if (agent.logError) throw new HostError("log_error", `agent ${agent.agentId} cannot run: its log failed (${agent.logError})`);
   }
 
   private refuseWhileDraining(): void {
@@ -341,6 +371,7 @@ export class AgentHost {
 
   private async send(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
     if (!text) throw new HostError("empty_message", "message is empty");
+    this.refuseBrokenLog(agent);
     if (agent.runtime === "codex") return this.sendCodex(agent, text);
     let resumed = false;
     await this.serialize(agent, async () => {
@@ -581,7 +612,7 @@ export class AgentHost {
   private onCodexNotification(threadId: string | undefined, method: string, params: unknown): void {
     const agent = this.codexAgentFor(threadId);
     if (!agent) return;
-    agent.log.append({ type: "codex_notification", method, params });
+    if (!this.appendTo(agent, { type: "codex_notification", method, params })) return;
     const before = this.stateOf(agent);
     if (method === "turn/started") {
       agent.turnInFlight = true;
@@ -603,7 +634,7 @@ export class AgentHost {
   private onCodexServerRequest(kind: "approval" | "user_input", detail: unknown): void {
     const inFlight = [...this.agents.values()].filter((agent) => agent.runtime === "codex" && agent.turnInFlight);
     if (inFlight.length === 1) {
-      inFlight[0].log.append({ type: "host_codex_request_declined", kind, detail });
+      this.appendTo(inFlight[0], { type: "host_codex_request_declined", kind, detail });
     } else {
       console.error(`[agent-host] declined a Codex ${kind} request that could not be attributed to one agent`);
     }
@@ -708,10 +739,13 @@ export class AgentHost {
         break;
       case "remove":
         break;
+      case "log_error":
+        agent.lifecycle = "failed";
+        break;
       case undefined: {
         agent.lifecycle = "failed";
         const tail = proc.stderrTail;
-        agent.failure = `the agent process exited (code ${String(code)}, signal ${String(sig)})${tail ? `: ${tail.slice(-500)}` : ""}`;
+        if (!agent.logError) agent.failure = `the agent process exited (code ${String(code)}, signal ${String(sig)})${tail ? `: ${tail.slice(-500)}` : ""}`;
         // Its tools may still be running; nothing will ever stop them now.
         // Queued with the agent's process starts: the sweep matches by agent
         // id, so it must finish before a resumed process carries that id.
@@ -735,7 +769,7 @@ export class AgentHost {
     } catch {
       event = { type: "host_unparsed", raw: line };
     }
-    agent.log.append(event);
+    if (!this.appendTo(agent, event)) return;
     const before = this.stateOf(agent);
     if (typeof event.session_id === "string" && event.session_id !== agent.sessionId) {
       agent.sessionId = event.session_id;
@@ -769,7 +803,39 @@ export class AgentHost {
   // ------------------------------------------------------------ state
 
   private record(agent: Agent, event: HostEvent): void {
-    agent.log.append(event);
+    this.appendTo(agent, event);
+  }
+
+  /** Appends to the agent's log; a failed write (disk full, I/O error) fails
+   * that agent — never the host, and never the other agents. */
+  private appendTo(agent: Agent, event: Record<string, unknown>): boolean {
+    if (agent.logError) return false;
+    try {
+      agent.log.append(event);
+      return true;
+    } catch (error) {
+      this.onLogError(agent, error as Error);
+      return false;
+    }
+  }
+
+  private onLogError(agent: Agent, error: Error): void {
+    if (agent.logError) return;
+    agent.logError = error.message;
+    console.error(`[agent-host] agent ${agent.agentId} failed: ${error.message}`);
+    agent.lifecycle = "failed";
+    agent.failure = `log_error: ${error.message}`;
+    agent.turnInFlight = false;
+    this.touch(agent);
+    this.persist();
+    this.notifyTurnWaiters();
+    if (agent.runtime === "codex") {
+      this.interrupt(agent);
+      return;
+    }
+    void this.serialize(agent, async () => {
+      if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "log_error");
+    });
   }
 
   private touch(agent: Agent): void {
