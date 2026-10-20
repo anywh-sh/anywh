@@ -36,11 +36,16 @@ export class RoomChannel {
       this.rooms.set(roomId, watched);
     }
     const first = watched.sockets.size === 0;
+    if (!first && watched.timer) {
+      // What the others are owed goes out now, against the baseline they
+      // have: the newcomer's snapshot is about to replace it.
+      clearTimeout(watched.timer);
+      watched.timer = undefined;
+      this.flush(roomId, watched);
+    }
     watched.sockets.add(socket);
-    if (first) this.remember(watched, snapshot);
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: "room_snapshot", ...snapshot }));
-    // Whatever changed between the baseline and this snapshot is in it.
-    if (!first) this.remember(watched, snapshot);
+    if (first) this.remember(watched, snapshot);
     return true;
   }
 

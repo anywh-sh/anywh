@@ -11,7 +11,7 @@ const agent = (id: string, state: RoomAgentView["state"]): RoomAgentView => ({
 });
 
 /** A real WebSocket server with the channel behind it, and a source the test edits. */
-async function setup(): Promise<{ agents: Map<string, RoomAgentView>; channel: RoomChannel; connect: () => Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }>; close: () => void }> {
+async function setup(coalesceMs = 5): Promise<{ agents: Map<string, RoomAgentView>; channel: RoomChannel; connect: () => Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }>; close: () => void }> {
   const agents = new Map<string, RoomAgentView>();
   const source: RoomStateSource = {
     snapshot: (roomId): RoomSnapshot | undefined => {
@@ -20,7 +20,7 @@ async function setup(): Promise<{ agents: Map<string, RoomAgentView>; channel: R
       return { roomId, agents: list, summary: summarizeRoom(list) };
     },
   };
-  const channel = new RoomChannel(source, 5);
+  const channel = new RoomChannel(source, coalesceMs);
   const http = createServer();
   const wss = new WebSocketServer({ server: http });
   wss.on("connection", (socket) => {
@@ -99,6 +99,25 @@ test("a second watcher gets a snapshot of the room as it is now and is not sent 
     room.channel.touch("r");
     await new Promise((r) => setTimeout(r, 40));
     assert.equal(second.messages.length, 1, "nothing changed, nothing sent");
+    first.socket.close();
+    second.socket.close();
+  } finally {
+    room.close();
+  }
+});
+
+test("a watcher that joins while a change is waiting to be sent does not make the others miss it", async () => {
+  const room = await setup(300);
+  try {
+    room.agents.set("a", agent("a", "working"));
+    const first = await room.connect();
+    await until(() => first.messages.length >= 1);
+    room.agents.set("a", agent("a", "done"));
+    room.channel.touch("r");
+    const second = await room.connect();
+    await until(() => second.messages.length >= 1);
+    await until(() => first.messages.some((m) => m.type === "room_agent_state" && (m.agent as RoomAgentView).state === "done"));
+    assert.equal(((second.messages[0].agents as RoomAgentView[])[0]).state, "done");
     first.socket.close();
     second.socket.close();
   } finally {
