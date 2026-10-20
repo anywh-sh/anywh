@@ -50,6 +50,8 @@ export class CameraController {
 
   /** A gesture moved the camera by hand (pan): written now, no easing. */
   drag(cam: Camera): void {
+    // The person has hold of the camera: nothing else moves it.
+    this.cancelMotion();
     this.cam = cam;
     this.hooks.apply(cam);
   }

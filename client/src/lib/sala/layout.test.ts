@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
@@ -75,6 +75,13 @@ describe("placeAgents", () => {
     expect(out.areas[0].members).toEqual(["a", "b"]);
   });
 
+  it("keeps an area's id and label within what the relay accepts, whatever the agent called it", () => {
+    const long = "A very long name for an area ".repeat(20);
+    const out = placeAgents([main, agent("a", { area: long })], empty);
+    expect(out.areas[0].id.length).toBeLessThanOrEqual(128);
+    expect(out.areas[0].label.length).toBeLessThanOrEqual(200);
+  });
+
   it("lets an agent delegated by a member join the member's area", () => {
     const agents = [main, agent("lead", { area: "Code" }), agent("sub", { parentId: "lead" })];
     const out = placeAgents(agents, empty);
@@ -139,6 +146,18 @@ describe("placeAgents with areas that grow", () => {
     const canvas = placeAgents(agents, empty);
     const [left, right] = frames(canvas, agents);
     expect(apart(left, right)).toBe(true);
+  });
+});
+
+describe("prunePositions", () => {
+  const many = (n: number): Record<string, { x: number; y: number }> => Object.fromEntries(Array.from({ length: n }, (_, i) => [`a${String(i)}`, { x: i, y: i }]));
+  it("keeps everything while there is room, so a removed agent can come back to its place", () => {
+    const positions = many(10);
+    expect(prunePositions(positions, new Set(["a1"]))).toBe(positions);
+  });
+  it("lets go of the places of agents that are gone once the canvas nears the relay's limit", () => {
+    const kept = prunePositions(many(450), new Set(["a1", "a2"]));
+    expect(Object.keys(kept)).toEqual(["a1", "a2"]);
   });
 });
 

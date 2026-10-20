@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   boundsOf,
+  cameraShows,
   centerCamera,
   clampZoom,
   fitCamera,
@@ -85,6 +86,23 @@ describe("revealCamera", () => {
     expect(next.z).toBe(1);
     expect(next.x).toBeLessThan(0);
     expect(1400 + next.x).toBeLessThanOrEqual(vp.w);
+  });
+});
+
+describe("cameraShows", () => {
+  const content = { x: 0, y: 0, w: 1000, h: 600 };
+  it("is true when the viewport overlaps the content, even a little", () => {
+    expect(cameraShows({ x: 0, y: 0, z: 1 }, content, { w: 800, h: 600 })).toBe(true);
+    expect(cameraShows({ x: -950, y: 0, z: 1 }, content, { w: 800, h: 600 })).toBe(true);
+  });
+  it("is false when it looks at empty canvas", () => {
+    expect(cameraShows({ x: -5000, y: 0, z: 1 }, content, { w: 800, h: 600 })).toBe(false);
+    expect(cameraShows({ x: 0, y: 4000, z: 1 }, content, { w: 800, h: 600 })).toBe(false);
+  });
+  it("accounts for zoom", () => {
+    // The same pixel offset is a different place in the world at another zoom.
+    expect(cameraShows({ x: -400, y: 0, z: 0.5 }, content, { w: 800, h: 600 })).toBe(true);
+    expect(cameraShows({ x: -3000, y: 0, z: 2 }, content, { w: 800, h: 600 })).toBe(false);
   });
 });
 

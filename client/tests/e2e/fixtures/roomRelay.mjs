@@ -5,12 +5,17 @@
 // host drives it in the persistent mode of relay/tests/fixtures/fake-claude.mjs,
 // whose markers are listed in fake-claude-persistent.mjs).
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const RELAY_ROOT = resolve(import.meta.dirname, "../../../../relay");
+// The compiled relay, as it runs in production. Not `tsx`: on the CI runner
+// the TypeScript loader died at startup inside esbuild (`Expected id 1 but
+// got id 0`) next to a running Tauri app, and nothing here needs it.
+const SERVER = resolve(RELAY_ROOT, "dist/server.js");
+const HOST = resolve(RELAY_ROOT, "dist/agentHost/main.js");
 const FAKE_AGENT = resolve(RELAY_ROOT, "tests/fixtures/fake-claude.mjs");
 const FAKE_SYSTEMCTL = resolve(RELAY_ROOT, "tests/fixtures/fake-systemctl.mjs");
 
@@ -25,10 +30,17 @@ function freePort() {
   });
 }
 
-function waitForPort(port, timeoutMs = 30_000) {
+/** Resolves when something listens on `port`; rejects at once if a child
+ * process exits first (waiting out a deadline for a process that is gone
+ * only hides why). */
+function waitForPort(port, children, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolveWait, reject) => {
+    const dead = children.find((child) => child.exitCode !== null || child.signalCode !== null);
+    if (dead) return reject(new Error(`a relay process exited before listening on ${String(port)} (code ${String(dead.exitCode)})`));
     const attempt = () => {
+      const gone = children.find((child) => child.exitCode !== null || child.signalCode !== null);
+      if (gone) return reject(new Error(`a relay process exited before listening on ${String(port)} (code ${String(gone.exitCode)})`));
       const socket = connect({ port, host: "127.0.0.1" }, () => {
         socket.end();
         resolveWait();
@@ -74,12 +86,13 @@ async function stopAll(started) {
 }
 
 async function start(children) {
+  if (!existsSync(SERVER) || !existsSync(HOST)) throw new Error("the relay is not built: run `npm run build` in relay/ first");
   const dir = mkdtempSync(join(tmpdir(), "anywh-e2e-room-"));
   const home = join(dir, "home");
   mkdirSync(home, { recursive: true });
   const output = [];
   const run = (args, env) => {
-    const child = spawn(process.execPath, ["--import", "tsx", ...args], { cwd: RELAY_ROOT, env: { ...process.env, ...env } });
+    const child = spawn(process.execPath, args, { cwd: RELAY_ROOT, env: { ...process.env, NODE_OPTIONS: "", ...env } });
     child.stdout.on("data", (chunk) => output.push(chunk.toString()));
     child.stderr.on("data", (chunk) => output.push(chunk.toString()));
     children.push(child);
@@ -88,11 +101,11 @@ async function start(children) {
 
   const socketPath = join(dir, "run", "host.sock");
   run(
-    ["src/agentHost/main.ts", "--profile", "e2e", "--host-id", `e2e-${String(process.pid)}`, "--socket", socketPath, "--data-dir", join(dir, "data")],
+    [HOST, "--profile", "e2e", "--host-id", `e2e-${String(process.pid)}`, "--socket", socketPath, "--data-dir", join(dir, "data")],
     { ANYWH_AGENT_HOST_DRAIN_GRACE_MS: "500", ANYWH_AGENT_HOST_HIBERNATE: "off", RELAY_HOME_OVERRIDE: home, AGENT_BIN: FAKE_AGENT },
   );
   const port = await freePort();
-  run(["src/server.ts"], {
+  run([SERVER], {
     RELAY_PORT: String(port),
     RELAY_HOST: "127.0.0.1",
     RELAY_HOME_OVERRIDE: home,
@@ -109,7 +122,7 @@ async function start(children) {
     RELAY_ROOM_WARMUP_MS: "0",
   });
   try {
-    await waitForPort(port);
+    await waitForPort(port, children);
   } catch (error) {
     throw new Error(`${error.message}\n${output.join("").slice(-3000)}`);
   }
@@ -118,7 +131,8 @@ async function start(children) {
   const deadline = Date.now() + 30_000;
   // The agent host connects after the relay is up: a room needs it.
   while ((await fetch(`${base}/agents/activity`).catch(() => ({ status: 0 }))).status !== 200) {
-    if (Date.now() > deadline) throw new Error(`the agent host never connected\n${output.join("").slice(-2000)}`);
+    const gone = children.find((child) => child.exitCode !== null || child.signalCode !== null);
+    if (gone || Date.now() > deadline) throw new Error(`the agent host never connected\n${output.join("").slice(-2000)}`);
     await new Promise((r) => setTimeout(r, 50));
   }
 

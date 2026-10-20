@@ -141,7 +141,9 @@ describe("useSessionActions — focusSession family", () => {
     const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
     result.current.focusSession("profile-a", "chat", "Chat");
     await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
-    await Promise.resolve();
+    // The whole probe is a chain of microtasks over a fetch that answers at
+    // once: one macrotask later it has run to its end.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(tabsState.convertToRoom).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });

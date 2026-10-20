@@ -2,11 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
-import type { RoomAgent, RoomAgentState, RoomCanvas, RoomCanvasArea, RoomCanvasText } from "@/lib/relay/roomClient";
+import type { RoomAgent, RoomAgentState, RoomCanvas, RoomCanvasText } from "@/lib/relay/roomClient";
 import {
   MINIMAP_H,
   MINIMAP_W,
   boundsOf,
+  cameraShows,
   fitCamera,
   gridLayer,
   gridNeedsRedraw,
@@ -58,7 +59,7 @@ interface Toast {
 type Drag =
   | { kind: "pan"; pointerId: number; sx: number; sy: number; cx: number; cy: number; moved: boolean; samples: [number, number, number][] }
   | { kind: "node"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; el: HTMLElement | null }
-  | { kind: "frame"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; members: { id: string; ox: number; oy: number }[] }
+  | { kind: "frame"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; input: HTMLInputElement | null; members: { id: string; ox: number; oy: number }[] }
   | { kind: "text"; pointerId: number; id: string; sx: number; sy: number; ox: number; oy: number; off: number; moved: boolean; el: HTMLElement | null; input: HTMLInputElement | null }
   | { kind: "draw"; pointerId: number; sx: number; sy: number; ox: number; oy: number; moved: boolean };
 
@@ -113,6 +114,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const bgKey = useRef("");
   const zooming = useRef(false);
   const initialized = useRef(false);
+  /** Set while the camera is put back where it was saved, which saves nothing. */
+  const quiet = useRef(false);
   /** The camera keeps the whole room in view as it grows, until the person
    * moves it themselves (or it was restored from where they left it). */
   const follow = useRef(!props.canvas.camera);
@@ -206,16 +209,21 @@ export function SalaCanvas(props: SalaCanvasProps) {
     },
     settled: (cam) => {
       setZoomPct(Math.round(cam.z * 100));
-      latest.current.onCameraSettled(cam);
+      // Where the camera went by itself (fitting a growing room, restoring
+      // the saved one) is not something to save: only a person's move is.
+      if (!follow.current && !quiet.current) latest.current.onCameraSettled(cam);
     },
   });
   const cam = (): CameraController => controller.current!;
 
-  const fit = useCallback((animate: boolean) => {
+  const fit = useCallback((animate: boolean, byPerson = false) => {
     follow.current = true;
     const target = fitCamera(boundsRef.current, vpSize.current);
     if (animate) cam().animate(target, 460);
     else cam().jump(target);
+    // Asking for "fit to screen" is a choice worth keeping; fitting a room
+    // that grows by itself is not.
+    if (byPerson) latest.current.onCameraSettled(target);
   }, []);
 
   // Measures the viewport, and keeps the camera right when it resizes.
@@ -242,8 +250,15 @@ export function SalaCanvas(props: SalaCanvasProps) {
   useEffect(() => {
     if (initialized.current || !measured || rects.size === 0) return;
     initialized.current = true;
-    if (canvas.camera) cam().jump({ x: canvas.camera.x, y: canvas.camera.y, z: canvas.camera.zoom });
-    else fit(false);
+    const saved = canvas.camera ? { x: canvas.camera.x, y: canvas.camera.y, z: canvas.camera.zoom } : undefined;
+    if (saved && cameraShows(saved, boundsRef.current, vpSize.current)) {
+      quiet.current = true;
+      cam().jump(saved);
+      quiet.current = false;
+    } else {
+      follow.current = true;
+      fit(false);
+    }
   }, [measured, rects.size, canvas.camera, fit]);
 
   useEffect(() => () => cam().dispose(), []);
@@ -300,7 +315,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
    * back to wherever it was first made. */
   const commit = useCallback((next: RoomCanvas): void => {
     const cards = cardRects(latest.current.agents, next.positions);
-    latest.current.onCanvasChange({ ...next, areas: next.areas.map((a) => storedArea(a, cards)) });
+    const stored = { ...next, areas: next.areas.map((a) => storedArea(a, cards)) };
+    // Two changes in one tick (an input losing focus, then a tool click) each
+    // start from what the one before left, not from the last render.
+    latest.current.canvas = stored;
+    latest.current.onCanvasChange(stored);
   }, []);
 
   // ─── helpers over the canvas ───
@@ -336,7 +355,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const flag = (id: string | undefined, name: string, on: boolean): void => {
     if (!id) return;
-    worldRef.current?.querySelector(`[data-area-id="${CSS.escape(id)}"]`)?.classList.toggle(name, on);
+    // A data attribute, not a class: React rewrites `className` whenever the
+    // frame's own props change, and a drag in progress must survive that.
+    const el = worldRef.current?.querySelector(`[data-area-id="${CSS.escape(id)}"]`);
+    if (on) el?.setAttribute(`data-${name}`, "");
+    else el?.removeAttribute(`data-${name}`);
   };
 
   // ─── pointer: pan, drag a card, an area or a text, draw an area ───
@@ -383,6 +406,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const onViewportDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0 && event.button !== 1) return;
+    // A second finger while one is dragging something is not a new gesture.
+    if (dragRef.current) return;
     const target = event.target as Element;
     if (target.closest("[data-float],[data-nodrag],.sala-node,.sala-text,.sala-frame-bar")) return;
     vpRef.current?.focus({ preventScroll: true });
@@ -410,6 +435,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     const target = event.target as HTMLElement;
     if (target.closest("[data-nodrag]")) return;
     event.stopPropagation();
+    if (dragRef.current) return;
     vpRef.current?.focus({ preventScroll: true });
     if (handMode() || event.button === 1) {
       beginPan(event);
@@ -464,6 +490,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         ox: rect.x,
         oy: rect.y,
         moved: false,
+        input: target.tagName === "INPUT" ? (target as HTMLInputElement) : null,
         members: (area.members ?? []).flatMap((m) => {
           const at = cv.positions[m];
           return at && cards.has(m) ? [{ id: m, ox: at.x, oy: at.y }] : [];
@@ -488,8 +515,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
       if (dx * dx + dy * dy < 10) return;
       d.moved = true;
       if (d.kind === "pan") vpRef.current?.setAttribute("data-panning", "");
-      else worldRef.current?.classList.add("moving");
-      if (d.kind === "node") d.el?.classList.add("drag");
+      worldRef.current?.classList.add("moving");
+      if (d.kind === "node") d.el?.setAttribute("data-drag", "");
     }
     if (d.kind === "pan") {
       follow.current = false;
@@ -558,7 +585,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const el = root.querySelector<HTMLElement>(`[data-agent-id="${CSS.escape(id)}"]`);
       if (el) {
         el.style.transform = translate(rect.x, rect.y);
-        el.classList.remove("drag");
+        el.removeAttribute("data-drag");
       }
       writeEdges(cards, id);
     }
@@ -629,7 +656,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     worldRef.current?.classList.remove("moving");
 
     if (d.kind === "text") {
-      d.el?.classList.remove("drag");
+      d.el?.removeAttribute("data-drag");
       if (!d.moved) {
         d.input?.focus({ preventScroll: true });
         d.input?.select();
@@ -644,7 +671,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
 
     if (d.kind === "node") {
-      d.el?.classList.remove("drag");
+      d.el?.removeAttribute("data-drag");
       live.current.clear();
       for (const area of cv.areas) {
         flag(area.id, "release", false);
@@ -673,6 +700,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (!d.moved) {
       setSelectedArea(d.id);
       setSelected(null);
+      // A click on the name is how it gets edited.
+      d.input?.focus({ preventScroll: true });
+      d.input?.select();
       return;
     }
     const z = cam().cam.z;
@@ -792,7 +822,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
     if (event.shiftKey && (event.code === "Digit1" || key === "!")) {
       event.preventDefault();
-      fit(true);
+      fit(true, true);
       return;
     }
     if (event.shiftKey && (event.code === "Digit0" || key === ")")) {
@@ -855,19 +885,23 @@ export function SalaCanvas(props: SalaCanvasProps) {
   }, [measured, rects]);
 
   // ─── area and text editing ───
-  const setAreas = (areas: RoomCanvasArea[]): void => commit({ ...canvas, areas });
   const renameArea = (id: string, label: string): void => {
-    if (canvas.areas.find((a) => a.id === id)?.label === label) return;
-    setAreas(canvas.areas.map((a) => (a.id === id ? { ...a, label } : a)));
+    const current = latest.current.canvas;
+    if (current.areas.find((a) => a.id === id)?.label === label) return;
+    commit({ ...current, areas: current.areas.map((a) => (a.id === id ? { ...a, label } : a)) });
   };
-  const removeArea = (id: string): void => setAreas(canvas.areas.filter((a) => a.id !== id));
+  const removeArea = (id: string): void => {
+    const current = latest.current.canvas;
+    commit({ ...current, areas: current.areas.filter((a) => a.id !== id) });
+  };
   const editText = (id: string, text: string): void => {
+    const current = latest.current.canvas;
     if (text.trim() === "") {
-      commit({ ...canvas, texts: canvas.texts.filter((t) => t.id !== id) });
+      commit({ ...current, texts: current.texts.filter((t) => t.id !== id) });
       return;
     }
-    if (canvas.texts.find((t) => t.id === id)?.text === text) return;
-    commit({ ...canvas, texts: canvas.texts.map((t) => (t.id === id ? { ...t, text } : t)) });
+    if (current.texts.find((t) => t.id === id)?.text === text) return;
+    commit({ ...current, texts: current.texts.map((t) => (t.id === id ? { ...t, text } : t)) });
   };
 
   // ─── minimap ───
@@ -1093,7 +1127,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         onZoomOut={() => zoomStep(-1)}
         onZoomIn={() => zoomStep(1)}
         onZoomReset={zoomTo100}
-        onFit={() => fit(true)}
+        onFit={() => fit(true, true)}
       />
       <input
         ref={fileRef}

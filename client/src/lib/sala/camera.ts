@@ -111,6 +111,17 @@ export function revealCamera(cam: Camera, rect: Rect, vp: Size, safe: Safe = DEF
   return { x: cam.x + dx, y: cam.y + dy, z: cam.z };
 }
 
+/** Whether the camera shows any of `content`: the layout is shared, and a
+ * camera saved on a large window would otherwise open a phone onto empty
+ * canvas. */
+export function cameraShows(cam: Camera, content: Rect, vp: Size): boolean {
+  const left = -cam.x / cam.z;
+  const top = -cam.y / cam.z;
+  const right = left + vp.w / cam.z;
+  const bottom = top + vp.h / cam.z;
+  return left < content.x + content.w && right > content.x && top < content.y + content.h && bottom > content.y;
+}
+
 /** The camera that puts world point (`wx`, `wy`) at the viewport's centre. */
 export function centerCamera(cam: Camera, wx: number, wy: number, vp: Size): Camera {
   return { x: vp.w / 2 - wx * cam.z, y: vp.h / 2 - wy * cam.z, z: cam.z };

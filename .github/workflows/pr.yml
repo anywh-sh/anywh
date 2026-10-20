@@ -194,9 +194,11 @@ jobs:
             xvfb
       - run: npm ci
         working-directory: client
-      # The room specs start a real relay and agent host (TypeScript, through
-      # tsx) next to the app, so the relay's dependencies have to be there.
+      # The room specs start a real relay and agent host next to the app, as
+      # they run in production (compiled): both have to be built.
       - run: npm ci
+        working-directory: relay
+      - run: npm run build
         working-directory: relay
       - run: npm run build:e2e
         working-directory: client

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchRoomCanvas, saveRoomCanvas, type RoomAgent, type RoomCanvas, type RoomCanvasCamera } from "@/lib/relay/roomClient";
-import { cardRects, placeAgents, storedArea } from "@/lib/sala/layout";
+import { fetchRoomCanvas, RoomRequestError, saveRoomCanvas, type RoomAgent, type RoomCanvas, type RoomCanvasCamera } from "@/lib/relay/roomClient";
+import { cardRects, placeAgents, prunePositions, storedArea } from "@/lib/sala/layout";
 import type { Camera } from "@/lib/sala/camera";
 import type { Profile } from "@/lib/profiles/profiles";
 
 /** How long after the last change the layout is written back. */
 const SAVE_DELAY_MS = 700;
+/** How long before a write that failed for a reason that may pass is tried again. */
+const RETRY_DELAY_MS = 5_000;
 
 export const EMPTY_CANVAS: RoomCanvas = { positions: {}, areas: [], texts: [] };
 
@@ -51,6 +53,7 @@ export function useRoomCanvas(profile: Profile, roomId: string, agents: readonly
     const cards = cardRects(agentsRef.current, current.positions);
     const body: RoomCanvas = {
       ...current,
+      positions: prunePositions(current.positions, new Set(agentsRef.current.map((a) => a.agentId))),
       // Stored with the frame they draw, so a client that cannot place the
       // members (an agent not listed yet) still has somewhere to put the area.
       areas: current.areas.map((area) => storedArea(area, cards)),
@@ -61,6 +64,11 @@ export function useRoomCanvas(profile: Profile, roomId: string, agents: readonly
       (error: unknown) => {
         console.error("[anywh] failed to save the room canvas", error);
         setSaveFailed(true);
+        // A network or server failure passes; a canvas the relay called
+        // malformed would be refused again, and nothing here can fix it.
+        if (error instanceof RoomRequestError && error.status < 500) return;
+        dirtyRef.current = true;
+        timerRef.current = window.setTimeout(flush, RETRY_DELAY_MS);
       },
     );
   }, [roomId]);

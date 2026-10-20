@@ -28,12 +28,16 @@ describe("CameraController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     let id = 0;
+    const pending = new Map<number, ReturnType<typeof setTimeout>>();
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
-      setTimeout(() => cb(performance.now()), 16);
       id += 1;
+      pending.set(id, setTimeout(() => cb(performance.now()), 16));
       return id;
     });
-    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    vi.stubGlobal("cancelAnimationFrame", (frame: number) => {
+      clearTimeout(pending.get(frame));
+      pending.delete(frame);
+    });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -110,6 +114,14 @@ describe("CameraController", () => {
     // Stopping what is not moving says nothing.
     c.stop();
     expect(h.log.filter((e) => e === "settled").length).toBe(before + 1);
+  });
+
+  it("lets a hand on the camera win over an animation that is still running", async () => {
+    const c = new CameraController({ x: 0, y: 0, z: 1 }, hooks());
+    c.animate({ x: 500, y: 0, z: 1 }, 300);
+    c.drag({ x: 40, y: 0, z: 1 });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(c.cam).toEqual({ x: 40, y: 0, z: 1 });
   });
 
   it("glides to a stop", async () => {

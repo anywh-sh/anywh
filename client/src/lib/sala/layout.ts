@@ -222,7 +222,10 @@ export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): R
     positions[agent.agentId] = spot;
 
     if (agent.area && !home && !apart) {
-      const created = { id: `area-${normalizeLabel(agent.area).replace(/[^a-z0-9]+/g, "-")}-${String(areas.length + 1)}`, label: agent.area, x: spot.x, y: spot.y, members: [agent.agentId] };
+      // The id is kept short: the relay refuses a canvas with an id past 128
+      // characters, and an area's name can be as long as the agent made it.
+      const slug = normalizeLabel(agent.area).replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+      const created = { id: `area-${slug}-${String(areas.length + 1)}`, label: agent.area.slice(0, 200), x: spot.x, y: spot.y, members: [agent.agentId] };
       areas.push(created);
     } else if (home && !apart && !home.members.includes(agent.agentId)) {
       home.members.push(agent.agentId);
@@ -253,6 +256,16 @@ function areaStaysClear(home: { members: string[] }, candidate: Rect, cards: Rea
     if (overlaps(frame, { x: f.x, y: f.y - AREA_BAR, w: f.w, h: f.h + AREA_BAR }, AREA_GAP)) return false;
   }
   return true;
+}
+
+/** Most card positions the relay accepts in one canvas is 500; past this many
+ * the ones of agents that are no longer in the room are let go. (Until then
+ * they are kept: an agent removed with an undo window gets its place back.) */
+export const POSITIONS_SOFT_LIMIT = 400;
+
+export function prunePositions(positions: RoomCanvas["positions"], present: ReadonlySet<string>): RoomCanvas["positions"] {
+  if (Object.keys(positions).length <= POSITIONS_SOFT_LIMIT) return positions;
+  return Object.fromEntries(Object.entries(positions).filter(([id]) => present.has(id)));
 }
 
 /** A free place to the right of every card, for when the tree has no room. */

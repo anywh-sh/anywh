@@ -110,9 +110,21 @@ async function call(profile: Profile, path: string, init?: { method?: string; bo
   });
 }
 
+/** A refusal by the relay, with the status it came with: a retry is worth it
+ * for a server error and pointless for a request the relay called malformed. */
+export class RoomRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "RoomRequestError";
+  }
+}
+
 async function failure(response: Response, what: string): Promise<Error> {
   const body = (await response.json().catch(() => ({}))) as { error?: string };
-  return new Error(body.error ?? `${what} (${String(response.status)})`);
+  return new RoomRequestError(body.error ?? `${what} (${String(response.status)})`, response.status);
 }
 
 /** Opens a room: the returned id is its principal's session id. */

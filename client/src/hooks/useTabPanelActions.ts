@@ -139,14 +139,16 @@ export function useTabPanelActions({
       onDockSplitRatioChange: (tabId, ratio) => sessionDock.setSplitRatio(tabId, ratio),
       onDockDragEnd: () => sessionDock.commitDock(),
       onRoomCreated: (tab, profile, roomId, title, firstMessage) => {
-        tabsState.convertToRoom(tab.id, roomId, title);
+        // No title typed (an image alone): the relay names the room and says so.
+        const shown = title === "" ? null : title;
+        tabsState.convertToRoom(tab.id, roomId, shown);
         sessionDock.removeSession(tab.id);
         // What the tab had been keyed by (its old id) goes with it.
         setConnectedByTab(({ [tab.id]: _connected, ...rest }) => rest);
         setModelLabelByTab(({ [tab.id]: _label, ...rest }) => rest);
         setBackgroundActivityByTab(({ [tab.id]: _activity, ...rest }) => rest);
         backgroundActionsRef.current.delete(tab.id);
-        upsertCachedSession(profile.id, roomId, title, undefined, true);
+        if (shown !== null) upsertCachedSession(profile.id, roomId, shown, undefined, true);
         // The blank session the new tab opened on the relay is not the room.
         // Only a tab that never had a title can be that: anything else is a
         // real conversation, whatever the screen was showing.

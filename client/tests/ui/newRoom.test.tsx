@@ -98,6 +98,10 @@ describe("a new session in room mode", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(1);
     expect(within(screen.getByRole("tab")).getByRole("img", { name: en.sala.roomGlyph })).toBeInTheDocument();
 
+    // The blank session the new tab had opened on the relay is dropped: it is not the room.
+    await vi.waitFor(() => expect(rooms.find((r) => r.url === "/sessions/delete" && r.method === "POST")).toBeDefined());
+    expect((rooms.find((r) => r.url === "/sessions/delete")!.body as { id: string }).id).not.toBe("room-1");
+
     // The first message went to the principal's own session, after its replay.
     await vi.waitFor(() =>
       expect(relay.sent.find((s) => s.url.includes("session=room-1") && s.message.type === "user_message")?.message.text).toBe("Redo the profile page"),

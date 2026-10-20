@@ -142,7 +142,7 @@
 .sala-node.sel {
   z-index: 3;
 }
-.sala-node.drag {
+.sala-node[data-drag] {
   z-index: 6;
 }
 .sala-node-card {
@@ -157,7 +157,7 @@
   outline: 1px solid var(--text-faint);
   outline-offset: 0;
 }
-.sala-node.drag .sala-node-card {
+.sala-node[data-drag] .sala-node-card {
   outline: 1px solid var(--text-faint);
   transform: scale(1.02);
 }
@@ -473,11 +473,11 @@
 .sala-frame.empty {
   border-style: dashed;
 }
-.sala-frame.release {
+.sala-frame[data-release] {
   border-style: dashed;
   opacity: 0.55;
 }
-.sala-frame.drop {
+.sala-frame[data-drop] {
   border-color: var(--text-faint);
   background: color-mix(in srgb, var(--foreground) 5.5%, transparent);
 }
