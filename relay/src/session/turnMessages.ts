@@ -68,6 +68,9 @@ export interface DeferredApprovalDecision {
   /** What the call does, as the approval card showed it. */
   detail: string;
   approved: boolean;
+  /** Whether the follow-up turn is given permission for it. Defaults to
+   * `true`; `false` for an approved call no safe rule could cover. */
+  granted?: boolean;
   agentId?: string;
 }
 
@@ -82,7 +85,8 @@ export interface DeferredApprovalDecision {
 export function buildDeferredApprovalFollowup(decisions: readonly DeferredApprovalDecision[]): string {
   const line = ({ tool, detail, agentId }: DeferredApprovalDecision): string =>
     `- ${[tool, detail].filter(Boolean).join(" ")}${agentId ? ` (from subagent ${agentId})` : ""}`;
-  const approved = decisions.filter((decision) => decision.approved);
+  const approved = decisions.filter((decision) => decision.approved && decision.granted !== false);
+  const notCleared = decisions.filter((decision) => decision.approved && decision.granted === false);
   const denied = decisions.filter((decision) => !decision.approved);
   const sections: string[] = [];
   if (approved.length > 0) {
@@ -91,6 +95,14 @@ export function buildDeferredApprovalFollowup(decisions: readonly DeferredApprov
       `approved: retry the denied call${approved.length > 1 ? "s" : ""}. The user approved ${approved.length > 1 ? "these calls" : "this call"}; ` +
         `repeat ${approved.length > 1 ? "them" : "it"} exactly as before, without asking again` +
         `${exitsPlan ? " (the plan was approved: leave plan mode and carry it out)" : ""}:\n${approved.map(line).join("\n")}`,
+    );
+  }
+  if (notCleared.length > 0) {
+    const many = notCleared.length > 1;
+    sections.push(
+      `${approved.length > 0 ? "Also approved" : "approved"}: the user approved ${many ? "these calls" : "this call"}, but no permission could be pre-authorised for ` +
+        `${many ? "them" : "it"} (a safe rule does not exist, or something else of the same tool was denied). Repeat ${many ? "them" : "it"}; ` +
+        `the user will be asked again:\n${notCleared.map(line).join("\n")}`,
     );
   }
   if (denied.length > 0) {

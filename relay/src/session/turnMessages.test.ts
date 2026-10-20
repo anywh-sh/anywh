@@ -112,3 +112,16 @@ test("buildDeferredApprovalFollowup: ExitPlanMode reads as leaving plan mode, wi
   assert.match(text, /- ExitPlanMode\n?$/);
   assert.match(text, /plan/i);
 });
+
+test("buildDeferredApprovalFollowup: an approved call that could not be pre-authorised says it will be asked again", () => {
+  const text = buildDeferredApprovalFollowup([
+    { tool: "Bash", detail: "ls | head", approved: true, granted: false },
+    { tool: "Bash", detail: "rm -rf ~/x", approved: false },
+  ]);
+  assert.match(text, /^approved: /);
+  assert.match(text, /no permission could be pre-authorised/);
+  assert.match(text, /asked again/i);
+  assert.match(text, /- Bash ls \| head/);
+  assert.match(text, /denied by the user: do not retry.*- Bash rm -rf ~\/x/s);
+  assert.doesNotMatch(text, /retry the denied call/, "it is not cleared to run without asking");
+});
