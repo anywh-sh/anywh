@@ -101,6 +101,8 @@ test("a first message sent with the room reaches the principal, and a person's a
   assert.equal(agent.createdBy, "user");
   assert.deepEqual(agent.connectors, ["figma"], "only the person's connectors are listed, never the relay's own bridges");
   assert.ok(Date.now() - agent.startedAt! < 60_000);
+  const members = ((await (await fetch(`${base}/rooms/${roomId}`)).json()) as { members: { id: string; cwd: string }[] }).members;
+  assert.equal(members.find((member) => member.id === roomId)?.cwd, host.dir, "a member's folder is listed");
 });
 
 test("removing an agent with work that is not integrated waits for the person to discard it; the worktrees are listed with their size", async () => {
