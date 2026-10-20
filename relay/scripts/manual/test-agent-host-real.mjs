@@ -1,7 +1,7 @@
-// Drives the agent host against the REAL `claude` binary (Haiku, five short
+// Drives the agent host against the REAL `claude` binary (Haiku, four short
 // turns) and prints what happened: one turn, an interrupt with a foreground
-// command in flight, another turn on the same process, hibernate + resume
-// with --resume (does the session remember?), and a graceful stop with a
+// command in flight (the process must survive it), hibernate + resume with
+// --resume (does the session remember?), and a graceful stop with a
 // background command running (does anything survive?).
 //
 // The host runs in this process with its own socket and data under a temp
@@ -66,31 +66,28 @@ try {
   const procsAfter = await findAgentProcesses(hostId, "real1");
   log("turn 2 (interrupted):", lastResult(), `result ${Date.now() - interruptAt}ms after interrupt;`, "state", afterInterrupt.state, "same pid", afterInterrupt.pid === pid, "agent processes after:", procsAfter.length);
 
-  // 3. another turn on the same process
-  await client.request("send", { agentId: "real1", message: "Reply with exactly: PONG-3" });
-  await waitFor(() => results().length === 3, 60_000, "turn 3");
-  log("turn 3:", lastResult(), "same pid", (await activity()).pid === pid);
-
-  // 4. hibernate, then resume
+  // 3. hibernate, then resume
   const sessionId = (await activity()).sessionId;
   const hib = await client.request("hibernate", { agentId: "real1" });
   log("hibernated:", hib.state, "alive", hib.alive, "old pid alive", isAlive(pid));
   const sendAt = Date.now();
   const sent = await client.request("send", { agentId: "real1", message: "What exact text did you reply in your very first answer in this conversation? Reply with just that text." });
   const resumedFrom = events.length;
-  await waitFor(() => results().length === 4, 60_000, "turn 4");
+  await waitFor(() => results().length === 3, 60_000, "turn 3");
   const resumedInit = events.slice(resumedFrom).find((e) => e.ev.type === "system" && e.ev.subtype === "init");
   const after = await activity();
-  log("turn 4 (resumed):", sent, lastResult(), "same session", after.sessionId === sessionId, "new pid", after.pid, `init ${resumedInit ? resumedInit.t - sendAt : "?"}ms, result ${results().at(-1).t - sendAt}ms after send`);
+  log("turn 3 (resumed):", sent, lastResult(), "same session", after.sessionId === sessionId, "new pid", after.pid, `init ${resumedInit ? resumedInit.t - sendAt : "?"}ms, result ${results().at(-1).t - sendAt}ms after send`);
 
-  // 5. background command, then graceful stop
+  // 4. background command, then graceful stop
   await client.request("send", { agentId: "real1", message: "Use the Bash tool with run_in_background set to true to run exactly `sleep 200`. Then reply STARTED without waiting for it." });
-  await waitFor(() => results().length === 5, 60_000, "turn 5");
+  await waitFor(() => results().length === 4, 60_000, "turn 4");
+  const beforeStop = await activity();
+  log("before stop: state", beforeStop.state, "background tasks", beforeStop.backgroundTasks);
   const bgProcs = await findAgentProcesses(hostId, "real1");
   const stopAt = Date.now();
   const stopped = await client.request("stop", { agentId: "real1" });
   const leftover = (await findAgentProcesses(hostId, "real1")).filter(isAlive);
-  log("turn 5:", lastResult(), "agent processes before stop:", bgProcs.length, `stop took ${Date.now() - stopAt}ms;`, "state", stopped.state, "left alive:", leftover.length, "background tasks seen", (await activity()).backgroundTasks);
+  log("turn 4:", lastResult(), "agent processes before stop:", bgProcs.length, `stop took ${Date.now() - stopAt}ms;`, "state", stopped.state, "left alive:", leftover.length, "background tasks seen", (await activity()).backgroundTasks);
   const exits = events.filter((e) => e.ev.type === "host_process").map((e) => `${e.ev.subtype}${e.ev.subtype === "exited" ? `(code ${e.ev.code}, signal ${e.ev.signal})` : ""}`);
   log("host process events:", exits.join(", "));
   const costs = results().map((e) => e.ev.total_cost_usd ?? 0);
