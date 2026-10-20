@@ -34,10 +34,12 @@ import {
   parseDelegateArgs,
   parseMessageAgentArgs,
   parseReportArgs,
+  parseWorktreeCreateArgs,
   principalInstructions,
   roomToolsFor,
   workerInstructions,
 } from "./roomTools.js";
+import type { RoomWorktrees } from "./roomWorktrees.js";
 import type { SessionStore } from "./sessionStore.js";
 import type { SharedSession, TurnOutcome } from "./sharedSession.js";
 
@@ -75,6 +77,9 @@ export interface RoomManagerOptions {
   readonly tombstonesFile?: string;
   /** Removes an agent from the host. */
   readonly removeFromHost?: (agentId: string) => Promise<void>;
+  /** The worktrees agents create (`worktree_create`); without it the tool
+   * answers that worktrees are not available. */
+  readonly worktrees?: RoomWorktrees;
   readonly now?: () => number;
 }
 
@@ -155,6 +160,8 @@ export class RoomManager implements RoomToolHost {
         return Promise.resolve(this.messageAgent(sessionId, room, args));
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
+      case "worktree_create":
+        return this.worktreeCreate(sessionId, room, args);
       default:
         return Promise.resolve(fail(`Unknown tool "${name}".`));
     }
@@ -275,6 +282,44 @@ export class RoomManager implements RoomToolHost {
       }
     }
     this.pump(sessionId);
+    this.cleanWorktrees(sessionId);
+  }
+
+  /** What `RoomWorktrees` asks about an agent: whether it exists, has a turn
+   * running, is done (reported, nothing queued), and where it works. */
+  worktreeAgentFacts(agentId: string): { exists: boolean; busy: boolean; done: boolean; title?: string; cwd?: string; roomId?: string } {
+    const room = this.store.getRoom(agentId);
+    if (!room) return { exists: false, busy: false, done: true };
+    const busy = this.options.sessions.peek(agentId)?.isBusy() ?? false;
+    const state = roomAgentState(room, busy);
+    return {
+      exists: true,
+      busy,
+      done: room.role === "worker" && (state === "done" || state === "failed" || state === "blocked" || state === "stopped"),
+      ...(this.store.getTitle(agentId) ? { title: this.store.getTitle(agentId)! } : {}),
+      cwd: this.store.getCwdState(agentId).cwd,
+      roomId: room.roomId,
+    };
+  }
+
+  /** Removes the worktrees of a worker whose work is integrated, now that its
+   * turn ended; the rest stay, with the reason. Never throws. */
+  private cleanWorktrees(agentId: string): void {
+    const worktrees = this.options.worktrees;
+    if (!worktrees || this.store.getRoom(agentId)?.role !== "worker") return;
+    worktrees.cleanupAgent(agentId, { auto: true }).catch((error: unknown) => console.warn(`[relay] worktree cleanup of agent ${agentId} failed: ${(error as Error).message}`));
+  }
+
+  private async worktreeCreate(callerId: string, caller: RoomMembership, rawArgs: unknown): Promise<RoomToolResult> {
+    if (caller.role !== "worker") return fail("Only an agent started in the room creates worktrees; the principal does not change files.");
+    const worktrees = this.options.worktrees;
+    if (!worktrees) return fail("Worktrees are not available on this relay; work in your working folder.");
+    const parsed = parseWorktreeCreateArgs(rawArgs);
+    if (!parsed.ok) return fail(parsed.error);
+    const created = await worktrees.create(caller.roomId, callerId, parsed.value.repo);
+    if (!created.ok) return fail(created.error);
+    const warnings = created.warnings.length > 0 ? ` Note: ${created.warnings.join("; ")}.` : "";
+    return ok(`Worktree ready on branch ${created.branch} (from ${created.base}). Work and commit only inside ${created.workdir}.${warnings}`);
   }
 
   /** Hands the next queued message of an idle worker to its session. It
@@ -481,7 +526,9 @@ export class RoomManager implements RoomToolHost {
     if (caller.role !== "worker") return fail("Only an agent started in the room reports; the principal answers the person directly.");
     const parsed = parseReportArgs(rawArgs);
     if (!parsed.ok) return fail(parsed.error);
-    this.recordReport(callerId, caller, parsed.value);
+    const { integrated, ...report } = parsed.value;
+    this.recordReport(callerId, caller, report);
+    if (integrated) this.options.worktrees?.declareIntegratedFor(callerId, "agent");
     return ok("Report recorded. End your turn now.");
   }
 
