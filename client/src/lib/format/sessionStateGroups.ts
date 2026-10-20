@@ -2,7 +2,7 @@ import type { MergedSession } from "@/lib/format/sessionGrouping";
 import type { RoomStatus } from "@/lib/sala/roomStatus";
 
 export interface StateGroups {
-  /** Rooms with a question or approval waiting for the person. */
+  /** Rooms with a question or approval waiting for the person, or an agent that failed. */
   needsYou: MergedSession[];
   /** Sessions with a turn running, and rooms whose agents work. */
   running: MergedSession[];
@@ -20,7 +20,7 @@ export function groupByState(sessions: readonly MergedSession[], running: Readon
   const groups: StateGroups = { needsYou: [], running: [], rest: [] };
   for (const session of sessions) {
     const room = session.room === true ? rooms.get(session.id) : undefined;
-    if (room && room.needsYou > 0) groups.needsYou.push(session);
+    if (room && (room.needsYou > 0 || room.failed > 0)) groups.needsYou.push(session);
     else if (running.has(session.id) || (room && room.working > 0)) groups.running.push(session);
     else groups.rest.push(session);
   }

@@ -230,11 +230,7 @@ export function StatusBar({
   const rooms = totalRoomStatuses(useRoomStatuses().values());
   const runCount = backgroundActivity.filter((item) => item.status === "run").length + rooms.working;
   const failCount = backgroundActivity.filter((item) => item.status === "fail").length + rooms.failed;
-  const activitySummary =
-    (runCount > 0 ? activityStrings.running.replace("{count}", String(runCount)) : activityStrings.none) +
-    (rooms.needsYou > 0 ? ` · ${activityStrings.needYou.replace("{count}", String(rooms.needsYou))}` : "") +
-    (failCount > 0 ? ` · ${activityStrings.failedSuffix.replace("{count}", String(failCount))}` : "");
-
+  const needYouCount = rooms.needsYou;
   const [repo, setRepo] = useState<RepoState>(null);
   const [shownKey, setShownKey] = useState<string | null>(key);
 
@@ -310,9 +306,19 @@ export function StatusBar({
             ) : (
               <span className="size-2 shrink-0 rounded-full border border-text-faint" />
             )}
-            <span className="whitespace-nowrap">{activitySummary}</span>
-            {rooms.needsYou > 0 && <span className="size-[5px] shrink-0 rounded-full bg-primary" aria-hidden="true" />}
-            {failCount > 0 && <span className="size-[5px] shrink-0 bg-destructive" aria-hidden="true" />}
+            <span className="whitespace-nowrap">{runCount > 0 ? activityStrings.running.replace("{count}", String(runCount)) : activityStrings.none}</span>
+            {needYouCount > 0 && (
+              <>
+                <span className="ml-1.5 size-[7px] shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                <span className="whitespace-nowrap text-primary-ink">{activityStrings.needYou.replace("{count}", String(needYouCount))}</span>
+              </>
+            )}
+            {failCount > 0 && (
+              <>
+                <span className="ml-1.5 size-[7px] shrink-0 border border-destructive" aria-hidden="true" />
+                <span className="whitespace-nowrap text-destructive">{activityStrings.failedSuffix.replace("{count}", String(failCount))}</span>
+              </>
+            )}
             <span className="text-[8px] opacity-60">{activityOpen ? "▾" : "▴"}</span>
           </button>
         </DropdownMenuTrigger>

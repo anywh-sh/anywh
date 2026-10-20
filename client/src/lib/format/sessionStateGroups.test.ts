@@ -17,9 +17,9 @@ describe("groupByState", () => {
         ["room-c", status({ failed: 1 })],
       ]),
     );
-    expect(groups.needsYou.map((s) => s.id)).toEqual(["room-a"]);
+    expect(groups.needsYou.map((s) => s.id)).toEqual(["room-a", "room-c"]);
     expect(groups.running.map((s) => s.id)).toEqual(["busy", "room-b"]);
-    expect(groups.rest.map((s) => s.id)).toEqual(["chat", "room-c"]);
+    expect(groups.rest.map((s) => s.id)).toEqual(["chat"]);
   });
   it("leaves a room with no known status in the rest", () => {
     expect(groupByState([session("room-a", true)], new Set(), new Map()).rest).toHaveLength(1);

@@ -1,10 +1,11 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { en } from "@/i18n/en";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
+import { publishRoomStatus, resetRoomStatuses } from "@/lib/sala/roomStatus";
 import { SessionList } from "./SessionList";
 
 const copy = en.shell.sidebar;
@@ -45,6 +46,7 @@ function renderList(props: Partial<ComponentProps<typeof SessionList>> = {}) {
 
 afterEach(() => {
   cleanup();
+  resetRoomStatuses();
 });
 
 describe("SessionList", () => {
@@ -210,5 +212,23 @@ describe("SessionList — windowing", () => {
     renderList({ sessions: [session({ id: "a", title: "Alpha" }), session({ id: "b", title: "Beta" })] });
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("Beta")).toBeInTheDocument();
+  });
+});
+
+describe("SessionList room state", () => {
+  it("lists a room that waits for the person first, and one that runs under what runs", () => {
+    renderList({
+      sessions: [session({ id: "chat", title: "A chat" }), session({ id: "r1", title: "Needs me", room: true }), session({ id: "r2", title: "Busy room", room: true })],
+    });
+    act(() => {
+      publishRoomStatus("r1", { agents: 3, working: 1, needsYou: 2, failed: 0, completed: false });
+      publishRoomStatus("r2", { agents: 2, working: 2, needsYou: 0, failed: 0, completed: false });
+    });
+    const headings = screen.getAllByRole("button", { expanded: true }).map((b) => b.textContent);
+    expect(headings[0]).toContain(copy.needsYou);
+    expect(headings[1]).toContain(copy.running);
+    expect(headings[2]).toContain(copy.recent);
+    // The count of what waits shows on the room's row.
+    expect(screen.getByTitle(copy.roomNeedsYou.replace("{count}", "2"))).toHaveTextContent("2");
   });
 });
