@@ -3,7 +3,7 @@ import { SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
 import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
-import { formatRelativeTime } from "@/lib/format/relativeTime";
+import { formatAbsoluteTime, formatCompactTime } from "@/lib/format/relativeTime";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
@@ -45,7 +45,7 @@ export const SessionListItem = memo(function SessionListItem({
   // A relay too old to report when the session was last used leaves the row
   // without a time rather than with a made-up one — the meta line is then
   // left out. The profile is told apart by the colour bar, not by name.
-  const lastActive = session.lastActiveAt === null ? null : formatRelativeTime(session.lastActiveAt, locale);
+  const lastActive = session.lastActiveAt === null ? null : formatCompactTime(session.lastActiveAt, locale);
 
   return (
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
@@ -55,42 +55,32 @@ export const SessionListItem = memo(function SessionListItem({
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-y-0 left-0 w-0.5 shrink-0",
+          "absolute inset-y-1 left-0 w-0.5 shrink-0",
           profileColorClass(session.profileId),
-          !selected && "opacity-55",
+          !selected && "opacity-70",
         )}
       />
       <button
         type="button"
         onClick={() => onSelect(session)}
         className={cn(
-          "flex w-full cursor-pointer flex-col gap-0.5 border border-transparent px-3 text-left transition-colors",
-          size === "lg" ? "py-2.5" : "py-2",
-          selected ? "border-border bg-bg-elevated" : "hover:bg-surface-hover",
+          "flex w-full cursor-pointer items-center gap-2.5 px-[9px] text-left transition-colors",
+          size === "lg" ? "min-h-11 py-2.5" : "h-8",
+          selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
       >
-        <span className="flex items-center gap-2">
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate",
-              size === "lg" ? "text-base" : "text-[length:calc(13px*var(--font-scale-ratio))]",
-              selected ? "font-medium text-foreground" : "text-muted-foreground",
-            )}
-          >
-            {session.title}
-          </span>
-          {/* One animated indicator per row at most, `running` first — a
-           * live turn and a background job on the same session would
-           * otherwise stack two. The ring (the design's live-session marker,
-           * tinted in the session's own profile color) is reserved for an
-           * actual turn in flight; the design never modeled a background
-           * job at all, so that case gets its own glyph instead of being
-           * forced into the same language — a pulsing terminal icon, since
-           * that is literally what `anywh-bg` runs. */}
+        {/* The status slot: always as wide as its content, so titles line up
+         * whether or not the row has a status to show. One animated
+         * indicator per row at most, `running` first — a live turn and a
+         * background job on the same session would otherwise stack two. The
+         * ring is reserved for an actual turn in flight; a background job
+         * gets its own glyph, a pulsing terminal icon, since that is
+         * literally what `anywh-bg` runs. */}
+        <span className="flex size-3 shrink-0 items-center justify-center">
           {running ? (
             <span
               aria-label={indicatorLabel}
-              className="size-3 shrink-0 animate-spin rounded-full border-2 border-border"
+              className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
               style={{ borderTopColor: profileColorVar(session.profileId) }}
             />
           ) : (
@@ -99,8 +89,22 @@ export const SessionListItem = memo(function SessionListItem({
             )
           )}
         </span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            size === "lg" ? "text-base" : "text-[length:calc(13.5px*var(--chrome-scale))]",
+            selected ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {session.title}
+        </span>
         {lastActive !== null && (
-          <span className="truncate font-mono text-[length:calc(10.5px*var(--font-scale-ratio))] text-text-faint">{lastActive}</span>
+          <span
+            title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
+            className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
+          >
+            {lastActive}
+          </span>
         )}
       </button>
       <SessionDeleteMenu menu={menu} title={session.title} onRename={() => onRename(session)} onDelete={() => onDelete(session)} />

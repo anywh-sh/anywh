@@ -1,5 +1,5 @@
-import { useMemo, useRef } from "react";
-import { MessageSquareDashed } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ChevronDown, MessageSquareDashed } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -8,13 +8,16 @@ import { SessionListSkeleton } from "@/components/shell/SessionListSkeleton";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/profiles/profiles";
-import { groupSessionsByRecency, type MergedSession, type SessionGroupId } from "@/lib/format/sessionGrouping";
+import { recentSessions, type MergedSession } from "@/lib/format/sessionGrouping";
+
+/** The sidebar has one list for now; the id keeps room for the state groups. */
+type HeadingId = "recent";
 
 /** The grouped list flattened into one row stream, which is what a
  * virtualizer can index into — headings included, so a heading scrolls with
  * its sessions instead of needing a second, parallel mechanism. */
 type Row =
-  | { kind: "heading"; id: SessionGroupId; count: number }
+  | { kind: "heading"; id: HeadingId; count: number }
   | { kind: "session"; session: MergedSession };
 
 function rowKey(row: Row): string {
@@ -26,8 +29,8 @@ function rowKey(row: Row): string {
 // row is one or two lines depending on whether it carries a profile name and
 // a timestamp). Wrong estimates cost scrollbar accuracy far from the
 // viewport, nothing else.
-const ESTIMATED_HEADING_PX = 30;
-const ESTIMATED_ROW_PX = { default: 46, lg: 58 } as const;
+const ESTIMATED_HEADING_PX = 36;
+const ESTIMATED_ROW_PX = { default: 32, lg: 58 } as const;
 
 interface SessionListProps {
   /** Already merged across the selected profiles and sorted newest-first. */
@@ -71,16 +74,30 @@ export function SessionList({
   size = "default",
 }: SessionListProps) {
   const dict = useDict();
-  const groups = useMemo(() => groupSessionsByRecency(sessions), [sessions]);
+  const groups = useMemo(() => {
+    const recent = recentSessions(sessions);
+    return recent.length > 0 ? [{ id: "recent" as const, sessions: recent }] : [];
+  }, [sessions]);
   // One pass instead of a lookup per row: the list can hold every session of
   // every profile now, and this renders on each sidebar render.
+  // Groups the user folded away: the heading stays (with its count), the
+  // rows go. Kept in memory only — a fold is a way to get a long list out of
+  // the way for now, not a setting.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<HeadingId>>(() => new Set());
+  const toggleGroup = useCallback((id: HeadingId) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
   const rows = useMemo<Row[]>(
     () =>
       groups.flatMap((group) => [
         { kind: "heading", id: group.id, count: group.sessions.length },
-        ...group.sessions.map((session): Row => ({ kind: "session", session })),
+        ...(collapsed.has(group.id) ? [] : group.sessions.map((session): Row => ({ kind: "session", session }))),
       ]),
-    [groups],
+    [groups, collapsed],
   );
   const viewportRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -155,18 +172,23 @@ export function SessionList({
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
                 {row.kind === "heading" ? (
-                  <div
+                  <button
+                    type="button"
+                    aria-expanded={!collapsed.has(row.id)}
+                    onClick={() => toggleGroup(row.id)}
                     className={cn(
-                      "px-1 pt-4 pb-1.5 font-mono text-[length:calc(10px*var(--font-scale-ratio))] tracking-[0.14em] text-text-faint uppercase",
+                      "flex h-[26px] w-full cursor-pointer items-center gap-2 px-[9px] text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground",
                       // `first:pt-2` can't do this job once rows are
                       // windowed: the first rendered child is whatever
                       // happens to be scrolled into view, not row zero.
-                      virtualRow.index === 0 && "pt-2",
+                      virtualRow.index > 0 && "mt-2.5",
                     )}
                   >
-                    {dict.shell.sidebar.groups[row.id]}
-                    <span className="opacity-75"> {row.count}</span>
-                  </div>
+                    <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
+                    <span className="opacity-80">{dict.shell.sidebar[row.id]}</span>
+                    <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
+                    <span>{row.count}</span>
+                  </button>
                 ) : (
                   <SessionListItem
                     session={row.session}

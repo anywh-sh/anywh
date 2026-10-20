@@ -109,3 +109,10 @@ test("liveAncestorId skips stopped agents and ones that are gone, up to the prin
   assert.equal(liveAncestorId("loop1", get), undefined, "a cycle ends the walk");
   assert.equal(liveAncestorId("p", get), undefined);
 });
+
+test("contextSeenAt is a timestamp or absent", () => {
+  const base = { roomId: "r", role: "principal", createdBy: "user", task: "" };
+  assert.equal(isRoomMembership({ ...base, contextSeenAt: 1700000000000 }), true);
+  assert.equal(isRoomMembership({ ...base, contextSeenAt: "soon" }), false);
+  assert.equal(isRoomMembership({ ...base, contextSeenAt: -1 }), false);
+});

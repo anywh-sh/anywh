@@ -19,7 +19,7 @@ import { useDict } from "@/i18n";
 import { APP_VERSION, MIN_RELAY_VERSION } from "@/lib/install/appVersion";
 import { onInstallDone, startLocalInstall } from "@/lib/install/localRelay";
 import { getModelCatalogs } from "@/lib/composer/modelCatalog";
-import { agentName } from "@/components/chat/AgentPickerButton";
+import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {

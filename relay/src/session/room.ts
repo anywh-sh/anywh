@@ -58,6 +58,10 @@ export interface RoomMembership {
   area?: string;
   report?: RoomReport;
   stopped?: RoomStop;
+  /** Epoch ms up to which this agent knows the room's context: when its
+   * prompt (with the context index) was first built, then each time it was
+   * told of items that arrived later. Absent until its first turn. */
+  contextSeenAt?: number;
   /** Worker only: messages (its task first) still to be delivered. */
   queuedMessages?: QueuedMessage[];
   /** Workers whose report has not been handed to this agent yet: the
@@ -111,13 +115,14 @@ export function isRoomReport(value: unknown): value is RoomReport {
  * truncated or future-schema record must never reach the room logic. */
 export function isRoomMembership(value: unknown): value is RoomMembership {
   if (!isRecord(value)) return false;
-  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports, queuedMessages } = value;
+  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports, queuedMessages, contextSeenAt } = value;
   if (typeof roomId !== "string" || roomId === "") return false;
   if (typeof role !== "string" || !ROLES.has(role)) return false;
   if (createdBy !== "user" && createdBy !== "agent") return false;
   if (typeof task !== "string") return false;
   if (area !== undefined && typeof area !== "string") return false;
   if (report !== undefined && !isRoomReport(report)) return false;
+  if (contextSeenAt !== undefined && !isTimestamp(contextSeenAt)) return false;
   if (stopped !== undefined && !(isRecord(stopped) && typeof stopped.reason === "string" && STOP_REASONS.has(stopped.reason) && isTimestamp(stopped.at))) return false;
   if (role === "worker") {
     if (typeof parentId !== "string" || parentId === "") return false;

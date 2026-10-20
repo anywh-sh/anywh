@@ -65,6 +65,11 @@ export function applyFontSize(px: number): void {
   // by this ratio via `calc()` rather than getting a named step each, so the
   // setting still reaches them without inventing a token per one-off size.
   root.setProperty("--font-scale-ratio", String(ratio));
+  // The same setting as a multiplier of the DEFAULT size rather than of
+  // Tailwind's 14px base: 1 at the default, so chrome measured in raw px (the
+  // sidebar, the strip, the composer) is exactly that size until the user
+  // moves the setting.
+  root.setProperty("--chrome-scale", String(px / DEFAULT_FONT_SIZE));
 }
 
 let size = readStoredSize();

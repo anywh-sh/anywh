@@ -54,7 +54,7 @@ describe("anywh in-app updater", () => {
       }
     });
     await browser.execute(() => window.location.reload());
-    await $('[aria-label="New conversation"]').waitForExist({ timeout: 15000 });
+    await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
 
     server = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });

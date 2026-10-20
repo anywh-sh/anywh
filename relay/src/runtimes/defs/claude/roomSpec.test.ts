@@ -58,3 +58,12 @@ test("a worker's approvals are put to the room's bridge (unless its mode never a
   assert.equal(flag(buildPersistentArgs(buildClaudeHostSpec(ctx, setup("worker")), { mcpConfigPath: "/tmp/x.json" }), "--permission-prompt-tool"), undefined, "bypassPermissions never asks");
   assert.equal(flag(buildPersistentArgs(buildClaudeHostSpec(asking, setup("principal")), { mcpConfigPath: "/tmp/x.json" }), "--permission-prompt-tool"), undefined);
 });
+
+test("a room's context folder is granted to the agent with --add-dir, principal and worker alike", () => {
+  for (const role of ["principal", "worker"] as const) {
+    const spec = buildClaudeHostSpec(ctx, { ...setup(role), addDirs: ["/home/u/.anywh/rooms/r1"] });
+    const args = buildPersistentArgs(spec, {});
+    assert.equal(flag(args, "--add-dir"), "/home/u/.anywh/rooms/r1");
+  }
+  assert.equal(buildPersistentArgs(buildClaudeHostSpec(ctx, setup("worker")), {}).includes("--add-dir"), false);
+});

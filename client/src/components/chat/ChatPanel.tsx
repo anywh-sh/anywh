@@ -22,7 +22,6 @@ import { NativeTopBarMenu } from "@/components/chat/NativeTopBarMenu";
 import { NativeComposer, type NativeComposerHandle } from "@/components/chat/NativeComposer";
 import { ChoiceCard } from "@/components/chat/ChoiceCard";
 import { WorkingDirectoryButton } from "@/components/chat/WorkingDirectoryButton";
-import { useTitleBarSlot } from "@/hooks/useTitleBarSlot";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
@@ -134,11 +133,6 @@ interface ChatPanelProps {
    * so each `ChatPanel` needs to know whether it's its turn to handle the
    * drop. */
   isActiveTab: boolean;
-  /** Narrower than `isActiveTab`: with split groups more than one tab is
-   * visible at a time, and only one of them is the one the user is working
-   * in. Drives what the title bar shows, which describes a single
-   * conversation. Absent on iOS, which has neither groups nor a title bar. */
-  isFocusedTab?: boolean;
 }
 
 function buildWireMessage(text: string, attachments: PendingAttachment[]): string {
@@ -197,7 +191,6 @@ export function ChatPanel({
   files,
   onOpenPath,
   isActiveTab,
-  isFocusedTab = false,
 }: ChatPanelProps) {
   const dict = useDict();
   const log = useMessageLog();
@@ -211,11 +204,9 @@ export function ChatPanel({
   // dictionary that changes when the language does.
   const dictRef = useRef(dict);
   dictRef.current = dict;
-  const titleBarSlot = useTitleBarSlot();
   // Only this tab's group's own active tab may claim the slot — with split
   // groups, `isActiveTab` can be true for more than one tab at once (one per
-  // group), unlike `isFocusedTab` above which is at most one in the whole
-  // app.
+  // group).
   const panelTogglesSlot = usePanelTogglesSlot(isActiveTab ? groupId : null);
   const isActiveTabRef = useRef(isActiveTab);
   isActiveTabRef.current = isActiveTab;
@@ -739,7 +730,8 @@ export function ChatPanel({
   }, []);
 
   // The message log itself is on screen (not the idle state or the skeleton).
-  const showingLog = ready && !((isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0);
+  const showingIdle = (isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0;
+  const showingLog = ready && !showingIdle;
   useEffect(() => {
     if (!showingLog) setScrollToEndVisible(false);
   }, [showingLog]);
@@ -786,7 +778,8 @@ export function ChatPanel({
   };
 
   return (
-    <div ref={containerRef} className="relative flex h-full flex-col">
+    <div ref={containerRef} className={cn("relative flex h-full flex-col", showingIdle && !isIOS() && "justify-center")}>
+      {showingIdle && !isIOS() && <div aria-hidden="true" className="idle-grid pointer-events-none absolute inset-0 -z-10" />}
       {protocolMismatch !== null && (
         // Full takeover, not a dismissible toast: past this point nothing
         // the relay sends is guaranteed to render correctly (see
@@ -805,7 +798,7 @@ export function ChatPanel({
         </div>
       )}
 
-      {(isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0 ? (
+      {showingIdle ? (
         // `isNewConversation` covers the freshly opened tab (shows idle right
         // away, without waiting for `ready` — there's really nothing to load
         // anyway). `ready` covers an existing session that genuinely became
@@ -879,12 +872,12 @@ export function ChatPanel({
           </div>
         )}
 
-        {/* Caps the composer column at the same width as MessageLog's content
+        {/* Caps the composer column at 728px, a little wider than MessageLog's content
          * — `contents` on iOS keeps these two wrapper divs out of
          * the box tree entirely, so the phone layout (which never hits the
          * cap anyway) is untouched. */}
         <div className={cn(isIOS() ? "contents" : "w-full px-4")}>
-          <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-3xl flex-col")}>
+          <div className={cn(isIOS() ? "contents" : "mx-auto flex w-full max-w-[728px] flex-col")}>
             {choicePrompt && (
               <ChoiceCard
                 promptId={choicePrompt.promptId}
@@ -957,31 +950,23 @@ export function ChatPanel({
                 suggestion={suggestion}
                 onChangeDraft={setDraft}
                 onSend={handleSend}
+                className={showingIdle ? "shadow-lift" : undefined}
+                infoStart={
+                  <WorkingDirectoryButton
+                    profile={profile}
+                    cwd={cwd}
+                    locked={cwdLocked}
+                    connected={connected}
+                    isNewConversation={isNewConversation}
+                    onSetCwd={setCwd}
+                    onFocusComposer={() => composerRef.current?.focus()}
+                  />
+                }
               />
             )}
           </div>
         </div>
       </div>
-
-      {/* Only the focused tab paints the title bar's center, and only on
-       * desktop (iOS has no title bar and keeps its own copy of this button
-       * above the composer). Rendering from here rather than lifting `cwd`
-       * into `App` keeps a value every mounted tab reports on connect out of
-       * the state that re-renders every mounted tab — see titleBarSlot.ts. */}
-      {!isIOS() && isFocusedTab && titleBarSlot
-        ? createPortal(
-            <WorkingDirectoryButton
-              profile={profile}
-              cwd={cwd}
-              locked={cwdLocked}
-              connected={connected}
-              isNewConversation={isNewConversation}
-              onSetCwd={setCwd}
-              onFocusComposer={() => composerRef.current?.focus()}
-            />,
-            titleBarSlot,
-          )
-        : null}
 
       {/* This group's own active tab claims the strip's toggle slot — see
        * panelTogglesSlot.ts for why this is a portal rather than `cwd`

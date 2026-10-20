@@ -26,7 +26,7 @@
 // harness, not the app.
 describe("anywh composer", () => {
   before(async () => {
-    const newConversation = await $('[aria-label="New conversation"]');
+    const newConversation = await $('[aria-label="New session"]');
     await newConversation.waitForExist({ timeout: 15000 });
     await newConversation.click();
   });

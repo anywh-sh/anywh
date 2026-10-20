@@ -27,7 +27,7 @@ export type KnownEffortId = "none" | "minimal" | "low" | "medium" | "high" | "xh
 export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
 
 /** Every agent id this build has a display name for — resolved defensively
- * at the call site (`AgentPickerButton`), same id-switch-with-fallback shape
+ * at the call site (`AgentModelEffortButton`), same id-switch-with-fallback shape
  * as `KnownPermissionModeId` above. Product names, so `en`/`pt-br` carry the
  * identical string — still dictionary entries, not a literal in the
  * component, per this repo's "any string rendered to a user lives in the
@@ -433,12 +433,11 @@ export interface Dictionary {
        * being this one call's own exact number. */
       attributionEstimatedHint: string;
     };
-    /** The interleaved activity flow: a group of tool calls counted in one
-     * line, the rows inside it, and what an expanded call shows. Verbs come
-     * per kind of call in two tenses (`{target}` is the file, command,
-     * pattern or query, which is data); past for what finished, `ing` for
-     * what still runs — they name a row, never the group. Counts have a
-     * singular/plural pair per convention. */
+    /** The interleaved activity flow: a turn's work as one block (`work`)
+     * and what an expanded call shows. `verbs` come per kind of call in two
+     * tenses (`{target}` is the file, command, pattern or query, which is
+     * data); past for what finished, `ing` for what still runs. Counts have
+     * a singular/plural pair per convention. */
     activity: {
       verbs: {
         read: ActivityVerb;
@@ -453,21 +452,43 @@ export interface Dictionary {
         task: ActivityVerb;
         other: ActivityVerb;
       };
-      /** The group's line while something in it runs — `{count}` calls so far. */
-      toolsRunning: ActivityCount;
-      /** The group's line once everything in it ended. */
-      toolsUsed: ActivityCount;
-      failedOne: string;
-      failedMany: string;
       /** The state mark of a row whose call failed and reported no exit code. */
       callFailed: string;
-      /** `{count}` calls in one parallel batch. */
-      batchHeader: string;
-      thinking: string;
-      thoughtFor: string;
-      thought: string;
-      /** `{time}` — the whole turn's duration, in the reply's footer. */
-      workedFor: string;
+      /** A turn's work as one block: the line that heads it and the steps
+       * under it. The verbs name what a step did without its target (the
+       * target is a chip beside it), in the present while it runs and the
+       * past once it ended. */
+      work: {
+        /** Heads the block while the turn runs; the clock follows it. */
+        working: string;
+        /** `{time}` — heads the block once the turn ended. */
+        workedFor: string;
+        /** The same, when no timestamps were reported. */
+        worked: string;
+        /** Closes a block whose turn finished (not one that was stopped). */
+        done: string;
+        failedOne: string;
+        /** `{count}` */
+        failedMany: string;
+        /** `{count}` targets left out of a step's chips. */
+        moreTargets: string;
+        showLess: string;
+        /** Opens a step's calls — arguments and results. */
+        stepDetails: string;
+        steps: {
+          read: ActivityVerb;
+          edit: ActivityVerb;
+          write: ActivityVerb;
+          shell: ActivityVerb;
+          searchFiles: ActivityVerb;
+          searchContent: ActivityVerb;
+          webSearch: ActivityVerb;
+          webFetch: ActivityVerb;
+          mcp: ActivityVerb;
+          task: ActivityVerb;
+          other: ActivityVerb;
+        };
+      };
       /** What the expanded call's input line is labelled with. */
       inputLabels: { path: string; pattern: string; regex: string; query: string; url: string; mcp: string };
       meta: {
@@ -592,15 +613,6 @@ export interface Dictionary {
        * to whichever question text is in play above. */
       reasonSuffix: string;
     };
-    turn: {
-      /** One is drawn per turn and held for its whole duration — the Claude
-       * Code CLI's own behaviour, which this mirrors: a random verb instead
-       * of a fixed "Thinking…", never a carousel that keeps changing while
-       * you read it. The two languages don't have to be the same length,
-       * and shouldn't: these are jokes, and a joke that survives a literal
-       * translation is the exception. */
-      workingWords: readonly string[];
-    };
     log: {
       loading: string;
       error: string;
@@ -610,6 +622,8 @@ export interface Dictionary {
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;
+      /** The heading of a new session, above the composer. */
+      idleTitle: string;
     };
     choice: {
       previousQuestion: string;
@@ -638,6 +652,10 @@ export interface Dictionary {
      */
     composer: {
       placeholder: string;
+      /** The desktop field's prompt — the iOS native composer keeps `placeholder`. */
+      placeholderTask: string;
+      /** Shown instead of `placeholderTask` while a turn runs: a message sent now waits its turn. */
+      placeholderQueue: string;
       attach: string;
       attachmentUploading: string;
       /** Tooltip and label of the send button while an attachment uploads. */
@@ -698,7 +716,7 @@ export interface Dictionary {
       /** Keyed by `KnownAgentId` — same completeness guarantee as `mode`
        * above. Product names (`Claude Code`, `Codex`), identical in both
        * languages by nature, but still resolved through here rather than a
-       * literal in `AgentPickerButton`. */
+       * literal in `AgentModelEffortButton`. */
       agentNames: Record<KnownAgentId, string>;
       /** Both toolbar dropdowns' label before the relay has reported this
        * session's mode/model. */
@@ -710,6 +728,16 @@ export interface Dictionary {
        * for a model whose CLI reports no default effort of its own). */
       effortDefault: string;
       effortAriaLabel: string;
+      /** Tooltip and accessible name of the single agent/model/effort trigger. */
+      agentMenuLabel: string;
+      menu: {
+        agent: string;
+        model: string;
+        effort: string;
+        thisSession: string;
+        newSession: string;
+        fixedInSession: string;
+      };
       context: {
         label: string;
         ariaLabel: string;
@@ -880,12 +908,9 @@ export interface Dictionary {
       effort: string;
       menu: string;
       settings: string;
-      back: string;
-      forward: string;
       collapseSidebar: string;
       expandSidebar: string;
       openSidebar: string;
-      searchSessions: string;
       checkForUpdates: string;
       minimize: string;
       maximize: string;
@@ -914,6 +939,7 @@ export interface Dictionary {
       /** `{version}` — title of the version slot, which has room for the
        * number but not for what the number belongs to. */
       appVersion: string;
+      relayConnected: string;
       /** `{version}` — replaces the version slot itself once a newer
        * release exists, so there is one thing there rather than a number
        * plus a separate badge competing for the same sliver of width. */
@@ -939,10 +965,8 @@ export interface Dictionary {
         /** `{count}` — appended after `running`/`none` with " · " between
          * them, only when at least one item failed. */
         failedSuffix: string;
-        /** Panel header label, uppercase via CSS. */
+        /** Panel header label, the dropdown's own label row. */
         heading: string;
-        /** Accessible name of the panel's close button. */
-        close: string;
         /** Empty-state title, once every job is gone or dismissed. */
         emptyTitle: string;
         /** Row action: jumps to the item's tab and closes the panel. */
@@ -979,16 +1003,14 @@ export interface Dictionary {
     sidebar: {
       label: string;
       newConversation: string;
+      search: string;
       allChats: string;
-      filterByProfile: string;
-      filterHeading: string;
       allProfiles: string;
       loadingSessions: string;
       loadFailed: string;
       emptyTitle: string;
       emptyBody: string;
       noMatches: string;
-      noMatchesHint: string;
       /** `{time}` — a relative moment ("2 hr. ago"). */
       syncedAt: string;
       neverSynced: string;
@@ -1014,6 +1036,8 @@ export interface Dictionary {
        * `window.alert`, which is unreliable in these webviews. */
       renameFailed: string;
       deleteFailed: string;
+      /** The one heading of the desktop sidebar list: the latest sessions. */
+      recent: string;
       groups: {
         today: string;
         yesterday: string;
@@ -1026,6 +1050,9 @@ export interface Dictionary {
       activeProfile: string;
       addRemoteMachine: string;
       addProfile: string;
+      allProfilesToggle: string;
+      scopeAll: string;
+      scopeActive: string;
       badgeLocal: string;
       badgeRemote: string;
       badgeRevoked: string;

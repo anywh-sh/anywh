@@ -101,6 +101,8 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
       // Reports waiting for a room's principal stay in its outbox unless a
       // test asks for the digest (roomDigest.test.ts sets a short window).
       RELAY_ROOM_DIGEST_WINDOW_MS: "600000",
+      // Agents of one model do not wait behind the first (a test that exercises the wait asks for it).
+      RELAY_ROOM_WARMUP_MS: "0",
       ...extraEnv,
     },
   });

@@ -24,7 +24,7 @@ export function LanguageControl({ className }: { className?: string }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "flex cursor-pointer items-center gap-1.5 border border-transparent px-1.5 py-0.5 text-text-faint outline-hidden transition-colors hover:border-border hover:text-foreground",
+          "flex cursor-pointer items-center gap-1.5 px-1.5 py-0.5 text-text-faint outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground",
           className,
         )}
       >

@@ -83,6 +83,17 @@ interface TabGroupLayoutProps {
    * exists there to own a toggle slot (see `panelTogglesSlot.ts`), and
    * panels are unavailable in that mode regardless. */
   renderPanel: (tab: Tab, groupId: string | null) => ReactNode;
+  /** Pinned over the far right of the strip row — where the window controls
+   * go on platforms that draw their own. Takes no flow space (the groups'
+   * strips and panels share one `calc()` geometry, which a sibling would
+   * break), so the last strip reserves the room with `stripTrailingInsetClass`. */
+  stripTrailing?: ReactNode;
+  stripTrailingInsetClass?: string;
+  /** The same for the start of the strip row: room for what is pinned over it. */
+  stripLeadingInsetClass?: string;
+  /** Full-width notices drawn between the strip row and the panels — below
+   * the strip so the strip row stays level with the sidebar's own header. */
+  belowStrip?: ReactNode;
 }
 
 /** One `--g{i}-frac`/`--g{i}-cum` pair per group, set on the outer container
@@ -172,6 +183,16 @@ function GroupResizeHandle({
   );
 }
 
+/** The plane's own frame: a 1px rule along its top and sides, starting under
+ * the strip row, with an 8px margin of chrome on its right. Drawn as an
+ * overlay rather than as borders on the panel layer so it takes no layout
+ * space — the strips and the panels below share one `calc()` geometry that a
+ * border or margin on either would skew. The strip row sits above it, so the
+ * active tab covers the rule where it stands. */
+function PlaneFrame() {
+  return <div aria-hidden="true" className="pointer-events-none absolute top-10 right-2 bottom-0 left-0 z-10 border border-b-0 border-border-soft" />;
+}
+
 /** Floats with the pointer for the whole drag (`DragOverlay`) — without it,
  * the dragged tab's own translate-transform (from `useSortable`) is still
  * clipped the moment it crosses its strip's `overflow-x-auto` boundary, so
@@ -223,6 +244,10 @@ export function TabGroupLayout({
   onRenameSession,
   onDelete,
   renderPanel,
+  stripTrailing,
+  stripTrailingInsetClass,
+  stripLeadingInsetClass,
+  belowStrip,
 }: TabGroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sizes = groups.map((group) => group.size);
@@ -284,20 +309,27 @@ export function TabGroupLayout({
           setActiveDragTab(null);
         }}
       >
-        <div className="flex h-full min-w-0 flex-col">
-          <TabGroupStrip
-            groupId={lastGroupId}
-            tabs={flatTabIds.map((id) => tabById.get(id)).filter((tab): tab is Tab => tab !== undefined)}
-            activeTabId={activeTabId}
-            allowSplit={false}
-            onSelect={onSelect}
-            onClose={onClose}
-            onRenameSession={onRenameSession}
-            onDelete={onDelete}
-            onSplitToNewGroup={() => {}}
-            onNewTab={() => onNewTab(lastGroupId)}
-          />
-          <div className="relative min-h-0 flex-1">
+        <div className="relative flex h-full min-w-0 flex-col pr-2">
+          <PlaneFrame />
+          <div className="relative z-20 h-10 shrink-0 bg-bg-chrome">
+            <TabGroupStrip
+              groupId={lastGroupId}
+              trailingInsetClass={stripTrailingInsetClass}
+            leadingInsetClass={stripLeadingInsetClass}
+              tabs={flatTabIds.map((id) => tabById.get(id)).filter((tab): tab is Tab => tab !== undefined)}
+              activeTabId={activeTabId}
+              allowSplit={false}
+              onSelect={onSelect}
+              onClose={onClose}
+              onRenameSession={onRenameSession}
+              onDelete={onDelete}
+              onSplitToNewGroup={() => {}}
+              onNewTab={() => onNewTab(lastGroupId)}
+            />
+            {stripTrailing && <div className="absolute top-0 right-0 z-40 h-10">{stripTrailing}</div>}
+          </div>
+          {belowStrip}
+          <div className="relative min-h-0 flex-1 bg-background">
             {tabs.map((tab) => (
               <div
                 key={tab.id}
@@ -325,13 +357,14 @@ export function TabGroupLayout({
         setActiveDragTab(null);
       }}
     >
-      <div ref={containerRef} className="relative flex h-full min-w-0 flex-col" style={groupCssVars(groups)}>
-        <div className="flex h-9 w-full shrink-0">
+      <div ref={containerRef} className="relative flex h-full min-w-0 flex-col pr-2" style={groupCssVars(groups)}>
+        <PlaneFrame />
+        <div className="relative z-20 flex h-10 w-full shrink-0 bg-bg-chrome">
           {groups.map((group, index) => (
             <div
               key={group.id}
               data-testid={`group-strip-${group.id}`}
-              className="min-w-0 shrink-0 grow-0 overflow-hidden"
+              className="min-w-0 shrink-0 grow-0 overflow-x-clip"
               style={{
                 flexBasis: `calc(${avail} * var(--g${index}-frac, ${group.size}))`,
                 transition: draggingIndex === null ? "flex-basis 150ms ease" : "none",
@@ -347,6 +380,8 @@ export function TabGroupLayout({
                 tabs={group.tabIds.map((id) => tabById.get(id)).filter((tab): tab is Tab => tab !== undefined)}
                 activeTabId={group.activeTabId}
                 allowSplit
+                trailingInsetClass={index === groups.length - 1 ? stripTrailingInsetClass : undefined}
+                leadingInsetClass={index === 0 ? stripLeadingInsetClass : undefined}
                 onSelect={onSelect}
                 onClose={onClose}
                 onRenameSession={onRenameSession}
@@ -357,12 +392,15 @@ export function TabGroupLayout({
             </div>
           ))}
         </div>
+        {stripTrailing && <div className="absolute top-0 right-0 z-40 h-10">{stripTrailing}</div>}
+
+        {belowStrip}
 
         {groups.slice(0, -1).map((_, index) => (
           <GroupResizeHandle key={`resize-${index}`} index={index} avail={avail} isDragging={draggingIndex === index} onPointerDown={startDrag(index)} />
         ))}
 
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 bg-background">
           {tabs.map((tab) => {
             const groupIndex = groupIndexByTabId.get(tab.id);
             if (groupIndex === undefined) return null;

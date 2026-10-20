@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen } from "@testing-library/react";
+import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
@@ -60,32 +60,43 @@ async function openConversation(): Promise<void> {
 
 async function expectFlow(): Promise<void> {
   const user = userEvent.setup();
-  // Two groups, each one counted line: the parallel read + search, and the
-  // failing command with its retry (which is why that one says it failed).
-  const groups = await screen.findAllByRole("button", { name: /^Used 2 tools/ });
-  expect(groups).toHaveLength(2);
-  expect(groups[0]).toHaveTextContent("Used 2 tools · 2s");
-  expect(groups[1]).toHaveTextContent("Used 2 tools · 1 failed · 5s");
-  expect(screen.getByText("Thought for 3s")).toBeInTheDocument();
+  // One block for the whole turn, headed by how long it worked. A live turn
+  // keeps it open a moment after it ends; wait for it to fold so the click
+  // below opens it instead of closing it.
+  const heading = await screen.findByRole("button", { name: /^Worked for/ });
+  await waitFor(() => expect(heading).toHaveAttribute("aria-expanded", "false"));
+  expect(heading).toHaveTextContent("· 1 failed");
+  expect(screen.queryByText(/^Used \d+ tools?/)).toBeNull();
+  expect(screen.queryByText(/^Thought/)).toBeNull();
+  // The answer stands outside it, with nothing about time in its footer.
   expect(screen.getByText("All green now.")).toBeInTheDocument();
-  expect(screen.getByText(/worked 12s/)).toBeInTheDocument();
+  expect(screen.queryByText(/worked 12s/)).toBeNull();
 
-  // Expanding a group lists each call; expanding a call shows its result.
-  await user.click(groups[0]);
-  expect(screen.getByText(en.chat.activity.batchHeader.replace("{count}", "2"))).toBeInTheDocument();
-  expect(screen.getByText("2 lines")).toBeInTheDocument();
-  expect(screen.getByText("1 match")).toBeInTheDocument();
-
-  await user.click(screen.getByText("Read").closest('[role="button"]') as HTMLElement);
-  expect(await screen.findByText("two")).toBeInTheDocument();
-
-  // The failed row of the second group says so, with the exit code.
-  await user.click(groups[1]);
+  // Open: the remark, then one step per kind of call in order, and the end.
+  await user.click(heading);
+  expect(screen.getByText("Let me look at the socket first.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Read/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Searched/ })).toBeInTheDocument();
+  const ran = screen.getByRole("button", { name: /^Ran/ });
+  expect(screen.getByTitle("/w/src/socket.ts")).toBeInTheDocument();
+  expect(screen.getByTitle("onclose")).toBeInTheDocument();
+  // The failed command and its retry are one step of two chips; the failure shows.
+  expect(screen.getAllByTitle("npm test")).toHaveLength(2);
   expect(screen.getByText("exit 1")).toBeInTheDocument();
+  expect(screen.getByText("Done")).toBeInTheDocument();
+
+  // A step opens to its calls, and a call to its result.
+  await user.click(screen.getByRole("button", { name: /^Read/ }));
+  // The step says what its one call found; the call, once there, says it again.
+  expect(screen.getAllByText("2 lines")).toHaveLength(2);
+  await user.click(screen.getByText("Read", { selector: "span.shrink-0" }).closest('[role="button"]') as HTMLElement);
+  expect(await screen.findByText("two")).toBeInTheDocument();
+  await user.click(ran);
+  expect(screen.getAllByText("exit 1").length).toBeGreaterThan(0);
 }
 
 describe("the interleaved activity flow", () => {
-  it("draws a live turn as text, grouped calls, reasoning and a footer, and expands to results", async () => {
+  it("draws a live turn as one block with the answer outside it, and expands to results", async () => {
     await openConversation();
     broadcast(TURN.map((event) => ({ type: "agent_event", event })));
     await expectFlow();
@@ -101,7 +112,7 @@ describe("the interleaved activity flow", () => {
     await openConversation();
     broadcast([{ type: "turn_state", active: true, startedAt: Date.now() - 8_000 }]);
     const stop = await screen.findByRole("button", { name: en.common.stop });
-    expect(stop).toHaveTextContent(/^\s*(8|9)s\s*/);
+    expect(stop).toHaveTextContent(/^\s*0:0(8|9)\s*/);
 
     broadcast([{ type: "agent_event", event: { type: "turn_ended", stopped: false, durationMs: 9000 } }]);
     await vi.waitFor(() => expect(screen.queryByRole("button", { name: en.common.stop })).toBeNull());

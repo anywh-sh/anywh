@@ -12,6 +12,7 @@ import { TabPanel } from "@/components/shell/TabPanel";
 import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
@@ -20,7 +21,6 @@ import { FirstRun } from "@/components/firstrun/FirstRun";
 import { DownloadToasts } from "@/components/files/DownloadToasts";
 import { useDict } from "@/i18n";
 import { useActiveProfile } from "@/hooks/profiles/useActiveProfile";
-import { useNavigationHistory } from "@/hooks/useNavigationHistory";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useLayoutCommands } from "@/hooks/useLayoutCommands";
 import { useProfileSwitching } from "@/hooks/useProfileSwitching";
@@ -53,7 +53,8 @@ import { pruneCachedProfiles } from "@/lib/format/sessionListCache";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
 import { ensureNotificationPermission } from "@/lib/platform/notifications";
-import { isIOS } from "@/lib/platform/platform";
+import { isIOS, isMacOS } from "@/lib/platform/platform";
+import { cn } from "@/lib/utils";
 import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
@@ -134,7 +135,6 @@ function AppShell() {
   const sessionDock = useSessionDock();
   const terminalTabs = useTerminalTabs();
   const fileTabs = useFileTabs();
-  const nav = useNavigationHistory();
   const windowFocused = useWindowFocus();
   useContextMenuGuard();
   // Both registry mirrors live here, at the one place that is mounted for
@@ -179,24 +179,22 @@ function AppShell() {
     });
   }, [profiles]);
 
-  const toggleProfileFilter = useCallback((profileId: string) => {
-    setSelectedProfileIds((previous) => {
-      const next = new Set(previous);
-      // Turning the last one off would show nothing at all — the way to see
-      // one profile is to leave one selected, not to select none.
-      if (next.has(profileId) && next.size === 1) return previous;
-      if (next.has(profileId)) next.delete(profileId);
-      else next.add(profileId);
-      return next;
-    });
-  }, []);
-
   const clearProfileFilter = useCallback(() => {
     setSelectedProfileIds(new Set(getProfiles().map((profile) => profile.id)));
   }, []);
 
+  // The sidebar's one view switch: every profile, or only the one work is
+  // happening in. Anything in between (a subset left over from before) counts
+  // as "not all" and goes to every profile on the next press.
+  const toggleAllProfiles = useCallback(() => {
+    setSelectedProfileIds((previous) =>
+      previous.size < getProfiles().length ? new Set(getProfiles().map((profile) => profile.id)) : new Set([activeProfile.id]),
+    );
+  }, [activeProfile.id]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   // Connection state per tab — used by TitleBar and the native iOS top bar, which
@@ -308,24 +306,6 @@ function AppShell() {
       return Object.keys(next).length === Object.keys(prev).length ? prev : next;
     });
   }, [tabsState.tabs]);
-
-  // Pushes a history entry (titlebar Back/Forward) every time the
-  // active tab changes, except when the change came from goBack/goForward
-  // itself (the hook filters that out internally).
-  useEffect(() => {
-    nav.notifyLocationChanged({ tabId: activeTabId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTabId]);
-
-  function handleGoBack(): void {
-    const location = nav.goBack();
-    if (location?.tabId) tabsState.setActiveTab(location.tabId);
-  }
-
-  function handleGoForward(): void {
-    const location = nav.goForward();
-    if (location?.tabId) tabsState.setActiveTab(location.tabId);
-  }
 
   // Read side of the deep-link/pairing queue `App` (the gate) feeds — nothing
   // switches profile until the user clicks "Continue" on ProfileSetupDialog
@@ -477,14 +457,18 @@ function AppShell() {
     [],
   );
 
+  const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
+
   const sidebarProps = {
     activeProfile,
     profiles,
     profilesSupported,
     onProfileChange,
     selectedProfileIds,
-    onToggleProfileFilter: toggleProfileFilter,
+    onToggleAllProfiles: toggleAllProfiles,
     onClearProfileFilter: clearProfileFilter,
+    onOpenSearch: openSearch,
+    newSessionActive: activeTab?.isNew === true && activeTab.title === null,
     sessions,
     sessionsLoading,
     sessionsError,
@@ -498,7 +482,6 @@ function AppShell() {
     onDeleteSession: onDeleteSessionRow,
   };
 
-  const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
 
   // Everything a panel calls back into here, built once. Each callback takes
   // the tab (or profile/path) it acts on as an argument and closes over
@@ -531,16 +514,11 @@ function AppShell() {
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
       dock={sessionDock.getDock(tab.id)}
-      // Two different gates, now that a group split can put more than one
-      // tab on screen at once: `isVisible` is "this tab is the active one of
-      // its own group" (drives panel visibility, dock mounting,
-      // MessageLog's scroll re-sync, and the native drag-drop guard) — up to
-      // one per group can be true simultaneously. `isFocusedTab` narrows
-      // that to "...and that group is also the one the user's actually
-      // interacting with right now" (drives unread-badge clearing,
-      // TitleBar.connected, nav history) — at most one tab in the whole app.
+      // "This tab is the active one of its own group" — drives panel
+      // visibility, dock mounting, MessageLog's scroll re-sync and the native
+      // drag-drop guard. With a group split, up to one per group can be true
+      // at once.
       isVisible={tabsState.visibleTabIds.has(tab.id)}
-      isFocusedTab={tab.id === activeTabId}
       isCompact={isCompact}
       terminalTabs={terminalTabs}
       fileTabs={fileTabs}
@@ -557,10 +535,39 @@ function AppShell() {
   // bug, reproduced via Playwright WebKit), and the desktop composer's
   // glass relies on that. Don't remove it even though it looks redundant — harmless for
   // desktop (doesn't change position/size of anything).
+  // Drawn by the app only where the window has no OS decorations of its own.
+  const windowControls = isMacOS() ? null : <WindowControls />;
+
+  // Drawn between the strip row and the panels (the strip stays level with
+  // the sidebar's header). A revoked profile's notice sits here, in the main
+  // column, because the conversation and panels are what stop working — the
+  // session list keeps working off its local cache. The live connection state
+  // is in the footer, next to the version.
+  const notices = <RevokedProfileBanners />;
+
+  // The sidebar is hidden (collapsed on desktop) — the shell buttons then
+  // float over the strip, and their measured width tells the strip how much
+  // room to leave.
+  const sidebarHidden = resizable.collapsed && !isCompact;
+  const [leadingWidth, setLeadingWidth] = useState(0);
+  const leadingRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    setLeadingWidth(node.getBoundingClientRect().width);
+    new ResizeObserver(() => setLeadingWidth(node.getBoundingClientRect().width)).observe(node);
+  }, []);
+
   const tabsContent = (
     <div className="relative min-h-0 flex-1">
       {tabsState.tabs.length === 0 ? (
-        <EmptyState />
+        <div className="flex h-full flex-col">
+          <div data-tauri-drag-region className={cn("relative h-10 shrink-0 border-b border-border-soft bg-bg-chrome", sidebarHidden && "pl-[var(--shell-leading)]")}>
+            {windowControls && <div className="absolute top-0 right-0 h-10">{windowControls}</div>}
+          </div>
+          {notices}
+          <div className="min-h-0 flex-1 bg-background">
+            <EmptyState />
+          </div>
+        </div>
       ) : isIOS() ? (
         // iOS: the MVP is one session in focus at a time,
         // without keeping several WebSocket connections alive in parallel in
@@ -590,6 +597,10 @@ function AppShell() {
             if (tab) handleDeleteSession(tab.profileId, tabId);
           }}
           renderPanel={renderPanel}
+          belowStrip={notices}
+          stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
+          stripTrailing={windowControls}
+          stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />
       )}
     </div>
@@ -650,21 +661,18 @@ function AppShell() {
     );
   }
 
+  const titleBar = (
+    <TitleBar
+      showSidebarToggle={!isCompact}
+      sidebarCollapsed={resizable.collapsed}
+      onToggleSidebar={resizable.toggleCollapsed}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onCheckForUpdates={() => void handleCheckForUpdates()}
+    />
+  );
+
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <TitleBar
-        canGoBack={nav.canGoBack}
-        canGoForward={nav.canGoForward}
-        onGoBack={handleGoBack}
-        onGoForward={handleGoForward}
-        showSidebarToggle={!isCompact}
-        sidebarCollapsed={resizable.collapsed}
-        onToggleSidebar={resizable.toggleCollapsed}
-        onOpenSearch={() => setSearchOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onCheckForUpdates={() => void handleCheckForUpdates()}
-        connected={activeConnected}
-      />
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
 
@@ -678,20 +686,23 @@ function AppShell() {
       <UpdateModal open={updateModalOpen} onOpenChange={setUpdateModalOpen} />
 
       <div className="flex min-h-0 flex-1">
-        {!isCompact && (
-          <div
-            className="relative flex shrink-0 border-r border-border-soft"
-            style={{ width: resizable.width }}
-          >
-            <div className="min-w-0 flex-1 overflow-hidden">
-              {!resizable.collapsed && <Sidebar {...sidebarProps} />}
-            </div>
-            {!resizable.collapsed && (
+        {!isCompact && !resizable.collapsed && (
+          // The window's top-left corner and the sidebar are one column: the
+          // traffic lights and the shell buttons sit on top of the session
+          // list, and the tab strip starts where this column ends. The rule
+          // between the sidebar and the plane is the plane's own frame, so the
+          // column draws none.
+          <div className="relative flex shrink-0 flex-col bg-bg-sidebar" style={{ width: resizable.width }}>
+            {titleBar}
+            <div className="relative min-h-0 flex-1">
+              <div className="h-full overflow-hidden">
+                <Sidebar {...sidebarProps} />
+              </div>
               <div
                 onPointerDown={resizable.startDrag}
                 className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
               />
-            )}
+            </div>
           </div>
         )}
 
@@ -704,17 +715,25 @@ function AppShell() {
           </Sheet>
         )}
 
-        {/* Inside the main column, not above it: the notice is about a
-         * profile's connection, and the conversation and panels are what
-         * stop working. The session list keeps working — its rows are cached
-         * locally and still readable — so covering it would claim otherwise. */}
-        <div className="relative flex min-w-0 flex-1 flex-col">
-          <RevokedProfileBanners />
+        {/* Collapsed, the plane keeps 8px of the frame on its left. */}
+        <div
+          className={cn("relative flex min-w-0 flex-1 flex-col", sidebarHidden && "pl-2")}
+          style={sidebarHidden ? ({ "--shell-leading": `${String(Math.max(0, leadingWidth - 8))}px` } as React.CSSProperties) : undefined}
+        >
+          {/* Collapsed, the sidebar is gone and only the shell buttons stay,
+           * floating over the start of the strip row; the plane runs from 8px
+           * in, and the strip leaves room for them. */}
+          {sidebarHidden && (
+            <div ref={leadingRef} className="absolute top-0 left-0 z-30">
+              {titleBar}
+            </div>
+          )}
           {isCompact && (
-            <div className="flex items-center gap-2 p-2">
+            <div className="flex shrink-0 items-center">
+              {titleBar}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setDrawerOpen(true)} aria-label={dict.shell.titleBar.openSidebar}>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setDrawerOpen(true)} aria-label={dict.shell.titleBar.openSidebar}>
                     <Menu className="size-4" />
                   </Button>
                 </TooltipTrigger>
@@ -722,7 +741,6 @@ function AppShell() {
               </Tooltip>
             </div>
           )}
-
           {tabsContent}
         </div>
       </div>
@@ -736,6 +754,7 @@ function AppShell() {
         sessionId={activeTab?.id ?? null}
         isRunning={activeTab?.isRunning ?? false}
         windowFocused={windowFocused}
+        connected={activeConnected}
         onOpenUpdateModal={() => setUpdateModalOpen(true)}
         backgroundActivity={backgroundActivity}
         onOpenBackgroundActivityItem={openBackgroundActivityItem}

@@ -59,6 +59,7 @@ export const REPORT_TOOL: RoomToolSpec = {
       status: { type: "string", enum: ["done", "failed", "blocked"], description: "done, failed, or blocked (you need something to continue)." },
       summary: { type: "string", description: `What happened, in at most ${ROOM_REPORT_SUMMARY_MAX} characters. Put long results in a file and list it in artifacts.` },
       artifacts: { type: "array", items: { type: "string" }, description: "Paths of the files (or branches) you produced." },
+      integrated: { type: "boolean", description: "True when the work of your worktree branch was already merged into its base (a squash or rebase merge included), so the relay may clean the worktree up." },
     },
     required: ["status", "summary"],
   },
@@ -83,11 +84,50 @@ export const APPROVE_TOOL: RoomToolSpec = {
   },
 };
 
+export const WORKTREE_CREATE_TOOL: RoomToolSpec = {
+  name: "worktree_create",
+  description:
+    "Create your own git worktree of a repository, on a new branch, so your changes do not collide with other agents' or the " +
+    "person's. Call it once per repository before you modify files in it, then work only inside the returned workdir. " +
+    "Commit your work there; the worktree is removed by the relay once its branch is merged.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      repo: { type: "string", description: "The repository: an absolute path, or one relative to your working folder. A folder inside it works too." },
+    },
+    required: ["repo"],
+  },
+};
+
 export function roomToolsFor(role: RoomRole): readonly RoomToolSpec[] {
-  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL];
+  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
 }
 
-export function principalInstructions(runtimes: readonly string[]): string {
+/** The room's context as the standing instructions show it: where the
+ * folder is and its index (see roomContextIndex.ts). */
+export interface RoomContextPrompt {
+  readonly dir: string;
+  readonly index: string;
+}
+
+/** The context goes last in the instructions, after text that is the same for
+ * every agent of a role, so agents born together share the longest prefix of
+ * their prompt (and the model's cache of it). Nothing that differs per agent
+ * may go before it. */
+function withContext(instructions: string, context: RoomContextPrompt | undefined, rules: string): string {
+  return context ? `${instructions}\n\n${rules}\n\n${context.index.trimEnd()}` : instructions;
+}
+
+export function principalInstructions(runtimes: readonly string[], context?: RoomContextPrompt): string {
+  return withContext(
+    principalBase(runtimes),
+    context,
+    "The room's shared context is a folder of files, listed in the index below. Tell each agent which of those files matter for its task " +
+      "(by name) instead of pasting their content into a task; agents read them on demand. Never edit the index: the relay keeps it.",
+  );
+}
+
+function principalBase(runtimes: readonly string[]): string {
   return (
     "You are the principal agent of an anywh room: the person talks to you, and you get work done by delegating it to other " +
     "agents. You do not do the work yourself — you can only read files (Read, Grep, Glob) and use the room's tools " +
@@ -99,13 +139,25 @@ export function principalInstructions(runtimes: readonly string[]): string {
   );
 }
 
-export function workerInstructions(): string {
+export function workerInstructions(context?: RoomContextPrompt): string {
+  return withContext(
+    workerBase(),
+    context,
+    `The room's shared context is a folder of files, listed in the index below; read what your task needs, on demand, rather than all of it. ` +
+      `Put a long result in that folder as result-<short-name>.md (pick the short name yourself) and list its path in report's artifacts. ` +
+      "Never edit INDEX.md: the relay keeps it. Files that arrive after you started are announced to you in a message.",
+  );
+}
+
+function workerBase(): string {
   return (
     "You are an agent of an anywh room, started by another agent to do one task: the first message you receive. Do the task " +
     `yourself. When you finish — or fail, or cannot go on without help — call report (server ${ROOM_MCP_SERVER_NAME}) once, ` +
     `with status done, failed or blocked, a summary of at most ${ROOM_REPORT_SUMMARY_MAX} characters, and the paths of the ` +
     "files you produced as artifacts; then end your turn. Later messages in this conversation come from whoever started you " +
-    "or from the person. Do not rely on background jobs that outlive your turn."
+    "or from the person. Do not rely on background jobs that outlive your turn. If your task changes files in a git repository, " +
+    "call worktree_create with that repository first and make every change, and commit, inside the workdir it returns; " +
+    "mention the branch in your report. Never remove a worktree or its branch yourself."
   );
 }
 
@@ -172,6 +224,7 @@ export interface ReportArgs {
   status: RoomReportStatus;
   summary: string;
   artifacts: string[];
+  integrated?: boolean;
 }
 
 export function parseReportArgs(raw: unknown): Parsed<ReportArgs> {
@@ -188,7 +241,8 @@ export function parseReportArgs(raw: unknown): Parsed<ReportArgs> {
     return { ok: false, error: "artifacts must be a list of paths." };
   }
   if (rawArtifacts.length > ROOM_REPORT_ARTIFACTS_MAX) return { ok: false, error: `at most ${ROOM_REPORT_ARTIFACTS_MAX} artifacts.` };
-  return { ok: true, value: { status, summary, artifacts: rawArtifacts as string[] } };
+  if (args.integrated !== undefined && typeof args.integrated !== "boolean") return { ok: false, error: "integrated must be true or false." };
+  return { ok: true, value: { status, summary, artifacts: rawArtifacts as string[], ...(args.integrated === true ? { integrated: true } : {}) } };
 }
 
 export interface MessageAgentArgs {
@@ -203,4 +257,9 @@ export function parseMessageAgentArgs(raw: unknown): Parsed<MessageAgentArgs> {
   const text = requiredString(args, "text", ROOM_TASK_MAX);
   if (!text.ok) return text;
   return { ok: true, value: { agentId: agentId.value, text: text.value } };
+}
+
+export function parseWorktreeCreateArgs(raw: unknown): Parsed<{ repo: string }> {
+  const repo = requiredString(isRecord(raw) ? raw : {}, "repo", 4096);
+  return repo.ok ? { ok: true, value: { repo: repo.value } } : repo;
 }

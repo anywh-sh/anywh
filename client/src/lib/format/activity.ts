@@ -3,9 +3,52 @@ import type { LogEntry, ToolCallEntry } from "@/hooks/relay/useMessageLog";
 
 type ActivityDict = Dictionary["chat"]["activity"];
 
-/** A row of the message log after grouping: either one entry as it is, or a
- * run of consecutive tool calls drawn as one summarized line. */
-export type TimelineItem = { kind: "single"; entry: LogEntry } | { kind: "group"; id: string; calls: ToolCallEntry[] };
+type ThinkingEntry = Extract<LogEntry, { kind: "thinking" }>;
+type TextEntry = Extract<LogEntry, { kind: "text" }>;
+
+/** What a target chip names; decides its icon and whether it is set in mono. */
+export type WorkTargetKind = "file" | "command" | "query" | "domain" | "app" | "other";
+
+/** One thing a step acted on, drawn as a chip. `full` is the untruncated
+ * text (the whole path, the whole command) for the chip's tooltip and for
+ * opening a file; `callId` is the call it came from. */
+export interface WorkTarget {
+  callId: string;
+  kind: WorkTargetKind;
+  label: string;
+  full: string;
+  diff?: { added: number; removed: number };
+}
+
+/** One line of a turn's timeline: a bit of reasoning, or a run of calls that
+ * did the same kind of thing (several reads in a row are one "Read"). */
+export type WorkStep = { kind: "think"; id: string; text: string; running: boolean } | { kind: "tool"; id: string; verb: VerbKey; calls: ToolCallEntry[]; running: boolean; failed: boolean };
+
+/** Everything the agent did in a turn before its final answer — reasoning,
+ * interim remarks and tool calls — as one block with one clock. */
+export interface WorkItem {
+  kind: "work";
+  /** The turn's first entry; stable while the block grows, so its open state
+   * and its place in the virtualized list survive. */
+  id: string;
+  steps: WorkStep[];
+  /** The turn is still going and this is its latest block. */
+  running: boolean;
+  /** The turn ended by a stop or an error, not by finishing. */
+  interrupted: boolean;
+  /** Calls that failed; a retry that worked does not take its failure back. */
+  failed: number;
+  startedAt?: number;
+  /** Set once the block stopped running and every timestamp is known. */
+  endedAt?: number;
+  /** Start to end of the block's own timestamps; else what the relay said the
+   * whole turn took (an older replay carries no timestamps). */
+  durationMs?: number;
+}
+
+/** A row of the message log after grouping: one entry as it is, or the work
+ * of a turn drawn as one block. */
+export type TimelineItem = { kind: "single"; entry: LogEntry } | WorkItem;
 
 /** Whether a call is part of the flowing activity, as opposed to a plan,
  * which keeps a card of its own (a checklist, not an action), or a delegated
@@ -36,38 +79,137 @@ function isTaskShown(call: ToolCallEntry, spawned: ReadonlySet<string>): boolean
   return call.toolUseId === undefined || !spawned.has(call.toolUseId);
 }
 
+interface TurnEnd {
+  closed: boolean;
+  interrupted: boolean;
+  durationMs?: number;
+}
+
+/** For each entry, how its turn ends after it: still open, finished, or cut
+ * short by a stop or an error — one backward pass, so grouping stays linear. */
+function turnEnds(entries: LogEntry[]): TurnEnd[] {
+  const ends: TurnEnd[] = new Array<TurnEnd>(entries.length);
+  let after: TurnEnd = { closed: false, interrupted: false };
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    ends[index] = after;
+    const entry = entries[index];
+    if (entry.kind === "turn-footer") after = { closed: true, interrupted: false, ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}) };
+    else if (entry.kind === "user") after = { closed: true, interrupted: false };
+    else if (entry.kind === "stopped" || entry.kind === "error") after = { ...after, closed: true, interrupted: true };
+  }
+  return ends;
+}
+
+type WorkSource = ThinkingEntry | ToolCallEntry | TextEntry;
+
+function buildSteps(sources: WorkSource[]): WorkStep[] {
+  const steps: WorkStep[] = [];
+  for (const source of sources) {
+    if (source.kind === "tool-call") {
+      const verb = verbKey(source);
+      const last = steps[steps.length - 1];
+      if (last?.kind === "tool" && last.verb === verb) {
+        last.calls.push(source);
+        last.running = last.running || !source.done;
+        last.failed = last.failed || (source.isError && !source.aborted);
+        continue;
+      }
+      steps.push({ kind: "tool", id: source.id, verb, calls: [source], running: !source.done, failed: source.isError && !source.aborted });
+      continue;
+    }
+    // Reasoning with nothing to say is not a step: the block's clock already
+    // counts its time, and a line that says nothing is noise on a timeline.
+    if (source.text.trim() === "") continue;
+    steps.push({ kind: "think", id: source.id, text: source.text.trim(), running: source.kind === "thinking" && source.running });
+  }
+  return steps;
+}
+
+function buildWork(sources: WorkSource[], end: TurnEnd): WorkItem {
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let open = false;
+  let failed = 0;
+  for (const source of sources) {
+    if (source.kind === "text") continue;
+    if (source.startedAt !== undefined) starts.push(source.startedAt);
+    if (source.endedAt !== undefined) ends.push(source.endedAt);
+    if (source.kind === "thinking" ? source.running : !source.done) open = true;
+    if (source.kind === "tool-call" && source.isError && !source.aborted) failed += 1;
+  }
+  const startedAt = starts.length > 0 ? Math.min(...starts) : undefined;
+  const endedAt = ends.length > 0 && !open ? Math.max(...ends) : undefined;
+  const measured = startedAt !== undefined && endedAt !== undefined ? Math.max(0, endedAt - startedAt) : undefined;
+  return {
+    kind: "work",
+    id: sources[0].id,
+    steps: buildSteps(sources),
+    running: !end.closed,
+    interrupted: end.interrupted,
+    failed,
+    ...(startedAt !== undefined ? { startedAt } : {}),
+    ...(endedAt !== undefined ? { endedAt } : {}),
+    ...(measured !== undefined ? { durationMs: measured } : end.durationMs !== undefined && end.closed ? { durationMs: end.durationMs } : {}),
+  };
+}
+
 /**
- * Groups the log for display. A group is the longest run of activity calls
- * with nothing between them — text, reasoning, an error or a note each end
- * it. A call that failed stays in its group (the group says how many did).
+ * Groups the log for display. The work of a turn — its reasoning, its tool
+ * calls, and any remark the agent made on the way ("let me read X first") —
+ * is one block; only the answer, the last text with nothing after it, stands
+ * outside. A text that more activity follows is a step, not the answer.
+ *
+ * A plan, a delegated task that is shown, an error, a stop or a note each end
+ * the block like any card does, so the turn reads in order around them.
  * Adjacency in the log, not turn boundaries, is the rule: it reads the same
  * live and on replay, without a concept the wire doesn't carry.
  *
  * `spawned` is the `toolUseId`s the CLI reported a subagent for. A task that
  * isn't shown (`isTaskShown`) is left out — it neither joins nor splits a
- * group; one that is shown ends the run like any card.
+ * block.
  */
 export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> = new Set()): TimelineItem[] {
+  const ends = turnEnds(entries);
   const items: TimelineItem[] = [];
-  let run: ToolCallEntry[] = [];
-  const flush = (): void => {
-    if (run.length > 0) items.push({ kind: "group", id: run[0].id, calls: run });
+  let run: WorkSource[] = [];
+  let runEnd: TurnEnd = { closed: false, interrupted: false };
+  // Texts wait here until the next entry says whether they were the answer:
+  // activity after them makes them steps of the block, anything else makes
+  // them stand on their own after it.
+  let held: TextEntry[] = [];
+  const settle = (): void => {
+    if (run.length > 0) items.push(buildWork(run, runEnd));
     run = [];
+    for (const entry of held) items.push({ kind: "single", entry });
+    held = [];
   };
-  for (const entry of entries) {
-    if (isTaskCall(entry) && !isTaskShown(entry, spawned)) continue;
-    if (isActivityCall(entry)) {
-      run.push(entry);
-      continue;
+  entries.forEach((entry, index) => {
+    if (isTaskCall(entry) && !isTaskShown(entry, spawned)) return;
+    if (entry.kind === "thinking" || isActivityCall(entry)) {
+      // Texts before the first activity of a block open it as steps too.
+      run.push(...held, entry);
+      held = [];
+      runEnd = ends[index];
+      return;
     }
-    flush();
+    if (entry.kind === "text") {
+      held.push(entry);
+      return;
+    }
+    settle();
     items.push({ kind: "single", entry });
-  }
-  flush();
-  return items;
+  });
+  settle();
+  // Only the latest block of an open turn is still running: an earlier one
+  // was left behind by a card, whatever the turn does next.
+  let latest = -1;
+  items.forEach((item, index) => {
+    if (item.kind === "work") latest = index;
+  });
+  return items.map((item, index) => (item.kind === "work" && item.running && index !== latest ? { ...item, running: false } : item));
 }
 
-type VerbKey = keyof ActivityDict["verbs"];
+export type VerbKey = keyof ActivityDict["verbs"];
 
 export function verbKey(call: ToolCallEntry): VerbKey {
   const subject = call.subject;
@@ -126,57 +268,44 @@ function fill(template: string, values: Record<string, string | number>): string
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? `{${key}}`));
 }
 
-export interface GroupStatus {
-  /** Calls in the group — what the header counts. */
-  count: number;
-  running: boolean;
-  /** Failed calls; one the user stopped is not a failure. */
-  failed: number;
-}
-
-/** What a group's header says: how many calls, whether any still runs, how
- * many failed. The header is a count, not a sentence — each row names its own
- * call, so a group of forty never grows a forty-clause line. */
-export function groupStatus(calls: ToolCallEntry[]): GroupStatus {
-  return {
-    count: calls.length,
-    running: calls.some((call) => !call.done),
-    failed: calls.filter((call) => call.isError && !call.aborted).length,
-  };
-}
-
-/** The group's total time once every call ended with timestamps: first start
- * to last end, so parallel calls are not double counted. Undefined while
- * anything is open or when a call has no timestamps (an older replay) — the
- * header then simply omits it instead of guessing. */
-export function groupDuration(calls: ToolCallEntry[]): number | undefined {
-  if (calls.length === 0) return undefined;
-  const starts: number[] = [];
-  const ends: number[] = [];
-  for (const call of calls) {
-    if (!call.done || call.startedAt === undefined || call.endedAt === undefined) return undefined;
-    starts.push(call.startedAt);
-    ends.push(call.endedAt);
-  }
-  return Math.max(...ends) - Math.min(...starts);
-}
-
 /** One call's own duration, when both of its timestamps are known. */
 export function callDuration(call: ToolCallEntry): number | undefined {
   return call.startedAt !== undefined && call.endedAt !== undefined ? Math.max(0, call.endedAt - call.startedAt) : undefined;
 }
 
-/** Whether the whole group is one parallel batch — the case where the
- * expanded list gets a batch header. */
-export function groupBatch(calls: ToolCallEntry[]): { count: number; durationMs?: number } | undefined {
-  if (calls.length < 2) return undefined;
-  const batchId = calls[0].batchId;
-  if (batchId === undefined || !calls.every((call) => call.batchId === batchId)) return undefined;
-  const starts = calls.map((call) => call.startedAt).filter((t): t is number => t !== undefined);
-  const ends = calls.map((call) => call.endedAt).filter((t): t is number => t !== undefined);
-  const complete = calls.every((call) => call.done && call.endedAt !== undefined);
-  const durationMs = complete && starts.length > 0 && ends.length > 0 ? Math.max(...ends) - Math.min(...starts) : undefined;
-  return { count: calls.length, ...(durationMs !== undefined ? { durationMs } : {}) };
+/** What a call acted on, as a chip: the file, command, search term, host or
+ * app, with `+a −r` for a change. A call that names nothing falls back to the
+ * tool's own name. */
+export function callTargetChip(call: ToolCallEntry): WorkTarget {
+  const subject = call.subject;
+  const diff = call.outcome?.kind === "diff" ? { added: call.outcome.added, removed: call.outcome.removed } : undefined;
+  const chip = (kind: WorkTargetKind, full: string, label: string): WorkTarget => ({ callId: call.id, kind, label, full, ...(diff ? { diff } : {}) });
+  if (!subject) return chip("other", call.name, call.name);
+  switch (subject.kind) {
+    case "read":
+    case "edit":
+    case "write":
+      return chip("file", subject.path, basename(subject.path));
+    case "shell":
+      return chip("command", subject.command, subject.command.split("\n")[0]);
+    case "search":
+      return chip("query", subject.pattern, subject.pattern);
+    case "web":
+      return subject.mode === "search" ? chip("query", subject.query, subject.query) : chip("domain", subject.url, hostOf(subject.url));
+    case "mcp":
+      return chip("app", `${subject.server}.${subject.tool}`, `${subject.server}.${subject.tool}`);
+    case "task":
+    case "other":
+      return chip("other", subject.kind === "other" ? subject.label : call.name, subject.kind === "other" ? subject.label : call.name);
+  }
+}
+
+/** The first line of a failed call's own message, for the step that failed —
+ * the rest is one click away on the call. Empty when it said nothing. */
+export function failureLine(call: ToolCallEntry): string {
+  if (!call.isError || call.aborted) return "";
+  const text = call.content ?? (call.outcome?.kind === "terminal" ? call.outcome.output : "");
+  return (text.split("\n").find((line) => line.trim() !== "") ?? "").trim();
 }
 
 export type MetaPart = { kind: "text"; text: string } | { kind: "diff"; added: number; removed: number } | { kind: "error"; text: string };

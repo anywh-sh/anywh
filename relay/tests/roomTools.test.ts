@@ -5,7 +5,8 @@
 // the message text (fake-claude-persistent.mjs).
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type WebSocket from "ws";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
@@ -21,7 +22,7 @@ const argvFile = (): string => join(host.dir, "argv.jsonl");
 before(async () => {
   const { dir, home } = hostEnvDir();
   host = startHostProcess(dir, home, { FAKE_CLAUDE_ARGV_FILE: join(dir, "argv.jsonl"), FAKE_CLAUDE_ENV_FILE: join(dir, "env.jsonl") });
-  relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath });
+  relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_WORKTREES_ROOT: join(dir, "worktrees") });
   base = `http://127.0.0.1:${relay.port}`;
   await waitFor(async () => (await fetch(`${base}/agents/activity`)).status === 200, 20_000, "relay connected to the host");
 });
@@ -237,7 +238,7 @@ test("the principal runs read-only with no native subagents; workers run with na
     const workerArgs = spawns.find((args) => flag(args, "--append-system-prompt")?.startsWith("You are an agent of an anywh room"));
     assert.ok(workerArgs, "a worker was spawned");
     assert.equal(flag(workerArgs, "--tools"), undefined, "a worker has every tool");
-    assert.equal(flag(workerArgs, "--allowedTools"), "mcp__anywh-room__report");
+    assert.equal(flag(workerArgs, "--allowedTools"), "mcp__anywh-room__report,mcp__anywh-room__worktree_create");
     assert.equal(flag(workerArgs, "--model"), "haiku");
     const workerEnv = envOf(agentId)!;
     assert.equal(workerEnv.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS, "5");
@@ -441,6 +442,56 @@ test("a turn that fails after its agent reported keeps that report, with the fai
     assert.match(kept.summary, /^counted 7 files \(The turn then failed: the agent's process exited/);
     assert.deepEqual(kept.artifacts, ["count.md"]);
     assert.equal(kept.synthetic, undefined);
+  } finally {
+    socket.close();
+  }
+});
+
+function git(cwd: string, ...args: string[]): string {
+  const r = spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main", ...args], { cwd, encoding: "utf8" });
+  assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+test("a worker creates its worktree through the room tool, and once its branch is merged the next turn's end removes worktree and branch", async () => {
+  const repo = join(host.dir, "repo-wt");
+  mkdirSync(repo, { recursive: true });
+  git(repo, "init", "-q");
+  writeFileSync(join(repo, "a.txt"), "a\n");
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "init");
+  const worktreesRoot = join(host.dir, "worktrees");
+
+  const roomId = await createRoom({ cwd: repo });
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const task = `change a file ${marker("worktree_create", { repo: "." })} ${marker("worktree_create", { repo: "/does/not/exist" })} ${marker("report", { status: "done", summary: "edited in my worktree", artifacts: [] })}`;
+    const { last } = await principalTurn(socket, `go ${marker("delegate", { task, runtime: "claude", model: "haiku" })}`);
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report !== undefined, 20_000, "the worker's report");
+
+    const branches = git(repo, "branch", "--format=%(refname:short)").split("\n");
+    const branch = branches.find((name) => name.startsWith("anywh/"));
+    assert.ok(branch, `a branch was created: ${branches.join(",")}`);
+    assert.equal(branches.filter((name) => name.startsWith("anywh/")).length, 1, "the failed call created nothing");
+    const listed = git(repo, "worktree", "list", "--porcelain");
+    assert.match(listed, new RegExp(`worktree ${worktreesRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`), "the worktree is under the configured folder");
+
+    // The agent's commit, not merged: the end of another turn keeps it.
+    const worktreePath = listed.split("\n").find((line) => line.startsWith(`worktree ${worktreesRoot}/`))!.slice("worktree ".length);
+    writeFileSync(join(worktreePath, "change.txt"), "work\n");
+    git(worktreePath, "add", "-A");
+    git(worktreePath, "commit", "-q", "-m", "work");
+    await principalTurn(socket, `ping ${marker("message_agent", { agentId, text: "anything else?" })}`);
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report?.summary === "The agent ended its turn without reporting.", 20_000, "the next turn to end");
+    assert.ok(git(repo, "branch", "--format=%(refname:short)").includes(branch), "unmerged work stays");
+
+    // Merged by the person: the end of the next turn cleans it.
+    git(repo, "merge", "-q", "--ff-only", branch);
+    await principalTurn(socket, `ping ${marker("message_agent", { agentId, text: "and now?" })}`);
+    await waitFor(() => !git(repo, "branch", "--format=%(refname:short)").includes(branch), 20_000, "the integrated branch to be removed");
+    assert.equal(git(repo, "worktree", "list", "--porcelain").split("\n").filter((line) => line.startsWith("worktree ")).length, 1);
+    assert.ok(!existsSync(worktreesRoot) || readdirSync(worktreesRoot).every((entry) => readdirSync(join(worktreesRoot, entry)).length === 0), "no directory left");
   } finally {
     socket.close();
   }

@@ -1,18 +1,19 @@
 /**
- * Per-group counterpart to `titleBarSlot.ts` — same reasoning, see that
- * file's comment for the full argument. The files/terminal toggle buttons
- * need `cwd`, which only each tab's own `ChatPanel` has (it arrives on that
- * tab's own socket) and which is deliberately not lifted into `App` — every
- * mounted tab reporting its folder on connect would re-render all of them.
+ * Each tab group's strip publishes the node its files/terminal toggle pair
+ * renders into, so the group's active conversation can portal the buttons in.
  *
- * This differs from `titleBarSlot` in one way: there is one title bar for
- * the whole app, but one strip (and so one toggle pair) per tab GROUP. A
- * split view can have several groups on screen at once, each with its own
- * active tab — so this is a slot per `groupId`, not a single one, and each
- * group's own active tab (not just the globally focused one) may claim its
- * group's slot. Switching the active tab inside a group hands that slot to
- * the new active tab's `ChatPanel` for free — the strip's own DOM node never
- * moves, only who portals into it changes.
+ * The toggles need `cwd`, which only each tab's own `ChatPanel` has (it
+ * arrives on that tab's own socket) and which is deliberately not lifted into
+ * `App` — every mounted tab reporting its folder on connect would re-render
+ * all of them. A portal target lets the panel that owns the value draw the
+ * buttons without it ever leaving the panel.
+ *
+ * There is one strip (and so one toggle pair) per tab GROUP, and a split view
+ * can have several groups on screen at once, each with its own active tab —
+ * so this is a slot per `groupId`, and each group's own active tab may claim
+ * its group's slot. Switching the active tab inside a group hands that slot
+ * to the new active tab's `ChatPanel` for free: the strip's own DOM node
+ * never moves, only who portals into it changes.
  */
 const slots = new Map<string, HTMLElement>();
 const listeners = new Map<string, Set<() => void>>();

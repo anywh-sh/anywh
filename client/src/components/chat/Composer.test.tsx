@@ -152,7 +152,7 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "switch" }));
 
     const paragraph = container.querySelector(".ProseMirror p");
-    expect(paragraph).toHaveAttribute("data-placeholder", ptBr.chat.composer.placeholder);
+    expect(paragraph).toHaveAttribute("data-placeholder", ptBr.chat.composer.placeholderTask);
   });
 
   // The picker used to be gated on `agentId === "claude"` — the catalog is
@@ -164,14 +164,14 @@ describe("Composer", () => {
         <Harness agentId="codex" modelCatalog={codexCatalog} />
       </LocaleProvider>,
     );
-    expect(screen.getByRole("button", { name: "GPT-5.5" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /GPT-5.5/ })).toBeInTheDocument();
 
     rerender(
       <LocaleProvider>
         <Harness agentId="codex" modelCatalog={null} />
       </LocaleProvider>,
     );
-    expect(screen.queryByRole("button", { name: "GPT-5.5" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /GPT-5.5/ })).not.toBeInTheDocument();
   });
 
   it("shows the context chip as a ring only, and send as an arrow-only button", () => {

@@ -1,3 +1,4 @@
+import type { AgentEvent } from "../protocol/agent-event.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
@@ -36,6 +37,10 @@ export interface SessionManagerRoomOptions {
   readonly onWorkerPrompted?: (sessionId: string, watched: boolean) => void;
   /** A member's turn started or ended. */
   readonly onMemberChanged?: (sessionId: string) => void;
+  /** A usage event of a member's turn. */
+  readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
+  /** See `SharedSessionOptions.roomTurnNote`. */
+  readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -390,6 +395,8 @@ export class SessionManager {
             hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}), onSubtasksChanged: () => this.rooms.onMemberChanged?.(id) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
             onTurnStateChange: () => this.rooms.onMemberChanged?.(id),
+            onUsage: (event: AgentEvent) => this.rooms.onUsage?.(id, event),
+            roomTurnNote: () => this.rooms.turnNote?.(id),
           }
         : {}),
       // Nobody types into a worker: no suggestion to generate after its turns.

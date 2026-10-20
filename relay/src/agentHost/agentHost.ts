@@ -212,6 +212,7 @@ function parseSpec(raw: unknown): ClaudeAgentSpec {
     // `""` is meaningful here (no built-in tool at all), unlike the others.
     tools: typeof spec.tools === "string" ? spec.tools : undefined,
     strictMcp: spec.strictMcp === true,
+    addDirs: Array.isArray(spec.addDirs) ? spec.addDirs.filter((dir): dir is string => typeof dir === "string" && dir.startsWith("/")) : undefined,
     permissionPromptTool: str(spec.permissionPromptTool),
     mcpConfigJson: str(spec.mcpConfigJson),
     agentWorker: spec.agentWorker !== false,

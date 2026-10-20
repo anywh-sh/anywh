@@ -44,6 +44,9 @@ export interface PersistentClaudeSpec {
   /** Inherits the user's MCP servers but not their plugins, skills or hooks
    * (agentWorker.ts). */
   readonly agentWorker: boolean;
+  /** `--add-dir`: folders outside the cwd the agent may use the file tools
+   * on without asking (a room's context folder). */
+  readonly addDirs?: readonly string[];
   /** Partial-message deltas on stdout. Default on. */
   readonly partialMessages?: boolean;
 }
@@ -66,6 +69,7 @@ export function buildPersistentArgs(spec: PersistentClaudeSpec, launch: Persiste
     "--verbose",
     ...(spec.partialMessages === false ? [] : ["--include-partial-messages"]),
     ...(spec.appendSystemPrompt ? ["--append-system-prompt", spec.appendSystemPrompt] : []),
+    ...(spec.addDirs ?? []).flatMap((dir) => ["--add-dir", dir]),
     ...(spec.model ? ["--model", spec.model] : []),
     ...(spec.effort ? ["--effort", spec.effort] : []),
     ...(mode === "bypassPermissions" ? ["--dangerously-skip-permissions"] : ["--permission-mode", mode]),

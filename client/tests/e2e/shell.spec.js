@@ -6,10 +6,15 @@
 // up. See client/tests/ui for the flows that need a relay.
 describe("anywh desktop shell", () => {
   it("renders the title bar controls", async () => {
-    for (const label of ["Menu", "Back", "Forward", "Search sessions"]) {
+    for (const label of ["Menu", "Collapse sidebar"]) {
       const control = await $(`[aria-label="${label}"]`);
       await control.waitForExist({ timeout: 15000 });
       await expect(control).toBeExisting();
+    }
+
+    // The history buttons were removed from the redesigned bar.
+    for (const label of ["Back", "Forward"]) {
+      await expect(await $(`[aria-label="${label}"]`)).not.toBeExisting();
     }
   });
 
@@ -40,20 +45,10 @@ describe("anywh desktop shell", () => {
     await browser.keys("Escape");
   });
 
-  it("renders the sidebar with the brand lockup, the profile filter and the profile switcher", async () => {
-    // Tag-agnostic XPath rather than WebdriverIO's `*=` partial-text
-    // selector: the bare `*=anywh.sh` form resolves to nothing under this
-    // WebKitGTK driver (returns false in ~17ms, no wait involved) even
-    // though the wordmark is right there in the DOM. A tag-qualified
-    // `span*=anywh.sh` also works, but pins the assertion to the element
-    // the lockup happens to render as today.
-    const lockup = await $('//*[contains(text(), "anywh.sh")]');
-    await lockup.waitForExist({ timeout: 15000 });
-    await expect(lockup).toBeExisting();
-
-    for (const label of ["Filter by profile", "New conversation", "Active profile"]) {
+  it("renders the sidebar with the profile switcher, search and the new-session row", async () => {
+    for (const label of ["Active profile", "Search", "New session"]) {
       const control = await $(`[aria-label="${label}"]`);
-      await control.waitForExist({ timeout: 5000 });
+      await control.waitForExist({ timeout: 15000 });
       await expect(control).toBeExisting();
     }
   });
@@ -69,10 +64,10 @@ describe("anywh desktop shell", () => {
     // the app.
     const expand = await $('[aria-label="Expand sidebar"]');
     await expand.waitForExist({ timeout: 5000 });
-    await expect(await $('[aria-label="New conversation"]')).not.toBeExisting();
+    await expect(await $('[aria-label="New session"]')).not.toBeExisting();
 
     await expand.click();
-    const restored = await $('[aria-label="New conversation"]');
+    const restored = await $('[aria-label="New session"]');
     await restored.waitForExist({ timeout: 5000 });
     await expect(restored).toBeExisting();
   });
