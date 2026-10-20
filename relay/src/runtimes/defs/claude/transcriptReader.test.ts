@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
+import { withRelayNote } from "../../../protocol/relayNote.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 
 function withFixture(sessionId: string, rawLines: string[], run: (home: string) => void): void {
@@ -297,6 +298,20 @@ test("an offered report is not collapsed when the model also used a tool or said
       assert.ok(events.every((e) => !isSilentEvent(e)));
       assert.ok(events.some((e) => e.type === "tool_started"));
       assert.ok(events.some((e) => e.type === "text" && String(e.text).startsWith("NO_REPLY, but")));
+    },
+  );
+});
+
+test("a relay note added to a prompt for the model does not show up in the rebuilt history", () => {
+  withFixture(
+    "s-note",
+    [
+      JSON.stringify({ type: "user", message: { content: withRelayNote("never mind", "the pending approval request was withdrawn") } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "ok" }] } }),
+    ],
+    (home) => {
+      const result = readHistoryFromTranscript(home, home, "s-note");
+      assert.deepEqual(result[1], { type: "agent_event", event: { type: "user_message", text: "never mind" } });
     },
   );
 });
