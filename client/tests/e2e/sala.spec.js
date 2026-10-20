@@ -15,7 +15,6 @@ import { askMarker, roomMarker, startRoomRelay } from "./fixtures/roomRelay.mjs"
 // the repo); otherwise the spec only takes them for the assertions that
 // need pixels, none today.
 const SHOTS = process.env.ANYWH_E2E_SCREENSHOTS;
-const STORAGE_KEYS = ["anywh:locale", "anywh:profiles", "anywh:tabs", "anywh:active-tab", "anywh:tab-layout", "anywh:session-list-cache"];
 
 async function shot(name) {
   if (!SHOTS) return;
@@ -103,7 +102,10 @@ describe("anywh room canvas", () => {
 
   before(async () => {
     stack = await startRoomRelay();
-    previous = await browser.execute((keys) => Object.fromEntries(keys.map((k) => [k, localStorage.getItem(k)])), STORAGE_KEYS);
+    // Every spec file shares the app's data dir, and what the app writes while
+    // it talks to this relay (the selected profile, tabs, model choices, the
+    // session list) must not be there for the next one: all of it is put back.
+    previous = await browser.execute(() => Object.fromEntries(Object.entries(localStorage)));
     await browser.setWindowSize(1440, 900);
     // The app talks to the relay started above.
     await browser.execute(
@@ -122,10 +124,8 @@ describe("anywh room canvas", () => {
   after(async () => {
     if (previous) {
       await browser.execute((saved) => {
-        for (const [key, value] of Object.entries(saved)) {
-          if (value === null) localStorage.removeItem(key);
-          else localStorage.setItem(key, value);
-        }
+        localStorage.clear();
+        for (const [key, value] of Object.entries(saved)) localStorage.setItem(key, value);
       }, previous);
     }
     await stack?.stop();
