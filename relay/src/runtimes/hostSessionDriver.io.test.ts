@@ -215,3 +215,14 @@ test("a member that may not run is never started: refused, stopped, without its 
     await assert.rejects(driver.sendTurn(ctx(dir, "after removal"), () => {}), /was removed/);
   });
 });
+
+test("Stop before the message reached the host: the turn ends stopped and nothing is started", async () => {
+  await withHost(async ({ dir, client }) => {
+    const driver = driverFor(client, "w11");
+    const pending = driver.sendTurn(ctx(dir, "never sent"), () => {});
+    assert.equal(driver.stop(), true);
+    assert.equal((await pending).stopped, true);
+    assert.equal(await agent(client, "w11"), undefined, "no agent was created");
+    driver.dispose();
+  });
+});
