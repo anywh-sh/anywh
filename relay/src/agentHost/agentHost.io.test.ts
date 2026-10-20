@@ -604,7 +604,7 @@ for (const order of ["remove first", "send first"] as const) {
       if (order === "remove first") {
         // Nothing may start for an agent being removed.
         assert.equal(sent.status, "rejected");
-        assert.match(String((sent as PromiseRejectedResult).reason), /no agent a1/);
+        assert.match(String((sent).reason), /no agent a1/);
       }
       await waitFor(() => !h.host.activity().some((agent) => agent.agentId === "a1"), 5000, "forgotten");
       const { findAgentProcesses } = await import("./processTree.js");
