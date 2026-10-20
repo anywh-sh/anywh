@@ -13,7 +13,7 @@
 // Rooms are the only sessions driven this way for now; ordinary sessions
 // still spawn their agent in the relay.
 import { defaultCwd } from "../host/paths.js";
-import { HostRequestError, START_OF_LOG, type AgentCursor, type HostClient, type HostSubscription } from "../agentHost/hostClient.js";
+import { HostRequestError, START_OF_LOG, type AgentCursor, type FileCursorStore, type HostClient, type HostSubscription } from "../agentHost/hostClient.js";
 import type { AgentActivity, EventMessage } from "../agentHost/protocol.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { ContextUsage } from "../session/sessionStore.js";
@@ -44,6 +44,9 @@ export interface HostAgentBinding {
   /** Why this agent may not run now (stopped, removed, its room gone), or
    * `undefined` when it may. Asked before anything is sent to the host. */
   readonly admit?: () => string | undefined;
+  /** Where the last record the relay processed of each agent's log is
+   * kept, so a relay that restarts picks a turn in flight up where it left. */
+  readonly cursors?: Pick<FileCursorStore, "get" | "set">;
 }
 
 export interface HostSessionDriverOptions {
@@ -264,6 +267,63 @@ export class HostSessionDriver implements AgentSessionDriver {
     }
   }
 
+  /**
+   * Follows a turn that was already running in the host when this relay
+   * started (or reconnected): reads the agent's log from the last record
+   * this relay processed (or from its end, if it never saw one) and maps it
+   * like a turn of its own, to its end. Resolves at once when the agent is
+   * not in a turn.
+   */
+  async followTurnInFlight(onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult> {
+    const client = this.options.binding.client;
+    if (!client || this.retired || this.turn) return { stopped: false };
+    let resolveTurn!: (result: DriverTurnResult) => void;
+    let rejectTurn!: (error: Error) => void;
+    const done = new Promise<DriverTurnResult>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
+    });
+    const turn: ActiveTurn = {
+      onEvent,
+      resolve: (result) => {
+        if (turn.settled) return;
+        turn.settled = true;
+        resolveTurn(result);
+      },
+      reject: (error) => {
+        if (turn.settled) return;
+        turn.settled = true;
+        rejectTurn(error);
+      },
+      started: true,
+      settled: false,
+      stopRequested: false,
+      memos: new Map(),
+    };
+    const onState = (agent: AgentActivity): void => {
+      this.onAgentState(turn, agent);
+      // Idle with no end of turn read: it ended in a gap this relay cannot
+      // replay. Given a moment for the record itself to arrive first.
+      if (agent.agentId === this.agentId && agent.alive && agent.state !== "working" && agent.state !== "starting") {
+        setTimeout(() => turn.resolve({ stopped: false, contextUsage: turn.contextUsage, lastAssistantText: turn.lastAssistantText }), 1000).unref();
+      }
+    };
+    client.on("agent_state", onState);
+    try {
+      const { agents } = await client.request<{ agents: AgentActivity[] }>("activity");
+      const agent = agents.find((candidate) => candidate.agentId === this.agentId);
+      if (!agent || (agent.state !== "working" && agent.state !== "starting")) return { stopped: false };
+      if (agent.sessionId && this.daemonPlan) this.sessionId = agent.sessionId;
+      this.turn = turn;
+      const saved = this.options.binding.cursors?.get(this.agentId);
+      this.subscribe(client, saved ?? { nextOffset: agent.nextOffset, lastSeq: -1 });
+      return await done;
+    } finally {
+      client.off("agent_state", onState);
+      if (this.turn === turn) this.turn = undefined;
+    }
+  }
+
   /** Room tools the agent's runtime refused to take are a failure the
    * person has to see as such: the room never swaps the agent for another
    * one behind their back. Codex takes them as dynamic tools, an
@@ -363,6 +423,7 @@ export class HostSessionDriver implements AgentSessionDriver {
   }
 
   private onRecord(record: EventMessage): void {
+    this.options.binding.cursors?.set(this.agentId, { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc });
     const event = record.ev;
     if (!this.daemonPlan && !this.resetPending && typeof event.session_id === "string") this.sessionId = event.session_id;
     if (!this.daemonPlan) this.subtasks.observe(event);

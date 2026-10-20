@@ -10,7 +10,7 @@ import { HostClient } from "../src/agentHost/hostClient.js";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay } from "./helpers/spawnedServer.js";
-import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionAndCollectUntil, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 const entry = (title: string, room?: unknown) => ({
   agentId: "claude",
@@ -124,7 +124,25 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
     await waitFor(async () => (await agents()).some((agent) => agent.agentId === workerId), "the new relay connected to the host");
     assert.equal((await agents()).find((agent) => agent.agentId === workerId)!.pid, pid, "the same worker process kept running");
 
+    // The new relay picked the worker's turn up: a device opening the worker
+    // sees it running, and sees it end, live.
+    const { socket: watcher, messages: burst } = await connectSessionAndCollectUntil(relay.port, workerId, (message) => message.type === "caught_up", 10_000);
+    const ended = collectUntil(watcher, isTurnEnded, 20_000);
+    await waitFor(async () => {
+      const room = (await (await fetch(`${base()}/rooms/${roomId}`)).json()) as { members: { id: string }[] };
+      return room.members.some((member) => member.id === workerId);
+    }, "room listed");
+    assert.ok(
+      burst.some((message) => message.type === "turn_state" && message.active === true),
+      `the turn in flight shows as running after the restart: ${JSON.stringify(burst.filter((message) => message.type === "turn_state"))}`,
+    );
     writeFileSync(gate, "");
+    const tail = await ended;
+    watcher.close();
+    assert.ok(
+      tail.some((message) => message.type === "agent_event" && (message.event as { type?: string; name?: string }).type === "tool_started" && (message.event as { name?: string }).name === "mcp__anywh-room__report"),
+      "the rest of the turn streamed live",
+    );
     await waitFor(async () => {
       const room = (await (await fetch(`${base()}/rooms/${roomId}`)).json()) as { members: { id: string; room: { report?: { summary: string }; undeliveredReports?: string[] } }[] };
       return room.members.find((member) => member.id === workerId)?.room.report?.summary === "finished after the restart";

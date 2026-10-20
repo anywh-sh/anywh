@@ -229,6 +229,8 @@ export interface SharedSessionOptions {
 /** How a turn ended, as `onTurnSettled` reports it. */
 export interface TurnOutcome {
   readonly startedAt: number;
+  /** The turn was already running when this relay started following it. */
+  readonly adopted?: boolean;
   readonly stopped: boolean;
   /** The failure's message, when the turn failed. */
   readonly error?: string;
@@ -1238,6 +1240,15 @@ export class SharedSession implements SessionDriverHost {
     this.discardedUpTo = this.enqueuedSeq;
   }
 
+  /** Follows a turn the agent was already running when this relay started
+   * (or reconnected to the agent host): shown to every client like any
+   * other turn, to its end. Messages sent meanwhile wait their turn behind
+   * it. A no-op while this session is busy with its own turns. */
+  followTurnInFlight(): void {
+    if (!this.driver.followTurnInFlight || this.isBusy()) return;
+    this.enqueue(() => this.runTurn(undefined, "", undefined, true));
+  }
+
   /** A turn is running, or one is waiting to. */
   isBusy(): boolean {
     return this.turnStartedAt !== null || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
@@ -1342,6 +1353,8 @@ export class SharedSession implements SessionDriverHost {
       /** Runs once the turn is over, with whether it was silenced. */
       onSettled?: (silenced: boolean) => void;
     },
+    /** Follow a turn already running in the agent host instead of sending one. */
+    follow = false,
   ): Promise<void> {
     this.options.onActivity?.();
 
@@ -1390,7 +1403,7 @@ export class SharedSession implements SessionDriverHost {
     // already committed the bubble locally optimistically (`ChatPanel`),
     // getting it back would duplicate it.
     let syntheticUserEvent: AgentEvent | undefined;
-    {
+    if (!follow) {
       const event: AgentEvent = synthetic
         ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}) }
         : { type: "user_message", text };
@@ -1402,7 +1415,7 @@ export class SharedSession implements SessionDriverHost {
       }
     }
 
-    if (!synthetic) {
+    if (!synthetic && !follow) {
       // Locks the folder at the exact moment of the first real turn — not
       // at the WS connection (which already happens before any message)
       // nor in `submitTurn` (avoids a race between two `submitTurn` calls
@@ -1491,7 +1504,8 @@ export class SharedSession implements SessionDriverHost {
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
       };
-      const { stopped, contextUsage, lastAssistantText } = await this.driver.sendTurn(ctx, onDriverEvent);
+      const { stopped, contextUsage, lastAssistantText } =
+        follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent) : await this.driver.sendTurn(ctx, onDriverEvent);
       turnStopped = stopped;
       planChoiceText = lastAssistantText;
       const sessionId = this.driver.getSessionId();
@@ -1534,7 +1548,7 @@ export class SharedSession implements SessionDriverHost {
       // synthetic turn (`synthetic`) never suggests: the "user text" that
       // would feed the generator is the follow-up's internal instruction,
       // not something that makes sense to offer as a real next message.
-      if (!stopped && !synthetic && this.options.suggestNextMessage !== false) {
+      if (!stopped && !synthetic && !follow && this.options.suggestNextMessage !== false) {
         generateSuggestion(this.def, this.homeOverride, this.cwd, text, lastAssistantText)
           .then((suggestion) => {
             this.suggestion = suggestion ?? null;
@@ -1569,7 +1583,7 @@ export class SharedSession implements SessionDriverHost {
       this.turnStartedAt = null;
       this.broadcastTurnState();
     }
-    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(turnError !== undefined ? { error: turnError } : {}) });
+    this.options.onTurnSettled?.({ startedAt: clock.startedAt, stopped: turnStopped, ...(follow ? { adopted: true } : {}), ...(turnError !== undefined ? { error: turnError } : {}) });
 
     // Plan mode's `present_choice` fallback: Claude's driver never
     // registers the MCP tool at all in that mode (`ClaudeSessionDriver.sendTurn`'s

@@ -64,7 +64,7 @@ export interface RoomManagerOptions {
   /** Ends an agent's process in the agent host (its session is kept). */
   readonly stopInHost?: (agentId: string) => Promise<void>;
   /** The agents the host has that belong to a room (ids and room ids). */
-  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string }[]>;
+  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string; state?: string }[]>;
   /** Removes an agent from the host. */
   readonly removeFromHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
@@ -240,7 +240,9 @@ export class RoomManager implements RoomToolHost {
     const room = this.store.getRoom(sessionId);
     if (!room || room.role !== "worker" || room.stopped) return;
     if (!outcome.stopped) {
-      const reportedThisTurn = room.report !== undefined && !room.report.synthetic && room.report.at >= outcome.startedAt;
+      // A followed turn began before this relay saw it: any report of the
+      // agent's own may be this turn's.
+      const reportedThisTurn = room.report !== undefined && !room.report.synthetic && (outcome.adopted === true || room.report.at >= outcome.startedAt);
       if (outcome.error !== undefined) {
         this.recordReport(sessionId, room, { status: "failed", summary: `The agent's turn failed: ${outcome.error}`.slice(0, ROOM_REPORT_SUMMARY_MAX), artifacts: [], synthetic: true });
       } else if (!reportedThisTurn) {
@@ -272,6 +274,7 @@ export class RoomManager implements RoomToolHost {
     if (!this.options.listHostRoomAgents || !this.options.removeFromHost) return [];
     const removed: string[] = [];
     const agents = await this.options.listHostRoomAgents();
+    this.followTurnsInFlight(agents);
     for (const agent of agents) {
       if (agent.roomId === undefined || this.store.getRoom(agent.agentId) !== undefined) continue;
       try {
@@ -283,6 +286,17 @@ export class RoomManager implements RoomToolHost {
     }
     if (removed.length > 0) console.log(`[relay] removed ${removed.length} agent(s) the rooms no longer have from the agent host`);
     return removed;
+  }
+
+  /** Picks up the turns room agents were running in the host while this
+   * relay was away, so their clients see them go on and they count as at
+   * work. */
+  followTurnsInFlight(agents: readonly { agentId: string; state?: string }[]): void {
+    for (const agent of agents) {
+      if (agent.state !== "working" && agent.state !== "starting") continue;
+      if (!this.store.getRoom(agent.agentId)) continue;
+      this.options.sessions.getOrCreate(agent.agentId).followTurnInFlight();
+    }
   }
 
   /** Delivers what was queued before a relay restart. */

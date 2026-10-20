@@ -9,7 +9,7 @@ import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
 import type { ModelCatalog, RoomAgentSetup } from "../runtimes/types.js";
-import type { HostClient } from "../agentHost/hostClient.js";
+import type { FileCursorStore, HostClient } from "../agentHost/hostClient.js";
 
 /** What a relay with rooms adds to its sessions. */
 export interface SessionManagerRoomOptions {
@@ -26,6 +26,8 @@ export interface SessionManagerRoomOptions {
   readonly admit?: (sessionId: string) => string | undefined;
   /** A member's turn ended. */
   readonly onTurnSettled?: (sessionId: string, outcome: TurnOutcome) => void;
+  /** Where each room agent's log was last read up to. */
+  readonly cursors?: Pick<FileCursorStore, "get" | "set">;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -354,7 +356,7 @@ export class SessionManager {
       def,
       ...(room
         ? {
-            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id) },
+            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
           }
         : {}),

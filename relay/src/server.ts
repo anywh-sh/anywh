@@ -11,7 +11,7 @@ import { detectRuntimes, parseCliVersion } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
 import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
-import { HostClient } from "./agentHost/hostClient.js";
+import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
 import { handleAgentRoutes } from "./routes/agents.js";
@@ -134,6 +134,9 @@ const sessionManager = new SessionManager(
     admit: (id): string | undefined => roomManager.admit(id),
     onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
     onRoomDeleted: (roomId) => roomCanvas.delete(roomId),
+    // How far each room agent's log was read: a turn in flight across a
+    // relay restart is picked up from there.
+    cursors: new FileCursorStore(process.env.RELAY_ROOM_CURSORS_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-cursors.json")),
   },
 );
 
