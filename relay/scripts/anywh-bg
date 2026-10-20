@@ -1,14 +1,13 @@
 #!/bin/bash
-# Helper pra deixar um comando rodando desacoplado do processo que o
-# iniciou (o turno `claude -p`, que morre ao fim do turno — docs/32) e
-# detectável depois por quem quer que seja: o relay faz polling do arquivo
-# `.exit` (nunca do PID sozinho — reuso de PID pelo SO mascararia um
-# `kill -0` continuando a "ver" alguém vivo ali) e, como rede de segurança
-# pro wrapper morto de fora sem gravar `.exit`, do batimento `.alive`
-# (journal/32 Fase G).
+# Helper to leave a command running detached from the process that started
+# it (the `claude -p` turn, which dies at the end of the turn) and detectable
+# afterwards by anyone: the relay polls the `.exit` file (never the PID
+# alone — OS PID reuse would mask a `kill -0` that keeps "seeing" someone
+# alive there) and, as a safety net for a wrapper killed from outside without
+# writing `.exit`, the `.alive` heartbeat.
 #
-# Uso:
-#   anywh-bg start --label "<descrição curta>" --cmd "<comando shell completo>"
+# Usage:
+#   anywh-bg start --label "<short description>" --cmd "<full shell command>"
 #   anywh-bg status <id>
 #   anywh-bg stop <id>
 #
@@ -18,69 +17,69 @@
 # follow-up turn for it. Killing the job by hand (`kill`/`pkill`) leaves no
 # such marker, so the relay reports it like any other finish.
 #
-# `--cmd` recebe UMA string (o comando inteiro, com `&&`/`|`/`;`/redirects
-# como o autor da chamada quiser) rodada via `bash -c`, nunca uma lista de
-# argv — testado contra o binário `claude` real (docs/32, Fase B): o modelo
-# naturalmente tenta passar comandos compostos (`sleep 8 && echo ok`) citando
-# os operadores pra eles sobreviverem até aqui; uma versão anterior deste
-# script recebia `-- <comando...>` como argv solto e rodava via `exec "$@"`
-# (sem shell nenhum) — `&&`/`|`/etc chegavam como texto literal e o comando
-# falhava silenciosamente (job "terminava" com exit code de erro sem
-# ninguém notar, porque o modelo já tinha respondido antes de checar).
+# `--cmd` takes ONE string (the whole command, with `&&`/`|`/`;`/redirects
+# as the caller likes) run via `bash -c`, never an argv list — tested against
+# the real `claude` binary: the model naturally tries to pass compound
+# commands (`sleep 8 && echo ok`) quoting the operators so they survive up to
+# here; an earlier version of this script took `-- <command...>` as loose
+# argv and ran it via `exec "$@"` (no shell at all) — `&&`/`|`/etc arrived as
+# literal text and the command failed silently (the job "finished" with an
+# error exit code and nobody noticed, because the model had already replied
+# before checking).
 set -euo pipefail
 
-JOBS_DIR="${HOME:?HOME precisa estar definido}/.anywh/bg-jobs"
+JOBS_DIR="${HOME:?HOME must be set}/.anywh/bg-jobs"
 
-# Corpo do processo que roda dentro do `setsid`, em variável só pra caber
-# comentado. Roda via `bash -c "$WRAPPER_BODY" _ "$cmd"`, com `EXITFILE` e
-# `ALIVEFILE` vindo do ambiente. Sem aspas simples aqui dentro — a string
-# inteira é single-quoted.
+# Body of the process that runs inside `setsid`, kept in a variable just so it
+# can carry comments. Runs via `bash -c "$WRAPPER_BODY" _ "$cmd"`, with
+# `EXITFILE` and `ALIVEFILE` coming from the environment. No single quotes in
+# here — the whole string is single-quoted.
 WRAPPER_BODY='
 write_exit() {
-  # tmp + mv, nunca "> $EXITFILE" direto: o redirect cria o arquivo VAZIO
-  # antes de o conteúdo chegar, e o relay pode ler exatamente nessa janela
-  # (um job que passou seria anunciado como falha, exit -1).
+  # tmp + mv, never a direct "> $EXITFILE": the redirect creates the file
+  # EMPTY before the content arrives, and the relay may read in exactly that
+  # window (a job that passed would be announced as a failure, exit -1).
   printf "%s\n" "$1" > "$EXITFILE.tmp" && mv -f "$EXITFILE.tmp" "$EXITFILE"
 }
 
-# Batimento (journal/32 Fase G): o relay usa a mtime deste arquivo pra
-# saber que o wrapper continua vivo, cobrindo o que o trap abaixo não
-# alcança (SIGKILL, OOM, reboot). O "kill -0" na condição do laço mata o
-# batimento junto do wrapper — sem isso um "pkill -9" que só casa a
-# cmdline do wrapper deixaria o batimento eterno e o job preso na UI.
+# Heartbeat: the relay uses this file mtime to know the wrapper is still
+# alive, covering what the trap below cannot reach (SIGKILL, OOM, reboot).
+# The "kill -0" in the loop condition kills the heartbeat together with the
+# wrapper — without it a "pkill -9" matching only the wrapper cmdline would
+# leave the heartbeat running forever and the job stuck in the UI.
 WRAPPER=$$
 while :; do
   sleep 5
-  # Checa ANTES de bater, não depois: invertido, o laço ainda gravava um
-  # batimento posterior à morte do wrapper (medido).
+  # Check BEFORE beating, not after: reversed, the loop still wrote a
+  # heartbeat after the wrapper had died (measured).
   kill -0 "$WRAPPER" 2>/dev/null || break
   : > "$ALIVEFILE"
 done &
 HEARTBEAT=$!
-
-# `eval "$1"` (não `"$1"` sozinho) — precisa reinterpretar a string como
-# código shell (&&, |, ;, redirects...), não executá-la como nome de
-# programa literal. Roda numa SUBSHELL própria: sem isso, um comando
-# terminando em `exit N` explícito (padrão comum) mata o wrapper inteiro
-# antes de gravar o `.exit` (achado real testando, journal/32). Em
-# BACKGROUND + `wait` (não em foreground) pra que os traps abaixo rodem na
-# hora do sinal — bash só executa trap entre comandos, e com o comando em
-# foreground o handler ficaria adiado até ele terminar sozinho. O
-# "trap - INT QUIT" desfaz o SIG_IGN que o bash põe em comando assíncrono
-# de shell não-interativo, senão o repasse de SIGINT viraria no-op.
+# `eval "$1"` (not a bare `"$1"`) — the string has to be re-interpreted as
+# shell code (&&, |, ;, redirects...), not executed as a literal program
+# name. It runs in its own SUBSHELL: without that, a command ending in an
+# explicit `exit N` (a common pattern) would kill the whole wrapper before
+# it writes `.exit` (found by testing it for real). In the BACKGROUND +
+# `wait` (not in the foreground) so the traps below fire as soon as the
+# signal arrives — bash only runs a trap between commands, and with the
+# command in the foreground the handler would be deferred until it finished
+# on its own. The "trap - INT QUIT" undoes the SIG_IGN that bash applies to
+# an async command in a non-interactive shell, otherwise forwarding SIGINT
+# would be a no-op.
 ( trap - INT QUIT; eval "$1" ) &
 CMD=$!
 
-# Repassa o sinal e deixa o fluxo normal gravar o `.exit`:
-# `pkill -f "next dev"` casa a cmdline do WRAPPER tambem (ela contem a
-# string do comando), e sem isto o wrapper morria antes do `echo $?` —
-# job vivo pra sempre na UI e notificação de término que nunca chega.
-# Sinaliza o GRUPO ("-$WRAPPER", que setsid fez valer PID=PGID=SID), não
-# só a subshell: um `kill <pid do wrapper>` sozinho deixaria a árvore real
-# (npm -> node ...) viva e ainda assim gravaria o `.exit`, ou seja,
-# reportaria "terminou" pra um job que continua rodando. O "trap ''" antes
-# do kill é obrigatório: o sinal do grupo volta pra nós, e sem ignorá-lo o
-# wrapper morre pelo próprio repasse, exatamente o que isto conserta.
+# Forward the signal and let the normal flow write `.exit`:
+# `pkill -f "next dev"` matches the WRAPPER cmdline too (it contains the
+# command string), and without this the wrapper died before the `echo $?` —
+# a job alive forever in the UI and a completion notice that never arrives.
+# It signals the GROUP ("-$WRAPPER", which setsid made PID=PGID=SID), not
+# just the subshell: a lone `kill <wrapper pid>` would leave the real tree
+# (npm -> node ...) alive and still write `.exit`, i.e. report "finished"
+# for a job that keeps running. The "trap ''" before the kill is mandatory:
+# the group signal comes back to us, and without ignoring it the wrapper
+# would die from its own forwarding, which is exactly what this fixes.
 forward() {
   trap "" TERM INT HUP
   kill -"$1" "-$WRAPPER" 2>/dev/null || true
@@ -98,9 +97,9 @@ trap "forward HUP" HUP
 # `.exit`. (The loop above only touches the file after its first sleep.)
 : > "$ALIVEFILE"
 
-# `wait` devolve 128+N quando um sinal com trap o interrompe, e nesse ponto
-# o comando pode continuar vivo (o trap só repassou o sinal) — daí o laço:
-# só sai quando o filho realmente terminou.
+# `wait` returns 128+N when a trapped signal interrupts it, and at that point
+# the command may still be alive (the trap only forwarded the signal) — hence
+# the loop: it only exits once the child has really finished.
 while :; do
   wait "$CMD"
   code=$?
@@ -135,13 +134,13 @@ cmd_start() {
         shift 2
         ;;
       *)
-        echo "uso: anywh-bg start --label \"<descrição>\" --cmd \"<comando shell completo>\"" >&2
+        echo "usage: anywh-bg start --label \"<description>\" --cmd \"<full shell command>\"" >&2
         exit 1
         ;;
     esac
   done
   if [[ -z "$cmd" ]]; then
-    echo "--cmd é obrigatório e não pode ser vazio" >&2
+    echo "--cmd is required and must not be empty" >&2
     exit 1
   fi
 
@@ -152,12 +151,12 @@ cmd_start() {
   exitfile="$JOBS_DIR/$id.exit"
   alivefile="$JOBS_DIR/$id.alive"
 
-  # `setsid` desacopla de sessão/grupo de processo (não recebe SIGINT do
-  # `stop()` do relay, que só sinaliza o PID direto do `claude -p` — nunca
-  # um grupo). `< /dev/null` evita segurar stdin aberto. `pid` é só
-  # informativo pro usuário/modelo e pro `cancel` do relay — a detecção de
-  # término nunca depende dele (reuso de PID pelo SO mascararia um job
-  # morto como vivo): é o `.exit`, e o `.alive` como rede de segurança.
+  # `setsid` detaches from the session/process group (it does not receive the
+  # SIGINT from the relay `stop()`, which only signals the direct PID of
+  # `claude -p` — never a group). `< /dev/null` avoids holding stdin open.
+  # `pid` is informational only, for the user/model and the relay `cancel` —
+  # completion detection never depends on it (OS PID reuse would mask a dead
+  # job as alive): it is the `.exit`, and the `.alive` as a safety net.
   EXITFILE="$exitfile" ALIVEFILE="$alivefile" setsid bash -c "$WRAPPER_BODY" _ "$cmd" \
     < /dev/null > "$log" 2>&1 &
   local pid=$!
@@ -305,7 +304,7 @@ case "${1:-}" in
     cmd_stop "$@"
     ;;
   *)
-    echo "uso: anywh-bg start --label \"<descrição>\" --cmd \"<comando shell completo>\"" >&2
+    echo "usage: anywh-bg start --label \"<description>\" --cmd \"<full shell command>\"" >&2
     echo "     anywh-bg status <id>" >&2
     echo "     anywh-bg stop <id>" >&2
     exit 1

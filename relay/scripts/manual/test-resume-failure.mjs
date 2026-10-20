@@ -1,11 +1,12 @@
-// Testa o caso real que quebrou pro usuário: um --resume de session_id
-// inválido deve virar um erro claro (não silêncio) E resetar o sessionId
-// interno pra próxima tentativa começar do zero em vez de repetir o erro.
+// Tests the real case that broke for a user: a --resume with an invalid
+// session_id must become a clear error (not silence) AND reset the internal
+// sessionId so the next attempt starts from scratch instead of repeating the
+// error.
 import { ClaudeSession } from "../../dist/runtimes/defs/claude/session.js";
 
 const session = new ClaudeSession();
-// Força um session_id inválido, simulando o que aconteceu de verdade
-// (sessão órfã depois da troca de cópia por symlink das credenciais).
+// Forces an invalid session_id, simulating what really happened (an orphan
+// session after the credentials switched from a copy to a symlink).
 session["sessionId"] = "00000000-0000-0000-0000-000000000000";
 
 let threw = false;
@@ -18,14 +19,14 @@ try {
 }
 
 console.log("--- resultado ---");
-console.log("lançou erro:", threw);
+console.log("threw an error:", threw);
 console.log("mensagem:", errorMessage);
 console.log("sessionId resetado:", session["sessionId"] === undefined);
 
-console.log("\n--- tentativa seguinte deve funcionar (sessão nova) ---");
+console.log("\n--- next attempt should work (new session) ---");
 let secondOk = false;
 await session.sendTurn("responda apenas: OK", (event) => {
   if (event.type === "result" && !event.is_error) secondOk = true;
 });
 console.log("segunda tentativa funcionou:", secondOk);
-console.log("novo sessionId válido:", typeof session["sessionId"] === "string");
+console.log("new sessionId valid:", typeof session["sessionId"] === "string");

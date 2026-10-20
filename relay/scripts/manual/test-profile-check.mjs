@@ -19,7 +19,7 @@ socket.on("open", () => {
 socket.on("message", (raw) => {
   const msg = JSON.parse(raw.toString());
   if (msg.type === "cwd_state") {
-    console.log(`[${label}] cwd da sessão:`, msg.cwd);
+    console.log(`[${label}] session cwd:`, msg.cwd);
   }
   if (msg.type === "agent_event" && msg.event.type === "turn_ended") {
     process.exit(0);
