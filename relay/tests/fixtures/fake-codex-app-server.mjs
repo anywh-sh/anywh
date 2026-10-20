@@ -25,7 +25,8 @@
 // as one JSON line. FAKE_CODEX_NO_DYNAMIC_TOOLS=1 (or a thread whose cwd
 // contains "without-dynamic-tools") makes `thread/start` refuse
 // `dynamicTools` the way a Codex without the experimental API would; a cwd
-// containing "thread-start-fails" makes it refuse any thread (not logged in).
+// containing "thread-start-fails" makes it refuse any thread (not logged in),
+// one containing "slow-thread" answers `thread/start` 400 ms late.
 import { appendFileSync, writeFileSync } from "node:fs";
 
 if (process.argv[2] === "--version") {
@@ -122,7 +123,10 @@ process.stdin.on("data", (chunk) => {
         }
         threads++;
         threadTools.set(`thr-${threads}`, (message.params?.dynamicTools ?? []).map((tool) => tool.name));
-        send({ id: message.id, result: { thread: { id: `thr-${threads}` }, model: "gpt-fake" } });
+        const answer = { id: message.id, result: { thread: { id: `thr-${threads}` }, model: "gpt-fake" } };
+        // A thread that takes a while to start (a cold app-server).
+        if (/slow-thread/.test(message.params?.cwd ?? "")) setTimeout(() => send(answer), 400);
+        else send(answer);
         break;
       }
       case "thread/resume": {

@@ -123,6 +123,10 @@ interface Agent {
   codexInterruptPending?: boolean;
   /** Codex only: the id of the last turn whose `turn/completed` was read. */
   lastCodexTurnCompleted?: string;
+  /** How many times the agent was stopped. A message waiting in the agent's
+   * queue compares it with the count when it arrived: one stopped since
+   * then is not sent (the stop came after it, and wins). */
+  stops?: number;
   /** The sweep of what a crashed process left behind; a new process for
    * this agent must not start before it ends (it matches by agent id). */
   pendingSweep?: Promise<unknown>;
@@ -425,6 +429,11 @@ export class AgentHost {
     if (agent.logError) throw new HostError("log_error", `agent ${agent.agentId} cannot run: its log failed (${agent.logError})`);
   }
 
+  /** Refuses a message that arrived before a stop that has happened since. */
+  private refuseStoppedSince(agent: Agent, stops: number): void {
+    if ((agent.stops ?? 0) !== stops) throw new HostError("stopped", `agent ${agent.agentId} was stopped after this message arrived; it was not sent`);
+  }
+
   private refuseWhileDraining(): void {
     if (this.draining) throw new HostError("draining", "the agent host is shutting down");
   }
@@ -483,7 +492,9 @@ export class AgentHost {
     }
     const message = str(params.message);
     if (message) {
-      if (runtime === "codex") await this.sendCodex(agent, message);
+      // Stopped while it was starting: the message it came with is not sent.
+      this.refuseStoppedSince(agent, 0);
+      if (runtime === "codex") await this.sendCodex(agent, message, 0);
       else this.write(agent, message);
     }
     return this.describe(agent);
@@ -492,15 +503,18 @@ export class AgentHost {
   private async send(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
     if (!text) throw new HostError("empty_message", "message is empty");
     this.refuseBrokenLog(agent);
-    if (agent.runtime === "codex") return this.sendCodex(agent, text);
+    const stops = agent.stops ?? 0;
+    if (agent.runtime === "codex") return this.sendCodex(agent, text, stops);
     let resumed = false;
     await this.serialize(agent, async () => {
       this.refuseRemoved(agent);
+      this.refuseStoppedSince(agent, stops);
       if (!agent.proc || agent.proc.hasExited) {
         resumed = agent.sessionId !== undefined;
         await this.startProcess(agent);
       }
     });
+    this.refuseStoppedSince(agent, stops);
     return { duringTurn: this.write(agent, text), resumed };
   }
 
@@ -565,6 +579,7 @@ export class AgentHost {
   }
 
   private async stop(agent: Agent): Promise<AgentActivity> {
+    agent.stops = (agent.stops ?? 0) + 1;
     if (agent.runtime === "codex") this.interrupt(agent);
     await this.serialize(agent, async () => {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "stop");
@@ -827,17 +842,19 @@ export class AgentHost {
     this.persist();
   }
 
-  private async sendCodex(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
+  private async sendCodex(agent: Agent, text: string, stops: number): Promise<{ duringTurn: boolean; resumed: boolean }> {
     // Checked and claimed inside the agent's queue: two messages racing
     // between turns must not both pass the check and start two turns on one
     // thread.
     return this.serialize(agent, async () => {
       this.refuseRemoved(agent);
+      this.refuseStoppedSince(agent, stops);
       if (agent.turnInFlight) throw new HostError("turn_in_flight", "a Codex agent takes a new message only between turns");
       const resumed = agent.lifecycle !== "alive" && agent.sessionId !== undefined;
       if (!agent.sessionId) await this.startCodexThread(agent);
       else if (agent.lifecycle !== "alive") await this.makeRoomFor(agent);
       this.refuseRemoved(agent);
+      this.refuseStoppedSince(agent, stops);
       this.record(agent, { type: "host_user_message", text, duringTurn: false });
       agent.awaitingUser = false;
       agent.turnInFlight = true;

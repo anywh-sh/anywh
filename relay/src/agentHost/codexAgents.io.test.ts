@@ -265,3 +265,26 @@ test("a Stop sent before Codex has named the turn still interrupts it once it ha
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a Codex agent stopped while its thread is still starting never starts the turn it was spawned with", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-slow-thread-"));
+  const requests = join(dir, "requests.jsonl");
+  const { host, client } = await start(dir, `codex-stopspawn-${process.pid}`, { FAKE_CODEX_REQUESTS: requests });
+  try {
+    const spawning = client.request("spawn", { agentId: "z1", runtime: "codex", spec: { cwd: dir }, message: "must not run" });
+    await waitFor(() => existsSync(requests) && readFileSync(requests, "utf8").includes("thread/start"), 5000, "thread starting");
+    await client.request("stop", { agentId: "z1" });
+    await assert.rejects(spawning, /stopped/);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(readFileSync(requests, "utf8").includes("turn/start"), false, "no turn was started");
+    assert.equal((await activity(client, "z1")).state, "stopped");
+    // A message sent after the stop is a new decision and runs.
+    await client.request("send", { agentId: "z1", message: "now yes" });
+    const events = watch(client, "z1");
+    await waitFor(() => completed(events).length === 1, 5000, "the later turn");
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
