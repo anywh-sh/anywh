@@ -28,6 +28,11 @@ function overlaps(a: Rect, b: Rect, gap = GAP): boolean {
   return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
 }
 
+/** How far under its parent the run across to the children is drawn when
+ * there is room: close to the parent, so it stays clear of the area labels
+ * that sit just above the children's frames. */
+const BUS_DROP = 24;
+
 /** The elbow that joins a parent's bottom edge to a child's top edge: down,
  * across, down — or around the side when the child is not below the parent. */
 export function edgePath(p: Rect, c: Rect): string {
@@ -37,7 +42,7 @@ export function edgePath(p: Rect, c: Rect): string {
   const x2 = r(c.x + c.w / 2);
   const y2 = r(c.y);
   if (y2 - y1 >= 28) {
-    const ym = r(y1 + (y2 - y1) / 2);
+    const ym = r(y2 - y1 >= 72 ? y1 + BUS_DROP : y1 + (y2 - y1) / 2);
     return `M${String(x1)} ${String(y1)}V${String(ym)}H${String(x2)}V${String(y2)}`;
   }
   const ya = r(y1 + 14);
@@ -485,3 +490,29 @@ export function subtreeIds(agents: readonly RoomAgent[], id: string): string[] {
 }
 
 export { GRID };
+
+/** Roughly how wide an area's label is at 100%: its name, its counts and the
+ * remove button. The bar is drawn at a constant size on screen, so this is
+ * only used to choose where along the frame it can sit. */
+export function labelWidthEstimate(name: string, meta: string): number {
+  return Math.max(48, name.length * 9) + (meta === "" ? 0 : meta.length * 6.6 + 8) + 28;
+}
+
+/**
+ * Where an area's label sits so that no link drawn down into the frame goes
+ * through it: `linkXs` are where those links enter (distance from the frame's
+ * left edge). The label takes the first gap between links that is wide enough
+ * for `width`; when none is, the widest one, and the label is cut short of the
+ * next link. All in world units.
+ */
+export function labelSlot(linkXs: readonly number[], frameWidth: number, width: number): { left: number; room: number } {
+  const edge = 8;
+  const xs = [...linkXs].sort((a, b) => a - b);
+  const bounds = [0, ...xs, frameWidth];
+  const slots = bounds.slice(0, -1).map((start, i) => {
+    const from = i === 0 ? 0 : start + edge;
+    const to = (i === bounds.length - 2 ? frameWidth : bounds[i + 1]) - (i === bounds.length - 2 ? 0 : edge);
+    return { left: from, room: Math.max(0, to - from) };
+  });
+  return slots.find((slot) => slot.room >= width) ?? slots.reduce((best, slot) => (slot.room > best.room ? slot : best));
+}
