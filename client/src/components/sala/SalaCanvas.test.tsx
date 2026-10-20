@@ -7,7 +7,7 @@ import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
 afterEach(cleanup);
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
-  return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: "haiku", createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, ...over };
+  return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: "haiku", createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [], ...over };
 }
 
 const agents = [agent("main", { role: "principal", parentId: undefined }), agent("a"), agent("b")];

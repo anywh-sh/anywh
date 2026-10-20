@@ -8,11 +8,14 @@ import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RoomGlyph } from "@/components/sala/SalaIcons";
+import type { RoomStatus } from "@/lib/sala/roomStatus";
 
 interface SessionListItemProps {
   session: MergedSession;
   selected: boolean;
   running: boolean;
+  /** How a room's agents are doing, for a room row (`undefined` while unknown). */
+  roomStatus?: RoomStatus;
   /** `anywh-bg` job currently observed on this session
    * — same limitation as `running`: only sessions open as a tab have this
    * information (no tab = no live WS connection to know it). */
@@ -32,7 +35,8 @@ interface SessionListItemProps {
 export const SessionListItem = memo(function SessionListItem({
   session,
   selected,
-  running,
+  running: turnRunning,
+  roomStatus,
   hasBackgroundJob,
   onSelect,
   onRename,
@@ -42,6 +46,8 @@ export const SessionListItem = memo(function SessionListItem({
   const dict = useDict();
   const { locale } = useLocale();
   const menu = useContextMenu();
+  const running = turnRunning || (roomStatus?.working ?? 0) > 0;
+  const waiting = (roomStatus?.needsYou ?? 0) > 0;
   const indicatorLabel = running ? dict.shell.sidebar.agentWorking : dict.shell.sidebar.backgroundJob;
   // A relay too old to report when the session was last used leaves the row
   // without a time rather than with a made-up one — the meta line is then
@@ -78,7 +84,9 @@ export const SessionListItem = memo(function SessionListItem({
          * gets its own glyph, a pulsing terminal icon, since that is
          * literally what `anywh-bg` runs. */}
         <span className="flex size-3 shrink-0 items-center justify-center">
-          {running ? (
+          {waiting ? (
+            <span aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus?.needsYou))} className="size-2 shrink-0 rounded-full bg-primary" />
+          ) : running ? (
             <span
               aria-label={indicatorLabel}
               className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
@@ -100,14 +108,22 @@ export const SessionListItem = memo(function SessionListItem({
         >
           {session.title}
         </span>
-        {lastActive !== null && (
+        {roomStatus && (roomStatus.needsYou > 0 || roomStatus.failed > 0) ? (
+          <span
+            title={(roomStatus.needsYou > 0 ? dict.shell.sidebar.roomNeedsYou : dict.shell.sidebar.roomFailed).replace("{count}", String(roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed))}
+            className="shrink-0 font-mono text-[length:calc(11.5px*var(--chrome-scale))] text-primary-ink"
+          >
+            {roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed}
+          </span>
+        ) : (
+          lastActive !== null && (
           <span
             title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
             className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
           >
             {lastActive}
           </span>
-        )}
+        ))}
       </button>
       <SessionDeleteMenu menu={menu} title={session.title} onRename={() => onRename(session)} onDelete={() => onDelete(session)} />
     </div>

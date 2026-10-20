@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { parseRoomChannelMessage, type RoomAgent, type RoomSummary } from "@/lib/relay/roomClient";
 import { trackStateSince } from "@/lib/sala/agentCard";
+import { forgetRoomStatus, publishRoomStatus, roomStatusOf } from "@/lib/sala/roomStatus";
 import type { RoomAgentState } from "@/lib/relay/roomClient";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -114,6 +115,14 @@ export function useRoomChannel(profile: Profile, roomId: string): RoomChannelSta
     // connects; what matters is the room and the profile's identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile.id, roomId]);
+
+  // The rest of the shell (sidebar, tabs, status bar) reads this room's
+  // totals from a small store; whoever watches the room feeds it.
+  const status = useMemo(() => (state.status === "connecting" ? undefined : roomStatusOf(state.agents)), [state.status, state.agents]);
+  useEffect(() => {
+    if (state.status === "gone") forgetRoomStatus(roomId);
+    else if (status) publishRoomStatus(roomId, status);
+  }, [roomId, state.status, status]);
 
   return state;
 }

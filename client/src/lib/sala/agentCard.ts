@@ -72,24 +72,31 @@ export function cardActivity(agent: RoomAgent, workers: number, liveWorkers = 0)
 }
 
 /** What the time under the card counts from, and the words for it. */
-export type CardClock = { kind: "running" | "waiting" | "done" | "failed" | "blocked" | "stopped" | "starting" | "none"; since: number };
+export type CardClock = {
+  kind: "running" | "waiting" | "done" | "failed" | "blocked" | "stopped" | "starting" | "none";
+  since: number;
+  /** For a finished agent whose start the relay knows: how long it ran, a
+   * fixed span rather than a count from `since`. */
+  took?: number;
+};
 
 /**
  * The instant a card's clock counts from, when it is knowable: a question's
  * own `askedAt`, a report's arrival, or else when this screen first saw the
- * agent in its state (`observedSince`). The channel carries no start time
- * for a turn, so "running for" is the time this screen has watched it run.
+ * agent in its state (`observedSince`). A running agent counts from the
+ * relay's `startedAt` when it sent one, and a finished one shows how long it ran.
  */
 export function cardClock(agent: RoomAgent, observedSince: number, liveWorkers = 0): CardClock {
   const status = cardStatus(agent, liveWorkers);
   const needs = agent.needsYou[0];
   if (status.tone === "wait") return { kind: "waiting", since: needs?.askedAt ?? observedSince };
-  if (status.tone === "run") return { kind: "running", since: observedSince };
+  if (status.tone === "run") return { kind: "running", since: agent.startedAt ?? observedSince };
   if (status.tone === "start") return { kind: "starting", since: observedSince };
   if (status.tone === "idle") return { kind: "none", since: observedSince };
   if (status.tone === "stop") return { kind: "stopped", since: observedSince };
   const kind = status.tone === "done" ? "done" : status.tone === "fail" ? "failed" : "blocked";
-  return { kind, since: agent.report?.at ?? observedSince };
+  const at = agent.report?.at ?? observedSince;
+  return { kind, since: at, ...(agent.startedAt !== undefined && agent.report && agent.report.at >= agent.startedAt ? { took: agent.report.at - agent.startedAt } : {}) };
 }
 
 /** `m:ss`, or `h:mm:ss` from an hour on. */

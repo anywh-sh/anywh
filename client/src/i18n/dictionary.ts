@@ -966,6 +966,8 @@ export interface Dictionary {
         /** `{count}` — appended after `running`/`none` with " · " between
          * them, only when at least one item failed. */
         failedSuffix: string;
+        /** Rooms' agents waiting for the person; takes `{count}`. */
+        needYou: string;
         /** Panel header label, the dropdown's own label row. */
         heading: string;
         /** Empty-state title, once every job is gone or dismissed. */
@@ -1037,8 +1039,15 @@ export interface Dictionary {
        * `window.alert`, which is unreliable in these webviews. */
       renameFailed: string;
       deleteFailed: string;
-      /** The one heading of the desktop sidebar list: the latest sessions. */
+      /** Headings of the desktop sidebar list: what waits for the person,
+       * what runs, then the latest sessions. */
+      needsYou: string;
+      running: string;
       recent: string;
+      /** A room row's tooltips; each takes `{count}`. */
+      roomNeedsYou: string;
+      roomWorking: string;
+      roomFailed: string;
       groups: {
         today: string;
         yesterday: string;
@@ -1312,6 +1321,10 @@ export interface Dictionary {
         blocked: string;
         stopped: string;
         starting: string;
+        /** Same, when the relay knows how long the agent ran. */
+        doneTook: string;
+        failedTook: string;
+        blockedTook: string;
       };
       /** The bar over a selected card. */
       actions: {

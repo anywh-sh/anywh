@@ -20,6 +20,7 @@ import { APP_VERSION } from "@/lib/install/appVersion";
 import { getGitStatus } from "@/lib/relay/gitClient";
 import { formatDurationLong, cn } from "@/lib/utils";
 import { findProfile, type Profile } from "@/lib/profiles/profiles";
+import { totalRoomStatuses, useRoomStatuses } from "@/lib/sala/roomStatus";
 
 interface StatusBarProps {
   /** The focused tab's profile — `null` with no tab open at all. */
@@ -47,6 +48,9 @@ interface StatusBarProps {
   /** Footer "parar tudo". */
   onStopAllBackgroundActivity: () => void;
 }
+
+/** The status bar's room figures: every room's agents folded into the same
+ * "running / need you / failed" line as the background activity. */
 
 /** What the left half renders when there is anything to render. A folder
  * outside a repository, an unreachable machine and a host without git all
@@ -223,10 +227,12 @@ export function StatusBar({
   const [activityOpen, setActivityOpen] = useState(false);
   const activityTriggerRef = useRef<HTMLButtonElement>(null);
   const activityStrings = dict.shell.statusBar.backgroundActivity;
-  const runCount = backgroundActivity.filter((item) => item.status === "run").length;
-  const failCount = backgroundActivity.filter((item) => item.status === "fail").length;
+  const rooms = totalRoomStatuses(useRoomStatuses().values());
+  const runCount = backgroundActivity.filter((item) => item.status === "run").length + rooms.working;
+  const failCount = backgroundActivity.filter((item) => item.status === "fail").length + rooms.failed;
   const activitySummary =
     (runCount > 0 ? activityStrings.running.replace("{count}", String(runCount)) : activityStrings.none) +
+    (rooms.needsYou > 0 ? ` · ${activityStrings.needYou.replace("{count}", String(rooms.needsYou))}` : "") +
     (failCount > 0 ? ` · ${activityStrings.failedSuffix.replace("{count}", String(failCount))}` : "");
 
   const [repo, setRepo] = useState<RepoState>(null);
@@ -305,6 +311,7 @@ export function StatusBar({
               <span className="size-2 shrink-0 rounded-full border border-text-faint" />
             )}
             <span className="whitespace-nowrap">{activitySummary}</span>
+            {rooms.needsYou > 0 && <span className="size-[5px] shrink-0 rounded-full bg-primary" aria-hidden="true" />}
             {failCount > 0 && <span className="size-[5px] shrink-0 bg-destructive" aria-hidden="true" />}
             <span className="text-[8px] opacity-60">{activityOpen ? "▾" : "▴"}</span>
           </button>

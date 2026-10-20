@@ -9,9 +9,11 @@ import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/profiles/profiles";
 import { recentSessions, type MergedSession } from "@/lib/format/sessionGrouping";
+import { groupByState } from "@/lib/format/sessionStateGroups";
+import { useRoomStatuses } from "@/lib/sala/roomStatus";
 
-/** The sidebar has one list for now; the id keeps room for the state groups. */
-type HeadingId = "recent";
+/** The sidebar groups: what waits for the person, what runs, then the rest. */
+type HeadingId = "needsYou" | "running" | "recent";
 
 /** The grouped list flattened into one row stream, which is what a
  * virtualizer can index into — headings included, so a heading scrolls with
@@ -74,10 +76,16 @@ export function SessionList({
   size = "default",
 }: SessionListProps) {
   const dict = useDict();
+  const roomStatuses = useRoomStatuses();
   const groups = useMemo(() => {
-    const recent = recentSessions(sessions);
-    return recent.length > 0 ? [{ id: "recent" as const, sessions: recent }] : [];
-  }, [sessions]);
+    const { needsYou, running: runningNow, rest } = groupByState(sessions, running, roomStatuses);
+    const recent = recentSessions(rest);
+    return [
+      ...(needsYou.length > 0 ? [{ id: "needsYou" as const, sessions: needsYou }] : []),
+      ...(runningNow.length > 0 ? [{ id: "running" as const, sessions: runningNow }] : []),
+      ...(recent.length > 0 ? [{ id: "recent" as const, sessions: recent }] : []),
+    ];
+  }, [sessions, running, roomStatuses]);
   // One pass instead of a lookup per row: the list can hold every session of
   // every profile now, and this renders on each sidebar render.
   // Groups the user folded away: the heading stays (with its count), the
@@ -194,6 +202,7 @@ export function SessionList({
                     session={row.session}
                     selected={selected === row.session.id}
                     running={running.has(row.session.id)}
+                    roomStatus={roomStatuses.get(row.session.id)}
                     hasBackgroundJob={backgroundJobSessions.has(row.session.id)}
                     onSelect={onSelect}
                     onRename={onRename}

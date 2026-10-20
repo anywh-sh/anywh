@@ -10,7 +10,7 @@ const summary = (working: number): RoomSummary => ({
 });
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
-  return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, ...over };
+  return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [], ...over };
 }
 
 const start: RoomChannelState = { status: "connecting", agents: [], summary: null, since: new Map() };

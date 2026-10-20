@@ -39,6 +39,9 @@ function Clock({ clock }: { clock: CardClock }) {
   const now = useSecondTick();
   if (clock.kind === "none") return null;
   if (clock.kind === "starting") return <>{dict.starting}</>;
+  if (clock.took !== undefined && (clock.kind === "done" || clock.kind === "failed" || clock.kind === "blocked")) {
+    return <>{dict[`${clock.kind}Took`].replace("{time}", formatClock(clock.took))}</>;
+  }
   return <>{dict[clock.kind].replace("{time}", formatClock(now - clock.since))}</>;
 }
 

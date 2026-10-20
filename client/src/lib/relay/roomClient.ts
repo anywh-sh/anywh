@@ -41,6 +41,10 @@ export interface RoomAgent {
   report?: RoomReportView;
   needsYou: RoomNeedsYou[];
   subtasksRunning: number;
+  /** Epoch ms the agent's latest turn began; absent if it never ran. */
+  startedAt?: number;
+  /** MCP servers the agent has called, in order of first use. */
+  connectors: string[];
 }
 
 export interface RoomSummary {
@@ -90,6 +94,9 @@ export interface RoomCanvas {
   areas: RoomCanvasArea[];
   texts: RoomCanvasText[];
   camera?: RoomCanvasCamera;
+  /** The person arranged something by hand: the layout stops being redone
+   * for the whole room and only newcomers are placed. */
+  manual?: boolean;
 }
 
 export interface CreateRoomInput {
@@ -99,6 +106,9 @@ export interface CreateRoomInput {
   permissionMode?: string;
   cwd?: string;
   title?: string;
+  /** Delivered to the principal by the relay itself, so it is not lost
+   * between two sockets. */
+  firstMessage?: string;
 }
 
 async function call(profile: Profile, path: string, init?: { method?: string; body?: unknown }): Promise<Response> {
@@ -176,10 +186,97 @@ export async function stopRoomAgent(profile: Profile, roomId: string, agentId: s
   if (!response.ok) throw await failure(response, "failed to stop the agent");
 }
 
-export async function removeRoomAgent(profile: Profile, roomId: string, agentId: string): Promise<RemovedAgents> {
-  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}/remove`, { method: "POST" });
+/** What a worktree of an agent looks like (`GET /rooms/:id/worktrees`). */
+export interface RoomWorktree {
+  id: string;
+  agentId: string;
+  repoRoot: string;
+  path: string;
+  branch: string;
+  state: string;
+  phase: "in_use" | "idle";
+  commitsAhead?: number;
+  clean?: boolean;
+  integrated: boolean;
+  retainedReason?: string;
+  sizeBytes?: number;
+}
+
+/** The relay refused to remove an agent whose work is not integrated until
+ * the person confirms: `worktrees` is what would be lost. */
+export class DiscardNeededError extends RoomRequestError {
+  constructor(
+    message: string,
+    readonly worktrees: RoomWorktree[],
+  ) {
+    super(message, 409);
+    this.name = "DiscardNeededError";
+  }
+}
+
+export async function removeRoomAgent(profile: Profile, roomId: string, agentId: string, options: { discard?: boolean } = {}): Promise<RemovedAgents> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}/remove`, {
+    method: "POST",
+    body: options.discard ? { discard: true } : {},
+  });
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string; needsDiscard?: boolean; worktrees?: RoomWorktree[] };
+    if (body.needsDiscard) throw new DiscardNeededError(body.error ?? "the agent has work that is not integrated", body.worktrees ?? []);
+    throw new RoomRequestError(body.error ?? "failed to remove the agent (409)", 409);
+  }
   if (!response.ok) throw await failure(response, "failed to remove the agent");
   return (await response.json()) as RemovedAgents;
+}
+
+export interface LaunchAgentInput {
+  task: string;
+  agentId?: string;
+  model?: string;
+  effort?: string;
+  parentId?: string;
+}
+
+/** The person starts a worker of the room; resolves with its id. */
+export async function launchRoomAgent(profile: Profile, roomId: string, input: LaunchAgentInput): Promise<string> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/agents`, { method: "POST", body: input });
+  if (!response.ok) throw await failure(response, "failed to start the agent");
+  return ((await response.json()) as { agentId: string }).agentId;
+}
+
+export interface RoomWorktrees {
+  worktrees: RoomWorktree[];
+  totalSizeBytes: number;
+}
+
+export async function fetchRoomWorktrees(profile: Profile, roomId: string): Promise<RoomWorktrees> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/worktrees`);
+  if (!response.ok) throw await failure(response, "failed to list the worktrees");
+  return (await response.json()) as RoomWorktrees;
+}
+
+/** The agent's subtasks (native subagents) and stopping one. */
+export interface RoomSubtask {
+  taskId: string;
+  toolUseId: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  background: boolean;
+  description?: string;
+  subagentType?: string;
+  activity?: string;
+  summary?: string;
+  startedAt: number;
+  endedAt?: number;
+}
+
+export async function fetchAgentSubtasks(profile: Profile, roomId: string, agentId: string): Promise<RoomSubtask[]> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}/subtasks`);
+  if (!response.ok) throw await failure(response, "failed to list the subtasks");
+  return ((await response.json()) as { subtasks: RoomSubtask[] }).subtasks;
+}
+
+export async function stopAgentSubtask(profile: Profile, roomId: string, agentId: string, taskId: string): Promise<void> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}/subtasks/${encodeURIComponent(taskId)}/stop`, { method: "POST" });
+  if (!response.ok) throw await failure(response, "failed to stop the subtask");
 }
 
 export async function restoreRoomAgent(profile: Profile, roomId: string, agentId: string): Promise<void> {

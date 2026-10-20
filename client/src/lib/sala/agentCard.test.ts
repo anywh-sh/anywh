@@ -15,6 +15,7 @@ function agent(over: Partial<RoomAgent> = {}): RoomAgent {
     queuedMessages: 0,
     needsYou: [],
     subtasksRunning: 0,
+    connectors: [],
     ...over,
   };
 }
@@ -96,6 +97,11 @@ describe("cardClock", () => {
   });
   it("counts a finish from the report", () => {
     expect(cardClock(agent({ state: "done", report: { status: "done", summary: "x", artifacts: [], at: 700 } }), 9000)).toEqual({ kind: "done", since: 700 });
+  });
+  it("counts a run from the relay's start and reports how long a finished one took", () => {
+    expect(cardClock(agent({ state: "working", startedAt: 1000 }), 9000)).toEqual({ kind: "running", since: 1000 });
+    expect(cardClock(agent({ state: "done", startedAt: 1000, report: { status: "done", summary: "x", artifacts: [], at: 4000 } }), 9000)).toEqual({ kind: "done", since: 4000, took: 3000 });
+    expect(cardClock(agent({ state: "failed", startedAt: 5000, report: { status: "failed", summary: "x", artifacts: [], at: 4000 } }), 9000)).toEqual({ kind: "failed", since: 4000 });
   });
   it("shows no clock for an agent that is only idle", () => {
     expect(cardClock(agent({ state: "waiting" }), 9000).kind).toBe("none");

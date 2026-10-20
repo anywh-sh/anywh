@@ -13,6 +13,7 @@ import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
 import { profileColorClass } from "@/lib/profiles/profiles";
+import { RoomTabIndicator } from "@/components/sala/RoomTabIndicator";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -178,7 +179,9 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 // the new-session row it came from.
                 <Plus className="size-3.5 shrink-0" aria-hidden="true" />
               )}
-              {tab.isRunning ? (
+              {tab.room ? (
+                <RoomTabIndicator roomId={tab.id} />
+              ) : tab.isRunning ? (
                 <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
               ) : (
                 tab.hasUnreadCompletion && (
