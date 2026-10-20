@@ -196,6 +196,9 @@ export interface DeferredToolCall {
   /** Set when the call came from a native subagent of the session's agent;
    * the approval still belongs to the parent session. */
   agentId?: string;
+  /** The permission rule decided when the call was refused and the card
+   * built (and warned about): the answer uses it, it does not look again. */
+  grant?: { rule: string; broad: boolean };
 }
 
 /** The deferred approval as published and stored: a question per call
@@ -237,8 +240,11 @@ function isPersistedApproval(value: unknown): value is PersistedApproval {
   if (!Array.isArray(calls) || calls.length !== value.questions.length) return false;
   return calls.every((call) => {
     if (!call || typeof call !== "object") return false;
-    const { tool, toolUseId, agentId } = call as Record<string, unknown>;
-    return typeof tool === "string" && tool !== "" && (toolUseId === undefined || typeof toolUseId === "string") && (agentId === undefined || typeof agentId === "string");
+    const { tool, toolUseId, agentId, grant } = call as Record<string, unknown>;
+    const validGrant =
+      grant === undefined ||
+      (!!grant && typeof grant === "object" && typeof (grant as Record<string, unknown>).rule === "string" && (grant as Record<string, unknown>).rule !== "" && typeof (grant as Record<string, unknown>).broad === "boolean");
+    return typeof tool === "string" && tool !== "" && (toolUseId === undefined || typeof toolUseId === "string") && (agentId === undefined || typeof agentId === "string") && validGrant;
   });
 }
 

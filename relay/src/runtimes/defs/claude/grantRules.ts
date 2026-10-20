@@ -9,7 +9,7 @@
 // only the whole tool can be named. A broad grant lasts for the whole turn, so
 // it is only given when nothing of that tool was refused (`planDeferredGrants`).
 import { lstatSync, realpathSync } from "node:fs";
-import { dirname, posix } from "node:path";
+import { basename, dirname, posix, resolve } from "node:path";
 import type { ToolGrant } from "../../types.js";
 
 export interface GrantRule {
@@ -69,44 +69,98 @@ export function grantRuleFor({ tool, input }: ToolGrant): GrantRule | undefined 
   return { rule: tool, broad: true };
 }
 
-/** The `--allowedTools` rules for calls already cleared to be granted. */
+/** The `--allowedTools` rules for calls already cleared to be granted. A
+ * grant that carries the rule the session decided on uses it as is. */
 export function buildGrantRules(grants: readonly ToolGrant[]): string[] {
   const rules = new Set<string>();
   for (const grant of grants) {
-    const found = grantRuleFor(grant);
-    if (found) rules.add(found.rule);
+    const rule = grant.rule ?? grantRuleFor(grant)?.rule;
+    if (rule) rules.add(rule);
   }
   return [...rules];
 }
 
-/** The edit tools overlap (`Edit` covers `Write`), so a refusal of one is a
- * refusal for all of them. */
+export type GrantOutcome = "granted" | "asked-again" | "denied";
+
+/** The edit tools overlap (`Edit` covers `Write`, and the notebook tool), so a
+ * refusal of one is a refusal for all of them. */
 function groupOf(tool: string): string {
-  return tool === "Write" || tool === "Edit" || tool === "MultiEdit" ? "file-edit" : tool;
+  return tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit" ? "file-edit" : tool;
 }
 
-export type GrantOutcome = "granted" | "asked-again" | "denied";
+/** What a broad grant for `tool` allows, as the approval card says it. */
+export function broadGrantLabel(tool: string): string {
+  return groupOf(tool);
+}
+
+/**
+ * The rule to use for a call whose card was shown with `stored`. The stored
+ * rule is what the person saw and decided on, so it is used as is; the call is
+ * looked at again only to be safe: if the rule it would get now differs, the
+ * result can only be narrower (a broad card whose call is now narrow), never
+ * wider, and anything else gets no rule (the model is asked again). A card
+ * stored without a rule is never given a broad one it did not warn about.
+ */
+export function resolveGrant(stored: GrantRule | undefined, call: ToolGrant): GrantRule | undefined {
+  const fresh = grantRuleFor(call);
+  if (!stored) return fresh && !fresh.broad ? fresh : undefined;
+  if (!fresh) return undefined;
+  if (fresh.rule === stored.rule && fresh.broad === stored.broad) return stored;
+  if (stored.broad && !fresh.broad) return fresh;
+  return undefined;
+}
+
+/** What a call acts on, spelled one canonical way: a file by its resolved
+ * path (relative to `cwd`, symlinks resolved when they can be), a Bash call by
+ * its command text. */
+function targetOf({ tool, input }: ToolGrant, cwd: string): string | undefined {
+  if (tool === "Bash") {
+    const command = stringField(input, "command");
+    return command === undefined ? undefined : `bash:${command}`;
+  }
+  const path = stringField(input, tool === "NotebookEdit" ? "notebook_path" : "file_path");
+  if (path === undefined || groupOf(tool) !== "file-edit") return undefined;
+  const full = posix.normalize(resolve(cwd, path));
+  try {
+    return `file:${realpathSync(full)}`;
+  } catch {
+    try {
+      return `file:${posix.join(realpathSync(dirname(full)), basename(full))}`;
+    } catch {
+      return `file:${full}`;
+    }
+  }
+}
+
+export interface PlannedCall extends ToolGrant {
+  approved: boolean;
+  /** The rule stored with the card for this call. */
+  stored?: GrantRule;
+}
 
 /**
  * Which approved calls actually get a permission. A narrow rule is given to
  * its own call. A broad one covers every call of the tool for the turn, so it
- * is only given when ALL pending calls of that tool in the prompt were
- * approved: approving `ls | head` must not let a denied `rm -rf` of the same
- * prompt run. An approved call left without a permission ("asked-again") will
- * be asked about again.
+ * is only given when nothing of that tool is still undecided or refused:
+ * approving `ls | head` must not let a denied `rm -rf` of the same prompt, or
+ * one waiting behind this card, run. A narrow rule is not given when a
+ * refused or waiting call acts on the same target, however it is spelled. An
+ * approved call left without a permission ("asked-again") will be asked about
+ * again.
  */
-export function planDeferredGrants(calls: readonly (ToolGrant & { approved: boolean })[]): GrantOutcome[] {
-  const refused = calls.filter((call) => !call.approved);
-  const refusedGroups = new Set(refused.map((call) => groupOf(call.tool)));
-  // A narrow rule also covers a refused call that names the same target.
-  const refusedRules = new Set(refused.flatMap((call) => grantRuleFor(call)?.rule ?? []));
+export function planDeferredGrants(calls: readonly PlannedCall[], options: { waiting?: readonly ToolGrant[]; cwd?: string } = {}): GrantOutcome[] {
+  const cwd = options.cwd ?? "/";
+  const blockers: ToolGrant[] = [...calls.filter((call) => !call.approved), ...(options.waiting ?? [])];
+  const blockedGroups = new Set(blockers.map((call) => groupOf(call.tool)));
+  const blockedTargets = new Set(blockers.flatMap((call) => targetOf(call, cwd) ?? []));
   return calls.map((call) => {
     if (!call.approved) return "denied";
     // Needs no rule: approving it is what leaves plan mode.
     if (call.tool === "ExitPlanMode") return "granted";
-    const found = grantRuleFor(call);
+    const found = resolveGrant(call.stored, call);
     if (!found) return "asked-again";
-    if (found.broad ? refusedGroups.has(groupOf(call.tool)) : refusedRules.has(found.rule)) return "asked-again";
-    return "granted";
+    if (found.broad) return blockedGroups.has(groupOf(call.tool)) ? "asked-again" : "granted";
+    const target = targetOf(call, cwd);
+    return target !== undefined && blockedTargets.has(target) ? "asked-again" : "granted";
   });
 }

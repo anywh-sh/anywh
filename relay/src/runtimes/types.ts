@@ -330,6 +330,9 @@ export interface TurnContext {
 export interface ToolGrant {
   readonly tool: string;
   readonly input: unknown;
+  /** The permission the session already decided on when the call was first
+   * refused, for a driver whose permissions are rules; used as is. */
+  readonly rule?: string;
 }
 
 // ---------------------------------------------------------------------------

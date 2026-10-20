@@ -7,6 +7,7 @@
 // through TurnHost, not an MCP bridge).
 import { CHOICE_ALLOWED_TOOL, CHOICE_MCP_SERVER_NAME, CHOICE_USAGE_HINT, type ChoiceAnswer, type ChoiceQuestion } from "../../../bridges/mcpBridge.js";
 import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type PermissionDecision } from "../../../bridges/permissionBridge.js";
+import { broadGrantLabel } from "./grantRules.js";
 import type { McpSpawnConfig } from "./session.js";
 
 /** Human-readable summary of a tool call for the generic
@@ -57,7 +58,7 @@ export function buildApprovalQuestion(toolName: string, input: unknown, agentId?
   // card: say so where the person decides.
   const detail = isExitPlanMode
     ? ""
-    : `${describeToolCall(toolName, input)}${broadGrant ? ` — approving allows every ${toolName} call during the next turn` : ""}`;
+    : `${describeToolCall(toolName, input)}${broadGrant ? ` — approving allows every ${broadGrantLabel(toolName)} call during the next turn` : ""}`;
   // A native subagent has no card of its own: its request is shown on the
   // parent session, so say whose it is.
   const who = agentId === undefined ? "The model" : `The model's subagent ${agentId}`;

@@ -671,3 +671,21 @@ test("withdrawnApproval: round-trips, and false clears it without creating a rec
     assert.equal(new SessionStore(file, DEFAULT_CWD).getWithdrawnApproval("s1"), false);
   });
 });
+
+test("pendingApproval: the permission rule decided for each call is stored with it and validated on load", () => {
+  withStoreFile(undefined, (file) => {
+    const store = new SessionStore(file, DEFAULT_CWD);
+    const withGrant = { ...APPROVAL, calls: [{ ...APPROVAL.calls[0], grant: { rule: "Edit(//tmp/x)", broad: false } }, { ...APPROVAL.calls[1], grant: { rule: "Bash", broad: true } }] };
+    store.setPendingApproval("good", withGrant);
+    store.setPendingApproval("badRule", withGrant);
+    store.setPendingApproval("badBroad", withGrant);
+    const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingApproval: { calls: { grant: Record<string, unknown> }[] } }>;
+    records.badRule.pendingApproval.calls[0].grant.rule = "";
+    records.badBroad.pendingApproval.calls[1].grant.broad = "yes";
+    writeFileSync(file, JSON.stringify(records));
+    const reopened = new SessionStore(file, DEFAULT_CWD);
+    assert.deepEqual(reopened.getPendingApproval("good"), withGrant);
+    assert.equal(reopened.getPendingApproval("badRule"), undefined);
+    assert.equal(reopened.getPendingApproval("badBroad"), undefined);
+  });
+});
