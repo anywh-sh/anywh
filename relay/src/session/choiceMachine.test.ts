@@ -262,63 +262,76 @@ test("askedAt: approval prompts carry it too", () => {
 
 type Sent = { type: string; promptId: string; kind?: string; askedAt?: number; questions?: ChoiceQuestion[] };
 
-function machineWithClock(client: ReturnType<typeof fakeSocket>, opts: { initial?: import("./sessionStore.js").PersistedApproval } = {}) {
+function machineWithClock(client: ReturnType<typeof fakeSocket>, opts: { initial?: import("./sessionStore.js").PersistedApproval; initialChoice?: import("./sessionStore.js").PersistedChoice } = {}) {
   const clock = { now: 1_000_000 };
   const stored: Array<import("./sessionStore.js").PersistedApproval | undefined> = [];
+  const storedChoice: Array<import("./sessionStore.js").PersistedChoice | undefined> = [];
   const shown: string[] = [];
   const machine = new ChoiceMachine(
     new Set([client]),
     (kind) => shown.push(kind),
-    undefined,
-    undefined,
+    opts.initialChoice,
+    (choice) => storedChoice.push(choice),
     () => clock.now,
     { initial: opts.initial, onChange: (approval) => stored.push(approval) },
   );
-  return { machine, clock, stored, shown };
+  return { machine, clock, stored, storedChoice, shown };
 }
 
 const WRITE = { tool: "Write", input: { file_path: "/tmp/a", content: "x" }, toolUseId: "toolu_1" };
 const BASH = { tool: "Bash", input: { command: "ls" }, toolUseId: "toolu_2", agentId: "sub-1" };
+const THIRD = { tool: "Edit", input: { file_path: "/tmp/b" }, toolUseId: "toolu_3" };
 
-test("deferApproval: publishes an approval-kind prompt, stamps askedAt, persists, and holds nothing open", () => {
-  const client = fakeSocket();
-  const { machine, stored, shown } = machineWithClock(client);
-  machine.deferApproval(WRITE, question("write?"));
-  const sent = client.sent[0] as Sent;
-  assert.equal(sent.type, "choice_prompt");
-  assert.equal(sent.kind, "approval");
-  assert.equal(sent.askedAt, 1_000_000);
-  assert.equal(stored.length, 1);
-  assert.deepEqual(stored[0]?.calls, [WRITE]);
-  assert.deepEqual(shown, ["approval"]);
-  // Nothing is waiting on a promise: ending the turn must leave it in place.
-  machine.cancelPendingApproval();
-  assert.equal(client.sent.length, 1, "cancelPendingApproval must not touch a deferred approval");
-});
-
-test("deferApproval: a second call re-publishes ONE prompt covering both, keeps askedAt, notifies once", () => {
+test("deferApproval: nothing is published or persisted until the turn's calls are flushed, then ONE prompt covers them all", () => {
   const client = fakeSocket();
   const { machine, clock, stored, shown } = machineWithClock(client);
   machine.deferApproval(WRITE, question("write?"));
   clock.now += 5_000;
   machine.deferApproval(BASH, question("bash?"));
+  machine.deferApproval(THIRD, question("edit?"));
+  assert.deepEqual(client.sent, [], "calls arrive during the turn; the card must not move under the person's hands");
+  assert.equal(stored.length, 0);
+
+  machine.flushDeferredApprovals();
   const sent = client.sent as Sent[];
-  assert.deepEqual(sent.map((m) => m.type), ["choice_prompt", "choice_resolved", "choice_prompt"]);
-  assert.equal(sent[1].promptId, sent[0].promptId, "the superseded prompt is dismissed");
-  assert.notEqual(sent[2].promptId, sent[0].promptId);
-  assert.equal(sent[2].askedAt, 1_000_000, "askedAt belongs to the first ask");
-  assert.deepEqual(sent[2].questions?.map((q) => q.question), ["write?", "bash?"]);
-  assert.deepEqual(stored.at(-1)?.calls, [WRITE, BASH]);
-  assert.deepEqual(shown, ["approval"], "one notification per pending approval, not per call");
+  assert.deepEqual(sent.map((m) => m.type), ["choice_prompt"], "published exactly once");
+  assert.equal(sent[0].kind, "approval");
+  assert.equal(sent[0].askedAt, 1_005_000);
+  assert.deepEqual(sent[0].questions?.map((q) => q.question), ["write?", "bash?", "edit?"]);
+  assert.deepEqual(stored.at(-1)?.calls, [WRITE, BASH, THIRD]);
+  assert.deepEqual(shown, ["approval"]);
+  machine.cancelPendingApproval();
+  assert.equal(client.sent.length, 1, "cancelPendingApproval must not touch a deferred approval");
 });
 
-test("deferApproval: a call with a toolUseId already pending is ignored", () => {
+test("deferApproval: a call with a toolUseId already held (staged or published) is ignored", () => {
   const client = fakeSocket();
   const { machine, stored } = machineWithClock(client);
   machine.deferApproval(WRITE, question("write?"));
   machine.deferApproval({ ...WRITE }, question("write?"));
+  machine.flushDeferredApprovals();
+  machine.deferApproval({ ...WRITE }, question("write?"));
+  machine.flushDeferredApprovals();
   assert.equal(client.sent.length, 1);
-  assert.equal(stored.length, 1);
+  assert.equal(stored.at(-1)?.calls.length, 1);
+});
+
+test("a call that arrives while the card is on screen waits for the next cycle, under a new prompt, once the first is answered", () => {
+  const client = fakeSocket();
+  const { machine } = machineWithClock(client);
+  machine.deferApproval(WRITE, question("write?"));
+  machine.flushDeferredApprovals();
+  const first = client.sent[0] as Sent;
+  machine.deferApproval(BASH, question("bash?"));
+  machine.flushDeferredApprovals();
+  assert.equal(client.sent.length, 1, "the card on screen is not touched");
+
+  machine.answerChoice(first.promptId, [{ question: "write?", selected: ["yes"] }]);
+  const types = (client.sent as Sent[]).map((m) => m.type);
+  assert.deepEqual(types, ["choice_prompt", "choice_resolved", "choice_prompt"]);
+  const second = client.sent[2] as Sent;
+  assert.notEqual(second.promptId, first.promptId);
+  assert.deepEqual(second.questions?.map((q) => q.question), ["bash?"]);
 });
 
 test("answerChoice on a deferred approval: hands back the calls and answers, clears the slot and the stored copy", () => {
@@ -326,6 +339,7 @@ test("answerChoice on a deferred approval: hands back the calls and answers, cle
   const { machine, clock, stored } = machineWithClock(client);
   machine.deferApproval(WRITE, question("write?"));
   machine.deferApproval(BASH, question("bash?"));
+  machine.flushDeferredApprovals();
   const prompt = (client.sent as Sent[]).at(-1)!;
   // Answered six hours later: nothing in the machine depends on elapsed time.
   clock.now += 6 * 60 * 60 * 1000;
@@ -337,11 +351,13 @@ test("answerChoice on a deferred approval: hands back the calls and answers, cle
   assert.deepEqual(machine.answerChoice(prompt.promptId, answers), { kind: "not_found" }, "first answer wins");
 });
 
-test("discardStaleChoice: a human who moves on dismisses a deferred approval too", () => {
+test("discardStaleChoice: a human who moves on dismisses a deferred approval too, and says whether there was one", () => {
   const client = fakeSocket();
   const { machine, stored } = machineWithClock(client);
+  assert.equal(machine.discardStaleChoice(), false);
   machine.deferApproval(WRITE, question("write?"));
-  machine.discardStaleChoice();
+  machine.flushDeferredApprovals();
+  assert.equal(machine.discardStaleChoice(), true);
   assert.equal((client.sent.at(-1) as Sent).type, "choice_resolved");
   assert.equal(stored.at(-1), undefined);
 });
@@ -350,6 +366,7 @@ test("a rehydrated deferred approval is sent to a reconnecting socket, and dropR
   const first = fakeSocket();
   const { machine } = machineWithClock(first);
   machine.deferApproval(WRITE, question("write?"));
+  machine.flushDeferredApprovals();
   const persisted = { promptId: (first.sent[0] as Sent).promptId, questions: [question("write?")], calls: [WRITE], askedAt: 1_000_000 };
 
   const late = fakeSocket();
@@ -363,4 +380,49 @@ test("a rehydrated deferred approval is sent to a reconnecting socket, and dropR
   const after = fakeSocket();
   reborn.machine.sendPendingTo(after);
   assert.deepEqual(after.sent, []);
+});
+
+test("only one card at a time: an approval flushed while a question is on screen is persisted but held back, and appears when the question is answered", () => {
+  const client = fakeSocket();
+  const { machine, stored } = machineWithClock(client);
+  machine.presentChoice([question("which?")]);
+  const choice = client.sent[0] as Sent;
+  machine.deferApproval(WRITE, question("write?"));
+  machine.flushDeferredApprovals();
+  assert.deepEqual((client.sent as Sent[]).map((m) => m.type), ["choice_prompt"], "the approval does not cover the question");
+  assert.equal(stored.at(-1)?.calls.length, 1, "but it is already persisted");
+  const late = fakeSocket();
+  machine.sendPendingTo(late);
+  assert.deepEqual((late.sent as Sent[]).map((m) => m.kind), ["choice"], "a reconnecting device sees one card");
+
+  machine.answerChoice(choice.promptId, [{ question: "which?", selected: ["a"] }]);
+  assert.deepEqual((client.sent as Sent[]).map((m) => m.type), ["choice_prompt", "choice_resolved", "choice_prompt"]);
+  assert.equal((client.sent[2] as Sent).kind, "approval");
+});
+
+test("only one card at a time: a question asked while an approval is on screen is persisted but held back, and appears when the approval is answered", () => {
+  const client = fakeSocket();
+  const { machine, storedChoice, shown } = machineWithClock(client);
+  machine.deferApproval(WRITE, question("write?"));
+  machine.flushDeferredApprovals();
+  const approval = client.sent[0] as Sent;
+  assert.equal(machine.presentChoice([question("which?")]), true);
+  assert.deepEqual((client.sent as Sent[]).map((m) => m.type), ["choice_prompt"]);
+  assert.equal(storedChoice.length, 1, "persisted already");
+
+  machine.answerChoice(approval.promptId, [{ question: "write?", selected: ["yes"] }]);
+  assert.deepEqual((client.sent as Sent[]).map((m) => m.kind ?? m.type), ["approval", "choice_resolved", "choice"]);
+  assert.deepEqual(shown, ["approval", "choice"], "each card notifies when it appears");
+});
+
+test("a restart with both a question and an approval stored shows the question only; the approval follows its answer", () => {
+  const choice = { promptId: "c1", questions: [question("which?")], askedAt: 1 };
+  const approval = { promptId: "a1", questions: [question("write?")], calls: [WRITE], askedAt: 2 };
+  const client = fakeSocket();
+  const { machine } = machineWithClock(client, { initial: approval, initialChoice: choice });
+  const socket = fakeSocket();
+  machine.sendPendingTo(socket);
+  assert.deepEqual((socket.sent as Sent[]).map((m) => m.promptId), ["c1"]);
+  machine.answerChoice("c1", [{ question: "which?", selected: ["a"] }]);
+  assert.deepEqual((client.sent as Sent[]).map((m) => m.promptId), ["c1", "a1"]);
 });
