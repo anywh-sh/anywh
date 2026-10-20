@@ -161,3 +161,38 @@ test("a host that is down makes the turn fail fast instead of hanging", async ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Stop with the host unreachable ends the turn here instead of leaving it hanging", async () => {
+  await withHost(async ({ dir, client }) => {
+    const driver = driverFor(client, "w7");
+    const pending = driver.sendTurn(ctx(dir, "work [[hang]]"), () => {});
+    await waitFor(async () => (await agent(client, "w7"))?.state === "working", 8000, "turn in flight");
+    client.close();
+    assert.equal(driver.stop(), true);
+    assert.equal((await pending).stopped, true);
+    driver.dispose();
+  });
+});
+
+test("after /clear, late records of the old conversation never bring its session back", async () => {
+  await withHost(async ({ dir, client }) => {
+    const driver = driverFor(client, "w8");
+    await driver.sendTurn(ctx(dir, "start one [[subagent]]"), () => {});
+    const old = driver.getSessionId()!;
+    const taskId = driver.listSubtasks()[0]?.taskId;
+    assert.ok(taskId, "a running subtask");
+    driver.resetSessionId();
+    // The old conversation keeps talking: its subagent ends, with records
+    // carrying the old session id.
+    const watcher = new HostClient({ socketPath: (client as unknown as { options: { socketPath: string } }).options.socketPath });
+    watcher.start();
+    await watcher.waitUntilConnected();
+    await watcher.request("stop_task", { agentId: "w8", taskId });
+    await waitFor(async () => (await agent(client, "w8"))?.backgroundTasks === 0, 8000, "subagent stopped");
+    watcher.close();
+    assert.equal(driver.getSessionId(), undefined);
+    await driver.sendTurn(ctx(dir, "fresh"), () => {});
+    assert.notEqual(driver.getSessionId(), old);
+    driver.dispose();
+  });
+});

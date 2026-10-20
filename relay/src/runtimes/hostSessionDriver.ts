@@ -135,6 +135,9 @@ export class HostSessionDriver implements AgentSessionDriver {
   resetSessionId(): void {
     this.sessionId = undefined;
     this.resetPending = true;
+    // Records still arriving for the old conversation (a background subagent
+    // finishing) must not hand its session id back.
+    this.dispose();
   }
 
   stop(): boolean {
@@ -142,7 +145,12 @@ export class HostSessionDriver implements AgentSessionDriver {
     const client = this.options.binding.client;
     if (!turn || turn.settled || !client) return false;
     turn.stopRequested = true;
-    void client.request("interrupt", { agentId: this.agentId }).catch(() => {});
+    void client.request("interrupt", { agentId: this.agentId }).catch(() => {
+      // The host cannot be reached: nothing would ever end this turn, so it
+      // ends here, stopped (the host interrupts or restores the agent on its
+      // own side; the next turn finds it as it is).
+      turn.resolve({ stopped: true, contextUsage: turn.contextUsage, lastAssistantText: turn.lastAssistantText });
+    });
     return true;
   }
 
@@ -312,7 +320,7 @@ export class HostSessionDriver implements AgentSessionDriver {
 
   private onRecord(record: EventMessage): void {
     const event = record.ev;
-    if (!this.daemonPlan && typeof event.session_id === "string") this.sessionId = event.session_id;
+    if (!this.daemonPlan && !this.resetPending && typeof event.session_id === "string") this.sessionId = event.session_id;
     if (!this.daemonPlan) this.subtasks.observe(event);
     // A native subagent's permission request carries its `agent_id`: once
     // approvals are deferred to the person, it belongs to this agent's card
