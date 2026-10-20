@@ -158,3 +158,49 @@ test("an offset past the end is reported as a gap and the reader continues from 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a record over the size limit is stored truncated and marked, keeping its type", async () => {
+  const dir = tempDir();
+  try {
+    const log = AgentEventLog.open(dir, { maxRecordBytes: 64 * 1024 });
+    const record = log.append({ type: "user", session_id: "s1", message: { content: "z".repeat(5_000_000) } });
+    assert.ok(record.next - record.off <= 64 * 1024, `stored ${record.next - record.off} bytes`);
+    assert.equal(record.ev.type, "user");
+    assert.equal(record.ev.session_id, "s1");
+    assert.ok((record.ev.host_truncated as { originalBytes: number }).originalBytes > 5_000_000);
+    const after = log.append({ type: "assistant" });
+    const { records } = await readAll(log, 0);
+    assert.deepEqual(
+      records.map((r) => r.seq),
+      [0, after.seq],
+    );
+    log.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a reader started in the middle of a record skips to the next record instead of spinning", async () => {
+  const dir = tempDir();
+  try {
+    const log = AgentEventLog.open(dir);
+    const a = log.append({ type: "a" });
+    const b = log.append({ type: "b" });
+    // Mid-record of the last one: nothing to read, cursor ends at the end.
+    const reader = new LogReader(log, b.off + 5);
+    const first = await reader.step();
+    const second = first.kind === "end" ? first : await reader.step();
+    assert.equal(second.kind, "end");
+    assert.equal(reader.cursor, log.endOffset);
+    await reader.close();
+    // Mid-record of the first one: the next record is read whole.
+    const { records } = await readAll(log, a.off + 3);
+    assert.deepEqual(
+      records.map((r) => r.seq),
+      [b.seq],
+    );
+    log.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

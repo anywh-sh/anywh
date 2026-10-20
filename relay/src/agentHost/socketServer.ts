@@ -24,13 +24,15 @@ import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { LogReader, type AgentEventLog, type RawRecord } from "./eventLog.js";
+import { StringLineSplitter } from "./lineSplitter.js";
 import { AGENT_HOST_PROTOCOL_VERSION, HostError, encodeMessage, parseClientMessage, type HostMessage, type SubscribeResult } from "./protocol.js";
 import { RELEASE_VERSION } from "./release.js";
 
 export const DEFAULT_HIGH_WATER_BYTES = 1024 * 1024;
-/** A connection whose buffer still grows past this (only small control
- * messages are written outside the high-water check) is considered stuck
- * and dropped; the client reconnects and resumes from its cursor. */
+/** A connection this far behind gets no more `agent_state` broadcasts (the
+ * only messages written without the high-water check); it can ask for
+ * `activity` once it catches up. Event records are bounded by the log's
+ * per-record cap and the high-water mark, so nothing else can grow it. */
 const STUCK_CONNECTION_BYTES = 32 * 1024 * 1024;
 const MAX_INBOUND_LINE_BYTES = 16 * 1024 * 1024;
 
@@ -169,7 +171,7 @@ class Subscription {
 
 class Connection {
   private helloed = false;
-  private inbound = "";
+  private readonly inbound = new StringLineSplitter();
   private readonly subscriptions = new Map<string, Subscription>();
   private drainWaiters: (() => void)[] = [];
   private destroyed = false;
@@ -217,7 +219,6 @@ class Connection {
   write(text: string): void {
     if (this.destroyed) return;
     this.socket.write(text);
-    if (this.socket.writableLength > STUCK_CONNECTION_BYTES) this.destroy();
   }
 
   send(message: HostMessage): void {
@@ -248,17 +249,12 @@ class Connection {
   }
 
   private onData(chunk: string): void {
-    this.inbound += chunk;
-    if (this.inbound.length > MAX_INBOUND_LINE_BYTES && !this.inbound.includes("\n")) {
-      this.destroy();
-      return;
-    }
-    let newline: number;
-    while (!this.destroyed && !this.ending && (newline = this.inbound.indexOf("\n")) >= 0) {
-      const line = this.inbound.slice(0, newline);
-      this.inbound = this.inbound.slice(newline + 1);
+    for (const line of this.inbound.push(chunk)) {
+      if (this.destroyed || this.ending) return;
       if (line.trim()) this.onLine(line);
     }
+    // A client message is small; an endless line is not a client.
+    if (this.inbound.pendingLength > MAX_INBOUND_LINE_BYTES) this.destroy();
   }
 
   private onLine(line: string): void {
@@ -394,7 +390,7 @@ export class AgentHostSocketServer {
   /** Sends to every connection past its handshake. */
   broadcast(message: HostMessage): void {
     for (const connection of this.connections) {
-      if (connection.isHelloed) connection.send(message);
+      if (connection.isHelloed && connection.bufferedBytes < STUCK_CONNECTION_BYTES) connection.send(message);
     }
   }
 

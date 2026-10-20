@@ -443,3 +443,24 @@ for (const layout of ["directory open to others", "socket open to others"] as co
     }
   });
 }
+
+test("a huge event reaches a live subscriber truncated, and the connection survives it", async () => {
+  const f = await fixture();
+  try {
+    const log = AgentEventLog.open(join(f.dir, "logs", "a1"));
+    f.logs.set("a1", log);
+    const client = newClient(f);
+    const { events, caughtUp } = collect(client, "a1");
+    await waitFor(() => caughtUp(), 5000, "live");
+    const statuses: string[] = [];
+    client.on("status", (status) => statuses.push(status));
+    log.append({ type: "user", message: { content: "p".repeat(40 * 1024 * 1024) } });
+    log.append({ type: "assistant", after: true });
+    await waitFor(() => events.length === 2, 10_000, "both events");
+    assert.ok(events[0].ev.host_truncated, "the huge event arrives marked as truncated");
+    assert.equal(events[1].ev.after, true);
+    assert.deepEqual(statuses, [], "no disconnect");
+  } finally {
+    await f.cleanup();
+  }
+});

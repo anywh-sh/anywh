@@ -26,15 +26,21 @@ import { randomBytes } from "node:crypto";
 import { closeSync, fstatSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { open, readFile, rename, rm, writeFile, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
+import { BufferLineSplitter } from "./lineSplitter.js";
 
 export const DEFAULT_SEGMENT_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_RETAIN_BYTES = 64 * 1024 * 1024;
+/** Larger events (a huge tool result) are stored truncated: one record must
+ * never be able to outgrow what a reader or a socket buffers at once. */
+export const DEFAULT_MAX_RECORD_BYTES = 1024 * 1024;
+const TRUNCATED_PREVIEW_CHARS = 4096;
 
 const SEGMENT_NAME = /^(\d{16})-(\d+)\.jsonl$/;
 const RECORD_PREFIX = /^\{"seq":(\d+),"off":(\d+),/;
 
 export interface EventLogOptions {
   readonly segmentBytes?: number;
+  readonly maxRecordBytes?: number;
   readonly retainBytes?: number;
   readonly now?: () => number;
 }
@@ -118,6 +124,7 @@ export class AgentEventLog {
   private readonly listeners = new Set<(record: AppendedRecord) => void>();
   private readonly segmentBytes: number;
   private readonly retainBytes: number;
+  private readonly maxRecordBytes: number;
   private readonly now: () => number;
   private closed = false;
   /** Set by the first failed write: from then on the file may end in a torn
@@ -133,6 +140,7 @@ export class AgentEventLog {
   ) {
     this.segmentBytes = options.segmentBytes ?? DEFAULT_SEGMENT_BYTES;
     this.retainBytes = options.retainBytes ?? DEFAULT_RETAIN_BYTES;
+    this.maxRecordBytes = options.maxRecordBytes ?? DEFAULT_MAX_RECORD_BYTES;
     this.now = options.now ?? Date.now;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     // Identifies this log among all logs that ever lived in `dir`: an agent
@@ -204,13 +212,18 @@ export class AgentEventLog {
 
   /** Appends one event and notifies listeners synchronously, after the
    * record is written. */
-  append(ev: Record<string, unknown>): AppendedRecord {
+  append(event: Record<string, unknown>): AppendedRecord {
+    let ev = event;
     if (this.closed) throw new Error("event log is closed");
     if (this.failure) throw new EventLogWriteError(this.failure);
     const seq = this._nextSeq;
     const off = this.endOffset;
     const t = this.now();
-    const line = JSON.stringify({ seq, off, t, ev });
+    let line = JSON.stringify({ seq, off, t, ev });
+    if (Buffer.byteLength(line) > this.maxRecordBytes) {
+      ev = truncatedEvent(ev, Buffer.byteLength(line));
+      line = JSON.stringify({ seq, off, t, ev });
+    }
     const bytes = Buffer.from(`${line}\n`, "utf8");
     try {
       // `writeSync` may write less than asked; anything short of the whole
@@ -330,6 +343,18 @@ export class EventLogWriteError extends Error {
   }
 }
 
+/** What is kept of an event too large to store: what kind it was, its
+ * session, how large it was, and the start of its JSON. */
+function truncatedEvent(ev: Record<string, unknown>, originalBytes: number): Record<string, unknown> {
+  const short = (value: unknown): string | undefined => (typeof value === "string" ? value.slice(0, 200) : undefined);
+  return {
+    type: short(ev.type) ?? "unknown",
+    ...(short(ev.subtype) !== undefined ? { subtype: short(ev.subtype) } : {}),
+    ...(short(ev.session_id) !== undefined ? { session_id: short(ev.session_id) } : {}),
+    host_truncated: { originalBytes, preview: JSON.stringify(ev).slice(0, TRUNCATED_PREVIEW_CHARS) },
+  };
+}
+
 /** `stream_event` is the CLI's partial-message delta (`--include-partial-messages`). */
 function isPartialMessage(line: string): boolean {
   const evIndex = line.indexOf(',"ev":');
@@ -354,8 +379,13 @@ export type ReadStep =
 export class LogReader {
   private handle: FileHandle | undefined;
   private segment: Segment | undefined;
+  /** Physical read position in the open segment file. */
   private position = 0;
-  private pending: Buffer = Buffer.alloc(0);
+  private splitter = new BufferLineSplitter(0);
+  /** The open segment was entered by seeking (the active one, where
+   * physical and logical positions agree), so its first line may be the
+   * tail of a record the requested offset fell inside. */
+  private seeked = false;
   private closed = false;
 
   constructor(
@@ -377,16 +407,15 @@ export class LogReader {
     let collected = 0;
     while (collected < maxBytes) {
       const handle = this.handle;
-      if (!handle) break;
+      const segment = this.segment;
+      if (!handle || !segment) break;
       const buf = Buffer.alloc(Math.min(64 * 1024, Math.max(4096, maxBytes)));
       const { bytesRead } = await handle.read(buf, 0, buf.length, this.position);
       if (this.closed) return { kind: "end" };
       if (bytesRead === 0) {
         // End of this file. A newer segment means this one is sealed and
         // fully read; move on. Otherwise this is the live end.
-        const segments = this.log.segmentList();
-        const current = this.segment;
-        const following = current ? segments.find((segment) => segment.base > current.base) : undefined;
+        const following = this.log.segmentList().find((candidate) => candidate.base > segment.base);
         if (!following) break;
         await this.closeHandle();
         this.cursorValue = Math.max(this.cursorValue, following.base);
@@ -395,25 +424,22 @@ export class LogReader {
         continue;
       }
       this.position += bytesRead;
-      let data = this.pending.length > 0 ? Buffer.concat([this.pending, buf.subarray(0, bytesRead)]) : buf.subarray(0, bytesRead);
-      let start = 0;
-      for (;;) {
-        const nl = data.indexOf(0x0a, start);
-        if (nl < 0) break;
-        const lineBytes = nl - start + 1;
-        const line = data.toString("utf8", start, nl);
-        start = nl + 1;
+      for (const { line, start, end } of this.splitter.push(buf.subarray(0, bytesRead))) {
         const match = RECORD_PREFIX.exec(line);
-        if (!match) continue;
+        if (!match) {
+          // The tail of a record the requested offset fell inside: skip it
+          // and move the cursor past it, or a reader asked for an offset in
+          // the middle of the last record would wait for it forever.
+          if (this.seeked) this.cursorValue = Math.max(this.cursorValue, segment.base + end);
+          continue;
+        }
         const off = Number(match[2]);
         if (off < this.cursorValue) continue;
-        const record = { line, seq: Number(match[1]), off, next: off + lineBytes };
+        const record = { line, seq: Number(match[1]), off, next: off + (end - start) };
         records.push(record);
         this.cursorValue = record.next;
-        collected += lineBytes;
+        collected += end - start;
       }
-      data = data.subarray(start);
-      this.pending = Buffer.from(data);
     }
     return records.length > 0 ? { kind: "records", records } : { kind: "end" };
   }
@@ -442,11 +468,12 @@ export class LogReader {
         throw error;
       }
       this.segment = target;
-      this.pending = Buffer.alloc(0);
       // The active segment is never compacted, so its physical and logical
       // positions agree and we can seek. A sealed one may have been, so it is
       // scanned from its start, skipping records below the cursor.
-      this.position = this.log.isActive(target) ? offset - target.base : 0;
+      this.seeked = this.log.isActive(target);
+      this.position = this.seeked ? offset - target.base : 0;
+      this.splitter = new BufferLineSplitter(this.position);
       return undefined;
     }
     throw new Error("event log segments kept disappearing while opening a reader");
@@ -456,7 +483,7 @@ export class LogReader {
     const handle = this.handle;
     this.handle = undefined;
     this.segment = undefined;
-    this.pending = Buffer.alloc(0);
+    this.splitter = new BufferLineSplitter(0);
     if (handle) await handle.close().catch(() => {});
   }
 

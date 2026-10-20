@@ -26,6 +26,7 @@ import {
   type ReplayGapMessage,
   type SubscribeResult,
 } from "./protocol.js";
+import { StringLineSplitter } from "./lineSplitter.js";
 import { RELEASE_VERSION } from "./release.js";
 
 /** `unsafe`: the socket or its directory is not private to this user, so
@@ -139,7 +140,7 @@ export class HostClient extends EventEmitter<HostClientEvents> {
   private socket: Socket | undefined;
   private statusValue: HostClientStatus = "disconnected";
   private hostReleaseValue: string | undefined;
-  private inbound = "";
+  private inbound = new StringLineSplitter();
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private readonly subscriptions = new Map<string, SubscriptionState>();
@@ -288,7 +289,7 @@ export class HostClient extends EventEmitter<HostClientEvents> {
       return;
     }
     this.setStatus("connecting");
-    this.inbound = "";
+    this.inbound = new StringLineSplitter();
     const socket = connect(this.options.socketPath);
     this.socket = socket;
     socket.setEncoding("utf8");
@@ -299,11 +300,7 @@ export class HostClient extends EventEmitter<HostClientEvents> {
     });
     socket.on("data", (chunk: string) => {
       if (this.socket !== socket) return;
-      this.inbound += chunk;
-      let newline: number;
-      while ((newline = this.inbound.indexOf("\n")) >= 0) {
-        const line = this.inbound.slice(0, newline);
-        this.inbound = this.inbound.slice(newline + 1);
+      for (const line of this.inbound.push(chunk)) {
         if (line.trim()) this.onLine(line);
         if (this.socket !== socket) return;
       }
