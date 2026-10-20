@@ -87,7 +87,9 @@ relay/src/
                            docs/push.md
   bridges/                 MCP servers the relay runs for a turn to call
                            back into (present_choice, permission prompts,
-                           plan-mode's text-marker fallback)
+                           plan-mode's text-marker fallback); a session can
+                           defer approvals instead of blocking on them, see
+                           deferred-approval.md
   fs/                      the file panel's own read/write/browse of a
                            session's working directory
   portability/             reading and writing a runtime's *config home*

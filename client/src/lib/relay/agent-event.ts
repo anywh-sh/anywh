@@ -123,7 +123,7 @@ export type AgentEvent =
    * message, both shown as a system note rather than a chat bubble.
    * `timestamp` is the real on-disk time on replay, absent live (whoever
    * sent it already knows the click's own time). */
-  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup"; label?: string }
+  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup" | "approval"; label?: string }
   /** Live streaming preview of a growing text block — `index` correlates
    * multiple chunks (and, in principle, multiple concurrently-streaming
    * blocks) to the same block before it commits as `text`. A number for a

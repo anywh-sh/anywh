@@ -51,6 +51,19 @@
 //                        test can assert on it, then the turn ends normally
 //                        — proving the process doesn't stay blocked waiting
 //                        for a human the way the pre-rework version did.
+//   FAKE_CLAUDE_REQUEST_TOOLS - if set (JSON `[{tool, input, agent_id?,
+//                        subagent_of?}]`; `subagent_of` is the id of the Agent
+//                        call the tool call is made under),
+//                        behaves like a model that issues all of these tool
+//                        calls at once: a call covered by an `--allowedTools`
+//                        rule of this invocation runs; any other goes to the
+//                        `--permission-prompt-tool` server of the
+//                        `--mcp-config` (real MCP handshake against the
+//                        relay's McpPermissionBridge) and runs only on
+//                        `allow`. "Runs" means a Write/Edit really changes
+//                        the file. The final text lists what ran and what was
+//                        refused (with the refusal message), then the turn
+//                        ends — a refusal never blocks the process.
 //   FAKE_CLAUDE_SCHEDULE_WAKEUP - if set (JSON `{delaySeconds, prompt,
 //                        stop?}`), emits an `assistant` event with a
 //                        `tool_use` block for the native `ScheduleWakeup`
@@ -168,6 +181,63 @@ async function callPresentChoice(mcpConfigJson, questions) {
   await rpc("initialize", { protocolVersion: "2025-06-18" });
   const callResult = await rpc("tools/call", { name: "present_choice", arguments: { questions } });
   return callResult.result?.content?.[0]?.text ?? "";
+}
+
+/** Splits an `--allowedTools` value into rules: commas separate rules,
+ * except inside parentheses. */
+function parseAllowedRules(value) {
+  const rules = [];
+  let depth = 0;
+  let current = "";
+  for (const char of value ?? "") {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (char === "," && depth === 0) {
+      if (current) rules.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current) rules.push(current);
+  return rules;
+}
+
+/** Whether one of the rules lets this call run without asking — the same
+ * shapes the relay writes: `Tool`, `Edit(//abs/path)` for Write/Edit,
+ * `Bash(exact command)`. */
+function coveredByRules(rules, call) {
+  if (rules.includes(call.tool)) return true;
+  if ((call.tool === "Write" || call.tool === "Edit") && rules.includes(`Edit(/${call.input.file_path})`)) return true;
+  if (call.tool === "Bash" && rules.includes(`Bash(${call.input.command})`)) return true;
+  return false;
+}
+
+/** The side effect of a call that was allowed to run. */
+function performCall(call) {
+  if (call.tool === "Write") writeFileSync(call.input.file_path, call.input.content);
+  if (call.tool === "Edit") {
+    writeFileSync(call.input.file_path, readFileSync(call.input.file_path, "utf8").replace(call.input.old_string, call.input.new_string));
+  }
+}
+
+/** Asks the relay's permission bridge about one call, like the CLI does with
+ * `--permission-prompt-tool`; resolves with the decision it answered. */
+async function askPermission(mcpConfigJson, call, toolUseId) {
+  const { mcpServers } = JSON.parse(mcpConfigJson);
+  const url = mcpServers["anywh-permission"].url;
+  let nextId = 0;
+  const rpc = async (method, params) => {
+    nextId += 1;
+    const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId, method, params }) });
+    return res.json();
+  };
+  await rpc("initialize", { protocolVersion: "2025-06-18" });
+  const result = await rpc("tools/call", {
+    name: "approve",
+    arguments: { tool_name: call.tool, input: call.input, tool_use_id: toolUseId, ...(call.agent_id ? { agent_id: call.agent_id } : {}) },
+  });
+  return JSON.parse(result.result.content[0].text);
 }
 
 if (args[0] === "--version") {
@@ -339,6 +409,63 @@ if (args[0] === "--version") {
       result: toolResultText,
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
+    process.exit(0);
+  } else if (process.env.FAKE_CLAUDE_REQUEST_TOOLS && outputFormat === "stream-json") {
+    const calls = JSON.parse(process.env.FAKE_CLAUDE_REQUEST_TOOLS);
+    // FAKE_CLAUDE_HOLD_AFTER_TOOLS=<file> - once every call has its answer,
+    // write that file and stay in flight until SIGINT (a turn the person is
+    // about to stop), then end the way an interrupted turn does.
+    const holdFile = process.env.FAKE_CLAUDE_HOLD_AFTER_TOOLS;
+    if (holdFile) {
+      process.once("SIGINT", () => {
+        emitAndExit({ type: "result", session_id: sessionId, is_error: true, result: "interrompido pelo usuário", errors: ["interrompido pelo usuário"], modelUsage: { [model]: { contextWindow: 200000 } } });
+      });
+    }
+    const rules = parseAllowedRules(flagValue("--allowed-tools") ?? flagValue("--allowedTools"));
+    const mcpConfig = flagValue("--mcp-config");
+    // One after the other, in the order given: the card lists the calls in the
+    // order they were refused, and a test answers it by position.
+    const outcomes = [];
+    for (const [index, call] of calls.entries()) {
+      outcomes.push(
+        await (async () => {
+        const label = `${call.tool} ${call.input.file_path ?? call.input.command ?? ""}`.trim();
+        if (call.subagent_of) {
+          // A call made inside a native subagent is announced in the stream
+          // with the id of the Agent call that started it. Written and flushed
+          // before the permission request goes out, as the CLI does.
+          await new Promise((resolve) =>
+            process.stdout.write(
+              `${JSON.stringify({
+                type: "assistant",
+                session_id: sessionId,
+                parent_tool_use_id: call.subagent_of,
+                message: { content: [{ type: "tool_use", id: `toolu_fake_${index}`, name: call.tool, input: call.input }], usage: { input_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+              })}\n`,
+              resolve,
+            ),
+          );
+        }
+        if (coveredByRules(rules, call)) {
+          performCall(call);
+          return `ran: ${label}`;
+        }
+        if (!flagValue("--permission-prompt-tool")) return `refused: ${label} (no permission tool)`;
+        const decision = await askPermission(mcpConfig, call, call.tool_use_id ?? `toolu_fake_${index}`);
+        if (decision.behavior !== "allow") return `refused: ${label} (${decision.message})`;
+        performCall(call);
+        return `ran: ${label}`;
+        })(),
+      );
+    }
+    if (holdFile) {
+      writeFileSync(holdFile, "ready");
+      setInterval(() => {}, 1000);
+      await new Promise(() => {});
+    }
+    const text = outcomes.join("\n");
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "result", session_id: sessionId, is_error: false, result: text, modelUsage: { [model]: { contextWindow: 200000 } } });
     process.exit(0);
   } else if (process.env.FAKE_CLAUDE_SCHEDULE_WAKEUP && outputFormat === "stream-json") {
     const call = JSON.parse(process.env.FAKE_CLAUDE_SCHEDULE_WAKEUP);

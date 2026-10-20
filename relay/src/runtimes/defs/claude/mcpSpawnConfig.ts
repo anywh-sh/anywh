@@ -7,6 +7,7 @@
 // through TurnHost, not an MCP bridge).
 import { CHOICE_ALLOWED_TOOL, CHOICE_MCP_SERVER_NAME, CHOICE_USAGE_HINT, type ChoiceAnswer, type ChoiceQuestion } from "../../../bridges/mcpBridge.js";
 import { PERMISSION_MCP_SERVER_NAME, PERMISSION_PROMPT_TOOL, type PermissionDecision } from "../../../bridges/permissionBridge.js";
+import { broadGrantLabel } from "./grantRules.js";
 import type { McpSpawnConfig } from "./session.js";
 
 /** Human-readable summary of a tool call for the generic
@@ -51,13 +52,20 @@ export const DENY_OPTION_ID = "deny";
  * speaking MCP's Streamable HTTP transport mid-turn, which the fake claude
  * fixture doesn't implement, so no integration test can reach it.
  */
-export function buildApprovalQuestion(toolName: string, input: unknown): ChoiceQuestion {
+export function buildApprovalQuestion(toolName: string, input: unknown, agentId?: string, broadGrant = false): ChoiceQuestion {
   const isExitPlanMode = toolName === "ExitPlanMode";
-  const detail = isExitPlanMode ? "" : describeToolCall(toolName, input);
+  // A grant that can only name the whole tool is wider than the call on the
+  // card: say so where the person decides.
+  const detail = isExitPlanMode
+    ? ""
+    : `${describeToolCall(toolName, input)}${broadGrant ? ` — approving allows every ${broadGrantLabel(toolName)} call during the next turn` : ""}`;
+  // A native subagent has no card of its own: its request is shown on the
+  // parent session, so say whose it is.
+  const who = agentId === undefined ? "The model" : `The model's subagent ${agentId}`;
   return {
     question: isExitPlanMode
-      ? "The model wants to leave Plan mode and start executing. Approve?"
-      : `The model wants to run \`${toolName}\`: ${detail}. Approve?`,
+      ? `${who} wants to leave Plan mode and start executing. Approve?`
+      : `${who} wants to run \`${toolName}\`: ${detail}. Approve?`,
     approval: { tool: toolName, detail },
     options: [
       { id: APPROVE_OPTION_ID, label: "Approve" },
@@ -73,7 +81,13 @@ export function buildApprovalQuestion(toolName: string, input: unknown): ChoiceQ
  * on it is a command about to run on the user's machine.
  */
 export function isApproved(answers: ChoiceAnswer[]): boolean {
-  return answers[0]?.selected.includes(APPROVE_OPTION_ID) ?? false;
+  return isApprovedAt(answers, 0);
+}
+
+/** `isApproved` for the `index`-th question of a prompt that asks about
+ * several calls at once (a deferred approval); same strictness. */
+export function isApprovedAt(answers: ChoiceAnswer[], index: number): boolean {
+  return answers[index]?.selected.includes(APPROVE_OPTION_ID) ?? false;
 }
 
 /**
@@ -92,6 +106,15 @@ export function buildPermissionDecision(toolName: string, input: unknown, approv
     behavior: "deny",
     message: isExitPlanMode ? "O usuário optou por continuar no modo Plan." : "O usuário recusou a execução.",
   };
+}
+
+/** What the CLI is told when a session defers approvals: refuse now, so the
+ * call is not left open for a human, and stop the turn. Plain English: the
+ * model reads it as the tool result. */
+export const DEFERRED_APPROVAL_MESSAGE = "awaiting user approval; end your turn";
+
+export function buildDeferredDecision(): PermissionDecision {
+  return { behavior: "deny", message: DEFERRED_APPROVAL_MESSAGE };
 }
 
 /** Per-server `timeout` for the permission MCP server, which stays silent
@@ -168,9 +191,12 @@ export function buildMcpSpawnConfig(params: {
    * fails in headless mode — see `McpSpawnConfig.disallowedTools`'s doc
    * comment for the full story. */
   blockAskUserQuestion: boolean;
+  /** `--allowedTools` rules approved by a human for this turn
+   * (`buildGrantRules`). */
+  grantedRules?: readonly string[];
 }): McpSpawnConfig | undefined {
-  const { choiceToken, permissionToken, mcpBridgeBaseUrl, mcpPermissionBridgeBaseUrl, blockAskUserQuestion } = params;
-  if (!choiceToken && !permissionToken && !blockAskUserQuestion) return undefined;
+  const { choiceToken, permissionToken, mcpBridgeBaseUrl, mcpPermissionBridgeBaseUrl, blockAskUserQuestion, grantedRules = [] } = params;
+  if (!choiceToken && !permissionToken && !blockAskUserQuestion && grantedRules.length === 0) return undefined;
 
   const mcpServers: Record<string, { type: "http"; url: string; timeout?: number; alwaysLoad: true }> = {};
   if (choiceToken) {
@@ -186,7 +212,7 @@ export function buildMcpSpawnConfig(params: {
   }
   return {
     configJson: JSON.stringify({ mcpServers }),
-    allowedTools: choiceToken ? CHOICE_ALLOWED_TOOL : undefined,
+    allowedTools: [...(choiceToken ? [CHOICE_ALLOWED_TOOL] : []), ...grantedRules].join(",") || undefined,
     permissionPromptTool: permissionToken ? PERMISSION_PROMPT_TOOL : undefined,
     // Force the model onto our `present_choice` (or, in plan mode, the
     // `planChoiceMarker.ts` text convention) instead of the CLI's own

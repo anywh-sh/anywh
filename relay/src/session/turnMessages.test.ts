@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { FinishedBackgroundJob } from "../host/backgroundJobs.js";
-import { buildBackgroundJobFollowupPrompt, isNoReply, NO_REPLY, offersSilence } from "./turnMessages.js";
+import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, isNoReply, NO_REPLY, offersSilence } from "./turnMessages.js";
 
 function job(overrides: Partial<FinishedBackgroundJob> = {}): FinishedBackgroundJob {
   return {
@@ -76,4 +76,52 @@ test("isNoReply: tolerates whitespace, backticks and a trailing period, nothing 
   for (const no of ["", "no_reply", "NO_REPLY, o servidor caiu", "Resultado: NO_REPLY", "NO_REPLY NO_REPLY"]) {
     assert.equal(isNoReply(no), false, no);
   }
+});
+
+test("buildDeferredApprovalFollowup: an approval says so first and names every approved call to repeat", () => {
+  const text = buildDeferredApprovalFollowup([
+    { tool: "Write", detail: "/tmp/out.txt", approved: true },
+    { tool: "Bash", detail: "git status", approved: true, agentId: "sub-1" },
+  ]);
+  assert.match(text, /^approved: retry the denied call/);
+  assert.match(text, /- Write \/tmp\/out\.txt\n/);
+  assert.match(text, /- Bash git status \(from subagent sub-1\)/);
+  assert.doesNotMatch(text, /do not retry/i);
+});
+
+test("buildDeferredApprovalFollowup: a refusal alone tells the model not to retry", () => {
+  const text = buildDeferredApprovalFollowup([{ tool: "Bash", detail: "rm -rf build", approved: false }]);
+  assert.match(text, /^denied by the user/);
+  assert.match(text, /do not retry/i);
+  assert.match(text, /- Bash rm -rf build/);
+  assert.doesNotMatch(text, /^approved/);
+});
+
+test("buildDeferredApprovalFollowup: a mix lists both groups, approvals first", () => {
+  const text = buildDeferredApprovalFollowup([
+    { tool: "Write", detail: "/a", approved: false },
+    { tool: "Write", detail: "/b", approved: true },
+  ]);
+  assert.match(text, /^approved: retry the denied call/);
+  assert.ok(text.indexOf("- Write /b") < text.indexOf("- Write /a"));
+  assert.match(text, /denied by the user.*do not retry/is);
+});
+
+test("buildDeferredApprovalFollowup: ExitPlanMode reads as leaving plan mode, with no detail to print", () => {
+  const text = buildDeferredApprovalFollowup([{ tool: "ExitPlanMode", detail: "", approved: true }]);
+  assert.match(text, /- ExitPlanMode\n?$/);
+  assert.match(text, /plan/i);
+});
+
+test("buildDeferredApprovalFollowup: an approved call that could not be pre-authorised says it will be asked again", () => {
+  const text = buildDeferredApprovalFollowup([
+    { tool: "Bash", detail: "ls | head", approved: true, granted: false },
+    { tool: "Bash", detail: "rm -rf ~/x", approved: false },
+  ]);
+  assert.match(text, /^approved: /);
+  assert.match(text, /no permission could be pre-authorised/);
+  assert.match(text, /asked again/i);
+  assert.match(text, /- Bash ls \| head/);
+  assert.match(text, /denied by the user: do not retry.*- Bash rm -rf ~\/x/s);
+  assert.doesNotMatch(text, /retry the denied call/, "it is not cleared to run without asking");
 });

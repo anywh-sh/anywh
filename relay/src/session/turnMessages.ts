@@ -61,3 +61,56 @@ export function buildBackgroundJobFollowupPrompt(job: FinishedBackgroundJob): st
     "antes de agir."
   );
 }
+
+/** One call of a deferred approval, with the human's verdict. */
+export interface DeferredApprovalDecision {
+  tool: string;
+  /** What the call does, as the approval card showed it. */
+  detail: string;
+  approved: boolean;
+  /** Whether the follow-up turn is given permission for it. Defaults to
+   * `true`; `false` for an approved call no safe rule could cover. */
+  granted?: boolean;
+  agentId?: string;
+}
+
+/**
+ * The message that starts the turn after a human answered a deferred tool
+ * approval. The permission itself is granted mechanically (the turn is spawned
+ * with it); this text only tells the model the answer so it repeats the calls
+ * that were allowed and leaves the refused ones alone. English on purpose: it
+ * is an instruction to the model, and the earlier refusal it answers was
+ * English too.
+ */
+export function buildDeferredApprovalFollowup(decisions: readonly DeferredApprovalDecision[]): string {
+  const line = ({ tool, detail, agentId }: DeferredApprovalDecision): string =>
+    `- ${[tool, detail].filter(Boolean).join(" ")}${agentId ? ` (from subagent ${agentId})` : ""}`;
+  const approved = decisions.filter((decision) => decision.approved && decision.granted !== false);
+  const notCleared = decisions.filter((decision) => decision.approved && decision.granted === false);
+  const denied = decisions.filter((decision) => !decision.approved);
+  const sections: string[] = [];
+  if (approved.length > 0) {
+    const exitsPlan = approved.some((decision) => decision.tool === "ExitPlanMode");
+    sections.push(
+      `approved: retry the denied call${approved.length > 1 ? "s" : ""}. The user approved ${approved.length > 1 ? "these calls" : "this call"}; ` +
+        `repeat ${approved.length > 1 ? "them" : "it"} exactly as before, without asking again` +
+        `${exitsPlan ? " (the plan was approved: leave plan mode and carry it out)" : ""}:\n${approved.map(line).join("\n")}`,
+    );
+  }
+  if (notCleared.length > 0) {
+    const many = notCleared.length > 1;
+    sections.push(
+      `${approved.length > 0 ? "Also approved" : "approved"}: the user approved ${many ? "these calls" : "this call"}, but no permission could be pre-authorised for ` +
+        `${many ? "them" : "it"} (no safe rule covers it, or a denied call of the same tool or on the same target would have been allowed with it). Repeat ${many ? "them" : "it"}; ` +
+        `the user will be asked again:\n${notCleared.map(line).join("\n")}`,
+    );
+  }
+  if (denied.length > 0) {
+    const many = denied.length > 1;
+    sections.push(
+      `denied by the user: do not retry ${many ? "these calls" : "this call"} or look for another way around the refusal. ` +
+        `Continue without ${many ? "them" : "it"}, or ask the user what to do instead:\n${denied.map(line).join("\n")}`,
+    );
+  }
+  return sections.join("\n\n");
+}
