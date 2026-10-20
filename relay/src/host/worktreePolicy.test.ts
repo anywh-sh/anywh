@@ -8,6 +8,7 @@ const facts = (over: Partial<CleanupFacts> = {}): CleanupFacts => ({
   discard: false,
   ancestor: false,
   declaredIntegrated: false,
+  strayCommits: false,
   prMerged: false,
   worktreeExists: true,
   clean: true,

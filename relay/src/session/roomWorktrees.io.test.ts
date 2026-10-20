@@ -5,7 +5,7 @@
 // nothing that anywh did not create is touched.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, before, test } from "node:test";
@@ -149,7 +149,7 @@ test("a squash merge leaves no ancestor: retained without a declaration (gh abse
   git(h.repo, "commit", "-q", "-m", "squashed");
   assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", "no evidence git can see, nothing is deleted");
   assert.ok(existsSync(wt.path));
-  h.worktrees.declareIntegratedFor("agent-1", "agent");
+  await h.worktrees.declareIntegratedFor("agent-1", "agent");
   assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
   assertNoTrace(h);
 });
@@ -265,6 +265,128 @@ test("a worktree with an initialized submodule is retained when integrated, and 
   assert.equal(discarded?.result, "removed");
   assert.ok(!existsSync(wt.path));
   assert.deepEqual(branches(repo), ["main"]);
+});
+
+/** A stand-in for `gh pr view <branch> --json ...`: answers $GH_ANSWER (with
+ * the branch's current tip for "@tip") after $GH_SLEEP seconds. */
+function fakeGh(): string {
+  const path = join(dir, `gh-${++counter}.sh`);
+  writeFileSync(path, '#!/bin/sh\nsleep "${GH_SLEEP:-0}"\ntip=$(git rev-parse "refs/heads/$3")\necho "$GH_ANSWER" | sed "s/@tip/$tip/"\n');
+  chmodSync(path, 0o755);
+  return path;
+}
+
+test("a declaration covers the tip it was made of: commits made after it are kept", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  await h.worktrees.declareIntegratedFor("agent-1", "agent");
+  commitIn(wt.path, "later.txt");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+});
+
+test("a pull request merged at an older tip does not cover commits pushed after it", async () => {
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_ANSWER = "MERGED 0000000000000000000000000000000000000000";
+  try {
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    process.env.GH_ANSWER = "MERGED @tip";
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
+  } finally {
+    delete process.env.GH_ANSWER;
+  }
+  assertNoTrace(h);
+});
+
+test("commits made on a detached HEAD in the worktree are on no branch: retained, not lost", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  git(h.repo, "merge", "-q", "--no-edit", wt.branch);
+  git(wt.path, "checkout", "-q", "--detach");
+  commitIn(wt.path, "stray.txt");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.match(outcome?.reason ?? "", /no branch/);
+  assert.ok(existsSync(join(wt.path, "stray.txt")));
+});
+
+test("an agent that starts a turn while the decision is being made keeps its worktree", async () => {
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_ANSWER = "MERGED @tip";
+  process.env.GH_SLEEP = "1";
+  try {
+    setTimeout(() => (h.agent.busy = true), 300);
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "skipped");
+    assert.ok(existsSync(wt.path));
+  } finally {
+    delete process.env.GH_ANSWER;
+    delete process.env.GH_SLEEP;
+  }
+});
+
+test("a file git ignores and cannot rebuild keeps the worktree; a build folder does not", async () => {
+  const h = harness();
+  const wt = await created(h);
+  writeFileSync(join(wt.path, ".gitignore"), ".env\nnode_modules/\n");
+  git(wt.path, "add", "-A");
+  git(wt.path, "commit", "-q", "-m", "ignore");
+  git(h.repo, "merge", "-q", "--no-edit", wt.branch);
+  mkdirSync(join(wt.path, "node_modules", "dep"), { recursive: true });
+  writeFileSync(join(wt.path, "node_modules", "dep", "i.js"), "x");
+  writeFileSync(join(wt.path, ".env"), "SECRET=1\n");
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+  assert.equal(readFileSync(join(wt.path, ".env"), "utf8"), "SECRET=1\n");
+  rmSync(join(wt.path, ".env"));
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
+  assertNoTrace(h);
+});
+
+test("a worktrees folder reached through a symlink: a folder deleted by hand is still forgotten and its branch removed", async () => {
+  const h = harness();
+  const real = join(dir, `real-root-${++counter}`);
+  mkdirSync(real);
+  const link = join(dir, `link-root-${++counter}`);
+  symlinkSync(real, link);
+  const registryFile = join(dir, `registry-link-${counter}.json`);
+  const worktrees = new RoomWorktrees({ registry: new WorktreeRegistry(registryFile), root: link, gh: "/nonexistent/gh", agents: { facts: () => ({ ...h.agent, title: "Linked", cwd: h.repo, roomId: "room" }) } });
+  const wt = await worktrees.create("room", "agent-1", h.repo);
+  assert.ok(wt.ok);
+  commitIn(wt.path);
+  git(h.repo, "merge", "-q", "--no-edit", wt.branch);
+  rmSync(wt.path, { recursive: true });
+  assert.deepEqual((await worktrees.sweep()).map((o) => o.result), ["removed"]);
+  assert.deepEqual(branches(h.repo), ["main"]);
+  assert.equal(git(h.repo, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length, 1);
+});
+
+test("a worktree created from the person's own linked worktree is still cleaned up after they remove theirs", async () => {
+  const h = harness();
+  const theirs = join(dir, `theirs-${++counter}`);
+  git(h.repo, "worktree", "add", "-q", "-b", "feature/theirs", theirs);
+  const wt = await created(h, theirs);
+  commitIn(wt.path);
+  git(theirs, "merge", "-q", "--no-edit", wt.branch);
+  git(h.repo, "worktree", "remove", "--force", theirs);
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "removed", outcome?.reason);
+  assert.deepEqual(branches(h.repo), ["feature/theirs", "main"]);
+});
+
+test("a creation killed inside git worktree add, leaving a bare folder git never registered, is swept away", async () => {
+  const h = harness();
+  const path = join(h.root, "app", "half-1234");
+  mkdirSync(path, { recursive: true });
+  h.registry.put({ id: "half", repoRoot: h.repo, path, branch: "anywh/half-1234", base: { ref: "main", sha: git(h.repo, "rev-parse", "HEAD") }, roomId: "room", agentId: "agent-1", createdAt: 1, state: "creating" });
+  await h.worktrees.sweep();
+  assertNoTrace(h);
 });
 
 test("creating refuses what is not a repository, a repository's own worktree, and names are never reused", async () => {

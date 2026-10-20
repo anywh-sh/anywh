@@ -357,6 +357,14 @@ export class RoomManager implements RoomToolHost {
   /** A room member's session was deleted: its agent is to leave the host,
    * now or on a later connection. */
   onMemberDeleted(sessionId: string): void {
+    // Once the deletion has finished (its record is gone), what it had
+    // integrated is cleaned up, and the rest kept and listed by the sweep.
+    const worktrees = this.options.worktrees;
+    if (worktrees) {
+      setImmediate(() => {
+        worktrees.cleanupAgent(sessionId, { auto: true }).catch((error: unknown) => console.warn(`[relay] worktree cleanup of deleted agent ${sessionId} failed: ${(error as Error).message}`));
+      });
+    }
     const tombstones = this.readTombstones();
     if (tombstones.includes(sessionId)) return;
     this.writeTombstones([...tombstones, sessionId]);
@@ -528,7 +536,9 @@ export class RoomManager implements RoomToolHost {
     if (!parsed.ok) return fail(parsed.error);
     const { integrated, ...report } = parsed.value;
     this.recordReport(callerId, caller, report);
-    if (integrated) this.options.worktrees?.declareIntegratedFor(callerId, "agent");
+    if (integrated) {
+      this.options.worktrees?.declareIntegratedFor(callerId, "agent").catch((error: unknown) => console.warn(`[relay] could not record that agent ${callerId}'s work is integrated: ${(error as Error).message}`));
+    }
     return ok("Report recorded. End your turn now.");
   }
 

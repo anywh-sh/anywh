@@ -39,7 +39,9 @@ export interface WorktreeRecord {
   state: WorktreeState;
   /** Someone said the branch's work was integrated (a squash or rebase
    * merge leaves no ancestor to find). */
-  declaredIntegrated?: { by: "agent" | "user"; at: number };
+  declaredIntegrated?: { by: "agent" | "user"; at: number; /** The branch tip it was said of: later commits are not covered. */ tip?: string };
+  /** The common git dir, where git still answers if the checkout named is gone. */
+  commonDir?: string;
   retained?: { reason: string; at: number };
   /** Set with `state: "removing"`: what was decided, so a crash half way
    * is finished rather than reconsidered. */
@@ -96,7 +98,10 @@ export interface CleanupFacts {
   discard: boolean;
   /** The branch's tip is an ancestor of its base. */
   ancestor: boolean;
+  /** Someone said so, of the tip the branch has now. */
   declaredIntegrated: boolean;
+  /** The worktree's HEAD holds commits no branch of ours has (detached, or on another branch). */
+  strayCommits: boolean;
   /** The branch's pull request was merged (best effort; false when unknown). */
   prMerged: boolean;
   worktreeExists: boolean;
@@ -115,9 +120,10 @@ export function decideCleanup(facts: CleanupFacts, auto: boolean): CleanupDecisi
   if (facts.agentBusy) return { action: "skip", reason: "the agent has a turn running" };
   if (auto && !facts.agentDone) return { action: "skip", reason: "the agent is not done" };
   if (facts.discard) return { action: "remove", evidence: "discard", force: true };
+  if (facts.strayCommits) return { action: "retain", reason: "its worktree holds commits that are on no branch of its own" };
   const evidence = facts.ancestor ? "ancestor" : facts.declaredIntegrated ? "declared" : facts.prMerged ? "pull_request" : undefined;
   if (!evidence) return { action: "retain", reason: "its branch is not merged into its base, and nobody said it was integrated" };
-  if (!facts.clean) return { action: "retain", reason: "its worktree has uncommitted changes" };
+  if (!facts.clean) return { action: "retain", reason: "its worktree has uncommitted changes or files git ignores" };
   if (facts.hasSubmodules) return { action: "retain", reason: "a submodule is initialized in it; removing it needs an explicit discard" };
   return { action: "remove", evidence, force: false };
 }

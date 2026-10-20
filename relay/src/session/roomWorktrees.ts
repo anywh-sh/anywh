@@ -15,8 +15,8 @@
 // Every operation runs one at a time, and a crash anywhere leaves a record
 // saying what was in progress; `sweep` finishes or undoes it at the next start.
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { branchExists, branchTip, commitsAhead, deleteBranch, directorySize, forgetMissingWorktree, hasInitializedSubmodules, initSubmodules, isAncestorOfBase, isClean, listWorktrees, pullRequestMerged, readRepo, removeWorktree, addWorktree } from "../host/worktreeGit.js";
+import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { branchExists, branchTip, commitsAhead, deleteBranch, directorySize, forgetMissingWorktree, hasInitializedSubmodules, initSubmodules, isAncestorOfBase, isClean, isCommitInBase, listWorktrees, pullRequestMerged, readRepo, removeWorktree, addWorktree, worktreeHead } from "../host/worktreeGit.js";
 import type { WorktreeRegistry } from "../host/worktreeRegistry.js";
 import { branchFor, decideCleanup, isInside, isOurs, pathFor, worktreeName, type CleanupDecision, type WorktreeRecord } from "../host/worktreePolicy.js";
 import { join } from "node:path";
@@ -68,9 +68,13 @@ export class RoomWorktrees {
   private readonly inFlight = new Set<string>();
   private readonly now: () => number;
 
+  /** The worktrees folder as git reports paths under it (symlinks resolved). */
+  private readonly rootDir: string;
+
   constructor(private readonly options: RoomWorktreesOptions) {
     this.now = options.now ?? Date.now;
     mkdirSync(options.root, { recursive: true });
+    this.rootDir = realpathSync(options.root);
   }
 
   /** One git operation at a time, whatever the callers. */
@@ -81,7 +85,22 @@ export class RoomWorktrees {
   }
 
   get root(): string {
-    return this.options.root;
+    return this.rootDir;
+  }
+
+  /** Where git still answers for a record: its checkout, or the common git
+   * dir when the checkout named is gone (the person's own linked worktree,
+   * removed). */
+  private repoDirOf(record: WorktreeRecord): string | undefined {
+    if (existsSync(record.repoRoot)) return record.repoRoot;
+    return record.commonDir && existsSync(record.commonDir) ? record.commonDir : undefined;
+  }
+
+  /** The record as it is now on disk: writes of a snapshot must not undo a
+   * declaration made while an operation was awaiting git. */
+  private fresh(record: WorktreeRecord): WorktreeRecord {
+    const current = this.options.registry.get(record.id);
+    return current ? { ...record, ...(current.declaredIntegrated ? { declaredIntegrated: current.declaredIntegrated } : {}) } : record;
   }
 
   // ---------------------------------------------------------------- create
@@ -97,20 +116,20 @@ export class RoomWorktrees {
     const from = repo.startsWith("/") ? repo : join(agent.cwd ?? "/", repo);
     const facts = await readRepo(from);
     if ("error" in facts) return { ok: false, error: facts.error };
-    if (isInside(this.options.root, facts.root)) return { ok: false, error: "that path is already an agent's worktree; name the original repository" };
+    if (isInside(this.rootDir, facts.root)) return { ok: false, error: "that path is already an agent's worktree; name the original repository" };
     let name = "";
     let path = "";
     let branch = "";
     for (let attempt = 0; attempt < 20; attempt++) {
       name = worktreeName(agent.title ?? "agent", randomBytes(2).toString("hex"));
-      path = pathFor(this.options.root, facts.root, name);
+      path = pathFor(this.rootDir, facts.root, name);
       branch = branchFor(name);
       if (!existsSync(path) && !(await branchExists(facts.root, branch)) && !this.options.registry.all().some((r) => r.path === path || r.branch === branch)) break;
       name = "";
     }
     if (name === "") return { ok: false, error: "could not find a free name for the worktree" };
 
-    const record: WorktreeRecord = { id: randomBytes(8).toString("hex"), repoRoot: facts.root, path, branch, base: facts.base, roomId, agentId, createdAt: this.now(), state: "creating" };
+    const record: WorktreeRecord = { id: randomBytes(8).toString("hex"), repoRoot: facts.root, commonDir: facts.commonDir, path, branch, base: facts.base, roomId, agentId, createdAt: this.now(), state: "creating" };
     // The intention goes to disk first: a crash after this line is undone by `sweep`.
     this.options.registry.put(record);
     this.options.crashPoint?.("afterIntent");
@@ -126,7 +145,7 @@ export class RoomWorktrees {
       const warnings: string[] = [];
       const submodules = await initSubmodules(path);
       if (submodules && !submodules.ok) warnings.push(`its submodules could not be initialized (${submodules.stderr.trim().split("\n").pop() ?? "git failed"}); run git submodule update --init there`);
-      this.options.registry.put({ ...record, state: "created" });
+      this.options.registry.put({ ...this.fresh(record), state: "created" });
       return { ok: true, path, workdir: facts.subpath ? join(path, facts.subpath) : path, branch, base: facts.base.ref ?? facts.base.sha, warnings };
     } catch (error) {
       await this.undoCreation(record);
@@ -139,34 +158,47 @@ export class RoomWorktrees {
   /** Takes back a creation that did not finish: what exists of the worktree
    * and its (empty) branch goes, then the record. */
   private async undoCreation(record: WorktreeRecord): Promise<void> {
-    if (!isOurs(record, this.options.root)) {
-      this.options.registry.delete(record.id);
+    const repo = this.repoDirOf(record);
+    if (!isOurs(record, this.rootDir) || !repo) {
+      // Not ours to act on, or nowhere left to ask git: only the record goes
+      // when it names nothing that exists.
+      if (!isOurs(record, this.rootDir) || (!existsSync(record.path))) this.options.registry.delete(record.id);
+      else this.options.registry.put({ ...record, state: "retained", retained: { reason: "its creation did not finish and its repository is not where it was", at: this.now() } });
       return;
     }
-    const listed = (await listWorktrees(record.repoRoot)).some((entry) => entry.path === record.path);
-    if (listed) await removeWorktree(record.repoRoot, record.path, true);
-    else if (existsSync(record.repoRoot)) {
-      const common = (await readRepo(record.repoRoot)) as { commonDir?: string };
+    const listed = (await listWorktrees(repo)).some((entry) => entry.path === record.path);
+    if (listed) await removeWorktree(repo, record.path, true);
+    else {
+      const common = (await readRepo(repo)) as { commonDir?: string };
       if (common.commonDir) forgetMissingWorktree(common.commonDir, record.path);
+      // A directory git never registered (killed in the middle of `worktree
+      // add`) holds nothing of anyone's: it is ours, under our folder, new.
+      if (existsSync(record.path) && !existsSync(join(record.path, ".git"))) rmSync(record.path, { recursive: true, force: true });
     }
     // Only a branch still at its starting point: one with commits is work.
-    if ((await branchTip(record.repoRoot, record.branch)) === record.base.sha) await deleteBranch(record.repoRoot, record.branch);
-    if (!(await branchExists(record.repoRoot, record.branch)) && !existsSync(record.path)) this.options.registry.delete(record.id);
-    else this.options.registry.put({ ...record, state: "retained", retained: { reason: "its creation did not finish and it holds something", at: this.now() } });
+    if ((await branchTip(repo, record.branch)) === record.base.sha) await deleteBranch(repo, record.branch);
+    if (!(await branchExists(repo, record.branch)) && !existsSync(record.path)) this.options.registry.delete(record.id);
+    else this.options.registry.put({ ...this.fresh(record), state: "retained", retained: { reason: "its creation did not finish and it holds something", at: this.now() } });
   }
 
   // --------------------------------------------------------------- cleanup
 
-  declareIntegrated(id: string, by: "agent" | "user"): boolean {
-    const record = this.options.registry.get(id);
-    if (!record) return false;
-    this.options.registry.put({ ...record, declaredIntegrated: { by, at: this.now() } });
-    return true;
+  /** Someone says a worktree's branch was integrated. Said of the tip it has
+   * now: commits made after are not covered. */
+  declareIntegrated(id: string, by: "agent" | "user"): Promise<boolean> {
+    return this.serial(async () => {
+      const record = this.options.registry.get(id);
+      if (!record) return false;
+      const repo = this.repoDirOf(record);
+      const tip = repo ? await branchTip(repo, record.branch) : undefined;
+      this.options.registry.put({ ...(this.options.registry.get(id) ?? record), declaredIntegrated: { by, at: this.now(), ...(tip ? { tip } : {}) } });
+      return true;
+    });
   }
 
   /** The agent says its worktrees' work was integrated. */
-  declareIntegratedFor(agentId: string, by: "agent" | "user"): void {
-    for (const record of this.options.registry.forAgent(agentId)) this.declareIntegrated(record.id, by);
+  async declareIntegratedFor(agentId: string, by: "agent" | "user"): Promise<void> {
+    for (const record of this.options.registry.forAgent(agentId)) await this.declareIntegrated(record.id, by);
   }
 
   /** Cleans up one agent's worktrees. `auto` (a worker's turn ended, the
@@ -191,7 +223,7 @@ export class RoomWorktrees {
     const outcomes: CleanupOutcome[] = [];
     for (const record of records) {
       if (record.state === "creating" || this.inFlight.has(record.id)) continue;
-      if (!isOurs(record, this.options.root)) {
+      if (!isOurs(record, this.rootDir)) {
         this.options.registry.delete(record.id);
         continue;
       }
@@ -202,17 +234,26 @@ export class RoomWorktrees {
 
   private async decide(record: WorktreeRecord, mode: { auto: boolean; discard: boolean }): Promise<CleanupDecision> {
     const agent = this.options.agents.facts(record.agentId);
+    const repo = this.repoDirOf(record);
     const worktreeExists = existsSync(record.path);
-    // A branch that is already gone has no work left to lose.
-    const tip = (await this.branchStillThere(record)) ? await branchTip(record.repoRoot, record.branch) : undefined;
+    const branchThere = repo !== undefined && (await branchExists(repo, record.branch));
+    const tip = branchThere && repo ? await branchTip(repo, record.branch) : undefined;
     // A branch still at its starting point is trivially "merged", which says
     // nothing while its agent may yet use it: left alone until it moves, or
     // its agent is gone, or someone says it is done with.
     if (tip === record.base.sha && agent.exists && !mode.discard && record.declaredIntegrated === undefined) {
       return { action: "skip", reason: "nothing has been committed in it yet" };
     }
-    const ancestor = tip === undefined ? true : await isAncestorOfBase(record.repoRoot, record.branch, record.base);
-    const declared = record.declaredIntegrated !== undefined;
+    // A branch that is already gone has no work left to lose.
+    const ancestor = !branchThere ? true : await isAncestorOfBase(repo, record.branch, record.base);
+    const declared = record.declaredIntegrated !== undefined && (record.declaredIntegrated.tip === undefined || record.declaredIntegrated.tip === tip || tip === undefined);
+    // Commits made in the worktree off its branch (a detached HEAD) are on no
+    // branch to look at: only a base that already holds them makes them safe.
+    let strayCommits = false;
+    if (worktreeExists && repo) {
+      const head = await worktreeHead(record.path);
+      if (head && head.sha !== tip) strayCommits = !(await isCommitInBase(repo, head.sha, record.base));
+    }
     return decideCleanup(
       {
         agentBusy: agent.busy,
@@ -220,8 +261,9 @@ export class RoomWorktrees {
         discard: mode.discard,
         ancestor,
         declaredIntegrated: declared,
+        strayCommits,
         // Asked only when nothing else already proves it.
-        prMerged: !ancestor && !declared && !mode.discard && existsSync(record.repoRoot) ? await pullRequestMerged(record.repoRoot, record.branch, this.options.gh) : false,
+        prMerged: !ancestor && !declared && !mode.discard && repo ? await pullRequestMerged(repo, record.branch, tip, this.options.gh) : false,
         worktreeExists,
         clean: worktreeExists ? await isClean(record.path) : true,
         hasSubmodules: worktreeExists ? await hasInitializedSubmodules(record.path) : false,
@@ -230,25 +272,24 @@ export class RoomWorktrees {
     );
   }
 
-  private async branchStillThere(record: WorktreeRecord): Promise<boolean> {
-    return existsSync(record.repoRoot) && (await branchExists(record.repoRoot, record.branch));
-  }
-
   private async cleanupOne(record: WorktreeRecord, mode: { auto: boolean; discard: boolean }): Promise<CleanupOutcome> {
     const decision = await this.decide(record, mode);
     if (decision.action === "skip") return { id: record.id, branch: record.branch, result: "skipped", reason: decision.reason };
     if (decision.action === "retain") {
       // A directory the person deleted by hand leaves a stale entry in git's
       // own list: forgotten here, that one entry only (the branch stays).
-      if (!existsSync(record.path) && existsSync(record.repoRoot)) {
-        const repo = await readRepo(record.repoRoot);
-        if (!("error" in repo)) forgetMissingWorktree(repo.commonDir, record.path);
+      const repo = this.repoDirOf(record);
+      if (!existsSync(record.path) && repo) {
+        const facts = await readRepo(repo);
+        if (!("error" in facts)) forgetMissingWorktree(facts.commonDir, record.path);
       }
-      this.options.registry.put({ ...record, state: "retained", retained: { reason: decision.reason, at: this.now() } });
+      this.options.registry.put({ ...this.fresh(record), state: "retained", retained: { reason: decision.reason, at: this.now() } });
       return { id: record.id, branch: record.branch, result: "retained", reason: decision.reason };
     }
+    // The decision took awaits (git, `gh`): the agent may have a turn now.
+    if (this.options.agents.facts(record.agentId).busy) return { id: record.id, branch: record.branch, result: "skipped", reason: "the agent has a turn running" };
     // The decision is on disk before the first removal.
-    const removing: WorktreeRecord = { ...record, state: "removing", removing: { force: decision.force, reason: decision.evidence } };
+    const removing: WorktreeRecord = { ...this.fresh(record), state: "removing", removing: { force: decision.force, reason: decision.evidence } };
     this.options.registry.put(removing);
     this.options.crashPoint?.("afterRemoving");
     this.inFlight.add(record.id);
@@ -264,22 +305,25 @@ export class RoomWorktrees {
   private async finishRemoval(record: WorktreeRecord): Promise<CleanupOutcome> {
     const force = record.removing?.force ?? false;
     const refuse = (reason: string): CleanupOutcome => {
-      this.options.registry.put({ ...record, state: "retained", retained: { reason, at: this.now() } });
+      this.options.registry.put({ ...this.fresh(record), state: "retained", retained: { reason, at: this.now() } });
       return { id: record.id, branch: record.branch, result: "retained", reason };
     };
-    if (!existsSync(record.repoRoot)) return refuse("its repository is not where it was");
+    // A removal resumed after a crash may meet an agent that is working again.
+    if (this.options.agents.facts(record.agentId).busy) return { id: record.id, branch: record.branch, result: "skipped", reason: "the agent has a turn running" };
+    const repo = this.repoDirOf(record);
+    if (!repo) return refuse("its repository is not where it was");
     if (existsSync(record.path)) {
-      const removed = await removeWorktree(record.repoRoot, record.path, force);
+      const removed = await removeWorktree(repo, record.path, force);
       if (!removed.ok && existsSync(record.path)) return refuse(removed.stderr.trim() || "git refused to remove it");
     } else {
-      const repo = await readRepo(record.repoRoot);
-      if (!("error" in repo)) forgetMissingWorktree(repo.commonDir, record.path);
+      const facts = await readRepo(repo);
+      if (!("error" in facts)) forgetMissingWorktree(facts.commonDir, record.path);
     }
     this.options.crashPoint?.("afterWorktreeRemoved");
-    if (await branchExists(record.repoRoot, record.branch)) {
+    if (await branchExists(repo, record.branch)) {
       // `-D`, on the evidence already established (or the person's discard):
       // `-d` judges by the checkout's HEAD, not the base the branch started from.
-      const deleted = await deleteBranch(record.repoRoot, record.branch);
+      const deleted = await deleteBranch(repo, record.branch);
       if (!deleted.ok) return refuse(deleted.stderr.trim() || "git refused to delete its branch");
     }
     this.options.registry.delete(record.id);
@@ -297,7 +341,7 @@ export class RoomWorktrees {
       const outcomes: CleanupOutcome[] = [];
       for (const record of [...this.options.registry.all()]) {
         if (this.inFlight.has(record.id)) continue;
-        if (!isOurs(record, this.options.root)) {
+        if (!isOurs(record, this.rootDir)) {
           this.options.registry.delete(record.id);
           continue;
         }
@@ -321,7 +365,8 @@ export class RoomWorktrees {
     const infos: WorktreeInfo[] = [];
     for (const record of this.options.registry.forRoom(roomId)) {
       const exists = existsSync(record.path);
-      const branchThere = existsSync(record.repoRoot) && (await branchExists(record.repoRoot, record.branch));
+      const repo = this.repoDirOf(record);
+      const branchThere = repo !== undefined && (await branchExists(repo, record.branch));
       infos.push({
         id: record.id,
         agentId: record.agentId,
@@ -330,9 +375,9 @@ export class RoomWorktrees {
         branch: record.branch,
         state: record.state,
         phase: this.options.agents.facts(record.agentId).busy ? "in_use" : "idle",
-        ...(branchThere ? { commitsAhead: await commitsAhead(record.repoRoot, record.branch, record.base) } : {}),
+        ...(branchThere ? { commitsAhead: await commitsAhead(repo, record.branch, record.base) } : {}),
         ...(exists ? { clean: await isClean(record.path) } : {}),
-        integrated: record.declaredIntegrated !== undefined || (branchThere && (await isAncestorOfBase(record.repoRoot, record.branch, record.base))),
+        integrated: record.declaredIntegrated !== undefined || (branchThere && (await isAncestorOfBase(repo, record.branch, record.base))),
         ...(record.retained ? { retainedReason: record.retained.reason } : {}),
         ...(options.size && exists ? { sizeBytes: await directorySize(record.path) } : {}),
       });

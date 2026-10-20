@@ -70,8 +70,10 @@ export async function readRepo(path: string): Promise<RepoFacts | { error: strin
   };
 }
 
+/** Whether the branch exists. A git that failed to answer (a timeout, a
+ * broken repository) is not "no": only its exit status 1 is. */
 export function branchExists(repoRoot: string, branch: string): Promise<boolean> {
-  return runGit(repoRoot, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]).then((r) => r.ok);
+  return runGit(repoRoot, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]).then((r) => r.ok || r.code !== 1);
 }
 
 export async function branchTip(repoRoot: string, branch: string): Promise<string | undefined> {
@@ -116,9 +118,30 @@ export async function hasInitializedSubmodules(path: string): Promise<boolean> {
   return r.ok && r.stdout.split("\n").some((line) => line.trim() !== "" && !line.startsWith("-"));
 }
 
+/** Ignored folders a build recreates: removing them loses nothing. */
+const REBUILDABLE = /(^|\/)(node_modules|dist|build|target|coverage|__pycache__|\.next|\.cache|\.venv)\/?$/;
+
+/** No uncommitted or untracked changes, and no ignored file that is not a
+ * rebuildable folder (a `.env` is not in git and `worktree remove` deletes it). */
 export async function isClean(path: string): Promise<boolean> {
-  const r = await runGit(path, ["status", "--porcelain", "--untracked-files=all"]);
-  return r.ok && r.stdout.trim() === "";
+  const r = await runGit(path, ["status", "--porcelain", "--untracked-files=normal", "--ignored=traditional"]);
+  if (!r.ok) return false;
+  return r.stdout.split("\n").every((line) => line.trim() === "" || (line.startsWith("!! ") && REBUILDABLE.test(line.slice(3))));
+}
+
+/** What a worktree's own HEAD is on: a branch, or a bare commit. */
+export async function worktreeHead(path: string): Promise<{ branch?: string; sha: string } | undefined> {
+  const sha = await runGit(path, ["rev-parse", "--verify", "-q", "HEAD"]);
+  if (!sha.ok) return undefined;
+  const ref = await runGit(path, ["symbolic-ref", "--short", "-q", "HEAD"]);
+  const branch = ref.ok && ref.stdout.trim() !== "" ? ref.stdout.trim() : undefined;
+  return { ...(branch ? { branch } : {}), sha: sha.stdout.trim() };
+}
+
+/** Whether a commit is an ancestor of the base. */
+export async function isCommitInBase(repoRoot: string, sha: string, base: WorktreeBase): Promise<boolean> {
+  const target = base.ref && (await branchExists(repoRoot, base.ref)) ? `refs/heads/${base.ref}` : base.sha;
+  return (await runGit(repoRoot, ["merge-base", "--is-ancestor", sha, target])).ok;
 }
 
 /** Whether `branch`'s tip is an ancestor of `base` (its ref while that still
@@ -169,13 +192,14 @@ export function forgetMissingWorktree(commonDir: string, path: string): boolean 
   return false;
 }
 
-/** Whether the branch's pull request was merged, by `gh` when it is
- * installed and the repo has a remote. Anything else (no `gh`, no network,
- * no such PR) is `false`. */
-export function pullRequestMerged(repoRoot: string, branch: string, gh = "gh"): Promise<boolean> {
+/** Whether the branch's pull request was merged *at this tip*, by `gh` when
+ * it is installed and the repo has a remote: commits pushed after the merge
+ * are not covered by it. Anything else (no `gh`, no network, no such PR) is `false`. */
+export function pullRequestMerged(repoRoot: string, branch: string, tip: string | undefined, gh = "gh"): Promise<boolean> {
+  if (!tip) return Promise.resolve(false);
   return new Promise((resolveRun) => {
-    execFile(gh, ["pr", "view", branch, "--json", "state", "--jq", ".state"], { cwd: repoRoot, env: gitEnv(), timeout: 15_000, encoding: "utf8" }, (error, stdout) => {
-      resolveRun(!error && stdout.trim() === "MERGED");
+    execFile(gh, ["pr", "view", branch, "--json", "state,headRefOid", "--jq", '.state + " " + .headRefOid'], { cwd: repoRoot, env: gitEnv(), timeout: 15_000, encoding: "utf8" }, (error, stdout) => {
+      resolveRun(!error && stdout.trim() === `MERGED ${tip}`);
     });
   });
 }
