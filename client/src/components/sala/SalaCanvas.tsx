@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -139,9 +139,18 @@ export function SalaCanvas(props: SalaCanvasProps) {
           const agent = byId.get(id);
           return agent && rects.has(id) ? [agent] : [];
         });
+        const rect = areaRect(area, rects);
+        // A link comes down into the frame at the middle of each card whose
+        // parent is outside it; the label stops short of the first such link.
+        const entering = members.flatMap((m) => {
+          const parent = m.parentId === undefined ? undefined : byId.get(m.parentId);
+          const card = rects.get(m.agentId);
+          return parent && card && !members.includes(parent) ? [card.x + card.w / 2 - rect.x] : [];
+        });
         return {
           area,
-          rect: areaRect(area, rects),
+          rect,
+          linkX: entering.length > 0 ? Math.min(...entering) : undefined,
           count: members.length,
           running: members.filter((m) => cardStatus(m, m.role === "principal" ? liveWorkers : 0).tone === "run").length,
           waiting: members.filter((m) => cardStatus(m, m.role === "principal" ? liveWorkers : 0).tone === "wait").length,
@@ -951,12 +960,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
       <div className="sala-vignette" aria-hidden="true" />
 
       <div ref={worldRef} className="sala-world">
-        {frames.map(({ area, rect, count, running, waiting }) => (
+        {frames.map(({ area, rect, linkX, count, running, waiting }) => (
           <div
             key={area.id}
             data-area-id={area.id}
             className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel")}
-            style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
+            style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h, ...(linkX === undefined ? {} : ({ "--link-x": `${String(Math.round(linkX))}px` } as CSSProperties)) }}
           >
             <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
               <input
@@ -973,14 +982,16 @@ export function SalaCanvas(props: SalaCanvasProps) {
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
               />
-              <span className="sala-frame-count">{count === 1 ? dict.area.agentsOne : dict.area.agents.replace("{count}", String(count))}</span>
-              {running > 0 && <span className="sala-frame-count">· {dict.area.running.replace("{count}", String(running))}</span>}
-              {waiting > 0 && (
-                <span className="sala-frame-wait">
-                  <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                  {dict.area.waiting.replace("{count}", String(waiting))}
-                </span>
-              )}
+              <span className="sala-frame-meta">
+                <span className="sala-frame-count">{count === 1 ? dict.area.agentsOne : dict.area.agents.replace("{count}", String(count))}</span>
+                {running > 0 && <span className="sala-frame-count">· {dict.area.running.replace("{count}", String(running))}</span>}
+                {waiting > 0 && (
+                  <span className="sala-frame-wait">
+                    <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                    {dict.area.waiting.replace("{count}", String(waiting))}
+                  </span>
+                )}
+              </span>
               <button type="button" className="sala-frame-x" data-nodrag onClick={() => removeArea(area.id)} aria-label={dict.area.remove} title={dict.area.remove}>
                 <CloseIcon size={11} />
               </button>

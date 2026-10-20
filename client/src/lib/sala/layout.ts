@@ -162,6 +162,10 @@ export function spawnUnder(
  * object when nothing was missing.
  */
 export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): RoomCanvas {
+  // A canvas nobody has arranged by hand is laid out as a whole each time,
+  // so the principal stays centred over whatever it delegated; once the
+  // person touches anything, only the newcomers are placed.
+  if (canvas.manual !== true) return tidyLayout(agents, canvas);
   const missing = agents.filter((a) => canvas.positions[a.agentId] === undefined);
   if (missing.length === 0) return canvas;
 
@@ -234,6 +238,122 @@ export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): R
 
   const cards = cardRects(agents, positions);
   return { ...canvas, positions, areas: areas.map((a) => storedArea(a, cards)) };
+}
+
+/** Gap between two cards side by side in the same group, and between a card
+ * and a neighbour that sits in another area (whose frame needs the room). */
+const SIBLING_GAP = 24;
+const AREA_SIBLING_GAP = AREA_GAP + AREA_PAD * 2;
+
+interface Placed {
+  id: string;
+  /** Centre of the card, relative to the subtree's root. */
+  cx: number;
+  y: number;
+}
+
+interface SubtreeLayout {
+  cards: Placed[];
+  minX: number;
+  maxX: number;
+}
+
+/** The area label an agent belongs to in a tidy layout: the one it names, or
+ * its parent worker's. */
+function tidyAreaLabels(agents: readonly RoomAgent[]): Map<string, string> {
+  const byId = new Map(agents.map((a) => [a.agentId, a]));
+  const out = new Map<string, string>();
+  for (const agent of treeOrder(agents)) {
+    const own = agent.area?.trim();
+    const parent = agent.parentId === undefined ? undefined : byId.get(agent.parentId);
+    const label = own ? own : parent?.role === "worker" ? out.get(parent.agentId) : undefined;
+    if (label) out.set(agent.agentId, label);
+  }
+  return out;
+}
+
+/**
+ * Lays every agent out as a tree: each parent centred over the cards it
+ * delegated to, siblings of one area side by side and apart from the next
+ * area's, one row per level. Areas follow the agents (the label an agent
+ * names, inherited by what its members delegate). Pure; returns the same
+ * canvas when nothing would move.
+ */
+export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): RoomCanvas {
+  if (agents.length === 0) return canvas;
+  const ids = new Set(agents.map((a) => a.agentId));
+  const kids = childrenOf(agents);
+  const labels = tidyAreaLabels(agents);
+  const key = (id: string): string => normalizeLabel(labels.get(id) ?? "");
+  const byId = new Map(agents.map((a) => [a.agentId, a]));
+
+  const layout = (agent: RoomAgent, seen: Set<string>): SubtreeLayout => {
+    const { w } = cardSize(agent);
+    seen.add(agent.agentId);
+    // Members of one area stay together, in the order the channel listed them.
+    const order: string[] = [];
+    for (const kid of kids.get(agent.agentId) ?? []) if (!order.includes(key(kid.agentId))) order.push(key(kid.agentId));
+    const children = (kids.get(agent.agentId) ?? []).filter((k) => !seen.has(k.agentId)).sort((a, b) => order.indexOf(key(a.agentId)) - order.indexOf(key(b.agentId)));
+    if (children.length === 0) return { cards: [{ id: agent.agentId, cx: 0, y: 0 }], minX: -w / 2, maxX: w / 2 };
+    const parts = children.map((kid) => ({ kid, sub: layout(kid, seen) }));
+    let cursor = 0;
+    const shifted: { id: string; cx: number; y: number }[] = [];
+    const roots: number[] = [];
+    let previous: string | undefined;
+    for (const { kid, sub } of parts) {
+      const gap = previous === undefined ? 0 : key(kid.agentId) === previous && previous !== "" ? SIBLING_GAP : previous === "" && key(kid.agentId) === "" ? SIBLING_GAP : AREA_SIBLING_GAP;
+      cursor += gap;
+      const offset = cursor - sub.minX;
+      for (const card of sub.cards) shifted.push({ id: card.id, cx: card.cx + offset, y: card.y + ROW });
+      roots.push(offset);
+      cursor = offset + sub.maxX;
+      previous = key(kid.agentId);
+    }
+    const centre = (roots[0] + roots[roots.length - 1]) / 2;
+    const cards: Placed[] = [{ id: agent.agentId, cx: centre, y: 0 }, ...shifted];
+    return { cards, minX: Math.min(centre - w / 2, ...parts.map((p, i) => roots[i] + p.sub.minX)), maxX: Math.max(centre + w / 2, ...parts.map((p, i) => roots[i] + p.sub.maxX)) };
+  };
+
+  const seen = new Set<string>();
+  const roots = agents.filter((a) => a.parentId === undefined || !ids.has(a.parentId));
+  let cursor = 0;
+  const positions: RoomCanvas["positions"] = {};
+  for (const root of roots) {
+    const sub = layout(root, seen);
+    const offset = cursor - sub.minX;
+    for (const card of sub.cards) {
+      const agent = byId.get(card.id)!;
+      const { w } = cardSize(agent);
+      positions[card.id] = { x: snap(card.cx + offset - w / 2), y: card.y };
+    }
+    cursor = offset + sub.maxX + AREA_SIBLING_GAP;
+  }
+
+  // Areas by label, reusing the ones that already exist for it.
+  const areas: RoomCanvasArea[] = [];
+  const existing = new Map(canvas.areas.map((a) => [normalizeLabel(a.label), a]));
+  for (const agent of treeOrder(agents)) {
+    const label = labels.get(agent.agentId);
+    if (!label) continue;
+    let area = areas.find((a) => normalizeLabel(a.label) === normalizeLabel(label));
+    if (!area) {
+      const kept = existing.get(normalizeLabel(label));
+      const slug = normalizeLabel(label).replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+      area = { id: kept?.id ?? `area-${slug}-${String(areas.length + 1)}`, label: kept?.label ?? label.slice(0, 200), x: 0, y: 0, members: [] };
+      areas.push(area);
+    }
+    area.members!.push(agent.agentId);
+  }
+  const cards = cardRects(agents, positions);
+  const placedAreas = areas.map((a) => storedArea(a, cards));
+
+  const same =
+    placedAreas.length === canvas.areas.length &&
+    placedAreas.every((a, i) => JSON.stringify(a) === JSON.stringify(canvas.areas[i])) &&
+    agents.every((a) => canvas.positions[a.agentId]?.x === positions[a.agentId].x && canvas.positions[a.agentId]?.y === positions[a.agentId].y);
+  if (same) return canvas;
+  // Positions of agents no longer in the room stay (a removal can be undone).
+  return { ...canvas, positions: { ...canvas.positions, ...positions }, areas: placedAreas };
 }
 
 /** Whether `home` — an area — would still be clear of every other area and of

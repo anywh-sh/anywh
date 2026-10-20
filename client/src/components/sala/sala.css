@@ -498,6 +498,20 @@
   padding: 0 4px 0 0;
   cursor: grab;
   white-space: nowrap;
+  /* A link coming down into the frame is never drawn across the label: the
+     bar is cut short of it (its meta line goes first). The bar is scaled by
+     --inv, so the link's distance from the frame edge is divided by it. */
+  max-width: calc(var(--link-x, 100000px) / var(--inv, 1) - 12px);
+}
+.sala-frame-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.sala-frame-x {
+  flex-shrink: 0;
 }
 .sala-frame-input {
   background: none;
@@ -509,6 +523,7 @@
   color: var(--muted-foreground);
   cursor: inherit;
   min-width: 40px;
+  flex: 0 1 auto;
 }
 .sala-frame-input:focus {
   color: var(--foreground);

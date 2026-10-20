@@ -126,8 +126,10 @@ export function useRoomCanvas(profile: Profile, roomId: string, agents: readonly
 
   const update = useCallback(
     (next: RoomCanvas) => {
-      canvasRef.current = next;
-      setCanvas(next);
+      // Whatever the person changes by hand ends the automatic layout.
+      const marked = next.manual === true ? next : { ...next, manual: true as const };
+      canvasRef.current = marked;
+      setCanvas(marked);
       schedule();
     },
     [schedule],

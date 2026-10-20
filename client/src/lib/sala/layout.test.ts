@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_BAR, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_BAR, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
-  return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, ...over };
+  return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [], ...over };
 }
 const main = agent("main", { role: "principal", parentId: undefined });
 const empty: RoomCanvas = { positions: {}, areas: [], texts: [] };
@@ -54,7 +54,7 @@ describe("placeAgents", () => {
   });
 
   it("keeps what the person arranged, only adding what is missing", () => {
-    const arranged: RoomCanvas = { ...empty, positions: { main: { x: 480, y: 96 }, a: { x: -240, y: 1200 } } };
+    const arranged: RoomCanvas = { ...empty, manual: true, positions: { main: { x: 480, y: 96 }, a: { x: -240, y: 1200 } } };
     const agents = [main, agent("a"), agent("b")];
     const out = placeAgents(agents, arranged);
     expect(out.positions.main).toEqual({ x: 480, y: 96 });
@@ -63,7 +63,7 @@ describe("placeAgents", () => {
   });
 
   it("returns the same canvas when every agent already has a place", () => {
-    const done: RoomCanvas = { ...empty, positions: { main: { x: 0, y: 0 }, a: { x: 0, y: 264 } } };
+    const done: RoomCanvas = { ...empty, manual: true, positions: { main: { x: 0, y: 0 }, a: { x: 0, y: 264 } } };
     expect(placeAgents([main, agent("a")], done)).toBe(done);
   });
 
@@ -101,7 +101,7 @@ describe("placeAgents", () => {
 
   it("does not pull a principal's direct worker into an area just for its parent", () => {
     const agents = [main, agent("a")];
-    expect(placeAgents(agents, { ...empty, areas: [{ id: "x", label: "X", x: 0, y: 0, members: ["main"] }] }).areas[0].members).toEqual(["main"]);
+    expect(placeAgents(agents, { ...empty, manual: true, areas: [{ id: "x", label: "X", x: 0, y: 0, members: ["main"] }] }).areas[0].members).toEqual(["main"]);
   });
 
   it("keeps new cards out of another area's frame", () => {
@@ -299,5 +299,52 @@ describe("groupInto and subtreeIds", () => {
   it("lists an agent and all it delegated, deep", () => {
     const agents = [main, agent("a"), agent("b", { parentId: "a" }), agent("c", { parentId: "b" }), agent("d")];
     expect(subtreeIds(agents, "a").sort()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("tidyLayout", () => {
+  const cardsOf = (agents: RoomAgent[], out: RoomCanvas) => cardRects(agents, out.positions);
+
+  it("centres the principal over the cards it delegated to", () => {
+    const agents = [main, agent("a"), agent("b"), agent("c")];
+    const cards = cardsOf(agents, placeAgents(agents, empty));
+    const kids = ["a", "b", "c"].map((id) => cards.get(id)!);
+    const left = Math.min(...kids.map((k) => k.x + k.w / 2));
+    const right = Math.max(...kids.map((k) => k.x + k.w / 2));
+    const mid = cards.get("main")!.x + CARD_W_MAIN / 2;
+    expect(Math.abs(mid - (left + right) / 2)).toBeLessThanOrEqual(12);
+  });
+
+  it("keeps a worker delegated by an area member inside that area's frame", () => {
+    const agents = [main, agent("a", { area: "Design" }), agent("b", { area: "Design" }), agent("c", { parentId: "a" }), agent("d", { area: "Code" })];
+    const out = placeAgents(agents, empty);
+    const cards = cardsOf(agents, out);
+    const design = out.areas.find((a) => a.label === "Design")!;
+    expect(design.members).toEqual(["a", "b", "c"]);
+    const frame = areaRect(design, cards);
+    for (const id of ["a", "b", "c"]) {
+      const r = cards.get(id)!;
+      expect(r.x).toBeGreaterThanOrEqual(frame.x);
+      expect(r.x + r.w).toBeLessThanOrEqual(frame.x + frame.w);
+      expect(r.y + r.h).toBeLessThanOrEqual(frame.y + frame.h);
+    }
+    const code = areaRect(out.areas.find((a) => a.label === "Code")!, cards);
+    expect(frame.x + frame.w <= code.x || code.x + code.w <= frame.x).toBe(true);
+  });
+
+  it("is stable: the same agents give the same canvas object", () => {
+    const agents = [main, agent("a", { area: "Design" }), agent("b")];
+    const once = placeAgents(agents, empty);
+    expect(placeAgents(agents, once)).toBe(once);
+  });
+
+  it("lays the rows out on the grid and no two cards overlap", () => {
+    const agents = [main, agent("a", { area: "X" }), agent("b", { area: "X" }), agent("c", { area: "Y" }), agent("d", { parentId: "a" }), agent("e", { parentId: "a" }), agent("f", { parentId: "c" })];
+    const out = placeAgents(agents, empty);
+    const rects = [...cardsOf(agents, out).values()];
+    for (const [i, r] of rects.entries()) {
+      expect(r.x % GRID).toBe(0);
+      for (const o of rects.slice(i + 1)) expect(r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h).toBe(false);
+    }
   });
 });
