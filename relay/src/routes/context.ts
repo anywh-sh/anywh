@@ -5,6 +5,7 @@ import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
 import type { RoomCanvasStore } from "../session/roomCanvas.js";
 import type { RoomContextStore } from "../session/roomContextStore.js";
+import type { UsageTally } from "../session/roomUsage.js";
 import type { RoomManager } from "../session/roomManager.js";
 import type { SessionStore } from "../session/sessionStore.js";
 
@@ -36,6 +37,8 @@ export interface RouteContext {
   readonly roomManager: RoomManager;
   /** Each room's context folder and its index. */
   readonly roomContext: RoomContextStore;
+  /** What each room agent has read from and written to the model's cache. */
+  readonly roomUsage: UsageTally;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

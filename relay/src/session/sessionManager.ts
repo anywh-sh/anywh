@@ -1,3 +1,4 @@
+import type { AgentEvent } from "../protocol/agent-event.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
@@ -33,6 +34,8 @@ export interface SessionManagerRoomOptions {
   /** A room member's session was deleted. */
   readonly onMemberDeleted?: (sessionId: string) => void;
   /** See `SharedSessionOptions.roomTurnNote`. */
+  /** A usage event of a member's turn. */
+  readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
   readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
 }
 
@@ -386,6 +389,7 @@ export class SessionManager {
         ? {
             hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
+            onUsage: (event: AgentEvent) => this.rooms.onUsage?.(id, event),
             roomTurnNote: () => this.rooms.turnNote?.(id),
           }
         : {}),

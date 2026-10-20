@@ -32,6 +32,7 @@ import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { RoomCanvasStore, roomCanvasPathFor } from "./session/roomCanvas.js";
 import { RoomContextStore } from "./session/roomContextStore.js";
 import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
+import { UsageTally } from "./session/roomUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -79,6 +80,8 @@ const roomContext = new RoomContextStore({
   root: process.env.RELAY_ROOM_CONTEXT_DIR ?? join(defaultCwd(HOME_OVERRIDE), ".anywh", "rooms"),
   extractPdf: (path) => extractPdfText(path),
 });
+// Per room agent: what it read from the model's cache and what it wrote.
+const roomUsage = new UsageTally();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
 // machine (see the comment on `SharedSessionOptions.mcpBridgeBaseUrl`), not
@@ -148,6 +151,7 @@ const sessionManager = new SessionManager(
       roomContext.deleteRoom(roomId);
     },
     turnNote: (id) => roomManager.turnNote(id),
+    onUsage: (id, event) => roomUsage.observe(id, event),
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
     owner: roomBridge.ownerId,
@@ -215,6 +219,7 @@ const routeContext: RouteContext = {
   roomCanvas,
   roomManager,
   roomContext,
+  roomUsage,
 };
 
 // Tried in this order, but order only matters within a group — no two

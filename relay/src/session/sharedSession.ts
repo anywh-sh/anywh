@@ -248,6 +248,8 @@ export interface SharedSessionOptions {
   onTurnSettled?: (outcome: TurnOutcome) => void;
   /** A room agent's note for the model alone on its next turn (news of the
    * room's context), and what to run once that turn went through. */
+  /** Every event of every turn, for a room agent's usage tally. */
+  onUsage?: (event: AgentEvent) => void;
   roomTurnNote?: () => { text: string; commit: () => void } | undefined;
 }
 
@@ -1647,6 +1649,7 @@ export class SharedSession implements SessionDriverHost {
         // the start marker. Purely observational: never throws nor
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
+        if (agentEvent.type === "usage") this.options.onUsage?.(agentEvent);
       };
       const { stopped, contextUsage, lastAssistantText } =
         follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent, { fromTranscript }) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);

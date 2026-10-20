@@ -123,7 +123,8 @@ async function handleContext(req: IncomingMessage, res: ServerResponse, ctx: Rou
  *                                permissionMode?, cwd?, title? }` for its
  *                                principal → `201 { roomId }` (the principal's
  *                                session id: chat with it like any session)
- *   GET  /rooms/:roomId          the room's agents (principal first)
+ *   GET  /rooms/:roomId          the room's agents (principal first), each with
+ *                                the cache it read and wrote (`usage`)
  *   GET  /rooms/:roomId/canvas   the room's canvas (layout only)
  *   PUT  /rooms/:roomId/canvas   replaces it: `{ canvas }`, validated whole
  *   GET  /rooms/:roomId/agents/:agentId/subtasks
@@ -246,7 +247,7 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
     .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
     .map(({ id, room }) => {
       const agentId = ctx.sessionStore.getAgentId(id);
-      return { id, title: ctx.sessionStore.getTitle(id), agentId, model: ctx.sessionStore.getModel(id, agentId) ?? null, room };
+      return { id, title: ctx.sessionStore.getTitle(id), agentId, model: ctx.sessionStore.getModel(id, agentId) ?? null, room, usage: ctx.roomUsage.get(id) };
     });
   send(res, 200, { roomId, members });
   return true;
