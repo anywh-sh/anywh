@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { AgentHost, type AgentHostOptions } from "./agentHost.js";
@@ -728,5 +728,43 @@ test("removing an agent tells its subscribers, and a recreated agent with the sa
     assert.equal(results(fresh)[0].ev.result, "echo: new life");
   } finally {
     await h.cleanup();
+  }
+});
+
+// ---------------------------------------------------------------- registry robustness
+
+test("a corrupt registry is kept aside and the host starts empty; an unreadable one stops the start without being overwritten", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-registry-"));
+  const dataDir = join(dir, "data");
+  const options = { hostId: `registry-${process.pid}`, dataDir, socketPath: join(dir, "run", "h.sock"), agentBin: FAKE_CLAUDE };
+  try {
+    mkdirSync(dataDir, { recursive: true });
+    const registry = join(dataDir, "registry.json");
+    const torn = '{"version":1,"agents":[{"agentId":"a1","spec":';
+    writeFileSync(registry, torn);
+    const host = await AgentHost.start(options);
+    assert.deepEqual(host.activity(), []);
+    await host.close();
+    const kept = readdirSync(dataDir).filter((name) => name.startsWith("registry.json.corrupt-"));
+    assert.equal(kept.length, 1);
+    assert.equal(readFileSync(join(dataDir, kept[0]), "utf8"), torn);
+
+    const good = JSON.stringify({ version: 1, agents: [{ agentId: "keep", runtime: "claude", spec: { cwd: dir, agentWorker: true }, createdAt: 1, lifecycle: "hibernated", awaitingUser: false, lastActivityAt: 1, sessionId: "s" }] });
+    writeFileSync(registry, good);
+    chmodSync(registry, 0o000);
+    try {
+      await assert.rejects(AgentHost.start(options), /registry/);
+    } finally {
+      chmodSync(registry, 0o600);
+    }
+    assert.equal(readFileSync(registry, "utf8"), good, "an unreadable registry is never replaced");
+    const again = await AgentHost.start(options);
+    assert.deepEqual(
+      again.activity().map((agent) => agent.agentId),
+      ["keep"],
+    );
+    await again.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
