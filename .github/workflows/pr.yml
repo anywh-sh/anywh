@@ -153,7 +153,9 @@ jobs:
         with:
           node-version: "lts/*"
           cache: npm
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: |
+            client/package-lock.json
+            relay/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.9.2
         with:
@@ -192,6 +194,10 @@ jobs:
             xvfb
       - run: npm ci
         working-directory: client
+      # The room specs start a real relay and agent host (TypeScript, through
+      # tsx) next to the app, so the relay's dependencies have to be there.
+      - run: npm ci
+        working-directory: relay
       - run: npm run build:e2e
         working-directory: client
       # The Rust unit tests (relay_setup.rs, tailnet_sidecar.rs) — here
