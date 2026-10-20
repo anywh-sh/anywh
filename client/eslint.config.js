@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "src-tauri/**", "tailnet-sidecar/**", "tests/e2e/**/*.js", "scripts/**/*.mjs"] },
+  { ignores: ["dist/**", "node_modules/**", "src-tauri/**", "tailnet-sidecar/**", "tests/e2e/**/*.js", "tests/e2e/**/*.mjs", "scripts/**/*.mjs"] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
