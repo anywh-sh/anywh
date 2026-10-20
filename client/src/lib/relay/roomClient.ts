@@ -158,6 +158,54 @@ export async function saveRoomCanvas(profile: Profile, roomId: string, canvas: R
   if (!response.ok) throw await failure(response, "failed to save the canvas");
 }
 
+export interface RoomContextItem {
+  name: string;
+  kind: "text" | "pdf" | "image" | "binary";
+  bytes: number;
+  lines?: number;
+  pages?: number;
+  author: string;
+  summary: string;
+  at: number;
+}
+
+/** The room's shared files, and the folder agents read them from. */
+export async function fetchRoomContext(profile: Profile, roomId: string): Promise<{ dir: string; items: RoomContextItem[] }> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/context`);
+  if (!response.ok) throw await failure(response, "failed to read the room's context");
+  return (await response.json()) as { dir: string; items: RoomContextItem[] };
+}
+
+/** What each agent has read from the model's cache and written to it. */
+export interface RoomAgentUsage {
+  responses: number;
+  inputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  cacheHitRate: number | null;
+}
+
+export interface RoomMemberInfo {
+  cwd?: string;
+  id: string;
+  title: string | null;
+  agentId: string;
+  model: string | null;
+  usage: RoomAgentUsage;
+}
+
+export async function fetchRoomMembers(profile: Profile, roomId: string): Promise<RoomMemberInfo[]> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}`);
+  if (!response.ok) throw await failure(response, "failed to read the room");
+  return ((await response.json()) as { members: RoomMemberInfo[] }).members;
+}
+
+/** Lets a stopped worker take turns again. */
+export async function resumeRoomAgent(profile: Profile, roomId: string, agentId: string): Promise<void> {
+  const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}/resume`, { method: "POST" });
+  if (!response.ok) throw await failure(response, "failed to resume the agent");
+}
+
 /** How many items the room's shared context holds. */
 export async function fetchRoomContextCount(profile: Profile, roomId: string): Promise<number> {
   const response = await call(profile, `/rooms/${encodeURIComponent(roomId)}/context`);
