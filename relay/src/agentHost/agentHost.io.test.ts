@@ -779,9 +779,16 @@ test("a crash is noticed even while a descendant still holds the CLI's stdout op
     await waitFor(() => results(events).length === 1, 5000, "turn");
     await h.client.request("send", { agentId: "a1", message: "[[crash]]" });
     await waitFor(() => h.host.activity()[0]?.state === "failed", 6000, "crash noticed");
+    // The sweep of what the crashed process left runs right after the
+    // failure is reported.
     const { findAgentProcesses } = await import("./processTree.js");
-    const left = await findAgentProcesses(h.hostId, "a1");
-    assert.deepEqual(left.filter(isAlive), [], "the descendant was swept");
+    const deadline = Date.now() + 8000;
+    let left = await findAgentProcesses(h.hostId, "a1");
+    while (left.length > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+      left = await findAgentProcesses(h.hostId, "a1");
+    }
+    assert.deepEqual(left, [], "the descendant was swept");
   } finally {
     await h.cleanup();
   }
