@@ -120,6 +120,13 @@ export function buildDeferredDecision(): PermissionDecision {
 // match more than the one call the human approved.
 const RULE_SPECIAL = /[*?[\]{}(),\\\n\r]/;
 
+// Shell syntax that makes a command more than one thing to check (redirects,
+// pipes, lists, substitutions). Measured with CLI 2.1.303: an exact
+// `Bash(<command>)` rule does not grant a command with an output redirect
+// (the model is asked again for the very same command), so for these the only
+// grant that works is the whole tool.
+const SHELL_OPERATORS = /[<>|&;`$]/;
+
 /**
  * The `--allowedTools` rules that let a turn repeat calls a human approved.
  * Measured against Claude Code 2.1.303: a path-specific rule only grants as
@@ -127,8 +134,9 @@ const RULE_SPECIAL = /[*?[\]{}(),\\\n\r]/;
  * grant), and `Write`/`Edit` with no argument grant every call of the tool.
  *
  * Narrow where the grammar is known to be safe: file edits by absolute path,
- * Bash by exact command text. Anything else (MCP tools, WebFetch, a path or
- * command holding rule syntax, notebooks) is granted for the whole tool, for
+ * Bash by exact command text (verified for a plain command with spaces).
+ * Anything else (MCP tools, WebFetch, a path or command holding rule syntax or
+ * shell operators, notebooks) is granted for the whole tool, for
  * that one turn only, because there is no per-call rule to write for it;
  * the call may have been approved narrower than it ends up being allowed.
  * `ExitPlanMode` needs no rule (the session leaves plan mode instead).
@@ -144,7 +152,7 @@ export function buildGrantRules(grants: readonly ToolGrant[]): string[] {
       rules.add(path !== undefined && path.startsWith("/") && !RULE_SPECIAL.test(path) ? `Edit(/${path})` : tool);
     } else if (tool === "Bash") {
       const command = record.command;
-      rules.add(typeof command === "string" && command.trim() !== "" && !RULE_SPECIAL.test(command) ? `Bash(${command})` : "Bash");
+      rules.add(typeof command === "string" && command.trim() !== "" && !RULE_SPECIAL.test(command) && !SHELL_OPERATORS.test(command) ? `Bash(${command})` : "Bash");
     } else {
       rules.add(tool);
     }

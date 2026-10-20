@@ -197,7 +197,7 @@ test("buildGrantRules: a path the rule grammar cannot carry safely falls back to
 
 test("buildGrantRules: Bash is granted for the exact command; a command the grammar would widen gets the tool-wide rule", () => {
   assert.deepEqual(buildGrantRules([{ tool: "Bash", input: { command: "git status --short" } }]), ["Bash(git status --short)"]);
-  for (const command of ["rm -rf build/*", "echo (hi)", "a, b", "echo \\n", "ls\nrm x"]) {
+  for (const command of ["rm -rf build/*", "echo (hi)", "a, b", "echo \\n", "ls\nrm x", "echo hi > /tmp/out.txt", "cat a | wc -l", "a && b", "a; b", "echo $HOME", "echo `id`", "cat < in"]) {
     assert.deepEqual(buildGrantRules([{ tool: "Bash", input: { command } }]), ["Bash"], command);
   }
   assert.deepEqual(buildGrantRules([{ tool: "Bash", input: {} }]), ["Bash"]);
