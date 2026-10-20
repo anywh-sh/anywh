@@ -1,5 +1,6 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import { McpChoiceBridge } from "./bridges/mcpBridge.js";
 import { McpPermissionBridge } from "./bridges/permissionBridge.js";
@@ -30,6 +31,8 @@ import { PushDispatcher } from "./push/dispatcher.js";
 import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
 import { RoomCanvasStore, roomCanvasPathFor } from "./session/roomCanvas.js";
+import { RoomWorktrees } from "./session/roomWorktrees.js";
+import { WorktreeRegistry, worktreeRegistryPathFor } from "./host/worktreeRegistry.js";
 import { RoomContextStore } from "./session/roomContextStore.js";
 import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
 import { UsageTally } from "./session/roomUsage.js";
@@ -163,7 +166,15 @@ const sessionManager = new SessionManager(
 // Runtimes a room can use: the installed ones the agent host can run. Until
 // detection answers, every one the registry has.
 let roomRuntimes: readonly string[] = registry.defs.map((def) => def.identity.id).filter((id) => HOST_RUNTIMES.includes(id));
+// The worktrees agents create live under the profile's home, outside every
+// repository; what the relay created is listed beside the sessions file.
+const roomWorktrees = new RoomWorktrees({
+  registry: new WorktreeRegistry(process.env.RELAY_WORKTREES_FILE ?? worktreeRegistryPathFor(SESSIONS_FILE)),
+  root: process.env.RELAY_WORKTREES_ROOT ?? join(HOME_OVERRIDE ?? homedir(), ".anywh", "worktrees"),
+  agents: { facts: (id) => roomManager.worktreeAgentFacts(id) },
+});
 const roomManager: RoomManager = new RoomManager({
+  worktrees: roomWorktrees,
   store: sessionStore,
   sessions: sessionManager,
   registry,
@@ -188,6 +199,21 @@ const roomManager: RoomManager = new RoomManager({
   ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
 });
 roomBridge.attach(roomManager);
+// At start, and then daily: finish what a crash interrupted, forget worktrees
+// whose folder was deleted, and clean up those of agents gone or done.
+const sweepWorktrees = (): void => {
+  roomWorktrees
+    .sweep()
+    .then((outcomes) => {
+      const removed = outcomes.filter((outcome) => outcome.result === "removed").length;
+      if (removed > 0) console.log(`[relay] removed ${removed} integrated agent worktree(s)`);
+    })
+    .catch((error: unknown) => console.warn("[relay] worktree sweep failed:", (error as Error).message));
+};
+// Not before the host has said which turns are running: the sweep takes no
+// worktree from under an agent the relay cannot yet see at work.
+if (!agentHost) sweepWorktrees();
+setInterval(sweepWorktrees, 24 * 60 * 60 * 1000).unref();
 // A room's folder outlives nothing: those of rooms the sessions file no
 // longer has are removed. Skipped when that file did not load whole (an
 // unreadable one would make every room look gone).
@@ -205,8 +231,18 @@ agentHost?.on("status", (status) => {
   if (status !== "connected") return;
   roomManager
     .reconcileHost()
-    .catch((error: unknown) => console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message))
-    .finally(() => roomManager.resumeQueues());
+    .then(
+      () => {
+        // Only once the host's turns in flight have been picked up: the sweep
+        // trusts the sessions' own idea of who is at work.
+        roomManager.resumeQueues();
+        sweepWorktrees();
+      },
+      (error: unknown) => {
+        console.warn("[relay] could not reconcile the rooms with the agent host:", (error as Error).message);
+        roomManager.resumeQueues();
+      },
+    );
 });
 
 
