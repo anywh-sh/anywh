@@ -114,4 +114,12 @@ describe("relay error codes", () => {
 
     await vi.waitFor(() => expect(alerts).toContain(en.errors.editMessage.truncate_failed));
   });
+
+  it("renders a refused card answer from its code", async () => {
+    await openConversation();
+
+    for (const socket of relay.sockets) socket.emitMessage({ type: "choice_answer_error", promptId: "p1", code: "room_cap_reached" });
+
+    await vi.waitFor(() => expect(alerts).toContain(en.errors.answerChoice.room_cap_reached));
+  });
 });

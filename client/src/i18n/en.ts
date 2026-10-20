@@ -887,5 +887,8 @@ export const en: Dictionary = {
       relay_restarting: "The relay is restarting. Try again in a moment.",
       unsupported: "Editing an earlier message isn't supported for this agent.",
     },
+    answerChoice: {
+      room_cap_reached: "This room already has 10 agents at work. Answer again once one of them is done.",
+    },
   },
 };

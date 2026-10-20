@@ -3,6 +3,7 @@ import {
   RelayClient,
   type AgentEvent,
   type BackgroundJobSummary,
+  type AnswerChoiceErrorCode,
   type ChoiceAnswer,
   type ChoiceQuestion,
   type ContextUsage,
@@ -71,6 +72,8 @@ export interface UseRelayClientOptions {
   /** `edit_message` requested by this device failed — see
    * `RelayClientCallbacks.onEditMessageError`. */
   onEditMessageError?: (code: EditMessageErrorCode) => void;
+  /** A card answer was refused — see `RelayClientCallbacks.onChoiceAnswerError`. */
+  onChoiceAnswerError?: (code: AnswerChoiceErrorCode) => void;
 }
 
 export interface UseRelayClientResult {
@@ -299,6 +302,7 @@ export function useRelayClient(
       },
       onHistoryTruncated: (page) => optionsRef.current.onHistoryTruncated?.(page),
       onEditMessageError: (message) => optionsRef.current.onEditMessageError?.(message),
+      onChoiceAnswerError: (code) => optionsRef.current.onChoiceAnswerError?.(code),
       onDraftState: setDraftState,
       onChoicePrompt: (promptId, questions, kind) => setChoicePrompt({ promptId, questions, kind }),
       // Only clears local state if it's still the SAME prompt — a new one

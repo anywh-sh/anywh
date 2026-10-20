@@ -101,6 +101,11 @@ export type SetCwdErrorCode = "not_found" | "permission_denied" | "not_a_directo
 
 /** Why an `edit_message` request was refused. Mirrors `EditMessageError` in
  * relay/src/sharedSession.ts, same contract as `SetCwdErrorCode`. */
+/** Why a `choice_answer` was refused. Mirrors `AnswerChoiceError` in
+ * relay/src/session/sharedSession.ts. The card stays open: the relay sends it
+ * again right after. */
+export type AnswerChoiceErrorCode = "room_cap_reached";
+
 export type EditMessageErrorCode = "not_found" | "truncate_failed" | "relay_restarting" | "unsupported";
 
 export type RelayMessage =
@@ -209,7 +214,8 @@ export type RelayMessage =
   | { type: "choice_prompt"; promptId: string; questions: ChoiceQuestion[]; kind: "approval" | "choice"; askedAt?: number }
   /** The prompt above was answered (by any device) or the turn that asked
    * it ended before anyone answered — dismiss it everywhere it's shown. */
-  | { type: "choice_resolved"; promptId: string };
+  | { type: "choice_resolved"; promptId: string }
+  | { type: "choice_answer_error"; promptId: string; code: AnswerChoiceErrorCode };
 
 /** Mirrors the relay's `ChoiceOption`/`ChoiceQuestion`/`ChoiceAnswer`
  * (relay/src/mcpBridge.ts) — same no-cross-package-import

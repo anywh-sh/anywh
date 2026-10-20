@@ -887,5 +887,8 @@ export const ptBr: Dictionary = {
       relay_restarting: "O relay está reiniciando. Tente de novo em instantes.",
       unsupported: "Editar uma mensagem anterior não é suportado para este agente.",
     },
+    answerChoice: {
+      room_cap_reached: "Esta sala já tem 10 agentes trabalhando. Responda de novo quando um deles terminar.",
+    },
   },
 };
