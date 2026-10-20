@@ -12,6 +12,9 @@ WorkingDirectory={{WORKING_DIRECTORY}}
 # RELAY_HOME_OVERRIDE, ...) in the second. The "-" prefix makes both files
 # optional, so a single-profile setup can skip either or both and run on
 # the relay's own built-in defaults.
+# The profile id, also used to find this profile's agent host socket
+# (anywh-agent-host@%i, which sets the same variable).
+Environment=ANYWH_PROFILE=%i
 EnvironmentFile=-{{WORKING_DIRECTORY}}/.env
 EnvironmentFile=-{{ENV_DIR}}/%i.env
 ExecStart={{NODE_BIN}} dist/server.js

@@ -1,0 +1,30 @@
+[Unit]
+Description=anywh agent host (%i profile)
+# Deliberately not PartOf=/BindsTo= the relay: the point of this service is
+# that restarting or stopping anywh-relay@%i leaves every agent it holds
+# running. Its processes live in this unit's cgroup, not the relay's.
+
+[Service]
+Type=simple
+WorkingDirectory={{WORKING_DIRECTORY}}
+# Same env files as anywh-relay@%i, so both sides agree on the profile's
+# paths (the socket, $HOME override, AGENT_BIN, EXTRA_PATH_DIRS...). A user
+# unit does not inherit the login shell's PATH; AGENT_BIN/EXTRA_PATH_DIRS
+# there are what let it find the agent CLI and the tools it runs.
+Environment=ANYWH_PROFILE=%i
+EnvironmentFile=-{{WORKING_DIRECTORY}}/.env
+EnvironmentFile=-{{ENV_DIR}}/%i.env
+ExecStart={{NODE_BIN}} dist/agentHost/main.js
+Restart=always
+RestartSec=3
+# SIGTERM only to the host, which drains: waits for turns in flight
+# (ANYWH_AGENT_HOST_DRAIN_GRACE_MS, 2 min by default), interrupts what is
+# left, hibernates idle agents and stops each agent's processes itself.
+# Anything still in the cgroup after the host exits gets SIGKILL — that
+# includes a tool process that detached and cleared its environment, which
+# the host's own sweep cannot find.
+KillMode=mixed
+TimeoutStopSec=300
+
+[Install]
+WantedBy=default.target
