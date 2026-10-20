@@ -13,7 +13,7 @@ describe("anywh conversation tabs", () => {
   it("opens a conversation and names its tab from the dictionary", async () => {
     baseline = (await $$('[role="tab"]')).length;
 
-    const newConversation = await $('[aria-label="New conversation"]');
+    const newConversation = await $('[aria-label="New session"]');
     await newConversation.waitForExist({ timeout: 15000 });
     await newConversation.click();
 

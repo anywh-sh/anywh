@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 420;
-const DEFAULT_WIDTH = 280;
+const DEFAULT_WIDTH = 256;
 const COLLAPSED_STORAGE_KEY = "anywh:sidebar-collapsed";
 const WIDTH_STORAGE_KEY = "anywh:sidebar-width";
 

@@ -14,16 +14,16 @@ export function contextUsagePercent(usage: ContextUsage): number {
 
 /**
  * Ring/bar color for a usage %, always derived from CSS variables via
- * `color-mix()` — never a fixed hex. 0–70%: `--primary` -> `--context-ring-warn`.
- * 70–100%: `--context-ring-warn` -> `--destructive`. Explicit request: if
- * `--primary` changes in the future, the gradient's start changes on its
- * own, without touching this (see index.css for the `--context-ring-warn`
- * token's comment).
+ * `color-mix()` — never a fixed hex. 0–70%: `--muted-foreground` ->
+ * `--context-ring-warn`. 70–100%: `--context-ring-warn` -> `--destructive`.
+ * The start is neutral, not the accent: the accent means "needs you", and a
+ * mostly-empty window needs nothing. Retuning a theme moves the gradient on
+ * its own (see index.css for the `--context-ring-warn` token's comment).
  */
 export function contextUsageColor(pct: number): string {
   if (pct <= WARN_THRESHOLD) {
     const t = pct / WARN_THRESHOLD;
-    return `color-mix(in oklch, var(--context-ring-warn) ${String(t * 100)}%, var(--primary))`;
+    return `color-mix(in oklch, var(--context-ring-warn) ${String(t * 100)}%, var(--muted-foreground))`;
   }
   const t = Math.min((pct - WARN_THRESHOLD) / (CRITICAL_THRESHOLD - WARN_THRESHOLD), 1);
   return `color-mix(in oklch, var(--destructive) ${String(t * 100)}%, var(--context-ring-warn))`;

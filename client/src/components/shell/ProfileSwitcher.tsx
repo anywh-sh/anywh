@@ -1,14 +1,14 @@
 import { useState } from "react";
-import { ChevronsUpDown, Plus, Link2, RotateCw } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Link2, RotateCw } from "lucide-react";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { profileColorClass, type Profile } from "@/lib/profiles/profiles";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -20,15 +20,35 @@ import { AddProfileDialog } from "@/components/shell/AddProfileDialog";
 import { McpSignInDialog, type McpSignInTarget } from "@/components/shell/McpSignInDialog";
 import { AddRemoteMachineDialog } from "@/components/shell/AddRemoteMachineDialog";
 
+/** The profile's colour as a small square — the same mark the session rows
+ * and the dropdown use, so the colour means one thing everywhere. */
+function ProfileSquare({ profileId, size = "sm" }: { profileId: string; size?: "sm" | "lg" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex shrink-0 items-center justify-center border border-border bg-surface-hover",
+        size === "lg" ? "size-[22px]" : "size-3.5",
+      )}
+    >
+      <span className={cn(size === "lg" ? "size-2" : "size-1.5", profileColorClass(profileId))} />
+    </span>
+  );
+}
+
 interface ProfileSwitcherProps {
   activeProfile: Profile;
   /** Passed in rather than resolved here: the sync that answers it has to
    * keep running with this component unmounted (see `App`). */
   supported: boolean;
   onChange: (profileId: string) => void;
+  /** Whether the session list spans every profile (as opposed to only the
+   * active one) — the one view setting that lives in this menu. */
+  allProfilesShown: boolean;
+  onToggleAllProfiles: () => void;
 }
 
-export function ProfileSwitcher({ activeProfile, supported, onChange }: ProfileSwitcherProps) {
+export function ProfileSwitcher({ activeProfile, supported, onChange, allProfilesShown, onToggleAllProfiles }: ProfileSwitcherProps) {
   const profiles = useProfiles();
   const dict = useDict();
   const revoked = useRevokedProfiles();
@@ -50,18 +70,22 @@ export function ProfileSwitcher({ activeProfile, supported, onChange }: ProfileS
           <button
             type="button"
             aria-label={dict.shell.profiles.activeProfile}
-            className="flex w-full cursor-pointer items-center gap-2.5 border border-border bg-bg-chrome px-2.5 py-2 text-left transition-colors hover:border-text-faint"
+            className="group flex h-10 w-full cursor-pointer items-center gap-2.5 px-2 text-left transition-colors hover:bg-bg-hover"
           >
-            <span className={cn("inline-block size-2.5 shrink-0", profileColorClass(activeProfile.id))} />
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{activeProfile.label}</span>
-            <Badge variant={activeBadge.variant}>{activeBadge.label}</Badge>
-            <ChevronsUpDown className="size-3.5 shrink-0 text-text-faint" />
+            <ProfileSquare profileId={activeProfile.id} size="lg" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[length:calc(13.5px*var(--chrome-scale))] leading-tight font-medium text-foreground">
+                {activeProfile.label}
+              </span>
+              <span className="truncate font-mono text-[length:calc(11px*var(--chrome-scale))] leading-tight text-text-faint">
+                {activeBadge.label} · {allProfilesShown ? dict.shell.profiles.scopeAll : dict.shell.profiles.scopeActive}
+              </span>
+            </span>
+            <ChevronsUpDown className="size-3.5 shrink-0 text-text-faint transition-colors group-hover:text-foreground" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-          <DropdownMenuLabel className="font-mono text-[length:calc(9.5px*var(--font-scale-ratio))] tracking-[0.12em] text-text-faint uppercase">
-            {dict.shell.profiles.heading}
-          </DropdownMenuLabel>
+          <DropdownMenuLabel>{dict.shell.profiles.heading}</DropdownMenuLabel>
           {profiles.map((profile) => {
             const badge = profileBadge(profile, revoked, dict);
             const active = profile.id === activeProfile.id;
@@ -69,18 +93,19 @@ export function ProfileSwitcher({ activeProfile, supported, onChange }: ProfileS
               <DropdownMenuItem
                 key={profile.id}
                 onSelect={() => onChange(profile.id)}
-                // The active row is marked by its own profile colour down the
-                // left edge rather than by a checkmark — the same language
-                // the session list and the tab strip already use, so the
-                // colour means one thing everywhere.
-                className={cn("gap-2.5", active && "bg-surface-hover text-foreground shadow-[inset_2px_0_0_currentColor]")}
+                className={cn("gap-2.5", active && "bg-bg-elevated text-foreground")}
               >
-                <span className={cn("inline-block size-2.5 shrink-0", profileColorClass(profile.id))} />
+                <ProfileSquare profileId={profile.id} />
                 <span className="min-w-0 flex-1 truncate">{profile.label}</span>
-                <Badge variant={badge.variant}>{badge.label}</Badge>
+                <span className="font-mono text-[11px] text-text-faint">{badge.label}</span>
+                <Check className={cn("size-3.5 shrink-0", active ? "text-foreground" : "invisible")} />
               </DropdownMenuItem>
             );
           })}
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem checked={allProfilesShown} onCheckedChange={onToggleAllProfiles}>
+            {dict.shell.profiles.allProfilesToggle}
+          </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
           {/* One per profile that was saved but never reached (the app
               closed mid-setup, or the verification failed and was left for

@@ -23,7 +23,9 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-primary bg-primary text-primary-foreground hover:border-primary-hover hover:bg-primary-hover",
+        // Light fill, dark ink: the accent colour is reserved for "needs
+        // you", so the default action is the foreground ramp inverted.
+        default: "border-foreground bg-foreground text-background hover:border-muted-foreground hover:bg-muted-foreground",
         destructive:
           "border-destructive bg-destructive text-destructive-foreground hover:border-destructive-hover hover:bg-destructive-hover focus-visible:ring-destructive/50",
         // The design's default control: an outline that only commits to a

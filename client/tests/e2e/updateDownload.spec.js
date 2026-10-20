@@ -59,7 +59,7 @@ describe("anywh in-app updater — auto-download", () => {
       localStorage.setItem("anywh:settings", JSON.stringify(settings));
     });
     await browser.execute(() => window.location.reload());
-    await $('[aria-label="New conversation"]').waitForExist({ timeout: 15000 });
+    await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
 
     githubServer = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });

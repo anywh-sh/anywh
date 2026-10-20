@@ -4,8 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
-import { ActivityGroup } from "@/components/chat/activity/ActivityGroup";
-import { ThinkingRow } from "@/components/chat/activity/ThinkingRow";
+import { WorkBlock } from "@/components/chat/activity/WorkBlock";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
 import { OpenState, OpenStateContext } from "@/lib/format/openState";
 import { ErrorMessage } from "@/components/chat/ErrorMessage";
@@ -93,7 +92,7 @@ type RenderItem = TimelineItem | { kind: "trailing" };
 
 function itemKey(item: RenderItem): string {
   if (item.kind === "trailing") return TRAILING_KEY;
-  return item.kind === "group" ? `group-${item.id}` : item.entry.id;
+  return item.kind === "work" ? `work-${item.id}` : item.entry.id;
 }
 
 interface UserActionHandlers {
@@ -107,12 +106,11 @@ interface UserActionHandlers {
 }
 
 function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions: UserActionHandlers, attributionByToolUseId: Record<string, AttributionState>, dict: Dictionary) {
-  if (item.kind === "group") {
+  if (item.kind === "work") {
     return (
-      <LogEntryRow key={`group-${item.id}`}>
-        <ActivityGroup
-          id={item.id}
-          calls={item.calls}
+      <LogEntryRow key={`work-${item.id}`}>
+        <WorkBlock
+          item={item}
           attributionByToolUseId={attributionByToolUseId}
           cwd={userActions.cwd}
           onCopy={userActions.onCopy}
@@ -156,16 +154,10 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           <ToolCallCard call={entry} />
         </LogEntryRow>
       );
-    case "thinking":
-      return (
-        <LogEntryRow key={entry.id}>
-          <ThinkingRow entry={entry} />
-        </LogEntryRow>
-      );
     case "turn-footer":
       return (
         <LogEntryRow key={entry.id} className="py-0">
-          <TurnFooter sentAt={entry.sentAt} durationMs={entry.durationMs} text={entry.text} onCopy={userActions.onCopy} />
+          <TurnFooter sentAt={entry.sentAt} text={entry.text} onCopy={userActions.onCopy} />
         </LogEntryRow>
       );
     case "error":
@@ -198,6 +190,8 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           </p>
         </LogEntryRow>
       );
+    // Reasoning is always a step of a work block (`buildTimeline`), never a row.
+    case "thinking":
     default:
       return null;
   }
@@ -495,7 +489,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
       // which opens up horizontal scroll as soon as any content (a long
       // path in `code`, for instance) overflows the width by even 1px.
       className={cn(
-        "selectable-content scrollbar-thin relative flex-1 overflow-x-hidden overflow-y-auto px-4 py-3",
+        "selectable-content scrollbar-thin relative flex-1 overflow-x-hidden overflow-y-auto px-4 py-3 [scrollbar-gutter:stable_both-edges]",
         className,
       )}
     >
@@ -504,7 +498,8 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
         </div>
       )}
-      <div className="mx-auto max-w-3xl" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
+      {/* Narrower than the composer under it (`ChatPanel`, 728px) and centred on the same axis; the symmetric scrollbar gutter on the scroller keeps that axis when the log overflows. */}
+      <div className="mx-auto max-w-[calc(680px*var(--chrome-scale))]" style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const item = allItems[virtualItem.index];
           if (!item) return null;

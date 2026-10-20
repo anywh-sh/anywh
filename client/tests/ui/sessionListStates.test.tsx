@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe("unified session list", () => {
-  it("lists every profile's conversations together, grouped by recency", async () => {
+  it("lists every profile's conversations together, as one list of the latest", async () => {
     setProfiles(freshProfiles());
     renderApp();
 
@@ -92,10 +92,9 @@ describe("unified session list", () => {
     await screen.findByText("Conversa da A");
     await screen.findByText("Conversa da B");
 
-    // Bucketed by when each was last used, not lumped into one flat list.
-    expect(screen.getByText(en.shell.sidebar.groups.today)).toBeInTheDocument();
-    expect(screen.getByText(en.shell.sidebar.groups.week)).toBeInTheDocument();
-    expect(screen.queryByText(en.shell.sidebar.groups.yesterday)).not.toBeInTheDocument();
+    // One list of the latest, with no date buckets.
+    expect(screen.getByText(en.shell.sidebar.recent)).toBeInTheDocument();
+    expect(screen.queryByText(en.shell.sidebar.groups.today)).not.toBeInTheDocument();
   });
 
   it("keeps the other profiles' rows on screen while a profile switch is still loading", async () => {
@@ -143,25 +142,25 @@ describe("unified session list", () => {
     expect(sessionFetches.filter((id) => id === "a")).toHaveLength(1);
   });
 
-  it("narrows the list to the chosen profiles and refuses to hide the last one", async () => {
+  it("flips between every profile and only the active one from the profile menu", async () => {
     setProfiles(freshProfiles());
     renderApp();
     await screen.findByText("Conversa da B");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: en.shell.sidebar.filterByProfile }));
-    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: /Profile B/ }));
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: en.shell.profiles.allProfilesToggle }));
 
+    // Only the active profile's rows are left.
     await vi.waitFor(() => {
       expect(screen.queryByText("Conversa da B")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Conversa da A")).toBeInTheDocument();
 
-    // Deselecting the last remaining profile is refused — an empty sidebar
-    // whose only way out is buried in this same menu is not a state worth
-    // being able to reach.
-    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: /Profile A/ }));
-    expect(screen.getByText("Conversa da A")).toBeInTheDocument();
+    // And the same item brings every profile back.
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+    await user.click(await within(document.body).findByRole("menuitemcheckbox", { name: en.shell.profiles.allProfilesToggle }));
+    expect(await screen.findByText("Conversa da B")).toBeInTheDocument();
   });
 
   it("opens a session of a non-active profile against that profile, not the active one", async () => {
@@ -204,9 +203,8 @@ describe("unified session list", () => {
     renderApp();
 
     expect(await screen.findByText("Conversa sem data")).toBeInTheDocument();
-    // Kept, under the one heading that claims nothing about when it was
-    // used — dropping the row instead would read as lost history.
-    expect(screen.getByText(en.shell.sidebar.groups.older)).toBeInTheDocument();
+    // Kept in the list — dropping the row instead would read as lost history.
+    expect(screen.getByText(en.shell.sidebar.recent)).toBeInTheDocument();
     // Still the real shell around it, not a blank document.
     expect(screen.getByRole("button", { name: en.shell.sidebar.newConversation })).toBeInTheDocument();
   });

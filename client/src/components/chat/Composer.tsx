@@ -6,8 +6,9 @@ import {
   useRef,
   useState,
   type MutableRefObject,
+  type ReactNode,
 } from "react";
-import { ArrowUp, Check, ChevronDown, FileText, Loader2, Mic, Paperclip, Video, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, FileText, Loader2, Mic, Plus, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -24,7 +25,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn, formatDuration } from "@/lib/utils";
@@ -34,9 +34,7 @@ import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
-import { ModelButton } from "@/components/chat/ModelButton";
-import { EffortButton } from "@/components/chat/EffortButton";
-import { AgentPickerButton } from "@/components/chat/AgentPickerButton";
+import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
@@ -51,7 +49,7 @@ import type { ContextUsage, ModelCatalog, ModelChoice, PermissionMode, Permissio
 import type { Profile } from "@/lib/profiles/profiles";
 
 export interface ComposerProps {
-  /** Also threaded to `AgentPickerButton`'s own `getHostInfo` fetch. */
+  /** Also threaded to `AgentModelEffortButton`'s own `getHostInfo` fetch. */
   profile: Profile;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
@@ -64,23 +62,23 @@ export interface ComposerProps {
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveImage: (path: string) => void;
   /** `null` only in the brief window before the first `agent_state` arrives
-   * — see `useRelayClient`. Drives `AgentPickerButton`'s selection. */
+   * — see `useRelayClient`. Drives `AgentModelEffortButton`'s selection. */
   agentId: string | null;
   onChangeAgent: (agentId: string) => void;
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
   onChangePermissionMode: (mode: PermissionMode) => void;
   /** `null` until the session's first explicit switch (now via
-   * `ModelButton` in addition to typing `/model`) — in that case the
+   * `AgentModelEffortButton` in addition to typing `/model`) — in that case the
    * catalog's own `defaultId` is what runs. */
   model: ModelChoice | null;
   /** The session's agent's model catalog (`useRelayClient`) — drives
-   * `ModelButton` and `/model`'s autocomplete. `null` hides the picker: an
+   * `AgentModelEffortButton` and `/model`'s autocomplete. `null` hides the picker: an
    * agent whose def declares no catalog has nothing to pick from. */
   modelCatalog: ModelCatalog | null;
   onChangeModel: (model: ModelChoice) => void;
   /** The explicit reasoning-effort pick (`null` = the model's default) and
-   * its setter — drives `EffortButton`, which hides itself for a model with
+   * its setter — drives `AgentModelEffortButton`, which hides itself for a model with
    * no efforts. */
   effort: string | null;
   onChangeEffort: (effort: string | null) => void;
@@ -88,11 +86,18 @@ export interface ComposerProps {
    * the conversation has had its first turn, i.e. "the conversation is
    * locked". Switching the model at that point would require rereading the
    * whole history for the CLI to rebuild context in the new model, so
-   * `ModelButton` locks along with the folder; `AgentPickerButton` locks for
+   * `AgentModelEffortButton` locks along with the folder; `AgentModelEffortButton` locks for
    * the same reason. */
   modelLocked: boolean;
-  /** Shown in the toolbar's context-usage button. */
+  /** Shown in the info strip's context-usage button. */
   contextUsage: ContextUsage | null;
+  /** The left end of the info strip under the field — where the session's
+   * working directory goes. Rendered by the owner because the folder state
+   * lives with the conversation, not here. */
+  infoStart?: ReactNode;
+  /** Extra classes for the outer frame — the new-session screen lifts it
+   * with a shadow. */
+  className?: string;
   /** Sent once, the first time the context usage popover opens — see
    * `ContextUsageButton`. */
   onRequestContextBreakdown: () => void;
@@ -484,6 +489,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onChangeEffort,
     modelLocked,
     contextUsage,
+    infoStart,
+    className,
     onRequestContextBreakdown,
     compactBoundary,
     suggestion,
@@ -534,8 +541,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
-  const placeholderRef = useRef(copy.placeholder);
-  placeholderRef.current = copy.placeholder;
+  const placeholderRef = useRef(copy.placeholderTask);
+  placeholderRef.current = turnInFlight ? copy.placeholderQueue : copy.placeholderTask;
   const [placeholderExtension] = useState(() => createPlaceholderExtension(suggestionRef, placeholderRef));
   // Set by `submit()` when the text looks like a typo'd command (`/cler`)
   // instead of either a real command or plain text — blocks the send until
@@ -714,19 +721,21 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         event.preventDefault();
         submit();
       }}
-      className={cn(
-        // Square, like every other box in the app: the border is the whole
-        // frame, and it firms up under the pointer the way the outline
-        // buttons inside it do.
-        "flex flex-col gap-1.5 border p-2 transition-colors",
-        "mb-3 bg-bg-sidebar",
-        focused ? "border-primary" : "border-border hover:border-text-faint",
-      )}
+      // Frame + field: the frame is the lighter outer surface that also holds
+      // the info strip, the field inside it carries its own border (which is
+      // what firms up on focus). Square, like every other box in the app.
+      className={cn("mb-3 flex flex-col bg-composer-frame px-[3px] pt-[3px]", className)}
     >
+      <div
+        className={cn(
+          "flex flex-col border bg-composer-field transition-colors",
+          focused ? "border-composer-focus" : "border-composer-border",
+        )}
+      >
       <ComposerLinkHoverCard editor={editor} />
 
       {(pendingImages.length > 0 || uploadingImage) && (
-        <div className="flex flex-wrap items-center gap-1.5 px-1">
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3">
           {pendingImages.map((image) =>
             image.previewUrl ? (
               <div key={image.path} className="group relative">
@@ -781,7 +790,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       )}
 
       {typoConfirm && (
-        <div className="flex items-center justify-between gap-2 border border-border bg-bg-sidebar px-2.5 py-1.5">
+        <div className="mx-2 mt-2 flex items-center justify-between gap-2 border border-border bg-bg-sidebar px-2.5 py-1.5">
           <span className="min-w-0 truncate font-sans text-xs text-muted-foreground">
             {typoQuestion[0]}
             <span className="font-mono text-foreground">{typoConfirm.suggestion}</span>
@@ -800,26 +809,26 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
       <EditorContent editor={editor} className="composer-editor" />
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-[18px] px-1">
-          <AgentPickerButton profile={profile} agentId={agentId} onChange={onChangeAgent} locked={modelLocked} />
+      <div className="flex items-center justify-between gap-2 px-2 pt-1 pb-2">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          <AgentModelEffortButton
+            profile={profile}
+            agentId={agentId}
+            onChangeAgent={onChangeAgent}
+            model={model}
+            catalog={modelCatalog}
+            onChangeModel={onChangeModel}
+            effort={effort}
+            onChangeEffort={onChangeEffort}
+            disabled={disabled ?? false}
+            locked={modelLocked}
+          />
           <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
-          {modelCatalog && (
-            <ModelButton
-              model={model}
-              catalog={modelCatalog}
-              onChange={onChangeModel}
-              disabled={disabled ?? false}
-              locked={modelLocked}
-            />
-          )}
-          <EffortButton effort={effort} model={model} catalog={modelCatalog} onChange={onChangeEffort} disabled={disabled ?? false} />
-          <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-0.5">
           {!isRecording && !isTranscribing && (
             <>
               <input
@@ -838,10 +847,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                className="size-[30px] text-text-faint"
                 onClick={() => fileInputRef.current?.click()}
                 aria-label={copy.attach}
               >
-                <Paperclip className="size-3.5" />
+                <Plus className="size-4" />
               </Button>
             </>
           )}
@@ -863,6 +873,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               type="button"
               variant={isRecording ? "destructive" : "ghost"}
               size={isRecording ? "sm" : "icon-sm"}
+              className={isRecording ? undefined : "size-[30px] text-text-faint"}
               onClick={() => (isRecording ? void voice.stop() : void voice.start())}
               disabled={isTranscribing || (!isRecording && voice.devices.length === 0)}
               aria-label={isRecording ? copy.stopRecording : copy.record}
@@ -873,28 +884,27 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                   {formatDuration(voice.elapsedSeconds)}
                 </>
               ) : (
-                <Mic className="size-3.5" />
+                <Mic className="size-4" />
               )}
             </Button>
 
             {voice.devices.length > 1 && !isRecording && !isTranscribing && (
-              <DropdownMenu>
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
                     aria-label={copy.selectMicrophone}
-                    className="flex h-7 w-3.5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex h-[30px] w-5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
                   >
-                    <ChevronDown className="size-3" />
+                    <ChevronDown className="size-3 opacity-70" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="min-w-[calc(240px*var(--chrome-scale))]">
                   <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
                   {voice.devices.map((name) => (
-                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)}>
-                      <Check className={cn("size-3.5", name !== voice.selectedDevice && "opacity-0")} />
-                      <span className="max-w-48 truncate">{name}</span>
+                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)} className={cn(name === voice.selectedDevice && "text-foreground")}>
+                      <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+                      <Check className={cn("size-3.5 shrink-0 text-foreground", name !== voice.selectedDevice && "opacity-0")} />
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -902,11 +912,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             )}
           </div>
           {turnInFlight ? (
-            // Neutral, not red: stopping is an ordinary action here, and
-            // the clock beside it is the turn's only running counter.
-            <Button type="button" size="sm" variant="outline" className="text-muted-foreground" aria-label={dict.common.stop} onClick={onStop}>
+            // Light like the send button it replaces, not red: stopping is
+            // an ordinary action here, and the clock beside it is the turn's
+            // only running counter.
+            <Button type="button" size="sm" className="h-[30px] text-[12px]" aria-label={dict.common.stop} onClick={onStop}>
               <span className="size-2 bg-current" />
-              {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} className="font-mono text-[11px]" />}
+              {turnStartedAt != null && <Elapsed startedAt={turnStartedAt} clock className="font-mono" />}
             </Button>
           ) : uploadingImage ? (
             // A disabled button gets no pointer events, so the tooltip hangs
@@ -914,7 +925,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0} className="inline-flex">
-                  <Button type="submit" size="icon" disabled aria-label={copy.sendWaitingForUpload} className="size-[26px]">
+                  <Button type="submit" size="icon" disabled aria-label={copy.sendWaitingForUpload} className="ml-1.5 size-[30px]">
                     <Loader2 className="size-3.5 animate-spin" />
                   </Button>
                 </span>
@@ -922,11 +933,28 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <TooltipContent side="top">{copy.sendWaitingForUpload}</TooltipContent>
             </Tooltip>
           ) : (
-            <Button type="submit" size="icon" disabled={!canSend} aria-label={dict.common.send} className="size-[26px]">
-              <ArrowUp className="size-3.5" />
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!canSend}
+              aria-label={dict.common.send}
+              // Light fill while there is something to send; otherwise a
+              // quiet square, not a dimmed button.
+              className="ml-1.5 size-[30px] disabled:border-transparent disabled:bg-surface-hover disabled:text-text-faint disabled:opacity-100"
+            >
+              <ArrowUp className="size-4" />
             </Button>
           )}
         </div>
+      </div>
+      </div>
+
+      {/* The info strip: where this session runs on the left, how full the
+          context window is on the right. It sits on the frame, outside the
+          field, so it never competes with what is being typed. */}
+      <div className="flex h-[34px] items-center justify-between gap-3 px-[5px]">
+        <div className="flex min-w-0 items-center gap-3">{infoStart}</div>
+        <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
       </div>
     </form>
   );

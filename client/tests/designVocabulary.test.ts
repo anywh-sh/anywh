@@ -118,13 +118,14 @@ describe("shape vocabulary", () => {
     expect(hits(COMPONENTS, rounded)).toEqual([]);
   });
 
-  it("has exactly one elevation", () => {
-    // `shadow-popover` is built on `--shadow-color`, so it follows the theme.
+  it("has exactly two elevations, both themed", () => {
+    // `shadow-popover` (anything that floats) and `shadow-lift` (the new-session
+    // composer) are both built on `--shadow-color`, so it follows the theme.
     // Tailwind's own scale (`shadow-md`, `shadow-lg`) is a fixed black that
     // disappears on a dark theme and bruises a light one. `shadow-[inset_…]`
     // isn't elevation at all — it's how the app draws an accent rule on one
     // edge (active profile, selected tab) without a border reserving space.
-    const shadow = /\bshadow-(?!popover\b|\[inset)[a-z0-9[]/;
+    const shadow = /\bshadow-(?!popover\b|lift\b|\[inset)[a-z0-9[]/;
     expect(hits(COMPONENTS, shadow)).toEqual([]);
   });
 });

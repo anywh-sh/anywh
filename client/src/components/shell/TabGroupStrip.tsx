@@ -7,11 +7,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useDict } from "@/i18n";
 import { cn, scrollHorizontallyOnWheel, truncateWords } from "@/lib/utils";
 import type { Tab } from "@/hooks/tabs/useTabs";
-import { profileCloseHoverClass, profileColorClass, profileTabClasses } from "@/lib/profiles/profiles";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
+import { profileColorClass } from "@/lib/profiles/profiles";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -48,6 +48,12 @@ interface TabGroupStripProps {
    * `openTab` always appends to the focused group, so the caller has to
    * focus this one first (see `TabGroupLayout`). */
   onNewTab: () => void;
+  /** Right padding that keeps the strip's own controls clear of something
+   * pinned over its end (the window controls). */
+  trailingInsetClass?: string;
+  /** Left padding for the first group when something is pinned over the start
+   * of the strip (the shell buttons, once the sidebar is collapsed). */
+  leadingInsetClass?: string;
 }
 
 interface SortableTabProps {
@@ -70,13 +76,14 @@ interface SortableTabProps {
 // carried over verbatim so nothing broke in the swap; the redesign is where
 // that debt gets paid, since the tab is being restyled anyway. It still sets
 // `data-state`/`aria-selected` itself instead of delegating to Radix, which
-// is what keeps `profileTabClasses`'s `data-[state=active]:bg-*` working.
+// is what keeps the `data-[state=active]:*` utilities below working.
 //
-// No hover background on the tab itself — only its close button gets one
-// (see the button below). Hovering a tab still changes its text color, just
-// not its fill.
+// Hovering an inactive tab brightens its text, washes its fill and shows its
+// close button; nothing else about it moves. What marks the active tab is only its fill,
+// its profile rule stretched to the full width, and full opacity — never a
+// different font weight or spacing.
 const TAB_TRIGGER_CLASS =
-  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 border-r border-border-soft py-1 pr-7 pl-3 font-mono text-xs whitespace-nowrap text-text-faint transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:text-foreground";
+  "relative z-10 inline-flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-[13px] text-[length:calc(13px*var(--chrome-scale))] whitespace-nowrap text-text-faint transition-colors hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none data-[state=active]:text-foreground";
 
 /**
  * Only spreads dnd-kit's `listeners`/`setNodeRef`, not `attributes` — avoids
@@ -127,8 +134,26 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             opacity: isDragging ? 0.5 : 1,
             zIndex: isDragging ? 1 : undefined,
           }}
-          className="group relative flex min-w-[72px] flex-[0_1_168px] items-center"
+          className={cn(
+            // 31px tall and sitting on the plane's top rule: the active tab
+            // is the plane's own colour and covers that rule by a pixel, so
+            // it reads as the plane's tab rather than a button above it.
+            // Auto width up to 196px — a short title makes a short tab.
+            "group relative flex h-8 max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
+            isActive ? "border-border-soft bg-background" : "hover:bg-bg-hover",
+          )}
         >
+          {/* The profile, as a 2px rule across the top of the tab: the whole
+              width (borders included) on the active tab, inset by the tab's
+              own padding and a touch dimmer on the others. */}
+          <span
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute top-0 z-20 h-0.5",
+              profileColorClass(tab.profileId),
+              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85",
+            )}
+          />
           <button
             ref={(el) => buttonRef(tab.id, el)}
             type="button"
@@ -138,23 +163,29 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             data-tab-id={tab.id}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onSelect(tab.id)}
-            className={cn(TAB_TRIGGER_CLASS, profileTabClasses(tab.profileId))}
+            // The close button's room is always reserved, so a tab keeps its width
+            // when it is hovered or becomes the active one.
+            className={cn(TAB_TRIGGER_CLASS, "pr-[34px]")}
           >
-            {tab.isRunning ? (
-              <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
-            ) : (
-              tab.hasUnreadCompletion && (
-                // The "turn finished, unseen" dot takes the profile's own
-                // colour. This deliberately reverses an earlier call: the
-                // dot used to be `--status-done`, a blue chosen precisely so
-                // it would NOT be read as a profile colour. In a tab the
-                // ambiguity never materialised — the tab already carries its
-                // profile tint, so a dot in that same colour reads as "this
-                // session", not as a second, competing signal. That token
-                // had no other consumer and goes away with this.
-                <span className={cn("size-1.5 shrink-0 rounded-full", profileColorClass(tab.profileId))} aria-label={dict.chat.tabs.sessionDone} />
-              )
-            )}
+            {/* The status slot keeps its width whether or not there is a
+                status to show, so the title never moves when one appears or
+                clears (a finished turn is marked "seen" the moment its tab
+                is opened). */}
+            <span className="flex size-3.5 shrink-0 items-center justify-center">
+              {tab.isNew && tab.title === null && !tab.isRunning && !tab.hasUnreadCompletion && (
+                // A conversation that has not started: the tab wears the same plus as
+                // the new-session row it came from.
+                <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+              )}
+              {tab.isRunning ? (
+                <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
+              ) : (
+                tab.hasUnreadCompletion && (
+                  // "Turn finished, not seen yet": a plain light dot.
+                  <span className="size-1.5 shrink-0 rounded-full bg-foreground" aria-label={dict.chat.tabs.sessionDone} />
+                )
+              )}
+            </span>
             <span className="min-w-0 flex-1 truncate">{title}</span>
           </button>
           <button
@@ -170,9 +201,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               // its clickable box covers the full row including the `pr-7`
               // padding reserved for this button, so without a higher
               // z-index the trigger intercepts every click meant for the X.
-              "absolute right-1.5 z-20 cursor-pointer p-0.5 opacity-45 transition-colors",
-              "hover:opacity-100",
-              profileCloseHoverClass(tab.profileId),
+              "absolute right-2 z-20 flex size-[22px] cursor-pointer items-center justify-center text-text-faint transition-colors hover:text-foreground",
+              isActive ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100",
             )}
           >
             <X className="size-3" />
@@ -220,6 +250,8 @@ export function TabGroupStrip({
   onDelete,
   onSplitToNewGroup,
   onNewTab,
+  trailingInsetClass,
+  leadingInsetClass,
 }: TabGroupStripProps) {
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
@@ -256,7 +288,7 @@ export function TabGroupStrip({
             wrapper rather than on the tablist, so the `+` can sit OUTSIDE the
             horizontal scroller and stay pinned to the right edge instead of
             scrolling away with the tabs. */}
-        <div className="flex h-9 w-full items-stretch border-b border-border bg-bg-chrome">
+        <div className={cn("flex h-10 w-full items-center bg-bg-chrome", trailingInsetClass, leadingInsetClass)}>
           <div
             role="tablist"
             aria-orientation="horizontal"
@@ -268,7 +300,7 @@ export function TabGroupStrip({
             // without this, shrinking the window narrow enough for a tab's
             // content to wrap could pop a vertical scrollbar on a strip
             // that's meant to only ever scroll horizontally.
-            className="scrollbar-thin flex min-w-0 flex-1 flex-nowrap items-stretch justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 text-muted-foreground"
+            className="scrollbar-thin -mb-px flex h-[41px] min-w-0 flex-nowrap items-end self-end justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 text-muted-foreground"
           >
             {tabs.map((tab) => (
               <SortableTab
@@ -287,7 +319,6 @@ export function TabGroupStrip({
                 }}
               />
             ))}
-            <div ref={setEndDropRef} className={cn("h-full min-w-2 flex-1", isOverEnd && "bg-border")} />
           </div>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -295,13 +326,16 @@ export function TabGroupStrip({
                 type="button"
                 onClick={onNewTab}
                 aria-label={dict.chat.tabs.newTab}
-                className="flex w-9 shrink-0 cursor-pointer items-center justify-center border-l border-border-soft text-text-faint transition-colors hover:bg-surface-hover hover:text-foreground"
+                className="mt-[11px] ml-[5px] flex size-7 shrink-0 self-start cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
               >
-                <Plus className="size-3.5" />
+                <Plus className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{dict.chat.tabs.newTab}</TooltipContent>
           </Tooltip>
+          {/* Fills whatever the tabs and the `+` leave — the window's drag
+              handle, and the group's "append at the end" drop zone. */}
+          <div ref={setEndDropRef} data-tauri-drag-region className={cn("h-full min-w-2 flex-1", isOverEnd && "bg-border")} />
           {/* Published so this group's own active tab's `ChatPanel` can portal
            * the files/terminal toggle pair in here — see panelTogglesSlot.ts
            * for why this is a portal target rather than props flowing down

@@ -17,6 +17,12 @@ export function shortcutLabel(key: string): string {
   return isMacOS() ? `⌘${key}` : `Ctrl+${key}`;
 }
 
+/** The same shortcut as separate keys — ["⌘", "K"] or ["Ctrl", "K"] — for
+ * UI that draws each key as its own cap. */
+export function shortcutKeys(key: string): string[] {
+  return isMacOS() ? ["⌘", key] : ["Ctrl", key];
+}
+
 /** This device's OS, straight from `@tauri-apps/plugin-os` ("macos",
  * "windows", "linux", "ios", "android", ...) — `null` outside Tauri, where
  * there's no OS to report. Purely descriptive: nothing here knows or cares

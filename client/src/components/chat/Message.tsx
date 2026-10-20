@@ -9,7 +9,7 @@ import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
 import { bubbleMenu } from "@/lib/platform/bubbleMenu";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format/relativeTime";
 import { useDict, useLocale } from "@/i18n";
-import { cn, formatDurationLong } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
@@ -290,24 +290,21 @@ export const AssistantText = memo(function AssistantText({ text, streaming, onCo
 
 interface TurnFooterProps {
   sentAt: number;
-  durationMs?: number;
   /** Everything the agent said in the turn, what "copy" copies. */
   text: string;
   onCopy: (text: string) => void;
 }
 
-/** Closes a turn: when it finished, how long the agent worked, and a copy
- * button for the whole reply — the button appears on hover on desktop; on
+/** Closes a turn: when it finished and a copy button for the whole reply
+ * (how long the agent worked is the heading of its work block) — the button appears on hover on desktop; on
  * iOS the reply is copied by long-press instead. */
-export const TurnFooter = memo(function TurnFooter({ sentAt, durationMs, text, onCopy }: TurnFooterProps) {
+export const TurnFooter = memo(function TurnFooter({ sentAt, text, onCopy }: TurnFooterProps) {
   const dict = useDict();
   const [copied, setCopied] = useState(false);
-  const worked = durationMs !== undefined ? dict.chat.activity.workedFor.replace("{time}", formatDurationLong(Math.round(durationMs / 1000))) : undefined;
 
   return (
     <div className="group/footer mt-1 flex h-6 items-center gap-0.5">
       <TimestampLabel sentAt={sentAt} />
-      {worked && <span className="px-1.5 font-mono text-[10.5px] text-text-faint select-none">· {worked}</span>}
       {!isIOS() && text !== "" && (
         <Button
           type="button"

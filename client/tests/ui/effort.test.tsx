@@ -42,7 +42,7 @@ afterEach(() => {
 async function openConversation() {
   renderApp();
   await userEvent.setup().click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
-  return screen.findByRole("button", { name: en.chat.composer.effortAriaLabel });
+  return screen.findByRole("button", { name: /Claude Code · Opus 5.5/ });
 }
 
 describe("reasoning effort in the composer", () => {
@@ -50,7 +50,7 @@ describe("reasoning effort in the composer", () => {
     const user = userEvent.setup();
     const trigger = await openConversation();
     await vi.waitFor(() => expect(trigger).toBeEnabled());
-    expect(trigger).toHaveTextContent(en.chat.composer.effortDefault);
+    expect(trigger).toHaveTextContent(en.chat.composer.effortDefault.toLowerCase());
 
     await user.click(trigger);
     await user.click(await screen.findByRole("menuitem", { name: "High" }));
@@ -65,7 +65,7 @@ describe("reasoning effort in the composer", () => {
   it("reflects the relay's effort_state in the trigger", async () => {
     const trigger = await openConversation();
     relay.emit({ type: "effort_state", effort: "max" });
-    await vi.waitFor(() => expect(trigger).toHaveTextContent("Max"));
+    await vi.waitFor(() => expect(trigger).toHaveTextContent("max"));
   });
 
   it("/effort <level> is handled locally as set_effort, never sent as a chat message", async () => {
@@ -85,7 +85,7 @@ describe("reasoning effort in the composer", () => {
     const trigger = await openConversation();
     await vi.waitFor(() => expect(trigger).toBeEnabled());
     relay.emit({ type: "model_state", model: "haiku" });
-    await vi.waitFor(() => expect(screen.queryByRole("button", { name: en.chat.composer.effortAriaLabel })).toBeNull());
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /Haiku 4.5/ })).not.toHaveTextContent("default"));
   });
 
   it("a new conversation resumes the last-used effort", async () => {

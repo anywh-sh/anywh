@@ -44,3 +44,25 @@ export function formatAbsoluteTime(epochMs: number, locale: Locale): string {
   if (!Number.isFinite(epochMs)) return UNKNOWN_TIME;
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(epochMs));
 }
+
+/**
+ * The same moment as `formatRelativeTime`, as short as it can be said —
+ * "now", "4m", "2h", "5d", and a bare "Sep 21" after a week — for a column
+ * too narrow for "5 hours ago" (the sidebar's rows). Units come from
+ * `Intl.NumberFormat` in its narrow form, so the abbreviations follow the
+ * locale instead of being hand-written.
+ */
+export function formatCompactTime(epochMs: number, locale: Locale): string {
+  if (!Number.isFinite(epochMs)) return UNKNOWN_TIME;
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - epochMs) / 1000));
+  if (diffSeconds < 45) return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(0, "second");
+  const unit = (value: number, name: "minute" | "hour" | "day"): string =>
+    new Intl.NumberFormat(locale, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return unit(Math.max(1, diffMinutes), "minute");
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return unit(diffHours, "hour");
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return unit(diffDays, "day");
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(epochMs));
+}

@@ -7,10 +7,22 @@ export function formatElapsed(ms: number): string {
   return formatDurationLong(Math.max(0, Math.floor(ms / 1000)));
 }
 
+/** "0:12", "1:05", "1:02:09" — the stop button's clock, where a running
+ * counter reads better as a clock than as words. */
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  return hours > 0 ? `${String(hours)}:${String(minutes).padStart(2, "0")}:${seconds}` : `${String(minutes)}:${seconds}`;
+}
+
 interface ElapsedProps {
   startedAt: number;
   /** Fixed once known; while absent the value ticks on its own. */
   endedAt?: number;
+  /** Render as a clock ("0:12") instead of words ("12s"). */
+  clock?: boolean;
   className?: string;
 }
 
@@ -20,7 +32,7 @@ interface ElapsedProps {
  * rows are memoized precisely so that streaming doesn't re-render them, and a
  * timer held by a parent would undo that every second.
  */
-export const Elapsed = memo(function Elapsed({ startedAt, endedAt, className }: ElapsedProps) {
+export const Elapsed = memo(function Elapsed({ startedAt, endedAt, clock, className }: ElapsedProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (endedAt !== undefined) return;
@@ -28,5 +40,5 @@ export const Elapsed = memo(function Elapsed({ startedAt, endedAt, className }: 
     return () => clearInterval(interval);
   }, [endedAt]);
   const ms = (endedAt ?? now) - startedAt;
-  return <span className={className}>{formatElapsed(ms)}</span>;
+  return <span className={className}>{clock ? formatClock(ms) : formatElapsed(ms)}</span>;
 });

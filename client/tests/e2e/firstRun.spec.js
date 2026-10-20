@@ -21,7 +21,7 @@ describe("anywh first run", () => {
     const caption = await $('//*[contains(text(), "anywh.sh — onboarding")]');
     await caption.waitForExist({ timeout: 15000 });
     await expect(caption).toBeExisting();
-    await expect(await $('[aria-label="New conversation"]')).not.toBeExisting();
+    await expect(await $('[aria-label="New session"]')).not.toBeExisting();
 
     const language = await $('//button[normalize-space()="en"]');
     await language.waitForExist({ timeout: 5000 });
@@ -36,6 +36,6 @@ describe("anywh first run", () => {
       localStorage.setItem("anywh:profiles", profiles);
       window.location.reload();
     }, seeded);
-    await $('[aria-label="New conversation"]').waitForExist({ timeout: 15000 });
+    await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
   });
 });

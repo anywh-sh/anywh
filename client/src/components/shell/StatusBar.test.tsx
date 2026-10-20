@@ -68,6 +68,18 @@ describe("StatusBar", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("says whether the relay is connected, and switches to the reconnecting wording when it is not", () => {
+    const { rerender } = render(
+      <StatusBar profile={null} sessionId={null} isRunning={false} windowFocused connected onOpenUpdateModal={() => {}} {...backgroundActivityProps} />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(en.shell.statusBar.relayConnected);
+
+    rerender(
+      <StatusBar profile={null} sessionId={null} isRunning={false} windowFocused connected={false} onOpenUpdateModal={() => {}} {...backgroundActivityProps} />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(en.shell.titleBar.reconnecting);
+  });
+
   it("prints the branch and the change count of the focused session's folder", async () => {
     render(<StatusBar profile={profile} sessionId="s1" isRunning={false} windowFocused onOpenUpdateModal={() => {}} {...backgroundActivityProps} />);
 

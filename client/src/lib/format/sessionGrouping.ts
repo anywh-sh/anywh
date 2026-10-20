@@ -90,3 +90,12 @@ export function groupSessionsByRecency(sessions: readonly MergedSession[], now: 
 
   return SESSION_GROUP_IDS.filter((id) => buckets[id].length > 0).map((id) => ({ id, sessions: buckets[id] }));
 }
+
+/** How many sessions the desktop sidebar lists. Older ones are reached by search. */
+export const RECENT_SESSION_LIMIT = 10;
+
+/** The latest sessions, newest first — the sidebar's single list. The input is
+ * already merged and sorted (`mergeProfileSessions`), so this only cuts it. */
+export function recentSessions(sessions: readonly MergedSession[], limit: number = RECENT_SESSION_LIMIT): MergedSession[] {
+  return sessions.slice(0, limit);
+}
