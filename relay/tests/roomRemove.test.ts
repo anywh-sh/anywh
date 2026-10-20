@@ -99,7 +99,7 @@ test("a removal that was waiting out its window when the relay stopped is finish
       r1: entry("Room", { roomId: "r1", role: "principal", createdBy: "user", task: "", undeliveredReports: [] }),
       old: worker("r1", 1),
       oldChild: worker("old", 1),
-      fresh: worker("r1", Date.now()),
+      fresh: worker("r1", Date.now() + 60_000), // still well inside its window however long the relay takes to boot
     }),
   );
   const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile, RELAY_ROOM_REMOVE_UNDO_MS: "3000" });

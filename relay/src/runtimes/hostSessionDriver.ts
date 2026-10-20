@@ -465,11 +465,9 @@ export class HostSessionDriver implements AgentSessionDriver {
       this.subtasks.observe(event);
       if (this.runningSubtasks() !== before) this.options.binding.onSubtasksChanged?.();
     }
-    // A native subagent's permission request carries its `agent_id`: once
-    // approvals are deferred to the person, it belongs to this agent's card
-    // as a pending approval named after the subtask
-    // (`this.subtasks.labelFor(agent_id)`). This agent's process gets no
-    // permission prompt over stdio today, so none arrives here yet.
+    // A permission request of this agent (a native subagent's carries its
+    // `agent_id`) is not on this log: the CLI puts it to the room bridge's
+    // `approve` tool, which the session answers by deferring it to the person.
     const turn = this.turn;
     if (!turn || turn.settled) return;
     if (!turn.started) {

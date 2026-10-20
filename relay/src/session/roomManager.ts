@@ -6,9 +6,8 @@
 //
 // Every tool answers at once. Delegating creates the worker's session, queues
 // its first turn and returns its id; the work itself runs on the worker's own
-// turn, in the host. Handing reports back to the principal (the digest) is
-// not done here: a report only lands in the worker's record and in the
-// principal's outbox.
+// turn, in the host. A report lands in the worker's record and in the outbox
+// of the agent that reads it, which gets it as one digest turn per round.
 import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { RoomBridge, RoomToolHost, RoomToolResult } from "../bridges/roomBridge.js";
@@ -310,12 +309,13 @@ export class RoomManager implements RoomToolHost {
     const entries: RoomPromptEntry[] = [];
     for (const { id, room } of this.members(roomId)) {
       if (room.role !== "worker" || room.stopped) continue;
-      for (const need of this.needsYou(id)) {
-        current.add(need.promptId);
-        if (known.has(need.promptId)) continue;
-        const choice = need.kind === "choice" ? this.store.getPendingChoice(id) : undefined;
-        entries.push({ kind: need.kind, agentTitle: this.store.getTitle(id), ...(choice?.questions[0] ? { firstQuestion: choice.questions[0].question } : {}) });
-      }
+      const needs = this.needsYou(id);
+      for (const need of needs) current.add(need.promptId);
+      // One entry per agent, whatever it asks.
+      const fresh = needs.find((need) => !known.has(need.promptId));
+      if (!fresh) continue;
+      const choice = fresh.kind === "choice" ? this.store.getPendingChoice(id) : undefined;
+      entries.push({ kind: fresh.kind, agentTitle: this.store.getTitle(id), ...(choice?.questions[0] ? { firstQuestion: choice.questions[0].question } : {}) });
     }
     // What was answered stops counting, so a later prompt is told again.
     this.notifiedPrompts.set(roomId, current);
@@ -327,6 +327,8 @@ export class RoomManager implements RoomToolHost {
   /** What the person is being asked by `id`, from what is persisted. */
   private needsYou(id: string): NeedsYou[] {
     const out: NeedsYou[] = [];
+    // Nobody can usefully answer an agent that was stopped or removed.
+    if (this.store.getRoom(id)?.stopped) return out;
     const choice = this.store.getPendingChoice(id);
     if (choice) out.push({ kind: "choice", promptId: choice.promptId, ...(choice.askedAt !== undefined ? { askedAt: choice.askedAt } : {}), count: choice.questions.length });
     const approval = this.store.getPendingApproval(id);
@@ -411,6 +413,9 @@ export class RoomManager implements RoomToolHost {
         }
       }),
     );
+    // Restored (or removed again) while the host was stopping them: that
+    // call's own window and timer are the ones that count.
+    if (this.store.getRoom(agentId)?.stopped?.at !== at) return { ok: true, removed: ids, undoMs: this.undoMs() };
     // The window starts when the agents are really gone from the host, not
     // when the person asked: a slow stop must not use it up.
     const from = this.now();
@@ -821,6 +826,9 @@ export class RoomManager implements RoomToolHost {
   /** Looks at every agent that may owe someone a digest (after a restart, or
    * once the host is back). */
   considerAllDigests(): void {
+    // A digest that failed because the host went away is worth another try
+    // once it is back.
+    this.digestFailed.clear();
     for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.undeliveredReports?.length ?? 0) > 0) this.considerDigest(id);
   }
 

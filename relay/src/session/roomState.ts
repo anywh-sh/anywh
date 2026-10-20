@@ -26,8 +26,9 @@ export interface RoomAgentView {
   state: RoomAgentState;
   queuedMessages: number;
   report?: Pick<RoomReport, "status" | "summary" | "artifacts" | "at"> & { fromRelay?: boolean };
-  /** Empty unless `state` is `awaiting_user`... or the agent is still
-   * working and has already asked about something else. */
+  /** What waits for the person: normally with `state` `awaiting_user`, but an
+   * agent that goes on working can have asked about something else. Empty for
+   * an agent that was stopped or removed. */
   needsYou: NeedsYou[];
   /** Native subagents the agent has running right now. */
   subtasksRunning: number;
