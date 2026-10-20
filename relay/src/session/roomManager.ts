@@ -81,6 +81,15 @@ export interface RoomManagerOptions {
   /** How long a wake-up waits for more reports before the digest goes out:
    * agents that finish together share one turn. Default 2 s. */
   readonly digestWindowMs?: number;
+  /** Deletes an agent's session (and, with it, the agents below it and
+   * their agents in the host). */
+  readonly deleteAgent?: (agentId: string) => boolean;
+  /** How long a removed agent can still be brought back before it is
+   * deleted for good. Default 15 s. */
+  readonly removeUndoMs?: number;
+  /** Agents that were just deleted for good after a removal (the root of the
+   * removed subtree and everything below it). */
+  readonly onPurged?: (agentIds: readonly string[]) => void;
 }
 
 export interface CreateRoomInput {
@@ -96,6 +105,8 @@ export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error
 
 export type StopAgentResult = { ok: true } | { ok: false; status: number; error: string };
 export type ResumeAgentResult = StopAgentResult;
+export type RemoveAgentResult = { ok: true; removed: string[]; undoMs: number } | { ok: false; status: number; error: string };
+export type RestoreAgentResult = { ok: true; restored: string[] } | { ok: false; status: number; error: string };
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
 const fail = (text: string): RoomToolResult => ({ text, isError: true });
@@ -109,6 +120,9 @@ export class RoomManager implements RoomToolHost {
   /** Per agent, the digest turn queued or running for it: at most one at a
    * time, so a round of reports is one turn however they arrive. */
   private readonly digests = new Map<string, { delivered: boolean }>();
+  /** Per removed root, the timer that deletes its subtree once the undo
+   * window is over. */
+  private readonly purgeTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -242,6 +256,111 @@ export class RoomManager implements RoomToolHost {
     void _stopped;
     this.store.setRoom(agentId, rest);
     return { ok: true };
+  }
+
+  /** `agentId` and every agent below it, in the room. */
+  private subtreeOf(roomId: string, agentId: string): string[] {
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    return this.members(roomId)
+      .filter((member) => member.id === agentId || isDescendant(member.id, agentId, parentOf))
+      .map((member) => member.id);
+  }
+
+  /** The person removes an agent: it and every agent below it are stopped
+   * and hidden at once, and deleted for good once the undo window is over
+   * (`restoreAgent` within it brings them back). */
+  async removeAgent(roomId: string, agentId: string): Promise<RemoveAgentResult> {
+    const room = this.store.getRoom(agentId);
+    if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
+    if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is removed this way; delete the room to remove its principal" };
+    if (room.stopped?.reason === "removed") return { ok: false, status: 404, error: "no such agent in this room" };
+    const ids = this.subtreeOf(roomId, agentId).filter((id) => this.store.getRoom(id)?.stopped?.reason !== "removed");
+    const at = this.now();
+    for (const id of ids) {
+      const member = this.store.getRoom(id)!;
+      const { queuedMessages: _dropped, ...kept } = member;
+      void _dropped;
+      this.store.setRoom(id, { ...kept, stopped: { reason: "removed", at } });
+    }
+    // The agents are stopped first and the outboxes handed up after, so no
+    // report goes to an agent that is itself going away.
+    for (const id of ids) {
+      const session = this.options.sessions.getOrCreate(id);
+      session.discardQueuedTurns();
+      session.stopTurn();
+      this.sending.delete(id);
+    }
+    for (const id of ids) this.handOffOutbox(id);
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await this.options.stopInHost?.(id);
+        } catch (error) {
+          console.warn(`[relay] could not stop agent ${id} in the agent host: ${(error as Error).message}`);
+        }
+      }),
+    );
+    this.schedulePurge(agentId, at);
+    return { ok: true, removed: ids, undoMs: this.undoMs() };
+  }
+
+  /** Brings back an agent removed within the undo window, with the agents
+   * that went with it. They come back idle (their turn was ended), with
+   * whatever they had reported. */
+  restoreAgent(roomId: string, agentId: string): RestoreAgentResult {
+    const room = this.store.getRoom(agentId);
+    // Only what the person removed (the root of the subtree) is restored: an
+    // agent under it comes back with it, never alone under a hidden parent.
+    const parentRemoved = room?.parentId !== undefined && this.store.getRoom(room.parentId)?.stopped?.reason === "removed";
+    if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId || room.stopped?.reason !== "removed" || parentRemoved) {
+      return { ok: false, status: 404, error: "no removed agent with that id in this room (it may have been deleted for good)" };
+    }
+    const timer = this.purgeTimers.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.purgeTimers.delete(agentId);
+    const restored: string[] = [];
+    for (const id of this.subtreeOf(roomId, agentId)) {
+      const member = this.store.getRoom(id);
+      if (member?.stopped?.reason !== "removed") continue;
+      const { stopped: _stopped, ...rest } = member;
+      void _stopped;
+      this.store.setRoom(id, rest);
+      restored.push(id);
+    }
+    this.considerDigestFor(agentId);
+    return { ok: true, restored };
+  }
+
+  private undoMs(): number {
+    return this.options.removeUndoMs ?? 15_000;
+  }
+
+  private schedulePurge(rootId: string, removedAt: number): void {
+    const existing = this.purgeTimers.get(rootId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => this.purge(rootId), Math.max(0, removedAt + this.undoMs() - this.now()));
+    timer.unref();
+    this.purgeTimers.set(rootId, timer);
+  }
+
+  private purge(rootId: string): void {
+    this.purgeTimers.delete(rootId);
+    const room = this.store.getRoom(rootId);
+    if (room?.stopped?.reason !== "removed") return;
+    const ids = this.subtreeOf(room.roomId, rootId);
+    this.options.deleteAgent?.(rootId);
+    this.options.onPurged?.(ids);
+  }
+
+  /** After a restart: removals whose window is over are deleted now, the
+   * others get their timer back. Only the roots of removed subtrees matter. */
+  sweepRemoved(): void {
+    for (const id of this.store.listIds()) {
+      const room = this.store.getRoom(id);
+      if (room?.role !== "worker" || room.stopped?.reason !== "removed") continue;
+      if (this.store.getRoom(room.parentId!)?.stopped?.reason === "removed") continue;
+      this.schedulePurge(id, room.stopped.at);
+    }
   }
 
   /** Whether a question or a tool approval of `id` waits for the person: read
@@ -683,7 +802,7 @@ export class RoomManager implements RoomToolHost {
 
   private roomStatus(callerId: string, caller: RoomMembership): RoomToolResult {
     const agents = this.members(caller.roomId)
-      .filter((member) => member.id !== callerId && member.room.role === "worker")
+      .filter((member) => member.id !== callerId && member.room.role === "worker" && member.room.stopped?.reason !== "removed")
       .map(({ id, room }) => {
         const runtime = this.store.getAgentId(id);
         const state = this.stateOf(id, room);

@@ -153,6 +153,8 @@ const roomManager: RoomManager = new RoomManager({
   bridge: roomBridge,
   runtimes: () => roomRuntimes,
   hostConnected: () => agentHost?.status === "connected",
+  deleteAgent: (agentId) => sessionManager.deleteSession(agentId),
+  ...(process.env.RELAY_ROOM_REMOVE_UNDO_MS ? { removeUndoMs: Number(process.env.RELAY_ROOM_REMOVE_UNDO_MS) } : {}),
   ...(process.env.RELAY_ROOM_DIGEST_WINDOW_MS ? { digestWindowMs: Number(process.env.RELAY_ROOM_DIGEST_WINDOW_MS) } : {}),
   owner: roomBridge.ownerId,
   tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
@@ -170,6 +172,8 @@ const roomManager: RoomManager = new RoomManager({
   getModelCatalog: (agentId) => modelCatalogs[agentId],
 });
 roomBridge.attach(roomManager);
+// Removals that were waiting out their undo window when the relay stopped.
+roomManager.sweepRemoved();
 // Every time the relay (re)connects to its host: agents the rooms no longer
 // have are removed there, then messages queued before a restart go out.
 agentHost?.on("status", (status) => {

@@ -99,6 +99,12 @@ async function handleCanvas(req: IncomingMessage, res: ServerResponse, ctx: Rout
  *                                longer counts under the room's cap
  *   POST /rooms/:roomId/agents/:agentId/resume
  *                                lets a stopped worker take turns again
+ *   POST /rooms/:roomId/agents/:agentId/remove
+ *                                removes a worker and the agents below it:
+ *                                stopped and hidden now, deleted for good
+ *                                after `undoMs` → `{ removed: [ids], undoMs }`
+ *   POST /rooms/:roomId/agents/:agentId/restore
+ *                                undoes a removal within that window
  * 404 for a room whose principal does not exist.
  */
 /** `/rooms/:roomId/agents/:agentId/subtasks[/:taskId/stop]`: a member's
@@ -138,6 +144,24 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
       return true;
     }
     await handleSubtasks(res, ctx, roomId, agentId, stopTaskId);
+    return true;
+  }
+  const lifecycle = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/(remove|restore)$/.exec(url.pathname);
+  if (lifecycle && req.method === "POST") {
+    const [roomId, agentId] = [decode(lifecycle[1]), decode(lifecycle[2])];
+    if (roomId === undefined || agentId === undefined) {
+      send(res, 400, { error: "malformed path" });
+      return true;
+    }
+    if (lifecycle[3] === "remove") {
+      const outcome = await ctx.roomManager.removeAgent(roomId, agentId);
+      if (outcome.ok) send(res, 200, { removed: outcome.removed, undoMs: outcome.undoMs });
+      else send(res, outcome.status, { error: outcome.error });
+    } else {
+      const outcome = ctx.roomManager.restoreAgent(roomId, agentId);
+      if (outcome.ok) send(res, 200, { restored: outcome.restored });
+      else send(res, outcome.status, { error: outcome.error });
+    }
     return true;
   }
   const stopAgent = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/(stop|resume)$/.exec(url.pathname);
@@ -184,6 +208,8 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
   }
   const members = ctx.sessionStore
     .listRoomMembers(roomId)
+    // Removed agents wait out their undo window out of sight.
+    .filter(({ room }) => room.stopped?.reason !== "removed")
     .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
     .map(({ id, room }) => {
       const agentId = ctx.sessionStore.getAgentId(id);
