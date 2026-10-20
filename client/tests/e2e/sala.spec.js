@@ -126,7 +126,11 @@ describe("anywh room canvas", () => {
       await browser.execute((saved) => {
         localStorage.clear();
         for (const [key, value] of Object.entries(saved)) localStorage.setItem(key, value);
+        // The window outlives this file: left as it is, it would go on
+        // showing the room (and its language) to the specs that follow.
+        window.location.reload();
       }, previous);
+      await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
     }
     await stack?.stop();
   });
