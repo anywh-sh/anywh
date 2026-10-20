@@ -17,8 +17,11 @@ import type { Registry } from "../runtimes/registry.js";
 import type { ModelCatalog, RoomAgentSetup, RoomToolSpec } from "../runtimes/types.js";
 import { availableModes, isOfferedMode } from "./permissionModes.js";
 import {
+  ROOM_CONNECTORS_MAX,
   ROOM_MAX_LIVE_AGENTS,
+  isConnectorServer,
   ROOM_QUEUE_PER_AGENT_MAX,
+  ROOM_TASK_MAX,
   ROOM_QUEUE_PER_ROOM_MAX,
   ROOM_REPORT_SUMMARY_MAX,
   isDescendant,
@@ -35,6 +38,7 @@ import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
 import {
   ROOM_MCP_SERVER_NAME,
   parseDelegateArgs,
+  type DelegateArgs,
   parseMessageAgentArgs,
   parseReportArgs,
   parseWorktreeCreateArgs,
@@ -43,7 +47,7 @@ import {
   roomToolsFor,
   workerInstructions,
 } from "./roomTools.js";
-import type { RoomWorktrees } from "./roomWorktrees.js";
+import type { RoomWorktrees, WorktreeInfo } from "./roomWorktrees.js";
 import { buildNotice } from "./roomContextIndex.js";
 import type { RoomContextStore } from "./roomContextStore.js";
 import type { SessionStore } from "./sessionStore.js";
@@ -132,13 +136,16 @@ export interface CreateRoomInput {
   permissionMode?: unknown;
   cwd?: unknown;
   title?: unknown;
+  firstMessage?: unknown;
 }
 
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };
 
 export type StopAgentResult = { ok: true } | { ok: false; status: number; error: string };
 export type ResumeAgentResult = StopAgentResult;
-export type RemoveAgentResult = { ok: true; removed: string[]; undoMs: number } | { ok: false; status: number; error: string };
+export type RemoveAgentResult =
+  | { ok: true; removed: string[]; undoMs: number }
+  | { ok: false; status: number; error: string; /** Set when the removal waits for the person to confirm discarding. */ needsDiscard?: true; worktrees?: WorktreeInfo[] };
 export type RestoreAgentResult = { ok: true; restored: string[] } | { ok: false; status: number; error: string };
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
@@ -160,6 +167,9 @@ export class RoomManager implements RoomToolHost {
   /** Per removed root, the timer that deletes its subtree once the undo
    * window is over. */
   private readonly purgeTimers = new Map<string, NodeJS.Timeout>();
+  /** Worktree ids to discard when a removed subtree (by its root) is deleted
+   * for good; set by a removal the person confirmed. */
+  private readonly discardOnPurge = new Map<string, string[]>();
   /** Per room, the gathering of questions into one notification, and the
    * prompts the person has already been told about. */
   private readonly promptRounds = new Map<string, { timer: NodeJS.Timeout; watched: boolean }>();
@@ -301,6 +311,9 @@ export class RoomManager implements RoomToolHost {
       if (!checked?.ok) return { ok: false, error: "cwd must be an existing absolute directory" };
       cwd = checked.path;
     }
+    if (input.firstMessage !== undefined && !(typeof input.firstMessage === "string" && input.firstMessage.trim() !== "" && input.firstMessage.length <= ROOM_TASK_MAX)) {
+      return { ok: false, error: "firstMessage must be a non-empty string" };
+    }
     const roomId = randomUUID();
     this.store.recordId(roomId);
     this.store.setAgentId(roomId, agentId);
@@ -315,7 +328,31 @@ export class RoomManager implements RoomToolHost {
     this.store.setTitle(roomId, text(input.title, 200) ?? "Room");
     this.options.sessions.getOrCreate(roomId);
     this.options.sessions.renameTitle(roomId, this.store.getTitle(roomId)!);
+    // Delivered to the principal's own session, as if typed there, so the
+    // client needs no second socket to send it.
+    if (typeof input.firstMessage === "string") this.options.sessions.getOrCreate(roomId).submitAgentTurn(input.firstMessage);
     return { ok: true, roomId };
+  }
+
+  /** The person starts a worker from the canvas: the same path as the
+   * principal's `delegate`, recorded as created by the person. The model
+   * defaults to the principal's when the runtime is the same. */
+  launchByPerson(roomId: string, input: unknown): { ok: true; agentId: string } | { ok: false; status: number; error: string } {
+    const principal = this.store.getRoom(roomId);
+    if (principal?.role !== "principal") return { ok: false, status: 404, error: "room not found" };
+    const raw = typeof input === "object" && input !== null ? { ...(input as Record<string, unknown>) } : {};
+    const principalRuntime = this.store.getAgentId(roomId);
+    const runtime = raw.agentId === undefined ? principalRuntime : raw.agentId;
+    delete raw.agentId;
+    if (typeof runtime !== "string") return { ok: false, status: 400, error: "agentId must be a string" };
+    let model = raw.model;
+    if (model === undefined && runtime.toLowerCase() === principalRuntime) model = this.store.getModel(roomId, principalRuntime);
+    if (model === undefined) return { ok: false, status: 400, error: "model is required when the agent differs from the room's principal" };
+    const parsed = parseDelegateArgs({ ...raw, runtime, model });
+    if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
+    const result = this.launchWorker(roomId, roomId, parsed.value, "user");
+    if (result.isError) return { ok: false, status: result.text.startsWith("room_cap_reached") ? 409 : 400, error: result.text };
+    return { ok: true, agentId: (JSON.parse(result.text) as { agentId: string }).agentId };
   }
 
   /** The person stops one worker (only that card): its turn is
@@ -402,6 +439,24 @@ export class RoomManager implements RoomToolHost {
     this.options.notifyPerson?.({ roomId, draft: roomPromptsDraft({ roomTitle: this.store.getTitle(roomId), entries }), watched: watched || looking });
   }
 
+  /** A member's turn began: its clock restarts (a digest the relay hands a
+   * principal is not work of its own, so it does not). */
+  noteTurnStarted(id: string, startedAt: number, synthetic?: string): void {
+    const room = this.store.getRoom(id);
+    if (!room || synthetic === "room_digest" || room.startedAt === startedAt) return;
+    this.store.setRoom(id, { ...room, startedAt });
+  }
+
+  /** A member called a tool of MCP server `server`: remembered as a
+   * connector it used, unless the server is one of the relay's own bridges. */
+  noteConnector(id: string, server: string): void {
+    const room = this.store.getRoom(id);
+    if (!room || !isConnectorServer(server)) return;
+    const known = room.connectors ?? [];
+    if (known.includes(server) || known.length >= ROOM_CONNECTORS_MAX) return;
+    this.store.setRoom(id, { ...room, connectors: [...known, server] });
+  }
+
   /** What the person is being asked by `id`, from what is persisted. */
   private needsYou(id: string): NeedsYou[] {
     const out: NeedsYou[] = [];
@@ -432,6 +487,8 @@ export class RoomManager implements RoomToolHost {
       ...(room.report
         ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, at: room.report.at, ...(room.report.synthetic ? { fromRelay: true } : {}) } }
         : {}),
+      ...(room.startedAt !== undefined ? { startedAt: room.startedAt } : {}),
+      connectors: room.connectors ?? [],
       needsYou,
       subtasksRunning: this.options.sessions.peek(id)?.listSubtasks().filter((task) => task.status === "running").length ?? 0,
     };
@@ -460,12 +517,20 @@ export class RoomManager implements RoomToolHost {
   /** The person removes an agent: it and every agent below it are stopped
    * and hidden at once, and deleted for good once the undo window is over
    * (`restoreAgent` within it brings them back). */
-  async removeAgent(roomId: string, agentId: string): Promise<RemoveAgentResult> {
+  async removeAgent(roomId: string, agentId: string, options: { discard?: boolean } = {}): Promise<RemoveAgentResult> {
     const room = this.store.getRoom(agentId);
     if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
     if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is removed this way; delete the room to remove its principal" };
     if (room.stopped?.reason === "removed") return { ok: false, status: 404, error: "no such agent in this room" };
     const ids = this.subtreeOf(roomId, agentId).filter((id) => this.store.getRoom(id)?.stopped?.reason !== "removed");
+    // Work that is not integrated anywhere else is only dropped on the
+    // person's say-so: without it nothing is removed.
+    const unintegrated = (await this.worktreesOf(roomId, { size: true })).filter((tree) => ids.includes(tree.agentId) && !tree.integrated);
+    if (unintegrated.length > 0 && options.discard !== true) {
+      return { ok: false, status: 409, error: "these agents have work in worktrees that is not integrated; remove with discard to drop it", needsDiscard: true, worktrees: unintegrated };
+    }
+    if (unintegrated.length > 0) this.discardOnPurge.set(agentId, unintegrated.map((tree) => tree.id));
+    else this.discardOnPurge.delete(agentId);
     const at = this.now();
     for (const id of ids) {
       const member = this.store.getRoom(id)!;
@@ -519,6 +584,7 @@ export class RoomManager implements RoomToolHost {
     const timer = this.purgeTimers.get(agentId);
     if (timer) clearTimeout(timer);
     this.purgeTimers.delete(agentId);
+    this.discardOnPurge.delete(agentId);
     const restored: string[] = [];
     for (const id of this.subtreeOf(roomId, agentId)) {
       const member = this.store.getRoom(id);
@@ -549,8 +615,22 @@ export class RoomManager implements RoomToolHost {
     const room = this.store.getRoom(rootId);
     if (room?.stopped?.reason !== "removed") return;
     const ids = this.subtreeOf(room.roomId, rootId);
+    const discard = this.discardOnPurge.get(rootId) ?? [];
+    this.discardOnPurge.delete(rootId);
     this.options.deleteAgent?.(rootId);
     this.options.onPurged?.(ids);
+    // The person said "discard anyway": the worktrees go once the agents
+    // can no longer be brought back (a restart in between keeps them,
+    // retained, which is the safe side).
+    const worktrees = this.options.worktrees;
+    if (worktrees) {
+      for (const id of discard) worktrees.discard(id).catch((error: unknown) => console.warn(`[relay] discarding worktree ${id} failed: ${(error as Error).message}`));
+    }
+  }
+
+  /** The worktrees agents of the room created, retained ones included. */
+  async worktreesOf(roomId: string, options: { size?: boolean } = {}): Promise<WorktreeInfo[]> {
+    return (await this.options.worktrees?.list(roomId, options)) ?? [];
   }
 
   /** After a restart: removals whose window is over are deleted now, the
@@ -1045,12 +1125,17 @@ export class RoomManager implements RoomToolHost {
     if (caller.role !== "principal") return fail("Only the room's principal can delegate.");
     const parsed = parseDelegateArgs(rawArgs);
     if (!parsed.ok) return fail(parsed.error);
-    const args = parsed.value;
+    return this.launchWorker(caller.roomId, callerId, parsed.value, "agent");
+  }
+
+  /** Starts a worker for whoever asked: the principal's `delegate`, or the
+   * person from the canvas. `defaultParentId` is the parent when `args` name
+   * none. */
+  private launchWorker(roomId: string, defaultParentId: string, args: DelegateArgs, createdBy: "user" | "agent"): RoomToolResult {
     const runtimes = this.runtimes();
     if (!runtimes.includes(args.runtime)) return fail(`Unknown runtime "${args.runtime}". Use one of: ${runtimes.join(", ")}.`);
-    const roomId = caller.roomId;
     const members = this.members(roomId);
-    const parentId = args.parentId ?? callerId;
+    const parentId = args.parentId ?? defaultParentId;
     const parent = members.find((member) => member.id === parentId);
     if (!parent) return fail(`There is no agent "${parentId}" in this room; parentId must be one of its agents.`);
     if (parent.room.stopped) return fail(`Agent "${parentId}" was stopped; pick another parent.`);
@@ -1085,7 +1170,7 @@ export class RoomManager implements RoomToolHost {
       roomId,
       role: "worker",
       parentId,
-      createdBy: "agent",
+      createdBy,
       task: args.task,
       ...(args.area ? { area: args.area } : {}),
       // Persisted until it is delivered: a relay restart loses no task.

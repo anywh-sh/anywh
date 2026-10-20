@@ -39,6 +39,10 @@ export interface SessionManagerRoomOptions {
   readonly onMemberChanged?: (sessionId: string) => void;
   /** A usage event of a member's turn. */
   readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
+  /** See `SharedSessionOptions.onTurnStarted`. */
+  readonly onTurnStarted?: (sessionId: string, startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
+  /** See `SharedSessionOptions.onMcpServerUsed`. */
+  readonly onMcpServerUsed?: (sessionId: string, server: string) => void;
   /** See `SharedSessionOptions.roomTurnNote`. */
   readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
   /** Why a member's card cannot be answered now (the room is full), if so. */
@@ -398,6 +402,8 @@ export class SessionManager {
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
             onTurnStateChange: () => this.rooms.onMemberChanged?.(id),
             onUsage: (event: AgentEvent) => this.rooms.onUsage?.(id, event),
+            onTurnStarted: (startedAt, synthetic) => this.rooms.onTurnStarted?.(id, startedAt, synthetic),
+            onMcpServerUsed: (server: string) => this.rooms.onMcpServerUsed?.(id, server),
             roomTurnNote: () => this.rooms.turnNote?.(id),
             answerRefusal: () => this.rooms.answerRefusal?.(id),
           }

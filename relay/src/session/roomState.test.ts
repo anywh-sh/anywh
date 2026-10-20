@@ -13,7 +13,7 @@ const view = (state: RoomAgentState, needsYou: RoomAgentView["needsYou"] = []): 
   state,
   queuedMessages: 0,
   needsYou,
-  subtasksRunning: 0,
+  subtasksRunning: 0, connectors: [],
 });
 const ask = { kind: "approval" as const, promptId: "p", count: 1 };
 

@@ -62,6 +62,12 @@ export interface RoomMembership {
    * prompt (with the context index) was first built, then each time it was
    * told of items that arrived later. Absent until its first turn. */
   contextSeenAt?: number;
+  /** Epoch ms when the agent's latest turn began (kept after it ends, so a
+   * client can tell how long the agent worked). Absent until it first runs. */
+  startedAt?: number;
+  /** MCP servers (the person's connectors) the agent has called, in order
+   * of first use. The relay's own bridges are not listed. */
+  connectors?: string[];
   /** Worker only: messages (its task first) still to be delivered. */
   queuedMessages?: QueuedMessage[];
   /** Workers whose report has not been handed to this agent yet: the
@@ -76,6 +82,16 @@ export interface RoomMembership {
 export const ROOM_REPORT_SUMMARY_MAX = 1000;
 export const ROOM_REPORT_ARTIFACTS_MAX = 20;
 export const ROOM_TASK_MAX = 20_000;
+/** Most connectors remembered per agent. */
+export const ROOM_CONNECTORS_MAX = 30;
+/** MCP servers that are the relay's own plumbing, not connectors. */
+const OWN_MCP_SERVERS: ReadonlySet<string> = new Set(["anywh-choice", "anywh-room", "anywh-permission"]);
+
+/** Whether an MCP server name is a connector of the person's (not one of the
+ * relay's own bridges). */
+export function isConnectorServer(server: string): boolean {
+  return server !== "" && !OWN_MCP_SERVERS.has(server);
+}
 /** Messages waiting for one worker, and for a whole room. */
 export const ROOM_QUEUE_PER_AGENT_MAX = 5;
 export const ROOM_QUEUE_PER_ROOM_MAX = 20;
@@ -115,7 +131,7 @@ export function isRoomReport(value: unknown): value is RoomReport {
  * truncated or future-schema record must never reach the room logic. */
 export function isRoomMembership(value: unknown): value is RoomMembership {
   if (!isRecord(value)) return false;
-  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports, queuedMessages, contextSeenAt } = value;
+  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports, queuedMessages, contextSeenAt, startedAt, connectors } = value;
   if (typeof roomId !== "string" || roomId === "") return false;
   if (typeof role !== "string" || !ROLES.has(role)) return false;
   if (createdBy !== "user" && createdBy !== "agent") return false;
@@ -123,6 +139,8 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
   if (area !== undefined && typeof area !== "string") return false;
   if (report !== undefined && !isRoomReport(report)) return false;
   if (contextSeenAt !== undefined && !isTimestamp(contextSeenAt)) return false;
+  if (startedAt !== undefined && !isTimestamp(startedAt)) return false;
+  if (connectors !== undefined && !(isStringList(connectors) && connectors.length <= ROOM_CONNECTORS_MAX)) return false;
   if (stopped !== undefined && !(isRecord(stopped) && typeof stopped.reason === "string" && STOP_REASONS.has(stopped.reason) && isTimestamp(stopped.at))) return false;
   if (role === "worker") {
     if (typeof parentId !== "string" || parentId === "") return false;

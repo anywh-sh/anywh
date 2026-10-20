@@ -131,7 +131,9 @@ async function handleContextNow(req: IncomingMessage, res: ServerResponse, ctx: 
 /**
  * Rooms over HTTP:
  *   POST /rooms                  opens a room: `{ agentId?, model?, effort?,
- *                                permissionMode?, cwd?, title? }` for its
+ *                                permissionMode?, cwd?, title?, firstMessage? }`
+ *                                (`firstMessage` goes to the principal as if
+ *                                typed in its session) for its
  *                                principal → `201 { roomId }` (the principal's
  *                                session id: chat with it like any session)
  *   GET  /rooms/:roomId          the room's agents (principal first), each with
@@ -140,6 +142,15 @@ async function handleContextNow(req: IncomingMessage, res: ServerResponse, ctx: 
  *   PUT  /rooms/:roomId/canvas   replaces it: `{ canvas }`, validated whole
  *   GET  /rooms/:roomId/agents/:agentId/subtasks
  *                                that agent's native subagents (its subtasks)
+ *   POST /rooms/:roomId/agents  the person starts a worker: `{ task, agentId?,
+ *                                model?, effort?, parentId? }` → `201 { agentId }`
+ *                                (the principal is the parent by default; the
+ *                                model defaults to the principal's when the
+ *                                agent is the same; 409 when the room is full)
+ *   GET  /rooms/:roomId/worktrees
+ *                                every worktree the room's agents created,
+ *                                retained ones too, with their size →
+ *                                `{ worktrees, totalSizeBytes }`
  *   POST /rooms/:roomId/agents/:agentId/subtasks/:taskId/stop
  *                                stops one of them, leaving the agent running
  *   POST /rooms/:roomId/agents/:agentId/stop
@@ -151,7 +162,13 @@ async function handleContextNow(req: IncomingMessage, res: ServerResponse, ctx: 
  *   POST /rooms/:roomId/agents/:agentId/remove
  *                                removes a worker and the agents below it:
  *                                stopped and hidden now, deleted for good
- *                                after `undoMs` → `{ removed: [ids], undoMs }`
+ *                                after `undoMs` → `{ removed: [ids], undoMs }`.
+ *                                Body `{ discard?: true }`: without it, work in
+ *                                worktrees that is not integrated stops the
+ *                                removal (409 `{ error, needsDiscard: true,
+ *                                worktrees }`, nothing removed); with it, those
+ *                                worktrees are discarded once the undo window
+ *                                is over
  *   POST /rooms/:roomId/agents/:agentId/restore
  *                                undoes a removal within that window
  *   GET  /rooms/:roomId/context  the room's shared files, their index, and
@@ -211,14 +228,55 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
       return true;
     }
     if (lifecycle[3] === "remove") {
-      const outcome = await ctx.roomManager.removeAgent(roomId, agentId);
+      let discard = false;
+      try {
+        const body = await readJsonBody(req);
+        discard = typeof body === "object" && body !== null && (body as { discard?: unknown }).discard === true;
+      } catch {
+        // No body (or none worth reading) is a removal without discarding.
+      }
+      const outcome = await ctx.roomManager.removeAgent(roomId, agentId, { discard });
       if (outcome.ok) send(res, 200, { removed: outcome.removed, undoMs: outcome.undoMs });
-      else send(res, outcome.status, { error: outcome.error });
+      else send(res, outcome.status, { error: outcome.error, ...(outcome.needsDiscard ? { needsDiscard: true, worktrees: outcome.worktrees } : {}) });
     } else {
       const outcome = ctx.roomManager.restoreAgent(roomId, agentId);
       if (outcome.ok) send(res, 200, { restored: outcome.restored });
       else send(res, outcome.status, { error: outcome.error });
     }
+    return true;
+  }
+  const launch = /^\/rooms\/([^/]+)\/agents$/.exec(url.pathname);
+  if (launch && req.method === "POST") {
+    const roomId = decode(launch[1]);
+    if (roomId === undefined) {
+      send(res, 400, { error: "malformed path" });
+      return true;
+    }
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      send(res, 400, { error: "invalid body" });
+      return true;
+    }
+    const outcome = ctx.roomManager.launchByPerson(roomId, body);
+    if (outcome.ok) send(res, 201, { agentId: outcome.agentId });
+    else send(res, outcome.status, { error: outcome.error });
+    return true;
+  }
+  const worktreesRoute = /^\/rooms\/([^/]+)\/worktrees$/.exec(url.pathname);
+  if (worktreesRoute && req.method === "GET") {
+    const roomId = decode(worktreesRoute[1]);
+    if (roomId === undefined) {
+      send(res, 400, { error: "malformed path" });
+      return true;
+    }
+    if (!roomExists(ctx, roomId)) {
+      send(res, 404, { error: "room not found" });
+      return true;
+    }
+    const worktrees = await ctx.roomManager.worktreesOf(roomId, { size: true });
+    send(res, 200, { worktrees, totalSizeBytes: worktrees.reduce((sum, tree) => sum + (tree.sizeBytes ?? 0), 0) });
     return true;
   }
   const stopAgent = /^\/rooms\/([^/]+)\/agents\/([^/]+)\/(stop|resume)$/.exec(url.pathname);

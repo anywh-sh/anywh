@@ -167,6 +167,12 @@ const sessionManager = new SessionManager(
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
     onUsage: (id, event) => roomUsage.observe(id, event),
+    onTurnStarted: (id, startedAt, synthetic): void => roomManager.noteTurnStarted(id, startedAt, synthetic),
+    onMcpServerUsed: (id, server): void => {
+      roomManager.noteConnector(id, server);
+      const roomId = sessionStore.getRoom(id)?.roomId;
+      if (roomId !== undefined) roomChannel.touch(roomId);
+    },
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
     owner: roomBridge.ownerId,

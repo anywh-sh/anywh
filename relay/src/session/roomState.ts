@@ -30,6 +30,10 @@ export interface RoomAgentView {
    * agent that goes on working can have asked about something else. Empty for
    * an agent that was stopped or removed. */
   needsYou: NeedsYou[];
+  /** Epoch ms its latest turn began; absent if it never ran. */
+  startedAt?: number;
+  /** MCP servers (connectors) it has used. */
+  connectors: string[];
   /** Native subagents the agent has running right now. */
   subtasksRunning: number;
 }
