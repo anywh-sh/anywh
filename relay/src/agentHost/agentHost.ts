@@ -86,6 +86,7 @@ interface Agent {
   readonly agentId: string;
   readonly runtime: AgentRuntimeId;
   readonly roomId?: string;
+  readonly owner?: string;
   readonly spec: ClaudeAgentSpec;
   readonly createdAt: number;
   readonly log: AgentEventLog;
@@ -320,6 +321,7 @@ export class AgentHost {
         agentId: saved.agentId,
         runtime: saved.runtime,
         roomId: saved.roomId,
+        owner: saved.owner,
         spec: saved.spec,
         createdAt: saved.createdAt,
         log: opened.log,
@@ -367,6 +369,7 @@ export class AgentHost {
       agentId: agent.agentId,
       runtime: agent.runtime,
       roomId: agent.roomId,
+      owner: agent.owner,
       spec: agent.spec,
       createdAt: agent.createdAt,
       sessionId: agent.sessionId,
@@ -446,6 +449,7 @@ export class AgentHost {
       agentId,
       runtime,
       roomId: str(params.roomId),
+      owner: str(params.owner),
       spec,
       createdAt: now,
       log: AgentEventLog.open(join(this.options.dataDir, "logs", agentId), this.options.log),
@@ -1195,6 +1199,7 @@ export class AgentHost {
       agentId: agent.agentId,
       runtime: agent.runtime,
       roomId: agent.roomId,
+      ...(agent.owner !== undefined ? { owner: agent.owner } : {}),
       state: this.stateOf(agent),
       alive,
       pid: alive ? agent.proc?.pid : undefined,

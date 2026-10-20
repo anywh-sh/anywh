@@ -47,6 +47,8 @@ export interface HostAgentBinding {
   /** Where the last record the relay processed of each agent's log is
    * kept, so a relay that restarts picks a turn in flight up where it left. */
   readonly cursors?: Pick<FileCursorStore, "get" | "set">;
+  /** This relay's id, recorded on the agent in the host (see `roomOwnerOf`). */
+  readonly owner?: string;
 }
 
 export interface HostSessionDriverOptions {
@@ -380,6 +382,7 @@ export class HostSessionDriver implements AgentSessionDriver {
           spec,
           message: prompt,
           ...(this.options.binding.roomId ? { roomId: this.options.binding.roomId } : {}),
+          ...(this.options.binding.owner ? { owner: this.options.binding.owner } : {}),
           ...(this.sessionId ? { sessionId: this.sessionId } : {}),
         });
         if (created.sessionId) this.sessionId = created.sessionId;

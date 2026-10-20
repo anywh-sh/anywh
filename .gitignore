@@ -10,6 +10,7 @@ relay/sessions.local.json
 relay/sessions.local-rooms.json
 relay/sessions.local-room.key
 relay/sessions.local-room-cursors.json
+relay/sessions.local-room-tombstones.json
 relay/.env
 
 # systemd (rendered from *.service.template — machine-specific paths)

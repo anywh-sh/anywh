@@ -10,6 +10,7 @@
 // not done here: a report only lands in the worker's record and in the
 // principal's outbox.
 import { randomUUID } from "node:crypto";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { RoomBridge, RoomToolHost, RoomToolResult } from "../bridges/roomBridge.js";
 import { checkDirectory } from "../fs/fsBrowse.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
@@ -66,7 +67,12 @@ export interface RoomManagerOptions {
   /** Ends an agent's process in the agent host (its session is kept). */
   readonly stopInHost?: (agentId: string) => Promise<void>;
   /** The agents the host has that belong to a room (ids and room ids). */
-  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string; state?: string; sessionId?: string }[]>;
+  readonly listHostRoomAgents?: () => Promise<{ agentId: string; roomId?: string; owner?: string; state?: string; sessionId?: string }[]>;
+  /** This relay's id on its agents in the host (see `roomOwnerOf`). */
+  readonly owner?: string;
+  /** Where the ids of deleted room agents wait until the host has let them
+   * go (a host that was down when they were deleted). */
+  readonly tombstonesFile?: string;
   /** Removes an agent from the host. */
   readonly removeFromHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
@@ -303,24 +309,62 @@ export class RoomManager implements RoomToolHost {
     this.store.setRoom(sessionId, rest.length > 0 ? { ...kept, queuedMessages: rest } : kept);
   }
 
-  /** Removes from the host every room agent this relay no longer knows (a
-   * session deleted while the host was down, a removal that failed). Only
-   * agents that belong to a room: the host is this profile's alone, and its
-   * other agents are not the rooms' business. Returns the ids removed. */
+  /** A room member's session was deleted: its agent is to leave the host,
+   * now or on a later connection. */
+  onMemberDeleted(sessionId: string): void {
+    const tombstones = this.readTombstones();
+    if (tombstones.includes(sessionId)) return;
+    this.writeTombstones([...tombstones, sessionId]);
+  }
+
+  private readTombstones(): string[] {
+    if (!this.options.tombstonesFile) return [];
+    try {
+      const parsed = JSON.parse(readFileSync(this.options.tombstonesFile, "utf8")) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private writeTombstones(ids: readonly string[]): void {
+    if (!this.options.tombstonesFile) return;
+    const tmp = `${this.options.tombstonesFile}.tmp`;
+    writeFileSync(tmp, JSON.stringify(ids), { mode: 0o600 });
+    renameSync(tmp, this.options.tombstonesFile);
+  }
+
+  /**
+   * Removes from the host the room agents this relay let go: those it
+   * deleted (tombstones) and those it has no record of at all. Only agents
+   * this relay created (their `owner` is its own id) — another relay on the
+   * same host is left alone — and never when the sessions file did not load
+   * from a valid file (an unreadable file would make every agent look
+   * unknown). A record whose room this release cannot read still counts as
+   * known. Returns the ids removed.
+   */
   async reconcileHost(): Promise<string[]> {
     if (!this.options.listHostRoomAgents || !this.options.removeFromHost) return [];
-    const removed: string[] = [];
     const agents = await this.options.listHostRoomAgents();
     this.followTurnsInFlight(agents);
+    const owner = this.options.owner;
+    if (!owner || !this.store.loadedOk) return [];
+    const tombstones = new Set(this.readTombstones());
+    const removed: string[] = [];
     for (const agent of agents) {
-      if (agent.roomId === undefined || this.store.getRoom(agent.agentId) !== undefined) continue;
+      if (agent.roomId === undefined || agent.owner !== owner) continue;
+      if (!tombstones.has(agent.agentId) && this.store.has(agent.agentId)) continue;
       try {
         await this.options.removeFromHost(agent.agentId);
         removed.push(agent.agentId);
       } catch (error) {
-        console.warn(`[relay] could not remove orphaned agent ${agent.agentId} from the agent host: ${(error as Error).message}`);
+        console.warn(`[relay] could not remove agent ${agent.agentId} from the agent host: ${(error as Error).message}`);
       }
     }
+    // A tombstone is done once its agent is gone from the host.
+    const present = new Set(agents.map((agent) => agent.agentId).filter((id) => !removed.includes(id)));
+    const left = [...tombstones].filter((id) => present.has(id));
+    if (left.length !== tombstones.size) this.writeTombstones(left);
     if (removed.length > 0) console.log(`[relay] removed ${removed.length} agent(s) the rooms no longer have from the agent host`);
     return removed;
   }

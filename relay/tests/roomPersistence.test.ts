@@ -3,11 +3,13 @@
 // canvas sidecar — all read back by a fresh relay process from the same files.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { transcriptPath } from "../src/runtimes/defs/claude/transcriptReader.js";
+import { randomBytes } from "node:crypto";
 import { HostClient } from "../src/agentHost/hostClient.js";
+import { roomKeyPathFor, roomOwnerOf } from "../src/bridges/roomBridge.js";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay } from "./helpers/spawnedServer.js";
@@ -192,7 +194,10 @@ test("on connecting to its host the relay delivers messages queued before a rest
   try {
     control.start();
     await control.waitUntilConnected(15_000);
-    await control.request("spawn", { agentId: "orphan1", roomId: "ghost-room", spec: { cwd: dir }, message: "left behind" });
+    // This relay's identity, as its key file (beside its sessions file) makes it.
+    const key = randomBytes(32);
+    writeFileSync(roomKeyPathFor(sessionsFile), key, { mode: 0o600 });
+    await control.request("spawn", { agentId: "orphan1", roomId: "ghost-room", owner: roomOwnerOf(key), spec: { cwd: dir }, message: "left behind" });
     await control.request("spawn", { agentId: "plain1", spec: { cwd: dir }, message: "not a room's" });
     writeFileSync(
       sessionsFile,
@@ -268,6 +273,60 @@ test("with its host down a worker's queue stays on disk, untouched, and goes out
   } finally {
     relay.cleanup();
     await host?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the relay removes only its own room agents, and never when its sessions file cannot be trusted", async () => {
+  const { dir, home } = hostEnvDir();
+  const host = startHostProcess(dir, home);
+  const control = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 20, reconnectMaxMs: 200 });
+  const relays: Awaited<ReturnType<typeof spawnRelay>>[] = [];
+  const ids = async (): Promise<string[]> => (await control.request<{ agents: AgentActivity[] }>("activity")).agents.map((agent) => agent.agentId).sort();
+  const reconciled = async (relay: Awaited<ReturnType<typeof spawnRelay>>): Promise<void> => {
+    // The reconciliation runs on connecting; this waits for that connection,
+    // then for one more round trip through the relay.
+    const deadline = Date.now() + 15_000;
+    while ((await fetch(`http://127.0.0.1:${relay.port}/agents/activity`).catch(() => undefined))?.status !== 200) {
+      if (Date.now() > deadline) throw new Error("relay never connected");
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  };
+  try {
+    control.start();
+    await control.waitUntilConnected(15_000);
+    const sessionsFile = join(dir, "mine.json");
+    const key = randomBytes(32);
+    writeFileSync(roomKeyPathFor(sessionsFile), key, { mode: 0o600 });
+    const mine = roomOwnerOf(key);
+    // (a) A room agent of another relay on the same host.
+    await control.request("spawn", { agentId: "theirs", roomId: "their-room", owner: "someone-else", spec: { cwd: dir } });
+    // (c) Ours, with a record whose room this release cannot read.
+    await control.request("spawn", { agentId: "rolled-back", roomId: "r1", owner: mine, spec: { cwd: dir } });
+    // (b) Ours, with no record at all — while the sessions file is unreadable.
+    await control.request("spawn", { agentId: "unknown", roomId: "r2", owner: mine, spec: { cwd: dir } });
+    writeFileSync(sessionsFile, "{ this is not json");
+    let relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile });
+    relays.push(relay);
+    await reconciled(relay);
+    assert.deepEqual(await ids(), ["rolled-back", "theirs", "unknown"], "nothing removed with an unreadable sessions file");
+    assert.ok(readdirSync(dir).some((name) => name.startsWith("mine.json.corrupt-")), "the unreadable file was kept aside");
+    relay.cleanup();
+
+    writeFileSync(sessionsFile, JSON.stringify({ "rolled-back": { ...entry("Kept", { roomId: "r1", role: "a-role-from-the-future" }) } }));
+    relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_SESSIONS_FILE: sessionsFile });
+    relays.push(relay);
+    const deadline = Date.now() + 15_000;
+    while ((await ids()).includes("unknown")) {
+      if (Date.now() > deadline) throw new Error(`our orphan was not removed: ${JSON.stringify(await ids())}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.deepEqual(await ids(), ["rolled-back", "theirs"], "only ours with no record went; another relay's and a record we cannot read stay");
+  } finally {
+    control.close();
+    for (const relay of relays) relay.cleanup();
+    await host.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });

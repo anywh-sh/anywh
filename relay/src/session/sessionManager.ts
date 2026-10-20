@@ -28,6 +28,10 @@ export interface SessionManagerRoomOptions {
   readonly onTurnSettled?: (sessionId: string, outcome: TurnOutcome) => void;
   /** Where each room agent's log was last read up to. */
   readonly cursors?: Pick<FileCursorStore, "get" | "set" | "delete" | "flush">;
+  /** This relay's id for its agents in the host. */
+  readonly owner?: string;
+  /** A room member's session was deleted. */
+  readonly onMemberDeleted?: (sessionId: string) => void;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -317,7 +321,10 @@ export class SessionManager {
         this.sessionStore.setRoom(room.roomId, { ...principal, undeliveredReports: principal.undeliveredReports.filter((other) => other !== id) });
       }
     }
-    if (room) this.rooms.cursors?.delete(id);
+    if (room) {
+      this.rooms.cursors?.delete(id);
+      this.rooms.onMemberDeleted?.(id);
+    }
     const session = this.sessions.get(id);
     // Nothing still queued for it runs (its driver refuses anyway once disposed).
     session?.discardQueuedTurns();
@@ -364,7 +371,7 @@ export class SessionManager {
       def,
       ...(room
         ? {
-            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}) },
+            hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id), admit: () => this.rooms.admit?.(id), ...(this.rooms.cursors ? { cursors: this.rooms.cursors } : {}), ...(this.rooms.owner ? { owner: this.rooms.owner } : {}) },
             onTurnSettled: (outcome: TurnOutcome) => this.rooms.onTurnSettled?.(id, outcome),
           }
         : {}),

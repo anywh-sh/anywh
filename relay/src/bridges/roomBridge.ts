@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname } from "node:path";
@@ -82,6 +82,14 @@ export function roomKeyPathFor(sessionsFile: string): string {
   return sessionsFile.endsWith(".json") ? `${sessionsFile.slice(0, -".json".length)}-room.key` : `${sessionsFile}-room.key`;
 }
 
+/** The id this relay's room agents carry in the agent host (`owner`): what
+ * tells them apart from another relay's on the same host. Derived from the
+ * key, which lives beside the sessions file, so it is as stable as that
+ * file and differs between relays with different sessions files. */
+export function roomOwnerOf(key: Buffer): string {
+  return createHash("sha256").update("anywh-room-owner:").update(key).digest("hex").slice(0, 32);
+}
+
 function loadOrCreateKey(path: string): Buffer {
   try {
     const existing = readFileSync(path);
@@ -121,6 +129,11 @@ export class RoomBridge {
 
   private tokenFor(sessionId: string): string {
     return createHmac("sha256", this.key).update(`anywh-room:${sessionId}`).digest("base64url");
+  }
+
+  /** See `roomOwnerOf`. */
+  get ownerId(): string {
+    return roomOwnerOf(this.key);
   }
 
   /** The URL a room agent's MCP client calls. */

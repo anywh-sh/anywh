@@ -208,6 +208,8 @@ export interface AgentActivity {
   readonly agentId: string;
   readonly runtime: AgentRuntimeId;
   readonly roomId?: string;
+  /** Who asked for it (a relay's own id), when it said. */
+  readonly owner?: string;
   readonly state: AgentState;
   /** Whether a process is holding this agent right now. */
   readonly alive: boolean;

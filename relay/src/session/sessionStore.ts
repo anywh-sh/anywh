@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
@@ -308,6 +308,10 @@ function hasFlatContextUsage(value: object): value is PreContextUsageAgentRecord
 export class SessionStore {
   private records: SessionRecord;
   private migrated = false;
+  /** Whether the records came from a file that exists and parsed. Anything
+   * that removes things the store does not list (the rooms' agents in the
+   * host) only trusts a store loaded this way. */
+  private loadedFromFile = false;
 
   constructor(
     private readonly filePath: string,
@@ -350,15 +354,30 @@ export class SessionStore {
   }
 
   private loadAndMigrate(): SessionRecord {
-    let parsed: unknown;
+    let text: string;
     try {
-      parsed = JSON.parse(readFileSync(this.filePath, "utf8"));
+      text = readFileSync(this.filePath, "utf8");
     } catch {
-      // File missing the first time, or corrupted — never crash the relay
-      // because of this, just start with an empty mapping.
+      // Missing the first time: start with an empty mapping.
       return {};
     }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = undefined;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      // Corrupted — never crash the relay because of this, start empty, and
+      // keep the file aside instead of overwriting it on the next write.
+      try {
+        renameSync(this.filePath, `${this.filePath}.corrupt-${Date.now()}`);
+      } catch {
+        // best effort
+      }
+      return {};
+    }
+    this.loadedFromFile = true;
 
     // A single timestamp for the whole migration batch (not `Date.now()`
     // per entry): keeps existing sessions tied in the `lastActiveAt`
@@ -442,6 +461,16 @@ export class SessionStore {
   private persist(): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(this.records, null, 2));
+  }
+
+  /** See `loadedFromFile`. */
+  get loadedOk(): boolean {
+    return this.loadedFromFile;
+  }
+
+  /** Whether any record exists for `id` (with or without a room). */
+  has(id: string): boolean {
+    return id in this.records;
   }
 
   /** All known ids, titled or not — used only to materialize the

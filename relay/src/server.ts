@@ -136,6 +136,8 @@ const sessionManager = new SessionManager(
     onRoomDeleted: (roomId) => roomCanvas.delete(roomId),
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
+    owner: roomBridge.ownerId,
+    onMemberDeleted: (id): void => roomManager.onMemberDeleted(id),
     cursors: new FileCursorStore(process.env.RELAY_ROOM_CURSORS_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-cursors.json")),
   },
 );
@@ -150,6 +152,8 @@ const roomManager: RoomManager = new RoomManager({
   bridge: roomBridge,
   runtimes: () => roomRuntimes,
   hostConnected: () => agentHost?.status === "connected",
+  owner: roomBridge.ownerId,
+  tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
   stopInHost: async (agentId) => {
     if (!agentHost) throw new Error("this relay has no agent host");
     await agentHost.request("stop", { agentId });
