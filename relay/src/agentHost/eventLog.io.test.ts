@@ -204,3 +204,55 @@ test("a reader started in the middle of a record skips to the next record instea
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a truncated record keeps every field a consumer relies on; only the big texts become previews", () => {
+  const dir = tempDir();
+  try {
+    const log = AgentEventLog.open(dir, { maxRecordBytes: 64 * 1024 });
+    const huge = "x".repeat(5_000_000);
+    const toolResult = log.append({
+      type: "user",
+      uuid: "u-1",
+      session_id: "s1",
+      parent_tool_use_id: null,
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", is_error: false, content: huge }] },
+    });
+    const ev1 = toolResult.ev as { uuid: string; parent_tool_use_id: null; message: { content: { type: string; tool_use_id: string; is_error: boolean; content: string }[] }; host_truncated: unknown };
+    assert.equal(ev1.uuid, "u-1");
+    assert.equal(ev1.parent_tool_use_id, null);
+    assert.deepEqual(
+      { type: ev1.message.content[0].type, id: ev1.message.content[0].tool_use_id, err: ev1.message.content[0].is_error },
+      { type: "tool_result", id: "toolu_1", err: false },
+    );
+    assert.ok(ev1.message.content[0].content.length < 10_000);
+    assert.ok(ev1.host_truncated);
+
+    const toolUse = log.append({
+      type: "assistant",
+      uuid: "u-2",
+      parent_tool_use_id: "toolu_parent",
+      message: { id: "msg_1", stop_reason: "tool_use", usage: { input_tokens: 5 }, content: [{ type: "tool_use", id: "toolu_2", name: "Write", input: { file_path: "/w/a.txt", content: huge } }] },
+    });
+    const ev2 = toolUse.ev as { parent_tool_use_id: string; message: { id: string; stop_reason: string; usage: unknown; content: { id: string; name: string; input: { file_path: string; content: string } }[] } };
+    assert.equal(ev2.parent_tool_use_id, "toolu_parent");
+    assert.equal(ev2.message.id, "msg_1");
+    assert.equal(ev2.message.stop_reason, "tool_use");
+    assert.deepEqual(ev2.message.usage, { input_tokens: 5 });
+    assert.equal(ev2.message.content[0].id, "toolu_2");
+    assert.equal(ev2.message.content[0].name, "Write");
+    assert.equal(ev2.message.content[0].input.file_path, "/w/a.txt");
+    assert.ok(ev2.message.content[0].input.content.length < 10_000);
+
+    const result = log.append({ type: "result", subtype: "success", is_error: false, result: huge, usage: { output_tokens: 9 }, total_cost_usd: 0.01, duration_ms: 123, session_id: "s1", stop_reason: "end_turn", uuid: "u-3" });
+    const ev3 = result.ev;
+    for (const [key, value] of Object.entries({ type: "result", subtype: "success", is_error: false, total_cost_usd: 0.01, duration_ms: 123, session_id: "s1", stop_reason: "end_turn", uuid: "u-3" })) {
+      assert.equal(ev3[key], value, key);
+    }
+    assert.deepEqual(ev3.usage, { output_tokens: 9 });
+    assert.ok((ev3.result as string).length < 10_000);
+    for (const record of [toolResult, toolUse, result]) assert.ok(record.next - record.off <= 64 * 1024);
+    log.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

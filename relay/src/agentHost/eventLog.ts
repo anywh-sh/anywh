@@ -33,7 +33,7 @@ export const DEFAULT_RETAIN_BYTES = 64 * 1024 * 1024;
 /** Larger events (a huge tool result) are stored truncated: one record must
  * never be able to outgrow what a reader or a socket buffers at once. */
 export const DEFAULT_MAX_RECORD_BYTES = 1024 * 1024;
-const TRUNCATED_PREVIEW_CHARS = 4096;
+const TRUNCATED_PREVIEW_CHARS = 2048;
 
 const SEGMENT_NAME = /^(\d{16})-(\d+)\.jsonl$/;
 const RECORD_PREFIX = /^\{"seq":(\d+),"off":(\d+),/;
@@ -221,7 +221,7 @@ export class AgentEventLog {
     const t = this.now();
     let line = JSON.stringify({ seq, off, t, ev });
     if (Buffer.byteLength(line) > this.maxRecordBytes) {
-      ev = truncatedEvent(ev, Buffer.byteLength(line));
+      ev = truncatedEvent(ev, Buffer.byteLength(line), this.maxRecordBytes);
       line = JSON.stringify({ seq, off, t, ev });
     }
     const bytes = Buffer.from(`${line}\n`, "utf8");
@@ -343,16 +343,41 @@ export class EventLogWriteError extends Error {
   }
 }
 
-/** What is kept of an event too large to store: what kind it was, its
- * session, how large it was, and the start of its JSON. */
-function truncatedEvent(ev: Record<string, unknown>, originalBytes: number): Record<string, unknown> {
+/** Copies `value`, cutting every string longer than `maxChars` to a preview
+ * and every array longer than `maxItems`, so the structure — ids, types,
+ * names, flags, usage — survives and only the bulky payloads shrink. */
+function shrink(value: unknown, maxChars: number, maxItems: number, depth = 0): unknown {
+  if (typeof value === "string") return value.length > maxChars ? `${value.slice(0, maxChars)}… [truncated, ${value.length} chars]` : value;
+  if (value === null || typeof value !== "object") return value;
+  if (depth > 12) return "[truncated: nested too deep]";
+  if (Array.isArray(value)) {
+    const kept = value.slice(0, maxItems).map((item) => shrink(item, maxChars, maxItems, depth + 1));
+    if (value.length > maxItems) kept.push(`[truncated: ${value.length - maxItems} more items]`);
+    return kept;
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shrink(item, maxChars, maxItems, depth + 1)]));
+}
+
+/** What is kept of an event too large to store: its whole structure with
+ * long texts and inputs cut to previews (tighter until it fits), marked
+ * `host_truncated`; as a last resort, its identifying fields alone. */
+function truncatedEvent(ev: Record<string, unknown>, originalBytes: number, maxBytes: number): Record<string, unknown> {
+  for (const [maxChars, maxItems] of [
+    [TRUNCATED_PREVIEW_CHARS, 200],
+    [512, 50],
+    [64, 20],
+  ] as const) {
+    const shrunk = { ...(shrink(ev, maxChars, maxItems) as Record<string, unknown>), host_truncated: { originalBytes } };
+    if (Buffer.byteLength(JSON.stringify(shrunk)) + 200 < maxBytes) return shrunk;
+  }
   const short = (value: unknown): string | undefined => (typeof value === "string" ? value.slice(0, 200) : undefined);
-  return {
-    type: short(ev.type) ?? "unknown",
-    ...(short(ev.subtype) !== undefined ? { subtype: short(ev.subtype) } : {}),
-    ...(short(ev.session_id) !== undefined ? { session_id: short(ev.session_id) } : {}),
-    host_truncated: { originalBytes, preview: JSON.stringify(ev).slice(0, TRUNCATED_PREVIEW_CHARS) },
-  };
+  const keep: Record<string, unknown> = {};
+  for (const key of ["subtype", "session_id", "uuid", "parent_tool_use_id", "is_error", "stop_reason"]) {
+    const value = ev[key];
+    if (typeof value === "string") keep[key] = short(value);
+    else if (typeof value === "boolean" || value === null) keep[key] = value;
+  }
+  return { type: short(ev.type) ?? "unknown", ...keep, host_truncated: { originalBytes, preview: JSON.stringify(ev).slice(0, TRUNCATED_PREVIEW_CHARS) } };
 }
 
 /** `stream_event` is the CLI's partial-message delta (`--include-partial-messages`). */
