@@ -8,7 +8,19 @@ import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgr
 import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
-import type { ModelCatalog } from "../runtimes/types.js";
+import type { ModelCatalog, RoomAgentSetup } from "../runtimes/types.js";
+import type { HostClient } from "../agentHost/hostClient.js";
+
+/** What a relay with rooms adds to its sessions. */
+export interface SessionManagerRoomOptions {
+  /** This profile's agent host, where every agent of a room runs.
+   * `undefined` when the relay has none: a room's turns then fail with an
+   * explanation instead of silently running somewhere else. */
+  readonly agentHost?: HostClient;
+  /** The room wiring of a member (its instructions and tools), read at
+   * every turn. */
+  readonly roomSetup?: (sessionId: string) => RoomAgentSetup | undefined;
+}
 
 /** A change to the sidebar's session list (title assigned/changed, or
  * session removed) — distinct from `SharedSession`'s own `session_title`/
@@ -82,6 +94,7 @@ export class SessionManager {
     /** The probed model catalogs, read at call time (they arrive after boot).
      * `undefined` in tests that don't exercise effort. */
     private readonly getModelCatalog?: (agentId: string) => ModelCatalog | undefined,
+    private readonly rooms: SessionManagerRoomOptions = {},
   ) {
     // `this.sessions` needs to exist BEFORE `BackgroundJobTracker` is
     // constructed: if there are persisted jobs from a session that already
@@ -204,7 +217,8 @@ export class SessionManager {
    * when the normal wait deadline runs out, to end quickly and cleanly
    * instead of letting systemd kill the raw `claude -p` processes. */
   stopAllTurns(): void {
-    for (const session of this.sessions.values()) session.stopTurn();
+    // A room's agents run in the agent host and go on through the restart.
+    for (const session of this.sessions.values()) if (!session.runsOutsideRelay()) session.stopTurn();
   }
 
   /** Tears down every session's driver — called once, from
@@ -253,6 +267,9 @@ export class SessionManager {
   setAgent(id: string, agentId: string): void {
     const def = this.registry.get(agentId);
     if (!def) return;
+    // A room's agent keeps the runtime it was created with: the room never
+    // swaps one agent for another.
+    if (this.sessionStore.getRoom(id)) return;
     this.sessionStore.setAgentId(id, agentId);
     this.sessions.get(id)?.switchAgent({
       def,
@@ -270,6 +287,14 @@ export class SessionManager {
    * connection. */
   deleteSession(id: string): boolean {
     const session = this.sessions.get(id);
+    // A room's agent lives in the agent host: deleting its session removes
+    // it there too (best effort — a host that is down keeps it until a later
+    // removal; its process would be stopped on the host's next start).
+    if (this.sessionStore.getRoom(id) && this.rooms.agentHost) {
+      this.rooms.agentHost.request("remove", { agentId: id }).catch((error: unknown) => {
+        console.warn(`[relay] could not remove agent ${id} from the agent host: ${(error as Error).message}`);
+      });
+    }
     if (session) {
       session.stopTurn();
       session.closeAllClients();
@@ -300,8 +325,12 @@ export class SessionManager {
     // excluded (assertCoherent failed) or simply doesn't ship, rather than
     // SharedSession's constructor throwing on an undefined def.
     const def = this.registry.get(agentId) ?? claudeRuntimeDef;
+    const room = this.sessionStore.getRoom(id);
     const session = new SharedSession(this.homeOverride, {
       def,
+      ...(room
+        ? { hostAgent: { client: this.rooms.agentHost, agentId: id, roomId: room.roomId, setup: () => this.rooms.roomSetup?.(id) } }
+        : {}),
       initialSessionId: this.sessionStore.getSessionId(id, agentId),
       // Re-reads the agent at call time rather than closing over the
       // `agentId` resolved above: after `setAgent` (below) switches a live

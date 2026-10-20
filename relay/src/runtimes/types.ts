@@ -309,7 +309,35 @@ export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => re
  * envelope to unwrap) doesn't share. */
 export type NotificationMapper = (method: string, params: unknown, ctx: { readonly turnId: string }) => readonly AgentEvent[];
 
+/** One tool of a room (`delegate`, `report`, ...) as plain data: a name, a
+ * description for the model, and a JSON Schema for its arguments — the shape
+ * both an MCP `tools/list` and Codex's `dynamicTools` take. */
+export interface RoomToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Readonly<Record<string, unknown>>;
+}
+
+/** What an agent of a room needs in every turn: its role, its standing
+ * instructions, and the room tools it may call. */
+export interface RoomTurnSetup {
+  readonly role: "principal" | "worker";
+  /** Standing instructions. A long-lived CLI only reads them on a session's
+   * first request, so they never change afterwards. */
+  readonly instructions: string;
+  readonly tools: readonly RoomToolSpec[];
+}
+
+/** `RoomTurnSetup` plus where the relay serves the tools for this agent: an
+ * MCP endpoint (Streamable HTTP) whose URL carries the agent's own token. */
+export interface RoomAgentSetup extends RoomTurnSetup {
+  readonly bridgeServerName: string;
+  readonly bridgeUrl: string;
+}
+
 export interface TurnContext {
+  /** Present only for an agent of a room. */
+  readonly room?: RoomTurnSetup;
   readonly cwd: string;
   readonly prompt: string;
   readonly modelId?: string;

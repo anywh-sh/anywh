@@ -42,6 +42,9 @@ export interface DriverTurnResult {
  *   `runtimes/README.md` §1: killing a turn never destroys the session).
  */
 export interface AgentSessionDriver {
+  /** `true` for a driver whose agent lives outside the relay process (the
+   * agent host): a relay shutdown neither waits for its turn nor stops it. */
+  readonly runsOutsideRelay?: boolean;
   sendTurn(ctx: TurnContext, onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult>;
   /** Interrupts the turn in progress, if any. Returns `false` if there was
    * nothing to interrupt — same contract as `ClaudeSession.stop` today. */

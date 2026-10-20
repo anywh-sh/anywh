@@ -410,6 +410,9 @@ export class AgentHost {
       spec,
       createdAt: now,
       log: AgentEventLog.open(join(this.options.dataDir, "logs", agentId), this.options.log),
+      // A session the relay already has (this host lost the agent, or never
+      // ran it): the first process resumes it instead of starting over.
+      sessionId: str(params.sessionId),
       lifecycle: "starting",
       turnInFlight: false,
       lastActivityAt: now,
@@ -420,7 +423,17 @@ export class AgentHost {
     };
     this.agents.set(agentId, agent);
     try {
-      await this.serialize(agent, () => (runtime === "codex" ? this.startCodexThread(agent) : this.startProcess(agent)));
+      await this.serialize(agent, async () => {
+        if (runtime !== "codex") return this.startProcess(agent);
+        // An existing thread needs no `thread/start`: its next turn resumes it.
+        if (agent.sessionId) {
+          agent.lifecycle = "hibernated";
+          this.touch(agent);
+          this.persist();
+          return;
+        }
+        return this.startCodexThread(agent);
+      });
     } catch (error) {
       await this.forget(agent);
       throw error;

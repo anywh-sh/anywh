@@ -89,6 +89,16 @@ const sessionListWatchers = new Set<WebSocket>();
 // resolves a session's persisted agentId against this instead of a
 // hardcoded literal.
 const registry = buildRegistry([claudeRuntimeDef, codexRuntimeDef]);
+
+// This profile's agent host (a separate service that keeps agent processes
+// alive across relay restarts). Always connecting in the background: the
+// host may start after the relay, or not be installed at all, and neither
+// is an error until something actually asks it for work.
+// No profile and no explicit socket (a bare `node dist/server.js`): no host.
+const agentHostSocket = relayAgentHostSocket();
+const agentHost = agentHostSocket ? new HostClient({ socketPath: agentHostSocket, clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 }) : undefined;
+agentHost?.start();
+if (!agentHost) console.log("[relay] no ANYWH_PROFILE or ANYWH_AGENT_HOST_SOCKET set: not connecting to an agent host");
 const sessionManager = new SessionManager(
   HOME_OVERRIDE,
   sessionStore,
@@ -112,17 +122,9 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
+  { agentHost },
 );
 
-// This profile's agent host (a separate service that keeps agent processes
-// alive across relay restarts). Always connecting in the background: the
-// host may start after the relay, or not be installed at all, and neither
-// is an error until something actually asks it for work.
-// No profile and no explicit socket (a bare `node dist/server.js`): no host.
-const agentHostSocket = relayAgentHostSocket();
-const agentHost = agentHostSocket ? new HostClient({ socketPath: agentHostSocket, clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 }) : undefined;
-agentHost?.start();
-if (!agentHost) console.log("[relay] no ANYWH_PROFILE or ANYWH_AGENT_HOST_SOCKET set: not connecting to an agent host");
 
 const routeContext: RouteContext = {
   sessionStore,

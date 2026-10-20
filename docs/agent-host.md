@@ -6,8 +6,11 @@ long-lived agent processes so that restarting the relay — a deploy, a crash,
 a `systemctl restart` — leaves every agent and every turn in flight running.
 The relay is a client of it over a unix socket (`relay/src/agentHost/`).
 
-Today only the relay's `GET /agents/activity` uses it; ordinary chat sessions
-still spawn one `claude -p` per turn inside the relay.
+The agents of a room run in it: the relay drives each one through
+`relay/src/runtimes/hostSessionDriver.ts` (write the message, read the agent's
+log, map the CLI's own events like a direct session does). Ordinary chat
+sessions still spawn one `claude -p` per turn inside the relay. A relay
+shutdown neither waits for nor interrupts a room agent's turn.
 
 ## Pieces
 
@@ -38,7 +41,9 @@ half-understood. Then:
 
 - `request` (`id`, `method`, `params`) → `response` (`ok` + `result`, or an
   `error` with a stable `code`). Methods: `spawn`, `send`, `interrupt`,
-  `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`.
+  `stop`, `remove`, `hibernate`, `mark_awaiting`, `activity`. `spawn` takes
+  an optional `sessionId`: the agent's first process resumes that session
+  (an agent the host no longer has, recreated by the relay).
 - `subscribe` (`agentId`, `fromOffset`, `incarnation`) → that agent's log
   from the offset, then live: `event` records (`seq`, `off`, `next`, `t`,
   `ev`), one `caught_up` when the replay reaches the end, `replay_gap` when

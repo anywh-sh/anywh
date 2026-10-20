@@ -2,6 +2,7 @@ import type { WebSocket } from "ws";
 import { buildApprovalQuestion, buildPermissionDecision, isApproved } from "../runtimes/defs/claude/index.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
+import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
@@ -215,6 +216,8 @@ export interface SharedSessionOptions {
    * `SharedSession` only ever hands this to `createSessionDriver`, it never
    * branches on it itself. */
   def: AgentRuntimeDef;
+  /** Set for an agent of a room: its turns run in the agent host. */
+  hostAgent?: HostAgentBinding;
 }
 
 /**
@@ -438,6 +441,7 @@ export class SharedSession implements SessionDriverHost {
       homeOverride: this.homeOverride,
       initialSessionId,
       host: this,
+      ...(this.options.hostAgent ? { hostAgent: this.options.hostAgent } : {}),
       claudeMcp:
         this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
           ? {
@@ -1198,7 +1202,23 @@ export class SharedSession implements SessionDriverHost {
    * never rejects (`runTurn` handles its own errors and never rethrows), so
    * it's fine to return it directly without a try/catch here. */
   waitForIdle(): Promise<void> {
+    // An agent in the host goes on through a relay restart: nothing to wait for.
+    if (this.runsOutsideRelay()) return Promise.resolve();
     return this.turnQueue;
+  }
+
+  /** Whether this session's agent lives in the agent host, outside the
+   * relay process. */
+  runsOutsideRelay(): boolean {
+    return this.driver.runsOutsideRelay === true;
+  }
+
+  /** A turn asked by another agent of the room (a delegated task, a message
+   * from the principal) rather than typed by a person on a device: no
+   * device has its bubble yet, so everyone connected gets it. */
+  submitAgentTurn(text: string): void {
+    this.clearSuggestion();
+    this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it

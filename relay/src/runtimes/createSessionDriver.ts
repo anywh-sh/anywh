@@ -6,6 +6,7 @@ import type { AgentRuntimeDef } from "./types.js";
 import type { AgentSessionDriver, SessionDriverHost } from "./sessionDriver.js";
 import { ClaudeSessionDriver, type ClaudeMcpWiring } from "./defs/claude/index.js";
 import { CodexSessionDriver } from "./defs/codexDriver.js";
+import { HostSessionDriver, type HostAgentBinding } from "./hostSessionDriver.js";
 
 export interface CreateSessionDriverOptions {
   readonly homeOverride?: string;
@@ -15,9 +16,15 @@ export interface CreateSessionDriverOptions {
    * (and in tests that don't exercise the bridged approval path). A def
    * whose `exec.kind` isn't `"spawnPerTurn"` never reads this. */
   readonly claudeMcp?: ClaudeMcpWiring;
+  /** Set for a session whose agent runs in the agent host (a room's agents):
+   * whatever its runtime, the host drives it. */
+  readonly hostAgent?: HostAgentBinding;
 }
 
 export function createSessionDriver(def: AgentRuntimeDef, options: CreateSessionDriverOptions): AgentSessionDriver {
+  if (options.hostAgent) {
+    return new HostSessionDriver(def, { homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, binding: options.hostAgent });
+  }
   switch (def.exec.kind) {
     case "spawnPerTurn":
       // No generic spawn-per-turn engine exists yet — docs/invariants.md's
