@@ -84,7 +84,31 @@ export function roomToolsFor(role: RoomRole): readonly RoomToolSpec[] {
   return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
 }
 
-export function principalInstructions(runtimes: readonly string[]): string {
+/** The room's context as the standing instructions show it: where the
+ * folder is and its index (see roomContextIndex.ts). */
+export interface RoomContextPrompt {
+  readonly dir: string;
+  readonly index: string;
+}
+
+/** The context goes last in the instructions, after text that is the same for
+ * every agent of a role, so agents born together share the longest prefix of
+ * their prompt (and the model's cache of it). Nothing that differs per agent
+ * may go before it. */
+function withContext(instructions: string, context: RoomContextPrompt | undefined, rules: string): string {
+  return context ? `${instructions}\n\n${rules}\n\n${context.index.trimEnd()}` : instructions;
+}
+
+export function principalInstructions(runtimes: readonly string[], context?: RoomContextPrompt): string {
+  return withContext(
+    principalBase(runtimes),
+    context,
+    "The room's shared context is a folder of files, listed in the index below. Tell each agent which of those files matter for its task " +
+      "(by name) instead of pasting their content into a task; agents read them on demand. Never edit the index: the relay keeps it.",
+  );
+}
+
+function principalBase(runtimes: readonly string[]): string {
   return (
     "You are the principal agent of an anywh room: the person talks to you, and you get work done by delegating it to other " +
     "agents. You do not do the work yourself — you can only read files (Read, Grep, Glob) and use the room's tools " +
@@ -96,7 +120,17 @@ export function principalInstructions(runtimes: readonly string[]): string {
   );
 }
 
-export function workerInstructions(): string {
+export function workerInstructions(context?: RoomContextPrompt): string {
+  return withContext(
+    workerBase(),
+    context,
+    `The room's shared context is a folder of files, listed in the index below; read what your task needs, on demand, rather than all of it. ` +
+      `Put a long result in that folder as result-<short-name>.md (pick the short name yourself) and list its path in report's artifacts. ` +
+      "Never edit INDEX.md: the relay keeps it. Files that arrive after you started are announced to you in a message.",
+  );
+}
+
+function workerBase(): string {
   return (
     "You are an agent of an anywh room, started by another agent to do one task: the first message you receive. Do the task " +
     `yourself. When you finish — or fail, or cannot go on without help — call report (server ${ROOM_MCP_SERVER_NAME}) once, ` +

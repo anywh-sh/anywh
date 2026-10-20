@@ -78,6 +78,7 @@ export function buildClaudeHostSpec(ctx: TurnContext, setup: RoomAgentSetup | un
   const wiring = {
     ...base,
     appendSystemPrompt: setup.instructions,
+    ...(setup.addDirs?.length ? { addDirs: setup.addDirs } : {}),
     // `alwaysLoad`: the tools arrive with their schema, never deferred behind
     // a tool search (the same fix the choice bridge needed).
     mcpConfigJson: JSON.stringify({ mcpServers: { [setup.bridgeServerName]: { type: "http", url: setup.bridgeUrl, alwaysLoad: true } } }),

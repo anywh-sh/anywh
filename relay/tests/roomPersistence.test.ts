@@ -218,8 +218,19 @@ test("on connecting to its host the relay delivers messages queued before a rest
     }
     const now = await agents();
     assert.ok(now.some((agent) => agent.agentId === "plain1"), "an agent of no room is not the rooms' business");
-    const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: unknown[] } }>;
-    assert.equal(onDisk.w9.room?.queuedMessages, undefined, "delivered, so no longer queued");
+    // The relay rewrites this file in place, so a read can land on a half
+    // written one (its turn's end writes it again just after going idle).
+    let queued: unknown[] | undefined = [];
+    for (let attempt = 0; attempt < 100 && queued !== undefined; attempt++) {
+      try {
+        const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: unknown[] } }>;
+        queued = onDisk.w9.room?.queuedMessages;
+      } catch {
+        // torn read: try again
+      }
+      if (queued !== undefined) await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(queued, undefined, "delivered, so no longer queued");
   } finally {
     control.close();
     relay?.cleanup();

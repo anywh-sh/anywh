@@ -40,8 +40,16 @@ import {
   workerInstructions,
 } from "./roomTools.js";
 import type { RoomWorktrees } from "./roomWorktrees.js";
+import { buildNotice } from "./roomContextIndex.js";
+import type { RoomContextStore } from "./roomContextStore.js";
 import type { SessionStore } from "./sessionStore.js";
 import type { SharedSession, TurnOutcome } from "./sharedSession.js";
+
+function defaultSchedule(fn: () => void, ms: number): () => void {
+  const timer = setTimeout(fn, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
+}
 
 /** The runtimes the agent host can run. */
 export const HOST_RUNTIMES: readonly string[] = ["claude", "codex"];
@@ -81,7 +89,19 @@ export interface RoomManagerOptions {
    * answers that worktrees are not available. */
   readonly worktrees?: RoomWorktrees;
   readonly now?: () => number;
+  /** The rooms' context folders. Without it a room has no shared context. */
+  readonly context?: RoomContextStore;
+  /** How long agents of one model wait behind the first of them to be
+   * launched (see `pump`). Default 6 s. */
+  readonly warmUpMs?: number;
+  /** Runs `fn` after `ms`; returns how to cancel it. Replaceable so a test
+   * steps time by hand. */
+  readonly schedule?: (fn: () => void, ms: number) => () => void;
 }
+
+/** What the model's cache needs to be written once before siblings can read
+ * it: measured at about 6 s for the first response to start. */
+export const ROOM_WARM_UP_MS = 6000;
 
 export interface CreateRoomInput {
   agentId?: unknown;
@@ -104,6 +124,14 @@ export class RoomManager implements RoomToolHost {
   private readonly now: () => number;
   /** Per worker, the queued message its current turn is delivering. */
   private readonly sending = new Map<string, { text: string; at: number; delivered: boolean }>();
+  /** Per runtime and model, the agent launched first and those waiting
+   * behind it. Launching a batch cold would make every one of them write the
+   * whole prompt to the cache; behind the first, the rest read it. */
+  private readonly warming = new Map<string, { leader: string; waiting: Set<string>; cancel?: () => void }>();
+  private readonly warmingKeyOf = new Map<string, string>();
+  /** Agents let go when their leader's window closed: they start, none of them
+   * waits behind another (the cache is warm). */
+  private readonly released = new Set<string>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -131,10 +159,15 @@ export class RoomManager implements RoomToolHost {
   setupFor(sessionId: string): RoomAgentSetup | undefined {
     const room = this.store.getRoom(sessionId);
     if (!room || this.admit(sessionId) !== undefined) return undefined;
+    const context = this.options.context && { dir: this.options.context.dirFor(room.roomId), index: this.options.context.indexNow(room.roomId) };
+    // Its prompt, index included, is built now and frozen by the CLI at its
+    // first request: what arrives after this is told in a message.
+    if (room.contextSeenAt === undefined && context) this.store.setRoom(sessionId, { ...room, contextSeenAt: this.now() });
     return {
       role: room.role,
-      instructions: room.role === "principal" ? principalInstructions(this.runtimes()) : workerInstructions(),
+      instructions: room.role === "principal" ? principalInstructions(this.runtimes(), context) : workerInstructions(context),
       tools: roomToolsFor(room.role),
+      ...(context ? { addDirs: [context.dir] } : {}),
       bridgeServerName: ROOM_MCP_SERVER_NAME,
       bridgeUrl: this.options.bridge.urlFor(sessionId),
     };
@@ -148,22 +181,59 @@ export class RoomManager implements RoomToolHost {
     return roomToolsFor(room.role);
   }
 
-  callTool(sessionId: string, name: string, args: unknown): Promise<RoomToolResult> {
+  /** A note for the model alone on an agent's next turn when items joined the
+   * room's context after it was born, and the commit that marks them told
+   * (called once the turn went through). */
+  turnNote(sessionId: string): { text: string; commit: () => void } | undefined {
     const room = this.store.getRoom(sessionId);
-    if (!room) return Promise.resolve(fail("This session is not an agent of a room."));
+    const context = this.options.context;
+    if (!room || !context || room.contextSeenAt === undefined) return undefined;
+    const fresh = context.itemsAfter(room.roomId, room.contextSeenAt);
+    if (fresh.length === 0) return undefined;
+    const seenAt = fresh[fresh.length - 1].at;
+    return {
+      text: buildNotice(fresh),
+      commit: () => {
+        const current = this.store.getRoom(sessionId);
+        if (current && (current.contextSeenAt ?? 0) < seenAt) this.store.setRoom(sessionId, { ...current, contextSeenAt: seenAt });
+      },
+    };
+  }
+
+  async callTool(sessionId: string, name: string, args: unknown): Promise<RoomToolResult> {
+    const room = this.store.getRoom(sessionId);
+    if (!room) return fail("This session is not an agent of a room.");
     switch (name) {
       case "delegate":
-        return Promise.resolve(this.delegate(sessionId, room, args));
-      case "report":
-        return Promise.resolve(this.report(sessionId, room, args));
+        // What agents wrote into the folder since the last look is in the
+        // index the new worker is born with.
+        await this.options.context?.sync(room.roomId).catch(() => undefined);
+        return this.delegate(sessionId, room, args);
+      case "report": {
+        const result = this.report(sessionId, room, args);
+        if (!result.isError) await this.adoptResultFiles(sessionId, room, args);
+        return result;
+      }
       case "message_agent":
-        return Promise.resolve(this.messageAgent(sessionId, room, args));
+        return this.messageAgent(sessionId, room, args);
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
       case "worktree_create":
         return this.worktreeCreate(sessionId, room, args);
       default:
-        return Promise.resolve(fail(`Unknown tool "${name}".`));
+        return fail(`Unknown tool "${name}".`);
+    }
+  }
+
+  /** A report may name files the agent wrote into the room's folder: they
+   * join the index, credited to it. */
+  private async adoptResultFiles(sessionId: string, room: RoomMembership, args: unknown): Promise<void> {
+    const parsed = parseReportArgs(args);
+    if (!this.options.context || !parsed.ok) return;
+    try {
+      await this.options.context.sync(room.roomId, { author: this.store.getTitle(sessionId) ?? "agent", artifacts: parsed.value.artifacts });
+    } catch (error) {
+      console.warn(`[relay] could not index the room's context after a report: ${(error as Error).message}`);
     }
   }
 
@@ -216,6 +286,7 @@ export class RoomManager implements RoomToolHost {
     const { queuedMessages: _dropped, ...kept } = room;
     void _dropped;
     this.store.setRoom(agentId, { ...kept, stopped: room.stopped ?? { reason: "user", at: this.now() } });
+    this.endWarmUp(agentId);
     const session = this.options.sessions.getOrCreate(agentId);
     session.discardQueuedTurns();
     session.stopTurn();
@@ -254,6 +325,7 @@ export class RoomManager implements RoomToolHost {
    * hears about it and the worker stops holding a place. Then the next
    * queued message, if any, goes out. */
   onTurnSettled(sessionId: string, outcome: TurnOutcome): void {
+    this.endWarmUp(sessionId);
     const sending = this.sending.get(sessionId);
     this.sending.delete(sessionId);
     const room = this.store.getRoom(sessionId);
@@ -339,14 +411,61 @@ export class RoomManager implements RoomToolHost {
     if (session.isBusy()) return;
     const next = room.queuedMessages?.[0];
     if (!next) return;
+    if (this.parkBehindLeader(sessionId)) return;
     const sending = { text: next.text, at: next.at, delivered: false };
     this.sending.set(sessionId, sending);
     session.submitAgentTurn(next.text, {
       onDelivered: () => {
         sending.delivered = true;
         this.removeQueued(sessionId, sending);
+        const key = this.warmingKeyOf.get(sessionId);
+        const warming = key === undefined ? undefined : this.warming.get(key);
+        if (warming?.leader === sessionId) {
+          warming.cancel?.();
+          warming.cancel = (this.options.schedule ?? defaultSchedule)(() => this.endWarmUp(sessionId), this.options.warmUpMs ?? ROOM_WARM_UP_MS);
+        }
       },
     });
+  }
+
+  /** Whether `sessionId`, about to start its very first turn on a Claude
+   * model, has to wait behind a sibling of the same model that is warming
+   * the cache (it is then started when that one's window closes). Otherwise
+   * it becomes the one the others wait behind. A later turn of an agent
+   * already born is never held. */
+  private parkBehindLeader(sessionId: string): boolean {
+    if (this.released.delete(sessionId)) return false;
+    const runtime = this.store.getAgentId(sessionId);
+    if (runtime !== "claude" || this.store.getSessionId(sessionId, runtime) !== undefined) return false;
+    // Per room: the system prompt (and so the cache prefix) is the room's own.
+    const key = `${this.store.getRoom(sessionId)?.roomId ?? ""}:${runtime}:${this.store.getModel(sessionId, runtime) ?? ""}`;
+    const warming = this.warming.get(key);
+    if (!warming) {
+      // Until its message is delivered (the window then starts), a bound on
+      // how long the others can wait if that never happens (its turn was
+      // discarded before it began).
+      const cancel = (this.options.schedule ?? defaultSchedule)(() => this.endWarmUp(sessionId), (this.options.warmUpMs ?? ROOM_WARM_UP_MS) + 30_000);
+      this.warming.set(key, { leader: sessionId, waiting: new Set(), cancel });
+      this.warmingKeyOf.set(sessionId, key);
+      return false;
+    }
+    if (warming.leader === sessionId) return false;
+    warming.waiting.add(sessionId);
+    return true;
+  }
+
+  /** The cache is written (or the leader's turn ended): the agents that
+   * waited go. */
+  private endWarmUp(leaderId: string): void {
+    const key = this.warmingKeyOf.get(leaderId);
+    if (key === undefined) return;
+    this.warmingKeyOf.delete(leaderId);
+    const warming = this.warming.get(key);
+    if (warming?.leader !== leaderId) return;
+    this.warming.delete(key);
+    warming.cancel?.();
+    for (const id of warming.waiting) this.released.add(id);
+    for (const id of warming.waiting) this.pump(id);
   }
 
   /** Drops `message` from the head of a worker's queue, if it is still there. */
@@ -370,6 +489,7 @@ export class RoomManager implements RoomToolHost {
         worktrees.cleanupAgent(sessionId, { auto: true }).catch((error: unknown) => console.warn(`[relay] worktree cleanup of deleted agent ${sessionId} failed: ${(error as Error).message}`));
       });
     }
+    this.endWarmUp(sessionId);
     const tombstones = this.readTombstones();
     if (tombstones.includes(sessionId)) return;
     this.writeTombstones([...tombstones, sessionId]);
