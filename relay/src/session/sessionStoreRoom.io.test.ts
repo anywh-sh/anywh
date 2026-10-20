@@ -128,7 +128,7 @@ test("what a room's channel shows is told when it changes: title, model, members
     store.onRoomChange((id, roomId) => told.push(`${id}@${roomId}`));
     store.setTitle("w1", "Count");
     store.setModel("w1", "claude", { modelId: "haiku" } as never);
-    store.setPendingChoice("w1", { promptId: "q", questions: [{ question: "Which?", options: [] }] } as never);
+    store.setPendingChoice("w1", { promptId: "q", questions: [{ question: "Which?", options: [] }] });
     store.deleteEntry("w1");
     assert.deepEqual(told, ["w1@p1", "w1@p1", "w1@p1", "w1@p1"]);
     // A session outside any room tells nobody.
