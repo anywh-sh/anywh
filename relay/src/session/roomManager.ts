@@ -67,6 +67,8 @@ export interface RoomSessions {
   /** The live session, if it exists, without creating one. */
   peek(id: string): SharedSession | undefined;
   renameTitle(id: string, title: string): boolean;
+  /** Replaces the session's provisional title with a generated one. */
+  generateTitle(id: string, text: string): void;
 }
 
 /** Aliases the Claude CLI takes beyond the ids its own picker lists. */
@@ -330,7 +332,12 @@ export class RoomManager implements RoomToolHost {
     this.options.sessions.renameTitle(roomId, this.store.getTitle(roomId)!);
     // Delivered to the principal's own session, as if typed there, so the
     // client needs no second socket to send it.
-    if (typeof input.firstMessage === "string") this.options.sessions.getOrCreate(roomId).submitAgentTurn(input.firstMessage);
+    if (typeof input.firstMessage === "string") {
+      // The given title (the client sends the message's first line) holds
+      // only until a short one is generated from the message.
+      this.options.sessions.generateTitle(roomId, input.firstMessage);
+      this.options.sessions.getOrCreate(roomId).submitAgentTurn(input.firstMessage);
+    }
     return { ok: true, roomId };
   }
 
@@ -1176,8 +1183,10 @@ export class RoomManager implements RoomToolHost {
       // Persisted until it is delivered: a relay restart loses no task.
       queuedMessages: [{ text: args.task, at: this.now() }],
     });
-    // Titled before its first turn, so no title is generated for it.
+    // The task's first line stands in until a short title is generated from
+    // the whole task.
     this.store.setTitle(workerId, titleFromTask(args.task));
+    this.options.sessions.generateTitle(workerId, args.task);
     this.pump(workerId);
     return ok(JSON.stringify({ agentId: workerId }));
   }
