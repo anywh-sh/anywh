@@ -153,13 +153,15 @@ test("a turn runs through the host: the CLI's events land in the log, the state 
 test("a message sent during a turn is acknowledged as such and folded into that same turn", async () => {
   const h = await harness();
   try {
-    await h.client.request("spawn", { agentId: "a1", spec: spec(h) });
+    const absorbed = h.file("absorbed");
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h, { env: { FAKE_CLAUDE_ABSORBED_FILE: absorbed } }) });
     const events = h.watch("a1");
     const gate = h.file("gate");
     assert.deepEqual(await h.client.request("send", { agentId: "a1", message: `build it [[gate:${gate}]]` }), { duringTurn: false, resumed: false });
     await waitFor(() => events.some((event) => event.ev.type === "assistant"), 5000, "turn output");
     assert.equal((await h.activity("a1")).state, "working");
     assert.deepEqual(await h.client.request("send", { agentId: "a1", message: "also update the docs" }), { duringTurn: true, resumed: false });
+    await waitFor(() => existsSync(absorbed), 5000, "the CLI to read the second message");
     writeFileSync(gate, "");
     await waitFor(() => results(events).length === 1 && events.at(-1)?.ev.type === "result", 5000, "result");
     assert.match(String(results(events)[0].ev.result), /absorbed: also update the docs/);

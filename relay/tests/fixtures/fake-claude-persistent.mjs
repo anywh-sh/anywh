@@ -42,7 +42,7 @@
 //                        <path> exists before starting that message's turn
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 
 export async function runPersistent(args) {
   const flag = (name) => {
@@ -195,6 +195,9 @@ export async function runPersistent(args) {
       const text = (message.message?.content ?? []).map((block) => block.text ?? "").join("");
       if (turn) {
         turn.absorbed.push(text);
+        // Lets a test wait until the message is really folded into the turn
+        // before letting the turn finish.
+        if (process.env.FAKE_CLAUDE_ABSORBED_FILE) appendFileSync(process.env.FAKE_CLAUDE_ABSORBED_FILE, `${text}\n`);
         continue;
       }
       if (staleBeforeNext) {
