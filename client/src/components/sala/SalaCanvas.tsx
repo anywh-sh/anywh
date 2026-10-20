@@ -709,6 +709,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
     if (typing || event.altKey || event.metaKey || event.ctrlKey) return;
     const key = event.key;
+    // Space and Enter on a focused toolbar button activate it: they are not shortcuts there.
+    if ((key === " " || key === "Enter") && target.closest("[data-float]")) return;
     if (key === " ") {
       event.preventDefault();
       setSpaceDown(true);
