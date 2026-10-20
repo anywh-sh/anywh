@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { askMarker, roomMarker, startRoomRelay } from "./fixtures/roomRelay.mjs";
@@ -90,6 +91,28 @@ async function roomInView() {
   );
 }
 
+/** Opens a room as the only tab and waits for its canvas. */
+async function openRoomTab(id, title) {
+  await browser.execute(
+    (roomTab, name) => {
+      localStorage.setItem("anywh:tabs", JSON.stringify([{ id: roomTab, profileId: "e2e-room", title: name, room: true }]));
+      localStorage.setItem("anywh:active-tab", roomTab);
+      localStorage.removeItem("anywh:tab-layout");
+      window.location.reload();
+    },
+    id,
+    title,
+  );
+  await $('[data-testid="sala-canvas"]').waitForExist({ timeout: 30000 });
+}
+
+/** A plain click, on elements that need no pointerdown (this driver does not deliver one). */
+const press = async (selector) => {
+  const element = await $(selector);
+  await element.waitForClickable({ timeout: 15000 });
+  await element.click();
+};
+
 const cards = () => $$("[data-agent-id]");
 const cardState = (id) => browser.execute((agent) => document.querySelector(`[data-agent-id="${agent}"]`)?.getAttribute("data-state"), id);
 const savedCanvas = async (base, roomId) => (await (await fetch(`${base}/rooms/${roomId}/canvas`)).json()).canvas;
@@ -97,6 +120,7 @@ const savedCanvas = async (base, roomId) => (await (await fetch(`${base}/rooms/$
 describe("anywh room canvas", () => {
   let stack;
   let roomId;
+  let smallRoom;
   let previous;
   const gate = () => join(stack.dir, "gate");
 
@@ -143,12 +167,12 @@ describe("anywh room canvas", () => {
     await expect(group).toHaveText(expect.stringContaining("Room"));
     const conversation = await group.$('[role="radio"][aria-checked="true"]');
     await expect(conversation).toHaveText(expect.stringContaining("Conversation"));
-    await shot("A-nova-sessao-conversa");
+    await shot("B-nova-sessao-conversa");
     await group.$('//*[@role="radio"][contains(., "Room")]').click();
     await browser.waitUntil(async () => (await (await group.$('[role="radio"][aria-checked="true"]')).getText()).includes("Room"), { timeout: 5000 });
     const hint = await $('.composer-editor p.is-editor-empty[data-placeholder]');
     await browser.waitUntil(async () => (await hint.getAttribute("data-placeholder")).startsWith("Describe the demand"), { timeout: 5000, timeoutMsg: "the composer kept the conversation's hint" });
-    await shot("A-nova-sessao-sala");
+    await shot("B-nova-sessao-sala");
   });
 
   it("opens a room's tab on the canvas of that room", async () => {
@@ -175,7 +199,7 @@ describe("anywh room canvas", () => {
     const principal = await $("[data-agent-id]");
     await expect(principal).toHaveText(expect.stringContaining("Main"));
     await expect(principal).toHaveText(expect.stringContaining("Profile page"));
-    await shot("A-sala-so-principal");
+    await shot("B-sala-so-principal");
   });
 
   it("shows the room as one entry with the room glyph in the sidebar and the tab strip", async () => {
@@ -240,7 +264,7 @@ describe("anywh room canvas", () => {
     });
     expect(overlap).toEqual([]);
     await roomInView();
-    await shot("A-sala-feature-grande");
+    await shot("B-sala-feature-grande");
   });
 
   it("reads at 100%: a card in full, as it is worked with", async () => {
@@ -263,7 +287,7 @@ describe("anywh room canvas", () => {
         }),
       { timeout: 20000, timeoutMsg: "the waiting card never came to the middle" },
     );
-    await shot("A-sala-feature-grande-100");
+    await shot("B-sala-feature-grande-100");
     await browser.execute(() => document.querySelector('[aria-label="Fit to screen"]').click());
     await roomInView();
   });
@@ -306,7 +330,7 @@ describe("anywh room canvas", () => {
     await worker.click();
     const bar = await $('.sala-bar[role="toolbar"]');
     await bar.waitForExist({ timeout: 5000 });
-    for (const action of ["Group", "Stop", "Remove"]) await expect(bar).toHaveText(expect.stringContaining(action));
+    for (const action of ["Open conversation", "Delegate", "Group", "Stop", "Remove"]) await expect(bar).toHaveText(expect.stringContaining(action));
   });
 
   it("stops one agent from its action bar, and only that one", async () => {
@@ -364,7 +388,7 @@ describe("anywh room canvas", () => {
     // Nothing selected, so the shot shows the room and not an action bar.
     await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     await roomInView();
-    await shot("A-sala-10-agentes");
+    await shot("B-sala-10-agentes");
     // What the canvas itself costs a frame while panning, in the real
     // engine with every card live: the time the camera's write takes on the
     // main thread, not the compositor's (Xvfb has no GPU, so a frame's wall
@@ -426,6 +450,61 @@ describe("anywh room canvas", () => {
     }
   });
 
+  it("reflects the room in the sidebar, its tab and the status bar", async () => {
+    await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    // The room waits for the person (one agent asked), so it sits under "Needs you" with the count.
+    await browser.waitUntil(async () => (await $("body").getText()).includes("Needs you"), { timeout: 30000, timeoutMsg: "the sidebar never grouped the room under Needs you" });
+    // The tab carries the state dot and the status bar sums the room's agents.
+    const status = await browser.execute(() => document.body.innerText);
+    expect(status).toMatch(/\d+ running/);
+    expect(status).toMatch(/1 need you/);
+    await expect(await $('[role="tab"] [aria-label$="need you"]')).toBeExisting();
+    await shot("B-sala-feature-grande-shell");
+  });
+
+  it("opens 'About this room' with the room's numbers, usage and worktrees, and closes it with Esc", async () => {
+    await press('button[aria-label="About this room"]');
+    const panel = await $('aside[data-panel="about"]');
+    await panel.waitForExist({ timeout: 15000 });
+    const text = await panel.getText();
+    expect(text).toContain("Where it runs");
+    expect(text).toContain("Areas");
+    expect(text).toContain("Usage");
+    expect(text).toContain("Shared context");
+    expect(text).toContain("Worktrees");
+    // The "i" button gives way to the panel.
+    expect(await $$('button[aria-label="About this room"]').length).toBe(0);
+    await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
+    await shot("B-sobre-a-sala");
+    await browser.keys("Escape");
+    await browser.waitUntil(async () => !(await $('aside[data-panel="about"]').isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+  });
+
+  it("answers in the card: Reply opens the question under it, with a way into the whole conversation", async () => {
+    await press('[data-agent-id][data-state="awaiting_user"] button.sala-reply');
+    const popover = await $(".sala-answer");
+    await popover.waitForExist({ timeout: 15000 });
+    await browser.waitUntil(async () => (await popover.getText()).includes("Approve"), { timeout: 15000, timeoutMsg: "the question never reached the card" });
+    await expect(popover).toHaveText(expect.stringContaining("Open conversation"));
+    await shot("B-pergunta-no-card");
+  });
+
+  it("opens the agent's summary: state, who delegated it, the question, work and the message box", async () => {
+    await press(".sala-answer-foot button");
+    const panel = await $('aside[data-panel="agent"]');
+    await panel.waitForExist({ timeout: 15000 });
+    await browser.waitUntil(async () => (await panel.getText()).includes("Approve"), { timeout: 15000, timeoutMsg: "the question never reached the panel" });
+    const text = await panel.getText();
+    expect(text).toContain("Your turn");
+    expect(text).toContain("Delegated by");
+    expect(text).toContain("Work");
+    await expect(await panel.$("textarea")).toBeExisting();
+    for (const action of ["Open in tab", "Delegate", "Stop", "Remove"]) expect(text).toContain(action);
+    await shot("B-resumo-do-agente");
+    await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
+    await browser.waitUntil(async () => !(await $('aside[data-panel="agent"]').isExisting()), { timeout: 5000 });
+  });
+
   it("speaks Portuguese when the app does: the card states, the area counts and the toolbar", async () => {
     await browser.execute(() => {
       localStorage.setItem("anywh:locale", "pt-BR");
@@ -440,13 +519,21 @@ describe("anywh room canvas", () => {
     await expect(await $('[aria-label="Ajustar à tela"]')).toBeExisting();
     await browser.execute(() => document.querySelector('[aria-label="Ajustar à tela"]').click());
     await roomInView();
-    await shot("A-sala-10-agentes-pt");
+    await shot("B-sala-10-agentes-pt");
+    await press('button[aria-label="Sobre a sala"]');
+    const aboutPt = await $('aside[data-panel="about"]');
+    await aboutPt.waitForExist({ timeout: 15000 });
+    const aboutText = await aboutPt.getText();
+    expect(aboutText).toContain("Onde roda");
+    expect(aboutText).toContain("Contexto compartilhado");
+    await shot("B-sobre-a-sala-pt");
+    await press('aside[data-panel="about"] button[aria-label="Fechar painel"]');
     await $('[aria-label="Nova sessão"]').click();
     const group = await $('[role="radiogroup"][aria-label="Tipo de sessão"]');
     await group.waitForExist({ timeout: 15000 });
     await group.$('//*[@role="radio"][contains(., "Sala")]').click();
     await browser.waitUntil(async () => (await (await group.$('[role="radio"][aria-checked="true"]')).getText()).includes("Sala"), { timeout: 5000 });
-    await shot("A-nova-sessao-sala-pt");
+    await shot("B-nova-sessao-sala-pt");
   });
 
   it("shows a small task too: the principal and two agents, one waiting for the person", async () => {
@@ -455,6 +542,7 @@ describe("anywh room canvas", () => {
       body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: stack.dir, title: "Fix the spinner stuck on the phone" }),
     });
     const small = (await created.json()).roomId;
+    smallRoom = small;
     await say(
       stack.port,
       small,
@@ -475,6 +563,135 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000, timeoutMsg: "the small room's three cards never appeared" });
     await browser.waitUntil(async () => (await browser.execute(() => !!document.querySelector('[data-state="awaiting_user"]'))), { timeout: 60000 });
     await roomInView();
-    await shot("A-sala-tarefa-pequena");
+    await shot("B-sala-tarefa-pequena");
+  });
+
+  it("answers a question from the card: the agent goes on", async () => {
+    // The small room's second agent is waiting for approval.
+    await press('[data-agent-id][data-state="awaiting_user"] button.sala-reply');
+    const popover = await $(".sala-answer");
+    await popover.waitForExist({ timeout: 15000 });
+    await browser.waitUntil(async () => (await popover.getText()).includes("Approve"), { timeout: 15000, timeoutMsg: "the question never reached the card" });
+    const id = await browser.execute(() => document.querySelector('[data-agent-id][data-state="awaiting_user"]').getAttribute("data-agent-id"));
+    await popover.$("button*=Approve").click();
+    await popover.$('button[aria-label="Send answers"]').click();
+    await browser.waitUntil(async () => (await cardState(id)) !== "awaiting_user", { timeout: 30000, timeoutMsg: "the agent never went on after the answer" });
+    await browser.waitUntil(async () => !(await $(".sala-answer").isExisting()), { timeout: 5000 });
+  });
+
+  it("shows the principal's whole conversation in the side panel", async () => {
+    await press('[data-agent-id].main .sala-node-hit');
+    await press('.sala-bar button*=Open conversation');
+    const panel = await $('aside[data-panel="principal"]');
+    await panel.waitForExist({ timeout: 15000 });
+    // The same chat a session tab shows: its history and its composer.
+    await panel.$(".composer-editor").waitForExist({ timeout: 30000, timeoutMsg: "the principal's composer never appeared" });
+    await browser.waitUntil(async () => (await panel.getText()).includes("[[room:delegate"), { timeout: 30000, timeoutMsg: "the principal's history never showed what was said to it" });
+    await shot("B-conversa-do-principal");
+    await press('aside[data-panel="principal"] button[aria-label="Close panel"]');
+  });
+
+  it("starts an agent by hand from the launcher, delegated by the principal", async () => {
+    await press('button[aria-label="New agent"]');
+    const box = await $(".sala-launcher textarea");
+    await box.waitForExist({ timeout: 15000 });
+    await expect(await $(".sala-launcher")).toHaveText(expect.stringContaining("Delegated by"));
+    await shot("B-novo-agente");
+    const before = (await cards()).length;
+    await box.setValue(`Write the release notes ${roomMarker("report", { status: "done", summary: "notes", artifacts: [] })}`);
+    await browser.keys("Enter");
+    await browser.waitUntil(async () => (await cards()).length === before + 1, { timeout: 60000, timeoutMsg: "the new agent's card never appeared" });
+    await browser.waitUntil(async () => !(await $(".sala-launcher").isExisting()), { timeout: 5000, timeoutMsg: "the launcher stayed open" });
+    const members = (await (await fetch(`${stack.base}/rooms/${smallRoom}`)).json()).members;
+    const made = members.find((m) => m.title?.startsWith("Write the release notes"));
+    expect(made.room.createdBy).toBe("user");
+  });
+
+  it("shows an agent that failed, in the same language as the rest", async () => {
+    const created = await fetch(`${stack.base}/rooms`, {
+      method: "POST",
+      body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: stack.dir, title: "Migrate the cache" }),
+    });
+    const failing = (await created.json()).roomId;
+    await say(
+      stack.port,
+      failing,
+      [
+        roomMarker("delegate", { task: "Migrate the cache\n[[crash]]", runtime: "claude", model: "haiku" }),
+        roomMarker("delegate", { task: `Write the notes\n${roomMarker("report", { status: "done", summary: "notes written", artifacts: [] })}`, runtime: "claude", model: "haiku" }),
+      ].join(" "),
+    );
+    await openRoomTab(failing, "Migrate the cache");
+    await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000, timeoutMsg: "the three cards never appeared" });
+    await browser.waitUntil(async () => (await browser.execute(() => !!document.querySelector('[data-state="failed"]'))), { timeout: 60000, timeoutMsg: "no card ever failed" });
+    await roomInView();
+    await shot("B-sala-agente-falhou");
+    await press('[data-state="failed"] .sala-node-hit');
+    await press('.sala-bar button*=Open conversation');
+    const panel = await $('aside[data-panel="agent"]');
+    await panel.waitForExist({ timeout: 15000 });
+    const text = await panel.getText();
+    expect(text).toContain("Failed");
+    expect(text).toContain("This agent failed");
+    await shot("B-agente-falhou");
+  });
+
+  it("completes a room whose agents are all done, keeps the work nobody integrated, and asks before discarding it", async () => {
+    const repo = join(stack.dir, "repo");
+    mkdirSync(repo, { recursive: true });
+    const git = (...args) => execFileSync("git", ["-c", "user.email=e2e@anywh.test", "-c", "user.name=e2e", ...args], { cwd: repo, stdio: "pipe" });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    const created = await fetch(`${stack.base}/rooms`, {
+      method: "POST",
+      body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: repo, title: "Polish the profile" }),
+    });
+    const finished = (await created.json()).roomId;
+    const done = (summary) => roomMarker("report", { status: "done", summary, artifacts: [] });
+    await say(
+      stack.port,
+      finished,
+      [
+        roomMarker("delegate", { task: `Review the copy\n${done("copy reviewed")}`, runtime: "claude", model: "haiku" }),
+        roomMarker("delegate", { task: `Spike the avatar crop\n${roomMarker("worktree_create", { repo })}${done("spike done")}`, runtime: "claude", model: "haiku" }),
+      ].join(" "),
+    );
+    // The spike's worktree gets a commit nobody integrates.
+    let worktree;
+    await browser.waitUntil(
+      async () => {
+        const { worktrees } = await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json();
+        worktree = worktrees[0];
+        return worktree !== undefined;
+      },
+      { timeout: 60000, timeoutMsg: "the spike never made a worktree" },
+    );
+    execFileSync("git", ["-c", "user.email=e2e@anywh.test", "-c", "user.name=e2e", "commit", "-q", "--allow-empty", "-m", "crop"], { cwd: worktree.path, stdio: "pipe" });
+    await openRoomTab(finished, "Polish the profile");
+    await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000 });
+    const strip = await $(".sala-done");
+    await strip.waitForExist({ timeout: 60000, timeoutMsg: "the room never showed as completed" });
+    await browser.waitUntil(async () => (await strip.getText()).includes("1 worktree kept"), { timeout: 30000, timeoutMsg: "the kept worktree was never counted" });
+    await roomInView();
+    await shot("B-sala-concluida");
+    await press(".sala-done button");
+    const panel = await $('aside[data-panel="about"]');
+    await panel.waitForExist({ timeout: 15000 });
+    await browser.waitUntil(async () => (await panel.getText()).includes("anywh/"), { timeout: 15000, timeoutMsg: "the worktree never showed" });
+    expect(await panel.getText()).toContain("1 worktree kept with work that was not integrated");
+    await shot("B-sala-concluida-sobre");
+    await press('aside[data-panel="about"] button[aria-label="Close panel"]');
+
+    // Removing the agent that made it asks first: the work would be lost.
+    const spike = await browser.execute(() => [...document.querySelectorAll("[data-agent-id]")].find((el) => el.textContent.includes("Spike the avatar crop")).getAttribute("data-agent-id"));
+    await press(`[data-agent-id="${spike}"] .sala-node-hit`);
+    await press('.sala-bar button*=Remove');
+    const dialog = await $('[role="alertdialog"]');
+    await dialog.waitForExist({ timeout: 15000, timeoutMsg: "the relay's refusal never became a question" });
+    expect(await dialog.getText()).toContain("not integrated");
+    await shot("B-descartar-trabalho");
+    await dialog.$("button*=Discard and remove").click();
+    await browser.waitUntil(async () => (await cards()).length === 2, { timeout: 30000, timeoutMsg: "the agent was never removed" });
+    await browser.waitUntil(async () => (await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json()).worktrees.length === 0, { timeout: 45000, timeoutMsg: "the worktree was never discarded after the undo window" });
   });
 });
