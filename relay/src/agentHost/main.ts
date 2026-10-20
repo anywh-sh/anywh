@@ -3,10 +3,12 @@
 //
 //   node dist/agentHost/main.js --profile <id> [--socket <path>] [--data-dir <dir>] [--host-id <id>]
 //
-// `--profile` is required and never read from the environment: ANYWH_PROFILE
-// is set on the relay's unit, and a dev host started from a shell that
-// inherited it would otherwise take over the real profile's socket and
-// agents. Paths default from the profile, unless the profile's env file sets:
+// `--profile` is required and never read from the environment implicitly:
+// ANYWH_PROFILE is set on the relay's unit, and a dev host started from a
+// shell that inherited it would otherwise take over the real profile's
+// socket and agents. `--profile-from-env` opts in to reading ANYWH_PROFILE
+// explicitly — what `npm run start:agent-host` does, so the ANYWH_PROFILE in
+// relay/.env (loaded by --env-file) names the profile, as for `npm start`. Paths default from the profile, unless the profile's env file sets:
 //   ANYWH_AGENT_HOST_SOCKET    socket path (default $XDG_RUNTIME_DIR/anywh/agent-host-<profile>.sock)
 //   ANYWH_AGENT_HOST_DIR       registry and logs (default ~/.anywh-sessions/<profile>-agent-host)
 //   RELAY_HOME_OVERRIDE        $HOME for the agents, as for the relay's own turns
@@ -40,12 +42,22 @@ function hibernationPolicy(): "idle" | "memory" | "off" {
 }
 
 const { values: args } = parseArgs({
-  options: { profile: { type: "string" }, socket: { type: "string" }, "data-dir": { type: "string" }, "host-id": { type: "string" } },
+  options: {
+    profile: { type: "string" },
+    "profile-from-env": { type: "boolean" },
+    socket: { type: "string" },
+    "data-dir": { type: "string" },
+    "host-id": { type: "string" },
+  },
   strict: true,
 });
-const profile = args.profile;
+const profile = args.profile ?? (args["profile-from-env"] ? process.env.ANYWH_PROFILE : undefined);
 if (!profile || !/^[a-z0-9][a-z0-9-]*$/.test(profile)) {
-  console.error("[agent-host] --profile <id> is required (never taken from ANYWH_PROFILE), e.g. --profile default");
+  console.error(
+    args["profile-from-env"]
+      ? "[agent-host] --profile-from-env given but ANYWH_PROFILE is not set to a profile id (set it in relay/.env or the environment)"
+      : "[agent-host] --profile <id> is required (never taken from ANYWH_PROFILE implicitly), e.g. --profile default",
+  );
   process.exit(2);
 }
 const socketPath = args.socket ?? agentHostSocketPath(profile);

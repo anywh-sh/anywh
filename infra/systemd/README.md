@@ -94,7 +94,9 @@ and replays what it missed from each agent's log.
   (relay) and `npm run dev:agent-host` (host) both use a separate `dev`
   profile, so they find each other and never the machine's real ones;
   `ANYWH_PROFILE=<id> npm run dev:profile` / `dev:agent-host:profile`
-  target a real profile, on purpose. A relay started with no profile and
+  target a real profile, on purpose. `npm start` / `npm run
+  start:agent-host` use the ANYWH_PROFILE of the environment or relay/.env
+  (the host refuses to start without one). A relay started with no profile and
   no socket set connects to no agent host at all (`/agents/activity`
   answers 503 saying so) instead of guessing `default`. Data (registry, per-agent logs)
   lives in `~/.anywh-sessions/<profile>-agent-host/` unless

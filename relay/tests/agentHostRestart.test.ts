@@ -280,3 +280,20 @@ test("a relay with no profile does not connect to the machine's `default` agent 
     rmSync(runtime, { recursive: true, force: true });
   }
 });
+
+test("--profile-from-env needs ANYWH_PROFILE, and then uses it", async () => {
+  const env = makeEnv();
+  try {
+    const missing = spawn(process.execPath, ["--import", "tsx", HOST_ENTRY, "--profile-from-env"], {
+      cwd: RELAY_ROOT,
+      env: { ...process.env, ANYWH_PROFILE: "", ANYWH_AGENT_HOST_SOCKET: env.socketPath, ANYWH_AGENT_HOST_DIR: env.dataDir },
+    });
+    let stderr = "";
+    missing.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+    assert.notEqual((await exited(missing)).code, 0);
+    assert.match(stderr, /ANYWH_PROFILE/);
+    assert.equal(existsSync(env.dataDir), false);
+  } finally {
+    rmSync(env.dir, { recursive: true, force: true });
+  }
+});
