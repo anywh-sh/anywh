@@ -16,7 +16,12 @@
 //      refused together and then approved together: both must run in the
 //      follow-up turn without being asked again.
 //
-// FLOWS=A,B,C picks flows (default all). With STOP_AFTER_ASK=1 flow B stops
+//   D. two Bash commands that write files (redirects, so only a tool-wide rule
+//      could grant them): one approved, one denied. Nothing may be granted
+//      tool-wide, so the approved one must be asked again and the denied one
+//      must never run; approving the repeat then lets it run.
+//
+// FLOWS=A,B,C,D picks flows (default all). With STOP_AFTER_ASK=1 flow B stops
 // once the subagent's request is pending, without the denial turn.
 //
 // The session manager, session store, permission bridge (behind a real HTTP
@@ -108,7 +113,7 @@ function newSession(id) {
   return session;
 }
 
-const flows = (process.env.FLOWS ?? "A,B,C").split(",");
+const flows = (process.env.FLOWS ?? "A,B,C,D").split(",");
 try {
   // ---- A: Write + Edit + Bash, refused together, then approved together ----
   if (flows.includes("A")) {
@@ -207,6 +212,43 @@ try {
       if (held.calls.some((call) => call.tool === "Edit")) check(readFileSync(e, "utf8").includes("new value"), "C: Edit repeated and done under its Edit(//abs) rule");
       if (held.calls.some((call) => call.tool === "Bash")) {
         check(!again?.calls.some((call) => call.tool === "Bash") && existsSync(join(work, "made-dir")), "C: Bash with spaces was granted (not asked again) and ran");
+      }
+    }
+  }
+
+  // ---- D: approve one Bash write, deny the other ----
+  if (flows.includes("D")) {
+    const f1 = join(work, "f1.txt");
+    const f2 = join(work, "f2.txt");
+    const mixed = newSession("real-deferred-d");
+    await new Promise((r) => setTimeout(r, 300));
+    await runTurn(
+      mixed,
+      `Use the Bash tool twice, both calls together in a single message: run exactly \`echo one > ${f1}\` and run exactly \`echo two > ${f2}\`. ` +
+        `If a call is refused, stop and tell me what was refused.`,
+    );
+    const held = store.getPendingApproval("real-deferred-d");
+    log("D pending calls:", JSON.stringify(held?.calls.map((call) => call.input.command)));
+    check(held !== undefined && held.calls.length === 2 && !existsSync(f1) && !existsSync(f2), "D: both Bash calls held, nothing ran");
+    if (held && held.calls.length === 2) {
+      const card = prompts().at(-1);
+      log("D card detail:", card.questions[0].approval.detail);
+      const approveFirst = (q, i) => ({ question: q.question, selected: [held.calls[i].input.command.includes(f1) ? "approve" : "deny"] });
+      mixed.answerChoice(card.promptId, card.questions.map(approveFirst));
+      await mixed.waitForIdle();
+      turnsRun += 1;
+      const again = store.getPendingApproval("real-deferred-d");
+      log("D turn 2 assistant:", JSON.stringify(lastText().slice(0, 300)));
+      log("D asked again after turn 2:", JSON.stringify(again?.calls.map((call) => call.input.command)));
+      check(!existsSync(f2), "D: the denied command never ran");
+      check(!existsSync(f1) && again?.calls.some((call) => call.input.command.includes(f1)) === true, "D: the approved one was NOT given a tool-wide pass: it was asked about again");
+      if (again) {
+        const card2 = prompts().at(-1);
+        mixed.answerChoice(card2.promptId, card2.questions.map((q) => ({ question: q.question, selected: ["approve"] })));
+        await mixed.waitForIdle();
+        turnsRun += 1;
+        log("D turn 3 assistant:", JSON.stringify(lastText().slice(0, 200)));
+        check(existsSync(f1) && !existsSync(f2), "D: approving the repeat ran it, and the denied one still never ran");
       }
     }
   }
