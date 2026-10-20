@@ -102,22 +102,39 @@ export const config = {
   before: async () => {
     rmSync(updateE2EFixtures.openedUrlsLog, { force: true });
 
-    const seeded = await browser.execute(() => {
-      const raw = localStorage.getItem("anywh:profiles");
+    const prepared = await browser.execute(() => {
+      // What an earlier spec file left in the app's storage that this one
+      // must not inherit: a room's tab and the language it switched to, with
+      // the tab layout and session list that go with them. (The webview
+      // writes storage lazily and the app process is killed between files,
+      // so a spec cannot count on its own `after` having reached the disk.)
+      let leftRoom = false;
       try {
-        if (raw && JSON.parse(raw).length > 0) return false;
+        leftRoom = JSON.parse(localStorage.getItem("anywh:tabs") ?? "[]").some((tab) => tab.room === true);
+      } catch {
+        // Unreadable tabs are the app's to discard.
+      }
+      const stale = leftRoom || localStorage.getItem("anywh:locale") !== null;
+      if (stale) {
+        for (const key of ["anywh:locale", "anywh:tabs", "anywh:tab-layout", "anywh:active-tab", "anywh:session-list-cache", "anywh:profiles"]) localStorage.removeItem(key);
+      }
+
+      const raw = localStorage.getItem("anywh:profiles");
+      let seeded = false;
+      try {
+        if (!(raw && JSON.parse(raw).length > 0)) seeded = true;
       } catch {
         // Unreadable — the app reads that as empty too; reseed.
+        seeded = true;
       }
-      localStorage.setItem(
-        "anywh:profiles",
-        JSON.stringify([{ id: "e2e", label: "Default", host: "127.0.0.1", relayPort: 8765 }]),
-      );
-      return true;
+      if (seeded) {
+        localStorage.setItem("anywh:profiles", JSON.stringify([{ id: "e2e", label: "Default", host: "127.0.0.1", relayPort: 8765 }]));
+      }
+      return stale || seeded;
     });
-    if (seeded) {
+    if (prepared) {
       await browser.execute(() => window.location.reload());
-      await $('[aria-label="New conversation"]').waitForExist({ timeout: 15000 });
+      await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
     }
   },
 };
