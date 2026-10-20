@@ -1,6 +1,6 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
@@ -228,6 +228,46 @@ test("ordinary session: spawn flags are untouched even when the user has MCP ser
       });
       assert.ok(!argv.includes("--setting-sources"));
       assert.ok(!argv.includes("--mcp-config"));
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+function leftoverWorkerDirs(): string[] {
+  return readdirSync(tmpdir()).filter((name) => name.startsWith(`anywh-worker-mcp-${String(process.pid)}-`));
+}
+
+test("agent worker: a spawn that throws synchronously leaves no config file or directory behind", async () => {
+  const home = homeWithUserMcp();
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+      // A NUL byte in an argument makes child_process.spawn throw before any process exists.
+      await assert.rejects(driver.sendTurn(turnContext({ prompt: "bad\0prompt" }), () => {}));
+      assert.deepEqual(leftoverWorkerDirs(), []);
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("agent worker: stop() while the config is still being prepared prevents the spawn and cleans up", async () => {
+  const home = homeWithUserMcp();
+  try {
+    await withoutConfigDirEnv(async () => {
+      const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+      let result: Awaited<ReturnType<typeof driver.sendTurn>> | undefined;
+      const spawned = await recordSpawnArgv(async () => {
+        const turn = driver.sendTurn(turnContext(), () => {});
+        assert.equal(driver.stop(), true, "the stop is accepted although no process exists yet");
+        result = await turn;
+        // recordSpawnArgv reads the file; make sure it exists even if nothing spawned
+        writeFileSync(process.env.FAKE_CLAUDE_ARGV_FILE ?? "", "", { flag: "a" });
+      }).catch(() => [] as string[][]);
+      assert.equal(result?.stopped, true);
+      assert.deepEqual(spawned.filter((argv) => argv.length > 0), [], "no claude process was started");
+      assert.deepEqual(leftoverWorkerDirs(), []);
     });
   } finally {
     rmSync(home, { recursive: true, force: true });

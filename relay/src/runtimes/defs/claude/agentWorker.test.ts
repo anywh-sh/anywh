@@ -76,6 +76,12 @@ test("mergeAgentWorkerMcpConfig: without user servers the bridge text is returne
   assert.equal(mergeAgentWorkerMcpConfig("{not json", {}), "{not json");
 });
 
+test("mergeAgentWorkerMcpConfig: a bridge config that is malformed or not an object is passed through as text", () => {
+  assert.equal(mergeAgentWorkerMcpConfig("{broken", { a: { command: "x" } }), "{broken");
+  assert.equal(mergeAgentWorkerMcpConfig("[1,2]", { a: { command: "x" } }), "[1,2]");
+  assert.equal(mergeAgentWorkerMcpConfig("null", { a: { command: "x" } }), "null");
+});
+
 test("mergeAgentWorkerMcpConfig: nothing to pass means no --mcp-config at all", () => {
   assert.equal(mergeAgentWorkerMcpConfig(undefined, {}), undefined);
 });

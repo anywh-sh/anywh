@@ -27,7 +27,7 @@
 // The server entries carry secrets (Authorization headers, `*_KEY` env), so
 // they must never reach argv, where `ps` and /proc/<pid>/cmdline expose them:
 // the merged config goes into a private temp file and only its path is passed.
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -39,42 +39,71 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The user-scope `mcpServers` map out of the text of ~/.claude.json, minus
- * the servers disabled for `cwd`. Entries that are not objects are dropped;
- * anything unparsable yields no servers. */
-export function parseUserMcpServers(text: string | undefined, cwd?: string): McpServerEntries {
-  if (text === undefined) return {};
+/** What is kept of ~/.claude.json: the user-scope servers and the disabled
+ * lists, never the raw text. */
+interface UserMcpConfig {
+  servers: McpServerEntries;
+  disabled: string[];
+  disabledByProject: Record<string, string[]>;
+}
+
+const NO_CONFIG: UserMcpConfig = { servers: {}, disabled: [], disabledByProject: {} };
+
+function nameList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((name): name is string => typeof name === "string") : [];
+}
+
+function extractUserMcpConfig(text: string): UserMcpConfig {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return {};
+    return NO_CONFIG;
   }
-  if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) return {};
-  const disabled = new Set<string>();
-  const addDisabled = (list: unknown): void => {
-    if (Array.isArray(list)) for (const name of list) if (typeof name === "string") disabled.add(name);
+  if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) return NO_CONFIG;
+  const disabledByProject: Record<string, string[]> = {};
+  if (isRecord(parsed.projects)) {
+    for (const [dir, project] of Object.entries(parsed.projects)) {
+      if (isRecord(project)) {
+        const names = nameList(project.disabledMcpServers);
+        if (names.length > 0) disabledByProject[dir] = names;
+      }
+    }
+  }
+  return {
+    servers: Object.fromEntries(Object.entries(parsed.mcpServers).filter(([, entry]) => isRecord(entry))),
+    disabled: nameList(parsed.disabledMcpServers),
+    disabledByProject,
   };
-  addDisabled(parsed.disabledMcpServers);
-  const project = cwd !== undefined && isRecord(parsed.projects) ? parsed.projects[cwd] : undefined;
-  if (isRecord(project)) addDisabled(project.disabledMcpServers);
-  return Object.fromEntries(Object.entries(parsed.mcpServers).filter(([name, entry]) => isRecord(entry) && !disabled.has(name)));
+}
+
+function selectServers(config: UserMcpConfig, cwd: string | undefined): McpServerEntries {
+  const disabled = new Set([...config.disabled, ...(cwd !== undefined ? (config.disabledByProject[cwd] ?? []) : [])]);
+  return Object.fromEntries(Object.entries(config.servers).filter(([name]) => !disabled.has(name)));
+}
+
+/** The user-scope `mcpServers` map out of the text of ~/.claude.json, minus
+ * the servers disabled for `cwd`. Entries that are not objects are dropped;
+ * anything unparsable yields no servers. */
+export function parseUserMcpServers(text: string | undefined, cwd?: string): McpServerEntries {
+  return text === undefined ? {} : selectServers(extractUserMcpConfig(text), cwd);
 }
 
 // One entry per config file: ~/.claude.json is big and every worker turn would
-// otherwise re-read and re-parse it. Keyed by path, valid while mtime+size hold.
-const fileCache = new Map<string, { mtimeMs: number; size: number; text: string }>();
+// otherwise re-read and re-parse it. Valid while mtime+size hold. Only the
+// extracted result is kept, never the file's text.
+const fileCache = new Map<string, { mtimeMs: number; size: number; config: UserMcpConfig }>();
 
-async function readConfigText(path: string): Promise<string | undefined> {
+async function readUserMcpConfig(path: string): Promise<UserMcpConfig> {
   try {
     const info = await stat(path);
     const cached = fileCache.get(path);
-    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached.text;
-    const text = await readFile(path, "utf8");
-    fileCache.set(path, { mtimeMs: info.mtimeMs, size: info.size, text });
-    return text;
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached.config;
+    const config = extractUserMcpConfig(await readFile(path, "utf8"));
+    fileCache.set(path, { mtimeMs: info.mtimeMs, size: info.size, config });
+    return config;
   } catch {
-    return undefined;
+    return NO_CONFIG;
   }
 }
 
@@ -82,7 +111,7 @@ async function readConfigText(path: string): Promise<string | undefined> {
  * just means the worker starts with the bridges alone. */
 export async function readUserMcpServers(home: string, cwd?: string, env: NodeJS.ProcessEnv = process.env): Promise<McpServerEntries> {
   const configDir = env.CLAUDE_CONFIG_DIR || home;
-  return parseUserMcpServers(await readConfigText(join(configDir, ".claude.json")), cwd);
+  return selectServers(await readUserMcpConfig(join(configDir, ".claude.json")), cwd);
 }
 
 /** One `--mcp-config` payload carrying the user's servers plus the relay's
@@ -91,13 +120,25 @@ export async function readUserMcpServers(home: string, cwd?: string, env: NodeJS
  * bridge config are kept. `undefined` when there is nothing to pass. */
 export function mergeAgentWorkerMcpConfig(bridgeConfigJson: string | undefined, userServers: McpServerEntries): string | undefined {
   if (Object.keys(userServers).length === 0) return bridgeConfigJson;
-  const bridge = bridgeConfigJson ? (JSON.parse(bridgeConfigJson) as Record<string, unknown>) : {};
+  let bridge: Record<string, unknown> = {};
+  if (bridgeConfigJson) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(bridgeConfigJson);
+    } catch {
+      return bridgeConfigJson;
+    }
+    // Not an object we can merge into: pass the bridge text through untouched.
+    if (!isRecord(parsed)) return bridgeConfigJson;
+    bridge = parsed;
+  }
   const bridgeServers = isRecord(bridge.mcpServers) ? bridge.mcpServers : {};
   return JSON.stringify({ ...bridge, mcpServers: { ...userServers, ...bridgeServers } });
 }
 
+// The owner's pid is part of the name so one relay's sweep never removes the
+// directory of a worker another relay profile still has running.
 const CONFIG_DIR_PREFIX = "anywh-worker-mcp-";
-const STALE_AFTER_MS = 60 * 60 * 1000;
 
 export interface AgentWorkerMcpFile {
   path: string;
@@ -105,34 +146,43 @@ export interface AgentWorkerMcpFile {
   remove: () => Promise<void>;
 }
 
-/** Writes `configJson` to `<tmp>/anywh-worker-mcp-XXXX/mcp.json`, directory
- * 0700 and file 0600. */
+/** Writes `configJson` to `<tmp>/anywh-worker-mcp-<pid>-XXXX/mcp.json`. The
+ * directory is created 0700 by `mkdtemp`, the file 0600. */
 export async function writeAgentWorkerMcpFile(configJson: string): Promise<AgentWorkerMcpFile> {
-  const dir = await mkdtemp(join(tmpdir(), CONFIG_DIR_PREFIX));
-  await chmod(dir, 0o700);
+  const dir = await mkdtemp(join(tmpdir(), `${CONFIG_DIR_PREFIX}${process.pid}-`));
   const path = join(dir, "mcp.json");
-  await writeFile(path, configJson, { mode: 0o600 });
+  try {
+    await writeFile(path, configJson, { mode: 0o600 });
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
   return { path, remove: () => rm(dir, { recursive: true, force: true }) };
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it exists, we just may not signal it.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 let swept = false;
 
-/** Removes config dirs a previous relay left behind (killed mid-turn). Runs
- * once per process; only touches our own prefix and only old entries. */
-export async function sweepStaleAgentWorkerMcpFiles(now: number = Date.now()): Promise<void> {
+/** Removes config dirs whose owning process is gone (a relay killed
+ * mid-turn). Runs once per process; only touches our own prefix. */
+export async function sweepStaleAgentWorkerMcpFiles(): Promise<void> {
   if (swept) return;
   swept = true;
   try {
     const root = tmpdir();
-    await mkdir(root, { recursive: true });
     for (const name of await readdir(root)) {
-      if (!name.startsWith(CONFIG_DIR_PREFIX)) continue;
-      const path = join(root, name);
-      try {
-        if (now - (await stat(path)).mtimeMs > STALE_AFTER_MS) await rm(path, { recursive: true, force: true });
-      } catch {
-        // raced with another cleanup; nothing to do
-      }
+      const match = new RegExp(`^${CONFIG_DIR_PREFIX}(\\d+)-`).exec(name);
+      if (!match || processIsAlive(Number(match[1]))) continue;
+      await rm(join(root, name), { recursive: true, force: true }).catch(() => {});
     }
   } catch {
     // best effort

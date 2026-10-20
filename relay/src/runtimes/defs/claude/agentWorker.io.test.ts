@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { readUserMcpServers, sweepStaleAgentWorkerMcpFiles, writeAgentWorkerMcpFile } from "./agentWorker.js";
@@ -79,17 +80,22 @@ test("writeAgentWorkerMcpFile: private dir and file, content intact, gone after 
   await file.remove(); // idempotent
 });
 
-test("sweepStaleAgentWorkerMcpFiles: removes an old leftover dir, keeps a fresh one", async () => {
-  const old = await writeAgentWorkerMcpFile("{}");
-  const fresh = await writeAgentWorkerMcpFile("{}");
+test("sweepStaleAgentWorkerMcpFiles: removes a dir whose owner is gone, keeps live owners' dirs", async () => {
+  // A pid that certainly belonged to a process and no longer does.
+  const finished = spawnSync(process.execPath, ["-e", ""]);
+  const deadPid = finished.pid;
+  const deadDir = mkdtempSync(join(tmpdir(), `anywh-worker-mcp-${String(deadPid)}-`));
+  writeFileSync(join(deadDir, "mcp.json"), "{}");
+  const mine = await writeAgentWorkerMcpFile("{}");
+  const parentDir = mkdtempSync(join(tmpdir(), `anywh-worker-mcp-${String(process.ppid)}-`));
   try {
-    const longAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
-    utimesSync(dirname(old.path), longAgo, longAgo);
     await sweepStaleAgentWorkerMcpFiles();
-    assert.equal(existsSync(old.path), false);
-    assert.equal(existsSync(fresh.path), true);
+    assert.equal(existsSync(deadDir), false);
+    assert.equal(existsSync(mine.path), true, "this process's own dir is never swept");
+    assert.equal(existsSync(parentDir), true, "another live process's dir is never swept, however old");
   } finally {
-    await old.remove();
-    await fresh.remove();
+    await mine.remove();
+    rmSync(deadDir, { recursive: true, force: true });
+    rmSync(parentDir, { recursive: true, force: true });
   }
 });
