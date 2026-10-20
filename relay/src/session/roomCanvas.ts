@@ -45,6 +45,9 @@ export interface RoomCanvas {
   areas: CanvasArea[];
   texts: CanvasText[];
   camera?: CanvasCamera;
+  /** The person arranged something by hand: clients stop laying the whole
+   * room out again and only place newcomers. */
+  manual?: boolean;
 }
 
 export const EMPTY_CANVAS: RoomCanvas = { positions: {}, areas: [], texts: [] };
@@ -137,7 +140,8 @@ export function parseRoomCanvas(value: unknown): RoomCanvas | undefined {
     }
     camera = { x: raw.x, y: raw.y, zoom: raw.zoom };
   }
-  return { positions, areas, texts, ...(camera ? { camera } : {}) };
+  if (value.manual !== undefined && typeof value.manual !== "boolean") return undefined;
+  return { positions, areas, texts, ...(camera ? { camera } : {}), ...(value.manual === true ? { manual: true } : {}) };
 }
 
 /** The sidecar file's path for a sessions file: `pessoal.json` →

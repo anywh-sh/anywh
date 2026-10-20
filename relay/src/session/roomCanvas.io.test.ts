@@ -18,6 +18,12 @@ test("parseRoomCanvas keeps a well-formed canvas, fills defaults and drops unkno
   assert.deepEqual(parseRoomCanvas({ ...canvas, extra: true }), canvas);
 });
 
+test("parseRoomCanvas keeps the manual flag only when it is true", () => {
+  assert.equal(parseRoomCanvas({ ...canvas, manual: true })?.manual, true);
+  assert.equal("manual" in (parseRoomCanvas({ ...canvas, manual: false }) ?? {}), false);
+  assert.equal(parseRoomCanvas({ ...canvas, manual: "yes" }), undefined);
+});
+
 test("parseRoomCanvas rejects the whole canvas when any part is malformed", () => {
   const bad: [string, unknown][] = [
     ["not an object", []],
