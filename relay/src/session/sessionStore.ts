@@ -636,9 +636,24 @@ export class SessionStore {
    * `~/.claude/projects/`. */
   deleteEntry(id: string): boolean {
     if (!(id in this.records)) return false;
+    const roomId = this.records[id].room?.roomId;
     delete this.records[id];
     this.persist();
+    if (roomId !== undefined) this.roomChanged?.(id, roomId);
     return true;
+  }
+
+  /** Told whenever something a room's state is read from changes on one of
+   * its members: its membership record, or a question or approval waiting
+   * for the person. */
+  private roomChanged: ((sessionId: string, roomId: string) => void) | undefined;
+  onRoomChange(listener: (sessionId: string, roomId: string) => void): void {
+    this.roomChanged = listener;
+  }
+
+  private notifyRoom(id: string): void {
+    const roomId = this.records[id]?.room?.roomId;
+    if (roomId !== undefined) this.roomChanged?.(id, roomId);
   }
 
   /** Used both to record the title inferred from the first prompt and for a
@@ -797,6 +812,7 @@ export class SessionStore {
       this.records[id].pendingChoice = structuredClone(choice);
     }
     this.persist();
+    this.notifyRoom(id);
   }
 
   /** A worker of a room whose principal exists: reached through the room. */
@@ -812,6 +828,7 @@ export class SessionStore {
 
   /** `undefined` takes the session out of its room. */
   setRoom(id: string, room: RoomMembership | undefined): void {
+    const previousRoomId = this.records[id]?.room?.roomId;
     if (room === undefined) {
       if (this.records[id]?.room === undefined) return;
       delete this.records[id].room;
@@ -820,6 +837,8 @@ export class SessionStore {
       this.records[id].room = structuredClone(room);
     }
     this.persist();
+    const roomId = room?.roomId ?? previousRoomId;
+    if (roomId !== undefined) this.roomChanged?.(id, roomId);
   }
 
   getPendingApproval(id: string): PersistedApproval | undefined {
@@ -837,6 +856,7 @@ export class SessionStore {
       this.records[id].pendingApproval = structuredClone(approval);
     }
     this.persist();
+    this.notifyRoom(id);
   }
 
   getQueuedApproval(id: string): PersistedApproval | undefined {
@@ -853,6 +873,7 @@ export class SessionStore {
       this.records[id].queuedApproval = structuredClone(approval);
     }
     this.persist();
+    this.notifyRoom(id);
   }
 
   /** Every session of room `roomId` (its principal included), as id and

@@ -21,6 +21,8 @@ import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handlePushRoutes } from "./routes/push.js";
 import { handleRoomRoutes } from "./routes/rooms.js";
+import { handleRoomWatchConnection } from "./ws/room.js";
+import { RoomChannel } from "./session/roomChannel.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
@@ -134,7 +136,14 @@ const sessionManager = new SessionManager(
     roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),
     admit: (id): string | undefined => roomManager.admit(id),
     onTurnSettled: (id, outcome): void => roomManager.onTurnSettled(id, outcome),
-    onRoomDeleted: (roomId) => roomCanvas.delete(roomId),
+    onRoomDeleted: (roomId) => {
+      roomCanvas.delete(roomId);
+      roomChannel.closeRoom(roomId);
+    },
+    onMemberChanged: (id) => {
+      const roomId = sessionStore.getRoom(id)?.roomId;
+      if (roomId !== undefined) roomChannel.touch(roomId);
+    },
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
     owner: roomBridge.ownerId,
@@ -172,6 +181,9 @@ const roomManager: RoomManager = new RoomManager({
   getModelCatalog: (agentId) => modelCatalogs[agentId],
 });
 roomBridge.attach(roomManager);
+// Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
+const roomChannel = new RoomChannel(roomManager);
+sessionStore.onRoomChange((_sessionId, roomId) => roomChannel.touch(roomId));
 // Removals that were waiting out their undo window when the relay stopped.
 roomManager.sweepRemoved();
 // Every time the relay (re)connects to its host: agents the rooms no longer
@@ -398,6 +410,19 @@ wss.on("connection", (socket: WebSocket, request) => {
 
   if (url.pathname === "/mcp-login") {
     handleMcpLoginConnection(socket, url, routeContext);
+    return;
+  }
+
+  const roomWatch = /^\/rooms\/([^/]+)\/watch$/.exec(url.pathname);
+  if (roomWatch) {
+    let roomId: string;
+    try {
+      roomId = decodeURIComponent(roomWatch[1]);
+    } catch {
+      socket.close(4400, "malformed path");
+      return;
+    }
+    handleRoomWatchConnection(socket, roomId, roomChannel);
     return;
   }
 

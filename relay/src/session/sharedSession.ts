@@ -246,6 +246,8 @@ export interface SharedSessionOptions {
   /** Called once each turn is over, with how it ended — how a room learns
    * that a worker's turn failed or ended without a report. */
   onTurnSettled?: (outcome: TurnOutcome) => void;
+  /** Called whenever a turn starts or ends (what `turn_state` tells clients). */
+  onTurnStateChange?: () => void;
 }
 
 /** How a turn ended, as `onTurnSettled` reports it. */
@@ -349,6 +351,9 @@ export class SharedSession implements SessionDriverHost {
    * reached the front of the queue, and the last dropped by
    * `discardQueuedTurns` (waiting turns up to it never run). */
   private enqueuedSeq = 0;
+  /** A queued turn has left the queue and has not started yet (it reads the
+   * conversation's history first): cleared as `turnStartedAt` takes over. */
+  private runningFromQueue = false;
   private dequeuedSeq = 0;
   private discardedUpTo = 0;
   private cwd: string;
@@ -1343,7 +1348,14 @@ export class SharedSession implements SessionDriverHost {
     this.turnQueue = this.turnQueue.then(async () => {
       this.dequeuedSeq = seq;
       if (seq <= this.discardedUpTo) return;
-      await run();
+      // Between leaving the queue and the turn's own start nothing else says
+      // the session is busy.
+      this.runningFromQueue = true;
+      try {
+        await run();
+      } finally {
+        this.runningFromQueue = false;
+      }
     });
   }
 
@@ -1371,7 +1383,7 @@ export class SharedSession implements SessionDriverHost {
 
   /** A turn is running, or one is waiting to. */
   isBusy(): boolean {
-    return this.turnStartedAt !== null || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
+    return this.turnStartedAt !== null || this.runningFromQueue || this.enqueuedSeq > Math.max(this.dequeuedSeq, this.discardedUpTo);
   }
 
   waitForIdle(): Promise<void> {
@@ -1516,6 +1528,7 @@ export class SharedSession implements SessionDriverHost {
     const clock = new ActivityClock(Date.now);
     const bridgeFilter = new BridgeToolFilter();
     this.turnStartedAt = clock.startedAt;
+    this.runningFromQueue = false;
     this.broadcastTurnState();
 
     // First thing in the log for this turn — see `AgentEvent`'s own doc
@@ -1777,6 +1790,7 @@ export class SharedSession implements SessionDriverHost {
   }
 
   private broadcastTurnState(): void {
+    this.options.onTurnStateChange?.();
     broadcastTurnState(this.clients, this.turnStartedAt);
   }
 

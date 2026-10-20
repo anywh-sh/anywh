@@ -30,6 +30,7 @@ import {
   type RoomAgentState,
   type RoomMembership,
 } from "./room.js";
+import { summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
 import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
 import {
   ROOM_MCP_SERVER_NAME,
@@ -256,6 +257,51 @@ export class RoomManager implements RoomToolHost {
     void _stopped;
     this.store.setRoom(agentId, rest);
     return { ok: true };
+  }
+
+  /** What the person is being asked by `id`, from what is persisted. */
+  private needsYou(id: string): NeedsYou[] {
+    const out: NeedsYou[] = [];
+    const choice = this.store.getPendingChoice(id);
+    if (choice) out.push({ kind: "choice", promptId: choice.promptId, ...(choice.askedAt !== undefined ? { askedAt: choice.askedAt } : {}), count: choice.questions.length });
+    const approval = this.store.getPendingApproval(id);
+    if (approval) out.push({ kind: "approval", promptId: approval.promptId, ...(approval.askedAt !== undefined ? { askedAt: approval.askedAt } : {}), count: approval.calls.length });
+    return out;
+  }
+
+  /** One agent as the room's channel shows it. */
+  private agentView(id: string, room: RoomMembership): RoomAgentView {
+    const runtime = this.store.getAgentId(id);
+    const needsYou = this.needsYou(id);
+    return {
+      agentId: id,
+      role: room.role,
+      ...(room.parentId !== undefined ? { parentId: room.parentId } : {}),
+      title: this.store.getTitle(id),
+      runtime,
+      model: this.store.getModel(id, runtime) ?? null,
+      ...(room.area ? { area: room.area } : {}),
+      createdBy: room.createdBy,
+      state: this.stateOf(id, room),
+      queuedMessages: room.queuedMessages?.length ?? 0,
+      ...(room.report
+        ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, at: room.report.at, ...(room.report.synthetic ? { fromRelay: true } : {}) } }
+        : {}),
+      needsYou,
+      subtasksRunning: this.options.sessions.peek(id)?.listSubtasks().filter((task) => task.status === "running").length ?? 0,
+    };
+  }
+
+  /** The whole room's state (every agent but the removed ones, the
+   * principal first) and its totals, or `undefined` when there is no such
+   * room. */
+  snapshot(roomId: string): RoomSnapshot | undefined {
+    if (this.store.getRoom(roomId)?.role !== "principal") return undefined;
+    const agents = this.members(roomId)
+      .filter(({ room }) => room.stopped?.reason !== "removed")
+      .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
+      .map(({ id, room }) => this.agentView(id, room));
+    return { roomId, agents, summary: summarizeRoom(agents) };
   }
 
   /** `agentId` and every agent below it, in the room. */
