@@ -120,6 +120,8 @@ interface Agent {
   /** Codex only: an interrupt arrived before the turn had an id to name;
    * sent as soon as it has one. */
   codexInterruptPending?: boolean;
+  /** Codex only: the id of the last turn whose `turn/completed` was read. */
+  lastCodexTurnCompleted?: string;
   /** The sweep of what a crashed process left behind; a new process for
    * this agent must not start before it ends (it matches by agent id). */
   pendingSweep?: Promise<unknown>;
@@ -842,7 +844,11 @@ export class AgentHost {
       agent.failure = undefined;
       this.touch(agent);
       try {
-        agent.codexTurnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+        const turnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+        // A quick turn can be over (its `turn/completed` read) before this
+        // answer is: its id must not linger as the turn in flight, or a later
+        // Stop would name it instead of the next turn.
+        if (agent.turnInFlight && agent.lastCodexTurnCompleted !== turnId) agent.codexTurnId = turnId;
         if (agent.codexInterruptPending && agent.turnInFlight) this.interruptCodexTurn(agent);
       } catch (error) {
         agent.turnInFlight = false;
@@ -874,6 +880,8 @@ export class AgentHost {
       if (typeof id === "string") agent.codexTurnId = id;
       if (agent.codexInterruptPending) this.interruptCodexTurn(agent);
     } else if (method === "turn/completed") {
+      const id = (params as { turn?: { id?: unknown } }).turn?.id;
+      if (typeof id === "string") agent.lastCodexTurnCompleted = id;
       agent.turnInFlight = false;
       agent.codexTurnId = undefined;
       agent.lastTurnEndedAt = this.now();
