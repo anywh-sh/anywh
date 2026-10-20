@@ -7,6 +7,8 @@
 // Pure: no I/O.
 import type { AgentEvent } from "../protocol/agent-event.js";
 
+const SEEN_LIMIT = 512;
+
 export interface AgentUsage {
   responses: number;
   inputTokens: number;
@@ -19,10 +21,22 @@ export interface AgentUsage {
 
 export class UsageTally {
   private readonly totals = new Map<string, Omit<AgentUsage, "cacheHitRate">>();
+  // Response ids already counted, per agent, newest last. Bounded: a replay
+  // only ever repeats recent responses.
+  private readonly seen = new Map<string, Set<string>>();
 
   /** Counts a `usage` event of `agentId`; any other event is ignored. */
   observe(agentId: string, event: AgentEvent): void {
     if (event.type !== "usage") return;
+    // Claude emits one event per content block of a response, all with the
+    // same id and usage — and a replayed log repeats them. Count each once.
+    if (event.messageId !== undefined) {
+      const ids = this.seen.get(agentId) ?? new Set<string>();
+      if (ids.has(event.messageId)) return;
+      ids.add(event.messageId);
+      if (ids.size > SEEN_LIMIT) ids.delete(ids.values().next().value as string);
+      this.seen.set(agentId, ids);
+    }
     const total = this.totals.get(agentId) ?? { responses: 0, inputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
     total.responses += 1;
     total.inputTokens += event.inputTokens;
@@ -39,5 +53,6 @@ export class UsageTally {
 
   forget(agentId: string): void {
     this.totals.delete(agentId);
+    this.seen.delete(agentId);
   }
 }

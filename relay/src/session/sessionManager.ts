@@ -288,6 +288,44 @@ export class SessionManager {
     return session;
   }
 
+  /** Titles a session from `text` with the same generator an ordinary
+   * session's first prompt uses, for a caller that already gave the session a
+   * provisional title (a room's principal and its workers are titled when
+   * they are made, so `onFirstPrompt` never fires for them). The provisional
+   * title stays until the generated one lands; a rename or `/clear` in the
+   * meantime wins, same as for an ordinary session. */
+  generateTitle(id: string, text: string): void {
+    const session = this.getOrCreate(id);
+    this.runTitleGeneration(id, session, text, session.currentTitleGeneration());
+  }
+
+  private runTitleGeneration(id: string, session: SharedSession, text: string, generation: number): void {
+    // Re-resolves the current agent rather than closing over a def: `setAgent`/`switchAgent` mutate
+    // the same `SharedSession` in place.
+    const currentDef = this.registry.get(this.sessionStore.getAgentId(id)) ?? claudeRuntimeDef;
+    void (async () => {
+      try {
+        const title = await generateTitle(currentDef, this.homeOverride, session.getCwdState().cwd, text);
+        // Null means the prompt had no text worth a title and the model gave
+        // nothing back either. The session stays as it was and the client
+        // names it, rather than the relay writing a name in a language
+        // nobody picked.
+        if (title === null) return;
+        // `generation` is stale once `/clear` or a manual rename moved the
+        // session past it while this was in flight — writing anyway would
+        // either resurrect a title for a conversation that no longer exists
+        // or stomp a rename that landed first. A session that was deleted
+        // meanwhile must not get its record back either.
+        if (!session.isCurrentTitleGeneration(generation) || this.sessions.get(id) !== session) return;
+        this.sessionStore.setTitle(id, title);
+        session.setTitle(title);
+        this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+      } catch (error: unknown) {
+        console.error("[relay] failed to generate session title:", error);
+      }
+    })();
+  }
+
   /** Manual rename (sidebar dialog) — works even for a session with no tab
    * currently open (`sessions.get` may return `undefined`; only the
    * SessionStore needs to exist). If the session is open on some device,
@@ -495,33 +533,7 @@ export class SessionManager {
         // is the other way this can fire with a title already set — there it
         // doesn't apply, since `clearConversation` already nulled it out.
         if (this.sessionStore.getTitle(id) !== null) return;
-        // Re-resolves the current agent rather than closing over `def`
-        // above: `setAgent`/`switchAgent` mutate this same `SharedSession`
-        // in place instead of recreating it, so a session switched to
-        // Codex before its first prompt would otherwise still title itself
-        // with the Claude def this closure was built against.
-        const currentDef = this.registry.get(this.sessionStore.getAgentId(id)) ?? claudeRuntimeDef;
-        void (async () => {
-          try {
-            const title = await generateTitle(currentDef, this.homeOverride, session.getCwdState().cwd, text);
-            // Null means the first prompt had no text worth a title and the
-            // model gave nothing back either. The session stays untitled and
-            // the client names it, rather than the relay writing a name in a
-            // language nobody picked.
-            if (title === null) return;
-            // `generation` is stale once `/clear` or a manual rename moved
-            // the session past it while this was in flight — writing anyway
-            // would either resurrect a title for a conversation that no
-            // longer exists (blocking the *next* real generation attempt via
-            // the guard above) or stomp a rename that landed first.
-            if (!session.isCurrentTitleGeneration(generation)) return;
-            this.sessionStore.setTitle(id, title);
-            session.setTitle(title);
-            this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
-          } catch (error: unknown) {
-            console.error("[relay] failed to generate session title:", error);
-          }
-        })();
+        this.runTitleGeneration(id, session, text, generation);
       },
     });
     return session;

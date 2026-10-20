@@ -258,6 +258,10 @@ export type AgentEvent =
       prefixTokens: number;
       outputTokens: number;
       contextWindowSize?: number;
+      /** The API response this belongs to (Claude). The stream splits one
+       * response into one event per content block, each carrying the same
+       * `usage`; a consumer that sums responses counts each id once. */
+      messageId?: string;
     }
   /** A CLI-reported status change with no more specific event of its own yet
    * — today this is only ever a permission-mode change the CLI itself

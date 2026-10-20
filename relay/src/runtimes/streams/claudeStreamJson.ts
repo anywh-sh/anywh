@@ -105,6 +105,9 @@ function mapMessageContent(event: ClaudeEvent, memos: Map<string, ToolCallMemo> 
       // output-token source for Claude today. A consumer computing
       // attribution from `outputTokens` will systematically undercount it.
       outputTokens: message.usage.output_tokens ?? 0,
+      // One API response arrives as one `assistant` event per content block
+      // (thinking, text, each tool_use), all with the same id and usage.
+      ...(typeof message.id === "string" ? { messageId: message.id } : {}),
     });
   }
 

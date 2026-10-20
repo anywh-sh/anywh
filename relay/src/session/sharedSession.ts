@@ -766,6 +766,12 @@ export class SharedSession implements SessionDriverHost {
    * `generateTitle()` result, so a resolution that arrives after `/clear`
    * or a manual rename has moved the generation forward gets discarded
    * instead of overwriting a title that describes a different conversation. */
+  /** What `isCurrentTitleGeneration` compares against, for a caller that
+   * starts a title generation outside `onFirstPrompt`. */
+  currentTitleGeneration(): number {
+    return this.titleGeneration;
+  }
+
   isCurrentTitleGeneration(generation: number): boolean {
     return generation === this.titleGeneration;
   }

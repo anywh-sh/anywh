@@ -101,7 +101,7 @@ test("the principal delegates, the worker is born in the host, works and reports
     assert.equal(worker.room.area, "Research");
     assert.equal(worker.agentId, "claude");
     assert.equal(worker.model, "haiku");
-    assert.ok(worker.title?.startsWith("Count the lines of README"), "titled from its task, no title generated");
+    assert.ok(worker.title, "has a title the moment it exists: its task until a generated one replaces it");
     assert.deepEqual(worker.room.report && { status: worker.room.report.status, summary: worker.room.report.summary, artifacts: worker.room.report.artifacts }, {
       status: "done",
       summary: "README has 42 lines",
