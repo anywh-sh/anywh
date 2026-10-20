@@ -752,3 +752,618 @@
     animation: none !important;
   }
 }
+
+/* ─── the side panel, docked in the plane ─── */
+.sala-side {
+  flex: none;
+  width: 384px;
+  height: 100%;
+  min-width: 0;
+  border-left: 1px solid var(--border-soft);
+  background: var(--background);
+  color: var(--foreground);
+  overflow: hidden;
+  animation: sala-side-in var(--motion-base, 180ms) var(--motion-ease, ease-out);
+}
+@keyframes sala-side-in {
+  from {
+    width: 0;
+  }
+}
+.sala-side-in {
+  width: 384px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.sala-side-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 16px 14px;
+}
+.sala-side-mark {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.sala-tile.big {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+.sala-side-mark:has(.sala-tile) {
+  border: 0;
+  width: auto;
+  height: auto;
+}
+.sala-side-titles {
+  min-width: 0;
+  flex: 1;
+}
+.sala-side-title {
+  margin: 0;
+  font: 600 15px/20px var(--font-display);
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+.sala-side-sub {
+  margin: 2px 0 0;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-close {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.sala-side-close:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+.sala-side-body.flush {
+  padding: 0;
+}
+.sala-side-pad {
+  padding: 4px 16px 16px;
+}
+.sala-side-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-side-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-side-act {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-side-act:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-side .grow {
+  flex: 1;
+  min-width: 0;
+}
+.sala-side .trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sala-side .mono {
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-side .dim {
+  color: var(--text-faint);
+}
+.sala-side .warn {
+  color: var(--primary-ink);
+}
+.sala-side .ok {
+  color: var(--diff-add);
+}
+.sala-side-sec {
+  margin-top: 18px;
+}
+.sala-side-h {
+  margin: 0 0 8px;
+  font: 500 12px var(--font-mono);
+  letter-spacing: 0.01em;
+  color: var(--text-faint);
+}
+.sala-side-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  font-size: 13.5px;
+  color: var(--foreground);
+}
+.sala-side-row > svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.sala-side-row.wt {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.sala-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  background: var(--state-run);
+  opacity: 0.8;
+}
+.sala-side-empty {
+  margin: 0;
+  font: 400 12px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-empty.pad {
+  padding: 12px 16px;
+}
+.sala-side-fine {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+.sala-side-fine.first {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.sala-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--border-soft);
+}
+.sala-stats > div {
+  padding: 10px 12px 11px;
+  border-left: 1px solid var(--border-soft);
+}
+.sala-stats > div:first-child {
+  border-left: 0;
+}
+.sala-stats b {
+  display: block;
+  font: 500 20px/26px var(--font-display);
+}
+.sala-stats span {
+  display: block;
+  font: 400 11.5px/15px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-stats .warn b {
+  color: var(--primary-ink);
+}
+.sala-usage {
+  margin-bottom: 6px;
+}
+.sala-usage-bar {
+  display: block;
+  height: 2px;
+  background: var(--sala-seg);
+}
+.sala-usage-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--state-run);
+}
+.sala-ctx-item {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+}
+.sala-ctx-kind {
+  width: 28px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.sala-ctx-item b {
+  display: block;
+  font: 500 14px/18px var(--font-display);
+  overflow-wrap: anywhere;
+}
+.sala-ctx-item span {
+  display: block;
+  font: 400 11.5px/16px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  border-left: 2px solid var(--text-faint);
+  background: var(--sala-stop-bg);
+}
+.sala-side-note b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.sala-side-note.done {
+  border-color: var(--diff-add);
+  background: var(--sala-done-bg);
+}
+.sala-side-note.fail {
+  margin: 0;
+  border-color: var(--destructive);
+  background: var(--sala-fail-bg);
+}
+.sala-side-note.fail b {
+  color: var(--destructive);
+}
+.sala-side-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.sala-side-state {
+  --c: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 12.5px var(--font-mono);
+  color: var(--c);
+}
+.sala-side-state.run,
+.sala-side-state.start {
+  --c: var(--state-run);
+}
+.sala-side-state.wait {
+  --c: var(--primary-ink);
+}
+.sala-side-state.done {
+  --c: var(--diff-add);
+}
+.sala-side-state.fail {
+  --c: var(--destructive);
+}
+.sala-side-state.block {
+  --c: var(--context-ring-warn);
+}
+.sala-side-clock {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-by {
+  padding: 9px 16px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border-soft);
+}
+.sala-side-by.wait {
+  border-bottom-color: var(--primary);
+}
+.sala-side-q > div {
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.sala-side-report {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sala-side-files {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sala-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sala-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+}
+.sala-sub-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  background: var(--text-faint);
+}
+.sala-sub-dot.running {
+  background: var(--state-run);
+}
+.sala-sub-dot.completed {
+  background: var(--diff-add);
+}
+.sala-sub-dot.failed {
+  background: var(--destructive);
+}
+.sala-mini {
+  height: 22px;
+  padding: 0 8px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.sala-mini:hover {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+.sala-side-compose {
+  flex: none;
+  margin: 0 12px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.sala-side-box {
+  display: block;
+  width: 100%;
+  height: 72px;
+  padding: 10px 12px 0;
+  resize: none;
+  background: none;
+  border: 0;
+  outline: none;
+  font: 400 14px/20px var(--font-display);
+  color: var(--foreground);
+}
+.sala-side-box::placeholder {
+  color: var(--text-faint);
+}
+.sala-side-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 6px;
+}
+.sala-side-err {
+  font: 400 11.5px var(--font-mono);
+  color: var(--destructive);
+}
+.sala-send {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-hover);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.sala-send:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.sala-send:not(:disabled):hover {
+  background: var(--foreground);
+  color: var(--bg-chrome);
+}
+.sala-plus {
+  width: 13px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ─── about button, completed strip, launcher, answer popover ─── */
+.sala-about {
+  right: 12px;
+  top: 12px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #181715;
+  border: 1px solid var(--border-soft);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-about:hover {
+  color: var(--foreground);
+}
+.sala-done {
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-top-color: var(--diff-add);
+  font-size: 12.5px;
+  color: var(--diff-add);
+  white-space: nowrap;
+}
+.sala-done b {
+  font-weight: 500;
+}
+.sala-done span {
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-done button {
+  height: 24px;
+  padding: 0 9px;
+  margin-left: 4px;
+  font-size: 12.5px;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.sala-done button:hover {
+  background: var(--surface-hover);
+}
+.sala-launcher {
+  left: 50%;
+  bottom: 52px;
+  width: min(620px, calc(100% - 24px));
+  transform: translateX(-50%);
+  z-index: 35;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+}
+.sala-launcher-box {
+  display: block;
+  width: 100%;
+  height: 64px;
+  padding: 12px 14px 0;
+  resize: none;
+  background: var(--bg-elevated);
+  border: 0;
+  outline: none;
+  font: 400 15px/22px var(--font-display);
+  color: var(--foreground);
+}
+.sala-launcher-box::placeholder {
+  color: var(--text-faint);
+}
+.sala-launcher-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 6px;
+  background: var(--bg-elevated);
+}
+.sala-launcher-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-launcher-parent:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-launcher .grow {
+  flex: 1;
+  min-width: 0;
+}
+.sala-launcher .trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sala-launcher-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+  border-top: 1px solid var(--border-soft);
+}
+.sala-kbd {
+  padding: 1px 5px;
+  font: 400 10.5px var(--font-mono);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.sala-answer-at {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 25;
+  transform-origin: 0 0;
+}
+.sala-answer {
+  width: 360px;
+  transform: scale(var(--inv, 1));
+  transform-origin: 0 0;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-top-color: var(--primary);
+  box-shadow: var(--shadow-popover);
+}
+.sala-answer > div:first-child {
+  margin: 0;
+  border: 0;
+}
+.sala-answer-wait {
+  margin: 0;
+  padding: 14px;
+  font: 400 12px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-answer-foot {
+  display: flex;
+  padding: 4px 6px;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-answer-foot button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-answer-foot button:hover {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}

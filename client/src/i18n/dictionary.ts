@@ -1329,6 +1329,8 @@ export interface Dictionary {
       /** The bar over a selected card. */
       actions: {
         label: string;
+        open: string;
+        delegate: string;
         group: string;
         stop: string;
         remove: string;
@@ -1367,6 +1369,124 @@ export interface Dictionary {
       /** Tooltip words around a shortcut. */
       orHold: string;
       space: string;
+    };
+    /** The right-hand panel: about the room, one agent, the principal's chat. */
+    panel: {
+      close: string;
+      /** The "i" button over the canvas. */
+      about: string;
+      aboutRoom: {
+        /** `{age}`. */
+        subtitle: string;
+        ageNow: string;
+        /** `{count}`. */
+        ageMin: string;
+        ageHour: string;
+        ageDay: string;
+        statAgents: string;
+        statRunning: string;
+        statWaiting: string;
+        statDone: string;
+        where: string;
+        folder: string;
+        profile: string;
+        areas: string;
+        noAreas: string;
+        usage: string;
+        /** What the numbers are, and what they are not. */
+        usageNote: string;
+        usageEmpty: string;
+        /** `{count}` tokens. */
+        tokens: string;
+        connectors: string;
+        connectorsEmpty: string;
+        context: string;
+        contextBody: string;
+        contextEmpty: string;
+        worktrees: string;
+        worktreesEmpty: string;
+        /** `{size}`. */
+        worktreesTotal: string;
+        completedTitle: string;
+        /** `{count}` worktrees kept. */
+        completedKept: string;
+        completedClean: string;
+      };
+      agent: {
+        /** `{runtime}`, `{model}`. */
+        subtitle: string;
+        /** `{title}`. */
+        delegatedBy: string;
+        principal: string;
+        work: string;
+        noWork: string;
+        /** `{count}` commits. */
+        commits: string;
+        commitsOne: string;
+        integrated: string;
+        notIntegrated: string;
+        /** `{size}`. */
+        worktreeSize: string;
+        connectors: string;
+        subtasks: string;
+        subtaskStop: string;
+        activity: string;
+        report: string;
+        failedTitle: string;
+        failedBody: string;
+        stoppedTitle: string;
+        removedWork: string;
+        permission: string;
+        messagePlaceholder: string;
+        send: string;
+        sendFailed: string;
+        connecting: string;
+        openInTab: string;
+        delegate: string;
+        stop: string;
+        resume: string;
+        remove: string;
+      };
+      principal: {
+        /** `{model}`. */
+        subtitle: string;
+      };
+    };
+    /** The launcher over the toolbar. */
+    launcher: {
+      label: string;
+      placeholder: string;
+      /** `{title}`. */
+      delegatedBy: string;
+      pickParent: string;
+      agentLabel: string;
+      send: string;
+      /** `{count}` items. */
+      inherits: string;
+      escape: string;
+      failed: string;
+      full: string;
+    };
+    /** The answer popover anchored to a card. */
+    answer: {
+      label: string;
+      openConversation: string;
+      connecting: string;
+    };
+    /** A room whose agents all finished. */
+    completed: {
+      title: string;
+      /** `{count}`. */
+      kept: string;
+      review: string;
+    };
+    /** Removing an agent whose work was never integrated. */
+    discard: {
+      title: string;
+      /** `{title}`, `{work}`. */
+      body: string;
+      confirm: string;
+      cancel: string;
     };
     minimap: string;
     toast: {

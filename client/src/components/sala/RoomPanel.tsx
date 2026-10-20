@@ -1,10 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SalaCanvas } from "@/components/sala/SalaCanvas";
+import { CheckIcon } from "@/components/sala/SalaIcons";
+import { AboutRoomPanel } from "@/components/sala/AboutRoomPanel";
+import { AgentAnswer } from "@/components/sala/AgentAnswer";
+import { AgentPanel } from "@/components/sala/AgentPanel";
+import { NewAgentLauncher, type LaunchOutcome } from "@/components/sala/NewAgentLauncher";
+import { SalaCanvas, type SalaCanvasHandle } from "@/components/sala/SalaCanvas";
+import { useRoomWorktrees } from "@/hooks/sala/useRoomWorktrees";
 import { useRoomChannel } from "@/hooks/sala/useRoomChannel";
 import { useRoomCanvas } from "@/hooks/sala/useRoomCanvas";
 import { useDict } from "@/i18n";
 import { effectiveModel, getModelCatalogs, labelForModel } from "@/lib/composer/modelCatalog";
-import { addRoomContextFile, fetchRoomContextCount, removeRoomAgent, restoreRoomAgent, stopRoomAgent, type RoomAgent } from "@/lib/relay/roomClient";
+import {
+  addRoomContextFile,
+  DiscardNeededError,
+  fetchRoomContextCount,
+  launchRoomAgent,
+  removeRoomAgent,
+  restoreRoomAgent,
+  resumeRoomAgent,
+  RoomRequestError,
+  stopRoomAgent,
+  type LaunchAgentInput,
+  type RoomAgent,
+} from "@/lib/relay/roomClient";
+import { isRoomCompleted } from "@/lib/sala/roomStatus";
+import { retainedWorktrees } from "@/lib/sala/roomFigures";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { Camera } from "@/lib/sala/camera";
 
@@ -20,7 +40,11 @@ interface RoomPanelProps {
   onConnectedChange: (connected: boolean) => void;
   /** The room no longer exists on the relay. */
   onGone: () => void;
+  /** Opens one of the room's agents as a tab of its own. */
+  onOpenSession: (sessionId: string, title: string | null) => void;
 }
+
+type PanelState = { kind: "about" } | { kind: "agent"; id: string } | null;
 
 /**
  * A room's tab: its live state (one channel), its layout (the relay's
@@ -28,12 +52,15 @@ interface RoomPanelProps {
  * goes through the relay and comes back over the channel — it keeps no copy
  * of an agent's state of its own.
  */
-export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnectedChange, onGone }: RoomPanelProps) {
+export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnectedChange, onGone, onOpenSession }: RoomPanelProps) {
   const dict = useDict().sala;
   const channel = useRoomChannel(profile, roomId);
   const ready = channel.summary !== null;
   const layout = useRoomCanvas(profile, roomId, channel.agents, ready);
   const [contextCount, setContextCount] = useState(0);
+  const [panel, setPanel] = useState<PanelState>(null);
+  const [launcher, setLauncher] = useState<{ open: boolean; parentId: string | undefined }>({ open: false, parentId: undefined });
+  const canvasHandle = useRef<SalaCanvasHandle>(null);
   const gone = channel.status === "gone" || layout.status === "missing";
   const goneNotified = useRef(false);
 
@@ -92,10 +119,11 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     [profile, roomId],
   );
   const onRemoveAgent = useCallback(
-    (agentId: string) =>
-      removeRoomAgent(profile, roomId, agentId).then(
+    (agentId: string, discard: boolean) =>
+      removeRoomAgent(profile, roomId, agentId, { discard }).then(
         (result) => ({ undoMs: result.undoMs }),
         (error: unknown) => {
+          if (error instanceof DiscardNeededError) return { needsDiscard: error.worktrees };
           console.error("[anywh] failed to remove a room agent", error);
           return null;
         },
@@ -113,6 +141,24 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       ),
     [profile, roomId],
   );
+  const onResumeAgent = useCallback(
+    (agentId: string) => {
+      resumeRoomAgent(profile, roomId, agentId).catch((error: unknown) => console.error("[anywh] failed to resume a room agent", error));
+    },
+    [profile, roomId],
+  );
+  const onLaunch = useCallback(
+    async (input: LaunchAgentInput): Promise<LaunchOutcome> => {
+      try {
+        await launchRoomAgent(profile, roomId, input);
+        return { ok: true };
+      } catch (error) {
+        console.error("[anywh] failed to start a room agent", error);
+        return { ok: false, reason: error instanceof RoomRequestError && error.status === 409 ? "full" : "failed" };
+      }
+    },
+    [profile, roomId],
+  );
   const onAttachFiles = useCallback(
     async (files: File[]) => {
       try {
@@ -128,6 +174,18 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     [profile, roomId, refreshContext],
   );
 
+  const principalId = channel.agents.find((a) => a.role === "principal")?.agentId;
+  const panelAgent = panel?.kind === "agent" ? channel.agents.find((a) => a.agentId === panel.id) : undefined;
+  const refreshKey = channel.agents.map((a) => `${a.agentId}:${a.state}:${String(a.report?.at ?? 0)}`).join("|");
+  const completed = isRoomCompleted(channel.agents);
+  const worktrees = useRoomWorktrees(profile, roomId, refreshKey, completed || panelAgent !== undefined);
+  const kept = retainedWorktrees(worktrees.data.worktrees).length;
+
+  // The agent a panel showed is gone (removed): so is the panel.
+  useEffect(() => {
+    if (panel?.kind === "agent" && !panelAgent && ready) setPanel(null);
+  }, [panel, panelAgent, ready]);
+
   if (gone) {
     return <div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-text-faint">{dict.canvas.gone}</div>;
   }
@@ -137,23 +195,81 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     return <div className="flex h-full items-center justify-center font-mono text-[13px] text-text-faint">{dict.canvas.loading}</div>;
   }
 
+  const openLauncher = (parentId?: string): void => {
+    setLauncher((current) => (current.open && parentId === undefined ? { open: false, parentId: undefined } : { open: true, parentId: parentId ?? principalId }));
+  };
+
   return (
-    <div className="relative h-full min-w-0 bg-background" data-room-id={roomId}>
-      <SalaCanvas
-        agents={channel.agents}
-        since={channel.since}
-        canvas={layout.canvas}
-        contextCount={contextCount}
-        modelLabelOf={modelLabelOf}
-        reconnecting={channel.status === "reconnecting"}
-        saveFailed={layout.saveFailed}
-        onCanvasChange={layout.update}
-        onCameraSettled={onCameraSettled}
-        onStopAgent={onStopAgent}
-        onRemoveAgent={onRemoveAgent}
-        onRestoreAgent={onRestoreAgent}
-        onAttachFiles={onAttachFiles}
-      />
+    <div className="flex h-full min-w-0 bg-background" data-room-id={roomId}>
+      <div className="relative h-full min-w-0 flex-1">
+        <SalaCanvas
+          handleRef={canvasHandle}
+          agents={channel.agents}
+          since={channel.since}
+          canvas={layout.canvas}
+          contextCount={contextCount}
+          modelLabelOf={modelLabelOf}
+          reconnecting={channel.status === "reconnecting"}
+          saveFailed={layout.saveFailed}
+          onCanvasChange={layout.update}
+          onCameraSettled={onCameraSettled}
+          onStopAgent={onStopAgent}
+          onRemoveAgent={onRemoveAgent}
+          onRestoreAgent={onRestoreAgent}
+          onAttachFiles={onAttachFiles}
+          onOpenAgent={(agentId) => setPanel({ kind: "agent", id: agentId })}
+          onNewAgent={openLauncher}
+          newAgentOpen={launcher.open}
+          launcher={
+            launcher.open && (
+              <NewAgentLauncher
+                key={launcher.parentId}
+                profile={profile}
+                agents={channel.agents}
+                parentId={launcher.parentId ?? principalId ?? roomId}
+                contextCount={contextCount}
+                onParent={(parentId) => setLauncher({ open: true, parentId })}
+                onLaunch={onLaunch}
+                onClose={() => setLauncher({ open: false, parentId: undefined })}
+              />
+            )
+          }
+          onAbout={() => setPanel((current) => (current?.kind === "about" ? null : { kind: "about" }))}
+          aboutVisible={panel === null}
+          renderAnswer={(agent, close) => <AgentAnswer profile={profile} agent={agent} onClose={close} onOpenConversation={() => setPanel({ kind: "agent", id: agent.agentId })} />}
+          onEscape={() => setPanel(null)}
+        />
+        {completed && (
+          <div className="sala-float sala-done" data-float role="status">
+            <CheckIcon size={12} />
+            <b>{dict.completed.title}</b>
+            {kept > 0 && <span>{dict.completed.kept.replace("{count}", String(kept))}</span>}
+            <button type="button" onClick={() => setPanel({ kind: "about" })}>
+              {dict.completed.review}
+            </button>
+          </div>
+        )}
+      </div>
+      {panel?.kind === "about" && (
+        <AboutRoomPanel profile={profile} roomId={roomId} title={principalTitle ?? dict.card.untitled} agents={channel.agents} canvas={layout.canvas} refreshKey={refreshKey} onClose={() => setPanel(null)} />
+      )}
+      {panelAgent && (
+        <AgentPanel
+          profile={profile}
+          roomId={roomId}
+          agent={panelAgent}
+          parent={channel.agents.find((a) => a.agentId === panelAgent.parentId && a.role === "worker")}
+          modelLabel={modelLabelOf(panelAgent)}
+          observedSince={channel.since.get(panelAgent.agentId)?.since ?? 0}
+          worktrees={worktrees.data.worktrees}
+          onClose={() => setPanel(null)}
+          onOpenInTab={(agentId) => onOpenSession(agentId, channel.agents.find((a) => a.agentId === agentId)?.title ?? null)}
+          onDelegate={(agentId) => openLauncher(agentId)}
+          onStop={(agentId) => void onStopAgent(agentId)}
+          onResume={onResumeAgent}
+          onRemove={(agentId) => canvasHandle.current?.removeAgent(agentId)}
+        />
+      )}
     </div>
   );
 }

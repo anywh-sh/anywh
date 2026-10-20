@@ -51,6 +51,9 @@ export interface TabPanelActions {
   /** A new-session tab opened a room: `tab` is now the room, `roomId` its id,
    * and `firstMessage` is still to be handed to its principal. */
   onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string, firstMessage: string) => void;
+  /** Opens (or focuses) another session of the profile as a tab: a room's
+   * agent, from its panel. */
+  onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
 }
 
 interface TabChatProps {
@@ -173,6 +176,7 @@ export const TabPanel = memo(function TabPanel({
         onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
         onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
         onGone={() => actions.onDeleted(tab)}
+        onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
       />
     );
   }

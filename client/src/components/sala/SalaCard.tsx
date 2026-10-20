@@ -3,7 +3,7 @@ import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { cardActivity, cardClock, cardStatus, formatClock, progressSegments, PROGRESS_SEGMENTS, runtimeTile, type CardClock } from "@/lib/sala/agentCard";
 import type { RoomAgent } from "@/lib/relay/roomClient";
-import { CheckIcon, CloseIcon, LayersIcon, AreaIcon, TrashIcon } from "@/components/sala/SalaIcons";
+import { CheckIcon, CloseIcon, ConversationGlyph, LayersIcon, AreaIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
 
 export interface SalaCardProps {
@@ -29,12 +29,15 @@ export interface SalaCardProps {
   canRemove: boolean;
   onPointerDown: (agentId: string, event: ReactPointerEvent<HTMLElement>) => void;
   onSelect: (agentId: string) => void;
+  onOpen: (agentId: string) => void;
+  onDelegate: (agentId: string) => void;
+  onReply: (agentId: string) => void;
   onGroup: (agentId: string) => void;
   onStop: (agentId: string) => void;
   onRemove: (agentId: string) => void;
 }
 
-function Clock({ clock }: { clock: CardClock }) {
+export function Clock({ clock }: { clock: CardClock }) {
   const dict = useDict().sala.card.clock;
   const now = useSecondTick();
   if (clock.kind === "none") return null;
@@ -60,7 +63,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const segments = progressSegments(status.tone);
   const title = agent.title ?? dict.untitled;
   const main = agent.role === "principal";
-  const showBar = selected && (props.canGroup || props.canStop || props.canRemove);
+  const showBar = selected;
 
   const activityText = ((): string => {
     switch (activity.kind) {
@@ -124,7 +127,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
             <Clock clock={clock} />
           </span>
           {status.tone === "wait" ? (
-            <button type="button" className="sala-reply" data-nodrag onClick={() => props.onSelect(agent.agentId)}>
+            <button type="button" className="sala-reply" data-nodrag onClick={() => props.onReply(agent.agentId)}>
               {dict.reply}
             </button>
           ) : (
@@ -139,6 +142,18 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
       {hasKids && <span className="sala-port bot" aria-hidden="true" />}
       {showBar && (
         <div className="sala-bar" data-nodrag role="toolbar" aria-label={dict.actions.label}>
+          <button type="button" onClick={() => props.onOpen(agent.agentId)}>
+            <ConversationGlyph size={13} />
+            <span>{dict.actions.open}</span>
+          </button>
+          {agent.state !== "stopped" && (
+            <button type="button" onClick={() => props.onDelegate(agent.agentId)}>
+              <span aria-hidden="true" className="sala-plus">
+                +
+              </span>
+              <span>{dict.actions.delegate}</span>
+            </button>
+          )}
           {props.canGroup && (
             <button type="button" onClick={() => props.onGroup(agent.agentId)}>
               <AreaIcon size={13} />

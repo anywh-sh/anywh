@@ -11,6 +11,9 @@ interface SalaToolbarProps {
   zoomText: string;
   zoomLabelRef: React.RefObject<HTMLSpanElement | null>;
   onTool: (tool: SalaTool) => void;
+  /** The launcher for a new agent is open. */
+  newAgentOpen: boolean;
+  onNewAgent: () => void;
   onAttach: () => void;
   onZoomOut: () => void;
   onZoomIn: () => void;
@@ -50,12 +53,11 @@ export function SalaToolbar(props: SalaToolbarProps) {
         {tool("select", dict.select, ["V"], <SelectIcon />)}
         {tool("hand", dict.hand, ["H", dict.space], <HandIcon />)}
         <span className="sala-sep" aria-hidden="true" />
-        {/* No path yet for the person to start an agent by hand: the room's
-         * principal is the one that delegates. Shown, disabled, so the
-         * toolbar is the design's and the gap is visible. */}
-        <button type="button" className="sala-tool" disabled aria-label={dict.newAgentSoon} title={dict.newAgentSoon}>
-          <NewAgentIcon />
-        </button>
+        <Tip label={dict.newAgent} keys={["A"]}>
+          <button type="button" className={cn("sala-tool", props.newAgentOpen && "on")} aria-label={dict.newAgent} aria-pressed={props.newAgentOpen} onClick={props.onNewAgent}>
+            <NewAgentIcon />
+          </button>
+        </Tip>
         <Tip label={dict.attach} keys={["U"]}>
           <button type="button" className="sala-tool" aria-label={dict.attach} onClick={props.onAttach}>
             <AttachIcon />

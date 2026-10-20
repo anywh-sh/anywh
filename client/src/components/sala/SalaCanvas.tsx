@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
-import type { RoomAgent, RoomAgentState, RoomCanvas, RoomCanvasText } from "@/lib/relay/roomClient";
+import type { RoomAgent, RoomAgentState, RoomCanvas, RoomCanvasText, RoomWorktree } from "@/lib/relay/roomClient";
 import {
   MINIMAP_H,
   MINIMAP_W,
@@ -28,9 +28,10 @@ import {
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
 import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
-import { CloseIcon } from "@/components/sala/SalaIcons";
+import { AboutIcon, CloseIcon } from "@/components/sala/SalaIcons";
 
 export interface SalaCanvasProps {
   agents: readonly RoomAgent[];
@@ -45,9 +46,31 @@ export interface SalaCanvasProps {
   /** The camera came to rest (or was set): where it is now. */
   onCameraSettled: (camera: Camera) => void;
   onStopAgent: (agentId: string) => Promise<boolean>;
-  onRemoveAgent: (agentId: string) => Promise<{ undoMs: number } | null>;
+  /** `needsDiscard`: the agent has work nobody integrated and the relay waits
+   * for the person to say it may be thrown away. */
+  onRemoveAgent: (agentId: string, discard: boolean) => Promise<{ undoMs: number } | { needsDiscard: RoomWorktree[] } | null>;
   onRestoreAgent: (agentId: string) => Promise<boolean>;
   onAttachFiles: (files: File[]) => Promise<boolean>;
+  /** "Open conversation" on a card: the room's side panel shows that agent. */
+  onOpenAgent: (agentId: string) => void;
+  /** "Delegate" on a card, or the toolbar's new agent (`undefined`): the launcher opens. */
+  onNewAgent: (parentId?: string) => void;
+  newAgentOpen: boolean;
+  /** The launcher, drawn over the toolbar while it is open. */
+  launcher: ReactNode;
+  /** The "i" button: about the room. Hidden while a side panel is open. */
+  onAbout: () => void;
+  aboutVisible: boolean;
+  /** What an agent asked, answerable under its card. */
+  renderAnswer: (agent: RoomAgent, close: () => void) => ReactNode;
+  /** Esc with nothing left to clear: closes the side panel. */
+  onEscape: () => void;
+  /** Lets the room's panel remove an agent through the same flow as the card's bar. */
+  handleRef?: Ref<SalaCanvasHandle>;
+}
+
+export interface SalaCanvasHandle {
+  removeAgent: (agentId: string) => void;
 }
 
 interface Toast {
@@ -99,6 +122,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const [spaceDown, setSpaceDown] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
+  const [answering, setAnswering] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [zoomPct, setZoomPct] = useState(100);
   const [measured, setMeasured] = useState(false);
@@ -734,6 +758,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const select = useCallback((id: string) => {
     setSelected(id);
     setSelectedArea(null);
+    setAnswering(null);
+  }, []);
+  const reply = useCallback((id: string) => {
+    setSelected(id);
+    setSelectedArea(null);
+    setAnswering((current) => (current === id ? null : id));
   }, []);
 
   const groupAgent = useCallback(
@@ -759,12 +789,17 @@ export function SalaCanvas(props: SalaCanvasProps) {
     [dict.toast.stopFailed, showToast],
   );
 
+  const [discardAsk, setDiscardAsk] = useState<{ agentId: string; worktrees: RoomWorktree[] } | null>(null);
   const removeAgent = useCallback(
-    (agentId: string) => {
+    (agentId: string, discard = false) => {
       setSelected(null);
-      void latest.current.onRemoveAgent(agentId).then((result) => {
+      void latest.current.onRemoveAgent(agentId, discard).then((result) => {
         if (!result) {
           showToast(dict.toast.removeFailed);
+          return;
+        }
+        if ("needsDiscard" in result) {
+          setDiscardAsk({ agentId, worktrees: result.needsDiscard });
           return;
         }
         showToast(
@@ -784,6 +819,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     },
     [dict.toast, showToast],
   );
+
+  useImperativeHandle(props.handleRef, () => ({ removeAgent: (agentId: string) => removeAgent(agentId) }), [removeAgent]);
 
   const attach = useCallback(
     (files: File[]) => {
@@ -814,10 +851,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
         return;
       }
       if (tool !== "select") setTool("select");
-      else {
+      else if (answering !== null) setAnswering(null);
+      else if (selected !== null || selectedArea !== null) {
         setSelected(null);
         setSelectedArea(null);
-      }
+      } else latest.current.onEscape();
       return;
     }
     if (typing || event.altKey || event.metaKey || event.ctrlKey) return;
@@ -844,7 +882,13 @@ export function SalaCanvas(props: SalaCanvasProps) {
     else if (lower === "h") setTool("hand");
     else if (lower === "t") setTool("text");
     else if (lower === "r") setTool("area");
-    else if (lower === "u") {
+    else if (lower === "a") {
+      event.preventDefault();
+      latest.current.onNewAgent();
+    } else if (lower === "i") {
+      event.preventDefault();
+      latest.current.onAbout();
+    } else if (lower === "u") {
       event.preventDefault();
       fileRef.current?.click();
     } else if ((key === "Delete" || key === "Backspace") && selected !== null) {
@@ -1061,15 +1105,34 @@ export function SalaCanvas(props: SalaCanvasProps) {
               canRemove={agent.role === "worker"}
               onPointerDown={onNodeDown}
               onSelect={select}
+              onOpen={props.onOpenAgent}
+              onDelegate={props.onNewAgent}
+              onReply={reply}
               onGroup={groupAgent}
               onStop={stopAgent}
               onRemove={removeAgent}
             />
           );
         })}
+        {answering !== null &&
+          (() => {
+            const agent = byId.get(answering);
+            const rect = rects.get(answering);
+            if (!agent || !rect || agent.needsYou.length === 0) return null;
+            return (
+              <div className="sala-answer-at" data-answer-for={answering} style={{ transform: translate(rect.x, rect.y + rect.h + 12) }}>
+                {props.renderAnswer(agent, () => setAnswering(null))}
+              </div>
+            );
+          })()}
         <div ref={drawEl} className="sala-frame empty" aria-hidden="true" style={{ display: "none" }} />
       </div>
 
+      {props.aboutVisible && (
+        <button type="button" className="sala-float sala-about" data-float onClick={props.onAbout} aria-label={dict.panel.about} title={dict.panel.about}>
+          <AboutIcon size={16} />
+        </button>
+      )}
       {!hasAgents && <div className="sala-empty">{dict.canvas.empty}</div>}
       {props.reconnecting && (
         <div className="sala-float sala-banner" data-float role="status">
@@ -1134,12 +1197,41 @@ export function SalaCanvas(props: SalaCanvasProps) {
         zoomText={`${String(zoomPct)}%`}
         zoomLabelRef={zoomLabelRef}
         onTool={setTool}
+        newAgentOpen={props.newAgentOpen}
+        onNewAgent={() => props.onNewAgent()}
         onAttach={() => fileRef.current?.click()}
         onZoomOut={() => zoomStep(-1)}
         onZoomIn={() => zoomStep(1)}
         onZoomReset={zoomTo100}
         onFit={() => fit(true, true)}
       />
+      {props.launcher}
+      <AlertDialog open={discardAsk !== null} onOpenChange={(open) => !open && setDiscardAsk(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{dict.discard.title}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody>
+            <AlertDialogDescription>
+              {dict.discard.body
+                .replace("{title}", byId.get(discardAsk?.agentId ?? "")?.title ?? dict.card.untitled)
+                .replace("{work}", (discardAsk?.worktrees ?? []).map((w) => w.branch).join(", "))}
+            </AlertDialogDescription>
+          </AlertDialogBody>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{dict.discard.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const ask = discardAsk;
+                setDiscardAsk(null);
+                if (ask) removeAgent(ask.agentId, true);
+              }}
+            >
+              {dict.discard.confirm}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <input
         ref={fileRef}
         type="file"

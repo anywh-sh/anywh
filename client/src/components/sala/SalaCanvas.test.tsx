@@ -38,6 +38,14 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         saveFailed={false}
         onCanvasChange={onCanvasChange}
         onCameraSettled={onCameraSettled}
+        onOpenAgent={vi.fn()}
+        onNewAgent={vi.fn()}
+        newAgentOpen={false}
+        launcher={null}
+        onAbout={vi.fn()}
+        aboutVisible
+        renderAnswer={() => null}
+        onEscape={vi.fn()}
         onStopAgent={() => Promise.resolve(true)}
         onRemoveAgent={() => Promise.resolve({ undoMs: 1000 })}
         onRestoreAgent={() => Promise.resolve(true)}

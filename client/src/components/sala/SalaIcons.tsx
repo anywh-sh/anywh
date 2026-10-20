@@ -139,3 +139,12 @@ export function TrashIcon(props: IconProps) {
     </Icon>
   );
 }
+
+export function AboutIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="2.5" y="2.5" width="11" height="11" />
+      <path d="M8 7v3.5M8 5.3v.1" />
+    </Icon>
+  );
+}
