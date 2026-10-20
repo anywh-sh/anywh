@@ -2,7 +2,7 @@ import { test, before, after, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocket } from "ws";
@@ -45,7 +45,9 @@ let argvFile: string;
 let workDir: string;
 
 beforeEach(() => {
-  const dir = mkdtempSync(join(tmpdir(), "anywh-deferred-"));
+  // Resolved: a grant is refused for a path that goes through a symlink
+  // (macOS's tmpdir does).
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "anywh-deferred-")));
   dirs.push(dir);
   argvFile = join(dir, "argv.jsonl");
   workDir = dir;
@@ -264,18 +266,19 @@ test("a subagent's call is recognised from the stream when the permission reques
   assert.match(prompts(relay)[0].questions![0].question, /subagent toolu_agent_call/);
 });
 
-test("several calls in one turn become ONE prompt; each is approved or denied on its own", async () => {
+test("several calls in one turn become ONE card, published once when the turn ends, answerable by its id; each is approved or denied on its own", async () => {
   const relay = await boot("deferred-many");
   const second = join(workDir, "second.txt");
   await ask(relay, "write both", [writeCall(), { tool: "Write", input: { file_path: second, content: "two" } }, { tool: "Bash", input: { command: "git status --short" } }]);
 
   const shown = prompts(relay);
-  const last = shown.at(-1)!;
-  assert.equal(last.questions?.length, 3, "one card for the whole turn");
-  assert.equal(relay.sent.filter((m) => m.type === "choice_resolved").length, shown.length - 1, "superseded cards are dismissed");
+  assert.equal(shown.length, 1, "one card, published once: it must not be reset by each refused call");
+  assert.equal(relay.sent.filter((m) => m.type === "choice_resolved").length, 0);
+  const card = shown[0];
+  assert.equal(card.questions?.length, 3);
 
-  const answers = last.questions.map((q, i) => ({ question: q.question, selected: [i === 1 ? "deny" : "approve"] }));
-  relay.session.answerChoice(last.promptId!, answers);
+  const answers = card.questions.map((q, i) => ({ question: q.question, selected: [i === 1 ? "deny" : "approve"] }));
+  assert.equal(relay.session.answerChoice(card.promptId!, answers), true, "the id the person saw is the id that works");
   await relay.session.waitForIdle();
 
   const turn = turns().at(-1)!;
@@ -283,6 +286,74 @@ test("several calls in one turn become ONE prompt; each is approved or denied on
   assert.match(turn.prompt, /denied/i, "the refused one is reported too");
   assert.equal(readFileSync(OUT(), "utf8"), "hello");
   assert.equal(existsSync(second), false);
+});
+
+test("approving one Bash call and denying another gives Bash to neither: no tool-wide rule, and the model is told it will be asked again", async () => {
+  const relay = await boot("deferred-mixed-bash");
+  await ask(relay, "run both", [
+    { tool: "Bash", input: { command: "ls | head" } },
+    { tool: "Bash", input: { command: "rm -rf ~/x" } },
+  ]);
+  const card = prompts(relay)[0];
+  assert.match(card.questions![0].approval!.detail, /approving allows every Bash call during the next turn/, "the card warns what approving would allow");
+
+  relay.session.answerChoice(card.promptId!, [
+    { question: card.questions![0].question, selected: ["approve"] },
+    { question: card.questions![1].question, selected: ["deny"] },
+  ]);
+  await relay.session.waitForIdle();
+
+  const turn = turns().at(-1)!;
+  assert.equal(turn.allowed, undefined, "no rule at all: the denied rm must not be able to run unasked");
+  assert.match(turn.prompt, /asked again/);
+  assert.match(turn.prompt, /denied by the user/);
+});
+
+test("approving every Bash call of the prompt does give the tool-wide rule", async () => {
+  const relay = await boot("deferred-all-bash");
+  await ask(relay, "run both", [
+    { tool: "Bash", input: { command: "ls | head" } },
+    { tool: "Bash", input: { command: "echo hi > /dev/null" } },
+  ]);
+  const card = prompts(relay)[0];
+  relay.session.answerChoice(card.promptId!, card.questions!.map((q) => ({ question: q.question, selected: ["approve"] })));
+  await relay.session.waitForIdle();
+  assert.deepEqual(turns().at(-1)!.allowed?.split(","), ["Bash"]);
+});
+
+test("an approved edit no safe rule can name (a relative path) is asked again, never widened to the whole tool", async () => {
+  const relay = await boot("deferred-relative");
+  await ask(relay, "write it", [{ tool: "Write", input: { file_path: "out/relative.txt", content: "x" } }]);
+  const card = prompts(relay)[0];
+  relay.session.answerChoice(card.promptId!, [{ question: card.questions![0].question, selected: ["approve"] }]);
+  await relay.session.waitForIdle();
+  const turn = turns().at(-1)!;
+  assert.equal(turn.allowed, undefined);
+  assert.match(turn.prompt, /asked again/);
+});
+
+test("the follow-up turn is a synthetic one: marked on the wire, and it does not feed the title", async () => {
+  const relay = await boot("deferred-synthetic");
+  await ask(relay, "write the file", [writeCall()]);
+  const asked = prompts(relay)[0];
+  relay.session.answerChoice(asked.promptId!, [{ question: asked.questions![0].question, selected: ["approve"] }]);
+  await relay.session.waitForIdle();
+
+  const followUp = relay.sent.find((m) => m.type === "agent_event" && m.event?.type === "user_message" && m.event.text?.startsWith("approved:"));
+  assert.equal((followUp?.event as { synthetic?: string } | undefined)?.synthetic, "approval");
+  const titleCalls = readFileSync(argvFile, "utf8").trim().split("\n").filter((line) => (JSON.parse(line) as string[]).includes("text"));
+  assert.ok(!titleCalls.some((line) => line.includes("approved: retry")), "the continuation must not be used as the first prompt of the title");
+});
+
+test("what is persisted of a call is small: a big Write is cut, the path stays whole", async () => {
+  const relay = await boot("deferred-big");
+  const content = "z".repeat(50_000);
+  await ask(relay, "write big", [{ tool: "Write", input: { file_path: OUT(), content } }]);
+  const raw = readFileSync(relay.storeFile, "utf8");
+  assert.ok(raw.length < 20_000, `the sessions file must not carry the whole content (${raw.length} bytes)`);
+  const call = (JSON.parse(raw) as Record<string, { pendingApproval: { calls: { input: { file_path: string; content: string } }[] } }>)["deferred-big"].pendingApproval.calls[0];
+  assert.equal(call.input.file_path, OUT());
+  assert.match(call.input.content, /truncated/);
 });
 
 test("typing a new message instead of answering dismisses the pending approval, stored copy included", async () => {
@@ -297,6 +368,7 @@ test("typing a new message instead of answering dismisses the pending approval, 
 
   assert.ok(relay.sent.some((m) => m.type === "choice_resolved" && m.promptId === asked.promptId));
   assert.equal(storedApproval(relay, "deferred-moveon"), undefined);
+  assert.match(turns().at(-1)!.prompt, /never mind\n\n\(the pending approval request was withdrawn by the user; do not wait for it\)/);
 });
 
 test("an ordinary session is untouched: the approval blocks the turn until answered, and the call runs on approve", async () => {

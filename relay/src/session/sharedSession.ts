@@ -1,5 +1,6 @@
 import type { WebSocket } from "ws";
-import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, isApproved, isApprovedAt } from "../runtimes/defs/claude/index.js";
+import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, grantRuleFor, isApproved, isApprovedAt, planDeferredGrants } from "../runtimes/defs/claude/index.js";
+import { compactToolInput } from "./approvalInput.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost } from "../runtimes/sessionDriver.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
@@ -304,6 +305,9 @@ class HeldTurn {
     return isNoReply(this.committed.join("\n"));
   }
 }
+
+/** Appended to a user message that replaces a pending deferred approval. */
+const WITHDRAWN_APPROVAL_NOTE = "(the pending approval request was withdrawn by the user; do not wait for it)";
 
 export class SharedSession implements SessionDriverHost {
   /** Not `readonly`: `switchAgent` replaces it when the user picks a
@@ -761,9 +765,13 @@ export class SharedSession implements SessionDriverHost {
       // human: the turn ends, the request is kept (and persisted), and the
       // verdict comes back as a new turn (`answerChoice`).
       const origin = agentId ?? (toolUseId !== undefined ? this.parentToolUse.get(toolUseId) : undefined);
+      // Kept small (it is written to disk); the fields a grant is derived
+      // from are kept whole.
+      const kept = compactToolInput(input);
+      const broad = grantRuleFor({ tool: toolName, input: kept })?.broad === true;
       this.choiceMachine.deferApproval(
-        { tool: toolName, input, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
-        buildApprovalQuestion(toolName, input, origin),
+        { tool: toolName, input: kept, ...(toolUseId !== undefined ? { toolUseId } : {}), ...(origin !== undefined ? { agentId: origin } : {}) },
+        buildApprovalQuestion(toolName, kept, origin, broad),
       );
       return buildDeferredDecision();
     }
@@ -849,8 +857,8 @@ export class SharedSession implements SessionDriverHost {
    * conversation's context. NOT called for wakeup / background-job turns:
    * those are the agent talking to itself, the human hasn't moved on, so the
    * card (and its persisted copy, which always mirrors it) stays. */
-  private discardStaleChoice(): void {
-    this.choiceMachine.discardStaleChoice();
+  private discardStaleChoice(): boolean {
+    return this.choiceMachine.discardStaleChoice();
   }
 
   /** Called from the same three sites as `discardStaleChoice`
@@ -888,20 +896,23 @@ export class SharedSession implements SessionDriverHost {
       // The calls were refused when they were asked; now the human has
       // decided, a new turn repeats the approved ones with the permission
       // granted and tells the model about the rest.
+      const verdicts = result.calls.map((call, index) => ({ tool: call.tool, input: call.input, approved: isApprovedAt(result.answers, index) }));
+      const outcomes = planDeferredGrants(verdicts);
       const decisions = result.calls.map((call, index) => ({
         tool: call.tool,
         detail: result.questions[index]?.approval?.detail ?? "",
-        approved: isApprovedAt(result.answers, index),
+        approved: verdicts[index].approved,
+        granted: outcomes[index] === "granted",
         ...(call.agentId !== undefined ? { agentId: call.agentId } : {}),
       }));
-      const grants: ToolGrant[] = result.calls.filter((_, index) => decisions[index].approved).map(({ tool, input }) => ({ tool, input }));
+      const grants: ToolGrant[] = result.calls.filter((_, index) => outcomes[index] === "granted").map(({ tool, input }) => ({ tool, input }));
       // Approving the plan is what takes the session out of plan mode; the
       // refused call cannot do it on its own.
-      if (grants.some((grant) => grant.tool === "ExitPlanMode") && this.permissionMode === "plan" && isOfferedMode(this.permissionModes, "default")) {
+      if (verdicts.some((verdict) => verdict.approved && verdict.tool === "ExitPlanMode") && this.permissionMode === "plan" && isOfferedMode(this.permissionModes, "default")) {
         this.setPermissionMode("default");
       }
       const text = buildDeferredApprovalFollowup(decisions);
-      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, undefined, grants));
+      this.turnQueue = this.turnQueue.then(() => this.runTurn(undefined, text, { kind: "approval" }, grants));
     }
     return true;
   }
@@ -1056,7 +1067,10 @@ export class SharedSession implements SessionDriverHost {
     // normal message directly is now stale — dismiss it rather than leave
     // the card showing a question for a plan/tool call the conversation has
     // already moved past.
-    this.discardStaleChoice();
+    if (this.discardStaleChoice()) {
+      // The model was told to wait for an answer that is not coming.
+      text = `${text}\n\n${WITHDRAWN_APPROVAL_NOTE}`;
+    }
     // Same reasoning for a wakeup a previous turn armed for itself — a real
     // message beat the timer to it.
     this.cancelPendingWakeup();
@@ -1312,7 +1326,7 @@ export class SharedSession implements SessionDriverHost {
     text: string,
     synthetic?: {
       label?: string;
-      kind: "background_job" | "wakeup";
+      kind: "background_job" | "wakeup" | "approval";
       /** The prompt offered the model the `NO_REPLY` escape: hold the turn's
        * events until it is known whether they will ever be shown. */
       silenceOffered?: boolean;
@@ -1544,6 +1558,10 @@ export class SharedSession implements SessionDriverHost {
       // the instant it was created. `present_choice` now needs that same
       // survival property, which is what motivated splitting the field.
       this.cancelPendingApproval();
+      // The refusals of this turn become one card now that it is over (not
+      // for a turn the person stopped).
+      if (turnStopped) this.choiceMachine.dropStagedApprovals();
+      else this.choiceMachine.flushDeferredApprovals();
       // Before the idle `turn_state` goes out, so a client that sees the turn
       // end already has the failure tray the turn's outcome decided.
       synthetic?.onSettled?.(silenced);
