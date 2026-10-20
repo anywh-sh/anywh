@@ -27,7 +27,7 @@
 //   - plus a cap of live agents per room: starting one more hibernates the
 //     room's oldest idle agent, or fails when none is idle.
 import { randomBytes } from "node:crypto";
-import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
@@ -39,7 +39,7 @@ import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
 import { agentProcessMap, detachedAgentProcesses, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
 import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
-import { AGENT_HOST_DIR_MARKER } from "./paths.js";
+import { AGENT_HOST_DIR_MARKER, isAgentHostDirEntry } from "./paths.js";
 import { AgentHostSocketServer } from "./socketServer.js";
 
 export interface HibernationOptions {
@@ -179,6 +179,25 @@ function parseSpec(raw: unknown): ClaudeAgentSpec {
   };
 }
 
+/** Refuses a data directory that is not this host's to use: one marked by
+ * another host, or one holding files a host does not write (someone's own
+ * directory, given by mistake) — the host would later mark it as its own,
+ * and deleting the profile would then remove it. */
+function claimDataDir(dir: string, hostId: string): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  let owner: string | undefined;
+  try {
+    owner = readFileSync(join(dir, AGENT_HOST_DIR_MARKER), "utf8").trim();
+  } catch {
+    owner = undefined;
+  }
+  if (owner !== undefined && owner !== hostId) throw new Error(`${dir} belongs to the agent host "${owner}", not "${hostId}"`);
+  if (owner === undefined) {
+    const strangers = readdirSync(dir).filter((name) => !isAgentHostDirEntry(name));
+    if (strangers.length > 0) throw new Error(`${dir} is not an agent host's data directory (it holds ${strangers.slice(0, 3).join(", ")}); give the host an empty or new directory`);
+  }
+}
+
 export class AgentHost {
   private readonly agents = new Map<string, Agent>();
   private server!: AgentHostSocketServer;
@@ -220,6 +239,7 @@ export class AgentHost {
   static async start(options: AgentHostOptions): Promise<AgentHost> {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(options.hostId)) throw new Error(`invalid agent host id ${JSON.stringify(options.hostId)}`);
     const host = new AgentHost(options);
+    claimDataDir(options.dataDir, options.hostId);
     mkdirSync(join(options.dataDir, "logs"), { recursive: true, mode: 0o700 });
     host.lock = await acquireInstanceLock(
       [`host-id:${options.hostId}`, `data-dir:${realpathSync(options.dataDir)}`, `socket:${resolve(options.socketPath)}`],

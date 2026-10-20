@@ -501,7 +501,9 @@ test("a second host for the same profile fails before touching the first one's a
       { hostId: `${h.hostId}-x`, dataDir: join(h.dir, "data"), socketPath: join(h.dir, "run", "third.sock") },
     ];
     for (const paths of attempts) {
-      await assert.rejects(AgentHost.start({ ...paths, agentBin: FAKE_CLAUDE, homeOverride: h.home }), /already/);
+      // Refused by the lock, or (another id on the same data dir) earlier by
+      // the directory's owner marker — before touching anything either way.
+      await assert.rejects(AgentHost.start({ ...paths, agentBin: FAKE_CLAUDE, homeOverride: h.home }), /already|belongs to the agent host/);
     }
     assert.equal(isAlive(pid!), true, "the first host's agent is untouched");
     assert.equal(readFileSync(registryPath, "utf8"), registryBefore);
@@ -918,5 +920,36 @@ test("a message sent right after a crash, while the dead CLI's pipes are still h
     assert.deepEqual(await findAgentProcesses(h.hostId, "a1"), [second], "the dead CLI's descendant was swept before the resume");
   } finally {
     await h.cleanup();
+  }
+});
+
+test("the host refuses a data directory holding someone else's files or another host's marker", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-foreign-"));
+  try {
+    const stranger = join(dir, "stranger");
+    mkdirSync(stranger);
+    writeFileSync(join(stranger, "thesis.tex"), "not the host's");
+    await assert.rejects(
+      AgentHost.start({ hostId: `foreign-${process.pid}`, dataDir: stranger, socketPath: join(dir, "run", "a.sock"), agentBin: FAKE_CLAUDE }),
+      /not an agent host's data directory/,
+    );
+    assert.equal(existsSync(join(stranger, ".anywh-agent-host")), false, "no marker written into it");
+
+    const other = join(dir, "other");
+    mkdirSync(other);
+    writeFileSync(join(other, ".anywh-agent-host"), "someone-else\n");
+    await assert.rejects(
+      AgentHost.start({ hostId: `foreign2-${process.pid}`, dataDir: other, socketPath: join(dir, "run", "b.sock"), agentBin: FAKE_CLAUDE }),
+      /belongs to the agent host "someone-else"/,
+    );
+    // Its own directory, from a previous run: fine.
+    const own = join(dir, "own");
+    const host = await AgentHost.start({ hostId: `own-${process.pid}`, dataDir: own, socketPath: join(dir, "run", "c.sock"), agentBin: FAKE_CLAUDE });
+    await host.close();
+    assert.equal(readFileSync(join(own, ".anywh-agent-host"), "utf8").trim(), `own-${process.pid}`);
+    const again = await AgentHost.start({ hostId: `own-${process.pid}`, dataDir: own, socketPath: join(dir, "run", "c.sock"), agentBin: FAKE_CLAUDE });
+    await again.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

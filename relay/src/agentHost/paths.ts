@@ -47,6 +47,14 @@ export function agentHostDataDir(profile: string, env: NodeJS.ProcessEnv = proce
   return env.ANYWH_AGENT_HOST_DIR || join(sessionsRoot(env), `${profile}-agent-host`);
 }
 
-/** File the host writes into its data directory: what lets anything else
- * (deleting a profile) recognize that directory as an agent host's. */
+/** File the host writes into its data directory, holding its host id (the
+ * profile): what lets anything else (deleting a profile) recognize that
+ * directory as THAT profile's host's. */
 export const AGENT_HOST_DIR_MARKER = ".anywh-agent-host";
+
+const AGENT_HOST_DIR_ENTRY = /^(registry\.json(\.tmp|\.corrupt-\d+)?|logs|\.anywh-agent-host|\.anywh-agent-host-[0-9a-f]+\.lock)$/;
+
+/** Whether a top-level entry of a data directory is one a host writes. */
+export function isAgentHostDirEntry(name: string): boolean {
+  return AGENT_HOST_DIR_ENTRY.test(name);
+}

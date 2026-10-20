@@ -48,10 +48,10 @@ function plantProfile(id: string, envExtra = ""): void {
   writeFileSync(join(server.envDir, `${id}.env`), `RELAY_PORT=1\nRELAY_HOST=127.0.0.1\n${envExtra}`);
 }
 
-function plantHostData(dir: string, marked = true): void {
+function plantHostData(dir: string, owner: string | undefined): void {
   mkdirSync(join(dir, "logs"), { recursive: true });
   writeFileSync(join(dir, "registry.json"), "{}");
-  if (marked) writeFileSync(join(dir, ".anywh-agent-host"), "x");
+  if (owner !== undefined) writeFileSync(join(dir, ".anywh-agent-host"), `${owner}\n`);
 }
 
 async function deleteProfile(id: string): Promise<void> {
@@ -64,7 +64,7 @@ const root = (): string => process.env.ANYWH_SESSIONS_ROOT!;
 test("a stopped host's marked data directory is removed, wherever the profile's env file (quoted) puts it", async () => {
   const dir = join(root(), "elsewhere", "host-data");
   plantProfile("p1", `ANYWH_AGENT_HOST_DIR="${dir}"\n`);
-  plantHostData(dir);
+  plantHostData(dir, "p1");
   await deleteProfile("p1");
   assert.match(await waitForOutcome("p1"), /removed/);
   assert.equal(existsSync(dir), false);
@@ -73,7 +73,7 @@ test("a stopped host's marked data directory is removed, wherever the profile's 
 test("a directory without the host's marker is never removed", async () => {
   const dir = join(root(), "p2-agent-host");
   plantProfile("p2");
-  plantHostData(dir, false);
+  plantHostData(dir, undefined);
   await deleteProfile("p2");
   assert.match(await waitForOutcome("p2"), /kept/);
   assert.equal(existsSync(join(dir, "registry.json")), true);
@@ -86,7 +86,7 @@ test("the data stays when stopping the host failed or it is still active", async
   ] as const) {
     const dir = join(root(), `${id}-agent-host`);
     plantProfile(id);
-    plantHostData(dir);
+    plantHostData(dir, id);
     Object.assign(process.env, env);
     try {
       await deleteProfile(id);
@@ -101,7 +101,7 @@ test("the data stays when stopping the host failed or it is still active", async
 test("the data stays when the profile was created again while its old host was stopping", async () => {
   const dir = join(root(), "p5-agent-host");
   plantProfile("p5");
-  plantHostData(dir);
+  plantHostData(dir, "p5");
   process.env.FAKE_SYSTEMCTL_HOST_DELAY_MS = "1500";
   try {
     await deleteProfile("p5");
@@ -111,4 +111,24 @@ test("the data stays when the profile was created again while its old host was s
     delete process.env.FAKE_SYSTEMCTL_HOST_DELAY_MS;
   }
   assert.equal(existsSync(join(dir, "registry.json")), true);
+});
+
+test("a directory marked by another profile's host is never removed (two profiles sharing ANYWH_AGENT_HOST_DIR)", async () => {
+  const shared = join(root(), "shared-host-dir");
+  plantProfile("p6", `ANYWH_AGENT_HOST_DIR=${shared}\n`);
+  plantProfile("p7", `ANYWH_AGENT_HOST_DIR=${shared}\n`);
+  plantHostData(shared, "p7");
+  await deleteProfile("p6");
+  assert.match(await waitForOutcome("p6"), /kept/);
+  assert.equal(existsSync(join(shared, "registry.json")), true);
+});
+
+test("a marked directory that also holds files a host does not write is never removed", async () => {
+  const dir = join(root(), "p8-agent-host");
+  plantProfile("p8");
+  plantHostData(dir, "p8");
+  writeFileSync(join(dir, "notes.txt"), "the user's own file");
+  await deleteProfile("p8");
+  assert.match(await waitForOutcome("p8"), /kept/);
+  assert.equal(existsSync(join(dir, "notes.txt")), true);
 });

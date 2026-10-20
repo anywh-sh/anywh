@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { AGENT_HOST_DIR_MARKER, agentHostDataDir } from "../agentHost/paths.js";
+import { AGENT_HOST_DIR_MARKER, agentHostDataDir, isAgentHostDirEntry } from "../agentHost/paths.js";
 import { applyEnvFileContent } from "../host/envFile.js";
 import { isCreateProfileBody, isPatchProfileBody } from "../protocol/guards.js";
 import { readJsonBody, readOptionalJsonBody } from "../protocol/httpBody.js";
@@ -100,7 +100,8 @@ function runSystemctl(args: readonly string[]): Promise<{ code: number | null; s
  * when all of these hold, kept (and logged) otherwise:
  *   - `systemctl disable --now` succeeded and the unit is no longer active;
  *   - the profile was not created again while the host was draining;
- *   - the directory carries the host's own marker file, so a mistyped
+ *   - the directory carries the marker file of THIS profile's host, and
+ *     nothing a host does not write — so a mistyped or shared
  *     ANYWH_AGENT_HOST_DIR can never make a delete remove something else.
  */
 async function removeAgentHost(id: string, dir: string): Promise<void> {
@@ -111,7 +112,18 @@ async function removeAgentHost(id: string, dir: string): Promise<void> {
   const state = (await runSystemctl(["--user", "is-active", unit])).stdout.trim();
   if (["active", "activating", "deactivating", "reloading", "refreshing"].includes(state)) return keep(`${unit} is still ${state}`);
   if (existsSync(envFileFor(id))) return keep("the profile was created again meanwhile");
-  if (!isAbsolute(dir) || !existsSync(join(dir, AGENT_HOST_DIR_MARKER))) return keep("not marked as an agent host's directory");
+  if (!isAbsolute(dir)) return keep("not an absolute path");
+  let owner: string;
+  try {
+    owner = readFileSync(join(dir, AGENT_HOST_DIR_MARKER), "utf8").trim();
+  } catch {
+    return keep("not marked as an agent host's directory");
+  }
+  // Several profiles can resolve to one directory (ANYWH_AGENT_HOST_DIR in
+  // relay/.env): only the profile whose host marked it may remove it.
+  if (owner !== id) return keep(`marked by the agent host "${owner}", not "${id}"`);
+  const strangers = readdirSync(dir).filter((name) => !isAgentHostDirEntry(name));
+  if (strangers.length > 0) return keep(`it holds files an agent host does not write: ${strangers.slice(0, 3).join(", ")}`);
   try {
     rmSync(dir, { recursive: true, force: true });
     console.log(`[relay] agent host data of ${id} removed: ${dir}`);
