@@ -330,10 +330,14 @@ export class HostSessionDriver implements AgentSessionDriver {
    * experimental part of its app-server; a version without them refuses the
    * thread that declares them. */
   private describeFailure(message: string, setup: RoomAgentSetup | undefined): string {
-    if (this.daemonPlan && setup && /could not start a Codex thread|dynamicTools/i.test(message)) {
+    if (!this.daemonPlan || !setup || !/could not start a Codex thread/i.test(message)) return message;
+    // Only a refusal that names the dynamic tools (or an unknown field, the
+    // way a parser without them answers) is their absence; anything else
+    // (not logged in, a crashed app-server) is said as it is.
+    if (/dynamicTools|unknown field|experimental/i.test(message)) {
       return `The room's tools are not available with this version of Codex (${message}). This room stays on Codex: nothing was switched to another agent.`;
     }
-    return message;
+    return `Codex could not start this agent (${message}). This room stays on Codex: nothing was switched to another agent.`;
   }
 
   /** Writes the message to the agent, creating it in the host first if the

@@ -23,7 +23,8 @@
 // FAKE_CODEX_REQUESTS, if set, gets every request from the client appended
 // as one JSON line. FAKE_CODEX_NO_DYNAMIC_TOOLS=1 (or a thread whose cwd
 // contains "without-dynamic-tools") makes `thread/start` refuse
-// `dynamicTools` the way a Codex without the experimental API would.
+// `dynamicTools` the way a Codex without the experimental API would; a cwd
+// containing "thread-start-fails" makes it refuse any thread (not logged in).
 import { appendFileSync, writeFileSync } from "node:fs";
 
 if (process.argv[2] === "--version") {
@@ -110,6 +111,10 @@ process.stdin.on("data", (chunk) => {
         send({ id: message.id, result: { userAgent: "fake-codex/0.154.0" } });
         break;
       case "thread/start": {
+        if (/thread-start-fails/.test(message.params?.cwd ?? "")) {
+          send({ id: message.id, error: { code: -32603, message: "not logged in" } });
+          break;
+        }
         if (message.params?.dynamicTools && (process.env.FAKE_CODEX_NO_DYNAMIC_TOOLS === "1" || /without-dynamic-tools/.test(message.params.cwd ?? ""))) {
           send({ id: message.id, error: { code: -32602, message: "Invalid params: unknown field `dynamicTools`" } });
           break;
