@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -247,4 +248,34 @@ test("a file an agent wrote past the size cap is not read, and the others are st
   writeFileSync(join(dir, "result-ok.md"), "# fine\n");
   const names = (await s.sync(room)).map((item) => item.name).sort();
   assert.deepEqual(names, ["brief.md", "result-ok.md"]);
+});
+
+test("a FIFO, or a directory, an agent put where the relay's own files go does not wedge the room", async () => {
+  const s = store();
+  const room = newRoom();
+  await s.add(room, { name: "brief.md", data: Buffer.from("brief"), author: "user" });
+  const dir = s.dirFor(room);
+  for (const name of ["INDEX.md", ".items.json"]) {
+    rmSync(join(dir, name));
+    assert.equal(spawnSync("mkfifo", [join(dir, name)]).status, 0);
+  }
+  assert.deepEqual((await s.sync(room)).map((item) => item.name), ["brief.md"], "a manifest swapped for a FIFO is not waited on: the folder is re-read instead");
+  assert.match(s.indexNow(room), /^# /m);
+  mkdirSync(join(dir, ".tmp-leftover"));
+  rmSync(join(dir, "INDEX.md"));
+  mkdirSync(join(dir, "INDEX.md"));
+  const added = await s.add(room, { name: "again.md", data: Buffer.from("again"), author: "user" });
+  assert.ok(added.ok);
+  assert.deepEqual((await s.sync(room)).map((item) => item.name).sort(), ["again.md", "brief.md"]);
+  assert.match(readFileSync(join(dir, INDEX_FILE), "utf8"), /again\.md/);
+  assert.equal(existsSync(join(dir, ".tmp-leftover")), false);
+});
+
+test("a long name in a wide script is cut by bytes, so the file can be written", async () => {
+  const s = store();
+  const room = newRoom();
+  const added = await s.add(room, { name: `${"文".repeat(100)}.md`, data: Buffer.from("x"), author: "user" });
+  assert.ok(added.ok, added.ok ? "" : added.error);
+  assert.ok(Buffer.byteLength(added.item.name) <= 255);
+  assert.ok(existsSync(join(s.dirFor(room), added.item.name)));
 });

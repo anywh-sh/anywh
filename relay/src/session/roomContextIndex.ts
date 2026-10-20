@@ -68,7 +68,7 @@ function size(item: ContextItem): string {
 }
 
 function line(item: ContextItem): string {
-  const parts = [`\`${clip(item.name, NAME_MAX)}\``, item.kind, size(item), item.author];
+  const parts = [`\`${clip(item.name, NAME_MAX)}\``, item.kind, size(item), clip(item.author, 60)];
   if (item.extraction) parts.splice(1, 0, `text in \`${clip(item.extraction, NAME_MAX)}\``);
   if (item.largeTokens !== undefined) parts.push(`LARGE (~${Math.round(item.largeTokens / 1000)}k tokens): read in parts`);
   if (item.summary) parts.push(clip(item.summary, SUMMARY_MAX));

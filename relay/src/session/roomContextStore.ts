@@ -21,6 +21,8 @@ import { LARGE_ITEM_TOKENS, buildIndex, estimateTokens, summarize, type ContextI
 export const INDEX_FILE = "INDEX.md";
 const MANIFEST_FILE = ".items.json";
 /** Largest single item, and most items per room. */
+/** The manifest and the index are far below this; a bigger one was tampered with. */
+const OWNED_FILE_MAX_BYTES = 4 * 1024 * 1024;
 export const CONTEXT_ITEM_MAX_BYTES = 50 * 1024 * 1024;
 export const CONTEXT_ITEMS_MAX = 200;
 
@@ -44,10 +46,37 @@ export interface AddItemInput {
 
 export type AddItemResult = { ok: true; item: ContextItem; warning?: string } | { ok: false; status: number; error: string };
 
+/** At most `max` bytes of UTF-8, never cutting a character. */
+function truncateBytes(text: string, max: number): string {
+  let out = "";
+  for (const char of text) {
+    if (Buffer.byteLength(out + char) > max) break;
+    out += char;
+  }
+  return out;
+}
+
+/** The text of a file the relay owns but agents can reach: only a regular,
+ * small file is read (a FIFO would block the whole relay, a link to a device
+ * or a huge file would fill its memory); anything else is cleared away. */
+function readOwned(path: string): string | undefined {
+  let stats;
+  try {
+    stats = lstatSync(path);
+  } catch {
+    return undefined;
+  }
+  if (!stats.isFile() || stats.size > OWNED_FILE_MAX_BYTES) {
+    rmSync(path, { recursive: true, force: true });
+    return undefined;
+  }
+  return readFileSync(path, "utf8");
+}
+
 /** A file name that is one safe path segment, or `undefined`. */
 export function sanitizeItemName(raw: string): string | undefined {
   const base = basename(raw.replace(/\\/g, "/")).normalize("NFC");
-  const cleaned = base.replace(/[^\p{L}\p{N}._ -]/gu, "_").replace(/^[.\s]+/, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const cleaned = truncateBytes(base.replace(/[^\p{L}\p{N}._ -]/gu, "_").replace(/^[.\s]+/, "").replace(/\s+/g, " ").trim(), 180);
   if (cleaned === "" || cleaned === INDEX_FILE || cleaned === MANIFEST_FILE) return undefined;
   return cleaned;
 }
@@ -56,7 +85,8 @@ export function sanitizeItemName(raw: string): string | undefined {
  * manifest sits in a folder agents can write to, so nothing in it is trusted
  * to be a name inside that folder until it is checked. */
 function isSafeSegment(name: string): boolean {
-  return name !== "" && name.length <= 255 && name !== "." && name !== ".." && !/[\\/\0]/.test(name) && name !== INDEX_FILE && name !== MANIFEST_FILE && !name.startsWith(".tmp-");
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what is refused
+  return name !== "" && Buffer.byteLength(name) <= 255 && !/[\x00-\x1f\x7f]/.test(name) && name !== "." && name !== ".." && !/[\\/\0]/.test(name) && name !== INDEX_FILE && name !== MANIFEST_FILE && !name.startsWith(".tmp-");
 }
 
 function isItem(value: unknown): value is ContextItem {
@@ -122,7 +152,7 @@ export class RoomContextStore {
 
   private readManifest(dir: string): ContextItem[] {
     try {
-      const parsed = JSON.parse(readFileSync(join(dir, MANIFEST_FILE), "utf8")) as { items?: unknown };
+      const parsed = JSON.parse(readOwned(join(dir, MANIFEST_FILE)) ?? "{}") as { items?: unknown };
       return Array.isArray(parsed.items) ? parsed.items.filter(isItem) : [];
     } catch {
       return [];
@@ -132,6 +162,12 @@ export class RoomContextStore {
   private writeAtomic(path: string, content: string | Buffer): void {
     // A name nobody can plant a link at ("wx" refuses an existing one), renamed
     // over the target: the rename replaces a link rather than writing through it.
+    // (A directory an agent put where the target goes is cleared first.)
+    try {
+      if (lstatSync(path).isDirectory()) rmSync(path, { recursive: true, force: true });
+    } catch {
+      // not there
+    }
     const tmp = join(dirname(path), `.tmp-${randomBytes(6).toString("hex")}`);
     writeFileSync(tmp, content, { flag: "wx" });
     renameSync(tmp, path);
@@ -223,7 +259,7 @@ export class RoomContextStore {
       const items = this.readManifest(dir);
       const item = items.find((candidate) => candidate.name === name);
       if (!item) return false;
-      for (const file of [item.name, item.extraction]) if (file) rmSync(join(dir, file), { force: true });
+      for (const file of [item.name, item.extraction]) if (file) rmSync(join(dir, file), { recursive: true, force: true });
       this.persist(
         dir,
         items.filter((candidate) => candidate !== item),
@@ -254,7 +290,7 @@ export class RoomContextStore {
       for (const entry of entries) {
         if (entry.startsWith(".tmp-")) {
           // A write the relay was killed in the middle of.
-          rmSync(join(dir, entry), { force: true });
+          rmSync(join(dir, entry), { recursive: true, force: true });
           continue;
         }
         if (entry.startsWith(".") || entry === INDEX_FILE) continue;
@@ -271,7 +307,7 @@ export class RoomContextStore {
       for (let item of before) {
         if (!present.has(item.name)) {
           changed = true;
-          if (item.extraction) rmSync(join(dir, item.extraction), { force: true });
+          if (item.extraction) rmSync(join(dir, item.extraction), { recursive: true, force: true });
           continue;
         }
         // Seen first by a sync with no one to credit: the agent that lists it
@@ -317,7 +353,7 @@ export class RoomContextStore {
       }
       let indexCurrent = false;
       try {
-        indexCurrent = readFileSync(join(dir, INDEX_FILE), "utf8") === buildIndex(dir, items);
+        indexCurrent = readOwned(join(dir, INDEX_FILE)) === buildIndex(dir, items);
       } catch {
         // missing: written below
       }
@@ -334,7 +370,7 @@ export class RoomContextStore {
   async index(roomId: string): Promise<string> {
     await this.sync(roomId);
     try {
-      return readFileSync(join(this.dirFor(roomId), INDEX_FILE), "utf8");
+      return readOwned(join(this.dirFor(roomId), INDEX_FILE)) ?? buildIndex(this.dirFor(roomId), []);
     } catch {
       return buildIndex(this.dirFor(roomId), []);
     }
@@ -346,7 +382,7 @@ export class RoomContextStore {
   indexNow(roomId: string): string {
     const dir = this.dirFor(roomId);
     try {
-      return readFileSync(join(dir, INDEX_FILE), "utf8");
+      return readOwned(join(dir, INDEX_FILE)) ?? buildIndex(dir, []);
     } catch {
       return buildIndex(dir, []);
     }
