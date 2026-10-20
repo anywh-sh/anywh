@@ -31,6 +31,7 @@ const EVERYTHING_BUT_DEFS = [
   "src/runtimes/executables.ts",
   "src/runtimes/probes/**",
   "src/runtimes/streams/**",
+  "src/agentHost/**",
 ];
 
 // `except` globs are matched against the resolved *absolute* import path
