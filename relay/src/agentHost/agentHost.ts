@@ -26,14 +26,15 @@
 //     `memoryFraction` of `memoryBytes`, oldest-idle first;
 //   - plus a cap of live agents per room: starting one more hibernates the
 //     room's oldest idle agent, or fails when none is idle.
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
 import type { AgentRuntimeDef, TurnContext } from "../runtimes/types.js";
 import { ClaudeProcess, type ClaudeAgentSpec } from "./claudeProcess.js";
 import { CodexPool } from "./codexPool.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
+import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
 import { agentProcessMap, pssBytes, sweepAgentProcesses } from "./processTree.js";
 import { HostError, isValidAgentId, type AgentActivity, type AgentRuntimeId, type AgentState, type HostEvent, type StopReason } from "./protocol.js";
 import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./registry.js";
@@ -153,6 +154,7 @@ export class AgentHost {
   private readonly now: () => number;
   private policyTimer: NodeJS.Timeout | undefined;
   private codexPool: CodexPool | undefined;
+  private lock: InstanceLock | undefined;
   private policyRunning = false;
   private draining = false;
   private closed = false;
@@ -167,20 +169,32 @@ export class AgentHost {
     this.registry = new AgentRegistry(options.dataDir);
   }
 
-  /** Ends what a previous run of this host left behind, restores its agents
-   * (none running), then starts serving. */
+  /** Takes the profile's lock, ends what a previous run of this host left
+   * behind, restores its agents (none running), then starts serving. The
+   * lock comes first: a second host for the same profile must fail before
+   * its sweep or its restore could touch the first one's agents. */
   static async start(options: AgentHostOptions): Promise<AgentHost> {
     const host = new AgentHost(options);
     mkdirSync(join(options.dataDir, "logs"), { recursive: true, mode: 0o700 });
-    const orphans = await sweepAgentProcesses(options.hostId, undefined, 2000);
-    if (orphans > 0) console.log(`[agent-host] ended ${orphans} process(es) left behind by a previous run`);
-    host.restore();
-    host.server = await AgentHostSocketServer.listen({
-      socketPath: options.socketPath,
-      hostId: options.hostId,
-      logFor: (agentId) => host.agents.get(agentId)?.log,
-      handleRequest: (method, params) => host.handle(method, params),
-    });
+    host.lock = await acquireInstanceLock(
+      [`host-id:${options.hostId}`, `data-dir:${realpathSync(options.dataDir)}`, `socket:${resolve(options.socketPath)}`],
+      options.dataDir,
+    );
+    try {
+      const orphans = await sweepAgentProcesses(options.hostId, undefined, 2000);
+      if (orphans > 0) console.log(`[agent-host] ended ${orphans} process(es) left behind by a previous run`);
+      host.restore();
+      host.server = await AgentHostSocketServer.listen({
+        socketPath: options.socketPath,
+        hostId: options.hostId,
+        logFor: (agentId) => host.agents.get(agentId)?.log,
+        handleRequest: (method, params) => host.handle(method, params),
+      });
+    } catch (error) {
+      for (const agent of host.agents.values()) agent.log.close();
+      await host.lock.release();
+      throw error;
+    }
     const hibernation = options.hibernation;
     if (hibernation && hibernation.policy !== "off") {
       host.policyTimer = setInterval(() => void host.runHibernationPolicy(), hibernation.intervalMs ?? DEFAULT_POLICY_INTERVAL_MS);
@@ -875,5 +889,6 @@ export class AgentHost {
     this.persist();
     await this.server.close();
     for (const agent of this.agents.values()) agent.log.close();
+    await this.lock?.release();
   }
 }

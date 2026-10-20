@@ -465,3 +465,50 @@ test("shutdown hibernates idle agents and stops the ones whose turn it had to cu
     else await h.cleanup();
   }
 });
+
+// ---------------------------------------------------------------- exclusivity
+
+test("a second host for the same profile fails before touching the first one's agents, registry or logs", async () => {
+  const h = await harness();
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "hi" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    const { pid, nextOffset } = await h.activity("a1");
+    const registryPath = join(h.dir, "data", "registry.json");
+    const registryBefore = readFileSync(registryPath, "utf8");
+
+    const attempts = [
+      // Same everything.
+      { hostId: h.hostId, dataDir: join(h.dir, "data"), socketPath: join(h.dir, "run", "host.sock") },
+      // Same host id (the marker its sweep matches), other paths.
+      { hostId: h.hostId, dataDir: join(h.dir, "data2"), socketPath: join(h.dir, "run", "other.sock") },
+      // Same data dir, other id and socket.
+      { hostId: `${h.hostId}-x`, dataDir: join(h.dir, "data"), socketPath: join(h.dir, "run", "third.sock") },
+    ];
+    for (const paths of attempts) {
+      await assert.rejects(AgentHost.start({ ...paths, agentBin: FAKE_CLAUDE, homeOverride: h.home }), /already/);
+    }
+    assert.equal(isAlive(pid!), true, "the first host's agent is untouched");
+    assert.equal(readFileSync(registryPath, "utf8"), registryBefore);
+    assert.equal((await h.activity("a1")).nextOffset, nextOffset, "no event appended to its log");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("two hosts starting at once on the same profile: exactly one wins", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-race-"));
+  const options = { hostId: `race-${process.pid}`, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), agentBin: FAKE_CLAUDE };
+  try {
+    const outcomes = await Promise.allSettled([AgentHost.start(options), AgentHost.start(options), AgentHost.start(options)]);
+    const winners = outcomes.filter((outcome): outcome is PromiseFulfilledResult<AgentHost> => outcome.status === "fulfilled");
+    assert.equal(winners.length, 1);
+    await winners[0].value.close();
+    // Released on close: the profile can start again.
+    const again = await AgentHost.start(options);
+    await again.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
