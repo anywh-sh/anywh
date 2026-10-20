@@ -20,8 +20,10 @@
 //      could grant them): one approved, one denied. Nothing may be granted
 //      tool-wide, so the approved one must be asked again and the denied one
 //      must never run; approving the repeat then lets it run.
+//   E. a Write to app/[id]/page.tsx, a name no single-file rule can carry: it
+//      must be granted tool-wide and so converge on the second turn.
 //
-// FLOWS=A,B,C,D picks flows (default all). With STOP_AFTER_ASK=1 flow B stops
+// FLOWS=A,B,C,D,E picks flows (default all). With STOP_AFTER_ASK=1 flow B stops
 // once the subagent's request is pending, without the denial turn.
 //
 // The session manager, session store, permission bridge (behind a real HTTP
@@ -113,7 +115,7 @@ function newSession(id) {
   return session;
 }
 
-const flows = (process.env.FLOWS ?? "A,B,C,D").split(",");
+const flows = (process.env.FLOWS ?? "A,B,C,D,E").split(",");
 try {
   // ---- A: Write + Edit + Bash, refused together, then approved together ----
   if (flows.includes("A")) {
@@ -250,6 +252,26 @@ try {
         log("D turn 3 assistant:", JSON.stringify(lastText().slice(0, 200)));
         check(existsSync(f1) && !existsSync(f2), "D: approving the repeat ran it, and the denied one still never ran");
       }
+    }
+  }
+
+  // ---- E: a path with brackets ----
+  if (flows.includes("E")) {
+    const page = join(work, "app", "[id]", "page.tsx");
+    mkdirSync(join(work, "app", "[id]"), { recursive: true });
+    const bracket = newSession("real-deferred-e");
+    await new Promise((r) => setTimeout(r, 300));
+    await runTurn(bracket, `Use the Write tool to create ${page} containing exactly: page. If the write is refused, stop and tell me.`);
+    const held = store.getPendingApproval("real-deferred-e");
+    check(held !== undefined && !existsSync(page), "E: the write was held, nothing ran");
+    if (held) {
+      const card = prompts().at(-1);
+      log("E card detail:", card.questions[0].approval.detail);
+      bracket.answerChoice(card.promptId, card.questions.map((q) => ({ question: q.question, selected: ["approve"] })));
+      await bracket.waitForIdle();
+      turnsRun += 1;
+      log("E asked again:", store.getPendingApproval("real-deferred-e") ? "yes" : "no");
+      check(!store.getPendingApproval("real-deferred-e") && existsSync(page), "E: converged on the second turn");
     }
   }
 } catch (error) {
