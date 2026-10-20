@@ -276,6 +276,7 @@ export class RoomManager implements RoomToolHost {
     const { queuedMessages: _dropped, ...kept } = room;
     void _dropped;
     this.store.setRoom(agentId, { ...kept, stopped: room.stopped ?? { reason: "user", at: this.now() } });
+    this.endWarmUp(agentId);
     const session = this.options.sessions.getOrCreate(agentId);
     session.discardQueuedTurns();
     session.stopTurn();
@@ -382,7 +383,8 @@ export class RoomManager implements RoomToolHost {
   private parkBehindLeader(sessionId: string): boolean {
     const runtime = this.store.getAgentId(sessionId);
     if (runtime !== "claude" || this.store.getSessionId(sessionId, runtime) !== undefined) return false;
-    const key = `${runtime}:${this.store.getModel(sessionId, runtime) ?? ""}`;
+    // Per room: the system prompt (and so the cache prefix) is the room's own.
+    const key = `${this.store.getRoom(sessionId)?.roomId ?? ""}:${runtime}:${this.store.getModel(sessionId, runtime) ?? ""}`;
     const warming = this.warming.get(key);
     if (!warming) {
       // Until its message is delivered (the window then starts), a bound on
@@ -424,6 +426,7 @@ export class RoomManager implements RoomToolHost {
   /** A room member's session was deleted: its agent is to leave the host,
    * now or on a later connection. */
   onMemberDeleted(sessionId: string): void {
+    this.endWarmUp(sessionId);
     const tombstones = this.readTombstones();
     if (tombstones.includes(sessionId)) return;
     this.writeTombstones([...tombstones, sessionId]);

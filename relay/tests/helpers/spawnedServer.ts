@@ -98,6 +98,8 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
       // Never the machine's real agent host socket (see testServer.ts).
       ANYWH_AGENT_HOST_SOCKET: join(workDir, "agent-host.sock"),
       ANYWH_SESSIONS_ROOT: join(workDir, "sessions-root"),
+      // Agents of one model do not wait behind the first (a test that exercises the wait asks for it).
+      RELAY_ROOM_WARMUP_MS: "0",
       ...extraEnv,
     },
   });
