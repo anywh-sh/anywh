@@ -168,3 +168,11 @@ test("a Codex thread that fails for another reason says that reason, not that th
   assert.match(String(error.message), /not logged in/);
   assert.doesNotMatch(String(error.message), /room's tools are not available/);
 });
+
+test("a Codex agent has no native subtasks to stop: listed empty, and stopping one is a 409", async () => {
+  const roomId = await createCodexRoom(dir);
+  await turn(roomId, "hello");
+  const url = `${base}/rooms/${roomId}/agents/${roomId}/subtasks`;
+  assert.deepEqual(((await (await fetch(url)).json()) as { subtasks: unknown[] }).subtasks, []);
+  assert.equal((await fetch(`${url}/task-1/stop`, { method: "POST" })).status, 409);
+});

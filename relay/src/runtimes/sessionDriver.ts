@@ -73,8 +73,9 @@ export interface AgentSessionDriver {
    * can see and stop them. */
   listSubtasks?(): SubtaskInfo[];
   /** Stops one running subtask, leaving the agent and its turn alone.
-   * `"unknown"` when no running subtask has that id. */
-  stopSubtask?(taskId: string): Promise<"stopping" | "unknown">;
+   * `"unknown"` when no running subtask has that id, `"unsupported"` for a
+   * runtime whose subagents are not tracked. */
+  stopSubtask?(taskId: string): Promise<"stopping" | "unknown" | "unsupported">;
   /** Follows a turn that was already running before this driver existed (an
    * agent that outlives the relay), to its end. */
   followTurnInFlight?(onEvent: (event: AgentEvent) => void): Promise<DriverTurnResult>;

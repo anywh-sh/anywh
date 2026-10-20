@@ -419,9 +419,11 @@ export class HostSessionDriver implements AgentSessionDriver {
     return this.subtasks.list();
   }
 
-  async stopSubtask(taskId: string): Promise<"stopping" | "unknown"> {
+  async stopSubtask(taskId: string): Promise<"stopping" | "unknown" | "unsupported"> {
+    // Codex's own subagents are not tracked as subtasks.
+    if (this.daemonPlan) return "unsupported";
     const client = this.options.binding.client;
-    if (this.daemonPlan || !client || this.subtasks.get(taskId)?.status !== "running") return "unknown";
+    if (!client || this.subtasks.get(taskId)?.status !== "running") return "unknown";
     await client.request("stop_task", { agentId: this.agentId, taskId });
     return "stopping";
   }
