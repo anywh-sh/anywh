@@ -1,6 +1,6 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
@@ -119,6 +119,60 @@ test("rewind: truncates the real on-disk transcript, returns the new resumable i
     const newSessionId = await driver.rewind(0, home);
     assert.notEqual(newSessionId, sessionId);
     assert.equal(driver.getSessionId(), newSessionId, "rewind updates the driver's own sessionId as a side effect, same as setSessionId would");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/** argv of every fake-claude invocation made while `run` executes. */
+async function recordSpawnArgv(run: () => Promise<void>): Promise<string[][]> {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-claude-argv-test-"));
+  const file = join(dir, "argv.jsonl");
+  process.env.FAKE_CLAUDE_ARGV_FILE = file;
+  try {
+    await run();
+    return readFileSync(file, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
+  } finally {
+    delete process.env.FAKE_CLAUDE_ARGV_FILE;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function mcpServerNames(argv: string[]): string[] {
+  const index = argv.indexOf("--mcp-config");
+  return index === -1 ? [] : Object.keys((JSON.parse(argv[index + 1]) as { mcpServers: object }).mcpServers).sort();
+}
+
+function homeWithUserMcp(): string {
+  const home = mkdtempSync(join(tmpdir(), "anywh-claude-worker-home-"));
+  writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { posthog: { type: "http", url: "https://example.test/mcp" } } }));
+  return home;
+}
+
+test("agent worker: spawns without user plugins/skills/hooks but with the user's MCP servers", async () => {
+  const home = homeWithUserMcp();
+  try {
+    const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home, agentWorker: true });
+    const [argv] = await recordSpawnArgv(async () => {
+      await driver.sendTurn(turnContext(), () => {});
+    });
+    assert.equal(argv[argv.indexOf("--setting-sources") + 1], "project,local");
+    assert.deepEqual(mcpServerNames(argv), ["posthog"]);
+    assert.ok(!argv.includes("--strict-mcp-config"), "account connectors must keep loading");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("ordinary session: spawn flags are untouched even when the user has MCP servers", async () => {
+  const home = homeWithUserMcp();
+  try {
+    const driver = new ClaudeSessionDriver({ host: noopHost, homeOverride: home });
+    const [argv] = await recordSpawnArgv(async () => {
+      await driver.sendTurn(turnContext(), () => {});
+    });
+    assert.ok(!argv.includes("--setting-sources"));
+    assert.ok(!argv.includes("--mcp-config"));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

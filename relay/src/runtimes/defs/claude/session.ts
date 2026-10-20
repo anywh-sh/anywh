@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import { AGENT_BIN, EXTRA_PATH_DIRS, stripBilledCredentials } from "../../executables.js";
 import { buildChildEnv } from "../../../host/childEnv.js";
+import { AGENT_WORKER_SETTING_SOURCES, mergeAgentWorkerMcpConfig, readUserMcpServers } from "./agentWorker.js";
 import { PLAN_MODE_CHOICE_MARKER_PROMPT } from "../../../bridges/planChoiceMarker.js";
 // Known reverse-direction dependency, surfaced by turning on the boundary
 // lint (not by this file changing): a def reaching into session/ for two
@@ -127,6 +129,10 @@ export interface ClaudeSessionOptions {
    * Without this, a relay restart would lose
    * `--resume` continuity even with the Claude Code session intact. */
   initialSessionId?: string;
+  /** Marks a session driven on behalf of another agent. Its spawns inherit
+   * the user's MCP servers but not their plugins, skills or hooks (see
+   * agentWorker.ts). Off for every ordinary session. */
+  agentWorker?: boolean;
 }
 
 /** Pre-built by the caller (`SharedSession`, which owns the "which mode gets
@@ -392,6 +398,22 @@ export class ClaudeSession {
     return true;
   }
 
+  /** `--mcp-config` and its companion flags for one turn, plus the settings
+   * restriction when this is an agent worker. */
+  private mcpArgs(mcp: McpSpawnConfig | undefined): string[] {
+    const worker = this.options.agentWorker === true;
+    const configJson = worker
+      ? mergeAgentWorkerMcpConfig(mcp?.configJson, readUserMcpServers(this.options.homeOverride ?? homedir()))
+      : mcp?.configJson;
+    return [
+      ...(worker ? ["--setting-sources", AGENT_WORKER_SETTING_SOURCES] : []),
+      ...(configJson ? ["--mcp-config", configJson] : []),
+      ...(mcp?.allowedTools ? ["--allowedTools", mcp.allowedTools] : []),
+      ...(mcp?.permissionPromptTool ? ["--permission-prompt-tool", mcp.permissionPromptTool] : []),
+      ...(mcp?.disallowedTools ? ["--disallowedTools", mcp.disallowedTools] : []),
+    ];
+  }
+
   async sendTurn(
     text: string,
     cwd: string,
@@ -414,15 +436,7 @@ export class ClaudeSession {
       // `acceptEdits` for every action the CLI itself decides needs
       // approval). Validated against the real binary that both flags
       // coexist fine in the same spawn — `default`/`acceptEdits` pass both.
-      ...(mcp
-        ? [
-            "--mcp-config",
-            mcp.configJson,
-            ...(mcp.allowedTools ? ["--allowedTools", mcp.allowedTools] : []),
-            ...(mcp.permissionPromptTool ? ["--permission-prompt-tool", mcp.permissionPromptTool] : []),
-            ...(mcp.disallowedTools ? ["--disallowedTools", mcp.disallowedTools] : []),
-          ]
-        : []),
+      ...this.mcpArgs(mcp),
     ];
     // If a previous `--resume` failed (invalid session, history not found,
     // etc.), sessionId was already cleared below — the next call

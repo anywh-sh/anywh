@@ -34,6 +34,8 @@ export interface ClaudeSessionDriverOptions {
   readonly initialSessionId?: string;
   readonly host: SessionDriverHost;
   readonly mcp?: ClaudeMcpWiring;
+  /** See `ClaudeSessionOptions.agentWorker`. Nothing sets this yet. */
+  readonly agentWorker?: boolean;
 }
 
 export class ClaudeSessionDriver implements AgentSessionDriver {
@@ -43,7 +45,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
   private readonly mcp: ClaudeMcpWiring | undefined;
 
   constructor(options: ClaudeSessionDriverOptions) {
-    this.claudeSession = new ClaudeSession({ homeOverride: options.homeOverride, initialSessionId: options.initialSessionId });
+    this.claudeSession = new ClaudeSession({ homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, agentWorker: options.agentWorker });
     this.homeOverride = options.homeOverride;
     this.host = options.host;
     this.mcp = options.mcp;
