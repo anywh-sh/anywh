@@ -13,6 +13,7 @@ import type { TurnContext } from "../../types.js";
 import { ClaudeSession, toClaudeMode } from "./session.js";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { forkTruncatedTranscript } from "./transcriptFork.js";
+import { buildGrantRules } from "./grantRules.js";
 import { buildMcpSpawnConfig } from "./mcpSpawnConfig.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
@@ -34,7 +35,7 @@ export interface ClaudeSessionDriverOptions {
   readonly initialSessionId?: string;
   readonly host: SessionDriverHost;
   readonly mcp?: ClaudeMcpWiring;
-  /** See `ClaudeSessionOptions.agentWorker`. Nothing sets this yet. */
+  /** See `ClaudeSessionOptions.agentWorker`. */
   readonly agentWorker?: boolean;
 }
 
@@ -93,7 +94,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
     const permissionRegistration =
       this.mcp?.permissionBridge && permissionMode !== "bypassPermissions"
         ? this.mcp.permissionBridge.registerTurn({
-            checkPermission: (toolName, input, toolUseId) => this.host.checkPermission(toolName, input, toolUseId),
+            checkPermission: (toolName, input, toolUseId, agentId) => this.host.checkPermission(toolName, input, toolUseId, agentId),
           })
         : undefined;
     // The actual CLI-arg assembly (which servers, which flags, the per-server
@@ -115,6 +116,8 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
       // above, but left as an OR so this stays correct if that gate ever
       // changes.
       blockAskUserQuestion: permissionMode === "plan" || choiceRegistration !== undefined,
+      // Calls a human approved after an earlier turn was told to wait.
+      grantedRules: ctx.grants ? buildGrantRules(ctx.grants) : undefined,
     });
 
     // Per turn: a tool result is interpreted with the input of the call it answers.

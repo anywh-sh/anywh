@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildMcpSpawnConfig, buildPermissionDecision, describeToolCall, isApproved } from "./mcpSpawnConfig.js";
+import { APPROVE_OPTION_ID, DENY_OPTION_ID, buildApprovalQuestion, buildDeferredDecision, buildMcpSpawnConfig, buildPermissionDecision, describeToolCall, isApproved } from "./mcpSpawnConfig.js";
 import { CHOICE_MCP_SERVER_NAME } from "../../../bridges/mcpBridge.js";
 import { PERMISSION_MCP_SERVER_NAME } from "../../../bridges/permissionBridge.js";
 
@@ -172,4 +172,27 @@ test("buildMcpSpawnConfig: the serialized --mcp-config keeps a per-server timeou
   assert.equal(typeof timeout, "number");
   assert.ok((timeout as number) >= 60 * 60 * 1000, `permission timeout must be at least 1h, got ${String(timeout)}`);
   assert.equal(parsed.mcpServers[CHOICE_MCP_SERVER_NAME]?.timeout, undefined);
+});
+
+test("buildDeferredDecision: refuses on the spot and tells the model to end its turn", () => {
+  assert.deepEqual(buildDeferredDecision(), { behavior: "deny", message: "awaiting user approval; end your turn" });
+});
+
+test("buildMcpSpawnConfig: granted rules ride in --allowedTools next to present_choice, even with no bridge at all", () => {
+  const base = { mcpBridgeBaseUrl: "http://127.0.0.1:1/choice", mcpPermissionBridgeBaseUrl: "http://127.0.0.1:1/perm", blockAskUserQuestion: false };
+  const both = buildMcpSpawnConfig({ ...base, choiceToken: "tok-choice", permissionToken: "tok-perm", grantedRules: ["Edit(//tmp/a)", "Bash(ls -la)"] });
+  assert.equal(both?.allowedTools, "mcp__anywh-choice__present_choice,Edit(//tmp/a),Bash(ls -la)");
+  const alone = buildMcpSpawnConfig({ ...base, choiceToken: undefined, permissionToken: undefined, grantedRules: ["Write"] });
+  assert.ok(alone, "a grant alone must not collapse the config to undefined");
+  assert.equal(alone.allowedTools, "Write");
+  assert.deepEqual(JSON.parse(alone.configJson), { mcpServers: {} });
+  assert.equal(buildMcpSpawnConfig({ ...base, choiceToken: undefined, permissionToken: undefined, grantedRules: [] }), undefined);
+});
+
+test("buildApprovalQuestion: a call that can only be granted tool-wide warns what approving allows", () => {
+  const question = buildApprovalQuestion("Bash", { command: "ls | head" }, undefined, true);
+  assert.equal(question.approval?.tool, "Bash");
+  assert.match(question.approval?.detail ?? "", /^ls \| head — approving allows every Bash call during the next turn$/);
+  assert.match(question.question, /approving allows every Bash call during the next turn/);
+  assert.equal(buildApprovalQuestion("Bash", { command: "ls" }).approval?.detail, "ls", "a narrow grant has nothing to warn about");
 });

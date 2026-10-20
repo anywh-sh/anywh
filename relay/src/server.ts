@@ -128,6 +128,7 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
+  undefined,
   {
     agentHost,
     roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id),

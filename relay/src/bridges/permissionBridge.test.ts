@@ -169,3 +169,46 @@ test("unrecognized method with an id: empty result instead of hanging or errorin
   assert.equal(body.id, 6);
   assert.deepEqual(body.result, {});
 });
+
+test("tools/call approve: forwards agent_id (a native subagent's call) and ignores a non-string one", async () => {
+  const bridge = new McpPermissionBridge();
+  const seen: Array<string | undefined> = [];
+  const { token } = bridge.registerTurn({
+    checkPermission: (_tool, _input, _id, agentId) => {
+      seen.push(agentId);
+      return Promise.resolve<PermissionDecision>({ behavior: "deny", message: "no" });
+    },
+  });
+  for (const agent_id of ["agent-7", 42, undefined]) {
+    const { res } = fakeResponse();
+    await bridge.handleRequest(
+      token,
+      fakeRequest({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "approve", arguments: { tool_name: "Bash", input: {}, agent_id } } }),
+      res,
+    );
+  }
+  assert.deepEqual(seen, ["agent-7", undefined, undefined]);
+});
+
+test("openCalls: counts approvals still waiting on the host, and is back to zero once they settle", async () => {
+  const bridge = new McpPermissionBridge();
+  let release!: (decision: PermissionDecision) => void;
+  const { token } = bridge.registerTurn({ checkPermission: () => new Promise<PermissionDecision>((resolve) => (release = resolve)) });
+  assert.equal(bridge.openCalls(), 0);
+  const { res } = fakeResponse();
+  const call = bridge.handleRequest(token, fakeRequest({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "approve", arguments: { tool_name: "Write", input: {} } } }), res);
+  // The body is read on a microtask; let the handler reach the host.
+  while (bridge.openCalls() === 0) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(bridge.openCalls(), 1);
+  release({ behavior: "deny", message: "no" });
+  await call;
+  assert.equal(bridge.openCalls(), 0);
+});
+
+test("openCalls: stays zero when the host fails, too", async () => {
+  const bridge = new McpPermissionBridge();
+  const { token } = bridge.registerTurn({ checkPermission: () => Promise.reject(new Error("boom")) });
+  const { res } = fakeResponse();
+  await bridge.handleRequest(token, fakeRequest({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "approve", arguments: { tool_name: "Write", input: {} } } }), res);
+  assert.equal(bridge.openCalls(), 0);
+});

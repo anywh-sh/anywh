@@ -364,6 +364,20 @@ export interface TurnContext {
   readonly permissionModeId: string;
   /** Set when resuming — absent on a session's first turn. */
   readonly resumeSessionId?: string;
+  /** Tool calls a human approved after an earlier turn was told to wait: the
+   * turn runs with exactly these permitted, so the agent can repeat them
+   * without asking again. Absent on an ordinary turn. */
+  readonly grants?: readonly ToolGrant[];
+}
+
+/** One approved tool call, as the agent asked for it. How a driver turns it
+ * into a permission its CLI accepts is the driver's business. */
+export interface ToolGrant {
+  readonly tool: string;
+  readonly input: unknown;
+  /** The permission the session already decided on when the call was first
+   * refused, for a driver whose permissions are rules; used as is. */
+  readonly rule?: string;
 }
 
 // ---------------------------------------------------------------------------

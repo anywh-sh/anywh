@@ -19,6 +19,8 @@ export interface CreateSessionDriverOptions {
   /** Set for a session whose agent runs in the agent host (a room's agents):
    * whatever its runtime, the host drives it. */
   readonly hostAgent?: HostAgentBinding;
+  /** Claude only: the session is driven on behalf of another agent. */
+  readonly agentWorker?: boolean;
 }
 
 export function createSessionDriver(def: AgentRuntimeDef, options: CreateSessionDriverOptions): AgentSessionDriver {
@@ -38,6 +40,7 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
         initialSessionId: options.initialSessionId,
         host: options.host,
         mcp: options.claudeMcp,
+        agentWorker: options.agentWorker,
       });
     case "jsonRpcDaemon":
       // CodexSessionDriver is the only driver of this shape today — same
