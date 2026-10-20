@@ -47,9 +47,16 @@ export interface ClaudeProcessOptions {
 
 const STDERR_TAIL_BYTES = 4096;
 const STDERR_FILE_CAP_BYTES = 1024 * 1024;
+/** After the process exits, how long to wait for its stdout to reach EOF.
+ * A descendant that inherited the pipes (a tool that daemonized without
+ * closing them) keeps them open indefinitely. */
+const PIPE_DRAIN_MS = 3000;
 
 export class ClaudeProcess {
+  /** The process is gone AND its output has been read (or given up on). */
   readonly exited: Promise<ExitInfo>;
+  /** The process itself is gone (the `exit` event), output or not. */
+  private readonly processExited: Promise<ExitInfo>;
   private exitInfo: ExitInfo | undefined;
   private stderrTailText = "";
   private stderrFile: WriteStream | undefined;
@@ -73,14 +80,35 @@ export class ClaudeProcess {
     this.exited = new Promise((resolve) => {
       resolveExit = resolve;
     });
-    // `close`, not `exit`: by then stdout has been read to the end, so no
-    // line can arrive after the exit is reported.
-    child.on("close", (code, sig) => {
-      this.exitInfo = { code, signal: sig };
+    let resolveProcessExit!: (info: ExitInfo) => void;
+    this.processExited = new Promise((resolve) => {
+      resolveProcessExit = resolve;
+    });
+    let finished = false;
+    const finish = (info: ExitInfo): void => {
+      if (finished) return;
+      finished = true;
       this.stderrFile?.end();
       this.stderrFile = undefined;
       void this.mcpFile?.remove().catch(() => {});
-      resolveExit(this.exitInfo);
+      resolveExit(info);
+    };
+    // Liveness comes from `exit`. Completion waits for `close` (stdout read
+    // to the end, so no line arrives after the exit is reported) — but only
+    // so long: past that, the streams are destroyed and the exit reported.
+    child.on("exit", (code, sig) => {
+      this.exitInfo = { code, signal: sig };
+      resolveProcessExit(this.exitInfo);
+      const timer = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(this.exitInfo!);
+      }, PIPE_DRAIN_MS);
+      timer.unref();
+      child.once("close", () => {
+        clearTimeout(timer);
+        finish(this.exitInfo!);
+      });
     });
   }
 
@@ -156,7 +184,7 @@ export class ClaudeProcess {
     const timedOut = new Promise<false>((resolve) => {
       timer = setTimeout(() => resolve(false), timeoutMs);
     });
-    const done = await Promise.race([this.exited.then(() => true as const), timedOut]);
+    const done = await Promise.race([this.processExited.then(() => true as const), timedOut]);
     clearTimeout(timer);
     return done;
   }

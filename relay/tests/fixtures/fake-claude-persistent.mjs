@@ -28,6 +28,10 @@
 //   [[bg-task:<path>]]   report a background task and end the turn; the
 //                        task is reported finished once <path> exists
 //   [[crash]]            exit with code 3 in the middle of the turn
+//   [[inherit-stdout]]   start a detached `sleep` that inherits this
+//                        process's stdout/stderr (a tool that daemonized
+//                        without closing them) and is not cleaned up on
+//                        SIGTERM, then end the turn
 //   [[stale-result:<path>]] end the turn normally; when the NEXT message
 //                        arrives, first print one more lone `result` (as if
 //                        a background-triggered turn's result were still in
@@ -108,6 +112,9 @@ export async function runPersistent(args) {
 
     const stale = /\[\[stale-result:([^\]]+)\]\]/.exec(text)?.[1];
     if (stale) staleBeforeNext = stale;
+    if (text.includes("[[inherit-stdout]]")) {
+      spawn("sleep", ["300"], { stdio: ["ignore", "inherit", "inherit"], detached: true }).unref();
+    }
     if (text.includes("[[crash]]")) {
       process.exit(3);
     }

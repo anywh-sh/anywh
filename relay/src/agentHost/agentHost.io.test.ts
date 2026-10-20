@@ -768,3 +768,37 @@ test("a corrupt registry is kept aside and the host starts empty; an unreadable 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------- a descendant holding the CLI's pipes
+
+test("a crash is noticed even while a descendant still holds the CLI's stdout open", async () => {
+  const h = await harness();
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "daemonize [[inherit-stdout]]" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    await h.client.request("send", { agentId: "a1", message: "[[crash]]" });
+    await waitFor(() => h.host.activity()[0]?.state === "failed", 6000, "crash noticed");
+    const { findAgentProcesses } = await import("./processTree.js");
+    const left = await findAgentProcesses(h.hostId, "a1");
+    assert.deepEqual(left.filter(isAlive), [], "the descendant was swept");
+  } finally {
+    await h.cleanup();
+  }
+});
+
+test("stopping an agent whose descendant holds its stdout is graceful and prompt", async () => {
+  const h = await harness({ stopGraceMs: 3000 });
+  try {
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "daemonize [[inherit-stdout]]" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "turn");
+    const started = Date.now();
+    await h.client.request("stop", { agentId: "a1" });
+    assert.ok(Date.now() - started < 2500, `stop took ${Date.now() - started}ms`);
+    await waitFor(() => events.some((event) => event.ev.type === "host_process" && event.ev.subtype === "exited"), 5000, "exit logged");
+    assert.equal(events.some((event) => event.ev.type === "host_process" && event.ev.subtype === "killed"), false, "it exited on SIGTERM, no SIGKILL needed");
+  } finally {
+    await h.cleanup();
+  }
+});
