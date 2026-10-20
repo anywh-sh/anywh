@@ -248,7 +248,17 @@ test("askedAt: a record from before the field existed falls back to load time, a
   const client = fakeSocket();
   machine.sendPendingTo(client);
   assert.equal((client.sent[0] as { askedAt: number }).askedAt, 7000);
-  assert.equal(changes[0]?.askedAt, 7000);
+  assert.deepEqual(changes, [], "nothing is written until the session decides to keep the question");
+  machine.commitRehydrated();
+  assert.equal((changes as Array<{ askedAt?: number } | undefined>)[0]?.askedAt, 7000);
+});
+
+test("askedAt: a legacy record that is dropped is cleared with a single write, never backfilled first", () => {
+  const changes: unknown[] = [];
+  const machine = new ChoiceMachine(new Set(), undefined, { promptId: "old", questions: [question()] }, (c) => changes.push(c), () => 7000);
+  machine.dropRehydrated();
+  machine.commitRehydrated();
+  assert.deepEqual(changes, [undefined]);
 });
 
 test("askedAt: approval prompts carry it too", () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type ChoiceAnswer, type ChoiceQuestion } from "../bridges/mcpBridge.js";
-import type { PersistedChoice } from "./sessionStore.js";
+import type { ChoicePrompt, PersistedChoice } from "./sessionStore.js";
 import { broadcastChoicePrompt, broadcastChoiceResolved, sendChoicePrompt } from "./broadcast.js";
 
 /** What `answerChoice` resolved, told apart so `SharedSession` (the only
@@ -57,8 +57,11 @@ export type AnswerChoiceResult =
  * not make it vanish.
  */
 export class ChoiceMachine {
-  private pendingApproval: { promptId: string; questions: ChoiceQuestion[]; askedAt: number; resolve: (answers: ChoiceAnswer[]) => void } | undefined;
-  private pendingChoice: (PersistedChoice & { askedAt: number }) | undefined;
+  private pendingApproval: (ChoicePrompt & { resolve: (answers: ChoiceAnswer[]) => void }) | undefined;
+  private pendingChoice: ChoicePrompt | undefined;
+  /** A legacy record got its `askedAt` filled in memory; written to the store
+   * by `commitRehydrated` once the question is known to be kept. */
+  private backfilled = false;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
@@ -74,11 +77,9 @@ export class ChoiceMachine {
     private readonly now: () => number = Date.now,
   ) {
     if (initialChoice) {
-      // Records from before `askedAt` existed get the load time, written back
-      // so it doesn't move again on the next restart.
-      const backfill = initialChoice.askedAt === undefined;
+      // Records from before `askedAt` existed get the load time.
+      this.backfilled = initialChoice.askedAt === undefined;
       this.pendingChoice = { ...initialChoice, askedAt: initialChoice.askedAt ?? this.now() };
-      if (backfill) this.mirror(this.pendingChoice);
     }
   }
 
@@ -102,10 +103,19 @@ export class ChoiceMachine {
     }
   }
 
+  /** The adopted question is staying: write back a backfilled `askedAt` so it
+   * doesn't move again on the next restart. */
+  commitRehydrated(): void {
+    if (!this.backfilled || !this.pendingChoice) return;
+    this.backfilled = false;
+    this.mirror(this.pendingChoice);
+  }
+
   /** Drops a question adopted from the store that turns out to belong to no
    * conversation (see `SharedSession`'s constructor). Silent: nothing was
    * shown to anyone yet. Only the stored copy needs clearing. */
   dropRehydrated(): void {
+    this.backfilled = false;
     if (!this.pendingChoice) return;
     this.pendingChoice = undefined;
     this.mirror(undefined);

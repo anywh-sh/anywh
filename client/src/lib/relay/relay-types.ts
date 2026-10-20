@@ -203,9 +203,11 @@ export type RelayMessage =
    * answer to unblock it, `"choice"` is a deferred `present_choice`/
    * plan-marker prompt that tolerates being closed with no answer at all
    * (`ChoiceCard`'s close button behaves differently per kind).
-   * `askedAt` is epoch ms of when the question was asked; it is fixed at
-   * creation and identical after reconnects and relay restarts. */
-  | { type: "choice_prompt"; promptId: string; questions: ChoiceQuestion[]; kind: "approval" | "choice"; askedAt: number }
+   * `askedAt` is epoch ms of when the question was asked, fixed at creation
+   * and unchanged across reconnects and restarts. Absent from a relay older
+   * than the field; for a question persisted before it existed it is the
+   * time the relay first loaded it. */
+  | { type: "choice_prompt"; promptId: string; questions: ChoiceQuestion[]; kind: "approval" | "choice"; askedAt?: number }
   /** The prompt above was answered (by any device) or the turn that asked
    * it ended before anyone answered — dismiss it everywhere it's shown. */
   | { type: "choice_resolved"; promptId: string };

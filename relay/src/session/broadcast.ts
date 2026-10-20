@@ -1,7 +1,6 @@
 import type { WebSocket } from "ws";
 import type { AgentEvent } from "../protocol/agent-event.js";
-import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
-import type { ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
+import type { ChoicePrompt, ContextUsage, ModelChoice, PermissionMode } from "./sessionStore.js";
 import type { PermissionModeOption } from "./permissionModes.js";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "../host/backgroundJobs.js";
 
@@ -35,7 +34,7 @@ export function broadcastBackgroundJobs(clients: Iterable<WebSocket>, jobs: Back
  * a device that reconnects (or connects for the first time) mid-wait needs
  * to see the pending question immediately, not just devices that were
  * already there when it was asked. */
-export function sendChoicePrompt(target: WebSocket, prompt: { promptId: string; questions: ChoiceQuestion[]; askedAt: number }, kind: "approval" | "choice"): void {
+export function sendChoicePrompt(target: WebSocket, prompt: ChoicePrompt, kind: "approval" | "choice"): void {
   target.send(JSON.stringify({ type: "choice_prompt", promptId: prompt.promptId, questions: prompt.questions, kind, askedAt: prompt.askedAt }));
 }
 
@@ -46,7 +45,7 @@ export function sendChoicePrompt(target: WebSocket, prompt: { promptId: string; 
  * `kind` is passed alongside for the same reason and tells the client which
  * close behavior applies — see the `choice_prompt` doc comment in
  * relay-types.ts. */
-export function broadcastChoicePrompt(clients: Iterable<WebSocket>, prompt: { promptId: string; questions: ChoiceQuestion[]; askedAt: number }, kind: "approval" | "choice"): void {
+export function broadcastChoicePrompt(clients: Iterable<WebSocket>, prompt: ChoicePrompt, kind: "approval" | "choice"): void {
   for (const client of clients) sendChoicePrompt(client, prompt, kind);
 }
 

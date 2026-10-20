@@ -156,15 +156,23 @@ export interface SessionEntry {
   pendingChoice?: PersistedChoice;
 }
 
+/** A question as the relay publishes it (`choice_prompt`): the one shape
+ * shared by the broadcast helpers and the machine's slots. */
+export interface ChoicePrompt {
+  promptId: string;
+  questions: ChoiceQuestion[];
+  /** Epoch ms when the question was asked. */
+  askedAt: number;
+}
+
 /** The deferred question as stored on disk. The single definition of this
  * shape: `ChoiceMachine` and `SharedSession` import it from here (type-only),
  * so the store never has to import from `session/choiceMachine.ts`. */
-export interface PersistedChoice {
-  promptId: string;
-  questions: ChoiceQuestion[];
+export interface PersistedChoice extends Omit<ChoicePrompt, "askedAt"> {
   /** Epoch ms when the question was asked, set once at creation. Optional
-   * only for records written before the field existed; `ChoiceMachine`
-   * backfills those with the load time. */
+   * only for records written before the field existed (or with a malformed
+   * value, which `load()` clears); `ChoiceMachine` backfills those with the
+   * load time. */
   askedAt?: number;
 }
 
@@ -173,8 +181,9 @@ export interface PersistedChoice {
  * future-schema file must not be able to reach it malformed. */
 function isPersistedChoice(value: unknown): value is PersistedChoice {
   if (!value || typeof value !== "object") return false;
-  const { promptId, questions, askedAt } = value as { promptId?: unknown; questions?: unknown; askedAt?: unknown };
-  if (askedAt !== undefined && (typeof askedAt !== "number" || !Number.isFinite(askedAt))) return false;
+  // `askedAt` is deliberately not checked here: a bad timestamp must not cost
+  // the user their question. `load()` clears just that field instead.
+  const { promptId, questions } = value as { promptId?: unknown; questions?: unknown };
   if (typeof promptId !== "string" || promptId === "") return false;
   if (!Array.isArray(questions) || questions.length === 0) return false;
   const optionalString = (v: unknown) => v === undefined || typeof v === "string";
@@ -310,6 +319,14 @@ export class SessionStore {
         // it doesn't come back on the next boot.
         delete entry.pendingChoice;
         this.migrated = true;
+      } else if (entry?.pendingChoice && "askedAt" in entry.pendingChoice) {
+        const { askedAt } = entry.pendingChoice as { askedAt: unknown };
+        if (typeof askedAt !== "number" || !Number.isFinite(askedAt) || askedAt < 0) {
+          // Keep the question, drop only the timestamp: ChoiceMachine will
+          // backfill it with the load time.
+          delete entry.pendingChoice.askedAt;
+          this.migrated = true;
+        }
       }
     }
     return records;
