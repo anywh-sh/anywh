@@ -497,6 +497,10 @@ export class AgentHost {
   }
 
   private hibernatable(agent: Agent): boolean {
+    // A Codex agent has no process of its own: idle (no turn, and so no
+    // approval or question pending — those are answered at once), it only
+    // gives up its room slot; its thread stays in the app-server.
+    if (agent.runtime === "codex") return agent.lifecycle === "alive" && !agent.turnInFlight;
     return agent.lifecycle === "alive" && agent.proc !== undefined && !agent.proc.hasExited && !agent.turnInFlight && agent.backgroundTasks === 0;
   }
 
@@ -504,15 +508,18 @@ export class AgentHost {
     await this.serialize(agent, async () => {
       if (agent.lifecycle === "hibernated") return;
       if (!this.hibernatable(agent)) {
-        const why =
-          agent.runtime === "codex"
-            ? "Codex agents share one app-server process; there is nothing to end per agent"
-            : agent.turnInFlight
-              ? "a turn is in flight"
-              : agent.backgroundTasks > 0
-                ? "background tasks are still running"
-                : `the agent is ${this.stateOf(agent)}`;
+        const why = agent.turnInFlight
+          ? "a turn is in flight"
+          : agent.backgroundTasks > 0
+            ? "background tasks are still running"
+            : `the agent is ${this.stateOf(agent)}`;
         throw new HostError("not_hibernatable", `cannot hibernate ${agent.agentId}: ${why}`);
+      }
+      if (agent.runtime === "codex") {
+        agent.lifecycle = "hibernated";
+        this.touch(agent);
+        this.persist();
+        return;
       }
       const detached = await this.detachedJobs(agent);
       // The process may have exited (or a turn started) during that await:
@@ -744,7 +751,14 @@ export class AgentHost {
 
   private onCodexExit(reason: string): void {
     for (const agent of this.agents.values()) {
-      if (agent.runtime !== "codex" || !agent.turnInFlight) continue;
+      if (agent.runtime !== "codex") continue;
+      if (agent.lifecycle === "alive" && !agent.turnInFlight) {
+        // Nothing was lost: its thread is resumed on the next app-server.
+        agent.lifecycle = "hibernated";
+        this.touch(agent);
+        continue;
+      }
+      if (!agent.turnInFlight) continue;
       agent.turnInFlight = false;
       agent.codexTurnId = undefined;
       agent.lifecycle = "failed";

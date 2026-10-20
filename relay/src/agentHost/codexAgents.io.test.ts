@@ -27,8 +27,8 @@ function fakeCodexDef(env: Record<string, string>): AgentRuntimeDef {
   return { ...codexRuntimeDef, identity: { ...codexRuntimeDef.identity, bin: FAKE_CODEX, env: { ...codexRuntimeDef.identity.env, set: { ...codexRuntimeDef.identity.env.set, ...env } } } };
 }
 
-async function start(dir: string, hostId: string, env: Record<string, string>): Promise<{ host: AgentHost; client: HostClient }> {
-  const host = await AgentHost.start({ hostId, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), codexDef: fakeCodexDef(env), drainGraceMs: 500 });
+async function start(dir: string, hostId: string, env: Record<string, string>, extra: { maxAlivePerRoom?: number } = {}): Promise<{ host: AgentHost; client: HostClient }> {
+  const host = await AgentHost.start({ hostId, dataDir: join(dir, "data"), socketPath: join(dir, "run", "h.sock"), codexDef: fakeCodexDef(env), drainGraceMs: 500, ...extra });
   const client = new HostClient({ socketPath: host.socketPath, reconnectMinMs: 10, reconnectMaxMs: 50 });
   client.start();
   await client.waitUntilConnected();
@@ -83,7 +83,8 @@ test("Codex agents share one app-server, each on its own thread, with turns, int
     assert.deepEqual(JSON.parse(readFileSync(responses, "utf8").trim()), { decision: "cancel" });
     assert.ok(c1.some((event) => event.ev.type === "host_codex_request_declined"));
 
-    await assert.rejects(client.request("hibernate", { agentId: "c1" }), /share one app-server/);
+    // Idle: nothing to end (the process is shared), but it frees its slot.
+    assert.equal((await client.request<AgentActivity>("hibernate", { agentId: "c1" })).state, "hibernated");
     assert.equal((await client.request<AgentActivity>("stop", { agentId: "c1" })).state, "stopped");
   } finally {
     client.close();
@@ -139,6 +140,37 @@ test("two messages racing to a Codex agent between turns start exactly one turn"
     await waitFor(() => events.some((event) => event.ev.method === "turn/started"), 5000, "turn started");
     assert.equal(events.filter((event) => event.ev.type === "host_user_message").length, 1);
     await client.request("interrupt", { agentId: "c1" });
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("idle Codex agents give up their room slot, and an app-server exit leaves the idle ones hibernated", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const { host, client } = await start(dir, `codex-room-${process.pid}`, {}, { maxAlivePerRoom: 2 });
+  try {
+    for (const agentId of ["c1", "c2"]) {
+      await client.request("spawn", { agentId, runtime: "codex", roomId: "r", spec: { cwd: dir }, message: "hi" });
+      const events = watch(client, agentId);
+      await waitFor(() => completed(events).length === 1, 5000, `${agentId} turn`);
+    }
+    // A full room of idle Codex agents makes room like any other.
+    await client.request("spawn", { agentId: "c3", runtime: "codex", roomId: "r", spec: { cwd: dir } });
+    assert.equal((await activity(client, "c1")).state, "hibernated");
+
+    // The shared app-server dies in c2's turn: c2 failed, idle c3 hibernated.
+    await client.request("send", { agentId: "c2", message: "[[die]]" });
+    await waitFor(() => host.activity().find((agent) => agent.agentId === "c2")?.state === "failed", 5000, "c2 failed");
+    assert.equal((await activity(client, "c3")).state, "hibernated");
+
+    // And a hibernated one resumes on a fresh app-server, same thread.
+    const c1 = await activity(client, "c1");
+    assert.deepEqual(await client.request("send", { agentId: "c1", message: "again" }), { duringTurn: false, resumed: true });
+    const events = watch(client, "c1");
+    await waitFor(() => completed(events).length === 2, 5000, "c1 resumed");
+    assert.equal((await activity(client, "c1")).sessionId, c1.sessionId);
   } finally {
     client.close();
     await host.close();

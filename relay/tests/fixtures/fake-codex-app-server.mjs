@@ -7,6 +7,7 @@
 // Not a model: what a turn does is scripted by markers in its input text.
 //   (default)       one agentMessage item echoing the input, then completed
 //   [[hang]]        turn stays in progress until `turn/interrupt`
+//   [[die]]         the whole app-server exits mid-turn
 //   [[approval]]    asks for a command approval first; the answer is
 //                   appended to FAKE_CODEX_RESPONSES (if set), then the turn
 //                   completes
@@ -66,7 +67,10 @@ process.stdin.on("data", (chunk) => {
         const text = (message.params.input ?? []).map((part) => part.text ?? "").join("");
         send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
         send({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
-        if (text.includes("[[hang]]")) {
+        if (text.includes("[[die]]")) {
+          // After what was already written reaches the pipe.
+          process.stdout.write("", () => process.exit(1));
+        } else if (text.includes("[[hang]]")) {
           hanging.set(turnId, threadId);
         } else if (text.includes("[[approval]]")) {
           const id = `srv-${turns}`;
