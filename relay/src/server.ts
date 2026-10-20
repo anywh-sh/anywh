@@ -19,12 +19,14 @@ import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handlePortabilityRoutes } from "./routes/portability.js";
 import { handleProfileRoutes } from "./routes/profiles.js";
 import { handlePushRoutes } from "./routes/push.js";
+import { handleRoomRoutes } from "./routes/rooms.js";
 import { handleSessionRoutes } from "./routes/sessions.js";
 import { handleThemeRoutes } from "./routes/themes.js";
 import type { RouteContext, RouteHandler } from "./routes/context.js";
 import { PushDispatcher } from "./push/dispatcher.js";
 import { PushStore } from "./push/pushStore.js";
 import { WS_PROTOCOL_VERSION } from "./protocol/version.js";
+import { RoomCanvasStore, roomCanvasPathFor } from "./session/roomCanvas.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -63,6 +65,9 @@ const pushStore = PUSH_DISABLED ? null : new PushStore(PUSH_DEVICES_FILE);
 const pushDispatcher = pushStore ? new PushDispatcher({ store: pushStore }) : null;
 
 const sessionStore = new SessionStore(SESSIONS_FILE, defaultCwd(HOME_OVERRIDE));
+// Each room's canvas layout, beside the sessions file (`<profile>-rooms.json`
+// for a profile whose sessions file is `<profile>.json`).
+const roomCanvas = new RoomCanvasStore(process.env.RELAY_ROOMS_FILE ?? roomCanvasPathFor(SESSIONS_FILE));
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
 // machine (see the comment on `SharedSessionOptions.mcpBridgeBaseUrl`), not
@@ -128,6 +133,7 @@ const routeContext: RouteContext = {
   defaultSession: DEFAULT_SESSION,
   pushStore,
   agentHost,
+  roomCanvas,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -141,6 +147,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleHostRoutes,
   handlePushRoutes,
   handleAgentRoutes,
+  handleRoomRoutes,
 ];
 
 /**

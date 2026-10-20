@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
+import { isRoomMembership, type RoomMembership } from "./room.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -154,6 +155,10 @@ export interface SessionEntry {
    * `undefined` via `getPendingChoice`). `promptId` is stored too, so a
    * reconnecting device sees the same prompt it saw before the restart. */
   pendingChoice?: PersistedChoice;
+  /** Membership in a room (see `room.ts`). Absent on every session that is
+   * not an agent of a room, which is every session written before rooms
+   * existed: they need no migration and behave exactly as before. */
+  room?: RoomMembership;
 }
 
 /** A question as the relay publishes it (`choice_prompt`). */
@@ -334,6 +339,12 @@ export class SessionStore {
           this.migrated = true;
         }
       }
+      if (entry && typeof entry === "object" && entry.room !== undefined && !isRoomMembership(entry.room)) {
+        // Same treatment as a bad pendingChoice: the session survives, as an
+        // ordinary one, and the bad record is not written back.
+        delete entry.room;
+        this.migrated = true;
+      }
     }
     return records;
   }
@@ -448,7 +459,8 @@ export class SessionStore {
    * moves it to the top. */
   listTitled(): TitledSession[] {
     return Object.entries(this.records)
-      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null)
+      // A room's workers are reached through the room, never listed on their own.
+      .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && entry[1].room?.role !== "worker")
       .sort(([, a], [, b]) => b.lastActiveAt - a.lastActiveAt)
       .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt }));
   }
@@ -672,6 +684,31 @@ export class SessionStore {
       this.records[id].pendingChoice = structuredClone(choice);
     }
     this.persist();
+  }
+
+  getRoom(id: string): RoomMembership | undefined {
+    const stored = this.records[id]?.room;
+    return stored === undefined ? undefined : structuredClone(stored);
+  }
+
+  /** `undefined` takes the session out of its room. */
+  setRoom(id: string, room: RoomMembership | undefined): void {
+    if (room === undefined) {
+      if (this.records[id]?.room === undefined) return;
+      delete this.records[id].room;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].room = structuredClone(room);
+    }
+    this.persist();
+  }
+
+  /** Every session of room `roomId` (its principal included), as id and
+   * membership. */
+  listRoomMembers(roomId: string): { id: string; room: RoomMembership }[] {
+    return Object.entries(this.records)
+      .filter(([, entry]) => entry.room?.roomId === roomId)
+      .map(([id, entry]) => ({ id, room: structuredClone(entry.room!) }));
   }
 
   private ensureEntry(id: string): void {

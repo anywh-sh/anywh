@@ -128,6 +128,14 @@ export class SessionManager {
     });
   }
 
+  /** Reports a sidebar list change, except for a room's workers: they are
+   * reached through their room and never listed on their own (the store's
+   * `listTitled` leaves them out the same way). */
+  private announce(event: SessionListEvent): void {
+    if (event.type === "upsert" && this.sessionStore.getRoom(event.id)?.role === "worker") return;
+    this.onListChanged?.(event);
+  }
+
   /** Called by `BackgroundJobTracker` when a job finishes.
    * `this.sessions.get` (not `getOrCreate`): if the session was deleted
    * while the job was running, there's no one to report to — discard
@@ -229,7 +237,7 @@ export class SessionManager {
     if (this.sessionStore.getTitle(id) === null && !this.sessions.has(id)) return false;
     this.sessionStore.setTitle(id, title);
     this.sessions.get(id)?.setTitle(title);
-    this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+    this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
     return true;
   }
 
@@ -276,7 +284,7 @@ export class SessionManager {
     this.wakeups.cancelForSession(id);
     const existedInStore = this.sessionStore.deleteEntry(id);
     const existed = existedInStore || session !== undefined;
-    if (existed) this.onListChanged?.({ type: "remove", id });
+    if (existed) this.announce({ type: "remove", id });
     return existed;
   }
 
@@ -309,7 +317,7 @@ export class SessionManager {
         // every other device has to drop the row too, not just this one.
         const wasListed = this.sessionStore.getTitle(id) !== null;
         this.sessionStore.clearTitle(id);
-        if (wasListed) this.onListChanged?.({ type: "remove", id });
+        if (wasListed) this.announce({ type: "remove", id });
       },
       initialCwd: cwd,
       initialLocked: locked,
@@ -342,7 +350,7 @@ export class SessionManager {
         // instead of only the one that sent the message. An untitled
         // session isn't listed yet; its title upsert announces it below.
         const title = this.sessionStore.getTitle(id);
-        if (title !== null) this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+        if (title !== null) this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
       },
       onNotifiable: (draft, watched) => this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched }),
       onEvent: (event) => {
@@ -386,7 +394,7 @@ export class SessionManager {
             if (!session.isCurrentTitleGeneration(generation)) return;
             this.sessionStore.setTitle(id, title);
             session.setTitle(title);
-            this.onListChanged?.({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+            this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
           } catch (error: unknown) {
             console.error("[relay] failed to generate session title:", error);
           }
