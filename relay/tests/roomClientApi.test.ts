@@ -146,6 +146,11 @@ test("removing an agent with work that is not integrated waits for the person to
   assert.ok((await agentsOf(roomId)).has(agentId), "nothing was removed");
   assert.ok(git(repo, "branch", "--format=%(refname:short)").includes(branch));
 
+  // A body that cannot be read is refused, not taken as "do not discard".
+  const garbled = await fetch(`${base}/rooms/${roomId}/agents/${agentId}/remove`, { method: "POST", body: "{not json", headers: { "Content-Type": "application/json" } });
+  assert.equal(garbled.status, 400);
+  assert.ok((await agentsOf(roomId)).has(agentId), "nothing was removed");
+
   const removed = await post(`/rooms/${roomId}/agents/${agentId}/remove`, { discard: true });
   assert.equal(removed.status, 200, await removed.clone().text());
   assert.ok(!(await agentsOf(roomId)).has(agentId), "hidden at once");

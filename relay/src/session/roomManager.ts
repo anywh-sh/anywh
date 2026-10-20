@@ -525,7 +525,7 @@ export class RoomManager implements RoomToolHost {
     const ids = this.subtreeOf(roomId, agentId).filter((id) => this.store.getRoom(id)?.stopped?.reason !== "removed");
     // Work that is not integrated anywhere else is only dropped on the
     // person's say-so: without it nothing is removed.
-    const unintegrated = (await this.worktreesOf(roomId, { size: true })).filter((tree) => ids.includes(tree.agentId) && !tree.integrated);
+    const unintegrated = (await this.worktreesOf(roomId)).filter((tree) => ids.includes(tree.agentId) && !tree.integrated);
     if (unintegrated.length > 0 && options.discard !== true) {
       return { ok: false, status: 409, error: "these agents have work in worktrees that is not integrated; remove with discard to drop it", needsDiscard: true, worktrees: unintegrated };
     }

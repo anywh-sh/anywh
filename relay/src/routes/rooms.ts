@@ -234,7 +234,12 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
         const body = await readJsonBody(req);
         discard = typeof body === "object" && body !== null && (body as { discard?: unknown }).discard === true;
       } catch {
-        // No body (or none worth reading) is a removal without discarding.
+        // No body is a removal without discarding; a body that cannot be read
+        // is refused, not guessed at: it may have said to discard.
+        if (Number(req.headers["content-length"] ?? 0) > 0 || req.headers["transfer-encoding"] !== undefined) {
+          send(res, 400, { error: "invalid body" });
+          return true;
+        }
       }
       const outcome = await ctx.roomManager.removeAgent(roomId, agentId, { discard });
       if (outcome.ok) send(res, 200, { removed: outcome.removed, undoMs: outcome.undoMs });
