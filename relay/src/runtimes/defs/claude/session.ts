@@ -77,8 +77,8 @@ const APPEND_SYSTEM_PROMPT =
   "can tell them that. To stop a job you started with `anywh-bg`, run `anywh-bg stop <id>` " +
   "(never `kill`/`pkill`): a job stopped that way does not trigger a report turn.";
 
-// The per-server `timeout` field in `--mcp-config` (sharedSession.ts,
-// mcpServers; see `buildMcpSpawnConfig`) is what actually keeps a pending
+// The per-server `timeout` field in `--mcp-config` (see
+// `buildMcpSpawnConfig` in mcpSpawnConfig.ts) is what actually keeps a pending
 // `anywh-permission` approval alive: measured on CLI 2.1.303, an approval
 // left pending for 120 s is still answerable, while without the field the CLI
 // cuts the call at ~60 s. (`anywh-choice` needs none of this: its `tools/call`

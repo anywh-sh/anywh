@@ -10,9 +10,8 @@
 //
 // What this checks:
 //   1. The turn completes quickly after the model calls `present_choice` —
-//      NOT after minutes, and NOT hanging until the CLI's ~6-minute MCP
-//      timeout (the bug this whole rework exists to
-//      route around). Under the old blocking design this exact scenario
+//      NOT after minutes, and NOT held open until a human answers
+//      (the coupling this whole rework exists to remove). Under the old blocking design this exact scenario
 //      (nobody answers right away) kept the tool call, and so the turn,
 //      open until a human answered.
 //   2. A `choice_prompt` was broadcast with the expected question.
