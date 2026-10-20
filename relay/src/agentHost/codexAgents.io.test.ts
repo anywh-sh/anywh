@@ -123,3 +123,25 @@ test("a restarted host brings Codex agents back by thread id and runs the next t
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("two messages racing to a Codex agent between turns start exactly one turn", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-codexhost-"));
+  const { host, client } = await start(dir, `codex-race-${process.pid}`, {});
+  try {
+    await client.request("spawn", { agentId: "c1", runtime: "codex", spec: { cwd: dir } });
+    const outcomes = await Promise.allSettled([
+      client.request("send", { agentId: "c1", message: "[[hang]] one" }),
+      client.request("send", { agentId: "c1", message: "[[hang]] two" }),
+    ]);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+    assert.match(String((outcomes.find((outcome) => outcome.status === "rejected") as PromiseRejectedResult).reason), /between turns/);
+    const events = watch(client, "c1");
+    await waitFor(() => events.some((event) => event.ev.method === "turn/started"), 5000, "turn started");
+    assert.equal(events.filter((event) => event.ev.type === "host_user_message").length, 1);
+    await client.request("interrupt", { agentId: "c1" });
+  } finally {
+    client.close();
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

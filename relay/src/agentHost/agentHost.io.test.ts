@@ -577,3 +577,39 @@ test("an agent whose log cannot be opened on restore comes back failed instead o
     else await h.cleanup();
   }
 });
+
+// ---------------------------------------------------------------- races inside an agent's queue
+
+for (const order of ["remove first", "send first"] as const) {
+  test(`remove racing a send that must start a process leaves no process behind (${order})`, async () => {
+    const h = await harness();
+    try {
+      await h.client.request("spawn", { agentId: "a1", spec: spec(h), message: "hi" });
+      const events = h.watch("a1");
+      await waitFor(() => results(events).length === 1, 5000, "turn");
+      await h.client.request("hibernate", { agentId: "a1" });
+      let send: Promise<unknown>;
+      let remove: Promise<unknown>;
+      if (order === "remove first") {
+        remove = h.client.request("remove", { agentId: "a1" });
+        send = h.client.request("send", { agentId: "a1", message: "wake up" });
+      } else {
+        send = h.client.request("send", { agentId: "a1", message: "wake up" });
+        remove = h.client.request("remove", { agentId: "a1" });
+      }
+      const [sent, removed] = await Promise.allSettled([send, remove]);
+      assert.equal(removed.status, "fulfilled");
+      if (order === "remove first") {
+        // Nothing may start for an agent being removed.
+        assert.equal(sent.status, "rejected");
+        assert.match(String((sent as PromiseRejectedResult).reason), /no agent a1/);
+      }
+      await waitFor(() => !h.host.activity().some((agent) => agent.agentId === "a1"), 5000, "forgotten");
+      const { findAgentProcesses } = await import("./processTree.js");
+      assert.deepEqual(await findAgentProcesses(h.hostId, "a1"), [], "no process of the removed agent");
+      assert.deepEqual((await h.client.request<{ agents: AgentActivity[] }>("activity")).agents, []);
+    } finally {
+      await h.cleanup();
+    }
+  });
+}

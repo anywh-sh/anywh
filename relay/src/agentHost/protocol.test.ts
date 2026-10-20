@@ -37,6 +37,8 @@ test("agent ids are limited to what is safe in a file name and an environment va
   assert.equal(isValidAgentId("-leading-dash"), false);
   assert.equal(isValidAgentId("a/b"), false);
   assert.equal(isValidAgentId("a".repeat(129)), false);
+  // Reserved for the host's own processes (the shared Codex app-server).
+  assert.equal(isValidAgentId("codex-app-server"), false);
 });
 
 test("parseHostMessage reports an unknown message type instead of passing it on", () => {

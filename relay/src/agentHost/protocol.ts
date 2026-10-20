@@ -20,8 +20,11 @@ export const AGENT_HOST_PROTOCOL_VERSION = 1;
 /** Agent ids end up in file names and process environments. */
 const AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
+/** Ids the host uses for its own processes' marks. */
+const RESERVED_AGENT_IDS = new Set(["codex-app-server"]);
+
 export function isValidAgentId(value: unknown): value is string {
-  return typeof value === "string" && AGENT_ID_PATTERN.test(value);
+  return typeof value === "string" && AGENT_ID_PATTERN.test(value) && !RESERVED_AGENT_IDS.has(value);
 }
 
 // ---------------------------------------------------------------- client → host

@@ -91,6 +91,10 @@ interface Agent {
   /** Set once the agent's log failed to take a write: the agent is failed
    * for good (its history would have a hole) until it is removed. */
   logError?: string;
+  /** Set as soon as a remove is accepted. Every task queued behind it checks
+   * this before starting anything, so nothing runs for an agent whose log
+   * is about to be deleted. */
+  removed?: boolean;
   turnInFlight: boolean;
   turnStartedAt?: number;
   lastTurnEndedAt?: number;
@@ -315,6 +319,10 @@ export class AgentHost {
     }
   }
 
+  private refuseRemoved(agent: Agent): void {
+    if (agent.removed) throw new HostError("unknown_agent", `no agent ${agent.agentId}`);
+  }
+
   private refuseBrokenLog(agent: Agent): void {
     if (agent.logError) throw new HostError("log_error", `agent ${agent.agentId} cannot run: its log failed (${agent.logError})`);
   }
@@ -375,6 +383,7 @@ export class AgentHost {
     if (agent.runtime === "codex") return this.sendCodex(agent, text);
     let resumed = false;
     await this.serialize(agent, async () => {
+      this.refuseRemoved(agent);
       if (!agent.proc || agent.proc.hasExited) {
         resumed = agent.sessionId !== undefined;
         await this.startProcess(agent);
@@ -386,6 +395,7 @@ export class AgentHost {
   /** Writes a user message; returns whether a turn was already in flight
    * (the CLI then folds it into that turn instead of starting a new one). */
   private write(agent: Agent, text: string): boolean {
+    this.refuseRemoved(agent);
     const proc = agent.proc;
     if (!proc) throw new HostError("not_running", `agent ${agent.agentId} has no process`);
     const duringTurn = agent.turnInFlight;
@@ -430,6 +440,8 @@ export class AgentHost {
   }
 
   private async remove(agent: Agent): Promise<{ removed: true }> {
+    this.refuseRemoved(agent);
+    agent.removed = true;
     if (agent.runtime === "codex") this.interrupt(agent);
     await this.serialize(agent, async () => {
       if (agent.proc && !agent.proc.hasExited) await this.endProcess(agent, "remove");
@@ -575,32 +587,37 @@ export class AgentHost {
   }
 
   private async sendCodex(agent: Agent, text: string): Promise<{ duringTurn: boolean; resumed: boolean }> {
-    if (agent.turnInFlight) throw new HostError("turn_in_flight", "a Codex agent takes a new message only between turns");
-    const resumed = agent.lifecycle !== "alive" && agent.sessionId !== undefined;
-    await this.serialize(agent, async () => {
+    // Checked and claimed inside the agent's queue: two messages racing
+    // between turns must not both pass the check and start two turns on one
+    // thread.
+    return this.serialize(agent, async () => {
+      this.refuseRemoved(agent);
+      if (agent.turnInFlight) throw new HostError("turn_in_flight", "a Codex agent takes a new message only between turns");
+      const resumed = agent.lifecycle !== "alive" && agent.sessionId !== undefined;
       if (!agent.sessionId) await this.startCodexThread(agent);
       else if (agent.lifecycle !== "alive") await this.makeRoomFor(agent);
-    });
-    this.record(agent, { type: "host_user_message", text, duringTurn: false });
-    agent.awaitingUser = false;
-    agent.turnInFlight = true;
-    agent.turnStartedAt = this.now();
-    agent.lifecycle = "alive";
-    agent.stopReason = undefined;
-    agent.failure = undefined;
-    this.touch(agent);
-    try {
-      agent.codexTurnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
-    } catch (error) {
-      agent.turnInFlight = false;
-      agent.lifecycle = "failed";
-      agent.failure = `Codex refused the turn: ${(error as Error).message}`;
+      this.refuseRemoved(agent);
+      this.record(agent, { type: "host_user_message", text, duringTurn: false });
+      agent.awaitingUser = false;
+      agent.turnInFlight = true;
+      agent.turnStartedAt = this.now();
+      agent.lifecycle = "alive";
+      agent.stopReason = undefined;
+      agent.failure = undefined;
       this.touch(agent);
+      try {
+        agent.codexTurnId = await this.codex().startTurn(this.codexContext(agent, text), agent.sessionId!);
+      } catch (error) {
+        agent.turnInFlight = false;
+        agent.lifecycle = "failed";
+        agent.failure = `Codex refused the turn: ${(error as Error).message}`;
+        this.touch(agent);
+        this.persist();
+        throw new HostError("turn_failed", agent.failure);
+      }
       this.persist();
-      throw new HostError("turn_failed", agent.failure);
-    }
-    this.persist();
-    return { duringTurn: false, resumed };
+      return { duringTurn: false, resumed };
+    });
   }
 
   private codexAgentFor(threadId: string | undefined): Agent | undefined {
@@ -663,7 +680,9 @@ export class AgentHost {
   }
 
   private async startProcess(agent: Agent): Promise<void> {
+    this.refuseRemoved(agent);
     await this.makeRoomFor(agent);
+    this.refuseRemoved(agent);
     const resumeSessionId = agent.sessionId;
     agent.lifecycle = "starting";
     agent.failure = undefined;
