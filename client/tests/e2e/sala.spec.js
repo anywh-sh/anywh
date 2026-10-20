@@ -246,7 +246,10 @@ describe("anywh room canvas", () => {
     // A worker delegating further: two agents under "Explore layouts", which
     // join its area.
     const members = (await (await fetch(`${stack.base}/rooms/${roomId}`)).json()).members;
-    const lead = members.find((m) => m.title?.startsWith("Explore layouts"));
+    // Found by what it was given, not by its title: a worker's title is
+    // generated, so it no longer repeats the task. The lead is the Design worker
+    // that has not reported (the other one reports "done" at once).
+    const lead = members.find((m) => m.room.role === "worker" && m.room.area === "Design" && !m.room.report);
     await say(
       stack.port,
       roomId,
@@ -621,7 +624,7 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await cards()).length === before + 1, { timeout: 60000, timeoutMsg: "the new agent's card never appeared" });
     await browser.waitUntil(async () => !(await $(".sala-launcher").isExisting()), { timeout: 5000, timeoutMsg: "the launcher stayed open" });
     const members = (await (await fetch(`${stack.base}/rooms/${smallRoom}`)).json()).members;
-    const made = members.find((m) => m.title?.startsWith("Write the release notes"));
+    const made = members.find((m) => m.room.role === "worker" && m.room.createdBy === "user");
     expect(made.room.createdBy).toBe("user");
   });
 
@@ -703,7 +706,8 @@ describe("anywh room canvas", () => {
     await press('aside[data-panel="about"] button[aria-label="Close panel"]');
 
     // Removing the agent that made it asks first: the work would be lost.
-    const spike = await browser.execute(() => [...document.querySelectorAll("[data-agent-id]")].find((el) => el.textContent.includes("Spike the avatar crop")).getAttribute("data-agent-id"));
+    // The agent that made the worktree: its card does not carry the task (the title is generated).
+    const spike = worktree.agentId;
     await press(`[data-agent-id="${spike}"] .sala-node-hit`);
     await pressBar("Remove");
     const dialog = await $('[role="alertdialog"]');
