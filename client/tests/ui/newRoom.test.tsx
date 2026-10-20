@@ -44,8 +44,11 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Unmounting a room writes its layout back; let that request leave while
+  // `fetch` is still the fake one.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   relay.uninstall();
 });
 
