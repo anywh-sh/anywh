@@ -47,6 +47,8 @@ export interface RoomManagerOptions {
   /** Whether the agent host is connected: without it no agent can start. */
   readonly hostConnected: () => boolean;
   readonly getModelCatalog?: (agentId: string) => ModelCatalog | undefined;
+  /** Ends an agent's process in the agent host (its session is kept). */
+  readonly stopInHost?: (agentId: string) => Promise<void>;
   readonly now?: () => number;
 }
 
@@ -60,6 +62,8 @@ export interface CreateRoomInput {
 }
 
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };
+
+export type StopAgentResult = { ok: true } | { ok: false; status: number; error: string };
 
 const ok = (text: string): RoomToolResult => ({ text, isError: false });
 const fail = (text: string): RoomToolResult => ({ text, isError: true });
@@ -156,6 +160,31 @@ export class RoomManager implements RoomToolHost {
     return { ok: true, roomId };
   }
 
+  /** The person stops one worker (only that card): its turn is
+   * interrupted, its process ended in the host, and it is marked stopped,
+   * which frees its place under the room's cap and closes its room tools. */
+  async stopAgent(roomId: string, agentId: string): Promise<StopAgentResult> {
+    const room = this.store.getRoom(agentId);
+    if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
+    if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is stopped this way" };
+    if (!room.stopped) this.store.setRoom(agentId, { ...room, stopped: { reason: "user", at: this.now() } });
+    this.options.sessions.getOrCreate(agentId).stopTurn();
+    try {
+      await this.options.stopInHost?.(agentId);
+    } catch (error) {
+      // Marked stopped regardless: the host ends it on its next start.
+      console.warn(`[relay] could not stop agent ${agentId} in the agent host: ${(error as Error).message}`);
+    }
+    return { ok: true };
+  }
+
+  /** Under the room's cap: not stopped, and not done for good — or done but
+   * working again (a message started a new turn). */
+  private countsAsLive(id: string, room: RoomMembership): boolean {
+    if (isLiveMember(room)) return true;
+    return !room.stopped && this.options.sessions.getOrCreate(id).isTurnInFlight();
+  }
+
   // ------------------------------------------------------------ tools
 
   private members(roomId: string): { id: string; room: RoomMembership }[] {
@@ -175,7 +204,7 @@ export class RoomManager implements RoomToolHost {
     const parent = members.find((member) => member.id === parentId);
     if (!parent) return fail(`There is no agent "${parentId}" in this room; parentId must be one of its agents.`);
     if (parent.room.stopped) return fail(`Agent "${parentId}" was stopped; pick another parent.`);
-    const live = members.filter((member) => isLiveMember(member.room)).length;
+    const live = members.filter((member) => this.countsAsLive(member.id, member.room)).length;
     if (live >= ROOM_MAX_LIVE_AGENTS) {
       return fail(`This room already has ${live} live agents, the limit is ${ROOM_MAX_LIVE_AGENTS}. Wait for one to report, or ask the person to stop one, before delegating more.`);
     }

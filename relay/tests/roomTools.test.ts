@@ -287,3 +287,33 @@ test("a malformed room URL is refused, never taking the relay down", async () =>
   }
   assert.equal((await fetch(`${base}/sessions`)).status, 200, "still up");
 });
+
+test("stopping a worker frees its place under the cap; deleting the room's principal removes its workers too", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const calls = Array.from({ length: 9 }, (_, index) => marker("delegate", { task: `idle ${index}`, runtime: "claude", model: "haiku" }));
+    const { results } = await principalTurn(socket, calls.join(" "));
+    const ids = results.map((result) => (JSON.parse(result.content) as { agentId: string }).agentId);
+    const full = await principalTurn(socket, marker("delegate", { task: "one more", runtime: "claude", model: "haiku" }));
+    assert.match(full.results[0].content, /limit is 10/);
+
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/stop`, { method: "POST" })).status, 200);
+    const stopped = (await members(roomId)).find((member) => member.id === ids[0]) as Member & { room: { stopped?: { reason: string } } };
+    assert.equal(stopped.room.stopped?.reason, "user");
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === ids[0])?.state === "stopped", 15_000, "stopped in the host");
+    const again = await principalTurn(socket, marker("delegate", { task: "now it fits", runtime: "claude", model: "haiku" }));
+    assert.equal(again.results[0].isError, false, again.results[0].content);
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${roomId}/stop`, { method: "POST" })).status, 400, "the principal is not stopped this way");
+  } finally {
+    socket.close();
+  }
+  const before = (await members(roomId)).map((member) => member.id);
+  const deleted = await fetch(`${base}/sessions/delete`, { method: "POST", body: JSON.stringify({ id: roomId }) });
+  assert.equal(deleted.status, 200);
+  assert.equal((await fetch(`${base}/rooms/${roomId}`)).status, 404);
+  await waitFor(async () => {
+    const agents = await hostAgents();
+    return before.every((id) => !agents.some((agent) => agent.agentId === id));
+  }, 20_000, "every agent of the room removed from the host");
+});

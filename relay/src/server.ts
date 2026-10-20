@@ -128,7 +128,7 @@ const sessionManager = new SessionManager(
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
   // `modelCatalogs` is filled by the boot probes below, after this runs.
   (agentId) => modelCatalogs[agentId],
-  { agentHost, roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id) },
+  { agentHost, roomSetup: (id): RoomAgentSetup | undefined => roomManager.setupFor(id), onRoomDeleted: (roomId) => roomCanvas.delete(roomId) },
 );
 
 // Runtimes a room can use: the installed ones the agent host can run. Until
@@ -141,6 +141,10 @@ const roomManager: RoomManager = new RoomManager({
   bridge: roomBridge,
   runtimes: () => roomRuntimes,
   hostConnected: () => agentHost?.status === "connected",
+  stopInHost: async (agentId) => {
+    if (!agentHost) throw new Error("this relay has no agent host");
+    await agentHost.request("stop", { agentId });
+  },
   getModelCatalog: (agentId) => modelCatalogs[agentId],
 });
 roomBridge.attach(roomManager);

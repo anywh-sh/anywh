@@ -20,6 +20,8 @@ export interface SessionManagerRoomOptions {
   /** The room wiring of a member (its instructions and tools), read at
    * every turn. */
   readonly roomSetup?: (sessionId: string) => RoomAgentSetup | undefined;
+  /** A room's principal was deleted (its workers with it). */
+  readonly onRoomDeleted?: (roomId: string) => void;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -286,6 +288,12 @@ export class SessionManager {
    * progress (if any) and notifies whoever is connected before dropping the
    * connection. */
   deleteSession(id: string): boolean {
+    const room = this.sessionStore.getRoom(id);
+    if (room?.role === "principal" && room.roomId === id) {
+      // A room goes as a whole: its workers have no way in but through it.
+      for (const member of this.sessionStore.listRoomMembers(id)) if (member.id !== id) this.deleteSession(member.id);
+      this.rooms.onRoomDeleted?.(id);
+    }
     const session = this.sessions.get(id);
     // A room's agent lives in the agent host: deleting its session removes
     // it there too (best effort — a host that is down keeps it until a later
