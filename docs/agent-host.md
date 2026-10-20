@@ -68,10 +68,18 @@ at 4 MiB; a sealed segment drops its partial-message lines (`stream_event`)
 without moving any offset; past 64 MiB the oldest segments go. A subscriber
 whose socket buffer passes 1 MiB is moved back to reading from disk, so a
 stalled client costs the host a bounded amount of memory. A record is at
-most 1 MiB: a larger event (a huge tool result) is stored truncated —
-type, subtype, session id, original size and the start of its JSON, marked
-`host_truncated`. A write error (disk full, I/O) fails that agent
-(`failed`, `log_error: ...`) and never the host.
+most 1 MiB: a larger event (a huge tool result) is stored truncated — its
+whole structure (ids, types, names, flags, usage, cost) with long strings
+cut to previews, marked `host_truncated`. A write error (disk full, I/O)
+fails that agent (`failed`, `log_error: ...`) and never the host.
+
+Every event carries `inc`, its log's incarnation; a consumer persists it
+with `next` and `seq` (`FileCursorStore` does). Appends are not fsynced:
+after an OS crash a log can come back shorter than a consumer's cursor,
+and new records then reuse seqs the consumer already saw. The consumer
+learns it from a `replay_gap` of reason `ahead` (the client resets its
+seq filter on it) or, for a removed and recreated agent, from a different
+incarnation (`reset: true`).
 
 ## Agents
 
@@ -109,29 +117,48 @@ skills or hooks). States: `starting`, `working`, `awaiting_user`, `idle`,
   the relay and the host strip from everything they spawn. The host takes
   its profile only from `--profile` (never from `ANYWH_PROFILE`).
 - On start, the host first takes an exclusive lock on its id, data
-  directory and socket (abstract unix sockets on Linux, released by the
-  kernel on death; pid lock files elsewhere), and only then ends processes
+  directory and socket (abstract unix sockets on Linux, named per uid and
+  released by the kernel on death; pid lock files elsewhere), writes a
+  `.anywh-agent-host` marker into its data directory, and only then ends processes
   a previous run left behind and restores its agents: those that were
   running come back `stopped` (`host_restart`), resumable, never running on
   their own. A registry that cannot be parsed is kept aside as
   `registry.json.corrupt-<time>`; one that cannot be read fails the start.
-- On SIGTERM (or an uncaught error) it drains: turns get 50 s, then are
+- On SIGTERM (or an uncaught error) it drains: turns get 40 s, then are
   interrupted; idle agents are hibernated, agents whose work was cut are
-  `stopped` (`host_shutdown`). The unit's `TimeoutStopSec=75` covers this
-  and stays under the user manager's ~90 s; a test keeps them in sync.
+  `stopped` (`host_shutdown`). With every agent's SIGKILL, sweep and pipe
+  waits the worst case is 64 s (`worstCaseShutdownMs`); the unit's
+  `TimeoutStopSec=75` covers it and stays under the user manager's ~90 s,
+  and a test keeps them in sync.
 - Deleting a profile through the relay disables its host in the
-  background and then removes its data directory.
+  background; its data directory is removed only once the host is no
+  longer active, the profile was not recreated meanwhile, and the
+  directory carries the host's marker. Every outcome is logged.
+- Idle Codex agents (no turn in flight) are hibernatable: nothing to end,
+  they only give up their room slot; their thread resumes on the next
+  message.
+- Development: `npm run dev` and `npm run dev:agent-host` both use a `dev`
+  profile; a relay with no profile and no socket connects to no host.
 
 ## Known limits
 
 - A process that detaches **and** rewrites its environment escapes the
-  marker sweep (and the detached-job check); under systemd the unit's cgroup still ends it when the host
-  stops, but not when one agent is stopped. Outside Linux (no `/proc`) only
-  the process group is covered.
+  marker sweep (and the detached-job check); under systemd the unit's
+  cgroup still ends it when the host stops, but not when one agent is
+  stopped. Outside Linux (no `/proc`) only the process group is covered.
+- The mark is inherited by every daemon an agent starts that outlives it —
+  a tmux or screen server, gpg-agent, `emacs --daemon`, a browser, a build
+  daemon. Stopping or removing the agent (or a memory/explicit
+  hibernation) ends them, including sessions the user later opened in a
+  tmux server the agent started; and while they live they count as
+  detached jobs, so idle hibernation never happens for that agent.
+- Locks outside Linux are pid files: two hosts racing over a stale one can
+  both take it. On Linux the lock is per network namespace: hosts of the
+  same user in different namespaces (containers) do not see each other.
 - The socket is protected by permissions only (0600 in a 0700 directory):
   Node exposes no peer credentials.
 - Codex agents are a life-cycle skeleton, tested only against a fake
-  app-server: approvals are declined, nothing is hibernated per agent, a
+  app-server: approvals are declined, a
   message during a turn is refused, tool processes are not ended per agent.
 - macOS: no launchd unit yet, and the Homebrew single binary does not
   include the host.
