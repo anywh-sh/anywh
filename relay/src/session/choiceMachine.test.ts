@@ -115,6 +115,20 @@ test("answerChoice: a present_choice answer returns kind 'choice' with the answe
   assert.deepEqual(machine.answerChoice(promptId, answers), { kind: "not_found" });
 });
 
+test("wouldStartTurn: a question starts a turn, the blocking approval does not, an unknown id neither", () => {
+  const client = fakeSocket();
+  const machine = new ChoiceMachine(new Set([client]));
+  machine.presentChoice([question()]);
+  const choiceId = (client.sent[0] as { promptId: string }).promptId;
+  void machine.presentApprovalChoice([question("approve this?")]);
+  const approvalId = (client.sent[1] as { promptId: string }).promptId;
+  assert.equal(machine.wouldStartTurn(choiceId), true);
+  assert.equal(machine.wouldStartTurn(approvalId), false, "a running turn is blocked on it already");
+  assert.equal(machine.wouldStartTurn("nope"), false);
+  machine.answerChoice(choiceId, []);
+  assert.equal(machine.wouldStartTurn(choiceId), false, "answered");
+});
+
 test("sendPendingTo: sends the deferred choice before the blocking approval, when both are open at once", () => {
   const client = fakeSocket();
   const machine = new ChoiceMachine(new Set([client]));

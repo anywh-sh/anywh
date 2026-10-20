@@ -486,6 +486,15 @@ export class ChoiceMachine {
     return { kind: "not_found" };
   }
 
+  /** Whether answering `promptId` would start a turn of the session (a
+   * question, or the verdict of a deferred approval) rather than release a
+   * call a running turn is blocked on. */
+  wouldStartTurn(promptId: string): boolean {
+    if (this.pendingApproval?.promptId === promptId) return false;
+    if (this.pendingChoice?.promptId === promptId && this.active === "choice") return true;
+    return this.deferredApproval?.promptId === promptId && this.active === "approval";
+  }
+
   /** Sends whichever of the two slots is currently open to a newly
    * connected (or reconnecting) socket — called from `SharedSession.addClient`.
    * `pendingApproval` sent LAST so, if the client just keeps whichever

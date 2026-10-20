@@ -253,7 +253,13 @@ export interface SharedSessionOptions {
   /** A room agent's note for the model alone on its next turn (news of the
    * room's context), and what to run once that turn went through. */
   roomTurnNote?: () => { text: string; commit: () => void } | undefined;
+  /** Why answering a card must wait, for a room agent: the answer starts a
+   * turn, which is refused while the room is full. */
+  answerRefusal?: () => AnswerChoiceError | undefined;
 }
+
+/** Why a `choice_answer` was refused; the card stays open. */
+export type AnswerChoiceError = "room_cap_reached";
 
 /** How a turn ended, as `onTurnSettled` reports it. */
 export interface TurnOutcome {
@@ -972,7 +978,18 @@ export class SharedSession implements SessionDriverHost {
    * instead (`origin: undefined` — no client rendered a bubble for it
    * locally the way `submitTurn` callers do, so everyone connected needs the
    * synthetic `user_message` broadcast, not just "the others"). */
-  answerChoice(promptId: string, answers: ChoiceAnswer[]): boolean {
+  answerChoice(promptId: string, answers: ChoiceAnswer[], origin?: WebSocket): boolean {
+    // Answering puts the agent back to work, which takes a place under the
+    // room's cap: refused while the room is full, the card left as it is.
+    const refusal = this.choiceMachine.wouldStartTurn(promptId) ? this.options.answerRefusal?.() : undefined;
+    if (refusal !== undefined) {
+      if (origin && origin.readyState === origin.OPEN) {
+        origin.send(JSON.stringify({ type: "choice_answer_error", promptId, code: refusal satisfies AnswerChoiceError }));
+        // The device may have cleared the card as it sent the answer.
+        this.choiceMachine.sendPendingTo(origin);
+      }
+      return false;
+    }
     const result = this.choiceMachine.answerChoice(promptId, answers);
     if (result.kind === "not_found") return false;
     if (result.kind === "choice") {

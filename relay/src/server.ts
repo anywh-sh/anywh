@@ -165,6 +165,7 @@ const sessionManager = new SessionManager(
       if (roomId !== undefined) roomChannel.touch(roomId);
     },
     turnNote: (id) => roomManager.turnNote(id),
+    answerRefusal: (id) => roomManager.answerRefusal(id),
     onUsage: (id, event) => roomUsage.observe(id, event),
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.

@@ -178,3 +178,97 @@ test("agents of a room asking together make one notification, about the room, an
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("answering a card is refused while the room is full, and the card stays open; once a place frees up the same answer works", async () => {
+  const { dir, home } = hostEnvDir();
+  // The host's own limit on live processes is not what is tested here.
+  const host = startHostProcess(dir, home, { ANYWH_AGENT_HOST_MAX_ALIVE_PER_ROOM: "20" });
+  const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath });
+  const base = `http://127.0.0.1:${relay.port}`;
+  const sockets: WebSocket[] = [];
+  try {
+    const deadline = Date.now() + 30_000;
+    while ((await fetch(`${base}/agents/activity`).catch(() => ({ status: 0 }))).status !== 200) {
+      if (Date.now() > deadline) throw new Error("host not connected");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const created = (await (await fetch(`${base}/rooms`, { method: "POST", body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: dir }) })).json()) as { roomId: string };
+    const roomId = created.roomId;
+
+    const agents = new Map<string, AgentView>();
+    let live = 0;
+    const watcher = new WebSocket(`ws://127.0.0.1:${relay.port}/rooms/${roomId}/watch`);
+    sockets.push(watcher);
+    watcher.on("message", (raw: Buffer) => {
+      const message = JSON.parse(raw.toString()) as { type: string; agents?: AgentView[]; agent?: AgentView; summary?: { live: number } };
+      if (message.type === "room_snapshot") for (const agent of message.agents ?? []) agents.set(agent.agentId, agent);
+      if (message.type === "room_agent_state" && message.agent) agents.set(message.agent.agentId, message.agent);
+      if (message.summary) live = message.summary.live;
+    });
+    await new Promise<void>((resolve, reject) => {
+      watcher.once("open", () => resolve());
+      watcher.once("error", reject);
+    });
+    const waitFor = async (check: () => boolean, what: string): Promise<void> => {
+      for (const end = Date.now() + 30_000; !check(); ) {
+        if (Date.now() > end) throw new Error(`timed out waiting for ${what}: live=${live} ${JSON.stringify([...agents.values()])}\n${relay.output.join("").slice(-2000)}`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+
+    // One worker ends its turn at an approval card: it takes no place.
+    const written = join(dir, "written.txt");
+    const principal = await connectSession(relay.port, roomId);
+    sockets.push(principal);
+    let turn = collectUntil(principal, isTurnEnded, 30_000);
+    sendUserMessage(principal, marker("delegate", { task: `write it ${ask({ tool: "Write", input: { file_path: written, content: "x" } })}`, runtime: "claude", model: "haiku" }));
+    await turn;
+    await waitFor(() => [...agents.values()].some((agent) => agent.role === "worker" && agent.state === "awaiting_user"), "the approval card");
+    const asking = [...agents.values()].find((agent) => agent.role === "worker")!;
+
+    // Meanwhile nine others fill the room (the principal's own turn takes the tenth place).
+    turn = collectUntil(principal, isTurnEnded, 30_000);
+    sendUserMessage(principal, Array.from({ length: 9 }, (_, index) => marker("delegate", { task: `busy ${index} [[hang]]`, runtime: "claude", model: "haiku" })).join(" "));
+    await turn;
+    await waitFor(() => live === 9, "nine agents at work");
+    sendUserMessage(principal, "stay busy [[hang]]");
+    await waitFor(() => live === 10, "a full room");
+
+    const card = new WebSocket(`ws://127.0.0.1:${relay.port}/?session=${encodeURIComponent(asking.agentId)}`);
+    sockets.push(card);
+    type Received = { type: string; promptId?: string; code?: string; questions?: { question: string }[] };
+    const received: Received[] = [];
+    card.on("message", (raw: Buffer) => received.push(JSON.parse(raw.toString()) as Received));
+    await new Promise<void>((resolve) => card.once("open", () => resolve()));
+    await waitFor(() => received.some((message) => message.type === "choice_prompt"), "the card on its session");
+    const prompt = received.find((message) => message.type === "choice_prompt")!;
+    const answer = (): void => card.send(JSON.stringify({ type: "choice_answer", promptId: prompt.promptId, answers: prompt.questions!.map((q) => ({ question: q.question, selected: ["approve"] })) }));
+
+    // Refused with the code, and the card is sent again for the device to show.
+    const before = received.length;
+    answer();
+    await waitFor(() => received.some((message) => message.type === "choice_answer_error"), "the refusal");
+    const refusal = received.find((message) => message.type === "choice_answer_error")!;
+    assert.equal(refusal.code, "room_cap_reached");
+    assert.equal(refusal.promptId, prompt.promptId);
+    await waitFor(() => received.slice(before).some((message) => message.type === "choice_prompt" && message.promptId === prompt.promptId), "the card sent again");
+    await new Promise((r) => setTimeout(r, 500));
+    assert.ok(!existsSync(written), "the call did not run");
+    assert.ok(!received.some((message) => message.type === "choice_resolved"), "the card was not resolved");
+    assert.equal(agents.get(asking.agentId)?.state, "awaiting_user");
+    assert.equal(agents.get(asking.agentId)?.needsYou.length, 1, "the card is still open");
+
+    // A place frees up: the same card is answered and the call runs.
+    const busy = [...agents.values()].find((agent) => agent.role === "worker" && agent.agentId !== asking.agentId)!;
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${busy.agentId}/stop`, { method: "POST" })).status, 200);
+    await waitFor(() => live === 9, "a free place");
+    answer();
+    await waitFor(() => agents.get(asking.agentId)?.report?.status === "done", "the worker's report");
+    assert.ok(existsSync(written), "the approved call ran");
+  } finally {
+    for (const socket of sockets) socket.close();
+    relay.cleanup();
+    await host.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

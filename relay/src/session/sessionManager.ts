@@ -41,6 +41,8 @@ export interface SessionManagerRoomOptions {
   readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
   /** See `SharedSessionOptions.roomTurnNote`. */
   readonly turnNote?: (sessionId: string) => { text: string; commit: () => void } | undefined;
+  /** Why a member's card cannot be answered now (the room is full), if so. */
+  readonly answerRefusal?: (sessionId: string) => "room_cap_reached" | undefined;
 }
 
 /** A change to the sidebar's session list (title assigned/changed, or
@@ -397,6 +399,7 @@ export class SessionManager {
             onTurnStateChange: () => this.rooms.onMemberChanged?.(id),
             onUsage: (event: AgentEvent) => this.rooms.onUsage?.(id, event),
             roomTurnNote: () => this.rooms.turnNote?.(id),
+            answerRefusal: () => this.rooms.answerRefusal?.(id),
           }
         : {}),
       // Nobody types into a worker: no suggestion to generate after its turns.

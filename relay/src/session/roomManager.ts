@@ -574,6 +574,18 @@ export class RoomManager implements RoomToolHost {
     return roomAgentState(room, this.options.sessions.peek(id)?.isBusy() ?? false, this.awaitingUser(id));
   }
 
+  /** Whether the card of a worker can be answered now. Answering puts the
+   * agent back to work, and an agent waiting for the person takes no place
+   * under the cap, so the room may have filled up meanwhile; then the answer
+   * is refused and the card stays open. A v1 limit: a later version may let
+   * the answer wait its turn instead. */
+  answerRefusal(sessionId: string): "room_cap_reached" | undefined {
+    const room = this.store.getRoom(sessionId);
+    if (room?.role !== "worker") return undefined;
+    if (takesRoomPlace(this.stateOf(sessionId, room))) return undefined;
+    return this.placesTaken(room.roomId) >= ROOM_MAX_LIVE_AGENTS ? "room_cap_reached" : undefined;
+  }
+
   /** Agents of a room that take a place under its cap right now. */
   private placesTaken(roomId: string): number {
     return this.members(roomId).filter((member) => takesRoomPlace(this.stateOf(member.id, member.room))).length;
