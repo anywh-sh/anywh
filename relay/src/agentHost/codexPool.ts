@@ -20,7 +20,7 @@
 //     the shared daemon's children and are not ended per agent.
 import { codexRuntimeDef } from "../runtimes/defs/codex.js";
 import { daemonPlanOf, spawnCodexDaemon, type CodexDaemon } from "../runtimes/transports/codexDaemon.js";
-import type { AgentRuntimeDef, ApprovalRequest, JsonRpcDaemonPlan, TurnContext, TurnHost, UserInputQuestion } from "../runtimes/types.js";
+import type { AgentRuntimeDef, ApprovalRequest, JsonRpcDaemonPlan, RoomToolCall, TurnContext, TurnHost, UserInputQuestion } from "../runtimes/types.js";
 import { AGENT_MARK_ENV, agentMark } from "./processTree.js";
 
 /** The agent id the shared app-server carries in its environment marker. */
@@ -38,6 +38,9 @@ export interface CodexPoolOptions {
   /** A request from Codex that needed a human; recorded, then declined. */
   readonly onServerRequest: (threadId: string | undefined, kind: "approval" | "user_input", detail: unknown) => void;
   readonly onExit: (reason: string) => void;
+  /** A room tool called through Codex's dynamic tools, on the thread of
+   * `call.threadId`. Answered at once. */
+  readonly onRoomToolCall?: (call: RoomToolCall) => Promise<{ text: string; isError: boolean }>;
 }
 
 function threadIdOf(params: unknown): string | undefined {
@@ -108,6 +111,7 @@ export class CodexPool {
         this.options.onServerRequest(undefined, "user_input", questions);
         return Promise.resolve("deferred" as const);
       },
+      ...(this.options.onRoomToolCall ? { callRoomTool: this.options.onRoomToolCall } : {}),
     };
   }
 

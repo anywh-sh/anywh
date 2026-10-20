@@ -23,6 +23,19 @@ export interface ClaudeAgentSpec extends PersistentClaudeSpec {
   /** Extra environment for this agent (e.g. subagent limits). Billed
    * credentials are stripped from it like from everything else. */
   readonly env?: Readonly<Record<string, string>>;
+  /** A room agent driven through a runtime with no MCP client of its own in
+   * this setup (Codex): its role, instructions and tools, and the relay's
+   * room endpoint the host forwards its tool calls to. A Claude agent
+   * reaches the room through `mcpConfigJson` instead. */
+  readonly room?: HostRoomSpec;
+}
+
+export interface HostRoomSpec {
+  readonly role: "principal" | "worker";
+  readonly instructions: string;
+  readonly tools: readonly { readonly name: string; readonly description: string; readonly inputSchema: Readonly<Record<string, unknown>> }[];
+  /** The relay's `anywh-room` MCP endpoint for this agent (loopback only). */
+  readonly bridgeUrl: string;
 }
 
 export interface ExitInfo {

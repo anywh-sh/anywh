@@ -31,8 +31,8 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFi
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AGENT_BIN } from "../runtimes/executables.js";
-import type { AgentRuntimeDef, TurnContext } from "../runtimes/types.js";
-import { ClaudeProcess, worstCaseEndMs, type ClaudeAgentSpec } from "./claudeProcess.js";
+import type { AgentRuntimeDef, RoomToolCall, TurnContext } from "../runtimes/types.js";
+import { ClaudeProcess, worstCaseEndMs, type ClaudeAgentSpec, type HostRoomSpec } from "./claudeProcess.js";
 import { CodexPool } from "./codexPool.js";
 import { AgentEventLog, type EventLogOptions } from "./eventLog.js";
 import { acquireInstanceLock, type InstanceLock } from "./instanceLock.js";
@@ -149,6 +149,33 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function parseRoomSpec(raw: unknown): HostRoomSpec | undefined {
+  if (raw === undefined) return undefined;
+  const bad = (why: string): never => {
+    throw new HostError("bad_spec", `spec.room ${why}`);
+  };
+  if (typeof raw !== "object" || raw === null) return bad("must be an object");
+  const room = raw as Record<string, unknown>;
+  if (room.role !== "principal" && room.role !== "worker") return bad("role must be principal or worker");
+  if (typeof room.instructions !== "string") return bad("instructions must be a string");
+  // The room's endpoint is the relay's own, on this machine: the host never
+  // forwards an agent's tool call anywhere else.
+  if (typeof room.bridgeUrl !== "string" || !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(room.bridgeUrl)) return bad("bridgeUrl must be a loopback http URL");
+  if (!Array.isArray(room.tools)) return bad("tools must be a list");
+  const tools = room.tools.map((tool: unknown) => {
+    const entry = tool as Record<string, unknown> | null;
+    if (!entry || typeof entry.name !== "string" || typeof entry.description !== "string" || typeof entry.inputSchema !== "object" || entry.inputSchema === null) {
+      return bad("tools must have a name, a description and an inputSchema");
+    }
+    return { name: entry.name, description: entry.description, inputSchema: entry.inputSchema as Record<string, unknown> };
+  });
+  return { role: room.role, instructions: room.instructions, tools, bridgeUrl: room.bridgeUrl };
+}
+
+/** How long the host waits for the relay to answer a room tool call. Every
+ * room tool answers at once; this only bounds a relay that is down. */
+const ROOM_TOOL_TIMEOUT_MS = 30_000;
+
 function parseSpec(raw: unknown): ClaudeAgentSpec {
   if (typeof raw !== "object" || raw === null) throw new HostError("bad_spec", "spec must be an object");
   const spec = raw as Record<string, unknown>;
@@ -179,6 +206,7 @@ function parseSpec(raw: unknown): ClaudeAgentSpec {
     agentWorker: spec.agentWorker !== false,
     partialMessages: spec.partialMessages !== false,
     env,
+    room: parseRoomSpec(spec.room),
   };
 }
 
@@ -703,8 +731,32 @@ export class AgentHost {
       onNotification: (threadId, method, params) => this.onCodexNotification(threadId, method, params),
       onServerRequest: (_threadId, kind, detail) => this.onCodexServerRequest(kind, detail),
       onExit: (reason) => this.onCodexExit(reason),
+      onRoomToolCall: (call) => this.onRoomToolCall(call),
     });
     return this.codexPool;
+  }
+
+  /** A room tool a Codex agent called: forwarded to the relay's room
+   * endpoint for that agent, the same one a Claude agent calls over MCP.
+   * Never throws: any failure is an answer the model can read. */
+  private async onRoomToolCall(call: RoomToolCall): Promise<{ text: string; isError: boolean }> {
+    const agent = this.codexAgentFor(call.threadId);
+    const room = agent?.spec.room;
+    if (!agent || !room) return { text: "The room tools are not available to this agent.", isError: true };
+    try {
+      const response = await fetch(room.bridgeUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: call.tool, arguments: call.arguments ?? {} } }),
+        signal: AbortSignal.timeout(ROOM_TOOL_TIMEOUT_MS),
+      });
+      if (!response.ok) return { text: `The room refused the call (HTTP ${response.status}); this agent may no longer be part of a room.`, isError: true };
+      const body = (await response.json()) as { result?: { content?: { text?: unknown }[]; isError?: unknown } };
+      const text = (body.result?.content ?? []).map((part) => (typeof part.text === "string" ? part.text : "")).join("");
+      return { text, isError: body.result?.isError === true };
+    } catch (error) {
+      return { text: `The room did not answer (${(error as Error).message}); the relay may be restarting, try again.`, isError: true };
+    }
   }
 
   private codexContext(agent: Agent, prompt: string): TurnContext {
@@ -715,6 +767,7 @@ export class AgentHost {
       effortId: agent.spec.effort,
       permissionModeId: agent.spec.permissionMode ?? this.codex().defaultPermissionModeId,
       resumeSessionId: agent.sessionId,
+      ...(agent.spec.room ? { room: { role: agent.spec.room.role, instructions: agent.spec.room.instructions, tools: agent.spec.room.tools } } : {}),
     };
   }
 

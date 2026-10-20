@@ -1,0 +1,53 @@
+{
+  "_comment": "Generated with `codex app-server generate-ts --experimental` from codex-cli 0.154.0 (2026-10-20): the protocol shapes the room tools rely on for a Codex agent. scripts/manual/check-codex-dynamic-tools.mjs regenerates them from the installed CLI and reports any drift (generating bindings runs no model).",
+  "cliVersion": "0.154.0",
+  "types": {
+    "DynamicToolSpec": "{ \"type\": \"function\" } & DynamicToolFunctionSpec | { \"type\": \"namespace\" } & DynamicToolNamespaceSpec",
+    "DynamicToolFunctionSpec": "{ name: string, description: string, inputSchema: JsonValue, deferLoading?: boolean, }",
+    "DynamicToolCallParams": "{ threadId: string, turnId: string, callId: string, namespace: string | null, tool: string, arguments: JsonValue, }",
+    "DynamicToolCallResponse": "{ contentItems: Array<DynamicToolCallOutputContentItem>, success: boolean, }",
+    "DynamicToolCallOutputContentItem": "{ \"type\": \"inputText\", text: string, } | { \"type\": \"inputImage\", imageUrl: string, } | { \"type\": \"inputAudio\", audioUrl: string, }"
+  },
+  "threadStartParamsFields": [
+    "allowProviderModelFallback",
+    "approvalPolicy",
+    "approvalsReviewer",
+    "baseInstructions",
+    "config",
+    "cwd",
+    "developerInstructions",
+    "dynamicTools",
+    "environments",
+    "ephemeral",
+    "experimentalRawEvents",
+    "historyMode",
+    "mockExperimentalField",
+    "model",
+    "modelProvider",
+    "multiAgentMode",
+    "permissions",
+    "personality",
+    "projectId",
+    "runtimeWorkspaceRoots",
+    "sandbox",
+    "selectedCapabilityRoots",
+    "serviceName",
+    "serviceTier",
+    "sessionStartSource",
+    "threadSource"
+  ],
+  "serverRequestMethods": [
+    "account/chatgptAuthTokens/refresh",
+    "applyPatchApproval",
+    "attestation/generate",
+    "currentTime/read",
+    "execCommandApproval",
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval",
+    "item/tool/call",
+    "item/tool/requestUserInput",
+    "mcpServer/elicitation/request"
+  ],
+  "dynamicToolCallItem": "{ \"type\": \"dynamicToolCall\", id: string, namespace: string | null, tool: string, arguments: JsonValue, status: DynamicToolCallStatus, contentItems: Array<DynamicToolCallOutputContentItem> | null, success: boolean | null, durationMs: number | null, }"
+}

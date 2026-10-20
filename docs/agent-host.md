@@ -145,6 +145,14 @@ skills or hooks). States: `starting`, `working`, `awaiting_user`, `idle`,
   background; its data directory is removed only once the host is no
   longer active, the profile was not recreated meanwhile, and the
   directory carries the host's marker. Every outcome is logged.
+- A Codex agent of a room gets the room's tools as Codex dynamic tools
+  (`thread/start.dynamicTools`, an experimental part of the app-server); its
+  `item/tool/call` requests are forwarded by the host to the relay's room
+  endpoint for that agent (`spec.room.bridgeUrl`, loopback only) — the same
+  endpoint a Claude agent calls over MCP — and answered at once. A room's
+  Codex principal runs read-only with Codex's own subagents off
+  (`features.multi_agent: false`). A Codex that refuses dynamic tools fails
+  the principal's turn visibly; nothing switches it to another runtime.
 - Idle Codex agents (no turn in flight) are hibernatable: nothing to end,
   they only give up their room slot; their thread resumes on the next
   message.

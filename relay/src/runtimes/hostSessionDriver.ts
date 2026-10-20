@@ -216,11 +216,15 @@ export class HostSessionDriver implements AgentSessionDriver {
     }
   }
 
-  /** Room tools that the agent's runtime refused to take are a failure the
+  /** Room tools the agent's runtime refused to take are a failure the
    * person has to see as such: the room never swaps the agent for another
-   * one behind their back. Hook for the runtimes that can fail that way. */
+   * one behind their back. Codex takes them as dynamic tools, an
+   * experimental part of its app-server; a version without them refuses the
+   * thread that declares them. */
   private describeFailure(message: string, setup: RoomAgentSetup | undefined): string {
-    void setup;
+    if (this.daemonPlan && setup && /could not start a Codex thread|dynamicTools/i.test(message)) {
+      return `The room's tools are not available with this version of Codex (${message}). This room stays on Codex: nothing was switched to another agent.`;
+    }
     return message;
   }
 

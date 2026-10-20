@@ -324,10 +324,10 @@ test("handleServerRequest: an unrecognized method returns undefined, so the conn
   assert.equal(codexRuntimeDef.exec.handleServerRequest("some/futureMethod", {}, host), undefined);
 });
 
-test("handleServerRequest: item/permissions/requestApproval, mcpServer/elicitation/request and item/tool/call are real Codex methods but out of scope — also fall through to undefined", () => {
+test("handleServerRequest: item/permissions/requestApproval and mcpServer/elicitation/request are real Codex methods but out of scope — also fall through to undefined (item/tool/call carries the room tools: codexRoomTools.io.test.ts)", () => {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   const host = { requestApproval: () => Promise.reject(new Error("n/a")), requestUserInput: () => Promise.reject(new Error("n/a")) };
-  for (const method of ["item/permissions/requestApproval", "mcpServer/elicitation/request", "item/tool/call"]) {
+  for (const method of ["item/permissions/requestApproval", "mcpServer/elicitation/request"]) {
     assert.equal(codexRuntimeDef.exec.handleServerRequest(method, {}, host), undefined);
   }
 });
