@@ -142,6 +142,7 @@ const sessionManager = new SessionManager(
       roomCanvas.delete(roomId);
       roomChannel.closeRoom(roomId);
     },
+    onWorkerPrompted: (id, watched): void => roomManager.workerPrompted(id, watched),
     onMemberChanged: (id) => {
       const roomId = sessionStore.getRoom(id)?.roomId;
       if (roomId !== undefined) roomChannel.touch(roomId);
@@ -167,6 +168,8 @@ const roomManager: RoomManager = new RoomManager({
   deleteAgent: (agentId) => sessionManager.deleteSession(agentId),
   ...(process.env.RELAY_ROOM_REMOVE_UNDO_MS ? { removeUndoMs: Number(process.env.RELAY_ROOM_REMOVE_UNDO_MS) } : {}),
   ...(process.env.RELAY_ROOM_DIGEST_WINDOW_MS ? { digestWindowMs: Number(process.env.RELAY_ROOM_DIGEST_WINDOW_MS) } : {}),
+  ...(process.env.RELAY_ROOM_PROMPT_WINDOW_MS ? { promptWindowMs: Number(process.env.RELAY_ROOM_PROMPT_WINDOW_MS) } : {}),
+  ...(pushDispatcher ? { notifyPerson: ({ roomId, draft, watched }) => pushDispatcher.notify({ ...draft, sessionId: roomId, ts: Date.now(), watched }) } : {}),
   owner: roomBridge.ownerId,
   tombstonesFile: process.env.RELAY_ROOM_TOMBSTONES_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-tombstones.json"),
   stopInHost: async (agentId) => {

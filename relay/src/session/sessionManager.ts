@@ -32,6 +32,8 @@ export interface SessionManagerRoomOptions {
   readonly owner?: string;
   /** A room member's session was deleted. */
   readonly onMemberDeleted?: (sessionId: string) => void;
+  /** A worker asked the person something (a question or a tool approval). */
+  readonly onWorkerPrompted?: (sessionId: string, watched: boolean) => void;
   /** A member's turn started or ended. */
   readonly onMemberChanged?: (sessionId: string) => void;
 }
@@ -452,7 +454,10 @@ export class SessionManager {
       // A worker's turns end all the time while the room works; the person
       // hears from the room, not from each of its workers.
       onNotifiable: (draft, watched) => {
-        if (this.sessionStore.getRoom(id)?.role === "worker") return;
+        if (this.sessionStore.getRoom(id)?.role === "worker") {
+          if (draft.kind === "approval_required" || draft.kind === "choice_required") this.rooms.onWorkerPrompted?.(id, watched);
+          return;
+        }
         this.onPushNotifiable?.({ ...draft, sessionId: id, ts: Date.now(), watched });
       },
       onEvent: (event) => {

@@ -73,3 +73,27 @@ export function promptDraft(input: { title: string | null; kind: "approval" | "c
   if (input.kind === "approval") return { kind: "approval_required", title: input.title, preview: null };
   return { kind: "choice_required", title: input.title, preview: previewOf(input.firstQuestion) };
 }
+
+/** One agent of a room with something waiting for the person. */
+export interface RoomPromptEntry {
+  kind: "approval" | "choice";
+  /** The agent's title on the room's canvas. */
+  agentTitle: string | null;
+  /** The question it asked (a choice only); an approval's call never shows. */
+  firstQuestion?: string;
+}
+
+/** Agents of a room asked the person something: one notification for the
+ * whole round, about the room, whichever agents asked. A single agent is
+ * named (and a choice previews its question); several are only counted. */
+export function roomPromptsDraft(input: { roomTitle: string | null; entries: readonly RoomPromptEntry[] }): PushNotificationDraft {
+  const { entries } = input;
+  const kind = entries.every((entry) => entry.kind === "approval") ? "approval_required" : "choice_required";
+  if (entries.length === 1) {
+    const [entry] = entries;
+    const who = previewOf(entry.agentTitle);
+    const question = entry.kind === "choice" ? previewOf(entry.firstQuestion) : null;
+    return { kind, title: input.roomTitle, preview: who !== null && question !== null ? `${who}: ${question}` : (who ?? question) };
+  }
+  return { kind, title: input.roomTitle, preview: `${entries.length} agents are waiting for you` };
+}

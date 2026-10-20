@@ -6,6 +6,8 @@
 // turn repeats the call and it runs; a denial never runs it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import WebSocket from "ws";
@@ -114,6 +116,65 @@ test("a worker's tool call becomes an approval card and its turn ends; approving
     for (const socket of sockets) socket.close();
     relay.cleanup();
     await host.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("agents of a room asking together make one notification, about the room, and none for each worker", async () => {
+  const { dir, home } = hostEnvDir();
+  const host = startHostProcess(dir, home);
+  const pushed: { event: { kind: string; sessionId: string; title: string | null; preview: string | null } }[] = [];
+  const gateway = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
+    req.on("end", () => {
+      pushed.push(JSON.parse(raw) as (typeof pushed)[number]);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ rejected: [], failed: [] }));
+    });
+  });
+  await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
+  const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_PUSH_DEVICES_FILE: join(dir, "push-devices.json"), RELAY_ROOM_PROMPT_WINDOW_MS: "400" });
+  const base = `http://127.0.0.1:${relay.port}`;
+  const sockets: WebSocket[] = [];
+  try {
+    const deadline = Date.now() + 30_000;
+    while ((await fetch(`${base}/agents/activity`).catch(() => ({ status: 0 }))).status !== 200) {
+      if (Date.now() > deadline) throw new Error("host not connected");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const registered = await fetch(`${base}/push/devices/3f2b1c9e-4d5a-4b6c-8d7e-9f0a1b2c3d4e`, {
+      method: "PUT",
+      body: JSON.stringify({ gatewayUrl: `http://127.0.0.1:${(gateway.address() as AddressInfo).port}/push/v1/notify`, pushKey: "key-1", data: { profileId: "p" } }),
+    });
+    assert.equal(registered.status, 204);
+    const created = (await (await fetch(`${base}/rooms`, { method: "POST", body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: dir, title: "Release room" }) })).json()) as { roomId: string };
+    const principal = await connectSession(relay.port, created.roomId);
+    sockets.push(principal);
+    const delegated = collectUntil(principal, isTurnEnded, 30_000);
+    sendUserMessage(
+      principal,
+      [1, 2, 3]
+        .map((n) => marker("delegate", { task: `write ${ask({ tool: "Write", input: { file_path: join(dir, `f${n}.txt`), content: "x" } })}`, runtime: "claude", model: "haiku" }))
+        .join(" "),
+    );
+    await delegated;
+    // The three workers' cards make one notification about the room.
+    for (const end = Date.now() + 20_000; !pushed.some((p) => p.event.kind === "approval_required"); ) {
+      if (Date.now() > end) throw new Error(`no approval notification; saw ${JSON.stringify(pushed)}\n${relay.output.join("").slice(-2000)}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+    const prompts = pushed.filter((p) => ["approval_required", "choice_required"].includes(p.event.kind));
+    assert.equal(prompts.length, 1, JSON.stringify(pushed));
+    assert.equal(prompts[0].event.sessionId, created.roomId);
+    assert.equal(prompts[0].event.title, "Release room");
+    assert.equal(prompts[0].event.preview, "3 agents are waiting for you");
+  } finally {
+    for (const socket of sockets) socket.close();
+    relay.cleanup();
+    await host.stop();
+    await new Promise<void>((resolve) => gateway.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });
   }
 });

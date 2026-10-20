@@ -30,6 +30,7 @@ import {
   type RoomAgentState,
   type RoomMembership,
 } from "./room.js";
+import { roomPromptsDraft, type PushNotificationDraft, type RoomPromptEntry } from "../push/events.js";
 import { summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
 import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
 import {
@@ -92,6 +93,12 @@ export interface RoomManagerOptions {
   /** Agents that were just deleted for good after a removal (the root of the
    * removed subtree and everything below it). */
   readonly onPurged?: (agentIds: readonly string[]) => void;
+  /** Tells the person's devices that agents of a room wait for them (one
+   * call per round, about the room's principal session). */
+  readonly notifyPerson?: (event: { roomId: string; draft: PushNotificationDraft; watched: boolean }) => void;
+  /** How long the questions of several agents are gathered into one
+   * notification. Default 1.5 s. */
+  readonly promptWindowMs?: number;
 }
 
 export interface CreateRoomInput {
@@ -125,6 +132,10 @@ export class RoomManager implements RoomToolHost {
   /** Per removed root, the timer that deletes its subtree once the undo
    * window is over. */
   private readonly purgeTimers = new Map<string, NodeJS.Timeout>();
+  /** Per room, the gathering of questions into one notification, and the
+   * prompts the person has already been told about. */
+  private readonly promptRounds = new Map<string, { timer: NodeJS.Timeout; watched: boolean }>();
+  private readonly notifiedPrompts = new Map<string, Set<string>>();
 
   constructor(private readonly options: RoomManagerOptions) {
     this.now = options.now ?? Date.now;
@@ -261,6 +272,48 @@ export class RoomManager implements RoomToolHost {
     void _stopped;
     this.store.setRoom(agentId, rest);
     return { ok: true };
+  }
+
+  /** A worker asked the person something. The person hears about it from
+   * the room, once for the agents that asked together, never from each
+   * worker. */
+  workerPrompted(workerId: string, watched: boolean): void {
+    const room = this.store.getRoom(workerId);
+    if (room?.role !== "worker" || room.stopped || !this.options.notifyPerson) return;
+    const round = this.promptRounds.get(room.roomId);
+    if (round) {
+      round.watched = round.watched || watched;
+      return;
+    }
+    const timer = setTimeout(() => {
+      const gathered = this.promptRounds.get(room.roomId);
+      this.promptRounds.delete(room.roomId);
+      this.notifyPrompts(room.roomId, gathered?.watched ?? false);
+    }, this.options.promptWindowMs ?? 1500);
+    timer.unref();
+    this.promptRounds.set(room.roomId, { timer, watched });
+  }
+
+  /** Tells the person about the prompts of a room it has not told them about. */
+  private notifyPrompts(roomId: string, watched: boolean): void {
+    if (this.store.getRoom(roomId)?.role !== "principal") return;
+    const known = this.notifiedPrompts.get(roomId) ?? new Set<string>();
+    const current = new Set<string>();
+    const entries: RoomPromptEntry[] = [];
+    for (const { id, room } of this.members(roomId)) {
+      if (room.role !== "worker" || room.stopped) continue;
+      for (const need of this.needsYou(id)) {
+        current.add(need.promptId);
+        if (known.has(need.promptId)) continue;
+        const choice = need.kind === "choice" ? this.store.getPendingChoice(id) : undefined;
+        entries.push({ kind: need.kind, agentTitle: this.store.getTitle(id), ...(choice?.questions[0] ? { firstQuestion: choice.questions[0].question } : {}) });
+      }
+    }
+    // What was answered stops counting, so a later prompt is told again.
+    this.notifiedPrompts.set(roomId, current);
+    if (entries.length === 0) return;
+    const looking = this.options.sessions.peek(roomId)?.isAnyoneLooking() ?? false;
+    this.options.notifyPerson?.({ roomId, draft: roomPromptsDraft({ roomTitle: this.store.getTitle(roomId), entries }), watched: watched || looking });
   }
 
   /** What the person is being asked by `id`, from what is persisted. */
