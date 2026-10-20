@@ -1,0 +1,519 @@
+// Append-only log of one agent's events: everything the agent CLI printed on
+// stdout plus the host's own `host_*` events, one JSON record per line:
+//
+//   {"seq":12,"off":4031,"t":1792458155845,"ev":{...}}
+//
+// `seq` counts records; `off` is a LOGICAL byte offset — the position the
+// record had when it was written, which never changes afterwards. A client
+// resumes from the `next` (= off + line length) of the last record it
+// processed. Because every record carries its own `off`, a sealed segment can
+// be compacted (lines dropped) without invalidating any cursor: a reader skips
+// records whose `off` is below its cursor instead of seeking to a byte.
+//
+// The log is split into segment files named `<baseOffset>-<baseSeq>.jsonl`.
+// Only the newest segment is appended to. When it grows past `segmentBytes`
+// it is sealed, compacted (the CLI's partial-message `stream_event` lines are
+// dropped: the complete `assistant` message that follows them carries the
+// same content), and a new segment starts. When the segments together exceed
+// `retainBytes` the oldest are deleted; a reader asking for an offset that is
+// gone is told so (a gap) and continues from the oldest one kept.
+//
+// Writes are synchronous on purpose: a record is on disk before any
+// subscriber sees it, and a subscriber that catches up from disk and then
+// switches to live delivery can do the switch in the same tick it checks the
+// end offset, with no append able to slip in between.
+import { randomBytes } from "node:crypto";
+import { closeSync, fstatSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { open, readFile, rename, rm, writeFile, type FileHandle } from "node:fs/promises";
+import { join } from "node:path";
+import { BufferLineSplitter } from "./lineSplitter.js";
+
+export const DEFAULT_SEGMENT_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_RETAIN_BYTES = 64 * 1024 * 1024;
+/** Larger events (a huge tool result) are stored truncated: one record must
+ * never be able to outgrow what a reader or a socket buffers at once. */
+export const DEFAULT_MAX_RECORD_BYTES = 1024 * 1024;
+const TRUNCATED_PREVIEW_CHARS = 2048;
+
+const SEGMENT_NAME = /^(\d{16})-(\d+)\.jsonl$/;
+const RECORD_PREFIX = /^\{"seq":(\d+),"off":(\d+),/;
+
+export interface EventLogOptions {
+  readonly segmentBytes?: number;
+  readonly maxRecordBytes?: number;
+  readonly retainBytes?: number;
+  readonly now?: () => number;
+}
+
+/** A record as written, plus where the next one starts. `line` has no
+ * trailing newline. */
+export interface RawRecord {
+  readonly line: string;
+  readonly seq: number;
+  readonly off: number;
+  readonly next: number;
+}
+
+export interface AppendedRecord extends RawRecord {
+  readonly t: number;
+  readonly ev: Record<string, unknown>;
+}
+
+interface Segment {
+  readonly base: number;
+  readonly baseSeq: number;
+  readonly path: string;
+}
+
+function segmentName(base: number, baseSeq: number): string {
+  return `${String(base).padStart(16, "0")}-${baseSeq}.jsonl`;
+}
+
+function listSegments(dir: string): Segment[] {
+  const segments: Segment[] = [];
+  for (const name of readdirSync(dir)) {
+    const match = SEGMENT_NAME.exec(name);
+    if (match) segments.push({ base: Number(match[1]), baseSeq: Number(match[2]), path: join(dir, name) });
+  }
+  return segments.sort((a, b) => a.base - b.base);
+}
+
+/** Last complete line of an open file of `size` bytes, read backwards in
+ * chunks (a single record can be megabytes: a large tool result). Returns
+ * the byte length of the valid prefix too, so a torn final write (the host
+ * died mid-`write`) can be cut off. */
+function readTail(fd: number, size: number): { lastLine: string | undefined; validLength: number } {
+  if (size === 0) return { lastLine: undefined, validLength: 0 };
+  const chunk = 64 * 1024;
+  // The file must end in "\n" to be whole; otherwise find the last "\n" and
+  // treat everything after it as a torn write.
+  const lastByte = Buffer.alloc(1);
+  readSync(fd, lastByte, 0, 1, size - 1);
+  let validLength = size;
+  const findLastNewline = (before: number): number => {
+    let pos = before;
+    while (pos > 0) {
+      const start = Math.max(0, pos - chunk);
+      const buf = Buffer.alloc(pos - start);
+      readSync(fd, buf, 0, buf.length, start);
+      const index = buf.lastIndexOf(0x0a);
+      if (index >= 0) return start + index;
+      pos = start;
+    }
+    return -1;
+  };
+  if (lastByte[0] !== 0x0a) {
+    const nl = findLastNewline(size);
+    validLength = nl + 1;
+    if (validLength === 0) return { lastLine: undefined, validLength: 0 };
+  }
+  const end = validLength - 1; // position of the final "\n"
+  const previous = findLastNewline(end);
+  const start = previous + 1;
+  const buf = Buffer.alloc(end - start);
+  readSync(fd, buf, 0, buf.length, start);
+  return { lastLine: buf.toString("utf8"), validLength };
+}
+
+export class AgentEventLog {
+  readonly incarnation: string;
+  private segments: Segment[];
+  private fd: number;
+  private activeSize: number;
+  private _nextSeq: number;
+  private readonly listeners = new Set<(record: AppendedRecord) => void>();
+  private readonly segmentBytes: number;
+  private readonly retainBytes: number;
+  private readonly maxRecordBytes: number;
+  private readonly now: () => number;
+  private closed = false;
+  /** Set by the first failed write: from then on the file may end in a torn
+   * record and offsets past it are not trustworthy, so every later append
+   * fails too. The log is fine again once reopened (a torn tail is cut). */
+  private failure: Error | undefined;
+  /** Compactions run one at a time, in the order segments were sealed. */
+  private maintenance: Promise<void> = Promise.resolve();
+
+  private constructor(
+    readonly dir: string,
+    options: EventLogOptions,
+  ) {
+    this.segmentBytes = options.segmentBytes ?? DEFAULT_SEGMENT_BYTES;
+    this.retainBytes = options.retainBytes ?? DEFAULT_RETAIN_BYTES;
+    this.maxRecordBytes = options.maxRecordBytes ?? DEFAULT_MAX_RECORD_BYTES;
+    this.now = options.now ?? Date.now;
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Identifies this log among all logs that ever lived in `dir`: an agent
+    // removed and recreated under the same id starts again at seq 0 / offset
+    // 0, and a reader holding a cursor into the old one must know to start
+    // over instead of skipping what it thinks it already has.
+    const incarnationPath = join(dir, "incarnation");
+    let incarnation: string | undefined;
+    try {
+      incarnation = readFileSync(incarnationPath, "utf8").trim() || undefined;
+    } catch {
+      // new log
+    }
+    if (!incarnation) {
+      incarnation = randomBytes(8).toString("hex");
+      writeFileSync(incarnationPath, incarnation, { mode: 0o600 });
+    }
+    this.incarnation = incarnation;
+    this.segments = listSegments(dir);
+    if (this.segments.length === 0) {
+      const first = { base: 0, baseSeq: 0, path: join(dir, segmentName(0, 0)) };
+      closeSync(openSync(first.path, "a", 0o600));
+      this.segments.push(first);
+    }
+    const active = this.activeSegment;
+    this.fd = openSync(active.path, "r+");
+    const size = fstatSync(this.fd).size;
+    const { lastLine, validLength } = readTail(this.fd, size);
+    if (validLength !== size) ftruncateSync(this.fd, validLength);
+    closeSync(this.fd);
+    this.fd = openSync(active.path, "a", 0o600);
+    this.activeSize = validLength;
+    const lastSeq = lastLine ? RECORD_PREFIX.exec(lastLine) : null;
+    this._nextSeq = lastSeq ? Number(lastSeq[1]) + 1 : active.baseSeq;
+  }
+
+  /** Opens (creating if needed) the log in `dir`. Synchronous: the host
+   * opens a log before it accepts any operation on that agent. */
+  static open(dir: string, options: EventLogOptions = {}): AgentEventLog {
+    return new AgentEventLog(dir, options);
+  }
+
+  private get activeSegment(): Segment {
+    return this.segments[this.segments.length - 1];
+  }
+
+  /** Offset the next record will get. */
+  get endOffset(): number {
+    return this.activeSegment.base + this.activeSize;
+  }
+
+  get nextSeq(): number {
+    return this._nextSeq;
+  }
+
+  /** Oldest offset still readable. */
+  get firstOffset(): number {
+    return this.segments[0].base;
+  }
+
+  /** Segment list as of now, oldest first. */
+  segmentList(): readonly Segment[] {
+    return this.segments;
+  }
+
+  isActive(segment: Segment): boolean {
+    return segment === this.activeSegment;
+  }
+
+  /** Appends one event and notifies listeners synchronously, after the
+   * record is written. */
+  append(event: Record<string, unknown>): AppendedRecord {
+    let ev = event;
+    if (this.closed) throw new Error("event log is closed");
+    if (this.failure) throw new EventLogWriteError(this.failure);
+    const seq = this._nextSeq;
+    const off = this.endOffset;
+    const t = this.now();
+    let line = JSON.stringify({ seq, off, t, ev });
+    if (Buffer.byteLength(line) > this.maxRecordBytes) {
+      ev = truncatedEvent(ev, Buffer.byteLength(line), this.maxRecordBytes);
+      line = JSON.stringify({ seq, off, t, ev });
+    }
+    const bytes = Buffer.from(`${line}\n`, "utf8");
+    try {
+      // `writeSync` may write less than asked; anything short of the whole
+      // record would shift every later offset against the file.
+      let written = 0;
+      while (written < bytes.length) written += writeSync(this.fd, bytes, written, bytes.length - written);
+    } catch (error) {
+      this.failure = error as Error;
+      throw new EventLogWriteError(this.failure);
+    }
+    this.activeSize += bytes.length;
+    this._nextSeq = seq + 1;
+    const record: AppendedRecord = { line, seq, off, next: off + bytes.length, t, ev };
+    if (this.activeSize >= this.segmentBytes) {
+      try {
+        this.rotate();
+      } catch (error) {
+        this.failure = error as Error;
+      }
+    }
+    for (const listener of this.listeners) listener(record);
+    if (this.failure) throw new EventLogWriteError(this.failure);
+    return record;
+  }
+
+  /** The first write error, if any (see `failure`). */
+  get writeError(): Error | undefined {
+    return this.failure;
+  }
+
+  onAppend(listener: (record: AppendedRecord) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private rotate(): void {
+    const sealed = this.activeSegment;
+    const next: Segment = { base: this.endOffset, baseSeq: this._nextSeq, path: join(this.dir, segmentName(this.endOffset, this._nextSeq)) };
+    // Open the next segment before letting go of the current one, so a
+    // failure leaves the log on a valid file descriptor.
+    const fd = openSync(next.path, "a", 0o600);
+    closeSync(this.fd);
+    this.fd = fd;
+    this.segments = [...this.segments, next];
+    this.activeSize = 0;
+    this.maintenance = this.maintenance.then(() => this.compact(sealed)).then(() => this.enforceRetention());
+  }
+
+  /** Drops partial-message lines from a sealed segment. Lines are kept byte
+   * for byte, so their `off` stays true. Atomic (temp file + rename): a
+   * reader holding the old file keeps reading the old file. */
+  private async compact(segment: Segment): Promise<void> {
+    try {
+      const text = await readFile(segment.path, "utf8");
+      const kept: string[] = [];
+      for (const line of text.split("\n")) {
+        if (!line) continue;
+        if (isPartialMessage(line)) continue;
+        kept.push(line);
+      }
+      const tmp = `${segment.path}.compact`;
+      await writeFile(tmp, kept.length > 0 ? `${kept.join("\n")}\n` : "", { mode: 0o600 });
+      await rename(tmp, segment.path);
+    } catch (error) {
+      // The segment may have been deleted by retention or by removing the
+      // agent meanwhile; an uncompacted segment is still a correct one.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error("[agent-host] log compaction failed:", (error as Error).message);
+      }
+    }
+  }
+
+  private enforceRetention(): Promise<void> {
+    let total = 0;
+    const sizes = this.segments.map((segment) => {
+      try {
+        return statSync(segment.path).size;
+      } catch {
+        return 0;
+      }
+    });
+    for (const size of sizes) total += size;
+    let dropped = 0;
+    while (total > this.retainBytes && this.segments.length - dropped > 1) {
+      total -= sizes[dropped];
+      rmSync(this.segments[dropped].path, { force: true });
+      dropped++;
+    }
+    if (dropped > 0) this.segments = this.segments.slice(dropped);
+    return Promise.resolve();
+  }
+
+  /** Waits for pending compaction/retention work (tests, and before removal). */
+  async settle(): Promise<void> {
+    await this.maintenance;
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.listeners.clear();
+    closeSync(this.fd);
+  }
+
+  /** Closes the log and deletes it from disk. */
+  async destroy(): Promise<void> {
+    this.close();
+    await this.maintenance;
+    await rm(this.dir, { recursive: true, force: true });
+  }
+}
+
+export class EventLogWriteError extends Error {
+  constructor(readonly cause: Error) {
+    super(`the agent's event log could not be written: ${cause.message}`);
+    this.name = "EventLogWriteError";
+  }
+}
+
+/** Copies `value`, cutting every string longer than `maxChars` to a preview
+ * and every array longer than `maxItems`, so the structure — ids, types,
+ * names, flags, usage — survives and only the bulky payloads shrink. */
+function shrink(value: unknown, maxChars: number, maxItems: number, depth = 0): unknown {
+  if (typeof value === "string") return value.length > maxChars ? `${value.slice(0, maxChars)}… [truncated, ${value.length} chars]` : value;
+  if (value === null || typeof value !== "object") return value;
+  if (depth > 12) return "[truncated: nested too deep]";
+  if (Array.isArray(value)) {
+    const kept = value.slice(0, maxItems).map((item) => shrink(item, maxChars, maxItems, depth + 1));
+    if (value.length > maxItems) kept.push(`[truncated: ${value.length - maxItems} more items]`);
+    return kept;
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shrink(item, maxChars, maxItems, depth + 1)]));
+}
+
+/** What is kept of an event too large to store: its whole structure with
+ * long texts and inputs cut to previews (tighter until it fits), marked
+ * `host_truncated`; as a last resort, its identifying fields alone. */
+function truncatedEvent(ev: Record<string, unknown>, originalBytes: number, maxBytes: number): Record<string, unknown> {
+  for (const [maxChars, maxItems] of [
+    [TRUNCATED_PREVIEW_CHARS, 200],
+    [512, 50],
+    [64, 20],
+  ] as const) {
+    const shrunk = { ...(shrink(ev, maxChars, maxItems) as Record<string, unknown>), host_truncated: { originalBytes } };
+    if (Buffer.byteLength(JSON.stringify(shrunk)) + 200 < maxBytes) return shrunk;
+  }
+  const short = (value: unknown): string | undefined => (typeof value === "string" ? value.slice(0, 200) : undefined);
+  const keep: Record<string, unknown> = {};
+  for (const key of ["subtype", "session_id", "uuid", "parent_tool_use_id", "is_error", "stop_reason"]) {
+    const value = ev[key];
+    if (typeof value === "string") keep[key] = short(value);
+    else if (typeof value === "boolean" || value === null) keep[key] = value;
+  }
+  return { type: short(ev.type) ?? "unknown", ...keep, host_truncated: { originalBytes, preview: JSON.stringify(ev).slice(0, TRUNCATED_PREVIEW_CHARS) } };
+}
+
+/** `stream_event` is the CLI's partial-message delta (`--include-partial-messages`). */
+function isPartialMessage(line: string): boolean {
+  const evIndex = line.indexOf(',"ev":');
+  if (evIndex < 0) return false;
+  return line.startsWith('{"type":"stream_event"', evIndex + 6);
+}
+
+export type ReadStep =
+  | { readonly kind: "records"; readonly records: readonly RawRecord[] }
+  | { readonly kind: "gap"; readonly requestedOffset: number; readonly resumeOffset: number; readonly reason: "truncated" | "ahead" }
+  /** Nothing more on disk right now: the cursor equals the log's end as of
+   * the read. The caller compares `cursor` with `endOffset` again,
+   * synchronously, before switching to live delivery. */
+  | { readonly kind: "end" };
+
+/**
+ * Reads an agent's log from disk in bounded steps, starting at a logical
+ * offset. Holds at most one segment open. Each `step()` returns at most
+ * about `maxBytes` of records, so replaying a large log neither blocks the
+ * event loop nor buffers the whole log in memory.
+ */
+export class LogReader {
+  private handle: FileHandle | undefined;
+  private segment: Segment | undefined;
+  /** Physical read position in the open segment file. */
+  private position = 0;
+  private splitter = new BufferLineSplitter(0);
+  /** The open segment was entered by seeking (the active one, where
+   * physical and logical positions agree), so its first line may be the
+   * tail of a record the requested offset fell inside. */
+  private seeked = false;
+  private closed = false;
+
+  constructor(
+    private readonly log: AgentEventLog,
+    private cursorValue: number,
+  ) {}
+
+  get cursor(): number {
+    return this.cursorValue;
+  }
+
+  async step(maxBytes = 256 * 1024): Promise<ReadStep> {
+    if (this.closed) return { kind: "end" };
+    if (!this.segment) {
+      const opened = await this.openSegmentFor(this.cursorValue);
+      if (opened) return opened;
+    }
+    const records: RawRecord[] = [];
+    let collected = 0;
+    while (collected < maxBytes) {
+      const handle = this.handle;
+      const segment = this.segment;
+      if (!handle || !segment) break;
+      const buf = Buffer.alloc(Math.min(64 * 1024, Math.max(4096, maxBytes)));
+      const { bytesRead } = await handle.read(buf, 0, buf.length, this.position);
+      if (this.closed) return { kind: "end" };
+      if (bytesRead === 0) {
+        // End of this file. A newer segment means this one is sealed and
+        // fully read; move on. Otherwise this is the live end.
+        const following = this.log.segmentList().find((candidate) => candidate.base > segment.base);
+        if (!following) break;
+        await this.closeHandle();
+        this.cursorValue = Math.max(this.cursorValue, following.base);
+        const opened = await this.openSegmentFor(this.cursorValue);
+        if (opened) return records.length > 0 ? { kind: "records", records } : opened;
+        continue;
+      }
+      this.position += bytesRead;
+      for (const { line, start, end } of this.splitter.push(buf.subarray(0, bytesRead))) {
+        const match = RECORD_PREFIX.exec(line);
+        if (!match) {
+          // The tail of a record the requested offset fell inside: skip it
+          // and move the cursor past it, or a reader asked for an offset in
+          // the middle of the last record would wait for it forever.
+          if (this.seeked) this.cursorValue = Math.max(this.cursorValue, segment.base + end);
+          continue;
+        }
+        const off = Number(match[2]);
+        if (off < this.cursorValue) continue;
+        const record = { line, seq: Number(match[1]), off, next: off + (end - start) };
+        records.push(record);
+        this.cursorValue = record.next;
+        collected += end - start;
+      }
+    }
+    return records.length > 0 ? { kind: "records", records } : { kind: "end" };
+  }
+
+  /** Positions the reader on the segment holding `offset`. Returns a gap
+   * step when the offset is no longer (or not yet) in the log. */
+  private async openSegmentFor(offset: number): Promise<ReadStep | undefined> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const segments = this.log.segmentList();
+      const first = segments[0];
+      if (offset < first.base) {
+        this.cursorValue = first.base;
+        return { kind: "gap", requestedOffset: offset, resumeOffset: first.base, reason: "truncated" };
+      }
+      if (offset > this.log.endOffset) {
+        const end = this.log.endOffset;
+        this.cursorValue = end;
+        return { kind: "gap", requestedOffset: offset, resumeOffset: end, reason: "ahead" };
+      }
+      let target = first;
+      for (const segment of segments) if (segment.base <= offset) target = segment;
+      try {
+        this.handle = await open(target.path, "r");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // retention raced us
+        throw error;
+      }
+      this.segment = target;
+      // The active segment is never compacted, so its physical and logical
+      // positions agree and we can seek. A sealed one may have been, so it is
+      // scanned from its start, skipping records below the cursor.
+      this.seeked = this.log.isActive(target);
+      this.position = this.seeked ? offset - target.base : 0;
+      this.splitter = new BufferLineSplitter(this.position);
+      return undefined;
+    }
+    throw new Error("event log segments kept disappearing while opening a reader");
+  }
+
+  private async closeHandle(): Promise<void> {
+    const handle = this.handle;
+    this.handle = undefined;
+    this.segment = undefined;
+    this.splitter = new BufferLineSplitter(0);
+    if (handle) await handle.close().catch(() => {});
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    await this.closeHandle();
+  }
+}

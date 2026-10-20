@@ -106,6 +106,13 @@ function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { e
   return def.exec.kind === "jsonRpcDaemon";
 }
 
+/** The def's daemon plan, or `undefined` for a def that is not a JSON-RPC
+ * daemon — so code outside `runtimes/` (the agent host) can drive a daemon
+ * def's thread/turn builders without naming its `exec.kind`. */
+export function daemonPlanOf(def: AgentRuntimeDef): JsonRpcDaemonPlan | undefined {
+  return isJsonRpcDaemonPlan(def) ? def.exec : undefined;
+}
+
 interface TurnRef {
   readonly threadId: string | undefined;
   readonly turnId: string | undefined;

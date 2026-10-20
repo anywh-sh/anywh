@@ -13,5 +13,30 @@
 //
 // Always succeeds (exit 0, no output) — the route only cares about the exit
 // code (best-effort cleanup either way, see server.ts), and no test in this
-// repo asserts on systemd's own state.
-process.exit(0);
+// repo asserts on systemd's own state. FAKE_SYSTEMCTL_ARGV_FILE, if set,
+// gets each invocation's argv appended as one JSON array per line, so a test
+// can check which units the relay asked to disable.
+import { appendFileSync } from "node:fs";
+
+// FAKE_SYSTEMCTL_HOST_DELAY_MS, if set, makes a call naming an
+// `anywh-agent-host@` unit take that long, like a real `disable --now` that
+// waits for the host to drain.
+if (process.env.FAKE_SYSTEMCTL_ARGV_FILE) {
+  appendFileSync(process.env.FAKE_SYSTEMCTL_ARGV_FILE, `${JSON.stringify(process.argv.slice(2))}\n`);
+}
+// For `anywh-agent-host@` units only: FAKE_SYSTEMCTL_HOST_DISABLE_FAIL=1 makes
+// `disable` fail, and FAKE_SYSTEMCTL_HOST_STATE is what `is-active` reports
+// (default "inactive"; exit 0 only for "active", like the real one).
+const hostUnit = process.argv.some((arg) => arg.startsWith("anywh-agent-host@"));
+const delay = Number(process.env.FAKE_SYSTEMCTL_HOST_DELAY_MS ?? 0);
+if (delay > 0 && hostUnit) {
+  await new Promise((resolve) => setTimeout(resolve, delay));
+}
+if (hostUnit && process.argv.includes("is-active")) {
+  const state = process.env.FAKE_SYSTEMCTL_HOST_STATE ?? "inactive";
+  process.stdout.write(`${state}\n`, () => process.exit(state === "active" ? 0 : 3));
+} else if (hostUnit && process.argv.includes("disable") && process.env.FAKE_SYSTEMCTL_HOST_DISABLE_FAIL === "1") {
+  process.exit(1);
+} else {
+  process.exit(0);
+}

@@ -10,6 +10,12 @@
  * than imported, so this file never has to know about `runtimes/`.
  * `agentEnvOverrides` is the same idea for the rare env var only one CLI
  * needs. */
+/** The agent host's own configuration. It can sit in an env file the relay
+ * shares, and a child that inherited it would make `npm run` of the host (or
+ * of a test relay) inside a session aim at the profile's real host, socket
+ * and data. Never passed on. */
+const HOST_CONFIG_VARS = ["ANYWH_PROFILE", "ANYWH_AGENT_HOST_SOCKET", "ANYWH_AGENT_HOST_DIR", "ANYWH_AGENT_HOST_ID", "ANYWH_SESSIONS_ROOT"] as const;
+
 export function buildChildEnv(
   homeOverride: string | undefined,
   extraPathDirs: readonly string[],
@@ -17,6 +23,7 @@ export function buildChildEnv(
   agentEnvOverrides: Readonly<Record<string, string>> = {},
 ): NodeJS.ProcessEnv {
   const env = { ...process.env };
+  for (const name of HOST_CONFIG_VARS) delete env[name];
   stripCredentials(env);
   if (homeOverride) {
     env.HOME = homeOverride;

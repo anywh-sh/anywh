@@ -1,0 +1,36 @@
+[Unit]
+Description=anywh agent host (%i profile)
+# Deliberately not PartOf=/BindsTo= the relay: the point of this service is
+# that restarting or stopping anywh-relay@%i leaves every agent it holds
+# running. Its processes live in this unit's cgroup, not the relay's.
+
+[Service]
+Type=simple
+WorkingDirectory={{WORKING_DIRECTORY}}
+# Same env files as anywh-relay@%i, so both sides agree on the profile's
+# paths (the socket, $HOME override, AGENT_BIN, EXTRA_PATH_DIRS...). A user
+# unit does not inherit the login shell's PATH; AGENT_BIN/EXTRA_PATH_DIRS
+# there are what let it find the agent CLI and the tools it runs. The
+# profile is an argument, never inherited from the environment.
+EnvironmentFile=-{{WORKING_DIRECTORY}}/.env
+EnvironmentFile=-{{ENV_DIR}}/%i.env
+ExecStart={{NODE_BIN}} dist/agentHost/main.js --profile %i
+Restart=always
+RestartSec=3
+# SIGTERM only to the host, which drains: waits for turns in flight
+# (ANYWH_AGENT_HOST_DRAIN_GRACE_MS, 40 s by default), interrupts what is
+# left (10 s), then ends every agent's processes itself — 5 s of SIGTERM
+# grace plus SIGKILL, sweep and pipe waits: 64 s in the worst case
+# (worstCaseShutdownMs, checked against this file by a test). TimeoutStopSec
+# covers that with a margin and stays under the user manager's own ~90 s
+# stop budget (a drain longer than either is cut, and its agents come back
+# as host_restart). Raising ANYWH_AGENT_HOST_DRAIN_GRACE_MS means raising
+# this too.
+# Anything still in the cgroup after the host exits gets SIGKILL — that
+# includes a tool process that detached and cleared its environment, which
+# the host's own sweep cannot find.
+KillMode=mixed
+TimeoutStopSec=75
+
+[Install]
+WantedBy=default.target

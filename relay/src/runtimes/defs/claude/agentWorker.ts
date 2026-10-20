@@ -188,3 +188,19 @@ export async function sweepStaleAgentWorkerMcpFiles(): Promise<void> {
     // best effort
   }
 }
+
+/** The `--mcp-config` file for a long-lived process (the agent host's): the
+ * caller's bridge config, plus the user's own servers for an agent worker.
+ * Always a private file, never inline, for the same reason as above.
+ * `undefined` when there is nothing to pass. The file must outlive the
+ * process's startup, so the caller removes it when the process exits. */
+export async function writePersistentMcpConfig(
+  bridgeConfigJson: string | undefined,
+  agentWorker: boolean,
+  home: string,
+  cwd: string,
+): Promise<AgentWorkerMcpFile | undefined> {
+  await sweepStaleAgentWorkerMcpFiles();
+  const json = agentWorker ? mergeAgentWorkerMcpConfig(bridgeConfigJson, await readUserMcpServers(home, cwd)) : bridgeConfigJson;
+  return json ? writeAgentWorkerMcpFile(json) : undefined;
+}

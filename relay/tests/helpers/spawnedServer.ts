@@ -95,6 +95,9 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
       RELAY_BACKGROUND_JOBS_FILE: join(workDir, "background-jobs.json"),
       AGENT_BIN: FAKE_AGENT_BIN,
       SYSTEMCTL_BIN: FAKE_SYSTEMCTL_BIN,
+      // Never the machine's real agent host socket (see testServer.ts).
+      ANYWH_AGENT_HOST_SOCKET: join(workDir, "agent-host.sock"),
+      ANYWH_SESSIONS_ROOT: join(workDir, "sessions-root"),
       ...extraEnv,
     },
   });

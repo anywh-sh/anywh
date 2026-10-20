@@ -4,11 +4,15 @@
 // the real `claude` binary in integration tests via the `AGENT_BIN` env var
 // (relay/src/runtimes/executables.ts already reads it, no source change needed).
 //
-// Understands the two invocation shapes the relay actually spawns:
+// Understands the three invocation shapes the relay and the agent host spawn:
 //   - `-p <text> --output-format stream-json ...`  -> a real turn
 //     (runtimes/defs/claude/session.ts sendTurn)
-//   - `-p --input-format stream-json ...` + an `initialize` control_request
-//     on stdin -> the model catalog probe (defs/claude/def.ts `models`)
+//   - `-p --input-format stream-json --no-session-persistence ...` + an
+//     `initialize` control_request on stdin -> the model catalog probe
+//     (defs/claude/def.ts `models`)
+//   - `-p --input-format stream-json ...` otherwise -> a persistent process
+//     with one turn per stdin message (the agent host's agents), see
+//     fake-claude-persistent.mjs
 // Everything else (`auth status --json`) gets a canned success reply so
 // routes that shell out to it don't error during a test that isn't
 // exercising that path.
@@ -197,6 +201,13 @@ if (args[0] === "--version") {
 } else if (args[0] === "auth" && args[1] === "status") {
   emit({ loggedIn: true, email: "fake@anywh.test", subscriptionType: "pro" });
   process.exit(0);
+} else if (args[0] === "-p" && flagValue("--input-format") === "stream-json" && !args.includes("--no-session-persistence")) {
+  // A long-lived process driven over stdin, the way the agent host runs
+  // every agent (one process, many turns) — see fake-claude-persistent.mjs.
+  // The model catalog probe below is the other stream-json-input caller and
+  // is told apart by `--no-session-persistence`, which only it passes.
+  const { runPersistent } = await import("./fake-claude-persistent.mjs");
+  await runPersistent(args);
 } else if (args[0] === "-p" && flagValue("--input-format") === "stream-json") {
   // The model catalog probe (defs/claude/modelCatalog.ts): answers the
   // `initialize` control_request with the same shape the real binary

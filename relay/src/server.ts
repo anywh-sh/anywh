@@ -10,7 +10,10 @@ import { detectRuntimes, parseCliVersion } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
 import type { ModelCatalog } from "./runtimes/types.js";
+import { HostClient } from "./agentHost/hostClient.js";
+import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
+import { handleAgentRoutes } from "./routes/agents.js";
 import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
 import { handlePortabilityRoutes } from "./routes/portability.js";
@@ -106,6 +109,16 @@ const sessionManager = new SessionManager(
   (agentId) => modelCatalogs[agentId],
 );
 
+// This profile's agent host (a separate service that keeps agent processes
+// alive across relay restarts). Always connecting in the background: the
+// host may start after the relay, or not be installed at all, and neither
+// is an error until something actually asks it for work.
+// No profile and no explicit socket (a bare `node dist/server.js`): no host.
+const agentHostSocket = relayAgentHostSocket();
+const agentHost = agentHostSocket ? new HostClient({ socketPath: agentHostSocket, clientName: `relay:${PORT}`, reconnectMaxMs: 10_000 }) : undefined;
+agentHost?.start();
+if (!agentHost) console.log("[relay] no ANYWH_PROFILE or ANYWH_AGENT_HOST_SOCKET set: not connecting to an agent host");
+
 const routeContext: RouteContext = {
   sessionStore,
   sessionManager,
@@ -114,6 +127,7 @@ const routeContext: RouteContext = {
   port: PORT,
   defaultSession: DEFAULT_SESSION,
   pushStore,
+  agentHost,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -126,6 +140,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleFilesRoutes,
   handleHostRoutes,
   handlePushRoutes,
+  handleAgentRoutes,
 ];
 
 /**
