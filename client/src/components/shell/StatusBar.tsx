@@ -279,7 +279,7 @@ export function StatusBar({
           : dict.shell.statusBar.changes.replace("{count}", String(repo.changes));
 
   return (
-    <div className="flex h-7 shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome pr-2 pl-2.5 font-mono text-[11.5px] text-text-faint">
+    <div data-status-bar className="flex h-7 shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome pr-2 pl-2.5 font-mono text-[11.5px] text-text-faint">
       <DropdownMenu
         modal={false}
         open={activityOpen}

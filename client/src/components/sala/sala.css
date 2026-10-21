@@ -1381,3 +1381,17 @@
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
   mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
 }
+
+/* The status bar's top rule runs the window's width, and the side panel (the
+ * base colour, docked in the plane) cannot cover it: it lives outside the
+ * plane. So where the panel is, the rule is drawn only as far as the panel's
+ * divider and the bar's text stays whole: the border turns transparent and a
+ * 1px gradient takes its place, ending where the panel begins (385px of panel plus the plane's 8px
+ * margin of chrome on the window's right). */
+:has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) [data-status-bar] {
+  border-top-color: transparent;
+  background-image: linear-gradient(to right, var(--border-soft) calc(100% - 393px), transparent 0);
+  background-size: 100% 1px;
+  background-origin: border-box;
+  background-repeat: no-repeat;
+}
