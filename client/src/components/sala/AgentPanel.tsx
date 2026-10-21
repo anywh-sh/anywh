@@ -18,7 +18,7 @@ import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay
 import { shouldShowReply } from "@/lib/sala/agentReply";
 import { cardClock, cardStatus } from "@/lib/sala/agentCard";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
-import { agentWork, formatBytes } from "@/lib/sala/roomFigures";
+import { agentWork, formatBytes, formatTokens, windowPercent } from "@/lib/sala/roomFigures";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -77,6 +77,10 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
   const { reply, handlers } = useAgentReply();
   const session = useRelayClient(profile, agent.agentId, handlers);
   const status = cardStatus(agent, 0);
+  const percent = session.contextUsage ? windowPercent(session.contextUsage) : null;
+  const contextFigure = session.contextUsage
+    ? (percent === null ? text.contextUsedNoWindow : text.contextUsed).replace("{tokens}", formatTokens(session.contextUsage.usedTokens)).replace("{percent}", String(percent))
+    : null;
   const clock = cardClock(agent, observedSince, 0);
   const { subtasks, reload } = useAgentSubtasks(profile, roomId, agent.agentId, agent.subtasksRunning);
   const work = agentWork(worktrees, agent.agentId);
@@ -148,6 +152,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
             <span>{dict.sala.card.status[status.label]}</span>
           </span>
           <span className="sala-side-clock">
+            {contextFigure !== null && `${contextFigure} · `}
             <Clock clock={clock} />
           </span>
         </div>

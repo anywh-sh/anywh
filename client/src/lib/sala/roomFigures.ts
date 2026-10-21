@@ -1,6 +1,6 @@
 // The numbers the room's panels print, derived from what the relay reports.
 // Pure: the words around them come from the dictionary at the call site.
-import type { RoomAgent, RoomAgentUsage, RoomMemberInfo, RoomWorktree } from "@/lib/relay/roomClient";
+import type { RoomAgent, RoomAgentContext, RoomMemberInfo, RoomWorktree } from "@/lib/relay/roomClient";
 import { cardStatus } from "@/lib/sala/agentCard";
 
 /** `1.4 GB`, `312 MB`, `18 KB`, `0 B`: base 1024, one decimal under ten. */
@@ -23,34 +23,28 @@ export function formatTokens(count: number): string {
   return `${(count / 1_000_000).toFixed(1)}M`;
 }
 
-/** Every token an agent has been billed context for: what it sent fresh, what
- * it wrote to the cache and what it read back. */
-export function totalTokens(usage: Pick<RoomAgentUsage, "inputTokens" | "cacheCreationInputTokens" | "cacheReadInputTokens">): number {
-  return usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens;
+/** Whole percent of the window an agent's context fills; `null` while the
+ * window is not known (before the agent's first turn ends). */
+export function windowPercent(context: RoomAgentContext): number | null {
+  const window = context.contextWindowSize;
+  if (window === undefined || window <= 0) return null;
+  return Math.min(100, Math.round((context.usedTokens / window) * 100));
 }
 
 export interface UsageRow {
   agentId: string;
   title: string | null;
+  /** Tokens in the agent's context right now. */
   tokens: number;
-  /** Whole percent of the room's total (0 when the room has none yet). */
-  share: number;
-  hitRate: number | null;
+  percent: number | null;
 }
 
-/** One row per agent that has used anything, biggest first. The relay knows
- * nothing about the person's plan, so the share is of the room, not of the
- * five-hour window. */
-export function usageRows(members: readonly RoomMemberInfo[]): { rows: UsageRow[]; total: number } {
-  const rows = members.map((m) => ({ agentId: m.id, title: m.title, tokens: totalTokens(m.usage), hitRate: m.usage.cacheHitRate }));
-  const total = rows.reduce((sum, r) => sum + r.tokens, 0);
-  return {
-    total,
-    rows: rows
-      .filter((r) => r.tokens > 0)
-      .sort((a, b) => b.tokens - a.tokens)
-      .map((r) => ({ ...r, share: total === 0 ? 0 : Math.round((r.tokens / total) * 100) })),
-  };
+/** One row per agent that has answered, the fullest context first (agents
+ * whose window is not known yet last, by tokens). */
+export function usageRows(members: readonly RoomMemberInfo[]): UsageRow[] {
+  return members
+    .flatMap((m) => (m.contextUsage && m.contextUsage.usedTokens > 0 ? [{ agentId: m.id, title: m.title, tokens: m.contextUsage.usedTokens, percent: windowPercent(m.contextUsage) }] : []))
+    .sort((a, b) => (b.percent ?? -1) - (a.percent ?? -1) || b.tokens - a.tokens);
 }
 
 export interface RoomCounts {
