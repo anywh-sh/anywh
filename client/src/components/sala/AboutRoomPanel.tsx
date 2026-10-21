@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Folder, GitBranch } from "lucide-react";
+import { Folder, GitBranch } from "lucide-react";
 import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { AreaIcon, RoomGlyph } from "@/components/sala/SalaIcons";
 import { useRoomWorktrees } from "@/hooks/sala/useRoomWorktrees";
+import { contextKindLabel } from "@/lib/sala/contextKind";
 import { useDict } from "@/i18n";
 import { fetchRoomContext, fetchRoomMembers, type RoomAgent, type RoomCanvas, type RoomContextItem, type RoomMemberInfo } from "@/lib/relay/roomClient";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
@@ -178,7 +179,7 @@ export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refresh
           {(context ?? []).map((item) => (
             <div key={item.name} className="sala-ctx-item">
               <span className="sala-ctx-kind" aria-hidden="true">
-                <FileText size={12} />
+                {contextKindLabel(item)}
               </span>
               <div>
                 <b>{item.name}</b>

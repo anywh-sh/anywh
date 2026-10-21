@@ -986,26 +986,32 @@
 }
 .sala-ctx-item {
   display: flex;
+  align-items: center;
   gap: 10px;
   padding: 7px 0;
 }
-.sala-ctx-kind {
-  width: 28px;
-  height: 20px;
+/* The chip's selector carries `.sala-ctx-item` too: the generic
+ * `.sala-ctx-item span` rule below (the summary line) would otherwise win and
+ * turn the chip into a plain block with the summary's type. */
+.sala-ctx-item .sala-ctx-kind {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-top: 2px;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 3px;
   border: 1px solid var(--border);
-  color: var(--muted-foreground);
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
 }
 .sala-ctx-item b {
   display: block;
   font: 500 14px/18px var(--font-display);
   overflow-wrap: anywhere;
 }
-.sala-ctx-item span {
+.sala-ctx-item div span {
   display: block;
   font: 400 11.5px/16px var(--font-mono);
   color: var(--text-faint);
