@@ -485,6 +485,7 @@ export class RoomManager implements RoomToolHost {
       role: room.role,
       ...(room.parentId !== undefined ? { parentId: room.parentId } : {}),
       title: this.store.getTitle(id),
+      ...(this.store.isTitlePending(id) ? { titlePending: true as const } : {}),
       runtime,
       model: this.store.getModel(id, runtime) ?? null,
       ...(room.area ? { area: room.area } : {}),

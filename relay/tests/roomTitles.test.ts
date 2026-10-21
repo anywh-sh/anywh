@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { rmSync, writeFileSync } from "node:fs";
+import WebSocket from "ws";
 import { join } from "node:path";
 import { hostEnvDir, startHostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay } from "./helpers/spawnedServer.js";
@@ -67,5 +68,24 @@ test("a manual rename that lands before the generated title is not overwritten b
     assert.equal((await fetch(`${base}/sessions/rename`, { method: "POST", body: JSON.stringify({ id: roomId, title: "By hand" }) })).status, 200);
     await sleep(1200);
     assert.equal(await titleOf(base, roomId, roomId), "By hand");
+  });
+});
+
+test("the room channel marks an agent's title as pending until the generated one arrives", async () => {
+  await withRoomStack({ FAKE_CLAUDE_REPLY: "Reconnect loop", FAKE_CLAUDE_TITLE_DELAY_MS: "800" }, async ({ base, dir, port }) => {
+    const created = (await (await fetch(`${base}/rooms`, { method: "POST", body: JSON.stringify({ agentId: "claude", model: "haiku", cwd: dir, title: LONG, firstMessage: LONG }) })).json()) as { roomId: string };
+    const roomId = created.roomId;
+    const seen: { title: string | null; titlePending?: true }[] = [];
+    const watcher = new WebSocket(`ws://127.0.0.1:${port}/rooms/${roomId}/watch`);
+    watcher.on("message", (raw: Buffer) => {
+      const message = JSON.parse(raw.toString()) as { type: string; agents?: { role: string; title: string | null; titlePending?: true }[]; agent?: { role: string; title: string | null; titlePending?: true } };
+      const principal = message.type === "room_snapshot" ? message.agents?.find((a) => a.role === "principal") : message.type === "room_agent_state" && message.agent?.role === "principal" ? message.agent : undefined;
+      if (principal) seen.push({ title: principal.title, ...(principal.titlePending ? { titlePending: true } : {}) });
+    });
+    await until(() => seen.length > 0, "the room's first snapshot");
+    assert.deepEqual(seen[0], { title: LONG, titlePending: true });
+    await until(() => seen.some((s) => s.title === "Reconnect loop"), "the generated title on the channel");
+    assert.deepEqual(seen.at(-1), { title: "Reconnect loop" });
+    watcher.close();
   });
 });

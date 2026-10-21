@@ -19,6 +19,9 @@ export interface RoomAgentView {
   role: RoomRole;
   parentId?: string;
   title: string | null;
+  /** `true` while `title` is only the provisional text (the task's first
+   * line) and a short generated one is on its way. */
+  titlePending?: true;
   runtime: string;
   model: string | null;
   area?: string;

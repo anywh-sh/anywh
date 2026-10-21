@@ -13,7 +13,17 @@ import type { ModelCatalog, RoomAgentSetup } from "../runtimes/types.js";
 import type { FileCursorStore, HostClient } from "../agentHost/hostClient.js";
 
 /** What a relay with rooms adds to its sessions. */
+/** How long a room agent's title is shown as a placeholder before the
+ * provisional text is shown after all: a title generation that hangs (the CLI
+ * never answers) must not leave a card blank for good. A title that arrives
+ * later still replaces the provisional one. */
+export const TITLE_PENDING_MAX_MS = 30_000;
+
 export interface SessionManagerRoomOptions {
+  /** Replaces the title generator (tests); the real one spawns the CLI. */
+  readonly titleGenerator?: typeof generateTitle;
+  /** Replaces `TITLE_PENDING_MAX_MS` (tests). */
+  readonly titlePendingMaxMs?: number;
   /** This profile's agent host, where every agent of a room runs.
    * `undefined` when the relay has none: a room's turns then fail with an
    * explanation instead of silently running somewhere else. */
@@ -57,7 +67,7 @@ export interface SessionManagerRoomOptions {
  * never opened this session as a tab — e.g. a session created on mobile,
  * appearing live in the desktop sidebar. */
 export type SessionListEvent =
-  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true }
+  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true }
   | { type: "remove"; id: string };
 
 /** What makes a session different from one a person types into. */
@@ -184,7 +194,15 @@ export class SessionManager {
    * `listTitled` leaves them out the same way). */
   private announce(event: SessionListEvent): void {
     if (event.type === "upsert" && this.sessionStore.isHiddenWorker(event.id)) return;
-    this.onListChanged?.(event.type === "upsert" && this.sessionStore.getRoom(event.id)?.role === "principal" ? { ...event, room: true } : event);
+    if (event.type !== "upsert") {
+      this.onListChanged?.(event);
+      return;
+    }
+    this.onListChanged?.({
+      ...event,
+      ...(this.sessionStore.getRoom(event.id)?.role === "principal" ? { room: true as const } : {}),
+      ...(this.sessionStore.isTitlePending(event.id) ? { titlePending: true as const } : {}),
+    });
   }
 
   /** Called by `BackgroundJobTracker` when a job finishes.
@@ -296,16 +314,49 @@ export class SessionManager {
    * meantime wins, same as for an ordinary session. */
   generateTitle(id: string, text: string): void {
     const session = this.getOrCreate(id);
-    this.runTitleGeneration(id, session, text, session.currentTitleGeneration());
+    this.markTitlePending(id);
+    this.runTitleGeneration(id, session, text, session.currentTitleGeneration(), true);
   }
 
-  private runTitleGeneration(id: string, session: SharedSession, text: string, generation: number): void {
+  private readonly titlePendingTimers = new Map<string, NodeJS.Timeout>();
+
+  /** From now until the generated title lands, fails or times out, clients
+   * draw a placeholder for `id` rather than its provisional title. */
+  private markTitlePending(id: string): void {
+    this.sessionStore.setTitlePending(id, true);
+    clearTimeout(this.titlePendingTimers.get(id));
+    const timer = setTimeout(() => this.settleTitlePending(id), this.rooms.titlePendingMaxMs ?? TITLE_PENDING_MAX_MS);
+    timer.unref();
+    this.titlePendingTimers.set(id, timer);
+    this.announceTitle(id);
+  }
+
+  /** Ends the wait without telling the list (the caller is about to). */
+  private clearTitlePending(id: string): void {
+    clearTimeout(this.titlePendingTimers.get(id));
+    this.titlePendingTimers.delete(id);
+    this.sessionStore.setTitlePending(id, false);
+  }
+
+  /** Ends the wait and tells the list: the provisional title stays. */
+  private settleTitlePending(id: string): void {
+    if (!this.sessionStore.isTitlePending(id)) return;
+    this.clearTitlePending(id);
+    this.announceTitle(id);
+  }
+
+  private announceTitle(id: string): void {
+    const title = this.sessionStore.getTitle(id);
+    if (title !== null) this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
+  }
+
+  private runTitleGeneration(id: string, session: SharedSession, text: string, generation: number, tracked = false): void {
     // Re-resolves the current agent rather than closing over a def: `setAgent`/`switchAgent` mutate
     // the same `SharedSession` in place.
     const currentDef = this.registry.get(this.sessionStore.getAgentId(id)) ?? claudeRuntimeDef;
     void (async () => {
       try {
-        const title = await generateTitle(currentDef, this.homeOverride, session.getCwdState().cwd, text);
+        const title = await (this.rooms.titleGenerator ?? generateTitle)(currentDef, this.homeOverride, session.getCwdState().cwd, text);
         // Null means the prompt had no text worth a title and the model gave
         // nothing back either. The session stays as it was and the client
         // names it, rather than the relay writing a name in a language
@@ -317,11 +368,18 @@ export class SessionManager {
         // or stomp a rename that landed first. A session that was deleted
         // meanwhile must not get its record back either.
         if (!session.isCurrentTitleGeneration(generation) || this.sessions.get(id) !== session) return;
+        // Cleared before the title is written, so the room's next update
+        // carries both at once.
+        this.clearTitlePending(id);
         this.sessionStore.setTitle(id, title);
         session.setTitle(title);
         this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
       } catch (error: unknown) {
         console.error("[relay] failed to generate session title:", error);
+      } finally {
+        // Nothing to write (no usable text, a stale generation, a failure):
+        // the provisional title is what stays, and it is shown from now on.
+        if (tracked) this.settleTitlePending(id);
       }
     })();
   }
@@ -332,6 +390,8 @@ export class SessionManager {
    * `SharedSession.setTitle` propagates the change live. */
   renameTitle(id: string, title: string): boolean {
     if (this.sessionStore.getTitle(id) === null && !this.sessions.has(id)) return false;
+    // A name given by hand is final: no generated one is waited for.
+    this.clearTitlePending(id);
     this.sessionStore.setTitle(id, title);
     this.sessions.get(id)?.setTitle(title);
     this.announce({ type: "upsert", id, title, lastActiveAt: this.lastActiveAtOf(id) });
@@ -369,6 +429,7 @@ export class SessionManager {
    * progress (if any) and notifies whoever is connected before dropping the
    * connection. */
   deleteSession(id: string): boolean {
+    this.clearTitlePending(id);
     const room = this.sessionStore.getRoom(id);
     if (room?.role === "principal" && room.roomId === id) {
       // A room goes as a whole: its workers have no way in but through it.
