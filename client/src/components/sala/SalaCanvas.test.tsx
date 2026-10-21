@@ -32,7 +32,6 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         agents={agents}
         since={new Map()}
         canvas={canvas}
-        contextCount={0}
         modelLabelOf={(a) => a.model ?? ""}
         reconnecting={false}
         saveFailed={false}

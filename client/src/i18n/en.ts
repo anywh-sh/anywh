@@ -925,7 +925,6 @@ export const en: Dictionary = {
       aria: "{title}, {status}",
       untitled: "Starting…",
       reply: "Reply",
-      context: "{count} context items",
       status: {
         running: "Running",
         starting: "Starting",

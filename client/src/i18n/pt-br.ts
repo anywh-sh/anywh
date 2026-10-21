@@ -925,7 +925,6 @@ export const ptBr: Dictionary = {
       aria: "{title}, {status}",
       untitled: "Iniciando…",
       reply: "Responder",
-      context: "{count} itens de contexto",
       status: {
         running: "Rodando",
         starting: "Subindo",

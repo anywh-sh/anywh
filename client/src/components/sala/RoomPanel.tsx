@@ -224,7 +224,6 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           agents={channel.agents}
           since={channel.since}
           canvas={layout.canvas}
-          contextCount={contextCount}
           modelLabelOf={modelLabelOf}
           reconnecting={channel.status === "reconnecting"}
           saveFailed={layout.saveFailed}

@@ -115,15 +115,6 @@ export function CloseIcon(props: IconProps) {
   );
 }
 
-export function LayersIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M8 2.5 13.5 5 8 7.5 2.5 5z" />
-      <path d="M2.5 8 8 10.5 13.5 8M2.5 11 8 13.5 13.5 11" />
-    </Icon>
-  );
-}
-
 export function CheckIcon(props: IconProps) {
   return (
     <Icon strokeWidth={2} {...props}>
@@ -145,6 +136,17 @@ export function AboutIcon(props: IconProps) {
     <Icon {...props}>
       <rect x="2.5" y="2.5" width="11" height="11" />
       <path d="M8 7v3.5M8 5.3v.1" />
+    </Icon>
+  );
+}
+
+/** A question mark in a circle: an agent waiting on the person. */
+export function QuestionIcon(props: IconProps) {
+  return (
+    <Icon strokeWidth={1.5} strokeLinecap="round" {...props}>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M6.2 6.4a1.85 1.85 0 0 1 3.6.6c0 1.25-1.8 1.55-1.8 2.7" />
+      <path d="M8 11.6v.05" />
     </Icon>
   );
 }

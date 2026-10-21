@@ -1293,8 +1293,6 @@ export interface Dictionary {
       aria: string;
       untitled: string;
       reply: string;
-      /** `{count}` context items every agent of the room reads. */
-      context: string;
       status: {
         running: string;
         starting: string;

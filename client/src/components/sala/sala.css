@@ -25,13 +25,9 @@
   --sala-area-hot: color-mix(in srgb, var(--foreground) 30%, transparent);
   --sala-edge: color-mix(in srgb, var(--foreground) 24%, var(--background));
   --sala-edge-done: color-mix(in srgb, var(--foreground) 32%, var(--background));
-  --sala-run-bg: color-mix(in srgb, var(--state-run) 9%, transparent);
-  --sala-start-bg: color-mix(in srgb, var(--state-run) 5%, transparent);
-  --sala-wait-bg: color-mix(in srgb, var(--primary) 13%, transparent);
   --sala-done-bg: color-mix(in srgb, var(--diff-add) 8%, transparent);
   --sala-stop-bg: color-mix(in srgb, var(--text-faint) 10%, transparent);
   --sala-fail-bg: color-mix(in srgb, var(--destructive) 10%, transparent);
-  --sala-block-bg: color-mix(in srgb, var(--context-ring-warn) 10%, transparent);
   --sala-seg: color-mix(in srgb, var(--foreground) 12%, var(--background));
   position: absolute;
   /* One pixel taller than the plane, so the toolbar can sit over the status
@@ -155,21 +151,63 @@
 .sala-node[data-drag] {
   z-index: 6;
 }
+/* A card is a small terminal window: a title bar, a log, a strip. Its colors
+ * are the window chrome's (the darker base around the plane), so the card
+ * reads as a window set on the canvas. No drop shadow: under the camera's
+ * `scale()` every card is painted again each frame, and a blurred shadow
+ * that size is the most expensive thing that paint could hold. */
 .sala-node-card {
+  --sala-term-line: color-mix(in srgb, var(--border) 40%, var(--border-soft));
+  --sala-log-at: color-mix(in srgb, var(--text-faint) 35%, var(--bg-chrome));
+  --sala-log-past: color-mix(in srgb, var(--text-faint) 55%, var(--bg-chrome));
+  --c: var(--text-faint);
+  --rule: var(--sala-term-line);
   position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 3px 3px 0;
-  background: var(--composer-frame);
+  background: var(--bg-chrome);
+  border: 1px solid var(--sala-term-line);
+  transition: border-color var(--motion-fast) var(--motion-ease);
 }
-.sala-node.sel .sala-node-card {
+.sala-node:hover .sala-node-card {
+  border-color: var(--sala-edge);
+}
+.sala-node.sel .sala-node-card,
+.sala-node[data-drag] .sala-node-card {
   outline: 1px solid var(--text-faint);
   outline-offset: 0;
 }
 .sala-node[data-drag] .sala-node-card {
-  outline: 1px solid var(--text-faint);
   transform: scale(1.02);
+}
+/* The state's color: the icon in the title bar and the rule under it. */
+.sala-node.run .sala-node-card {
+  --c: var(--state-run);
+  --rule: color-mix(in srgb, var(--state-run) 60%, transparent);
+}
+.sala-node.start .sala-node-card {
+  --c: color-mix(in srgb, var(--state-run) 70%, var(--bg-chrome));
+  --rule: color-mix(in srgb, var(--state-run) 30%, transparent);
+}
+.sala-node.wait .sala-node-card {
+  --c: var(--primary-ink);
+  --rule: var(--primary);
+}
+.sala-node.done .sala-node-card {
+  --c: var(--diff-add);
+  --rule: color-mix(in srgb, var(--diff-add) 60%, transparent);
+}
+.sala-node.stop .sala-node-card {
+  --rule: color-mix(in srgb, var(--text-faint) 45%, var(--bg-chrome));
+}
+.sala-node.fail .sala-node-card {
+  --c: var(--destructive);
+  --rule: color-mix(in srgb, var(--destructive) 60%, transparent);
+}
+.sala-node.block .sala-node-card {
+  --c: var(--context-ring-warn);
+  --rule: color-mix(in srgb, var(--context-ring-warn) 60%, transparent);
 }
 .sala-node-hit {
   position: absolute;
@@ -181,90 +219,36 @@
   outline: 2px solid var(--muted-foreground);
   outline-offset: 3px;
 }
-.sala-node-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 11px 13px;
-  background: var(--composer-field);
-  border: 1px solid var(--composer-border);
-}
-.sala-node.wait .sala-node-body {
-  border-top-color: var(--primary);
-}
 .sala-node-head {
+  height: 33px;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 18px;
+  gap: 9px;
+  padding: 0 11px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--rule);
 }
-/* The runtime's own mark, as the composer's agent selector draws it: no
- * chip, no border, no background. */
-.sala-logo {
+.sala-state {
   width: 14px;
   height: 14px;
   flex: none;
-  color: var(--foreground);
-}
-.sala-model {
-  font: 500 11.5px var(--font-mono);
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
-.sala-role {
-  font: 500 11.5px var(--font-mono);
-  color: var(--text-faint);
-  opacity: 0.8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sala-pill {
-  --c: var(--text-faint);
-  --t: var(--sala-stop-bg);
-  margin-left: auto;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  height: 20px;
-  padding: 0 7px;
-  font: 500 11px var(--font-mono);
+  justify-content: center;
   color: var(--c);
-  background: var(--t);
-  white-space: nowrap;
 }
-.sala-pill.run {
-  --c: var(--state-run);
-  --t: var(--sala-run-bg);
-}
-.sala-pill.start {
-  --c: var(--state-run);
-  --t: var(--sala-start-bg);
-  opacity: 0.75;
-}
-.sala-pill.wait {
-  --c: var(--primary-ink);
-  --t: var(--sala-wait-bg);
-}
-.sala-pill.done {
-  --c: var(--diff-add);
-  --t: var(--sala-done-bg);
-}
-.sala-pill.fail {
-  --c: var(--destructive);
-  --t: var(--sala-fail-bg);
-}
-.sala-pill.block {
-  --c: var(--context-ring-warn);
-  --t: var(--sala-block-bg);
+.sala-state-idle {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 9999px;
 }
 .sala-spin {
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid var(--border);
-  border-top-color: var(--c);
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-top-color: currentColor;
   border-radius: 9999px;
   animation: sala-spin 0.9s linear infinite;
 }
@@ -277,94 +261,111 @@
   }
 }
 .sala-title {
-  height: 40px;
-  flex: none;
-  font-size: 14px;
-  line-height: 20px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
   font-weight: 500;
   color: var(--foreground);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.sala-node.main .sala-title {
-  font-size: 15px;
-}
-.sala-node.done .sala-title {
-  color: var(--muted-foreground);
-}
-.sala-activity {
-  display: flex;
-  align-items: center;
-  height: 17px;
-  flex: none;
-  font: 400 12px var(--font-mono);
-  color: var(--muted-foreground);
   white-space: nowrap;
-  overflow: hidden;
-}
-.sala-activity > span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sala-node.wait .sala-activity {
-  font: 400 12.5px var(--font-sans);
+.sala-node.done .sala-title,
+.sala-node.stop .sala-title {
+  color: var(--muted-foreground);
+}
+.sala-node-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 11px 10px;
+  font: 400 11.5px/17px var(--font-mono);
+}
+.sala-line {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+  color: var(--sala-log-past);
+}
+.sala-line-at {
+  color: var(--sala-log-at);
+  font-variant-numeric: tabular-nums;
+}
+.sala-line-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sala-line.now {
+  color: var(--foreground);
+}
+.sala-line.ask .sala-line-text {
+  font: 400 12.5px/17px var(--font-sans);
   color: var(--primary-ink);
 }
-.sala-node.done .sala-activity,
-.sala-node.stop .sala-activity,
-.sala-node.start .sala-activity,
-.sala-node.idle .sala-activity {
-  color: var(--text-faint);
-}
-.sala-node.fail .sala-activity {
+.sala-line.fail {
   color: var(--destructive);
 }
-.sala-node.block .sala-activity {
+.sala-line.block {
   color: var(--context-ring-warn);
 }
 .sala-strip {
   position: relative;
   z-index: 2;
-  height: 28px;
+  height: 30px;
   flex: none;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 4px 0 9px;
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border-soft) 60%, var(--bg-chrome));
   font: 400 11px var(--font-mono);
   color: var(--text-faint);
   white-space: nowrap;
   pointer-events: none;
 }
-.sala-strip-clock {
+/* The runtime's own mark, as the composer's agent selector draws it: no
+ * chip, no border, no background. */
+.sala-logo {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--foreground);
+}
+.sala-model {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.sala-role {
+  opacity: 0.8;
+}
+.sala-strip-clock {
+  flex: none;
+  padding-right: 6px;
+}
 .sala-strip button {
   pointer-events: auto;
 }
 .sala-reply {
-  height: 20px;
-  padding: 0 8px;
+  height: 22px;
+  flex: none;
+  padding: 0 9px;
   background: var(--foreground);
   color: var(--bg-chrome);
-  font: 500 11.5px var(--font-sans);
+  font: 500 11.5px/1 var(--font-sans);
   cursor: pointer;
   transition: background-color var(--motion-fast) var(--motion-ease);
 }
 .sala-reply:hover {
   background: color-mix(in srgb, var(--foreground) 86%, white);
 }
-.sala-ctx {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 20px;
-  padding: 0 5px;
+.sala-reply.on {
+  background: color-mix(in srgb, var(--foreground) 88%, var(--bg-chrome));
 }
 .sala-port {
   position: absolute;

@@ -37,7 +37,6 @@ export interface SalaCanvasProps {
   agents: readonly RoomAgent[];
   since: ReadonlyMap<string, { state: RoomAgentState; since: number }>;
   canvas: RoomCanvas;
-  contextCount: number;
   modelLabelOf: (agent: RoomAgent) => string;
   reconnecting: boolean;
   /** The relay refused or could not take the last write of the layout. */
@@ -1112,7 +1111,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
               hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
               hasKids={(kids.get(agent.agentId) ?? 0) > 0}
               modelLabel={props.modelLabelOf(agent)}
-              contextCount={props.contextCount}
+              answering={answering === agent.agentId}
               workers={workers}
               liveWorkers={liveWorkers}
               observedSince={props.since.get(agent.agentId)?.since ?? 0}

@@ -3,9 +3,9 @@ import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { cn } from "@/lib/utils";
-import { cardActivity, cardClock, cardStatus, formatClock, type CardClock } from "@/lib/sala/agentCard";
+import { cardActivity, cardClock, cardLines, cardStatus, formatClock, type CardClock } from "@/lib/sala/agentCard";
 import type { RoomAgent } from "@/lib/relay/roomClient";
-import { CheckIcon, CloseIcon, ConversationGlyph, LayersIcon, AreaIcon, TrashIcon } from "@/components/sala/SalaIcons";
+import { CheckIcon, CloseIcon, ConversationGlyph, AreaIcon, QuestionIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
 
 export interface SalaCardProps {
@@ -18,7 +18,8 @@ export interface SalaCardProps {
   hasParent: boolean;
   hasKids: boolean;
   modelLabel: string;
-  contextCount: number;
+  /** This card's question is open under it. */
+  answering: boolean;
   /** Workers in the room: what a working principal says it coordinates. */
   workers: number;
   /** Of those, the ones working or about to: what makes a principal that has
@@ -50,14 +51,23 @@ export function Clock({ clock }: { clock: CardClock }) {
   return <>{dict[clock.kind].replace("{time}", formatClock(now - clock.since))}</>;
 }
 
+/** How far into its run a running agent is, counting up. */
+function LiveAt({ since }: { since: number }) {
+  const now = useSecondTick();
+  return <>{formatClock(now - since)}</>;
+}
+
 /**
- * One agent's card. Positioned by `transform` alone (the canvas moves it
- * during a drag by writing that same property), so a card is never laid out
- * again for being moved. Memoized: only the cards whose agent changed
- * render when the channel reports a change.
+ * One agent's card, drawn as a small terminal window: a title bar with the
+ * state, a log of what the agent did and is doing, and a strip with the
+ * runtime, the model and the time (or the way to answer it). Positioned by
+ * `transform` alone (the canvas moves it during a drag by writing that same
+ * property), so a card is never laid out again for being moved. Memoized:
+ * only the cards whose agent changed render when the channel reports a
+ * change.
  */
 export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
-  const { agent, x, y, w, h, selected, hasParent, hasKids, modelLabel, contextCount, workers, liveWorkers, observedSince } = props;
+  const { agent, x, y, w, h, selected, hasParent, hasKids, modelLabel, workers, liveWorkers, observedSince } = props;
   const dict = useDict().sala.card;
   const status = cardStatus(agent, liveWorkers);
   const activity = cardActivity(agent, workers, liveWorkers);
@@ -65,6 +75,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const title = agent.title ?? dict.untitled;
   const main = agent.role === "principal";
   const showBar = selected;
+  const lines = cardLines(agent, status);
 
   const activityText = ((): string => {
     switch (activity.kind) {
@@ -97,37 +108,40 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
     >
       <div className="sala-node-card">
         <button type="button" className="sala-node-hit" tabIndex={0} onClick={() => props.onSelect(agent.agentId)} aria-label={dict.aria.replace("{title}", title).replace("{status}", dict.status[status.label])} />
+        <div className="sala-node-head">
+          <span className="sala-state" data-status={status.label} title={dict.status[status.label]}>
+            {(status.tone === "run" || status.tone === "start") && <span className="sala-spin" aria-hidden="true" />}
+            {status.tone === "wait" && <QuestionIcon size={14} />}
+            {status.tone === "done" && <CheckIcon size={13} />}
+            {status.tone === "stop" && <span aria-hidden="true" style={{ width: 8, height: 8, background: "currentColor" }} />}
+            {(status.tone === "fail" || status.tone === "block") && <CloseIcon size={12} />}
+            {status.tone === "idle" && <span aria-hidden="true" className="sala-state-idle" />}
+          </span>
+          <span className="sala-title" title={agent.titlePending === true ? undefined : title}>
+            {agent.titlePending === true ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}
+          </span>
+        </div>
         <div className="sala-node-body">
-          <div className="sala-node-head">
-            <AgentLogo agentId={agent.runtime} className="sala-logo" />
-            <span className="sala-model">{modelLabel}</span>
-            {main && <span className="sala-role">· {dict.main}</span>}
-            <span className={cn("sala-pill", status.tone)} data-status={status.label}>
-              {(status.tone === "run" || status.tone === "start") && <span className="sala-spin" aria-hidden="true" />}
-              {status.tone === "wait" && <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />}
-              {status.tone === "done" && <CheckIcon size={11} />}
-              {status.tone === "stop" && <span aria-hidden="true" style={{ width: 7, height: 7, background: "currentColor" }} />}
-              {(status.tone === "fail" || status.tone === "block") && <CloseIcon size={10} />}
-              <span>{dict.status[status.label]}</span>
-            </span>
-          </div>
-          <div className="sala-title">{agent.titlePending === true ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}</div>
-          <div className="sala-activity">
-            <span>{activityText}</span>
-          </div>
+          {lines.map((line, i) => (
+            <div key={i} className={cn("sala-line", line.tone)}>
+              <span className="sala-line-at">{line.at === undefined ? null : line.at === "live" ? <LiveAt since={agent.startedAt ?? observedSince} /> : formatClock(line.at)}</span>
+              <span className="sala-line-text">{line.text ?? activityText}</span>
+            </div>
+          ))}
         </div>
         <div className="sala-strip">
-          <span className="sala-strip-clock">
-            <Clock clock={clock} />
+          <AgentLogo agentId={agent.runtime} className="sala-logo" />
+          <span className="sala-model">
+            {modelLabel}
+            {main && <span className="sala-role"> · {dict.main}</span>}
           </span>
           {status.tone === "wait" ? (
-            <button type="button" className="sala-reply" data-nodrag onClick={() => props.onReply(agent.agentId)}>
+            <button type="button" className={cn("sala-reply", props.answering && "on")} data-nodrag aria-expanded={props.answering} onClick={() => props.onReply(agent.agentId)}>
               {dict.reply}
             </button>
           ) : (
-            <span className="sala-ctx" title={dict.context.replace("{count}", String(contextCount))}>
-              <LayersIcon size={12} />
-              <span>{contextCount}</span>
+            <span className="sala-strip-clock">
+              <Clock clock={clock} />
             </span>
           )}
         </div>
