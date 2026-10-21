@@ -757,14 +757,17 @@
 /* ─── the side panel, docked in the plane ─── */
 .sala-side {
   flex: none;
-  width: 384px;
+  /* 384px of panel plus the divider's own pixel. */
+  width: 385px;
   height: 100%;
   min-width: 0;
   /* The window chrome's colour, like the sidebar: the panel is docked in the
    * base plane, not drawn on the canvas, so it has no frame of its own and
    * covers the status bar's line (the plane's frame is cut away from it, see
-   * the end of this file). */
+   * the end of this file). The one line it does draw is the divider on its
+   * canvas side, the plane frame's right edge (the frame is masked there). */
   background: var(--bg-chrome);
+  border-left: 1px solid var(--border-soft);
   color: var(--foreground);
   overflow: hidden;
   margin-bottom: -1px;
@@ -1370,6 +1373,6 @@
  * over the whole plane) stops where the side panel begins: the panel is the
  * base colour all the way to the window's edge, as the sidebar is. */
 :has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) > [data-plane-frame] {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 384px), transparent 0);
-  mask-image: linear-gradient(to right, #000 calc(100% - 384px), transparent 0);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
+  mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
 }
