@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { SessionStore } from "./sessionStore.js";
 
 const DEFAULT_CWD = "/home/user";
@@ -687,5 +688,60 @@ test("pendingApproval: the permission rule decided for each call is stored with 
     assert.deepEqual(reopened.getPendingApproval("good"), withGrant);
     assert.equal(reopened.getPendingApproval("badRule"), undefined);
     assert.equal(reopened.getPendingApproval("badBroad"), undefined);
+  });
+});
+
+test("persist is atomic: a concurrent reader never sees a partial file, and no temp file is left behind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-sessionstore-atomic-"));
+  const filePath = join(dir, "sessions.json");
+  const stopFile = join(dir, "stop");
+  try {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("seed");
+    store.setTitle("seed", "x".repeat(100_000)); // big enough that a non-atomic write spans several syscalls
+    const reader = spawn(
+      process.execPath,
+      [
+        "-e",
+        `const fs = require("node:fs");
+let reads = 0, torn = 0;
+while (!fs.existsSync(process.argv[2])) {
+  reads++;
+  try { JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { torn++; }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+}
+console.log(JSON.stringify({ reads, torn }));`,
+        filePath,
+        stopFile,
+      ],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    let out = "";
+    reader.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
+    const exited = new Promise<void>((resolve) => reader.on("exit", () => resolve()));
+    await new Promise((r) => setTimeout(r, 100));
+    for (let i = 0; i < 100; i++) store.setTitle("seed", `${i}${"y".repeat(100_000)}`);
+    writeFileSync(stopFile, "");
+    await exited;
+    const { reads, torn } = JSON.parse(out) as { reads: number; torn: number };
+    assert.ok(reads > 0, "the reader ran");
+    assert.equal(torn, 0, `${torn} of ${reads} reads saw a partial file`);
+    assert.deepEqual(readdirSync(dir).sort(), ["sessions.json", "stop"], "no temp file left behind");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("persist keeps the file's permissions and cleans its temp file when the write fails", () => {
+  withStoreFile({}, (filePath) => {
+    chmodSync(filePath, 0o640);
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("a");
+    assert.equal(statSync(filePath).mode & 0o777, 0o640);
+    // A directory squatting on the target makes the final rename fail.
+    rmSync(filePath);
+    mkdirSync(filePath);
+    assert.throws(() => store.recordId("b"));
+    assert.deepEqual(readdirSync(dirname(filePath)), ["sessions.json"], "temp file removed");
   });
 });
