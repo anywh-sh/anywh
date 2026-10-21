@@ -51,6 +51,8 @@ export interface SessionManagerRoomOptions {
   readonly onUsage?: (sessionId: string, event: AgentEvent) => void;
   /** See `SharedSessionOptions.onTurnStarted`. */
   readonly onTurnStarted?: (sessionId: string, startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
+  /** Every event of a member's turns, for the card's trail of actions. */
+  readonly onActivity?: (sessionId: string, event: AgentEvent) => void;
   /** See `SharedSessionOptions.onMcpServerUsed`. */
   readonly onMcpServerUsed?: (sessionId: string, server: string) => void;
   /** See `SharedSessionOptions.roomTurnNote`. */
@@ -578,6 +580,7 @@ export class SessionManager {
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);
         this.wakeups.observeEvent(id, event);
+        if (room) this.rooms.onActivity?.(id, event);
       },
       onCancelBackgroundJob: (jobId) => {
         this.backgroundJobs.cancel(id, jobId);

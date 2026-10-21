@@ -1,7 +1,7 @@
 // What a room's card says about its agent, derived from the room channel's
 // view of it: which status label, which line of activity, which time. Pure;
 // the words themselves come from the dictionary at the call site.
-import type { RoomAgent, RoomAgentState } from "@/lib/relay/roomClient";
+import type { RoomAction, RoomAgent, RoomAgentState } from "@/lib/relay/roomClient";
 
 /** The visual language of a card's status label (HANDOFF's status table,
  * plus the two the design had not drawn yet: failed and blocked). */
@@ -76,6 +76,9 @@ export interface CardLine {
   /** A report's own words, or `null` for the agent's activity, which the
    * card words from `cardActivity`. */
   text: string | null;
+  /** The action this line reports, which the card words as the conversation's
+   * "Working" block would (`Reading socket.ts`). */
+  action?: { verb: RoomAction["verb"]; target?: string; running: boolean };
   /** `now` is what the agent is doing at this moment; `ask` waits for the
    * person; `past` and `quiet` are spent. */
   tone: "past" | "now" | "ask" | "fail" | "block" | "quiet";
@@ -96,11 +99,19 @@ function reportLines(text: string): string[] {
     .map((l) => firstLine(l));
 }
 
+/** The agent's actions in its present run, oldest first and at most as many
+ * as a card has lines: what an older turn did is not part of this run. */
+function runActions(agent: RoomAgent): RoomAction[] {
+  const started = agent.startedAt;
+  return (agent.activity ?? []).filter((a) => started === undefined || a.startedAt >= started).slice(-CARD_LINES);
+}
+
 /**
- * The lines a card's log shows, oldest first. The room channel carries no
- * per-agent activity feed, so the log is what it does carry: the report
- * (from this run, or from the turn before when the agent is at it again)
- * and, under it, the line for the agent's present activity.
+ * The lines a card's log shows, oldest first, the newest always last. While
+ * the agent works, each line is one thing it did, as the relay saw it, timed
+ * from the start of the run: a finished action by when it ended, the one in
+ * progress counting live. A finished agent shows its report instead; one
+ * that waits for the person ends on the question, above what it did.
  */
 export function cardLines(agent: RoomAgent, status: CardStatus): CardLine[] {
   const started = agent.startedAt;
@@ -114,16 +125,38 @@ export function cardLines(agent: RoomAgent, status: CardStatus): CardLine[] {
     return report.slice(0, CARD_LINES).map((text, i) => ({ text, tone: i === 0 ? head : "past", ...(i === 0 && reportAt !== undefined ? { at: reportAt } : {}) }));
   }
 
+  const actions = runActions(agent);
+  const running = status.tone === "run";
+  const waiting = status.tone === "wait";
+  const actionLines = (list: RoomAction[], lastIsNow: boolean): CardLine[] =>
+    list.map((a, i) => {
+      const now = lastIsNow && i === list.length - 1;
+      const live = a.endedAt === undefined && now;
+      const at = live ? ("live" as const) : since(a.endedAt ?? a.startedAt);
+      return {
+        text: null,
+        tone: a.failed ? "fail" : now ? "now" : "past",
+        action: { verb: a.verb, ...(a.target !== undefined ? { target: a.target } : {}), running: live },
+        ...(at !== undefined && !(live && started === undefined) ? { at } : {}),
+      };
+    });
+
+  if (running && actions.length > 0) return actionLines(actions, true);
+
   let tail: CardLine;
-  if (status.tone === "run") tail = { text: null, tone: "now", ...(started !== undefined ? { at: "live" as const } : {}) };
-  else if (status.tone === "wait") {
+  if (running) tail = { text: null, tone: "now", ...(started !== undefined ? { at: "live" as const } : {}) };
+  else if (waiting) {
     // What it asks, in its own words when the relay sent them.
     const needs = agent.needsYou[0];
     const at = since(needs?.askedAt);
     tail = { text: needs?.question ?? null, tone: "ask", ...(at !== undefined ? { at } : {}) };
   } else tail = { text: null, tone: status.tone === "fail" ? "fail" : status.tone === "block" ? "block" : "quiet" };
-  // A report from an earlier turn stays above, as what the agent did before.
-  const before: CardLine[] = finished ? [] : report.slice(0, CARD_LINES - 1).map((text) => ({ text, tone: "past" }));
+  // What it did before asking, or a report from an earlier turn, stays above.
+  const before: CardLine[] = finished
+    ? []
+    : waiting && actions.length > 0
+      ? actionLines(actions.slice(-(CARD_LINES - 1)), false)
+      : report.slice(0, CARD_LINES - 1).map((text) => ({ text, tone: "past" }));
   return [...before, tail];
 }
 

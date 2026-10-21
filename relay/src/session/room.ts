@@ -40,7 +40,9 @@ export interface QueuedMessage {
 }
 
 export interface RoomStop {
-  reason: "user" | "relay_restart" | "removed";
+  /** `user`: the person stopped it; `principal`: the principal did, with
+   * `stop_agent`. Either way the next message wakes it. */
+  reason: "user" | "principal" | "relay_restart" | "removed";
   at: number;
 }
 
@@ -110,7 +112,7 @@ export const ROOM_MAX_LIVE_AGENTS = 10;
 
 const ROLES: ReadonlySet<string> = new Set(["principal", "worker"]);
 const REPORT_STATUSES: ReadonlySet<string> = new Set(["done", "failed", "blocked"]);
-const STOP_REASONS: ReadonlySet<string> = new Set(["user", "relay_restart", "removed"]);
+const STOP_REASONS: ReadonlySet<string> = new Set(["user", "principal", "relay_restart", "removed"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

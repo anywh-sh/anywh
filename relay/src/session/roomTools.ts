@@ -41,7 +41,8 @@ export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
   name: "message_agent",
   description:
     "Send a message to one of the agents you started (or one below them), including one that already reported: it keeps " +
-    "its whole conversation, so this is how you give it a follow-up or a new task in its role. Delivered as its next turn.",
+    "its whole conversation, so this is how you give it a follow-up or a new task in its role. Delivered as its next turn, " +
+    "after the one it is running: to change its course now, stop_agent it first.",
   inputSchema: {
     type: "object",
     properties: {
@@ -49,6 +50,18 @@ export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
       text: { type: "string" },
     },
     required: ["agent", "text"],
+  },
+};
+
+export const STOP_AGENT_TOOL: RoomToolSpec = {
+  name: "stop_agent",
+  description:
+    "Stop one of the agents you started (or one below them) now, as the person's Stop does: its running turn ends and the " +
+    "messages queued for it are dropped. It keeps its conversation; message_agent gives it new work and wakes it.",
+  inputSchema: {
+    type: "object",
+    properties: { agent: { type: "string", description: "The agent's name (or its agentId)." } },
+    required: ["agent"],
   },
 };
 
@@ -112,7 +125,7 @@ export const WORKTREE_CREATE_TOOL: RoomToolSpec = {
 };
 
 export function roomToolsFor(role: RoomRole): readonly RoomToolSpec[] {
-  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
+  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, STOP_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
 }
 
 /** The room's context as the standing instructions show it: where the
@@ -144,7 +157,7 @@ function principalBase(runtimes: readonly string[]): string {
     "You are the principal agent of an anywh room. The person talks to you; the room's agents do the work. You never do it " +
     "yourself: you can read files (Read, Grep, Glob) and use the room's tools " +
     `(server ${ROOM_MCP_SERVER_NAME}) — delegate starts an agent, message_agent gives more work to one that exists, ` +
-    "room_status shows the agents and areas.\n\n" +
+    "stop_agent ends an agent's current turn, room_status shows the agents and areas.\n\n" +
     "How you run the room:\n" +
     "- Plan first. Find the pieces of work a request really contains and what each depends on. Pieces that can run " +
     "independently go to separate agents, started together in the same turn. A piece that needs another's result starts " +
@@ -298,6 +311,12 @@ export function parseMessageAgentArgs(raw: unknown): Parsed<MessageAgentArgs> {
   const text = requiredString(args, "text", ROOM_TASK_MAX);
   if (!text.ok) return text;
   return { ok: true, value: { agent: agent.value, text: text.value } };
+}
+
+export function parseStopAgentArgs(raw: unknown): Parsed<{ agent: string }> {
+  const args = isRecord(raw) ? raw : {};
+  const agent = requiredString(args.agent === undefined ? { agent: args.agentId } : args, "agent", 200);
+  return agent.ok ? { ok: true, value: { agent: agent.value } } : agent;
 }
 
 export function parseWorktreeCreateArgs(raw: unknown): Parsed<{ repo: string }> {

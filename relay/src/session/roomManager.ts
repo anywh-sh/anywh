@@ -42,6 +42,7 @@ import {
   parseDelegateArgs,
   type DelegateArgs,
   parseMessageAgentArgs,
+  parseStopAgentArgs,
   parseReportArgs,
   parseWorktreeCreateArgs,
   principalInstructions,
@@ -60,6 +61,14 @@ function defaultSchedule(fn: () => void, ms: number): () => void {
   timer.unref();
   return () => clearTimeout(timer);
 }
+
+/** Who stopped an agent, as `room_status` tells the principal. */
+const STOPPED_BY: Record<NonNullable<RoomMembership["stopped"]>["reason"], string> = {
+  user: "the person",
+  principal: "you",
+  relay_restart: "a relay restart",
+  removed: "the person (removed)",
+};
 
 /** A member without its stop: the agent is back at work. */
 function withoutStop(room: RoomMembership): RoomMembership {
@@ -294,6 +303,8 @@ export class RoomManager implements RoomToolHost {
       }
       case "message_agent":
         return this.messageAgent(sessionId, room, args);
+      case "stop_agent":
+        return this.stopAgentTool(sessionId, room, args);
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
       case "approve":
@@ -392,13 +403,13 @@ export class RoomManager implements RoomToolHost {
    * and its process is ended in the host. It is marked stopped, which frees
    * its place under the room's cap, until a new message wakes it: the
    * conversation is kept, and the next turn resumes it. */
-  async stopAgent(roomId: string, agentId: string): Promise<StopAgentResult> {
+  async stopAgent(roomId: string, agentId: string, by: "user" | "principal" = "user"): Promise<StopAgentResult> {
     const room = this.store.getRoom(agentId);
     if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
     if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is stopped this way" };
     const { queuedMessages: _dropped, ...kept } = room;
     void _dropped;
-    this.store.setRoom(agentId, { ...kept, stopped: room.stopped ?? { reason: "user", at: this.now() } });
+    this.store.setRoom(agentId, { ...kept, stopped: room.stopped ?? { reason: by, at: this.now() } });
     this.endWarmUp(agentId);
     const session = this.options.sessions.getOrCreate(agentId);
     session.discardQueuedTurns();
@@ -1323,6 +1334,23 @@ export class RoomManager implements RoomToolHost {
     return ok(`Message queued for ${name}; it is delivered as its next turn.`);
   }
 
+  /** The principal stops an agent below it: the same stop as the person's,
+   * so the next message, its own included, wakes it. */
+  private async stopAgentTool(callerId: string, caller: RoomMembership, rawArgs: unknown): Promise<RoomToolResult> {
+    if (caller.role !== "principal") return fail("Only the room's principal can stop other agents.");
+    const parsed = parseStopAgentArgs(rawArgs);
+    if (!parsed.ok) return fail(parsed.error);
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && isDescendant(member.id, callerId, parentOf));
+    const resolved = this.resolveAgent(parsed.value.agent, below, "below you in this room");
+    if ("error" in resolved) return fail(resolved.error);
+    const name = this.nameOf(resolved.id);
+    if (this.store.getRoom(resolved.id)?.stopped) return ok(`${name} is already stopped.`);
+    const stopped = await this.stopAgent(caller.roomId, resolved.id, "principal");
+    if (!stopped.ok) return fail(stopped.error);
+    return ok(`${name} is stopped: its turn ended and its queued messages were dropped. message_agent gives it new work.`);
+  }
+
   /** The CLI of a worker asks whether a tool call may run. The worker's
    * session answers at once (it defers: the call is refused, the turn ends,
    * the person is asked) so nothing is held open for a person. */
@@ -1352,6 +1380,7 @@ export class RoomManager implements RoomToolHost {
         parentId: room.parentId,
         ...(area ? { area } : {}),
         state,
+        ...(room.stopped ? { stoppedBy: STOPPED_BY[room.stopped.reason] } : {}),
         ...(room.queuedMessages?.length ? { queuedMessages: room.queuedMessages.length } : {}),
         ...(room.report
           ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, ...(room.report.synthetic ? { fromRelay: true } : {}) } }

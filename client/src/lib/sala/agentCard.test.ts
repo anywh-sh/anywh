@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RoomAgent } from "@/lib/relay/roomClient";
+import type { RoomAction, RoomAgent } from "@/lib/relay/roomClient";
 import { cardActivity, cardClock, cardLines, cardStatus, firstLine, formatClock, trackStateSince } from "@/lib/sala/agentCard";
 
 function agent(over: Partial<RoomAgent> = {}): RoomAgent {
@@ -179,6 +179,51 @@ describe("cardLines", () => {
       { text: "Second", tone: "past" },
       { text: null, tone: "now", at: "live" },
     ]);
+  });
+
+  describe("a running agent's actions", () => {
+    const act = (id: string, verb: RoomAction["verb"], startedAt: number, endedAt?: number, over: Partial<RoomAction> = {}): RoomAction => ({ id, verb, startedAt, ...(endedAt !== undefined ? { endedAt } : {}), ...over });
+
+    it("shows one line per action, each timed from the start of the run by when it ended, the one in progress live", () => {
+      const a = agent({ startedAt: 10_000, activity: [act("1", "mcp", 10_000, 40_000, { target: "linear.get_issue" }), act("2", "shell", 40_000, 55_000, { target: "npm test" }), act("3", "read", 55_000, undefined, { target: "a.ts" })] });
+      expect(lines(a)).toEqual([
+        { text: null, tone: "past", action: { verb: "mcp", target: "linear.get_issue", running: false }, at: 30_000 },
+        { text: null, tone: "past", action: { verb: "shell", target: "npm test", running: false }, at: 45_000 },
+        { text: null, tone: "now", action: { verb: "read", target: "a.ts", running: true }, at: "live" },
+      ]);
+    });
+
+    it("fills from the first line: with two actions the newest is the second", () => {
+      const a = agent({ startedAt: 0, activity: [act("1", "read", 0, 5_000), act("2", "think", 5_000)] });
+      const out = lines(a);
+      expect(out).toHaveLength(2);
+      expect(out[1]).toMatchObject({ tone: "now", action: { verb: "think", running: true }, at: "live" });
+    });
+
+    it("keeps three lines at most, the newest last", () => {
+      const list = [1, 2, 3, 4, 5].map((n) => act(String(n), "read", n * 1000, n * 1000 + 500, { target: `f${String(n)}` }));
+      const out = lines(agent({ startedAt: 0, activity: list }));
+      expect(out.map((l) => l.action?.target)).toEqual(["f3", "f4", "f5"]);
+      expect(out[2]?.tone).toBe("now");
+    });
+
+    it("leaves out what an earlier run did", () => {
+      const a = agent({ startedAt: 50_000, activity: [act("old", "read", 1_000, 2_000), act("new", "edit", 51_000)] });
+      expect(lines(a).map((l) => l.action?.verb)).toEqual(["edit"]);
+    });
+
+    it("marks a failed action and does not count the last one as live once it ended", () => {
+      const out = lines(agent({ startedAt: 0, activity: [act("1", "shell", 0, 3_000, { failed: true })] }));
+      expect(out).toEqual([{ text: null, tone: "fail", action: { verb: "shell", running: false }, at: 3_000 }]);
+    });
+
+    it("puts what a waiting agent did above its question", () => {
+      const needsYou = [{ kind: "choice" as const, promptId: "q", askedAt: 9_000, count: 1, question: "Keep v1?" }];
+      const out = lines(agent({ state: "awaiting_user", startedAt: 1_000, needsYou, activity: [act("1", "read", 1_000, 4_000), act("2", "edit", 4_000, 8_000), act("3", "write", 8_000, 8_500)] }));
+      expect(out).toHaveLength(3);
+      expect(out.map((l) => l.tone)).toEqual(["past", "past", "ask"]);
+      expect(out[2]).toMatchObject({ text: "Keep v1?", at: 8_000 });
+    });
   });
 
   it("words a stopped agent quietly, with no time", () => {
