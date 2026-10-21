@@ -507,9 +507,10 @@
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
+  /* No transition: fading this in on hover makes WebKit promote it to its
+   * own layer, and the scaled plane under it is then painted soft. */
   opacity: 0;
   cursor: pointer;
-  transition: opacity var(--motion-fast) var(--motion-ease);
 }
 .sala-frame:hover .sala-frame-x,
 .sala-frame-x:focus-visible {
