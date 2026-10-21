@@ -94,13 +94,13 @@ describe("SessionList", () => {
     expect(onClearFilter).toHaveBeenCalledTimes(1);
   });
 
-  it("lists only the 8 latest under one Recent heading, with its count", () => {
+  it("lists only the 10 latest under one Recent heading, with its count", () => {
     const sessions = Array.from({ length: 12 }, (_, i) => session({ id: `s${String(i)}`, title: `Item ${String(i)}`, lastActiveAt: Date.now() - i * 1000 }));
     renderList({ sessions });
 
-    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}8`);
+    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}10`);
     expect(screen.getByText("Item 0")).toBeInTheDocument();
-    expect(screen.queryByText("Item 8")).not.toBeInTheDocument();
+    expect(screen.queryByText("Item 10")).not.toBeInTheDocument();
     expect(screen.queryByText("Item 11")).not.toBeInTheDocument();
     expect(screen.queryByText(copy.groups.today)).not.toBeInTheDocument();
   });
