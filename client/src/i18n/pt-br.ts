@@ -946,6 +946,8 @@ export const ptBr: Dictionary = {
         idle: "Esperando a tarefa",
         stopped: "Parado por você",
         noReport: "Terminou sem relatório",
+        thinking: "Pensando",
+        thought: "Pensou",
       },
       clock: {
         running: "há {time}",

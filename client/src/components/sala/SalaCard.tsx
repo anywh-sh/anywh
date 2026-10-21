@@ -68,7 +68,9 @@ function LiveAt({ since }: { since: number }) {
  */
 export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const { agent, x, y, w, h, selected, hasParent, hasKids, modelLabel, workers, liveWorkers, observedSince } = props;
-  const dict = useDict().sala.card;
+  const fullDict = useDict();
+  const dict = fullDict.sala.card;
+  const chatWork = fullDict.chat.activity.work;
   const status = cardStatus(agent, liveWorkers);
   const activity = cardActivity(agent, workers, liveWorkers);
   const clock = cardClock(agent, observedSince, liveWorkers);
@@ -98,6 +100,14 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
     }
   })();
 
+  // A line that reports an action is worded as the conversation's "Working"
+  // block words it: the verb (as it goes on, or once done) and what it acted on.
+  const actionText = (action: NonNullable<(typeof lines)[number]["action"]>): string => {
+    const steps = chatWork.steps;
+    const verb = action.verb === "think" ? (action.running ? dict.activity.thinking : dict.activity.thought) : action.running ? steps[action.verb].ing : steps[action.verb].past;
+    return action.target ? `${verb} ${action.target}` : verb;
+  };
+
   return (
     <div
       data-agent-id={agent.agentId}
@@ -125,7 +135,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
           {lines.map((line, i) => (
             <div key={i} className={cn("sala-line", line.tone)}>
               <span className="sala-line-at">{line.at === undefined ? null : line.at === "live" ? <LiveAt since={agent.startedAt ?? observedSince} /> : formatClock(line.at)}</span>
-              <span className="sala-line-text">{line.text ?? activityText}</span>
+              <span className="sala-line-text">{line.action ? actionText(line.action) : (line.text ?? activityText)}</span>
             </div>
           ))}
         </div>
