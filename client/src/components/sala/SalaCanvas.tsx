@@ -944,9 +944,23 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (current.areas.find((a) => a.id === id)?.label === label) return;
     commit({ ...current, areas: current.areas.map((a) => (a.id === id ? { ...a, label } : a)) });
   };
+  // WebKit keeps painting the old pixels of a removed element that carried its
+  // own `scale` (an area's label bar) until something else repaints that
+  // spot, which showed as a title lingering after its area was gone. Nudging
+  // the plane's scale by a hair for one frame repaints all of it at once.
+  const repaintPlane = useCallback((): void => {
+    requestAnimationFrame(() => {
+      const world = worldRef.current;
+      if (!world) return;
+      const c = cam().cam;
+      world.style.transform = `${translate(c.x, c.y)} scale(${(c.z + 0.0001).toFixed(4)})`;
+      requestAnimationFrame(() => applyCamera(cam().cam));
+    });
+  }, [applyCamera]);
   const removeArea = (id: string): void => {
     const current = latest.current.canvas;
     commit({ ...current, areas: current.areas.filter((a) => a.id !== id) });
+    repaintPlane();
   };
   const editText = (id: string, text: string): void => {
     const current = latest.current.canvas;
