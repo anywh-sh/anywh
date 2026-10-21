@@ -384,7 +384,7 @@ test("a malformed room URL is refused, never taking the relay down", async () =>
   assert.equal((await fetch(`${base}/sessions`)).status, 200, "still up");
 });
 
-test("stopping a worker frees its place, drops what was queued for it and never brings it back; deleting the principal removes the room", async () => {
+test("stopping a worker frees its place and drops what was queued for it, and a new message wakes it; deleting the principal removes the room", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
   try {
@@ -405,18 +405,26 @@ test("stopping a worker frees its place, drops what was queued for it and never 
     assert.equal(stopped.room.queuedMessages, undefined, "what was queued for it is dropped");
     await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === ids[0])?.state === "stopped", 15_000, "stopped in the host");
 
-    // Typed into directly, it refuses instead of coming back.
-    const direct = await connectSession(relay.port, ids[0]);
-    const refused = collectUntil(direct, (message) => message.type === "agent_event" && (message.event as { type?: string }).type === "error", 15_000);
-    sendUserMessage(direct, "are you there?");
-    const errors = await refused;
-    direct.close();
-    assert.match(String((errors.at(-1)!.event as { message: string }).message), /was stopped/);
+    // Nothing brings it back on its own: what was queued is gone.
+    await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal((await hostAgents()).find((agent) => agent.agentId === ids[0])?.state, "stopped", "still stopped in the host");
 
     const again = await principalTurn(socket, marker("delegate", { task: "now it fits", runtime: "claude", model: "haiku" }));
     assert.equal(again.results[0].isError, false, again.results[0].content);
     assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${roomId}/stop`, { method: "POST" })).status, 400, "the principal is not stopped this way");
+
+    // Stop only ended its turn, as in an ordinary session: a message typed
+    // into it wakes it, with its conversation, and it is no longer stopped.
+    const direct = await connectSession(relay.port, ids[0]);
+    const answered = collectUntil(direct, isTurnEnded, 20_000);
+    sendUserMessage(direct, "are you there?");
+    const turn = await answered;
+    direct.close();
+    assert.ok(!turn.some((message) => message.type === "agent_event" && (message.event as { type?: string }).type === "error"), JSON.stringify(turn.slice(-3)));
+    assert.equal(((await members(roomId)).find((member) => member.id === ids[0]) as Member & { room: { stopped?: unknown } }).room.stopped, undefined, "awake again");
+
+    // The panel's resume still just clears the mark of an agent stopped again.
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/stop`, { method: "POST" })).status, 200);
     const resumed = await fetch(`${base}/rooms/${roomId}/agents/${ids[0]}/resume`, { method: "POST" });
     assert.equal(resumed.status, 200);
     assert.deepEqual(await resumed.json(), { resumed: true });
@@ -432,6 +440,25 @@ test("stopping a worker frees its place, drops what was queued for it and never 
     const agents = await hostAgents();
     return before.every((id) => !agents.some((agent) => agent.agentId === id));
   }, 20_000, "every agent of the room removed from the host");
+});
+
+test("message_agent wakes a worker the person stopped: it takes the work, with its conversation, and reports", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { name: "Sleeper", purpose: "is stopped mid-task", task: "work [[hang]]", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === agentId)?.state === "working", 20_000, "the worker at work");
+    assert.equal((await fetch(`${base}/rooms/${roomId}/agents/${agentId}/stop`, { method: "POST" })).status, 200);
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === agentId)?.state === "stopped", 15_000, "stopped in the host");
+
+    const woken = await principalTurn(socket, marker("message_agent", { agent: "Sleeper", text: `take another route ${marker("report", { status: "done", summary: "new route taken" })}` }));
+    assert.equal(woken.results[0].isError, false, woken.results[0].content);
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report?.summary === "new route taken", 20_000, "the report after waking");
+    assert.equal(((await members(roomId)).find((member) => member.id === agentId) as Member & { room: { stopped?: unknown } }).room.stopped, undefined);
+  } finally {
+    socket.close();
+  }
 });
 
 test("a person's question to a worker that already reported is answered without turning it blocked", async () => {

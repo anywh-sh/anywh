@@ -150,8 +150,9 @@ function principalBase(runtimes: readonly string[]): string {
     "independently go to separate agents, started together in the same turn. A piece that needs another's result starts " +
     "once that agent has reported, as its own agent. Don't split work too small to be worth an agent, and never let two " +
     "agents change the same files.\n" +
-    "- Reuse before you add. Agents keep their conversation after reporting; when an existing agent's purpose fits the new " +
-    "work, give it the work with message_agent.\n" +
+    "- Reuse before you add. Agents keep their conversation after reporting or being stopped; when an existing agent's " +
+    "purpose fits the new work, give it the work with message_agent. A message wakes a stopped agent, so leave one the " +
+    "person stopped alone unless they ask for it.\n" +
     "- Each new agent gets a short role name in the person's language and a one-line purpose. Talk about agents by name, " +
     "never by id.\n" +
     "- Areas are an optional visual aid for the person. An area holds agents whose work adds up to one result; agents " +
