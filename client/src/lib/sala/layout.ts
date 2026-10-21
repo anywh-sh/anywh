@@ -22,6 +22,13 @@ export const AREA_PAD = 24;
 export const AREA_BAR = 32;
 /** The least space between two areas' frames. */
 export const AREA_GAP = 96;
+/** Most cards an area keeps on one row; the next one starts a row below. */
+export const AREA_ROW_MAX = 3;
+/** Distance between two rows of the same group of cards. */
+export const WRAP_ROW = 192;
+/** How far a wrapped row starts to the left of the one above it, so it does
+ * not read as the children of the card over it. */
+export const WRAP_SHIFT = 48;
 const GAP = 12;
 
 export function cardSize(agent: Pick<RoomAgent, "role">): { w: number; h: number } {
@@ -136,19 +143,24 @@ export function spawnUnder(
 ): { x: number; y: number } | undefined {
   const baseX = siblings.length > 0 ? Math.min(...siblings.map((s) => s.x)) : parent.x + parent.w / 2 - size.w / 2;
   const centre = parent.x + parent.w / 2 - size.w / 2;
+  // A group fills rows of at most AREA_ROW_MAX cards; each row after the
+  // first starts a little to the left of the first one. The first row is the
+  // topmost the siblings already have (or the one under the parent).
+  const firstY = siblings.length > 0 ? Math.min(...siblings.map((s) => s.y)) : snap(parent.y + ROW);
+  const firstRowX = siblings.length > 0 ? Math.min(...siblings.filter((s) => s.y === firstY).map((s) => s.x)) : baseX;
+  for (let slot = 0; slot < AREA_ROW_MAX * 8; slot += 1) {
+    const r = Math.floor(slot / AREA_ROW_MAX);
+    const spot = { x: snap(firstRowX - (r > 0 ? WRAP_SHIFT : 0) + (slot % AREA_ROW_MAX) * COL), y: snap(firstY + r * WRAP_ROW), ...size };
+    if (!obstacles.some((o) => overlaps(spot, o)) && accept(spot)) return { x: spot.x, y: spot.y };
+  }
   for (let row = 1; row <= 6; row += 1) {
     const y = snap(parent.y + ROW * row);
     const free = (x: number): { x: number; y: number } | undefined => {
       const spot = { x: snap(x), y, ...size };
       return !obstacles.some((o) => overlaps(spot, o)) && accept(spot) ? { x: spot.x, y: spot.y } : undefined;
     }
-    // First the siblings' own sequence, so a row fills left to right ...
-    for (let c = 0; c <= siblings.length + 1; c += 1) {
-      const found = free(baseX + c * COL);
-      if (found) return found;
-    }
-    // ... then the gaps beside whatever is in the way, nearest to straight
-    // under the parent first.
+    // The gaps beside whatever is in the way, nearest to straight under the
+    // parent first.
     const band = { x: -Infinity, y, w: Infinity, h: size.h };
     const edges = obstacles
       .filter((o) => o.y < band.y + band.h + GAP && o.y + o.h + GAP > band.y)
@@ -304,23 +316,58 @@ export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): Ro
     for (const kid of kids.get(agent.agentId) ?? []) if (!order.includes(key(kid.agentId))) order.push(key(kid.agentId));
     const children = (kids.get(agent.agentId) ?? []).filter((k) => !seen.has(k.agentId)).sort((a, b) => order.indexOf(key(a.agentId)) - order.indexOf(key(b.agentId)));
     if (children.length === 0) return { cards: [{ id: agent.agentId, cx: 0, y: 0 }], minX: -w / 2, maxX: w / 2 };
-    const parts = children.map((kid) => ({ kid, sub: layout(kid, seen) }));
+    // Children of one group (same area) fill rows of AREA_ROW_MAX; a row after
+    // the first starts WRAP_SHIFT to the left and below the tallest subtree
+    // of the row above it.
+    const groups: RoomAgent[][] = [];
+    for (const kid of children) {
+      const last = groups[groups.length - 1];
+      if (last && key(last[0].agentId) === key(kid.agentId)) last.push(kid);
+      else groups.push([kid]);
+    }
     let cursor = 0;
     const shifted: { id: string; cx: number; y: number }[] = [];
     const roots: number[] = [];
+    let minX = Infinity;
+    let maxX = -Infinity;
     let previous: string | undefined;
-    for (const { kid, sub } of parts) {
-      const gap = previous === undefined ? 0 : key(kid.agentId) === previous && previous !== "" ? SIBLING_GAP : previous === "" && key(kid.agentId) === "" ? SIBLING_GAP : AREA_SIBLING_GAP;
-      cursor += gap;
-      const offset = cursor - sub.minX;
-      for (const card of sub.cards) shifted.push({ id: card.id, cx: card.cx + offset, y: card.y + ROW });
-      roots.push(offset);
-      cursor = offset + sub.maxX;
-      previous = key(kid.agentId);
+    for (const group of groups) {
+      cursor += previous === undefined ? 0 : AREA_SIBLING_GAP;
+      const groupStart = cursor;
+      const placed: { cards: Placed[]; offset: number; row: number; sub: SubtreeLayout }[] = [];
+      let gMin = Infinity;
+      let gMax = -Infinity;
+      let rowY = 0;
+      let rowDepth = 0;
+      let x = 0;
+      for (const [i, kid] of group.entries()) {
+        const row = Math.floor(i / AREA_ROW_MAX);
+        if (i % AREA_ROW_MAX === 0) {
+          if (i > 0) rowY += rowDepth + WRAP_ROW;
+          rowDepth = 0;
+          x = row > 0 ? -WRAP_SHIFT : 0;
+        } else x += SIBLING_GAP;
+        const sub = layout(kid, seen);
+        const offset = x - sub.minX;
+        placed.push({ cards: sub.cards.map((c) => ({ ...c, y: c.y + rowY })), offset, row, sub });
+        rowDepth = Math.max(rowDepth, ...sub.cards.map((c) => c.y));
+        x = offset + sub.maxX;
+        gMin = Math.min(gMin, offset + sub.minX);
+        gMax = Math.max(gMax, x);
+      }
+      const shift = groupStart - gMin;
+      for (const { cards: cs, offset, row, sub } of placed) {
+        for (const card of cs) shifted.push({ id: card.id, cx: card.cx + offset + shift, y: card.y + ROW });
+        if (row === 0) roots.push(offset + shift);
+        minX = Math.min(minX, offset + shift + sub.minX);
+      }
+      cursor = groupStart + (gMax - gMin);
+      maxX = Math.max(maxX, groupStart + (gMax - gMin));
+      previous = key(group[0].agentId);
     }
     const centre = (roots[0] + roots[roots.length - 1]) / 2;
     const cards: Placed[] = [{ id: agent.agentId, cx: centre, y: 0 }, ...shifted];
-    return { cards, minX: Math.min(centre - w / 2, ...parts.map((p, i) => roots[i] + p.sub.minX)), maxX: Math.max(centre + w / 2, ...parts.map((p, i) => roots[i] + p.sub.maxX)) };
+    return { cards, minX: Math.min(centre - w / 2, minX), maxX: Math.max(centre + w / 2, maxX) };
   };
 
   const seen = new Set<string>();
