@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_BAR, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_BAR, AREA_ROW_MAX, WRAP_SHIFT, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
@@ -42,7 +42,7 @@ describe("placeAgents", () => {
     const cards = cardRects(agents, out.positions);
     const parent = cards.get("main")!;
     const child = cards.get("a")!;
-    const elbow = parent.y + parent.h + (child.y - (parent.y + parent.h)) / 2;
+    const elbow = Number(/V([\d.]+)H/.exec(edgePath(parent, child))![1]);
     const barTop = areaRect(out.areas[0], cards).y - AREA_BAR;
     expect(elbow).toBeLessThan(barTop);
   });
@@ -349,5 +349,48 @@ describe("tidyLayout", () => {
       expect(r.x % GRID).toBe(0);
       for (const o of rects.slice(i + 1)) expect(r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h).toBe(false);
     }
+  });
+});
+
+describe("rows of an area", () => {
+  const rowsOf = (agents: RoomAgent[], out: RoomCanvas, ids: string[]) => {
+    const cards = cardRects(agents, out.positions);
+    const byY = new Map<number, Rect[]>();
+    for (const id of ids) byY.set(cards.get(id)!.y, [...(byY.get(cards.get(id)!.y) ?? []), cards.get(id)!]);
+    return [...byY.entries()].sort((a, b) => a[0] - b[0]).map(([, r]) => r.sort((a, b) => a.x - b.x));
+  };
+  const ids = ["a", "b", "c", "d", "e", "f", "g"];
+  const agents = [main, ...ids.map((id) => agent(id, { area: "Design" }))];
+
+  it("tidies at most three cards to a row, the next row starting a little to the left", () => {
+    const out = placeAgents(agents, empty);
+    const rows = rowsOf(agents, out, ids);
+    expect(rows.map((r) => r.length)).toEqual([3, 3, 1]);
+    expect(rows[0].length).toBeLessThanOrEqual(AREA_ROW_MAX);
+    expect(rows[1][0].x).toBe(rows[0][0].x - WRAP_SHIFT);
+    expect(noOverlap(out, agents)).toBe(true);
+    const design = areaRect(out.areas[0], cardRects(agents, out.positions));
+    for (const r of rows.flat()) expect(r.x >= design.x && r.x + r.w <= design.x + design.w).toBe(true);
+  });
+
+  it("does the same when the cards of an arranged canvas arrive one at a time", () => {
+    let canvas: RoomCanvas = { ...placeAgents([main, agent("a", { area: "Design" })], empty), manual: true };
+    for (const [i, id] of ids.slice(1).entries()) {
+      canvas = placeAgents([main, ...ids.slice(0, i + 2).map((x) => agent(x, { area: "Design" }))], canvas);
+      expect(canvas.positions[id]).toBeDefined();
+    }
+    const rows = rowsOf(agents, canvas, ids);
+    expect(rows.map((r) => r.length)).toEqual([3, 3, 1]);
+    expect(rows[1][0].x).toBe(rows[0][0].x - WRAP_SHIFT);
+    expect(noOverlap(canvas, agents)).toBe(true);
+  });
+
+  it("never moves a card the person placed, and only wraps the ones added after", () => {
+    const four = [main, ...ids.slice(0, 4).map((id) => agent(id, { area: "Design" }))];
+    const tidy = placeAgents(four, empty);
+    const moved: RoomCanvas = { ...tidy, positions: { ...tidy.positions, b: { x: 1200, y: 900 } }, manual: true };
+    const out = placeAgents([...four, agent("e", { area: "Design" })], moved);
+    for (const [id, at] of Object.entries(moved.positions)) expect(out.positions[id]).toEqual(at);
+    expect(out.positions.e).toBeDefined();
   });
 });
