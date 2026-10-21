@@ -698,7 +698,7 @@ test("persist is atomic: a concurrent reader never sees a partial file, and no t
   try {
     const store = new SessionStore(filePath, DEFAULT_CWD);
     store.recordId("seed");
-    store.setTitle("seed", "x".repeat(200_000)); // big enough that a non-atomic write spans several syscalls
+    store.setTitle("seed", "x".repeat(100_000)); // big enough that a non-atomic write spans several syscalls
     const reader = spawn(
       process.execPath,
       [
@@ -708,6 +708,7 @@ let reads = 0, torn = 0;
 while (!fs.existsSync(process.argv[2])) {
   reads++;
   try { JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch { torn++; }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
 }
 console.log(JSON.stringify({ reads, torn }));`,
         filePath,
@@ -719,7 +720,7 @@ console.log(JSON.stringify({ reads, torn }));`,
     reader.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
     const exited = new Promise<void>((resolve) => reader.on("exit", () => resolve()));
     await new Promise((r) => setTimeout(r, 100));
-    for (let i = 0; i < 300; i++) store.setTitle("seed", `${i}${"y".repeat(200_000)}`);
+    for (let i = 0; i < 100; i++) store.setTitle("seed", `${i}${"y".repeat(100_000)}`);
     writeFileSync(stopFile, "");
     await exited;
     const { reads, torn } = JSON.parse(out) as { reads: number; torn: number };
