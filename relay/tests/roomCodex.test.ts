@@ -135,7 +135,7 @@ test("a Codex principal delegates through its dynamic tools; the worker is born 
   const threadStart = codexRequests().find((request) => request.method === "thread/start" && request.params.cwd === dir)!;
   assert.deepEqual(
     (threadStart.params.dynamicTools as { name: string }[]).map((tool) => tool.name),
-    ["delegate", "message_agent", "room_status"],
+    ["delegate", "message_agent", "stop_agent", "room_status"],
   );
   assert.deepEqual(threadStart.params.config, { features: { multi_agent: false }, web_search: "disabled" }, "Codex's own subagents and web search are off for the principal");
   const turnStart = codexRequests().find((request) => request.method === "turn/start")!;
