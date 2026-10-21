@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
@@ -543,7 +543,22 @@ export class SessionStore {
 
   private persist(): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(this.records, null, 2));
+    // Write beside the file and rename over it, so a reader (or a crash)
+    // sees the old content or the new one, never a truncated half.
+    const tmp = `${this.filePath}.${process.pid}.tmp`;
+    try {
+      let mode: number | undefined;
+      try {
+        mode = statSync(this.filePath).mode & 0o777;
+      } catch {
+        // First write: the default mode applies, as it always did.
+      }
+      writeFileSync(tmp, JSON.stringify(this.records, null, 2), mode === undefined ? undefined : { mode });
+      renameSync(tmp, this.filePath);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
   }
 
   /** See `loadedFromFile`. */
@@ -806,7 +821,7 @@ export class SessionStore {
 
   /** No-op on an unchanged value — unlike the other setters, this one is
    * expected to be called frequently (debounced per keystroke on the client
-   * side), and `persist()` is a synchronous full-file `writeFileSync` with
+   * side), and `persist()` is a synchronous full-file write with
    * no batching of its own. */
   setDraft(id: string, text: string): void {
     this.ensureEntry(id);
