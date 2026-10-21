@@ -40,7 +40,7 @@ describe("usageRows", () => {
 
 describe("roomCounts", () => {
   const agent = (agentId: string, over: Partial<RoomAgent>): RoomAgent => ({ agentId, role: "worker", parentId: "m", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [], ...over });
-  it("counts by what each card says", () => {
+  it("counts workers by what each card says, and leaves the principal out of agents, running and done", () => {
     const counts = roomCounts([
       agent("m", { role: "principal", parentId: undefined, state: "waiting" }),
       agent("a", {}),
@@ -48,7 +48,15 @@ describe("roomCounts", () => {
       agent("c", { state: "failed" }),
       agent("d", { state: "awaiting_user", needsYou: [{ kind: "choice", promptId: "p", count: 1 }] }),
     ]);
-    expect(counts).toEqual({ agents: 5, running: 2, waiting: 1, done: 1, failed: 1 });
+    expect(counts).toEqual({ agents: 4, running: 1, waiting: 1, done: 1, failed: 1 });
+  });
+  it("still counts a principal that needs the person", () => {
+    const counts = roomCounts([
+      agent("m", { role: "principal", parentId: undefined, state: "awaiting_user", needsYou: [{ kind: "choice", promptId: "p", count: 1 }] }),
+      agent("a", { state: "done" }),
+      agent("b", { state: "done" }),
+    ]);
+    expect(counts).toEqual({ agents: 2, running: 0, waiting: 1, done: 2, failed: 0 });
   });
 });
 

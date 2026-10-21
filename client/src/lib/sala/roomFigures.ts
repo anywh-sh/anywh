@@ -61,15 +61,21 @@ export interface RoomCounts {
   failed: number;
 }
 
+/** The room's headline numbers. The principal only delegates and never
+ * reports, so it is left out of the agent, running and done counts (it would
+ * stay "idle" forever and the figures would never add up); what needs the
+ * person, or failed, counts everyone, the principal included. */
 export function roomCounts(agents: readonly RoomAgent[]): RoomCounts {
   const liveWorkers = agents.filter((a) => a.role === "worker" && (a.state === "working" || a.state === "queued")).length;
-  const counts: RoomCounts = { agents: agents.length, running: 0, waiting: 0, done: 0, failed: 0 };
+  const counts: RoomCounts = { agents: 0, running: 0, waiting: 0, done: 0, failed: 0 };
   for (const agent of agents) {
     const { tone } = cardStatus(agent, agent.role === "principal" ? liveWorkers : 0);
-    if (tone === "run" || tone === "start") counts.running += 1;
-    else if (tone === "wait") counts.waiting += 1;
-    else if (tone === "done") counts.done += 1;
+    const worker = agent.role !== "principal";
+    if (worker) counts.agents += 1;
+    if (tone === "wait") counts.waiting += 1;
     else if (tone === "fail") counts.failed += 1;
+    else if (worker && (tone === "run" || tone === "start")) counts.running += 1;
+    else if (worker && tone === "done") counts.done += 1;
   }
   return counts;
 }
