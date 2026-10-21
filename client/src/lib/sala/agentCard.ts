@@ -71,6 +71,60 @@ export function cardActivity(agent: RoomAgent, workers: number, liveWorkers = 0)
   return { kind: "idle" };
 }
 
+/** One line of a card's log: the terminal-like body under its title bar. */
+export interface CardLine {
+  /** A report's own words, or `null` for the agent's activity, which the
+   * card words from `cardActivity`. */
+  text: string | null;
+  /** `now` is what the agent is doing at this moment; `ask` waits for the
+   * person; `past` and `quiet` are spent. */
+  tone: "past" | "now" | "ask" | "fail" | "block" | "quiet";
+  /** Ms into the agent's run the line belongs to; `live` counts up from
+   * `startedAt`. Absent when the relay never said when the agent started. */
+  at?: number | "live";
+}
+
+/** How many lines a card's log has room for. */
+export const CARD_LINES = 3;
+
+/** The non-empty lines of a report, each cut to a line a card can hold. */
+function reportLines(text: string): string[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "")
+    .map((l) => firstLine(l));
+}
+
+/**
+ * The lines a card's log shows, oldest first. The room channel carries no
+ * per-agent activity feed, so the log is what it does carry: the report
+ * (from this run, or from the turn before when the agent is at it again)
+ * and, under it, the line for the agent's present activity.
+ */
+export function cardLines(agent: RoomAgent, status: CardStatus): CardLine[] {
+  const started = agent.startedAt;
+  const since = (at: number | undefined): number | undefined => (at !== undefined && started !== undefined && at >= started ? at - started : undefined);
+  const report = agent.report ? reportLines(agent.report.summary) : [];
+  const reportAt = since(agent.report?.at);
+  const finished = status.tone === "done" || status.tone === "fail" || status.tone === "block";
+
+  if (finished && report.length > 0) {
+    const head: CardLine["tone"] = status.tone === "fail" ? "fail" : status.tone === "block" ? "block" : "past";
+    return report.slice(0, CARD_LINES).map((text, i) => ({ text, tone: i === 0 ? head : "past", ...(i === 0 && reportAt !== undefined ? { at: reportAt } : {}) }));
+  }
+
+  let tail: CardLine;
+  if (status.tone === "run") tail = { text: null, tone: "now", ...(started !== undefined ? { at: "live" as const } : {}) };
+  else if (status.tone === "wait") {
+    const at = since(agent.needsYou[0]?.askedAt);
+    tail = { text: null, tone: "ask", ...(at !== undefined ? { at } : {}) };
+  } else tail = { text: null, tone: status.tone === "fail" ? "fail" : status.tone === "block" ? "block" : "quiet" };
+  // A report from an earlier turn stays above, as what the agent did before.
+  const before: CardLine[] = finished ? [] : report.slice(0, CARD_LINES - 1).map((text) => ({ text, tone: "past" }));
+  return [...before, tail];
+}
+
 /** What the time under the card counts from, and the words for it. */
 export type CardClock = {
   kind: "running" | "waiting" | "done" | "failed" | "blocked" | "stopped" | "starting" | "none";

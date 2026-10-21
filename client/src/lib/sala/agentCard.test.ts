@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent } from "@/lib/relay/roomClient";
-import { cardActivity, cardClock, cardStatus, firstLine, formatClock, trackStateSince } from "@/lib/sala/agentCard";
+import { cardActivity, cardClock, cardLines, cardStatus, firstLine, formatClock, trackStateSince } from "@/lib/sala/agentCard";
 
 function agent(over: Partial<RoomAgent> = {}): RoomAgent {
   return {
@@ -134,5 +134,49 @@ describe("trackStateSince", () => {
   it("forgets an agent that left", () => {
     const first = trackStateSince(new Map(), [{ agentId: "a", state: "working" }], 100);
     expect(trackStateSince(first, [], 200).size).toBe(0);
+  });
+});
+
+describe("cardLines", () => {
+  const lines = (a: RoomAgent, live = 0) => cardLines(a, cardStatus(a, live));
+  const report = (summary: string, at = 70_000, status: "done" | "failed" | "blocked" = "done") => ({ status, summary, artifacts: [], at });
+
+  it("shows a running agent's activity as the live line, counting from its start", () => {
+    expect(lines(agent({ startedAt: 1_000 }))).toEqual([{ text: null, tone: "now", at: "live" }]);
+    // No start from the relay: no time to show, rather than a made-up one.
+    expect(lines(agent())).toEqual([{ text: null, tone: "now" }]);
+  });
+
+  it("dates a question at when it was asked into the run", () => {
+    const needsYou = [{ kind: "choice" as const, promptId: "q", askedAt: 46_000, count: 1 }];
+    expect(lines(agent({ state: "awaiting_user", startedAt: 1_000, needsYou }))).toEqual([{ text: null, tone: "ask", at: 45_000 }]);
+  });
+
+  it("prints a finished agent's report, one line each, the first dated and toned by the outcome", () => {
+    const done = agent({ state: "done", startedAt: 10_000, report: report("Measured 18 pairs\n\n4 fixes proposed\nsee notes\nmore") });
+    expect(lines(done)).toEqual([
+      { text: "Measured 18 pairs", tone: "past", at: 60_000 },
+      { text: "4 fixes proposed", tone: "past" },
+      { text: "see notes", tone: "past" },
+    ]);
+    const failed = agent({ state: "failed", startedAt: 10_000, report: report("Build broke", 70_000, "failed") });
+    expect(lines(failed)[0]?.tone).toBe("fail");
+  });
+
+  it("lets the activity say a finished agent left no report", () => {
+    expect(lines(agent({ state: "done" }))).toEqual([{ text: null, tone: "quiet" }]);
+  });
+
+  it("keeps an earlier turn's report above what the agent is doing again", () => {
+    const again = agent({ state: "working", startedAt: 90_000, report: report("First pass\nSecond\nThird") });
+    expect(lines(again)).toEqual([
+      { text: "First pass", tone: "past" },
+      { text: "Second", tone: "past" },
+      { text: null, tone: "now", at: "live" },
+    ]);
+  });
+
+  it("words a stopped agent quietly, with no time", () => {
+    expect(lines(agent({ state: "stopped", startedAt: 1_000 }))).toEqual([{ text: null, tone: "quiet" }]);
   });
 });
