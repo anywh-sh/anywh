@@ -384,4 +384,13 @@ describe("rows of an area", () => {
     expect(rows[1][0].x).toBe(rows[0][0].x - WRAP_SHIFT);
     expect(noOverlap(canvas, agents)).toBe(true);
   });
+
+  it("never moves a card the person placed, and only wraps the ones added after", () => {
+    const four = [main, ...ids.slice(0, 4).map((id) => agent(id, { area: "Design" }))];
+    const tidy = placeAgents(four, empty);
+    const moved: RoomCanvas = { ...tidy, positions: { ...tidy.positions, b: { x: 1200, y: 900 } }, manual: true };
+    const out = placeAgents([...four, agent("e", { area: "Design" })], moved);
+    for (const [id, at] of Object.entries(moved.positions)) expect(out.positions[id]).toEqual(at);
+    expect(out.positions.e).toBeDefined();
+  });
 });
