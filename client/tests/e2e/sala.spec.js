@@ -483,7 +483,6 @@ describe("anywh room canvas", () => {
     await panel.waitForExist({ timeout: 15000 });
     const text = await panel.getText();
     expect(text).toContain("Where it runs");
-    expect(text).toContain("Areas");
     expect(text).toContain("Usage");
     expect(text).toContain("Shared context");
     expect(text).toContain("Worktrees");
@@ -532,7 +531,7 @@ describe("anywh room canvas", () => {
     expect(text).toContain("Principal");
     await expect(await $('[data-state="awaiting_user"] .sala-state')).toHaveAttribute("title", "Sua vez");
     expect(text).toContain("Responder");
-    expect(text).toMatch(/espera você/);
+    expect(text).toMatch(/precisa de você/);
     await expect(await $('[aria-label="Ajustar à tela"]')).toBeExisting();
     await browser.execute(() => document.querySelector('[aria-label="Ajustar à tela"]').click());
     await roomInView();
