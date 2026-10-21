@@ -1135,10 +1135,10 @@
   font: 400 11.5px var(--font-mono);
   color: var(--destructive);
 }
-/* The agent's latest reply, under the message field. */
+/* The agent's latest reply, directly above the message field it answers. */
 .sala-side-reply {
   flex: none;
-  margin: 0 16px 12px;
+  margin: 8px 16px 10px;
 }
 .sala-side-reply .sala-side-h {
   margin-bottom: 6px;

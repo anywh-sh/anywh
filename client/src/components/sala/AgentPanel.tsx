@@ -253,6 +253,26 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
         </div>
       </div>
 
+      {shouldShowReply(reply, (agent.report?.summary ?? "") !== "") && (
+        <div className="sala-side-reply">
+          <h3 className="sala-side-h">
+            {text.reply}
+            {reply.running && <span className="sala-side-working"> · {text.working}</span>}
+          </h3>
+          {reply.text !== "" && (
+            <div className="sala-side-reply-body scrollbar-thin">
+              <div className="prose-chat text-[13px] text-foreground">
+                <MarkdownContent text={reply.text} />
+              </div>
+            </div>
+          )}
+          {reply.error !== null && (
+            <p className="sala-side-err" role="status">
+              {reply.error}
+            </p>
+          )}
+        </div>
+      )}
       <div className="sala-side-compose">
         <textarea
           ref={boxRef}
@@ -277,26 +297,6 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
           </button>
         </div>
       </div>
-      {shouldShowReply(reply, (agent.report?.summary ?? "") !== "") && (
-        <div className="sala-side-reply">
-          <h3 className="sala-side-h">
-            {text.reply}
-            {reply.running && <span className="sala-side-working"> · {text.working}</span>}
-          </h3>
-          {reply.text !== "" && (
-            <div className="sala-side-reply-body scrollbar-thin">
-              <div className="prose-chat text-[13px] text-foreground">
-                <MarkdownContent text={reply.text} />
-              </div>
-            </div>
-          )}
-          {reply.error !== null && (
-            <p className="sala-side-err" role="status">
-              {reply.error}
-            </p>
-          )}
-        </div>
-      )}
     </SalaSidePanel>
   );
 }
