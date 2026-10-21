@@ -17,6 +17,8 @@ export interface RoomNeedsYou {
   /** Epoch ms the person was first asked; absent for an old record. */
   askedAt?: number;
   count: number;
+  /** The first question's words, cut to one line by the relay. */
+  question?: string;
 }
 
 export interface RoomReportView {

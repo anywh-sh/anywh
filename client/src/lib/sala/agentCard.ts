@@ -117,8 +117,10 @@ export function cardLines(agent: RoomAgent, status: CardStatus): CardLine[] {
   let tail: CardLine;
   if (status.tone === "run") tail = { text: null, tone: "now", ...(started !== undefined ? { at: "live" as const } : {}) };
   else if (status.tone === "wait") {
-    const at = since(agent.needsYou[0]?.askedAt);
-    tail = { text: null, tone: "ask", ...(at !== undefined ? { at } : {}) };
+    // What it asks, in its own words when the relay sent them.
+    const needs = agent.needsYou[0];
+    const at = since(needs?.askedAt);
+    tail = { text: needs?.question ?? null, tone: "ask", ...(at !== undefined ? { at } : {}) };
   } else tail = { text: null, tone: status.tone === "fail" ? "fail" : status.tone === "block" ? "block" : "quiet" };
   // A report from an earlier turn stays above, as what the agent did before.
   const before: CardLine[] = finished ? [] : report.slice(0, CARD_LINES - 1).map((text) => ({ text, tone: "past" }));

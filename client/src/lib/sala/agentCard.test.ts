@@ -152,6 +152,11 @@ describe("cardLines", () => {
     expect(lines(agent({ state: "awaiting_user", startedAt: 1_000, needsYou }))).toEqual([{ text: null, tone: "ask", at: 45_000 }]);
   });
 
+  it("puts a question's own words on its line when the relay sent them", () => {
+    const needsYou = [{ kind: "choice" as const, promptId: "q", count: 1, question: "Keep the v1 contract?" }];
+    expect(lines(agent({ state: "awaiting_user", needsYou }))).toEqual([{ text: "Keep the v1 contract?", tone: "ask" }]);
+  });
+
   it("prints a finished agent's report, one line each, the first dated and toned by the outcome", () => {
     const done = agent({ state: "done", startedAt: 10_000, report: report("Measured 18 pairs\n\n4 fixes proposed\nsee notes\nmore") });
     expect(lines(done)).toEqual([
