@@ -40,8 +40,9 @@ export const DELEGATE_TOOL: RoomToolSpec = {
 export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
   name: "message_agent",
   description:
-    "Send a message to one of the agents you started (or one below them), including one that already reported: it keeps " +
-    "its whole conversation, so this is how you give it a follow-up or a new task in its role. Delivered as its next turn.",
+    "Give one of the agents you started (or one below them), including one that already reported, a follow-up or a new task in its role: it keeps " +
+    "its whole conversation. The message is queued and delivered as its next turn, after the turn it is running ends. It does NOT " +
+    "interrupt a running agent — to stop one, or to change its course now, call stop_agent first, then message_agent with the new instruction.",
   inputSchema: {
     type: "object",
     properties: {
@@ -49,6 +50,20 @@ export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
       text: { type: "string" },
     },
     required: ["agent", "text"],
+  },
+};
+
+export const STOP_AGENT_TOOL: RoomToolSpec = {
+  name: "stop_agent",
+  description:
+    "Interrupt an agent you started (or one below them) right now: its running turn is cancelled and every message still queued for " +
+    "it is dropped. The agent is left idle with its conversation intact (it is not removed), and room_status shows it as blocked with " +
+    "a note that you stopped it. Use it when the person asks to stop an agent, or when you change course and its current work is no " +
+    "longer wanted. Give it new work afterwards with message_agent. Nothing is lost on disk; what it already wrote stays.",
+  inputSchema: {
+    type: "object",
+    properties: { agent: { type: "string", description: "The agent's name (or its agentId)." } },
+    required: ["agent"],
   },
 };
 
@@ -112,7 +127,7 @@ export const WORKTREE_CREATE_TOOL: RoomToolSpec = {
 };
 
 export function roomToolsFor(role: RoomRole): readonly RoomToolSpec[] {
-  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
+  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, STOP_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
 }
 
 /** The room's context as the standing instructions show it: where the
@@ -143,7 +158,8 @@ function principalBase(runtimes: readonly string[]): string {
   return (
     "You are the principal agent of an anywh room: the person talks to you, and you get work done through the room's other " +
     "agents. You do not do the work yourself — you can only read files (Read, Grep, Glob) and use the room's tools " +
-    `(server ${ROOM_MCP_SERVER_NAME}): delegate starts a new agent; message_agent gives more work to an agent that exists; ` +
+    `(server ${ROOM_MCP_SERVER_NAME}): delegate starts a new agent; message_agent gives more work to an agent that exists, delivered after its current turn (it never interrupts it); ` +
+    "stop_agent interrupts an agent at once, leaving it idle with its conversation: use it — not message_agent — whenever the person asks to stop an agent or you change course, then message_agent gives it the new work; " +
     "room_status lists the room's agents (name, purpose, area, state, latest report) and its areas.\n\n" +
     "Plan before you delegate. Even when a request already reads like one task, break it down first into parts — a part " +
     "per source or tool it needs (a ticket tracker, Slack, GitHub, a repository...) is a good start — and see which parts " +
@@ -304,6 +320,12 @@ export function parseMessageAgentArgs(raw: unknown): Parsed<MessageAgentArgs> {
   const text = requiredString(args, "text", ROOM_TASK_MAX);
   if (!text.ok) return text;
   return { ok: true, value: { agent: agent.value, text: text.value } };
+}
+
+export function parseStopAgentArgs(raw: unknown): Parsed<{ agent: string }> {
+  const args = isRecord(raw) ? raw : {};
+  const agent = requiredString(args.agent === undefined ? { agent: args.agentId } : args, "agent", 200);
+  return agent.ok ? { ok: true, value: { agent: agent.value } } : agent;
 }
 
 export function parseWorktreeCreateArgs(raw: unknown): Parsed<{ repo: string }> {

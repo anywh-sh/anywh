@@ -42,6 +42,7 @@ import {
   parseDelegateArgs,
   type DelegateArgs,
   parseMessageAgentArgs,
+  parseStopAgentArgs,
   parseReportArgs,
   parseWorktreeCreateArgs,
   principalInstructions,
@@ -284,6 +285,8 @@ export class RoomManager implements RoomToolHost {
       }
       case "message_agent":
         return this.messageAgent(sessionId, room, args);
+      case "stop_agent":
+        return this.stopAgentTool(sessionId, room, args);
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
       case "approve":
@@ -1307,6 +1310,39 @@ export class RoomManager implements RoomToolHost {
       return ok(`Message queued for ${name}; the agent host is not running, so it is delivered once it is back.`);
     }
     return ok(`Message queued for ${name}; it is delivered as its next turn.`);
+  }
+
+  /** The principal interrupts an agent below it. Unlike the person's stop
+   * (`stopAgent`), the agent stays a member: its turn is cancelled and its
+   * queue dropped, but its process and conversation are kept and it takes
+   * messages again. An agent that was working or queued shows as `blocked`
+   * with a note, so the canvas reads it as stopped rather than done; the
+   * note goes in no digest — the principal just did it. */
+  private stopAgentTool(callerId: string, caller: RoomMembership, rawArgs: unknown): RoomToolResult {
+    if (caller.role !== "principal") return fail("Only the room's principal can stop other agents.");
+    const parsed = parseStopAgentArgs(rawArgs);
+    if (!parsed.ok) return fail(parsed.error);
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && isDescendant(member.id, callerId, parentOf));
+    const resolved = this.resolveAgent(parsed.value.agent, below, "below you in this room");
+    if ("error" in resolved) return fail(resolved.error);
+    const agentId = resolved.id;
+    const target = this.store.getRoom(agentId)!;
+    const name = this.nameOf(agentId);
+    if (target.stopped) return fail(`Agent "${name}" was already stopped by the person; it takes no messages.`);
+    const state = this.stateOf(agentId, target);
+    if (!takesRoomPlace(state)) return ok(`${name} is not running anything (${state}); nothing to stop.`);
+    const { queuedMessages: _dropped, ...kept } = target;
+    void _dropped;
+    this.store.setRoom(agentId, {
+      ...kept,
+      report: { status: "blocked", summary: "Stopped by the principal; idle until it is given new work.", artifacts: [], at: this.now(), synthetic: true },
+    });
+    this.endWarmUp(agentId);
+    const session = this.options.sessions.getOrCreate(agentId);
+    session.discardQueuedTurns();
+    session.stopTurn();
+    return ok(`${name} was interrupted and its queued messages dropped. It is idle with its conversation kept; message_agent gives it new work.`);
   }
 
   /** The CLI of a worker asks whether a tool call may run. The worker's

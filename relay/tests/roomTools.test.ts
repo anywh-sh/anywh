@@ -434,6 +434,39 @@ test("stopping a worker frees its place, drops what was queued for it and never 
   }, 20_000, "every agent of the room removed from the host");
 });
 
+test("stop_agent interrupts a busy worker, drops its queue, shows it blocked, and message_agent gives it work again", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { results } = await principalTurn(socket, marker("delegate", { task: "busy [[hang]]", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(results[0].content) as { agentId: string };
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === agentId)?.state === "working", 20_000, "worker at work");
+    await principalTurn(socket, marker("message_agent", { agentId, text: "queued behind the hang" }));
+
+    const stop = await principalTurn(socket, `${marker("stop_agent", { agent: agentId })} ${marker("stop_agent", { agent: "not-in-room" })}`);
+    assert.equal(stop.results[0].isError, false, stop.results[0].content);
+    assert.match(stop.results[0].content, /interrupted/);
+    assert.equal(stop.results[1].isError, true);
+    assert.match(stop.results[1].content, /no agent "not-in-room" below you/);
+
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === agentId)?.state !== "working", 20_000, "worker interrupted");
+    const member = (await members(roomId)).find((m) => m.id === agentId) as Member & { room: { stopped?: unknown; queuedMessages?: unknown[] } };
+    assert.equal(member.room.stopped, undefined, "stopped by the principal is not the person's stop: the agent stays a member");
+    assert.equal(member.room.queuedMessages, undefined);
+    assert.equal(member.room.report?.status, "blocked");
+    assert.match(member.room.report?.summary ?? "", /Stopped by the principal/);
+
+    // Idle now: nothing to stop, and it takes work again.
+    const again = await principalTurn(socket, marker("stop_agent", { agent: agentId }));
+    assert.match(again.results[0].content, /nothing to stop/);
+    const resumed = await principalTurn(socket, marker("message_agent", { agentId, text: `go on ${marker("report", { status: "done", summary: "back at it" })}` }));
+    assert.equal(resumed.results[0].isError, false, resumed.results[0].content);
+    await waitFor(async () => (await members(roomId)).find((m) => m.id === agentId)?.room.report?.summary === "back at it", 20_000, "worker reports after new work");
+  } finally {
+    socket.close();
+  }
+});
+
 test("a person's question to a worker that already reported is answered without turning it blocked", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
