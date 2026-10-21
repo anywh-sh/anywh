@@ -181,13 +181,11 @@ export async function fetchRoomContext(profile: Profile, roomId: string): Promis
   return (await response.json()) as { dir: string; items: RoomContextItem[] };
 }
 
-/** What each agent has read from the model's cache and written to it. */
-export interface RoomAgentUsage {
-  responses: number;
-  inputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
-  cacheHitRate: number | null;
+/** How full an agent's context window is: the latest response's prefix and,
+ * once the agent's first turn has ended, the window. */
+export interface RoomAgentContext {
+  usedTokens: number;
+  contextWindowSize?: number;
 }
 
 export interface RoomMemberInfo {
@@ -196,7 +194,8 @@ export interface RoomMemberInfo {
   title: string | null;
   agentId: string;
   model: string | null;
-  usage: RoomAgentUsage;
+  /** `null` before the agent has answered anything. */
+  contextUsage: RoomAgentContext | null;
 }
 
 export async function fetchRoomMembers(profile: Profile, roomId: string): Promise<RoomMemberInfo[]> {

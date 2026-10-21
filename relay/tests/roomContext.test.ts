@@ -84,8 +84,8 @@ test("an attachment is a file in the room's folder, listed in the index the prin
     assert.ok(prompt.startsWith("You are the principal agent of an anywh room"));
     assert.ok(prompt.length < 6000 + 3000, "the index stays small");
     assert.equal(flag(principal, "--add-dir"), listing.dir);
-    const members = ((await (await fetch(`${base}/rooms/${roomId}`)).json()) as { members: { id: string; usage: { responses: number; inputTokens: number } }[] }).members;
-    assert.ok(members.find((m) => m.id === roomId)!.usage.responses >= 1, "the room lists what the agent's responses cost");
+    const members = ((await (await fetch(`${base}/rooms/${roomId}`)).json()) as { members: { id: string; contextUsage: { usedTokens: number } | null }[] }).members;
+    assert.ok((members.find((m) => m.id === roomId)!.contextUsage?.usedTokens ?? 0) > 0, "the room lists how much of its context the agent has used");
   } finally {
     socket.close();
   }

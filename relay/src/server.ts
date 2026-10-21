@@ -38,7 +38,7 @@ import { RoomWorktrees } from "./session/roomWorktrees.js";
 import { WorktreeRegistry, worktreeRegistryPathFor } from "./host/worktreeRegistry.js";
 import { RoomContextStore } from "./session/roomContextStore.js";
 import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
-import { UsageTally } from "./session/roomUsage.js";
+import { ContextTally } from "./session/roomContextUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
 import { dispatchChatMessage } from "./ws/chat.js";
@@ -87,7 +87,7 @@ const roomContext = new RoomContextStore({
   extractPdf: (path) => extractPdfText(path),
 });
 // Per room agent: what it read from the model's cache and what it wrote.
-const roomUsage = new UsageTally();
+const agentContext = new ContextTally();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
 // machine (see the comment on `SharedSessionOptions.mcpBridgeBaseUrl`), not
@@ -166,7 +166,7 @@ const sessionManager = new SessionManager(
     },
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
-    onUsage: (id, event) => roomUsage.observe(id, event),
+    onUsage: (id, event) => agentContext.observe(id, event),
     onTurnStarted: (id, startedAt, synthetic): void => roomManager.noteTurnStarted(id, startedAt, synthetic),
     onMcpServerUsed: (id, server): void => {
       roomManager.noteConnector(id, server);
@@ -193,6 +193,7 @@ const roomWorktrees = new RoomWorktrees({
 });
 const roomManager: RoomManager = new RoomManager({
   worktrees: roomWorktrees,
+  canvasAreas: (roomId) => roomCanvas.get(roomId).areas,
   store: sessionStore,
   sessions: sessionManager,
   registry,
@@ -290,7 +291,7 @@ const routeContext: RouteContext = {
   roomCanvas,
   roomManager,
   roomContext,
-  roomUsage,
+  agentContext,
 };
 
 // Tried in this order, but order only matters within a group — no two

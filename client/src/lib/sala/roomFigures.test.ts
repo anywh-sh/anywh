@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomMemberInfo, RoomWorktree } from "@/lib/relay/roomClient";
-import { agentWork, formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
+import { agentWork, formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows, windowPercent } from "@/lib/sala/roomFigures";
 
-const usage = (input: number, create: number, read: number) => ({ responses: 1, inputTokens: input, cacheCreationInputTokens: create, cacheReadInputTokens: read, cacheHitRate: null });
-const member = (id: string, u: ReturnType<typeof usage>): RoomMemberInfo => ({ id, title: id, agentId: "claude", model: null, usage: u });
+const member = (id: string, contextUsage: RoomMemberInfo["contextUsage"]): RoomMemberInfo => ({ id, title: id, agentId: "claude", model: null, contextUsage });
 
 describe("formatBytes", () => {
   it("scales and rounds", () => {
@@ -24,17 +23,25 @@ describe("formatTokens", () => {
   });
 });
 
+describe("windowPercent", () => {
+  it("is a whole percent of the window, capped, and null while the window is unknown", () => {
+    expect(windowPercent({ usedTokens: 135_000, contextWindowSize: 200_000 })).toBe(68);
+    expect(windowPercent({ usedTokens: 250_000, contextWindowSize: 200_000 })).toBe(100);
+    expect(windowPercent({ usedTokens: 135_000 })).toBeNull();
+  });
+});
+
 describe("usageRows", () => {
-  it("sorts by tokens, drops idle agents and shares the room's total", () => {
-    const { rows, total } = usageRows([member("a", usage(100, 0, 100)), member("b", usage(0, 0, 0)), member("c", usage(300, 100, 200))]);
-    expect(total).toBe(800);
-    expect(rows.map((r) => [r.agentId, r.tokens, r.share])).toEqual([
-      ["c", 600, 75],
-      ["a", 200, 25],
+  it("sorts by how full the window is, drops agents with nothing and puts unknown windows last", () => {
+    const rows = usageRows([member("a", { usedTokens: 20_000, contextWindowSize: 200_000 }), member("b", null), member("c", { usedTokens: 90_000, contextWindowSize: 200_000 }), member("d", { usedTokens: 5_000 })]);
+    expect(rows.map((r) => [r.agentId, r.tokens, r.percent])).toEqual([
+      ["c", 90_000, 45],
+      ["a", 20_000, 10],
+      ["d", 5_000, null],
     ]);
   });
   it("is empty before anything ran", () => {
-    expect(usageRows([member("a", usage(0, 0, 0))])).toEqual({ rows: [], total: 0 });
+    expect(usageRows([member("a", null), member("b", { usedTokens: 0 })])).toEqual([]);
   });
 });
 
