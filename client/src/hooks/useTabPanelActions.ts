@@ -99,15 +99,15 @@ export function useTabPanelActions({
         tabsState.setUnread(tab.id, true);
         notifyTurnComplete(tab.id, profile, tab.title ?? dict.common.untitledSession, lastUserText, lastAssistantText, stopped);
       },
-      onTitle: (tab, title) => {
-        tabsState.setTabTitle(tab.id, title);
+      onTitle: (tab, title, pending = false) => {
+        tabsState.setTabTitle(tab.id, title, pending);
         // Ungated on the active profile, unlike before: with every profile
         // in one list, a conversation titled in a background tab has to
         // appear under its own profile whether or not that profile is the
         // one currently selected. No timestamp: this also fires for a rename
         // made on another device, which must not move the row, and a session
         // not listed yet is stamped "now" by the cache on its own.
-        upsertCachedSession(tab.profileId, tab.id, title, undefined, tab.room);
+        upsertCachedSession(tab.profileId, tab.id, title, undefined, tab.room, pending);
       },
       onActivity: (tab) => {
         touchCachedSession(tab.profileId, tab.id);
@@ -149,7 +149,8 @@ export function useTabPanelActions({
         setModelLabelByTab(({ [tab.id]: _label, ...rest }) => rest);
         setBackgroundActivityByTab(({ [tab.id]: _activity, ...rest }) => rest);
         backgroundActionsRef.current.delete(tab.id);
-        if (shown !== null) upsertCachedSession(profile.id, roomId, shown, undefined, true);
+        // The relay is generating a short one from the message.
+        if (shown !== null) upsertCachedSession(profile.id, roomId, shown, undefined, true, true);
         // The blank session the new tab opened on the relay is not the room.
         // Only a tab that never had a title can be that: anything else is a
         // real conversation, whatever the screen was showing.

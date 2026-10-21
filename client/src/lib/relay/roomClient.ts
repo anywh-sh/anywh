@@ -32,6 +32,9 @@ export interface RoomAgent {
   role: "principal" | "worker";
   parentId?: string;
   title: string | null;
+  /** `true` while `title` is the provisional text and a generated one is on
+   * its way: show a placeholder rather than the text. */
+  titlePending?: true;
   runtime: string;
   model: string | null;
   area?: string;

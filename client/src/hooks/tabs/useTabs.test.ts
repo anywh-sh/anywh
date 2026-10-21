@@ -454,3 +454,15 @@ describe("useTabs — rooms", () => {
     expect(second.result.current.tabs.find((t) => t.id === "chat-1")?.room).toBeUndefined();
   });
 });
+
+describe("useTabs — a title still being generated", () => {
+  it("marks a tab made into a room as pending, and a title set later (not pending) clears it", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => result.current.openTab("p1", "blank", null, true));
+    act(() => result.current.convertToRoom("blank", "room1", "Fix the whole login flow, again"));
+    expect(result.current.tabs[0]).toMatchObject({ id: "room1", room: true, titlePending: true });
+    act(() => result.current.setTabTitle("room1", "Login flow"));
+    expect(result.current.tabs[0].title).toBe("Login flow");
+    expect(result.current.tabs[0].titlePending).toBe(false);
+  });
+});

@@ -235,3 +235,17 @@ describe("SalaCanvas — camera and keyboard", () => {
     expect(screen.getByRole("status")).toHaveTextContent("The layout could not be saved.");
   });
 });
+
+describe("SalaCanvas — a title still being generated", () => {
+  it("draws a placeholder on the card instead of the provisional text, and the text once it arrives", () => {
+    const pending = [agent("main", { role: "principal", parentId: undefined }), agent("a", { title: "Investigate why the websocket reconnect loop spins", titlePending: true }), agent("b")];
+    mount(canvasOf(), { agents: pending });
+    expect(card("a").textContent).not.toContain("Investigate why");
+    expect(card("a").querySelector('[role="status"]')).not.toBeNull();
+    expect(card("b").querySelector('[role="status"]')).toBeNull();
+    cleanup();
+    mount(canvasOf(), { agents: [pending[0], agent("a", { title: "Reconnect loop" }), pending[2]] });
+    expect(card("a").textContent).toContain("Reconnect loop");
+    expect(card("a").querySelector('[role="status"]')).toBeNull();
+  });
+});

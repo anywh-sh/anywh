@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import {
   DndContext,
   DragOverlay,
@@ -204,7 +205,7 @@ function DragPreview({ tab }: { tab: Tab }) {
   return (
     <div className="flex max-w-56 items-center gap-1.5 border border-border bg-bg-sidebar px-3 py-1.5 font-mono text-xs text-foreground shadow-popover">
       <span className={cn("size-1.5 shrink-0 rounded-full", profileColorClass(tab.profileId))} />
-      <span className="truncate">{tab.title ?? dict.common.untitledSession}</span>
+      <span className="truncate">{tab.titlePending === true ? <TitleSkeleton className="w-24" /> : (tab.title ?? dict.common.untitledSession)}</span>
     </div>
   );
 }

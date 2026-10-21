@@ -20,6 +20,7 @@ export const ptBr: Dictionary = {
     send: "Enviar",
     stop: "Parar",
     untitledSession: "Nova sessão",
+    generatingTitle: "Gerando um título",
   },
   chat: {
     tabs: {

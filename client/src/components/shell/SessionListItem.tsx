@@ -7,6 +7,7 @@ import { formatAbsoluteTime, formatCompactTime } from "@/lib/format/relativeTime
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
+import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { RoomGlyph } from "@/components/sala/SalaIcons";
 import type { RoomStatus } from "@/lib/sala/roomStatus";
 
@@ -106,7 +107,7 @@ export const SessionListItem = memo(function SessionListItem({
             selected ? "font-medium text-foreground" : "text-muted-foreground",
           )}
         >
-          {session.title}
+          {session.titlePending === true ? <TitleSkeleton /> : session.title}
         </span>
         {roomStatus && (roomStatus.needsYou > 0 || roomStatus.failed > 0) ? (
           <span

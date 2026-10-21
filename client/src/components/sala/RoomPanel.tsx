@@ -33,7 +33,7 @@ interface RoomPanelProps {
   /** The room's id: its principal's session id. */
   roomId: string;
   /** The principal's title (the room's name) as the channel last said it. */
-  onTitle: (title: string) => void;
+  onTitle: (title: string, pending: boolean) => void;
   /** Whether any agent of the room is working, for the tab's indicator. */
   onActiveChange: (active: boolean) => void;
   /** Whether the room's channel is up, for the window's connection status. */
@@ -72,12 +72,14 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     }
   }, [gone, onGone]);
 
-  const principalTitle = channel.agents.find((a) => a.role === "principal")?.title ?? null;
+  const principal = channel.agents.find((a) => a.role === "principal");
+  const principalTitle = principal?.title ?? null;
+  const principalTitlePending = principal?.titlePending === true;
   useEffect(() => {
-    if (principalTitle) onTitle(principalTitle);
+    if (principalTitle) onTitle(principalTitle, principalTitlePending);
     // `onTitle` is stable per tab; the title is what moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principalTitle]);
+  }, [principalTitle, principalTitlePending]);
 
   const working = (channel.summary?.counts.working ?? 0) > 0;
   useEffect(() => {
@@ -265,7 +267,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
         )}
       </div>
       {panel?.kind === "about" && (
-        <AboutRoomPanel profile={profile} roomId={roomId} title={principalTitle ?? dict.card.untitled} agents={channel.agents} canvas={layout.canvas} refreshKey={refreshKey} onClose={() => setPanel(null)} />
+        <AboutRoomPanel profile={profile} roomId={roomId} title={principalTitle ?? dict.card.untitled} titlePending={principalTitlePending} agents={channel.agents} canvas={layout.canvas} refreshKey={refreshKey} onClose={() => setPanel(null)} />
       )}
       {panelAgent && (
         <AgentPanel

@@ -35,7 +35,7 @@ export interface TabPanelActions {
     profile: Profile,
     result: { stopped: boolean; lastUserText: string | null; lastAssistantText: string | null },
   ) => void;
-  onTitle: (tab: Tab, title: string) => void;
+  onTitle: (tab: Tab, title: string, pending?: boolean) => void;
   onActivity: (tab: Tab) => void;
   onDeleted: (tab: Tab) => void;
   onConnectedChange: (tabId: string, connected: boolean) => void;
@@ -171,7 +171,7 @@ export const TabPanel = memo(function TabPanel({
         key={tab.id}
         profile={profile}
         roomId={tab.id}
-        onTitle={(title) => actions.onTitle(tab, title)}
+        onTitle={(title, pending) => actions.onTitle(tab, title, pending)}
         onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
         onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
         onGone={() => actions.onDeleted(tab)}

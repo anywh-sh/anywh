@@ -56,7 +56,7 @@ export function AgentPanel(props: AgentPanelProps) {
 
   if (agent.role === "principal") {
     return (
-      <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} subtitle={subtitle} kind="principal" onClose={props.onClose}>
+      <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} titlePending={agent.titlePending} subtitle={subtitle} kind="principal" onClose={props.onClose}>
         <div className="sala-side-chat">
           <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} />
         </div>
@@ -130,7 +130,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
   );
 
   return (
-    <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} subtitle={subtitle} kind="agent" footer={footer} onClose={onClose}>
+    <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} titlePending={agent.titlePending} subtitle={subtitle} kind="agent" footer={footer} onClose={onClose}>
       <div className="sala-side-body flush scrollbar-thin">
         <div className="sala-side-status">
           <span className={cn("sala-side-state", status.tone)}>

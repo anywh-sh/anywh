@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { Loader2, Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
@@ -191,7 +192,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
               )}
             </span>
             {tab.room && <RoomGlyph size={14} className="shrink-0" aria-label={dict.sala.roomGlyph} role="img" />}
-            <span className="min-w-0 flex-1 truncate">{title}</span>
+            <span className="min-w-0 flex-1 truncate">{tab.titlePending === true ? <TitleSkeleton className="w-24" /> : title}</span>
           </button>
           <button
             type="button"

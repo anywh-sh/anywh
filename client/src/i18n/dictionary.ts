@@ -78,6 +78,8 @@ export interface Dictionary {
      * every already-stored session named in the old language while new ones
      * arrived in the new one. */
     untitledSession: string;
+    /** Accessible name of the placeholder drawn where a title is still being generated. */
+    generatingTitle: string;
   };
   settings: {
     title: string;

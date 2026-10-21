@@ -227,4 +227,14 @@ describe("sessionListCache", () => {
     cache.upsertCachedSession("work", "chat", "A chat", 100);
     expect(cache.getCachedSessions("work").sessions[0].room).toBeUndefined();
   });
+
+  it("keeps a row's pending title only while the relay says the title is still on its way", async () => {
+    const cache = await freshModule();
+    cache.upsertCachedSession("work", "r1", "Fix the whole login flow, again", undefined, true, true);
+    expect(cache.getCachedSessions("work").sessions[0]).toMatchObject({ id: "r1", room: true, titlePending: true });
+    cache.upsertCachedSession("work", "r1", "Login flow", undefined, true);
+    const row = cache.getCachedSessions("work").sessions[0];
+    expect(row.title).toBe("Login flow");
+    expect(row.titlePending).toBeUndefined();
+  });
 });

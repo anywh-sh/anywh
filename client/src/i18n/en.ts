@@ -20,6 +20,7 @@ export const en: Dictionary = {
     send: "Send",
     stop: "Stop",
     untitledSession: "New session",
+    generatingTitle: "Generating a title",
   },
   chat: {
     tabs: {

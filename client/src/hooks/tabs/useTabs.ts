@@ -19,6 +19,9 @@ export interface Tab {
    * for the rest of the tab's life, but is only consulted while the log is
    * empty, so it loses effect on its own after the first message. */
   isNew: boolean;
+  /** `title` is only the provisional text and a generated one is on its way
+   * (a room's principal): the tab draws a placeholder. Not persisted. */
+  titlePending?: boolean;
   /** The tab shows a room's canvas, not a conversation. `id` is the room's
    * id (its principal's session id). */
   room?: boolean;
@@ -143,7 +146,7 @@ function initialState(): TabsState {
  * is no such tab. Pure. */
 export function replaceTabWithRoom(state: TabsState, tabId: string, roomId: string, title: string | null): TabsState {
   if (!state.tabs.some((tab) => tab.id === tabId)) return state;
-  const tabs = state.tabs.map((tab) => (tab.id === tabId ? { ...tab, id: roomId, title, isNew: false, room: true } : tab));
+  const tabs = state.tabs.map((tab) => (tab.id === tabId ? { ...tab, id: roomId, title, isNew: false, room: true, ...(title !== null ? { titlePending: true } : {}) } : tab));
   const groups = state.groups.map((group) => ({
     ...group,
     tabIds: group.tabIds.map((id) => (id === tabId ? roomId : id)),
@@ -503,14 +506,16 @@ export function useTabs() {
    * from automatic inference of the first prompt (ChatPanel, live via
    * WS) or from a manual rename done in the sidebar. No-op if the session isn't
    * open as a tab right now (e.g. rename of a closed session) — the
-   * same bailout as `setUnread`/`setRunning` above. */
-  const setTabTitle = useCallback((tabId: string, title: string) => {
+   * same bailout as `setUnread`/`setRunning` above. `pending` says the title
+   * is still the provisional one. */
+  const setTabTitle = useCallback((tabId: string, title: string, pending = false) => {
+    const unchanged = (tab: Tab) => tab.title === title && (tab.titlePending === true) === pending;
     const current = stateRef.current.tabs.find((tab) => tab.id === tabId);
-    if (!current || current.title === title) return;
+    if (!current || unchanged(current)) return;
     setState((prev) => {
       const tab = prev.tabs.find((t) => t.id === tabId);
-      if (!tab || tab.title === title) return prev;
-      return { ...prev, tabs: prev.tabs.map((t) => (t.id === tabId ? { ...t, title } : t)) };
+      if (!tab || unchanged(tab)) return prev;
+      return { ...prev, tabs: prev.tabs.map((t) => (t.id === tabId ? { ...t, title, titlePending: pending } : t)) };
     });
   }, []);
 

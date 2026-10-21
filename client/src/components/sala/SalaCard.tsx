@@ -1,4 +1,5 @@
 import { memo, type PointerEvent as ReactPointerEvent } from "react";
+import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { cn } from "@/lib/utils";
@@ -111,7 +112,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
               <span>{dict.status[status.label]}</span>
             </span>
           </div>
-          <div className="sala-title">{title}</div>
+          <div className="sala-title">{agent.titlePending === true ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}</div>
           <div className="sala-activity">
             <span>{activityText}</span>
           </div>

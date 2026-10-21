@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { ArrowUp, ChevronDown, Layers } from "lucide-react";
 import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -116,7 +117,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
             {candidates.map((a) => (
               <DropdownMenuItem key={a.agentId} onSelect={() => onParent(a.agentId)}>
                 <AgentLogo agentId={a.runtime} className="sala-logo" />
-                <span className="trunc">{a.role === "principal" ? dict.sala.panel.agent.principal : (a.title ?? dict.sala.card.untitled)}</span>
+                <span className="trunc">{a.role === "principal" ? dict.sala.panel.agent.principal : a.titlePending === true ? <TitleSkeleton className="w-24" /> : (a.title ?? dict.sala.card.untitled)}</span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>

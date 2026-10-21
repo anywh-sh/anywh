@@ -114,18 +114,24 @@ export function setCachedSessions(profileId: string, sessions: SessionSummary[])
  * activity), so it stays put, while a new turn carries a later one and
  * takes the row back up to where that timestamp belongs.
  */
-export function upsertCachedSession(profileId: string, id: string, title: string, lastActiveAt?: number, room?: boolean): void {
+export function upsertCachedSession(profileId: string, id: string, title: string, lastActiveAt?: number, room?: boolean, titlePending?: boolean): void {
   const existing = cache[profileId] ?? EMPTY;
   const index = existing.sessions.findIndex((session) => session.id === id);
+  const pending = titlePending === true;
   if (index === -1) {
-    const sessions: SessionSummary[] = [{ id, title, lastActiveAt: lastActiveAt ?? Date.now(), ...(room ? { room: true as const } : {}) }, ...existing.sessions];
+    const sessions: SessionSummary[] = [{ id, title, lastActiveAt: lastActiveAt ?? Date.now(), ...(room ? { room: true as const } : {}), ...(pending ? { titlePending: true as const } : {}) }, ...existing.sessions];
     commit({ ...cache, [profileId]: { ...existing, sessions } });
     return;
   }
-  const current = room && !existing.sessions[index].room ? { ...existing.sessions[index], room: true as const } : existing.sessions[index];
+  const row = existing.sessions[index];
+  // Whether the title is still the provisional one always comes with the
+  // title itself, so it is replaced, never merged.
+  const { titlePending: _was, ...rest } = row;
+  const base: SessionSummary = room && !row.room ? { ...rest, room: true as const } : rest;
+  const current: SessionSummary = pending ? { ...base, titlePending: true as const } : base;
   const moved = lastActiveAt !== undefined && (current.lastActiveAt === null || lastActiveAt > current.lastActiveAt);
   if (!moved) {
-    if (current.title === title && current === existing.sessions[index]) return;
+    if (current.title === title && (current.titlePending === true) === (row.titlePending === true) && current.room === row.room) return;
     const sessions = existing.sessions.map((session, i) => (i === index ? { ...current, title } : session));
     commit({ ...cache, [profileId]: { ...existing, sessions } });
     return;
