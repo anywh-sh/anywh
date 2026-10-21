@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname } from "node:path";
 import type { RoomToolSpec } from "../runtimes/types.js";
 
-// The room's tools (`delegate`, `report`, `message_agent`, `room_status`) as
+// The room's tools (`delegate`, `report`, `message_agent`, `stop_agent`, `room_status`) as
 // an MCP server over Streamable HTTP, served by the relay itself — the same
 // hand-rolled transport as `mcpBridge.ts` (`present_choice`), validated
 // against the real `claude` binary there. Codex agents reach the same tools

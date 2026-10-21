@@ -461,6 +461,37 @@ test("message_agent wakes a worker the person stopped: it takes the work, with i
   }
 });
 
+test("stop_agent stops a busy worker as the person's stop does, room_status says who stopped it, and message_agent wakes it on a new course", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { name: "Detour", purpose: "changes course", task: "long work [[hang]]", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === agentId)?.state === "working", 20_000, "the worker at work");
+    const queued = await principalTurn(socket, marker("message_agent", { agent: "Detour", text: "then this old plan" }));
+    assert.equal(queued.results[0].isError, false, queued.results[0].content);
+
+    const stop = await principalTurn(socket, `${marker("stop_agent", { agent: "detour" })} ${marker("stop_agent", { agent: "nobody" })}`);
+    assert.equal(stop.results[0].isError, false, stop.results[0].content);
+    assert.match(stop.results[0].content, /Detour is stopped/);
+    assert.equal(stop.results[1].isError, true);
+    const member = (await members(roomId)).find((m) => m.id === agentId) as Member & { room: { stopped?: { reason: string }; queuedMessages?: unknown[] } };
+    assert.equal(member.room.stopped?.reason, "principal");
+    assert.equal(member.room.queuedMessages, undefined, "the old plan is dropped");
+    await waitFor(async () => (await hostAgents()).find((agent) => agent.agentId === agentId)?.state === "stopped", 15_000, "stopped in the host");
+    const status = JSON.parse((await principalTurn(socket, marker("room_status", {}))).last) as { agents: { name: string; state: string; stoppedBy?: string }[] };
+    assert.deepEqual(status.agents.map(({ name, state, stoppedBy }) => ({ name, state, stoppedBy })), [{ name: "Detour", state: "stopped", stoppedBy: "you" }]);
+
+    const again = await principalTurn(socket, marker("stop_agent", { agent: "Detour" }));
+    assert.match(again.results[0].content, /already stopped/);
+    const course = await principalTurn(socket, marker("message_agent", { agent: "Detour", text: `new course ${marker("report", { status: "done", summary: "on the new course" })}` }));
+    assert.equal(course.results[0].isError, false, course.results[0].content);
+    await waitFor(async () => (await members(roomId)).find((m) => m.id === agentId)?.room.report?.summary === "on the new course", 20_000, "the report on the new course");
+  } finally {
+    socket.close();
+  }
+});
+
 test("a person's question to a worker that already reported is answered without turning it blocked", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
