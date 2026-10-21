@@ -6,7 +6,7 @@
 //
 // Pure: no I/O.
 import type { RoomToolSpec } from "../runtimes/types.js";
-import { ROOM_AGENT_NAME_MAX, ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
+import { ROOM_AGENT_NAME_MAX, ROOM_AGENT_PURPOSE_MAX, ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
 
 export const ROOM_MCP_SERVER_NAME = "anywh-room";
 
@@ -20,14 +20,20 @@ export const DELEGATE_TOOL: RoomToolSpec = {
     type: "object",
     properties: {
       name: { type: "string", description: `The agent's name: its role in two or three words, in the person's language (e.g. "Slack", "Pricing research"). Unique in the room; at most ${ROOM_AGENT_NAME_MAX} characters.` },
+      purpose: { type: "string", description: "One line on what the agent is for (e.g. \"reads and summarizes Slack channels\"), so you can tell later whether new work fits it." },
       task: { type: "string", description: "Everything the agent needs to do the work on its own: goal, scope, constraints, where to put results." },
       runtime: { type: "string", description: "Which agent CLI runs it: claude or codex." },
       model: { type: "string", description: "Model of that runtime, e.g. haiku, sonnet or opus for claude." },
       effort: { type: "string", description: "Reasoning effort. Leave it out unless the task clearly needs more or less than the model's default." },
       parentId: { type: "string", description: "Name (or agentId) of the agent this one reports to. Defaults to you." },
-      area: { type: "string", description: "Area of the room's canvas to place it in, named for the workstream it serves (e.g. Design, Research, Login bug). Agents of the same workstream share an area." },
+      area: {
+        type: "string",
+        description:
+          "Optional area of the room's canvas to place it in: an existing one, by its name as room_status lists it, or a new one " +
+          "named for what the agents in it share. Leave it out for an agent that belongs with no other.",
+      },
     },
-    required: ["name", "task", "runtime", "model", "area"],
+    required: ["name", "purpose", "task", "runtime", "model"],
   },
 };
 
@@ -48,7 +54,9 @@ export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
 
 export const ROOM_STATUS_TOOL: RoomToolSpec = {
   name: "room_status",
-  description: "List the agents of this room: who they report to, what they are doing or how they ended, and their latest report.",
+  description:
+    "List the agents of this room (name, purpose, area, who they report to, what they are doing or how they ended, latest " +
+    "report) and its areas, the ones the person made included.",
   inputSchema: { type: "object", properties: {} },
 };
 
@@ -136,17 +144,21 @@ function principalBase(runtimes: readonly string[]): string {
     "You are the principal agent of an anywh room: the person talks to you, and you get work done through the room's other " +
     "agents. You do not do the work yourself — you can only read files (Read, Grep, Glob) and use the room's tools " +
     `(server ${ROOM_MCP_SERVER_NAME}): delegate starts a new agent; message_agent gives more work to an agent that exists; ` +
-    "room_status lists the room's agents and their reports.\n\n" +
-    "Keep a small team of agents with distinct roles. An agent keeps its whole conversation between tasks, also after it " +
-    "reported, so before delegating look at the agents you already have: when one's role covers the request (the same topic, " +
-    'a follow-up to its work, or the same kind of tool — e.g. one "Slack" agent for every Slack lookup), send the request to ' +
-    "it with message_agent instead of starting another. Start a new agent only for a role nobody has, or for work that must " +
-    "run beside an agent that is busy.\n\n" +
-    "When a request has independent parts, give each part its own agent and start them all in the same turn, one delegate " +
-    "call each, so they run in parallel; put in one task only steps that depend on each other.\n\n" +
-    "Name each new agent after its role, in two or three words in the person's language (names are unique in the room), and " +
-    "place it in an area named for the workstream it serves; agents of the same workstream share an area, which groups them " +
-    "on the room's canvas. With the person, call agents by their names; never show an agentId.\n\n" +
+    "room_status lists the room's agents (name, purpose, area, state, latest report) and its areas.\n\n" +
+    "Plan before you delegate. Even when a request already reads like one task, break it down first: which parts it has, " +
+    "which depend on each other, which could run at the same time. Give each independent part that is worth an agent its own " +
+    "agent, and start them all in the same turn, one delegate call each, so they run in parallel. Keep together steps that " +
+    "depend on each other or are too small to pay for a new agent: each agent reads its context from scratch and costs the " +
+    "person tokens, and two agents changing the same files get in each other's way.\n\n" +
+    "Make good use of the agents you have. An agent keeps its whole conversation between tasks, also after it reported. " +
+    "Before starting a new one, look at the room's agents and their purposes: when one already does something similar " +
+    '(e.g. a "Slack" agent, for another Slack lookup), prefer sending the work to it with message_agent.\n\n' +
+    "Give each new agent a name — its role in two or three words, in the person's language; names are unique in the room — " +
+    "and a one-line purpose saying what it is for. With the person, call agents by their names; never show an agentId.\n\n" +
+    "Areas group agents on the room's canvas so the person finds them; an agent needs none. When a new agent fits an area " +
+    "that exists (room_status lists them, the person's included), place it there, by the area's name. When you start several " +
+    "agents for the same overall purpose, give them a shared area named for it. An agent unrelated to the others stays " +
+    "outside any area.\n\n" +
     "Give each agent a self-contained task. After delegating, end your turn and tell the person what you started — never " +
     "wait or poll in a loop: each agent reports back with a short summary when it finishes, and you will be told. " +
     `Runtimes you can delegate to: ${runtimes.join(", ")}. At most ${ROOM_MAX_LIVE_AGENTS} agents of a room can be live at once.`
@@ -202,6 +214,7 @@ export interface DelegateArgs {
   /** Absent from an agent whose tool list predates names (a Codex thread
    * keeps the tools it was started with) and from the person's launcher. */
   name?: string;
+  purpose?: string;
   task: string;
   runtime: string;
   model: string;
@@ -214,6 +227,8 @@ export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
   const args = isRecord(raw) ? raw : {};
   const name = optionalString(args, "name", ROOM_AGENT_NAME_MAX);
   if (!name.ok) return name;
+  const purpose = optionalString(args, "purpose", ROOM_AGENT_PURPOSE_MAX);
+  if (!purpose.ok) return purpose;
   const task = requiredString(args, "task", ROOM_TASK_MAX);
   if (!task.ok) return task;
   const runtime = requiredString(args, "runtime", 64);
@@ -230,6 +245,7 @@ export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
     ok: true,
     value: {
       ...(name.value ? { name: name.value } : {}),
+      ...(purpose.value ? { purpose: purpose.value } : {}),
       task: task.value,
       runtime: runtime.value.toLowerCase(),
       model: model.value,

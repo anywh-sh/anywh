@@ -56,6 +56,9 @@ export interface RoomMembership {
   task: string;
   /** Named area of the canvas the agent was placed in, if any. */
   area?: string;
+  /** What the agent is for, in one line, as the principal described it: how
+   * it later tells which agent a new request fits. */
+  purpose?: string;
   report?: RoomReport;
   stopped?: RoomStop;
   /** Epoch ms up to which this agent knows the room's context: when its
@@ -84,6 +87,7 @@ export const ROOM_REPORT_ARTIFACTS_MAX = 20;
 export const ROOM_TASK_MAX = 20_000;
 /** Longest name the principal may give an agent: it is the card's title. */
 export const ROOM_AGENT_NAME_MAX = 60;
+export const ROOM_AGENT_PURPOSE_MAX = 300;
 /** Most connectors remembered per agent. */
 export const ROOM_CONNECTORS_MAX = 30;
 /** MCP servers that are the relay's own plumbing, not connectors. */
@@ -133,12 +137,13 @@ export function isRoomReport(value: unknown): value is RoomReport {
  * truncated or future-schema record must never reach the room logic. */
 export function isRoomMembership(value: unknown): value is RoomMembership {
   if (!isRecord(value)) return false;
-  const { roomId, role, parentId, createdBy, task, area, report, stopped, undeliveredReports, queuedMessages, contextSeenAt, startedAt, connectors } = value;
+  const { roomId, role, parentId, createdBy, task, area, purpose, report, stopped, undeliveredReports, queuedMessages, contextSeenAt, startedAt, connectors } = value;
   if (typeof roomId !== "string" || roomId === "") return false;
   if (typeof role !== "string" || !ROLES.has(role)) return false;
   if (createdBy !== "user" && createdBy !== "agent") return false;
   if (typeof task !== "string") return false;
   if (area !== undefined && typeof area !== "string") return false;
+  if (purpose !== undefined && typeof purpose !== "string") return false;
   if (report !== undefined && !isRoomReport(report)) return false;
   if (contextSeenAt !== undefined && !isTimestamp(contextSeenAt)) return false;
   if (startedAt !== undefined && !isTimestamp(startedAt)) return false;
@@ -246,4 +251,47 @@ export function resolveAgentRef(
     if (prefixed.length === 1) return { id: prefixed[0].id };
   }
   return { error: "unknown" };
+}
+
+/** The room's areas as an agent should see them, and the area of each
+ * agent. The canvas is the truth: the person draws, renames and fills areas
+ * by hand, and a client places an agent in the canvas area whose label
+ * matches its `area` (case and surrounding space ignored). An agent the
+ * canvas does not hold yet (no client laid it out) is in the area it was
+ * delegated to, if any. Areas with nobody in them are listed too: the person
+ * may have drawn one for agents still to come. */
+export function roomAreas(
+  canvasAreas: readonly { label: string; members?: readonly string[] }[],
+  agents: readonly { id: string; area?: string }[],
+): { areas: { name: string; agentIds: string[] }[]; areaOf: Map<string, string> } {
+  const key = (label: string): string => label.trim().toLowerCase();
+  const known = new Set(agents.map((agent) => agent.id));
+  const areas: { name: string; agentIds: string[] }[] = [];
+  const byKey = new Map<string, { name: string; agentIds: string[] }>();
+  const areaOf = new Map<string, string>();
+  const areaNamed = (label: string): { name: string; agentIds: string[] } => {
+    let area = byKey.get(key(label));
+    if (!area) {
+      area = { name: label.trim(), agentIds: [] };
+      byKey.set(key(label), area);
+      areas.push(area);
+    }
+    return area;
+  };
+  for (const canvasArea of canvasAreas) {
+    if (canvasArea.label.trim() === "") continue;
+    const area = areaNamed(canvasArea.label);
+    for (const id of canvasArea.members ?? []) {
+      if (!known.has(id) || areaOf.has(id)) continue;
+      areaOf.set(id, area.name);
+      area.agentIds.push(id);
+    }
+  }
+  for (const agent of agents) {
+    if (areaOf.has(agent.id) || !agent.area?.trim()) continue;
+    const area = areaNamed(agent.area);
+    areaOf.set(agent.id, area.name);
+    area.agentIds.push(agent.id);
+  }
+  return { areas, areaOf };
 }

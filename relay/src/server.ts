@@ -193,6 +193,7 @@ const roomWorktrees = new RoomWorktrees({
 });
 const roomManager: RoomManager = new RoomManager({
   worktrees: roomWorktrees,
+  canvasAreas: (roomId) => roomCanvas.get(roomId).areas,
   store: sessionStore,
   sessions: sessionManager,
   registry,

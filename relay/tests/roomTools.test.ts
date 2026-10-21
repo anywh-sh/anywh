@@ -169,6 +169,42 @@ test("a named agent is titled by its name, a second one with that name is refuse
   }
 });
 
+test("room_status lists each agent's purpose and area, and the areas of the canvas, the person's empty ones included", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const first = await principalTurn(
+      socket,
+      [
+        marker("delegate", { name: "Slack", purpose: "reads Slack channels", task: `Read #general ${marker("report", { status: "done", summary: "ok" })}`, runtime: "claude", model: "haiku", area: "Inbox" }),
+        marker("delegate", { name: "Loose", purpose: "one-off check", task: `Check ${marker("report", { status: "done", summary: "ok" })}`, runtime: "claude", model: "haiku" }),
+      ].join(" "),
+    );
+    assert.ok(first.results.every((result) => !result.isError), JSON.stringify(first.results));
+    const slackId = (JSON.parse(first.results[0].content) as { agentId: string }).agentId;
+    const canvas = { positions: {}, areas: [{ id: "a1", label: "Inbox", x: 0, y: 0, members: [slackId] }, { id: "a2", label: "Design", x: 0, y: 0, members: [] }], texts: [] };
+    assert.equal((await fetch(`${base}/rooms/${roomId}/canvas`, { method: "PUT", body: JSON.stringify({ canvas }) })).status, 200);
+
+    const status = JSON.parse((await principalTurn(socket, marker("room_status", {}))).last) as {
+      agents: { name: string; purpose?: string; area?: string }[];
+      areas: { name: string; agents: string[] }[];
+    };
+    assert.deepEqual(
+      status.agents.map(({ name, purpose, area }) => ({ name, purpose, area })),
+      [
+        { name: "Slack", purpose: "reads Slack channels", area: "Inbox" },
+        { name: "Loose", purpose: "one-off check", area: undefined },
+      ],
+    );
+    assert.deepEqual(status.areas, [
+      { name: "Inbox", agents: ["Slack"] },
+      { name: "Design", agents: [] },
+    ]);
+  } finally {
+    socket.close();
+  }
+});
+
 test("delegate refuses an unknown runtime or model, a parent outside the room, and a worker cannot delegate or a principal report", async () => {
   // The model catalog the relay probed off the (fake) CLI at boot.
   await waitFor(async () => {

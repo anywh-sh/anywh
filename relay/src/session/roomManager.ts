@@ -29,6 +29,7 @@ import {
   roomAgentState,
   takesRoomPlace,
   resolveAgentRef,
+  roomAreas,
   titleFromTask,
   type RoomAgentState,
   type RoomMembership,
@@ -99,6 +100,9 @@ export interface RoomManagerOptions {
   /** The worktrees agents create (`worktree_create`); without it the tool
    * answers that worktrees are not available. */
   readonly worktrees?: RoomWorktrees;
+  /** The areas of a room's canvas (the person draws and renames them), for
+   * `room_status`. Without it only the areas agents were delegated to show. */
+  readonly canvasAreas?: (roomId: string) => readonly { label: string; members?: readonly string[] }[];
   readonly now?: () => number;
   /** How long a wake-up waits for more reports before the digest goes out:
    * agents that finish together share one turn. Default 2 s. */
@@ -1229,6 +1233,7 @@ export class RoomManager implements RoomToolHost {
       createdBy,
       task: args.task,
       ...(args.area ? { area: args.area } : {}),
+      ...(args.purpose ? { purpose: args.purpose } : {}),
       // Persisted until it is delivered: a relay restart loses no task.
       queuedMessages: [{ text: args.task, at: this.now() }],
     });
@@ -1302,25 +1307,28 @@ export class RoomManager implements RoomToolHost {
   }
 
   private roomStatus(callerId: string, caller: RoomMembership): RoomToolResult {
-    const agents = this.members(caller.roomId)
-      .filter((member) => member.id !== callerId && member.room.role === "worker" && member.room.stopped?.reason !== "removed")
-      .map(({ id, room }) => {
-        const runtime = this.store.getAgentId(id);
-        const state = this.stateOf(id, room);
-        return {
-          name: this.store.getTitle(id),
-          agentId: id,
-          runtime,
-          model: this.store.getModel(id, runtime) ?? null,
-          parentId: room.parentId,
-          ...(room.area ? { area: room.area } : {}),
-          state,
-          ...(room.queuedMessages?.length ? { queuedMessages: room.queuedMessages.length } : {}),
-          ...(room.report
-            ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, ...(room.report.synthetic ? { fromRelay: true } : {}) } }
-            : {}),
-        };
-      });
-    return ok(JSON.stringify({ agents, liveLimit: ROOM_MAX_LIVE_AGENTS }));
+    const workers = this.members(caller.roomId).filter((member) => member.id !== callerId && member.room.role === "worker" && member.room.stopped?.reason !== "removed");
+    const { areas, areaOf } = roomAreas(this.options.canvasAreas?.(caller.roomId) ?? [], workers.map(({ id, room }) => ({ id, ...(room.area ? { area: room.area } : {}) })));
+    const agents = workers.map(({ id, room }) => {
+      const runtime = this.store.getAgentId(id);
+      const state = this.stateOf(id, room);
+      const area = areaOf.get(id);
+      return {
+        name: this.store.getTitle(id),
+        ...(room.purpose ? { purpose: room.purpose } : {}),
+        agentId: id,
+        runtime,
+        model: this.store.getModel(id, runtime) ?? null,
+        parentId: room.parentId,
+        ...(area ? { area } : {}),
+        state,
+        ...(room.queuedMessages?.length ? { queuedMessages: room.queuedMessages.length } : {}),
+        ...(room.report
+          ? { report: { status: room.report.status, summary: room.report.summary, artifacts: room.report.artifacts, ...(room.report.synthetic ? { fromRelay: true } : {}) } }
+          : {}),
+      };
+    });
+    const listedAreas = areas.map((area) => ({ name: area.name, agents: area.agentIds.map((id) => this.nameOf(id)) }));
+    return ok(JSON.stringify({ agents, areas: listedAreas, liveLimit: ROOM_MAX_LIVE_AGENTS }));
   }
 }

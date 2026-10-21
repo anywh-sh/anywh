@@ -16,12 +16,13 @@ test("worktree_create needs a repo; report takes an integrated flag only as a bo
   assert.equal(parseReportArgs({ status: "done", summary: "x", integrated: "yes" }).ok, false);
 });
 
-test("delegate asks for a name and an area; one without them, from an older tool list or the person, is still taken", () => {
-  assert.deepEqual(DELEGATE_TOOL.inputSchema.required, ["name", "task", "runtime", "model", "area"]);
-  assert.deepEqual(parseDelegateArgs({ name: " Slack ", task: "read #general", runtime: "Claude", model: "haiku", area: "Research" }), {
+test("delegate asks for a name and a purpose, the area is optional; one without them, from an older tool list or the person, is still taken", () => {
+  assert.deepEqual(DELEGATE_TOOL.inputSchema.required, ["name", "purpose", "task", "runtime", "model"]);
+  assert.deepEqual(parseDelegateArgs({ name: " Slack ", purpose: "reads Slack channels", task: "read #general", runtime: "Claude", model: "haiku", area: "Research" }), {
     ok: true,
-    value: { name: "Slack", task: "read #general", runtime: "claude", model: "haiku", area: "Research" },
+    value: { name: "Slack", purpose: "reads Slack channels", task: "read #general", runtime: "claude", model: "haiku", area: "Research" },
   });
+  assert.equal(parseDelegateArgs({ name: "Slack", purpose: "p".repeat(301), task: "x", runtime: "claude", model: "haiku" }).ok, false);
   assert.deepEqual(parseDelegateArgs({ task: "x", runtime: "claude", model: "haiku" }), { ok: true, value: { task: "x", runtime: "claude", model: "haiku" } });
   assert.equal(parseDelegateArgs({ name: "n".repeat(61), task: "x", runtime: "claude", model: "haiku" }).ok, false);
 });
