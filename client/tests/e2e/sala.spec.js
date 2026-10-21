@@ -262,9 +262,9 @@ describe("anywh room canvas", () => {
     // One link per worker, and the three areas the principal named.
     expect((await $$("path[data-edge]")).length).toBeGreaterThanOrEqual(7);
     expect((await $$("[data-area-id]")).length).toBe(3);
-    // "Your turn" is what the waiting card says it is, with its Reply button.
+    // "Your turn" is what the waiting card's state icon says it is, with its Reply button.
     const waiting = await $('[data-agent-id][data-state="awaiting_user"]');
-    await expect(waiting).toHaveText(expect.stringContaining("Your turn"));
+    await expect(await waiting.$(".sala-state")).toHaveAttribute("title", "Your turn");
     await expect(await waiting.$("button.sala-reply")).toBeExisting();
     // Areas never run over each other.
     const overlap = await browser.execute(() => {
@@ -530,7 +530,7 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await cards()).length === 10, { timeout: 30000, timeoutMsg: "the room did not come back" });
     const text = await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').innerText);
     expect(text).toContain("Principal");
-    expect(text).toContain("Sua vez");
+    await expect(await $('[data-state="awaiting_user"] .sala-state')).toHaveAttribute("title", "Sua vez");
     expect(text).toContain("Responder");
     expect(text).toMatch(/espera você/);
     await expect(await $('[aria-label="Ajustar à tela"]')).toBeExisting();
