@@ -61,6 +61,13 @@ function defaultSchedule(fn: () => void, ms: number): () => void {
   return () => clearTimeout(timer);
 }
 
+/** What a worker is told, once, when it ends a turn of work without
+ * reporting. */
+export const ROOM_REPORT_REMINDER =
+  "You ended your turn without calling report, so whoever started you has not heard back: your reply text reaches nobody. " +
+  "Call report (server anywh-room) now with the outcome of the work you just did, without redoing it, then end your turn. " +
+  "If you cannot go on, report blocked and say what you need.";
+
 /** The runtimes the agent host can run. */
 export const HOST_RUNTIMES: readonly string[] = ["claude", "codex"];
 
@@ -164,7 +171,7 @@ const fail = (text: string): RoomToolResult => ({ text, isError: true });
 export class RoomManager implements RoomToolHost {
   private readonly now: () => number;
   /** Per worker, the queued message its current turn is delivering. */
-  private readonly sending = new Map<string, { text: string; at: number; delivered: boolean }>();
+  private readonly sending = new Map<string, { text: string; at: number; delivered: boolean; reminder: boolean }>();
   /** Per agent, the coalescing timer of a digest about to go out. */
   private readonly digestTimers = new Map<string, NodeJS.Timeout>();
   /** Per agent, the digest turn queued or running for it: at most one at a
@@ -742,7 +749,16 @@ export class RoomManager implements RoomToolHost {
         // turn the relay did not send (`sending`) is the person's own, and
         // an answer owes no new report. What the principal or the task sent
         // does.
-        this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });
+        const current = this.store.getRoom(sessionId)!;
+        if (sending !== undefined && sending.delivered && !sending.reminder && (current.queuedMessages?.length ?? 0) === 0) {
+          // Models now and then finish the work and write the answer as text,
+          // which reaches nobody. Asked once, they report what they already
+          // have; that saves a turn of whoever started them, who would only
+          // have asked the same.
+          this.store.setRoom(sessionId, { ...current, queuedMessages: [{ text: ROOM_REPORT_REMINDER, at: this.now(), reminder: true }] });
+        } else {
+          this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });
+        }
       }
     }
     this.pump(sessionId);
@@ -808,7 +824,7 @@ export class RoomManager implements RoomToolHost {
     const next = room.queuedMessages?.[0];
     if (!next) return;
     if (this.parkBehindLeader(sessionId)) return;
-    const sending = { text: next.text, at: next.at, delivered: false };
+    const sending = { text: next.text, at: next.at, delivered: false, reminder: next.reminder === true };
     this.sending.set(sessionId, sending);
     session.submitAgentTurn(next.text, {
       onDelivered: () => {

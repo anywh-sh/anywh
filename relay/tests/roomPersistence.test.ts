@@ -289,9 +289,13 @@ test("with its host down a worker's queue stays on disk, untouched, and goes out
     const log: string[] = [];
     control.subscribe("w7", { nextOffset: 0, lastSeq: -1 }, { onEvent: (record) => { if (record.ev.type === "host_user_message") log.push(String(record.ev.text)); } });
     const until = Date.now() + 15_000;
-    while (log.length < 2 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    while (log.length < 3 && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
     control.close();
-    assert.deepEqual(log, ["first", "second"], "each delivered once, in order");
+    assert.deepEqual(log.slice(0, 2), ["first", "second"], "each delivered once, in order");
+    // Neither turn reported: only the last, with nothing queued behind it,
+    // gets the relay's one reminder.
+    assert.equal(log.length, 3, JSON.stringify(log));
+    assert.match(log[2], /^You ended your turn without calling report/);
   } finally {
     relay.cleanup();
     await host?.stop();
