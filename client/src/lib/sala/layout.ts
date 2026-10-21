@@ -13,7 +13,7 @@ export const CARD_W = 312;
 export const CARD_W_MAIN = CARD_W;
 export const CARD_H = 145;
 /** Vertical distance between a card and the ones it delegated. */
-export const ROW = 288;
+export const ROW = 240;
 /** Horizontal distance between siblings. */
 export const COL = 336;
 /** Space an area keeps around its members. */
@@ -21,11 +21,11 @@ export const AREA_PAD = 24;
 /** The label bar above an area's frame. */
 export const AREA_BAR = 32;
 /** The least space between two areas' frames. */
-export const AREA_GAP = 96;
+export const AREA_GAP = 72;
 /** Most cards an area keeps on one row; the next one starts a row below. */
 export const AREA_ROW_MAX = 3;
 /** Distance between two rows of the same group of cards. */
-export const WRAP_ROW = 192;
+export const WRAP_ROW = 176;
 /** How far a wrapped row starts to the left of the one above it, so it does
  * not read as the children of the card over it. */
 export const WRAP_SHIFT = 48;

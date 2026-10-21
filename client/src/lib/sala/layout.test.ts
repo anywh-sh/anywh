@@ -42,7 +42,7 @@ describe("placeAgents", () => {
     const cards = cardRects(agents, out.positions);
     const parent = cards.get("main")!;
     const child = cards.get("a")!;
-    const elbow = parent.y + parent.h + (child.y - (parent.y + parent.h)) / 2;
+    const elbow = Number(/V([\d.]+)H/.exec(edgePath(parent, child))![1]);
     const barTop = areaRect(out.areas[0], cards).y - AREA_BAR;
     expect(elbow).toBeLessThan(barTop);
   });
