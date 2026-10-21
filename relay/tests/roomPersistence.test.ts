@@ -125,6 +125,9 @@ test("a worker in the middle of its task when the relay restarts goes on in the 
     relay.proc.kill("SIGKILL");
     await relay.waitForExit();
     relay.cleanup();
+    // Killed at any point, the relay leaves a whole sessions file behind (a
+    // torn one would be set aside at boot and the room would be gone).
+    assert.doesNotThrow(() => JSON.parse(readFileSync(sessionsFile, "utf8")), "the sessions file is intact after the kill");
     // What the CLI's own transcript holds of the worker's conversation so far
     // (the fake does not write one): the new relay must show it, then the
     // turn's live rest.

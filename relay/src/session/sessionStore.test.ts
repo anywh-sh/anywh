@@ -716,7 +716,7 @@ console.log(JSON.stringify({ reads, torn }));`,
       { stdio: ["ignore", "pipe", "inherit"] },
     );
     let out = "";
-    reader.stdout.on("data", (chunk: Buffer) => (out += chunk));
+    reader.stdout.on("data", (chunk: Buffer) => (out += chunk.toString()));
     const exited = new Promise<void>((resolve) => reader.on("exit", () => resolve()));
     await new Promise((r) => setTimeout(r, 100));
     for (let i = 0; i < 300; i++) store.setTitle("seed", `${i}${"y".repeat(200_000)}`);
