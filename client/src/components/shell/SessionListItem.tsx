@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { SquareTerminal } from "lucide-react";
+import { Check, SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
 import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
@@ -9,6 +9,7 @@ import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { RoomGlyph } from "@/components/sala/SalaIcons";
+import { isNewCompletion } from "@/lib/format/sessionCompletion";
 import type { RoomStatus } from "@/lib/sala/roomStatus";
 
 interface SessionListItemProps {
@@ -21,6 +22,10 @@ interface SessionListItemProps {
    * — same limitation as `running`: only sessions open as a tab have this
    * information (no tab = no live WS connection to know it). */
   hasBackgroundJob: boolean;
+  /** When it finished, for a row in the Completed group. */
+  completedAt?: number;
+  /** Recent rows carry no date: the group already says "latest". */
+  bare?: boolean;
   onSelect: (session: MergedSession) => void;
   onRename: (session: MergedSession) => void;
   onDelete: (session: MergedSession) => void;
@@ -39,6 +44,8 @@ export const SessionListItem = memo(function SessionListItem({
   running: turnRunning,
   roomStatus,
   hasBackgroundJob,
+  completedAt,
+  bare = false,
   onSelect,
   onRename,
   onDelete,
@@ -54,6 +61,9 @@ export const SessionListItem = memo(function SessionListItem({
   // without a time rather than with a made-up one — the meta line is then
   // left out. The profile is told apart by the colour bar, not by name.
   const lastActive = session.lastActiveAt === null ? null : formatCompactTime(session.lastActiveAt, locale);
+
+  // A completion is "new" for a while, then reads as the time since it ended.
+  const freshCompletion = completedAt !== undefined && isNewCompletion(completedAt, Date.now());
 
   return (
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
@@ -93,6 +103,12 @@ export const SessionListItem = memo(function SessionListItem({
               className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
               style={{ borderTopColor: profileColorVar(session.profileId) }}
             />
+          ) : completedAt !== undefined ? (
+            freshCompletion ? (
+              <span aria-label={dict.shell.sidebar.completedLabel} className="size-[7px] shrink-0 rounded-full bg-foreground" />
+            ) : (
+              <Check aria-label={dict.shell.sidebar.completedLabel} className="size-3 shrink-0 text-muted-foreground" />
+            )
           ) : (
             hasBackgroundJob && (
               <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
@@ -104,7 +120,8 @@ export const SessionListItem = memo(function SessionListItem({
           className={cn(
             "min-w-0 flex-1 truncate",
             size === "lg" ? "text-base" : "text-[length:calc(13.5px*var(--chrome-scale))]",
-            selected ? "font-medium text-foreground" : "text-muted-foreground",
+            selected || freshCompletion ? "text-foreground" : "text-muted-foreground",
+            selected && "font-medium",
           )}
         >
           {session.titlePending === true ? <TitleSkeleton /> : session.title}
@@ -116,8 +133,16 @@ export const SessionListItem = memo(function SessionListItem({
           >
             {roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed}
           </span>
+        ) : completedAt !== undefined ? (
+          <span
+            title={formatAbsoluteTime(completedAt, locale)}
+            className={cn("shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))]", freshCompletion ? "text-foreground" : "text-text-faint")}
+          >
+            {freshCompletion ? dict.shell.sidebar.completedNew : formatCompactTime(completedAt, locale)}
+          </span>
         ) : (
-          lastActive !== null && (
+          lastActive !== null &&
+          !bare && (
           <span
             title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
             className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"

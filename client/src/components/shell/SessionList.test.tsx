@@ -1,11 +1,12 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { en } from "@/i18n/en";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { publishRoomStatus, resetRoomStatuses } from "@/lib/sala/roomStatus";
+import { markSessionCompleted, resetCompletedSessionsForTest } from "@/lib/format/sessionCompletion";
 import { SessionList } from "./SessionList";
 
 const copy = en.shell.sidebar;
@@ -93,13 +94,13 @@ describe("SessionList", () => {
     expect(onClearFilter).toHaveBeenCalledTimes(1);
   });
 
-  it("lists only the 10 latest under one Recent heading, with its count", () => {
+  it("lists only the 8 latest under one Recent heading, with its count", () => {
     const sessions = Array.from({ length: 12 }, (_, i) => session({ id: `s${String(i)}`, title: `Item ${String(i)}`, lastActiveAt: Date.now() - i * 1000 }));
     renderList({ sessions });
 
-    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}10`);
+    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}8`);
     expect(screen.getByText("Item 0")).toBeInTheDocument();
-    expect(screen.queryByText("Item 10")).not.toBeInTheDocument();
+    expect(screen.queryByText("Item 8")).not.toBeInTheDocument();
     expect(screen.queryByText("Item 11")).not.toBeInTheDocument();
     expect(screen.queryByText(copy.groups.today)).not.toBeInTheDocument();
   });
@@ -185,6 +186,28 @@ describe("SessionList", () => {
     // out the same one, and keying rows on the id alone would drop one.
     expect(screen.getByText("Work copy")).toBeInTheDocument();
     expect(screen.getByText("Home copy")).toBeInTheDocument();
+  });
+});
+
+describe("SessionList completed group", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetCompletedSessionsForTest();
+  });
+
+  it("lists a finished, unopened session under Completed and clear sends it to Recent without folding", async () => {
+    markSessionCompleted("done", Date.now());
+    renderList({ sessions: [session({ id: "done", title: "Finished chat" }), session({ id: "other", title: "Other chat" })] });
+    const user = userEvent.setup();
+
+    const heading = screen.getByRole("button", { name: new RegExp(`^${copy.completed}`) });
+    expect(heading).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(copy.completedNew)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: copy.clearCompleted }));
+    expect(screen.queryByText(copy.completed)).not.toBeInTheDocument();
+    expect(screen.getByText("Finished chat")).toBeInTheDocument();
+    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}2`);
   });
 });
 

@@ -1045,7 +1045,15 @@ export interface Dictionary {
        * what runs, then the latest sessions. */
       needsYou: string;
       running: string;
+      completed: string;
       recent: string;
+      /** "clear" beside the Completed heading, its tooltip, the "new" meta of
+       * a row not yet looked at, the row's label, and the link to search. */
+      clearCompleted: string;
+      clearCompletedTitle: string;
+      completedNew: string;
+      completedLabel: string;
+      olderInSearch: string;
       /** A room row's tooltips; each takes `{count}`. */
       roomNeedsYou: string;
       roomWorking: string;

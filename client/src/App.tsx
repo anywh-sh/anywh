@@ -12,6 +12,7 @@ import { TabPanel } from "@/components/shell/TabPanel";
 import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
@@ -391,6 +392,8 @@ function AppShell() {
     () => new Set(tabsState.tabs.filter((tab) => tab.isRunning).map((tab) => tab.id)),
     [tabsState.tabs],
   );
+  // The sidebar's "Completed" group follows the same rule as that badge.
+  useSessionCompletionTracking(runningSessions, activeTabId, windowFocused);
   const backgroundJobSessions = useMemo(
     () => new Set(tabsState.tabs.filter((tab) => tab.hasBackgroundJob).map((tab) => tab.id)),
     [tabsState.tabs],

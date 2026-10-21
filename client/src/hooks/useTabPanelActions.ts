@@ -8,6 +8,7 @@ import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import type { BackgroundActivityEntry } from "@/hooks/useBackgroundActivity";
 import type { Dictionary } from "@/i18n";
 import { removeCachedSession, touchCachedSession, upsertCachedSession } from "@/lib/format/sessionListCache";
+import { markSessionCompleted } from "@/lib/format/sessionCompletion";
 import { notifyTurnComplete } from "@/lib/platform/notifications";
 import type { Profile } from "@/lib/profiles/profiles";
 import { discardBlankSession } from "@/lib/sala/firstMessage";
@@ -97,6 +98,7 @@ export function useTabPanelActions({
         const stillVisible = tab.id === activeTabIdRef.current && windowFocusedRef.current;
         if (stillVisible) return;
         tabsState.setUnread(tab.id, true);
+        markSessionCompleted(tab.id);
         notifyTurnComplete(tab.id, profile, tab.title ?? dict.common.untitledSession, lastUserText, lastAssistantText, stopped);
       },
       onTitle: (tab, title, pending = false) => {

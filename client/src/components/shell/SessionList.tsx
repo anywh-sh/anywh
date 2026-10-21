@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ChevronDown, MessageSquareDashed } from "lucide-react";
+import { ChevronDown, MessageSquareDashed, Search } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,19 +11,23 @@ import type { Profile } from "@/lib/profiles/profiles";
 import { recentSessions, type MergedSession } from "@/lib/format/sessionGrouping";
 import { groupByState } from "@/lib/format/sessionStateGroups";
 import { useRoomStatuses } from "@/lib/sala/roomStatus";
+import { clearCompletedSessions, useCompletedSessions } from "@/lib/format/sessionCompletion";
 
 /** The sidebar groups: what waits for the person, what runs, then the rest. */
-type HeadingId = "needsYou" | "running" | "recent";
+type HeadingId = "needsYou" | "running" | "completed" | "recent";
 
 /** The grouped list flattened into one row stream, which is what a
  * virtualizer can index into — headings included, so a heading scrolls with
  * its sessions instead of needing a second, parallel mechanism. */
 type Row =
   | { kind: "heading"; id: HeadingId; count: number }
-  | { kind: "session"; session: MergedSession };
+  | { kind: "session"; session: MergedSession; completedAt?: number; bare?: boolean }
+  | { kind: "older" };
 
 function rowKey(row: Row): string {
-  return row.kind === "heading" ? `heading:${row.id}` : `${row.session.profileId}:${row.session.id}`;
+  if (row.kind === "heading") return `heading:${row.id}`;
+  if (row.kind === "older") return "older";
+  return `${row.session.profileId}:${row.session.id}`;
 }
 
 // Only a starting point for a row that has not been measured yet: every one
@@ -54,6 +58,8 @@ interface SessionListProps {
   onRename: (session: MergedSession) => void;
   onDelete: (session: MergedSession) => void;
   onClearFilter: () => void;
+  /** Opens the search, where sessions past the Recent cut are reached. */
+  onOpenSearch?: () => void;
   /** "lg" used only by the iOS drawer — larger text to match the rest of
    * that sheet. */
   size?: "default" | "lg";
@@ -73,19 +79,22 @@ export function SessionList({
   onRename,
   onDelete,
   onClearFilter,
+  onOpenSearch,
   size = "default",
 }: SessionListProps) {
   const dict = useDict();
   const roomStatuses = useRoomStatuses();
+  const completed = useCompletedSessions();
   const groups = useMemo(() => {
-    const { needsYou, running: runningNow, rest } = groupByState(sessions, running, roomStatuses);
+    const { needsYou, running: runningNow, completed: done, rest } = groupByState(sessions, running, roomStatuses, completed);
     const recent = recentSessions(rest);
     return [
       ...(needsYou.length > 0 ? [{ id: "needsYou" as const, sessions: needsYou }] : []),
       ...(runningNow.length > 0 ? [{ id: "running" as const, sessions: runningNow }] : []),
+      ...(done.length > 0 ? [{ id: "completed" as const, sessions: done }] : []),
       ...(recent.length > 0 ? [{ id: "recent" as const, sessions: recent }] : []),
     ];
-  }, [sessions, running, roomStatuses]);
+  }, [sessions, running, roomStatuses, completed]);
   // One pass instead of a lookup per row: the list can hold every session of
   // every profile now, and this renders on each sidebar render.
   // Groups the user folded away: the heading stays (with its count), the
@@ -99,13 +108,19 @@ export function SessionList({
       return next;
     });
   }, []);
+  // Anything the Recent cut left out is reached through the search.
+  const hasOlder = useMemo(() => {
+    const shown = groups.reduce((n, g) => n + g.sessions.length, 0);
+    return sessions.length > shown;
+  }, [groups, sessions.length]);
   const rows = useMemo<Row[]>(
     () =>
       groups.flatMap((group) => [
         { kind: "heading", id: group.id, count: group.sessions.length },
-        ...(collapsed.has(group.id) ? [] : group.sessions.map((session): Row => ({ kind: "session", session }))),
+        ...(collapsed.has(group.id) ? [] : group.sessions.map((session): Row => ({ kind: "session", session, ...(group.id === "completed" ? { completedAt: completed.get(session.id) } : {}), ...(group.id === "recent" ? { bare: true } : {}) }))),
+        ...(group.id === "recent" && !collapsed.has(group.id) && onOpenSearch && hasOlder ? [{ kind: "older" } as Row] : []),
       ]),
-    [groups, collapsed],
+    [groups, collapsed, completed, onOpenSearch, hasOlder],
   );
   const viewportRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -180,22 +195,39 @@ export function SessionList({
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
                 {row.kind === "heading" ? (
+                  <div className={cn("relative", virtualRow.index > 0 && "mt-2.5")}>
+                    <button
+                      type="button"
+                      aria-expanded={!collapsed.has(row.id)}
+                      onClick={() => toggleGroup(row.id)}
+                      className="flex h-[26px] w-full cursor-pointer items-center gap-2 px-[9px] text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground"
+                    >
+                      <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
+                      <span className="opacity-80">{dict.shell.sidebar[row.id]}</span>
+                      <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
+                      <span className="min-w-[2ch] text-right">{row.count}</span>
+                    </button>
+                    {/* A sibling of the fold button, not a child: a button can't
+                     * hold a button, and pressing it must not fold the group. */}
+                    {row.id === "completed" && (
+                      <button
+                        type="button"
+                        title={dict.shell.sidebar.clearCompletedTitle}
+                        onClick={clearCompletedSessions}
+                        className="absolute top-[3px] right-[calc(9px+2ch+8px)] h-5 cursor-pointer bg-[var(--bg-sidebar)] px-1.5 font-mono text-[length:calc(11px*var(--chrome-scale))] font-normal text-text-faint transition-colors hover:bg-bg-hover hover:text-foreground"
+                      >
+                        {dict.shell.sidebar.clearCompleted}
+                      </button>
+                    )}
+                  </div>
+                ) : row.kind === "older" ? (
                   <button
                     type="button"
-                    aria-expanded={!collapsed.has(row.id)}
-                    onClick={() => toggleGroup(row.id)}
-                    className={cn(
-                      "flex h-[26px] w-full cursor-pointer items-center gap-2 px-[9px] text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground",
-                      // `first:pt-2` can't do this job once rows are
-                      // windowed: the first rendered child is whatever
-                      // happens to be scrolled into view, not row zero.
-                      virtualRow.index > 0 && "mt-2.5",
-                    )}
+                    onClick={onOpenSearch}
+                    className="flex h-[30px] w-full cursor-pointer items-center gap-2.5 px-[9px] text-left text-[length:calc(12.5px*var(--chrome-scale))] text-text-faint transition-colors hover:text-muted-foreground"
                   >
-                    <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
-                    <span className="opacity-80">{dict.shell.sidebar[row.id]}</span>
-                    <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
-                    <span>{row.count}</span>
+                    <Search className="size-3 shrink-0" aria-hidden />
+                    <span>{dict.shell.sidebar.olderInSearch}</span>
                   </button>
                 ) : (
                   <SessionListItem
@@ -203,6 +235,8 @@ export function SessionList({
                     selected={selected === row.session.id}
                     running={running.has(row.session.id)}
                     roomStatus={roomStatuses.get(row.session.id)}
+                    completedAt={row.completedAt}
+                    bare={row.bare}
                     hasBackgroundJob={backgroundJobSessions.has(row.session.id)}
                     onSelect={onSelect}
                     onRename={onRename}
