@@ -19,37 +19,44 @@ const HOST = resolve(RELAY_ROOT, "dist/agentHost/main.js");
 const FAKE_AGENT = resolve(RELAY_ROOT, "tests/fixtures/fake-claude.mjs");
 const FAKE_SYSTEMCTL = resolve(RELAY_ROOT, "tests/fixtures/fake-systemctl.mjs");
 
-function freePort() {
-  return new Promise((resolvePort, reject) => {
-    const probe = createServer();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const { port } = probe.address();
-      probe.close(() => resolvePort(port));
+/** A port nothing listens on, picked outside the OS's ephemeral range: one
+ * taken from the OS is released before the relay binds it, and in that window
+ * another process's outbound connection (the Tauri app next to it, a second
+ * relay) can be handed the same number. */
+async function freePort() {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const port = 20_000 + Math.floor(Math.random() * 10_000);
+    const free = await new Promise((resolveFree) => {
+      const probe = createServer();
+      probe.once("error", () => resolveFree(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolveFree(true)));
     });
-  });
+    if (free) return port;
+  }
+  throw new Error("no free port found in 20000-29999");
 }
 
-/** Resolves when something listens on `port`; rejects at once if a child
- * process exits first (waiting out a deadline for a process that is gone
- * only hides why). */
-function waitForPort(port, children, timeoutMs = 60_000) {
+/** Resolves when the relay itself says it listens on `port` (a connection to
+ * the port would also succeed against some other process that holds it);
+ * rejects at once if a child process exits first (waiting out a deadline for
+ * a process that is gone only hides why). */
+function waitForPort(port, children, output, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolveWait, reject) => {
-    const dead = children.find((child) => child.exitCode !== null || child.signalCode !== null);
-    if (dead) return reject(new Error(`a relay process exited before listening on ${String(port)} (code ${String(dead.exitCode)})`));
     const attempt = () => {
       const gone = children.find((child) => child.exitCode !== null || child.signalCode !== null);
       if (gone) return reject(new Error(`a relay process exited before listening on ${String(port)} (code ${String(gone.exitCode)})`));
-      const socket = connect({ port, host: "127.0.0.1" }, () => {
-        socket.end();
-        resolveWait();
-      });
-      socket.on("error", () => {
-        socket.destroy();
-        if (Date.now() > deadline) reject(new Error(`relay did not listen on ${String(port)}`));
-        else setTimeout(attempt, 50);
-      });
+      if (output.join("").includes(`[relay] listening on ws://127.0.0.1:${String(port)}`)) {
+        const socket = connect({ port, host: "127.0.0.1" }, () => {
+          socket.end();
+          resolveWait();
+        });
+        socket.on("error", () => {
+          socket.destroy();
+          setTimeout(attempt, 50);
+        });
+      } else if (Date.now() > deadline) reject(new Error(`relay did not listen on ${String(port)}`));
+      else setTimeout(attempt, 50);
     };
     attempt();
   });
@@ -57,14 +64,18 @@ function waitForPort(port, children, timeoutMs = 60_000) {
 
 /** Starts the stack. `stop()` ends exactly the processes started here. */
 export async function startRoomRelay() {
-  const started = [];
-  try {
-    return await start(started);
-  } catch (error) {
-    // A stack that never came up must not leave its processes behind: they
-    // would keep the test run from ever exiting.
-    await stopAll(started);
-    throw error;
+  // The port is free when picked, not when the relay binds it: one that lost
+  // it to another process exits on EADDRINUSE, and gets a new one.
+  for (let attempt = 1; ; attempt++) {
+    const started = [];
+    try {
+      return await start(started);
+    } catch (error) {
+      // A stack that never came up must not leave its processes behind: they
+      // would keep the test run from ever exiting.
+      await stopAll(started);
+      if (attempt >= 3 || !String(error.message).includes("EADDRINUSE")) throw error;
+    }
   }
 }
 
@@ -122,7 +133,7 @@ async function start(children) {
     RELAY_ROOM_WARMUP_MS: "0",
   });
   try {
-    await waitForPort(port, children);
+    await waitForPort(port, children, output);
   } catch (error) {
     throw new Error(`${error.message}\n${output.join("").slice(-3000)}`);
   }
