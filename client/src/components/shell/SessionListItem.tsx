@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Check, SquareTerminal } from "lucide-react";
+import { SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
 import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
@@ -9,7 +9,6 @@ import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { RoomGlyph } from "@/components/sala/SalaIcons";
-import { isNewCompletion } from "@/lib/format/sessionCompletion";
 import type { RoomStatus } from "@/lib/sala/roomStatus";
 
 interface SessionListItemProps {
@@ -62,8 +61,8 @@ export const SessionListItem = memo(function SessionListItem({
   // left out. The profile is told apart by the colour bar, not by name.
   const lastActive = session.lastActiveAt === null ? null : formatCompactTime(session.lastActiveAt, locale);
 
-  // A completion is "new" for a while, then reads as the time since it ended.
-  const freshCompletion = completedAt !== undefined && isNewCompletion(completedAt, Date.now());
+  // Everything in Completed is unseen: it stays "new" until it is opened.
+  const freshCompletion = completedAt !== undefined;
 
   return (
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
@@ -104,11 +103,7 @@ export const SessionListItem = memo(function SessionListItem({
               style={{ borderTopColor: profileColorVar(session.profileId) }}
             />
           ) : completedAt !== undefined ? (
-            freshCompletion ? (
-              <span aria-label={dict.shell.sidebar.completedLabel} className="size-[7px] shrink-0 rounded-full bg-foreground" />
-            ) : (
-              <Check aria-label={dict.shell.sidebar.completedLabel} className="size-3 shrink-0 text-muted-foreground" />
-            )
+            <span aria-label={dict.shell.sidebar.completedLabel} className="size-[7px] shrink-0 rounded-full bg-foreground" />
           ) : (
             hasBackgroundJob && (
               <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
@@ -134,11 +129,8 @@ export const SessionListItem = memo(function SessionListItem({
             {roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed}
           </span>
         ) : completedAt !== undefined ? (
-          <span
-            title={formatAbsoluteTime(completedAt, locale)}
-            className={cn("shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))]", freshCompletion ? "text-foreground" : "text-text-faint")}
-          >
-            {freshCompletion ? dict.shell.sidebar.completedNew : formatCompactTime(completedAt, locale)}
+          <span title={formatAbsoluteTime(completedAt, locale)} className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-foreground">
+            {dict.shell.sidebar.completedNew}
           </span>
         ) : (
           lastActive !== null &&

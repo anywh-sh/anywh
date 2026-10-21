@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearCompletedSessions,
   getCompletedSessions,
-  isNewCompletion,
   markSessionCompleted,
   markSessionsSeen,
-  NEW_COMPLETION_MS,
   resetCompletedSessionsForTest,
   roomIsBusy,
   roomJustCompleted,
@@ -67,9 +65,3 @@ describe("room transitions", () => {
   });
 });
 
-describe("isNewCompletion", () => {
-  it("is new until the window passes", () => {
-    expect(isNewCompletion(0, NEW_COMPLETION_MS - 1)).toBe(true);
-    expect(isNewCompletion(0, NEW_COMPLETION_MS)).toBe(false);
-  });
-});

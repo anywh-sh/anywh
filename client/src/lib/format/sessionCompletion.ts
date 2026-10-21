@@ -11,9 +11,6 @@ import type { RoomStatus } from "@/lib/sala/roomStatus";
 
 export type CompletedMap = ReadonlyMap<string, number>;
 
-/** A completion younger than this is shown as "new"; older ones show the time. */
-export const NEW_COMPLETION_MS = 30 * 60 * 1000;
-
 /** Bounds the persisted map: the oldest entries go first. */
 const MAX_ENTRIES = 200;
 
@@ -56,10 +53,6 @@ export function roomJustCompleted(before: RoomStatus | undefined, after: RoomSta
 /** True when a room is doing something that takes it out of Completed. */
 export function roomIsBusy(status: RoomStatus): boolean {
   return status.working > 0 || status.needsYou > 0 || status.failed > 0;
-}
-
-export function isNewCompletion(finishedAt: number, now: number): boolean {
-  return now - finishedAt < NEW_COMPLETION_MS;
 }
 
 function readPersisted(): CompletedMap {
