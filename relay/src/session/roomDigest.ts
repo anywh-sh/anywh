@@ -31,7 +31,9 @@ function oneLine(text: string, max: number): string {
 function entryLines(entry: DigestEntry, index: number): string[] {
   const title = entry.title ? oneLine(entry.title, 80) : "(untitled)";
   const origin = entry.fromRelay ? " (noted by the relay, not by the agent)" : "";
-  const lines = [`${index + 1}. "${title}" (agentId ${entry.agentId}): ${entry.status}${origin}`, `   ${entry.summary.replace(/\n/g, "\n   ")}`];
+  // By name only: the principal talks of agents by name and message_agent
+  // takes it, so an id here would only end up in its answers to the person.
+  const lines = [`${index + 1}. "${title}": ${entry.status}${origin}`, `   ${entry.summary.replace(/\n/g, "\n   ")}`];
   if (entry.artifacts.length > 0) lines.push(`   Artifacts: ${entry.artifacts.join(", ")}`);
   return lines;
 }

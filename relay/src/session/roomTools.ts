@@ -6,45 +6,57 @@
 //
 // Pure: no I/O.
 import type { RoomToolSpec } from "../runtimes/types.js";
-import { ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
+import { ROOM_AGENT_NAME_MAX, ROOM_AGENT_PURPOSE_MAX, ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
 
 export const ROOM_MCP_SERVER_NAME = "anywh-room";
 
 export const DELEGATE_TOOL: RoomToolSpec = {
   name: "delegate",
   description:
-    "Start a new agent of this room on a task. Returns its agentId at once; it does not wait for the work. The agent " +
-    "reports back with a short summary when it finishes, and you are told then — do not poll for it.",
+    "Start a new agent of this room on a task. Returns at once; it does not wait for the work. The agent reports back with " +
+    "a short summary when it finishes, and you are told then — do not poll for it. To give more work to an agent that " +
+    "already exists, use message_agent instead.",
   inputSchema: {
     type: "object",
     properties: {
+      name: { type: "string", description: `The agent's name: its role in two or three words, in the person's language (e.g. "Slack", "Pricing research"). Unique in the room; at most ${ROOM_AGENT_NAME_MAX} characters.` },
+      purpose: { type: "string", description: "One line on what the agent is for (e.g. \"reads and summarizes Slack channels\"), so you can tell later whether new work fits it." },
       task: { type: "string", description: "Everything the agent needs to do the work on its own: goal, scope, constraints, where to put results." },
       runtime: { type: "string", description: "Which agent CLI runs it: claude or codex." },
       model: { type: "string", description: "Model of that runtime, e.g. haiku, sonnet or opus for claude." },
       effort: { type: "string", description: "Reasoning effort. Leave it out unless the task clearly needs more or less than the model's default." },
-      parentId: { type: "string", description: "Agent this one reports to. Defaults to you." },
-      area: { type: "string", description: "Named area of the room's canvas to place it in (e.g. Design, Research, Code)." },
+      parentId: { type: "string", description: "Name (or agentId) of the agent this one reports to. Defaults to you." },
+      area: {
+        type: "string",
+        description:
+          "Optional area of the room's canvas to place it in: an existing one, by its name as room_status lists it, or a new one " +
+          "named for what the agents in it share. Leave it out for an agent that belongs with no other.",
+      },
     },
-    required: ["task", "runtime", "model"],
+    required: ["name", "purpose", "task", "runtime", "model"],
   },
 };
 
 export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
   name: "message_agent",
-  description: "Send a message to one of the agents you started (or one below them). It is delivered as that agent's next turn.",
+  description:
+    "Send a message to one of the agents you started (or one below them), including one that already reported: it keeps " +
+    "its whole conversation, so this is how you give it a follow-up or a new task in its role. Delivered as its next turn.",
   inputSchema: {
     type: "object",
     properties: {
-      agentId: { type: "string" },
+      agent: { type: "string", description: "The agent's name (or its agentId)." },
       text: { type: "string" },
     },
-    required: ["agentId", "text"],
+    required: ["agent", "text"],
   },
 };
 
 export const ROOM_STATUS_TOOL: RoomToolSpec = {
   name: "room_status",
-  description: "List the agents of this room: who they report to, what they are doing or how they ended, and their latest report.",
+  description:
+    "List the agents of this room (name, purpose, area, who they report to, what they are doing or how they ended, latest " +
+    "report) and its areas, the ones the person made included.",
   inputSchema: { type: "object", properties: {} },
 };
 
@@ -129,12 +141,26 @@ export function principalInstructions(runtimes: readonly string[], context?: Roo
 
 function principalBase(runtimes: readonly string[]): string {
   return (
-    "You are the principal agent of an anywh room: the person talks to you, and you get work done by delegating it to other " +
+    "You are the principal agent of an anywh room: the person talks to you, and you get work done through the room's other " +
     "agents. You do not do the work yourself — you can only read files (Read, Grep, Glob) and use the room's tools " +
-    `(server ${ROOM_MCP_SERVER_NAME}): delegate starts an agent on a task and returns its agentId at once; message_agent ` +
-    "sends a message to an agent you started; room_status lists the room's agents and their reports. Give each agent a " +
-    "self-contained task. After delegating, end your turn and tell the person what you started — never wait or poll in a " +
-    "loop: each agent reports back with a short summary when it finishes, and you will be told. " +
+    `(server ${ROOM_MCP_SERVER_NAME}): delegate starts a new agent; message_agent gives more work to an agent that exists; ` +
+    "room_status lists the room's agents (name, purpose, area, state, latest report) and its areas.\n\n" +
+    "Plan before you delegate. Even when a request already reads like one task, break it down first: which parts it has, " +
+    "which depend on each other, which could run at the same time. Give each independent part that is worth an agent its own " +
+    "agent, and start them all in the same turn, one delegate call each, so they run in parallel. Keep together steps that " +
+    "depend on each other or are too small to pay for a new agent: each agent reads its context from scratch and costs the " +
+    "person tokens, and two agents changing the same files get in each other's way.\n\n" +
+    "Make good use of the agents you have. An agent keeps its whole conversation between tasks, also after it reported. " +
+    "Before starting a new one, look at the room's agents and their purposes: when one already does something similar " +
+    '(e.g. a "Slack" agent, for another Slack lookup), prefer sending the work to it with message_agent.\n\n' +
+    "Give each new agent a name — its role in two or three words, in the person's language; names are unique in the room — " +
+    "and a one-line purpose saying what it is for. With the person, call agents by their names; never show an agentId.\n\n" +
+    "Areas group agents on the room's canvas so the person finds them; an agent needs none. When a new agent fits an area " +
+    "that exists (room_status lists them, the person's included), place it there, by the area's name. When you start several " +
+    "agents for the same overall purpose, give them a shared area named for it. An agent unrelated to the others stays " +
+    "outside any area.\n\n" +
+    "Give each agent a self-contained task. After delegating, end your turn and tell the person what you started — never " +
+    "wait or poll in a loop: each agent reports back with a short summary when it finishes, and you will be told. " +
     `Runtimes you can delegate to: ${runtimes.join(", ")}. At most ${ROOM_MAX_LIVE_AGENTS} agents of a room can be live at once.`
   );
 }
@@ -155,7 +181,7 @@ function workerBase(): string {
     `yourself. When you finish — or fail, or cannot go on without help — call report (server ${ROOM_MCP_SERVER_NAME}) once, ` +
     `with status done, failed or blocked, a summary of at most ${ROOM_REPORT_SUMMARY_MAX} characters, and the paths of the ` +
     "files you produced as artifacts; then end your turn. Later messages in this conversation come from whoever started you " +
-    "or from the person. Do not rely on background jobs that outlive your turn. If your task changes files in a git repository, " +
+    "or from the person, and may give you more work in your role: report again, the same way, when you finish each. Do not rely on background jobs that outlive your turn. If your task changes files in a git repository, " +
     "call worktree_create with that repository first and make every change, and commit, inside the workdir it returns; " +
     "mention the branch in your report. Never remove a worktree or its branch yourself."
   );
@@ -185,6 +211,10 @@ function requiredString(args: Record<string, unknown>, key: string, max: number)
 }
 
 export interface DelegateArgs {
+  /** Absent from an agent whose tool list predates names (a Codex thread
+   * keeps the tools it was started with) and from the person's launcher. */
+  name?: string;
+  purpose?: string;
   task: string;
   runtime: string;
   model: string;
@@ -195,6 +225,10 @@ export interface DelegateArgs {
 
 export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
   const args = isRecord(raw) ? raw : {};
+  const name = optionalString(args, "name", ROOM_AGENT_NAME_MAX);
+  if (!name.ok) return name;
+  const purpose = optionalString(args, "purpose", ROOM_AGENT_PURPOSE_MAX);
+  if (!purpose.ok) return purpose;
   const task = requiredString(args, "task", ROOM_TASK_MAX);
   if (!task.ok) return task;
   const runtime = requiredString(args, "runtime", 64);
@@ -210,6 +244,8 @@ export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
   return {
     ok: true,
     value: {
+      ...(name.value ? { name: name.value } : {}),
+      ...(purpose.value ? { purpose: purpose.value } : {}),
       task: task.value,
       runtime: runtime.value.toLowerCase(),
       model: model.value,
@@ -246,17 +282,20 @@ export function parseReportArgs(raw: unknown): Parsed<ReportArgs> {
 }
 
 export interface MessageAgentArgs {
-  agentId: string;
+  /** The agent's name or id, as the caller wrote it. */
+  agent: string;
   text: string;
 }
 
 export function parseMessageAgentArgs(raw: unknown): Parsed<MessageAgentArgs> {
   const args = isRecord(raw) ? raw : {};
-  const agentId = requiredString(args, "agentId", 128);
-  if (!agentId.ok) return agentId;
+  // `agentId` is what the tool took before names: a Codex thread keeps the
+  // tool list it was started with.
+  const agent = requiredString(args.agent === undefined ? { agent: args.agentId } : args, "agent", 200);
+  if (!agent.ok) return agent;
   const text = requiredString(args, "text", ROOM_TASK_MAX);
   if (!text.ok) return text;
-  return { ok: true, value: { agentId: agentId.value, text: text.value } };
+  return { ok: true, value: { agent: agent.value, text: text.value } };
 }
 
 export function parseWorktreeCreateArgs(raw: unknown): Parsed<{ repo: string }> {

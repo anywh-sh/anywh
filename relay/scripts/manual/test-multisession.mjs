@@ -1,5 +1,5 @@
-// Testa: duas sessões nomeadas diferentes no mesmo relay têm conversas
-// independentes, e o endpoint /sessions lista os nomes corretos.
+// Tests: two differently named sessions on the same relay have independent
+// conversations, and the /sessions endpoint lists the right names.
 import WebSocket from "ws";
 import http from "node:http";
 
@@ -47,21 +47,21 @@ const b = connect("projeto-b");
 await new Promise((resolve) => a.socket.on("open", resolve));
 await new Promise((resolve) => b.socket.on("open", resolve));
 
-console.log("[test] sessions logo após conectar:", (await fetchSessions()).sessions);
+console.log("[test] sessions right after connecting:", (await fetchSessions()).sessions);
 
-a.socket.send(JSON.stringify({ type: "user_message", text: "Minha cor e AZUL. So confirme, nao repita." }));
-b.socket.send(JSON.stringify({ type: "user_message", text: "Minha cor e VERMELHO. So confirme, nao repita." }));
+a.socket.send(JSON.stringify({ type: "user_message", text: "My color is BLUE. Just confirm, do not repeat it." }));
+b.socket.send(JSON.stringify({ type: "user_message", text: "My color is RED. Just confirm, do not repeat it." }));
 await waitForTurnCount(a, 1);
 await waitForTurnCount(b, 1);
 
-console.log("[test] perguntando a cor em cada sessão (devem responder diferente)");
-a.socket.send(JSON.stringify({ type: "user_message", text: "Qual e minha cor? Responda so o nome da cor." }));
-b.socket.send(JSON.stringify({ type: "user_message", text: "Qual e minha cor? Responda so o nome da cor." }));
+console.log("[test] asking for the color in each session (they should answer differently)");
+a.socket.send(JSON.stringify({ type: "user_message", text: "What is my color? Answer with just the color name." }));
+b.socket.send(JSON.stringify({ type: "user_message", text: "What is my color? Answer with just the color name." }));
 await waitForTurnCount(a, 2);
 await waitForTurnCount(b, 2);
 
-console.log("[test] A (deveria mencionar AZUL):", lastResult(a));
-console.log("[test] B (deveria mencionar VERMELHO):", lastResult(b));
+console.log("[test] A (should mention BLUE):", lastResult(a));
+console.log("[test] B (should mention RED):", lastResult(b));
 console.log("[test] sessions no fim:", (await fetchSessions()).sessions);
 
 a.socket.close();

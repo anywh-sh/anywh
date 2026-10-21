@@ -65,13 +65,23 @@ async function createRoom(stack: Stack): Promise<string> {
 
 /** One principal turn that makes the calls the text names, and returns the
  * `agentId` of the first `delegate` among them. */
-async function delegateVia(socket: WebSocket, ...args: unknown[]): Promise<string[]> {
+/** The name each delegated agent was given, by id. */
+const names = new Map<string, string>();
+let delegated = 0;
+
+/** How a digest shows an agent: by its name, quoted. */
+const shown = (id: string): string => `"${names.get(id)}"`;
+
+async function delegateVia(socket: WebSocket, ...args: Record<string, unknown>[]): Promise<string[]> {
+  const named = args.map((a) => ({ name: `Agent ${++delegated}`, ...a }));
   const done = collectUntil(socket, isTurnEnded, 30_000);
-  sendUserMessage(socket, args.map((a) => marker("delegate", a)).join(" "));
+  sendUserMessage(socket, named.map((a) => marker("delegate", a)).join(" "));
   const messages = await done;
-  return messages
+  const ids = messages
     .filter((message) => message.type === "agent_event" && (message.event as { type?: string }).type === "tool_ended")
     .map((message) => (JSON.parse(String((message.event as { content?: unknown }).content)) as { agentId: string }).agentId);
+  ids.forEach((id, index) => names.set(id, named[index].name));
+  return ids;
 }
 
 /** Every digest turn a session announced to its clients, as its text. */
@@ -121,7 +131,7 @@ test("N reports make one turn of the principal, sent when the last agent under i
     await sleep(WINDOW_MS * 4);
     const digests = digestsIn(seen);
     assert.equal(digests.length, 1, `exactly one digest turn: ${JSON.stringify(digests)}`);
-    for (const text of ["result 1", "result 2", "result 3", "out-2.md", ...ids]) assert.ok(digests[0].includes(text), `the digest has ${text}`);
+    for (const text of ["result 1", "result 2", "result 3", "out-2.md", ...ids.map(shown)]) assert.ok(digests[0].includes(text), `the digest has ${text}`);
     assert.ok(digests[0].startsWith("[anywh-room]"));
     await waitFor(stack, async () => ((await members(stack, roomId)).find((m) => m.id === roomId)!.room.undeliveredReports ?? []).length === 0, 10_000, "the outbox emptied");
     socket.close();
@@ -151,7 +161,7 @@ test("a failed or blocked report wakes the principal at once, without waiting fo
     await waitFor(stack, () => digestsIn(seen).length > 0, 20_000, "the digest for the failure");
     let digests = digestsIn(seen);
     assert.equal(digests.length, 1);
-    assert.ok(digests[0].includes("the build broke") && digests[0].includes(failing));
+    assert.ok(digests[0].includes("the build broke") && digests[0].includes(shown(failing)));
     assert.ok(!digests[0].includes("slow result"));
     assert.match(digests[0], /1 more agent is still working/);
     assert.match(digests[0], /failed or is blocked/);
@@ -161,7 +171,7 @@ test("a failed or blocked report wakes the principal at once, without waiting fo
     await sleep(WINDOW_MS * 4);
     digests = digestsIn(seen);
     assert.equal(digests.length, 2, "one digest per round");
-    assert.ok(digests[1].includes("slow result") && digests[1].includes(slowOne));
+    assert.ok(digests[1].includes("slow result") && digests[1].includes(shown(slowOne)));
     assert.ok(!digests[1].includes("the build broke"), "what was handed over is not handed over again");
     socket.close();
   } finally {
@@ -203,7 +213,7 @@ test("a report goes to the closest live ancestor; when that agent is stopped, to
     writeFileSync(gateOrphan, "");
     await waitFor(stack, () => digestsIn(seenPrincipal).length > 1, 20_000, "the orphan's report reaching the principal");
     const text = digestsIn(seenPrincipal)[1];
-    assert.ok(text.includes("orphan result") && text.includes(orphanId));
+    assert.ok(text.includes("orphan result") && text.includes(shown(orphanId)));
     assert.equal(digestsIn(seenParent).length, 1, "the stopped parent is told nothing more");
     principal.close();
     parent.close();
@@ -296,8 +306,8 @@ test("an agent the person removed is not reported on: its report stays out of th
     await sleep(WINDOW_MS * 4);
     const digests = digestsIn(seen);
     assert.equal(digests.length, 1);
-    assert.ok(digests[0].includes("result 2") && digests[0].includes(ids[1]));
-    assert.ok(!digests[0].includes("result 1") && !digests[0].includes(ids[0]), "nothing about the removed agent");
+    assert.ok(digests[0].includes("result 2") && digests[0].includes(shown(ids[1])));
+    assert.ok(!digests[0].includes("result 1") && !digests[0].includes(shown(ids[0])), "nothing about the removed agent");
     socket.close();
   } finally {
     await stopStack(stack);

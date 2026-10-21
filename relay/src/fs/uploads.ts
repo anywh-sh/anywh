@@ -90,7 +90,7 @@ function runCommand(command: string, args: string[]): Promise<string> {
     proc.on("error", reject);
     proc.on("close", (code) => {
       if (code === 0) resolve(stdout);
-      else reject(new Error(`${command} saiu com código ${String(code)}: ${stderr.trim()}`));
+      else reject(new Error(`${command} exited with code ${String(code)}: ${stderr.trim()}`));
     });
   });
 }

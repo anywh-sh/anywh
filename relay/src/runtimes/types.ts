@@ -20,7 +20,7 @@
 // ---------------------------------------------------------------------------
 // Identity, capabilities, continuity — the descriptive half of the def.
 // Everything down to `ExecPlan` answers "what is this CLI", not "how do we
-// talk to it"; the fronteira dado/código lives at `identity.env`, whose
+// talk to it"; the data/code boundary lives at `identity.env`, whose
 // values are read into a child's environment by the engine, never computed
 // here.
 

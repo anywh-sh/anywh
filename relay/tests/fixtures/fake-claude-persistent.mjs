@@ -58,6 +58,8 @@
 //                        control request names it (then `task_updated`
 //                        killed, `task_notification` stopped), as measured
 //                        on Claude Code 2.1.303
+//   FAKE_CLAUDE_CACHE_READ_TOKENS=<n> (env): the cache-read part of every
+//   response's usage, so the prefix (the context in use) is a realistic size.
 //   FAKE_CLAUDE_DIGEST_REPLY=<text> (env, not a marker): a message that
 //                        starts with `[anywh-room]` (a room's digest) is
 //                        answered with exactly this text, as a principal
@@ -113,7 +115,7 @@ export async function runPersistent(args) {
     const absorbed = turn?.absorbed ?? [];
     const full = absorbed.length > 0 ? `${text} (absorbed: ${absorbed.join(" | ")})` : text;
     if (!error) {
-      emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "text", text: full }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+      emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "text", text: full }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: Number(process.env.FAKE_CLAUDE_CACHE_READ_TOKENS ?? 0) } } });
     }
     emit({
       type: "result",

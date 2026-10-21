@@ -15,8 +15,8 @@ name = "client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-# Sem isso o binário sai como `client.exe` (nome do pacote Cargo) em vez de
-# `anywh.exe` — tanto no instalador NSIS quanto no .exe portátil.
+# Without this the binary comes out as `client.exe` (the Cargo package name)
+# instead of `anywh.exe` — in both the NSIS installer and the portable .exe.
 name = "anywh"
 path = "src/main.rs"
 
@@ -78,9 +78,9 @@ windows = { version = "0.61", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-macos-permissions = "2"
 
-# Voz (ditado local) fora do escopo do MVP iOS (docs/22) — cpal/whisper-rs
-# puxam símbolos de CoreAudio/Accelerate que não linkam no target iOS sem
-# trabalho adicional. Desktop (Windows/macOS/Linux) continua com voz normal.
+# Voice (local dictation) is out of scope for the iOS MVP — cpal/whisper-rs
+# pull in CoreAudio/Accelerate symbols that do not link on the iOS target
+# without extra work. Desktop (Windows/macOS/Linux) keeps voice as usual.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 # relay_setup.rs's address suggestion enumerates the machine's interfaces —
 # the one thing std has no API for.
@@ -110,9 +110,9 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
-# Camada de chrome nativo (SwiftUI/Liquid Glass) do port iOS — docs/23, Fase E.
-# Promovido do spike de UI nativa (docs/22, spike 2/3): manager.viewController
-# + UIHostingController, com o comando real setConnectionIndicator.
+# Native chrome layer (SwiftUI/Liquid Glass) of the iOS port. Promoted from
+# the native-UI spike: manager.viewController + UIHostingController, with the
+# real setConnectionIndicator command.
 [target.'cfg(target_os = "ios")'.dependencies]
 tauri-plugin-native-chrome = { path = "plugins/tauri-plugin-native-chrome" }
 

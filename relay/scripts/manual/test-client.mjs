@@ -1,6 +1,6 @@
-// Cliente de teste manual do relay — conecta, manda 2 turnos, confirma que
-// o session_id se mantém entre eles (continuidade de contexto de verdade).
-// Rodar do diretório `relay/`, com o relay já no ar (`npm run dev`):
+// Manual relay test client — connects, sends 2 turns, confirms that the
+// session_id is kept across them (real context continuity).
+// Run from the `relay/` directory with the relay already up (`npm run dev`):
 // `node scripts/manual/test-client.mjs`.
 import WebSocket from "ws";
 
@@ -16,7 +16,7 @@ const sessionIdsSeen = [];
 socket.on("open", () => {
   console.log("[test] connected, sending turn 1");
   turn = 1;
-  send("Minha cor favorita e verde-anywh. So confirme que anotou, nao repita ela.");
+  send("My favorite color is anywh-green. Just confirm you noted it, do not repeat it.");
 });
 
 socket.on("message", (raw) => {
@@ -33,7 +33,7 @@ socket.on("message", (raw) => {
     if (turn === 1) {
       turn = 2;
       console.log("[test] sending turn 2 (testing continuity through the relay)");
-      send("Qual e minha cor favorita?");
+      send("What is my favorite color?");
     } else {
       console.log("--- resultado final ---");
       console.log("turnos completados:", sessionIdsSeen.length);

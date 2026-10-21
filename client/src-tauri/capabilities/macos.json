@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "macos-permissions",
-  "description": "Checagem/pedido de permissão de microfone no macOS (voice.rs usa CoreAudio direto via cpal, que não dispara o diálogo nativo sozinho — ver client/src/lib/voice.ts).",
+  "description": "Microphone permission check/request on macOS (voice.rs uses CoreAudio directly via cpal, which does not trigger the native dialog on its own — see client/src/lib/voice.ts).",
   "windows": ["*"],
   "platforms": ["macOS"],
   "permissions": ["macos-permissions:default"]

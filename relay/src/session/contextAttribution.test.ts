@@ -31,8 +31,8 @@ test("a resumed session's first usage has no predecessor: used is reported, but 
 });
 
 // ---- the delta-of-prefix table, real numbers from a real session -----------
-// (~/.claude/projects/-home-wil-personal-ultron/b2c9ad93….jsonl, journal §3):
-//    #    prefixo    delta cache_cr prevOut  atribuído  fonte
+// (~/.claude/projects/-home-wil-personal-ultron/b2c9ad93….jsonl):
+//    #    prefix     delta cache_cr prevOut  attributed source
 //    0     45448    45448    17344       0      45448  (baseline)
 //    4     56657     8256     8256    7023       1233  Agent ×3
 //    9     78089     6221     6221     951       5270  Read, Bash

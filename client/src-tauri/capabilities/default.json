@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main app window — modelo de janela única com abas; não cria mais janelas por perfil/sessão. Controles de janela (minimizar/maximizar/fechar/arrastar) ficam em capabilities/desktop.json (só plataformas com chrome de janela) — allow-is-focused fica aqui por ser universal (useWindowFocus.ts, App.tsx, usado inclusive fora da TitleBar).",
+  "description": "Capability for the main app window — single-window, tabbed model; it no longer creates windows per profile/session. Window controls (minimize/maximize/close/drag) live in capabilities/desktop.json (only platforms with window chrome) — allow-is-focused stays here because it is universal (useWindowFocus.ts, App.tsx, used outside the TitleBar too).",
   "windows": ["*"],
   "permissions": [
     "core:default",

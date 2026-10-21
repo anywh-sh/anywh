@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "ios",
-  "description": "Permissions só de iOS — plugin de chrome nativo. Controles de janela desktop (capabilities/desktop.json) não fazem sentido aqui.",
+  "description": "iOS-only permissions — native chrome plugin. Desktop window controls (capabilities/desktop.json) make no sense here.",
   "windows": ["*"],
   "platforms": ["iOS"],
   "permissions": ["native-chrome:default"]
