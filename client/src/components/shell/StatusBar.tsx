@@ -20,6 +20,7 @@ import { APP_VERSION } from "@/lib/install/appVersion";
 import { getGitStatus } from "@/lib/relay/gitClient";
 import { formatDurationLong, cn } from "@/lib/utils";
 import { findProfile, type Profile } from "@/lib/profiles/profiles";
+import { totalRoomStatuses, useRoomStatuses } from "@/lib/sala/roomStatus";
 
 interface StatusBarProps {
   /** The focused tab's profile — `null` with no tab open at all. */
@@ -47,6 +48,9 @@ interface StatusBarProps {
   /** Footer "parar tudo". */
   onStopAllBackgroundActivity: () => void;
 }
+
+/** The status bar's room figures: every room's agents folded into the same
+ * "running / need you / failed" line as the background activity. */
 
 /** What the left half renders when there is anything to render. A folder
  * outside a repository, an unreachable machine and a host without git all
@@ -223,12 +227,10 @@ export function StatusBar({
   const [activityOpen, setActivityOpen] = useState(false);
   const activityTriggerRef = useRef<HTMLButtonElement>(null);
   const activityStrings = dict.shell.statusBar.backgroundActivity;
-  const runCount = backgroundActivity.filter((item) => item.status === "run").length;
-  const failCount = backgroundActivity.filter((item) => item.status === "fail").length;
-  const activitySummary =
-    (runCount > 0 ? activityStrings.running.replace("{count}", String(runCount)) : activityStrings.none) +
-    (failCount > 0 ? ` · ${activityStrings.failedSuffix.replace("{count}", String(failCount))}` : "");
-
+  const rooms = totalRoomStatuses(useRoomStatuses().values());
+  const runCount = backgroundActivity.filter((item) => item.status === "run").length + rooms.working;
+  const failCount = backgroundActivity.filter((item) => item.status === "fail").length + rooms.failed;
+  const needYouCount = rooms.needsYou;
   const [repo, setRepo] = useState<RepoState>(null);
   const [shownKey, setShownKey] = useState<string | null>(key);
 
@@ -277,7 +279,7 @@ export function StatusBar({
           : dict.shell.statusBar.changes.replace("{count}", String(repo.changes));
 
   return (
-    <div className="flex h-7 shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome pr-2 pl-2.5 font-mono text-[11.5px] text-text-faint">
+    <div data-status-bar className="flex h-7 shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome pr-2 pl-2.5 font-mono text-[11.5px] text-text-faint">
       <DropdownMenu
         modal={false}
         open={activityOpen}
@@ -304,8 +306,19 @@ export function StatusBar({
             ) : (
               <span className="size-2 shrink-0 rounded-full border border-text-faint" />
             )}
-            <span className="whitespace-nowrap">{activitySummary}</span>
-            {failCount > 0 && <span className="size-[5px] shrink-0 bg-destructive" aria-hidden="true" />}
+            <span className="whitespace-nowrap">{runCount > 0 ? activityStrings.running.replace("{count}", String(runCount)) : activityStrings.none}</span>
+            {needYouCount > 0 && (
+              <>
+                <span className="ml-1.5 size-[7px] shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                <span className="whitespace-nowrap text-primary-ink">{activityStrings.needYou.replace("{count}", String(needYouCount))}</span>
+              </>
+            )}
+            {failCount > 0 && (
+              <>
+                <span className="ml-1.5 size-[7px] shrink-0 border border-destructive" aria-hidden="true" />
+                <span className="whitespace-nowrap text-destructive">{activityStrings.failedSuffix.replace("{count}", String(failCount))}</span>
+              </>
+            )}
             <span className="text-[8px] opacity-60">{activityOpen ? "▾" : "▴"}</span>
           </button>
         </DropdownMenuTrigger>

@@ -209,4 +209,32 @@ describe("sessionListCache", () => {
     const restarted = await freshModule();
     expect(restarted.getCachedSessions("work").sessions).toEqual([]);
   });
+  it("keeps a room's mark: on a row announced new, on one that was a plain row, and through a rename", async () => {
+    const cache = await freshModule();
+    cache.setCachedSessions("work", [{ id: "plain", title: "Plain", lastActiveAt: 10 }]);
+    cache.upsertCachedSession("work", "room", "The room", 200, true);
+    cache.upsertCachedSession("work", "plain", "Plain", 5, true);
+    const rows = Object.fromEntries(cache.getCachedSessions("work").sessions.map((s) => [s.id, s]));
+    expect(rows.room.room).toBe(true);
+    expect(rows.plain.room).toBe(true);
+    // A rename carries no room flag of its own and must not drop the mark.
+    cache.upsertCachedSession("work", "room", "The room, renamed", 200);
+    expect(cache.getCachedSessions("work").sessions.find((s) => s.id === "room")).toMatchObject({ title: "The room, renamed", room: true });
+  });
+
+  it("does not mark an ordinary session as a room", async () => {
+    const cache = await freshModule();
+    cache.upsertCachedSession("work", "chat", "A chat", 100);
+    expect(cache.getCachedSessions("work").sessions[0].room).toBeUndefined();
+  });
+
+  it("keeps a row's pending title only while the relay says the title is still on its way", async () => {
+    const cache = await freshModule();
+    cache.upsertCachedSession("work", "r1", "Fix the whole login flow, again", undefined, true, true);
+    expect(cache.getCachedSessions("work").sessions[0]).toMatchObject({ id: "r1", room: true, titlePending: true });
+    cache.upsertCachedSession("work", "r1", "Login flow", undefined, true);
+    const row = cache.getCachedSessions("work").sessions[0];
+    expect(row.title).toBe("Login flow");
+    expect(row.titlePending).toBeUndefined();
+  });
 });

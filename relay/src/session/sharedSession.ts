@@ -250,6 +250,11 @@ export interface SharedSessionOptions {
   onTurnStateChange?: () => void;
   /** Every event of every turn, for a room agent's usage tally. */
   onUsage?: (event: AgentEvent) => void;
+  /** A turn began (`startedAt` in epoch ms); `synthetic` is what started it
+   * when it was not a person's message or an agent's task. */
+  onTurnStarted?: (startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
+  /** The agent called a tool of the MCP server `server`. */
+  onMcpServerUsed?: (server: string) => void;
   /** A room agent's note for the model alone on its next turn (news of the
    * room's context), and what to run once that turn went through. */
   roomTurnNote?: () => { text: string; commit: () => void } | undefined;
@@ -761,6 +766,12 @@ export class SharedSession implements SessionDriverHost {
    * `generateTitle()` result, so a resolution that arrives after `/clear`
    * or a manual rename has moved the generation forward gets discarded
    * instead of overwriting a title that describes a different conversation. */
+  /** What `isCurrentTitleGeneration` compares against, for a caller that
+   * starts a title generation outside `onFirstPrompt`. */
+  currentTitleGeneration(): number {
+    return this.titleGeneration;
+  }
+
   isCurrentTitleGeneration(generation: number): boolean {
     return generation === this.titleGeneration;
   }
@@ -1560,6 +1571,7 @@ export class SharedSession implements SessionDriverHost {
     const clock = new ActivityClock(Date.now);
     const bridgeFilter = new BridgeToolFilter();
     this.turnStartedAt = clock.startedAt;
+    this.options.onTurnStarted?.(clock.startedAt, synthetic?.kind);
     this.runningFromQueue = false;
     this.broadcastTurnState();
 
@@ -1703,6 +1715,7 @@ export class SharedSession implements SessionDriverHost {
         // alters the turn's flow.
         this.options.onEvent?.(agentEvent);
         if (agentEvent.type === "usage") this.options.onUsage?.(agentEvent);
+        if (agentEvent.type === "tool_started" && agentEvent.subject?.kind === "mcp") this.options.onMcpServerUsed?.(agentEvent.subject.server);
       };
       const { stopped, contextUsage, lastAssistantText } =
         follow && this.driver.followTurnInFlight ? await this.driver.followTurnInFlight(onDriverEvent, { fromTranscript }) : await this.driver.sendTurn(ctx, onDriverEvent, hooks);

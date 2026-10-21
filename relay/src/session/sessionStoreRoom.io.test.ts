@@ -82,6 +82,11 @@ test("workers are left out of the sidebar list; principals and ordinary sessions
       store.listTitled().map((row) => row.id).sort(),
       ["p1", "plain"],
     );
+    // The principal's row is marked so a client opens it as a canvas.
+    assert.deepEqual(
+      store.listTitled().map((row) => [row.id, row.room]).sort(),
+      [["p1", true], ["plain", undefined]],
+    );
   });
 });
 

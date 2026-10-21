@@ -98,6 +98,9 @@ export interface ComposerProps {
   /** Extra classes for the outer frame — the new-session screen lifts it
    * with a shadow. */
   className?: string;
+  /** Replaces the empty field's hint (the new-session screen's room mode asks
+   * for a demand, not a task). The queue hint of a running turn still wins. */
+  placeholder?: string;
   /** Sent once, the first time the context usage popover opens — see
    * `ContextUsageButton`. */
   onRequestContextBreakdown: () => void;
@@ -491,6 +494,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     contextUsage,
     infoStart,
     className,
+    placeholder,
     onRequestContextBreakdown,
     compactBoundary,
     suggestion,
@@ -542,7 +546,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
   const placeholderRef = useRef(copy.placeholderTask);
-  placeholderRef.current = turnInFlight ? copy.placeholderQueue : copy.placeholderTask;
+  placeholderRef.current = turnInFlight ? copy.placeholderQueue : (placeholder ?? copy.placeholderTask);
   const [placeholderExtension] = useState(() => createPlaceholderExtension(suggestionRef, placeholderRef));
   // Set by `submit()` when the text looks like a typo'd command (`/cler`)
   // instead of either a real command or plain text — blocks the send until
@@ -646,7 +650,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (!editor) return;
     editor.view.dom.setAttribute("aria-label", copy.placeholder);
     editor.view.dispatch(editor.state.tr);
-  }, [editor, copy.placeholder]);
+  }, [editor, copy.placeholder, placeholder]);
 
   useImperativeHandle(ref, () => ({
     focus: () => editor?.commands.focus(),

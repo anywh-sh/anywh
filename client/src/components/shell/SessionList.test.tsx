@@ -1,10 +1,12 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { en } from "@/i18n/en";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
+import { publishRoomStatus, resetRoomStatuses } from "@/lib/sala/roomStatus";
+import { markSessionCompleted, resetCompletedSessionsForTest } from "@/lib/format/sessionCompletion";
 import { SessionList } from "./SessionList";
 
 const copy = en.shell.sidebar;
@@ -45,6 +47,7 @@ function renderList(props: Partial<ComponentProps<typeof SessionList>> = {}) {
 
 afterEach(() => {
   cleanup();
+  resetRoomStatuses();
 });
 
 describe("SessionList", () => {
@@ -186,6 +189,28 @@ describe("SessionList", () => {
   });
 });
 
+describe("SessionList completed group", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetCompletedSessionsForTest();
+  });
+
+  it("lists a finished, unopened session under Completed and clear sends it to Recent without folding", async () => {
+    markSessionCompleted("done", Date.now());
+    renderList({ sessions: [session({ id: "done", title: "Finished chat" }), session({ id: "other", title: "Other chat" })] });
+    const user = userEvent.setup();
+
+    const heading = screen.getByRole("button", { name: new RegExp(`^${copy.completed}`) });
+    expect(heading).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(copy.completedNew)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: copy.clearCompleted }));
+    expect(screen.queryByText(copy.completed)).not.toBeInTheDocument();
+    expect(screen.getByText("Finished chat")).toBeInTheDocument();
+    expect(screen.getByText(copy.recent).parentElement).toHaveTextContent(`${copy.recent}2`);
+  });
+});
+
 describe("SessionList — windowing", () => {
   it("renders a bounded number of rows regardless of how long the list is", () => {
     // A real install reaches the high hundreds of sessions across profiles.
@@ -210,5 +235,23 @@ describe("SessionList — windowing", () => {
     renderList({ sessions: [session({ id: "a", title: "Alpha" }), session({ id: "b", title: "Beta" })] });
     expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("Beta")).toBeInTheDocument();
+  });
+});
+
+describe("SessionList room state", () => {
+  it("lists a room that waits for the person first, and one that runs under what runs", () => {
+    renderList({
+      sessions: [session({ id: "chat", title: "A chat" }), session({ id: "r1", title: "Needs me", room: true }), session({ id: "r2", title: "Busy room", room: true })],
+    });
+    act(() => {
+      publishRoomStatus("r1", { agents: 3, working: 1, needsYou: 2, failed: 0, completed: false });
+      publishRoomStatus("r2", { agents: 2, working: 2, needsYou: 0, failed: 0, completed: false });
+    });
+    const headings = screen.getAllByRole("button", { expanded: true }).map((b) => b.textContent);
+    expect(headings[0]).toContain(copy.needsYou);
+    expect(headings[1]).toContain(copy.running);
+    expect(headings[2]).toContain(copy.recent);
+    // The count of what waits shows on the room's row.
+    expect(screen.getByTitle(copy.roomNeedsYou.replace("{count}", "2"))).toHaveTextContent("2");
   });
 });

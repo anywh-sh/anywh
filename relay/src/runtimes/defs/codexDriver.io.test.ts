@@ -302,8 +302,14 @@ test("stop(): sends turn/interrupt with the real threadId/turnId, and the in-fli
     const driver = new CodexSessionDriver(fixtureDef(bin), { host: noopHost });
     try {
       const pending = driver.sendTurn(turnContext(dir), () => {});
-      await waitFor(() => readFileSync(logFile, "utf8").includes("turn/start"));
-      assert.equal(driver.stop(), true);
+      // Settles through the `await` below; this only keeps a failed wait
+      // from leaving its rejection (dispose kills the daemon) unhandled.
+      pending.catch(() => {});
+      // The fixture logs `turn/start` before it answers, and the driver only
+      // learns the turn id from that answer — until then `stop()` rightly has
+      // nothing to interrupt and returns false. Waiting on the log raced that
+      // answer; wait for `stop()` itself to find the turn in flight instead.
+      await waitFor(() => driver.stop());
       const result = await pending;
       assert.equal(result.stopped, true);
       assert.ok(readFileSync(logFile, "utf8").includes("turn/interrupt"));

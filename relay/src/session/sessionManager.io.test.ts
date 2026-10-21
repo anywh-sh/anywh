@@ -146,3 +146,125 @@ test("createSession falls back to claudeRuntimeDef, without throwing, when regis
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("the live list update of a room's principal is marked as a room; an ordinary session's is not", () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-sessionmanager-room-test-"));
+  try {
+    const store = new SessionStore(join(dir, "sessions.json"), "/home/user");
+    const events: unknown[] = [];
+    const manager = new SessionManager(undefined, store, buildRegistry([claudeRuntimeDef]), undefined, undefined, undefined, undefined, undefined, undefined, (event) => events.push(event));
+    store.setTitle("plain", "Plain");
+    store.setTitle("p1", "Room");
+    store.setRoom("p1", { roomId: "p1", role: "principal", createdBy: "user", task: "", undeliveredReports: [] });
+    manager.renameTitle("plain", "Plain renamed");
+    manager.renameTitle("p1", "Room renamed");
+    assert.deepEqual(
+      events.map((e) => ({ id: (e as { id: string }).id, room: (e as { room?: true }).room })),
+      [
+        { id: "plain", room: undefined },
+        { id: "p1", room: true },
+      ],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A room agent is titled with its task's first line until a short title is
+// generated; clients draw a placeholder for exactly that wait, so the list
+// must say when it starts and when it ends, however it ends.
+function titleStack(generator: (text: string) => Promise<string | null>, maxMs?: number) {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-sessionmanager-title-test-"));
+  const store = new SessionStore(join(dir, "sessions.json"), "/home/user");
+  const events: { id: string; title: string; room?: true; titlePending?: true }[] = [];
+  const manager = new SessionManager(
+    undefined,
+    store,
+    buildRegistry([claudeRuntimeDef]),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    (event) => {
+      if (event.type === "upsert") events.push(event);
+    },
+    undefined,
+    undefined,
+    undefined,
+    { titleGenerator: (_def, _home, _cwd, text) => generator(text), ...(maxMs === undefined ? {} : { titlePendingMaxMs: maxMs }) },
+  );
+  store.setTitle("p1", "Fix the whole login flow, again");
+  store.setRoom("p1", { roomId: "p1", role: "principal", createdBy: "user", task: "", undeliveredReports: [] });
+  return { manager, store, events, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test("a generated title ends the wait: pending from the call to the title, and the list is told both times", async () => {
+  let finish: (title: string | null) => void = () => undefined;
+  const { manager, store, events, cleanup } = titleStack(() => new Promise((resolve) => (finish = resolve)));
+  try {
+    manager.generateTitle("p1", "Fix the whole login flow, again");
+    assert.equal(store.isTitlePending("p1"), true);
+    assert.equal(manager.listTitled().find((s) => s.id === "p1")?.titlePending, true);
+    assert.equal(events.at(-1)?.title, "Fix the whole login flow, again");
+    assert.equal(events.at(-1)?.titlePending, true);
+    assert.equal(events.at(-1)?.room, true);
+    finish("Login flow");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(store.isTitlePending("p1"), false);
+    assert.equal(store.getTitle("p1"), "Login flow");
+    assert.equal(events.at(-1)?.title, "Login flow");
+    assert.equal(events.at(-1)?.titlePending, undefined);
+    assert.equal(manager.listTitled().find((s) => s.id === "p1")?.titlePending, undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a failed generation ends the wait and keeps the provisional title", async () => {
+  const { manager, store, events, cleanup } = titleStack(() => Promise.reject(new Error("no CLI")));
+  const log = console.error;
+  console.error = () => undefined;
+  try {
+    manager.generateTitle("p1", "Fix the whole login flow, again");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(store.isTitlePending("p1"), false);
+    assert.equal(store.getTitle("p1"), "Fix the whole login flow, again");
+    assert.equal(events.at(-1)?.titlePending, undefined);
+  } finally {
+    console.error = log;
+    cleanup();
+  }
+});
+
+test("a generation that never answers stops being awaited after the limit, and a late title still lands", async () => {
+  let finish: (title: string | null) => void = () => undefined;
+  const { manager, store, events, cleanup } = titleStack(() => new Promise((resolve) => (finish = resolve)), 20);
+  try {
+    manager.generateTitle("p1", "Fix the whole login flow, again");
+    assert.equal(store.isTitlePending("p1"), true);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(store.isTitlePending("p1"), false);
+    assert.equal(events.at(-1)?.titlePending, undefined);
+    assert.equal(store.getTitle("p1"), "Fix the whole login flow, again");
+    finish("Login flow");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(store.getTitle("p1"), "Login flow");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a rename by hand ends the wait at once", () => {
+  const { manager, store, events, cleanup } = titleStack(() => new Promise(() => undefined));
+  try {
+    manager.generateTitle("p1", "Fix the whole login flow, again");
+    manager.renameTitle("p1", "By hand");
+    assert.equal(store.isTitlePending("p1"), false);
+    assert.equal(events.at(-1)?.title, "By hand");
+    assert.equal(events.at(-1)?.titlePending, undefined);
+  } finally {
+    cleanup();
+  }
+});

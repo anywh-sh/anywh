@@ -6,7 +6,8 @@ import type { useSessionDock } from "@/hooks/tabs/useSessionDock";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import { getDictionary } from "@/i18n";
-import type { Profile } from "@/lib/profiles/profiles";
+import { setCachedSessions } from "@/lib/format/sessionListCache";
+import { setProfiles, type Profile } from "@/lib/profiles/profiles";
 
 const activeProfile: Profile = {
   id: "profile-a",
@@ -18,6 +19,7 @@ const activeProfile: Profile = {
 function makeTabsState(): ReturnType<typeof useTabs> {
   return {
     openTab: vi.fn(),
+    convertToRoom: vi.fn(),
     focusGroup: vi.fn(),
     setTabTitle: vi.fn(),
     closeTab: vi.fn(),
@@ -90,7 +92,7 @@ describe("useSessionActions — focusSession family", () => {
     const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState, setActiveProfileId }) as never));
     result.current.focusSession("profile-b", "s1", "Title");
     expect(setActiveProfileId).toHaveBeenCalledWith("profile-b");
-    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title");
+    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title", false, false);
   });
 
   it("handleSelectSession delegates to focusSession and closes the drawer", () => {
@@ -100,8 +102,61 @@ describe("useSessionActions — focusSession family", () => {
     const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState, setActiveProfileId, setDrawerOpen }) as never));
     result.current.handleSelectSession({ profileId: "profile-b", id: "s1", title: "Title" } as never);
     expect(setActiveProfileId).toHaveBeenCalledWith("profile-b");
-    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title");
+    expect(tabsState.openTab).toHaveBeenCalledWith("profile-b", "s1", "Title", false, false);
     expect(setDrawerOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("opens a room's row as a room tab, and a plain row as a conversation", () => {
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.handleSelectSession({ profileId: "profile-b", id: "r1", title: "Room", room: true } as never);
+    expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "r1", "Room", false, true);
+  });
+
+  it("knows a room from the session list this device holds when it is reached by id alone", () => {
+    setCachedSessions("profile-b", [{ id: "r1", title: "Room", lastActiveAt: 1, room: true }, { id: "c1", title: "Chat", lastActiveAt: 1 }]);
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.handleSearchSelectSession("profile-b", "r1", "Room");
+    expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "r1", "Room", false, true);
+    result.current.handleSearchSelectSession("profile-b", "c1", "Chat");
+    expect(tabsState.openTab).toHaveBeenLastCalledWith("profile-b", "c1", "Chat", false, false);
+  });
+
+  it("asks the relay about a session it has no row for, and turns the tab into a canvas when it is a room", async () => {
+    setProfiles([activeProfile]);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({ canvas: { positions: {}, areas: [], texts: [] } }), { status: 200 }))));
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.focusSession("profile-a", "unseen", "Unseen");
+    await vi.waitFor(() => expect(tabsState.convertToRoom).toHaveBeenCalledWith("unseen", "unseen", "Unseen"));
+    vi.unstubAllGlobals();
+  });
+
+  it("leaves an ordinary session alone when the relay says it is no room", async () => {
+    setProfiles([activeProfile]);
+    const fetchSpy = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: "room not found" }), { status: 404 })));
+    vi.stubGlobal("fetch", fetchSpy);
+    const tabsState = makeTabsState();
+    const { result } = renderHook(() => useSessionActions(makeArgs({ tabsState }) as never));
+    result.current.focusSession("profile-a", "chat", "Chat");
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    // The whole probe is a chain of microtasks over a fetch that answers at
+    // once: one macrotask later it has run to its end.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(tabsState.convertToRoom).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not ask when the list already says what it is", () => {
+    setCachedSessions("profile-a", [{ id: "c1", title: "Chat", lastActiveAt: 1 }]);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { result } = renderHook(() => useSessionActions(makeArgs() as never));
+    result.current.focusSession("profile-a", "c1", "Chat");
+    result.current.focusSession("profile-a", "c2", "Other", false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("handleSearchSelectSession delegates to focusSession without touching the drawer", () => {

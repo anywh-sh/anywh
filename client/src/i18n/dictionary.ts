@@ -78,6 +78,8 @@ export interface Dictionary {
      * every already-stored session named in the old language while new ones
      * arrived in the new one. */
     untitledSession: string;
+    /** Accessible name of the placeholder drawn where a title is still being generated. */
+    generatingTitle: string;
   };
   settings: {
     title: string;
@@ -966,6 +968,8 @@ export interface Dictionary {
         /** `{count}` — appended after `running`/`none` with " · " between
          * them, only when at least one item failed. */
         failedSuffix: string;
+        /** Rooms' agents waiting for the person; takes `{count}`. */
+        needYou: string;
         /** Panel header label, the dropdown's own label row. */
         heading: string;
         /** Empty-state title, once every job is gone or dismissed. */
@@ -1037,8 +1041,23 @@ export interface Dictionary {
        * `window.alert`, which is unreliable in these webviews. */
       renameFailed: string;
       deleteFailed: string;
-      /** The one heading of the desktop sidebar list: the latest sessions. */
+      /** Headings of the desktop sidebar list: what waits for the person,
+       * what runs, then the latest sessions. */
+      needsYou: string;
+      running: string;
+      completed: string;
       recent: string;
+      /** "clear" beside the Completed heading, its tooltip, the "new" meta of
+       * a row not yet looked at, the row's label, and the link to search. */
+      clearCompleted: string;
+      clearCompletedTitle: string;
+      completedNew: string;
+      completedLabel: string;
+      olderInSearch: string;
+      /** A room row's tooltips; each takes `{count}`. */
+      roomNeedsYou: string;
+      roomWorking: string;
+      roomFailed: string;
       groups: {
         today: string;
         yesterday: string;
@@ -1245,6 +1264,244 @@ export interface Dictionary {
       description: string;
       placeholder: string;
       noResults: string;
+    };
+  };
+  /** The room: an agent orchestration canvas, a session type chosen on the new
+   * session screen. */
+  sala: {
+    /** The new-session selector between a conversation and a room. */
+    newSession: {
+      modeLabel: string;
+      conversation: string;
+      room: string;
+      placeholderRoom: string;
+      createFailed: string;
+    };
+    /** Accessible name of the room glyph in the session list and tab strip. */
+    roomGlyph: string;
+    /** The room's tab and its canvas. */
+    canvas: {
+      label: string;
+      loading: string;
+      gone: string;
+      reconnecting: string;
+      empty: string;
+    };
+    card: {
+      main: string;
+      /** `{title}`, `{status}`. */
+      aria: string;
+      untitled: string;
+      reply: string;
+      status: {
+        running: string;
+        starting: string;
+        yourTurn: string;
+        done: string;
+        stopped: string;
+        idle: string;
+        failed: string;
+        blocked: string;
+      };
+      activity: {
+        coordinating: string;
+        coordinatingOne: string;
+        working: string;
+        /** `{count}` native subtasks running. */
+        workingSubtasks: string;
+        needsApproval: string;
+        needsAnswer: string;
+        queued: string;
+        idle: string;
+        stopped: string;
+        noReport: string;
+      };
+      /** The line under the card; each takes `{time}` (`m:ss`) except
+       * `starting`. */
+      clock: {
+        running: string;
+        waiting: string;
+        done: string;
+        failed: string;
+        blocked: string;
+        stopped: string;
+        starting: string;
+        /** Same, when the relay knows how long the agent ran. */
+        doneTook: string;
+        failedTook: string;
+        blockedTook: string;
+      };
+      /** The bar over a selected card. */
+      actions: {
+        label: string;
+        open: string;
+        delegate: string;
+        group: string;
+        stop: string;
+        remove: string;
+      };
+    };
+    area: {
+      nameLabel: string;
+      namePlaceholder: string;
+      /** `{count}` agents. */
+      agents: string;
+      agentsOne: string;
+      /** `{count}` of its agents working. */
+      running: string;
+      /** `{count}` of its agents waiting for the person. */
+      waiting: string;
+      waitingMany: string;
+      remove: string;
+    };
+    text: {
+      label: string;
+      placeholder: string;
+    };
+    toolbar: {
+      label: string;
+      select: string;
+      hand: string;
+      newAgent: string;
+      newAgentSoon: string;
+      attach: string;
+      text: string;
+      area: string;
+      zoomOut: string;
+      zoomIn: string;
+      /** `{percent}`. */
+      zoomReset: string;
+      fit: string;
+      /** Tooltip words around a shortcut. */
+      orHold: string;
+      space: string;
+    };
+    /** The right-hand panel: about the room, one agent, the principal's chat. */
+    panel: {
+      close: string;
+      /** The "i" button over the canvas. */
+      about: string;
+      aboutRoom: {
+        /** `{count}` agents. */
+        subtitle: string;
+        statAgents: string;
+        statRunning: string;
+        statWaiting: string;
+        statDone: string;
+        where: string;
+        folder: string;
+        profile: string;
+        usage: string;
+        /** What the numbers are, and what they are not. */
+        usageNote: string;
+        usageEmpty: string;
+        /** `{count}` tokens. */
+        tokens: string;
+        connectors: string;
+        connectorsEmpty: string;
+        context: string;
+        contextBody: string;
+        contextEmpty: string;
+        worktrees: string;
+        worktreesEmpty: string;
+        /** `{size}`. */
+        worktreesTotal: string;
+        completedTitle: string;
+        /** `{count}` worktrees kept. */
+        completedKept: string;
+        completedKeptOne: string;
+        completedClean: string;
+      };
+      agent: {
+        /** `{runtime}`, `{model}`. */
+        subtitle: string;
+        /** `{title}`. */
+        delegatedBy: string;
+        principal: string;
+        work: string;
+        noWork: string;
+        /** `{count}` commits. */
+        commits: string;
+        commitsOne: string;
+        integrated: string;
+        notIntegrated: string;
+        /** `{size}`. */
+        worktreeSize: string;
+        connectors: string;
+        subtasks: string;
+        subtaskStop: string;
+        activity: string;
+        report: string;
+        failedTitle: string;
+        failedBody: string;
+        stoppedTitle: string;
+        removedWork: string;
+        permission: string;
+        messagePlaceholder: string;
+        reply: string;
+        working: string;
+        send: string;
+        sendFailed: string;
+        connecting: string;
+        openInTab: string;
+        delegate: string;
+        stop: string;
+        resume: string;
+        remove: string;
+      };
+      principal: {
+        /** `{model}`. */
+        subtitle: string;
+      };
+    };
+    /** The launcher over the toolbar. */
+    launcher: {
+      label: string;
+      placeholder: string;
+      /** `{title}`. */
+      delegatedBy: string;
+      pickParent: string;
+      agentLabel: string;
+      send: string;
+      /** `{count}` items. */
+      inherits: string;
+      escape: string;
+      failed: string;
+      full: string;
+    };
+    /** The answer popover anchored to a card. */
+    answer: {
+      label: string;
+      openConversation: string;
+      connecting: string;
+    };
+    /** A room whose agents all finished. */
+    completed: {
+      title: string;
+      /** `{count}`. */
+      kept: string;
+      keptOne: string;
+      review: string;
+    };
+    /** Removing an agent whose work was never integrated. */
+    discard: {
+      title: string;
+      /** `{title}`, `{work}`. */
+      body: string;
+      confirm: string;
+      cancel: string;
+    };
+    minimap: string;
+    toast: {
+      backTo100: string;
+      removed: string;
+      undo: string;
+      stopFailed: string;
+      removeFailed: string;
+      restoreFailed: string;
+      attached: string;
+      attachFailed: string;
+      saveFailed: string;
     };
   };
 }

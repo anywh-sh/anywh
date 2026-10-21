@@ -296,6 +296,14 @@ export interface SessionSummary {
    * normalizes it here so the rest of the app has one shape to handle
    * instead of an `undefined` that types claim can't happen. */
   lastActiveAt: number | null;
+  /** `true` on a room's principal: the row stands for the whole room, and
+   * opening it shows the canvas rather than a conversation. Absent from a
+   * relay older than rooms. */
+  room?: true;
+  /** `true` while `title` is only the provisional text and a generated one
+   * is on its way (a room's principal, titled from its first message): the
+   * row draws a placeholder instead. Absent from a relay older than that. */
+  titlePending?: true;
 }
 
 /** A profile as the relay's control API exposes it on `GET /control/profiles`
