@@ -292,9 +292,9 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       // Synthetic marker the CLI itself inserts into the transcript when
       // interrupted (`[Request interrupted by user]`, `[...for tool use]`,
       // `[...by a plugin for tool use]`) — not real assistant content.
-      // `turn_ended`'s `stopped` already covers this notice ("Interrompido
-      // pelo usuário."), so committing this too would have duplicated the
-      // message on screen.
+      // `turn_ended`'s `stopped` already covers this notice (the "stopped by
+      // you" line), so committing this too would have duplicated the message
+      // on screen.
       if (event.text.startsWith("[Request interrupted")) return state;
       // Unlike `user_message`'s synthetic timestamp, this one is a genuine
       // field the CLI itself stamps on every `assistant` stream-json line

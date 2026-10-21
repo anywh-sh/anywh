@@ -17,7 +17,7 @@ function readInitialWidth(): number {
 }
 
 export interface ResizableSidebar {
-  /** Largura efetiva em px — 0 quando colapsada, sem depender de regra CSS separada. */
+  /** Effective width in px — 0 when collapsed, without depending on a separate CSS rule. */
   width: number;
   collapsed: boolean;
   toggleCollapsed: () => void;

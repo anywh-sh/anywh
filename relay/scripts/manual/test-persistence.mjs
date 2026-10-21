@@ -1,8 +1,8 @@
-// Testa persistência de sessão: o nome da sessão aparece
-// em GET /sessions assim que conecta (mesmo sem session_id ainda) e o
-// session_id fica gravado em disco depois de um turno completar. Rodar do
-// diretório `relay/`, com o relay já no ar (`npm run dev`, sem
-// RELAY_SESSIONS_FILE definida — usa o fallback ./sessions.local.json):
+// Tests session persistence: the session name shows up in GET /sessions as
+// soon as it connects (even without a session_id yet) and the session_id is
+// written to disk after a turn completes. Run from the `relay/` directory
+// with the relay already up (`npm run dev`, with RELAY_SESSIONS_FILE unset —
+// it uses the ./sessions.local.json fallback):
 // `node scripts/manual/test-persistence.mjs`.
 import WebSocket from "ws";
 import http from "node:http";
@@ -30,12 +30,12 @@ await new Promise((resolve, reject) => {
   socket.on("error", reject);
 });
 
-console.log("[test] conectado, sessão:", SESSION_NAME);
+console.log("[test] connected, session:", SESSION_NAME);
 
 const sessionsRightAfterConnect = await fetchSessions();
-console.log("[test] /sessions logo após conectar:", sessionsRightAfterConnect.sessions);
+console.log("[test] /sessions right after connecting:", sessionsRightAfterConnect.sessions);
 if (!sessionsRightAfterConnect.sessions.includes(SESSION_NAME)) {
-  throw new Error("nome da sessão deveria aparecer em /sessions assim que conecta, mesmo sem session_id ainda");
+  throw new Error("the session name should show up in /sessions as soon as it connects, even without a session_id yet");
 }
 
 socket.send(JSON.stringify({ type: "user_message", text: "Diga apenas 'ok'." }));
@@ -58,16 +58,16 @@ console.log("[test] turno completo");
 
 const fileContent = JSON.parse(readFileSync(SESSIONS_FILE, "utf8"));
 const persistedId = fileContent[SESSION_NAME];
-console.log("[test] session_id persistido em disco:", persistedId);
+console.log("[test] session_id persisted on disk:", persistedId);
 if (!persistedId) {
-  throw new Error(`esperava um session_id persistido pra "${SESSION_NAME}", achei: ${JSON.stringify(persistedId)}`);
+  throw new Error(`expected a persisted session_id for "${SESSION_NAME}", found: ${JSON.stringify(persistedId)}`);
 }
 
 const sessionsAfterTurn = await fetchSessions();
 if (!sessionsAfterTurn.sessions.includes(SESSION_NAME)) {
-  throw new Error("nome da sessão sumiu de /sessions depois do turno");
+  throw new Error("the session name disappeared from /sessions after the turn");
 }
 
-console.log("[test] OK — persistência de sessão funcionando");
+console.log("[test] OK — session persistence working");
 socket.close();
 process.exit(0);

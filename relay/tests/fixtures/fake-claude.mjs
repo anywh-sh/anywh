@@ -365,8 +365,8 @@ if (args[0] === "--version") {
         type: "result",
         session_id: sessionId,
         is_error: true,
-        result: "interrompido pelo usuário",
-        errors: ["interrompido pelo usuário"],
+        result: "interrupted by the user",
+        errors: ["interrupted by the user"],
         modelUsage: { [model]: { contextWindow: 200000 } },
       });
     });
@@ -418,7 +418,7 @@ if (args[0] === "--version") {
     const holdFile = process.env.FAKE_CLAUDE_HOLD_AFTER_TOOLS;
     if (holdFile) {
       process.once("SIGINT", () => {
-        emitAndExit({ type: "result", session_id: sessionId, is_error: true, result: "interrompido pelo usuário", errors: ["interrompido pelo usuário"], modelUsage: { [model]: { contextWindow: 200000 } } });
+        emitAndExit({ type: "result", session_id: sessionId, is_error: true, result: "interrupted by the user", errors: ["interrupted by the user"], modelUsage: { [model]: { contextWindow: 200000 } } });
       });
     }
     const rules = parseAllowedRules(flagValue("--allowed-tools") ?? flagValue("--allowedTools"));
