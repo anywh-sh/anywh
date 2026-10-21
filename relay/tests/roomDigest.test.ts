@@ -19,6 +19,8 @@ interface Stack {
   relay: SpawnedServer;
   base: string;
   dir: string;
+  /** The room the test made last, whose members a timeout reports. */
+  roomId?: string;
 }
 
 async function startStack(hostEnv: Record<string, string> = {}, sessionsFile?: string): Promise<Stack> {
@@ -34,14 +36,25 @@ async function startStack(hostEnv: Record<string, string> = {}, sessionsFile?: s
 async function stopStack(stack: Stack): Promise<void> {
   stack.relay.cleanup();
   await stack.host.stop();
-  rmSync(stack.dir, { recursive: true, force: true });
+  rmSync(stack.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 }
 
 async function waitFor(stack: Stack, check: () => boolean | Promise<boolean>, timeoutMs = 15_000, what = "condition"): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await Promise.resolve(check()).catch(() => false))) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}\n${stack.relay.output.join("").slice(-3000)}\n${stack.host.output.join("").slice(-3000)}`);
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}\n${await roomState(stack)}\n${stack.relay.output.join("").slice(-3000)}\n${stack.host.output.join("").slice(-3000)}`);
     await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+/** What a timed-out wait needs to be diagnosed: who is in the room, whose
+ * reports wait where, and who was stopped. */
+async function roomState(stack: Stack): Promise<string> {
+  if (stack.roomId === undefined) return "(no room yet)";
+  try {
+    return JSON.stringify((await members(stack, stack.roomId)).map(({ id, room }) => ({ id, role: room.role, parentId: room.parentId, report: room.report?.status, outbox: room.undeliveredReports, stopped: room.stopped?.reason })));
+  } catch (error) {
+    return `(room state unavailable: ${String(error)})`;
   }
 }
 
@@ -60,7 +73,9 @@ async function members(stack: Stack, roomId: string): Promise<Member[]> {
 async function createRoom(stack: Stack): Promise<string> {
   const res = await fetch(`${stack.base}/rooms`, { method: "POST", body: JSON.stringify({ agentId: "claude", model: "haiku", cwd: stack.dir, title: "Digest room" }) });
   assert.equal(res.status, 201, await res.clone().text());
-  return ((await res.json()) as { roomId: string }).roomId;
+  const { roomId } = (await res.json()) as { roomId: string };
+  stack.roomId = roomId;
+  return roomId;
 }
 
 /** One principal turn that makes the calls the text names, and returns the
