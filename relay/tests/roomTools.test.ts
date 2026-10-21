@@ -136,6 +136,39 @@ test("the principal delegates, the worker is born in the host, works and reports
   }
 });
 
+test("a named agent is titled by its name, a second one with that name is refused, and it is messaged and parented by name", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const report = marker("report", { status: "done", summary: "3 unread" });
+    const first = await principalTurn(socket, marker("delegate", { name: "Slack", task: `Read #general ${report}`, runtime: "claude", model: "haiku", area: "Inbox" }));
+    const created = JSON.parse(first.last) as { agentId: string; name: string; area: string };
+    assert.deepEqual({ name: created.name, area: created.area }, { name: "Slack", area: "Inbox" });
+    let room = await members(roomId);
+    assert.equal(room.find((member) => member.id === created.agentId)?.title, "Slack", "the name is the title, with no generated one");
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === created.agentId)?.room.report !== undefined, 20_000, "the report");
+
+    const again = await principalTurn(socket, marker("delegate", { name: "slack", task: "Read #random", runtime: "claude", model: "haiku", area: "Inbox" }));
+    assert.equal(again.results[0].isError, true);
+    assert.match(again.results[0].content, /already an agent named "slack".*message_agent/);
+
+    const followUp = await principalTurn(
+      socket,
+      [
+        marker("message_agent", { agent: "SLACK", text: "and #random?" }),
+        marker("delegate", { name: "Slack helper", task: "Summarize threads", runtime: "claude", model: "haiku", area: "Inbox", parentId: "Slack" }),
+      ].join(" "),
+    );
+    assert.ok(followUp.results.every((result) => !result.isError), JSON.stringify(followUp.results));
+    assert.match(followUp.results[0].content, /Message queued for Slack/);
+    room = await members(roomId);
+    assert.equal(room.length, 3);
+    assert.equal(room.find((member) => member.title === "Slack helper")?.room.parentId, created.agentId);
+  } finally {
+    socket.close();
+  }
+});
+
 test("delegate refuses an unknown runtime or model, a parent outside the room, and a worker cannot delegate or a principal report", async () => {
   // The model catalog the relay probed off the (fake) CLI at boot.
   await waitFor(async () => {

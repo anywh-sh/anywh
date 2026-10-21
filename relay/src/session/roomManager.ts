@@ -28,6 +28,7 @@ import {
   liveAncestorId,
   roomAgentState,
   takesRoomPlace,
+  resolveAgentRef,
   titleFromTask,
   type RoomAgentState,
   type RoomMembership,
@@ -1136,6 +1137,27 @@ export class RoomManager implements RoomToolHost {
 
   // ------------------------------------------------------------ tools
 
+  /** An agent's name for a tool's answer: its title, or its id when it has
+   * none. */
+  private nameOf(id: string): string {
+    return this.store.getTitle(id) ?? id;
+  }
+
+  /** Which of `candidates` the caller means by `ref` (a name or an id), or
+   * the sentence that says why none. */
+  private resolveAgent(ref: string, candidates: readonly { id: string; room: RoomMembership }[], where: string): { id: string } | { error: string } {
+    const resolved = resolveAgentRef(ref, candidates.map(({ id }) => ({ id, title: this.store.getTitle(id) })));
+    if ("id" in resolved) return resolved;
+    if (resolved.error === "ambiguous") {
+      // A name an agent the person stopped still holds is free for a new
+      // one: the live agent is the one meant.
+      const live = resolved.ids.filter((id) => !candidates.find((candidate) => candidate.id === id)?.room.stopped);
+      if (live.length === 1) return { id: live[0] };
+      return { error: `More than one agent ${where} is named "${ref}" (agentIds ${resolved.ids.join(", ")}); use the agentId.` };
+    }
+    return { error: `There is no agent "${ref}" ${where}.` };
+  }
+
   private members(roomId: string): { id: string; room: RoomMembership }[] {
     return this.store.listRoomMembers(roomId);
   }
@@ -1153,11 +1175,26 @@ export class RoomManager implements RoomToolHost {
   private launchWorker(roomId: string, defaultParentId: string, args: DelegateArgs, createdBy: "user" | "agent"): RoomToolResult {
     const runtimes = this.runtimes();
     if (!runtimes.includes(args.runtime)) return fail(`Unknown runtime "${args.runtime}". Use one of: ${runtimes.join(", ")}.`);
-    const members = this.members(roomId);
-    const parentId = args.parentId ?? defaultParentId;
+    const members = this.members(roomId).filter((member) => member.room.stopped?.reason !== "removed");
+    let parentId = defaultParentId;
+    if (args.parentId !== undefined) {
+      const resolved = this.resolveAgent(args.parentId, members, "in this room");
+      if ("error" in resolved) return fail(`${resolved.error} parentId must be one of its agents.`);
+      parentId = resolved.id;
+    }
     const parent = members.find((member) => member.id === parentId);
     if (!parent) return fail(`There is no agent "${parentId}" in this room; parentId must be one of its agents.`);
-    if (parent.room.stopped) return fail(`Agent "${parentId}" was stopped; pick another parent.`);
+    if (parent.room.stopped) return fail(`Agent "${this.nameOf(parentId)}" was stopped; pick another parent.`);
+    if (args.name !== undefined) {
+      const key = args.name.toLocaleLowerCase();
+      const taken = members.find((member) => !member.room.stopped && this.store.getTitle(member.id)?.trim().toLocaleLowerCase() === key);
+      if (taken) {
+        return fail(
+          `There is already an agent named "${args.name}" in this room. If the work fits its role, send it with message_agent ` +
+            "(it keeps its conversation, also after reporting); otherwise pick another name.",
+        );
+      }
+    }
     const live = this.placesTaken(roomId);
     if (live >= ROOM_MAX_LIVE_AGENTS) {
       return fail(`room_cap_reached: this room already has ${live} agents at work, the limit is ${ROOM_MAX_LIVE_AGENTS}. Wait for one to report, or ask the person to stop one, before delegating more.`);
@@ -1195,12 +1232,18 @@ export class RoomManager implements RoomToolHost {
       // Persisted until it is delivered: a relay restart loses no task.
       queuedMessages: [{ text: args.task, at: this.now() }],
     });
-    // The task's first line stands in until a short title is generated from
-    // the whole task.
-    this.store.setTitle(workerId, titleFromTask(args.task));
-    this.options.sessions.generateTitle(workerId, args.task);
+    if (args.name !== undefined) {
+      // The name the principal gave is how it and the person refer to the
+      // agent, so it is the title, and no other is generated.
+      this.store.setTitle(workerId, args.name);
+    } else {
+      // The task's first line stands in until a short title is generated from
+      // the whole task.
+      this.store.setTitle(workerId, titleFromTask(args.task));
+      this.options.sessions.generateTitle(workerId, args.task);
+    }
     this.pump(workerId);
-    return ok(JSON.stringify({ agentId: workerId }));
+    return ok(JSON.stringify({ agentId: workerId, name: this.nameOf(workerId), ...(args.area ? { area: args.area } : {}) }));
   }
 
   private report(callerId: string, caller: RoomMembership, rawArgs: unknown): RoomToolResult {
@@ -1219,28 +1262,30 @@ export class RoomManager implements RoomToolHost {
     if (caller.role !== "principal") return fail("Only the room's principal can message other agents.");
     const parsed = parseMessageAgentArgs(rawArgs);
     if (!parsed.ok) return fail(parsed.error);
-    const { agentId, text } = parsed.value;
-    const target = this.store.getRoom(agentId);
     const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
-    if (!target || target.roomId !== caller.roomId || !isDescendant(agentId, callerId, parentOf)) {
-      return fail(`There is no agent "${agentId}" below you in this room.`);
-    }
-    if (target.stopped) return fail(`Agent "${agentId}" was stopped; it takes no messages.`);
+    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && isDescendant(member.id, callerId, parentOf));
+    const resolved = this.resolveAgent(parsed.value.agent, below, "below you in this room");
+    if ("error" in resolved) return fail(resolved.error);
+    const agentId = resolved.id;
+    const { text } = parsed.value;
+    const target = this.store.getRoom(agentId)!;
+    const name = this.nameOf(agentId);
+    if (target.stopped) return fail(`Agent "${name}" was stopped; it takes no messages.`);
     const queue = target.queuedMessages ?? [];
-    if (queue.length >= ROOM_QUEUE_PER_AGENT_MAX) return fail(`Agent "${agentId}" already has ${queue.length} messages waiting (the limit); wait for it to get to them.`);
+    if (queue.length >= ROOM_QUEUE_PER_AGENT_MAX) return fail(`Agent "${name}" already has ${queue.length} messages waiting (the limit); wait for it to get to them.`);
     const roomQueued = this.members(caller.roomId).reduce((sum, member) => sum + (member.room.queuedMessages?.length ?? 0), 0);
     if (roomQueued >= ROOM_QUEUE_PER_ROOM_MAX) return fail(`This room already has ${roomQueued} messages waiting (the limit); wait for its agents to get to them.`);
     // An agent at rest takes a place again once it has work: refused now if
     // there is none, rather than lost later.
     if (!takesRoomPlace(this.stateOf(agentId, target)) && this.placesTaken(caller.roomId) >= ROOM_MAX_LIVE_AGENTS) {
-      return fail(`room_cap_reached: this room already has ${ROOM_MAX_LIVE_AGENTS} agents at work; agent "${agentId}" cannot take this message until one is done.`);
+      return fail(`room_cap_reached: this room already has ${ROOM_MAX_LIVE_AGENTS} agents at work; agent "${name}" cannot take this message until one is done.`);
     }
     this.store.setRoom(agentId, { ...target, queuedMessages: [...queue, { text, at: this.now() }] });
     this.pump(agentId);
     if (!this.options.hostConnected()) {
-      return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; the agent host is not running, so it is delivered once it is back.`);
+      return ok(`Message queued for ${name}; the agent host is not running, so it is delivered once it is back.`);
     }
-    return ok(`Message queued for ${this.store.getTitle(agentId) ?? agentId}; it is delivered as its next turn.`);
+    return ok(`Message queued for ${name}; it is delivered as its next turn.`);
   }
 
   /** The CLI of a worker asks whether a tool call may run. The worker's
@@ -1263,8 +1308,8 @@ export class RoomManager implements RoomToolHost {
         const runtime = this.store.getAgentId(id);
         const state = this.stateOf(id, room);
         return {
+          name: this.store.getTitle(id),
           agentId: id,
-          title: this.store.getTitle(id),
           runtime,
           model: this.store.getModel(id, runtime) ?? null,
           parentId: room.parentId,

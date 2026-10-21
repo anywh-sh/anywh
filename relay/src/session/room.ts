@@ -82,6 +82,8 @@ export interface RoomMembership {
 export const ROOM_REPORT_SUMMARY_MAX = 1000;
 export const ROOM_REPORT_ARTIFACTS_MAX = 20;
 export const ROOM_TASK_MAX = 20_000;
+/** Longest name the principal may give an agent: it is the card's title. */
+export const ROOM_AGENT_NAME_MAX = 60;
 /** Most connectors remembered per agent. */
 export const ROOM_CONNECTORS_MAX = 30;
 /** MCP servers that are the relay's own plumbing, not connectors. */
@@ -222,4 +224,26 @@ export function titleFromTask(task: string, max = 60): string {
   const cut = firstLine.slice(0, max);
   const lastSpace = cut.lastIndexOf(" ");
   return `${(lastSpace > max / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+/** How an agent's caller names it: by id, by the start of its id (at least
+ * eight characters, as ids get shortened in prose), or by its name (its
+ * title), case and surrounding space ignored. `candidates` are the agents the
+ * caller may address. A name two of them share answers `ambiguous`. */
+export function resolveAgentRef(
+  ref: string,
+  candidates: readonly { id: string; title: string | null }[],
+): { id: string } | { error: "unknown" } | { error: "ambiguous"; ids: string[] } {
+  const wanted = ref.trim();
+  const exact = candidates.find((candidate) => candidate.id === wanted);
+  if (exact) return { id: exact.id };
+  const key = wanted.toLocaleLowerCase();
+  const named = candidates.filter((candidate) => candidate.title !== null && candidate.title.trim().toLocaleLowerCase() === key);
+  if (named.length === 1) return { id: named[0].id };
+  if (named.length > 1) return { error: "ambiguous", ids: named.map((candidate) => candidate.id) };
+  if (wanted.length >= 8) {
+    const prefixed = candidates.filter((candidate) => candidate.id.startsWith(wanted));
+    if (prefixed.length === 1) return { id: prefixed[0].id };
+  }
+  return { error: "unknown" };
 }

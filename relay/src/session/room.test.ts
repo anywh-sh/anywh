@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROOM_CONNECTORS_MAX, isConnectorServer, isDescendant, isRoomMembership, liveAncestorId, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
+import { ROOM_CONNECTORS_MAX, isConnectorServer, isDescendant, isRoomMembership, liveAncestorId, resolveAgentRef, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
 
 const worker: RoomMembership = { roomId: "p", role: "worker", parentId: "p", createdBy: "agent", task: "count lines" };
 const principal: RoomMembership = { roomId: "p", role: "principal", createdBy: "user", task: "", undeliveredReports: [] };
@@ -127,4 +127,19 @@ test("the clock and the connectors of an agent are part of its persisted record"
 test("the relay's own MCP bridges are not connectors", () => {
   for (const own of ["anywh-choice", "anywh-room", "anywh-permission", ""]) assert.equal(isConnectorServer(own), false, own);
   for (const server of ["figma", "claude_ai_Linear", "my-server"]) assert.equal(isConnectorServer(server), true, server);
+});
+
+test("resolveAgentRef finds an agent by id, by name whatever its case, or by the start of its id", () => {
+  const agents = [
+    { id: "5aac1c53-0000-4000-8000-000000000001", title: "Slack" },
+    { id: "5aac9999-0000-4000-8000-000000000002", title: "Pricing research" },
+    { id: "77777777-0000-4000-8000-000000000003", title: "Pricing research" },
+    { id: "88888888-0000-4000-8000-000000000004", title: null },
+  ];
+  assert.deepEqual(resolveAgentRef("5aac1c53-0000-4000-8000-000000000001", agents), { id: agents[0].id });
+  assert.deepEqual(resolveAgentRef("  slack ", agents), { id: agents[0].id });
+  assert.deepEqual(resolveAgentRef("5aac1c53", agents), { id: agents[0].id });
+  assert.deepEqual(resolveAgentRef("5aac", agents), { error: "unknown" }, "too short a prefix is not taken for an id");
+  assert.deepEqual(resolveAgentRef("pricing research", agents), { error: "ambiguous", ids: [agents[1].id, agents[2].id] });
+  assert.deepEqual(resolveAgentRef("Design", agents), { error: "unknown" });
 });

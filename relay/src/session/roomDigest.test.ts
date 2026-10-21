@@ -13,8 +13,8 @@ test("a digest lists every report, offers silence, and is recognised as an offer
   const text = buildRoomDigest([entry(), entry({ agentId: "a2", title: null, summary: "line one\nline two", artifacts: ["out.md", "b.md"] })], { stillWorking: 0 });
   assert.ok(text.startsWith(ROOM_DIGEST_PREFIX));
   assert.match(text, /2 agents you started have reported/);
-  assert.match(text, /1\. "Count lines" \(agentId a1\): done\n {3}42 lines/);
-  assert.match(text, /2\. "\(untitled\)" \(agentId a2\): done\n {3}line one\n {3}line two\n {3}Artifacts: out\.md, b\.md/);
+  assert.match(text, /1\. "Count lines": done\n {3}42 lines/);
+  assert.match(text, /2\. "\(untitled\)": done\n {3}line one\n {3}line two\n {3}Artifacts: out\.md, b\.md/);
   assert.ok(promptOffersSilence(text));
   assert.doesNotMatch(text, /failed or is blocked/);
 });

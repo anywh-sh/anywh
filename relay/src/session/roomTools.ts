@@ -6,7 +6,7 @@
 //
 // Pure: no I/O.
 import type { RoomToolSpec } from "../runtimes/types.js";
-import { ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
+import { ROOM_AGENT_NAME_MAX, ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
 
 export const ROOM_MCP_SERVER_NAME = "anywh-room";
 
@@ -18,14 +18,15 @@ export const DELEGATE_TOOL: RoomToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
+      name: { type: "string", description: `The agent's name: its role in two or three words, in the person's language (e.g. "Slack", "Pricing research"). Unique in the room; at most ${ROOM_AGENT_NAME_MAX} characters.` },
       task: { type: "string", description: "Everything the agent needs to do the work on its own: goal, scope, constraints, where to put results." },
       runtime: { type: "string", description: "Which agent CLI runs it: claude or codex." },
       model: { type: "string", description: "Model of that runtime, e.g. haiku, sonnet or opus for claude." },
       effort: { type: "string", description: "Reasoning effort. Leave it out unless the task clearly needs more or less than the model's default." },
-      parentId: { type: "string", description: "Agent this one reports to. Defaults to you." },
+      parentId: { type: "string", description: "Name (or agentId) of the agent this one reports to. Defaults to you." },
       area: { type: "string", description: "Named area of the room's canvas to place it in (e.g. Design, Research, Code)." },
     },
-    required: ["task", "runtime", "model"],
+    required: ["name", "task", "runtime", "model"],
   },
 };
 
@@ -35,10 +36,10 @@ export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      agentId: { type: "string" },
+      agent: { type: "string", description: "The agent's name (or its agentId)." },
       text: { type: "string" },
     },
-    required: ["agentId", "text"],
+    required: ["agent", "text"],
   },
 };
 
@@ -185,6 +186,9 @@ function requiredString(args: Record<string, unknown>, key: string, max: number)
 }
 
 export interface DelegateArgs {
+  /** Absent from an agent whose tool list predates names (a Codex thread
+   * keeps the tools it was started with) and from the person's launcher. */
+  name?: string;
   task: string;
   runtime: string;
   model: string;
@@ -195,6 +199,8 @@ export interface DelegateArgs {
 
 export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
   const args = isRecord(raw) ? raw : {};
+  const name = optionalString(args, "name", ROOM_AGENT_NAME_MAX);
+  if (!name.ok) return name;
   const task = requiredString(args, "task", ROOM_TASK_MAX);
   if (!task.ok) return task;
   const runtime = requiredString(args, "runtime", 64);
@@ -210,6 +216,7 @@ export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
   return {
     ok: true,
     value: {
+      ...(name.value ? { name: name.value } : {}),
       task: task.value,
       runtime: runtime.value.toLowerCase(),
       model: model.value,
@@ -246,17 +253,20 @@ export function parseReportArgs(raw: unknown): Parsed<ReportArgs> {
 }
 
 export interface MessageAgentArgs {
-  agentId: string;
+  /** The agent's name or id, as the caller wrote it. */
+  agent: string;
   text: string;
 }
 
 export function parseMessageAgentArgs(raw: unknown): Parsed<MessageAgentArgs> {
   const args = isRecord(raw) ? raw : {};
-  const agentId = requiredString(args, "agentId", 128);
-  if (!agentId.ok) return agentId;
+  // `agentId` is what the tool took before names: a Codex thread keeps the
+  // tool list it was started with.
+  const agent = requiredString(args.agent === undefined ? { agent: args.agentId } : args, "agent", 200);
+  if (!agent.ok) return agent;
   const text = requiredString(args, "text", ROOM_TASK_MAX);
   if (!text.ok) return text;
-  return { ok: true, value: { agentId: agentId.value, text: text.value } };
+  return { ok: true, value: { agent: agent.value, text: text.value } };
 }
 
 export function parseWorktreeCreateArgs(raw: unknown): Parsed<{ repo: string }> {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseReportArgs, parseWorktreeCreateArgs, roomToolsFor } from "./roomTools.js";
+import { DELEGATE_TOOL, parseDelegateArgs, parseMessageAgentArgs, parseReportArgs, parseWorktreeCreateArgs, roomToolsFor } from "./roomTools.js";
 
 test("only a worker is offered worktree_create; the principal, who changes nothing, is not", () => {
   assert.deepEqual(roomToolsFor("worker").map((tool) => tool.name), ["report", "worktree_create"]);
@@ -14,4 +14,20 @@ test("worktree_create needs a repo; report takes an integrated flag only as a bo
   assert.deepEqual(parseReportArgs({ status: "done", summary: "x", integrated: true }), { ok: true, value: { status: "done", summary: "x", artifacts: [], integrated: true } });
   assert.deepEqual(parseReportArgs({ status: "done", summary: "x", integrated: false }), { ok: true, value: { status: "done", summary: "x", artifacts: [] } });
   assert.equal(parseReportArgs({ status: "done", summary: "x", integrated: "yes" }).ok, false);
+});
+
+test("delegate asks for a name; one without it, from an older tool list or the person, is still taken", () => {
+  assert.deepEqual(DELEGATE_TOOL.inputSchema.required, ["name", "task", "runtime", "model"]);
+  assert.deepEqual(parseDelegateArgs({ name: " Slack ", task: "read #general", runtime: "Claude", model: "haiku", area: "Research" }), {
+    ok: true,
+    value: { name: "Slack", task: "read #general", runtime: "claude", model: "haiku", area: "Research" },
+  });
+  assert.deepEqual(parseDelegateArgs({ task: "x", runtime: "claude", model: "haiku" }), { ok: true, value: { task: "x", runtime: "claude", model: "haiku" } });
+  assert.equal(parseDelegateArgs({ name: "n".repeat(61), task: "x", runtime: "claude", model: "haiku" }).ok, false);
+});
+
+test("message_agent takes the agent by name or id, and still takes the agentId field it had before names", () => {
+  assert.deepEqual(parseMessageAgentArgs({ agent: "Slack", text: "and #random?" }), { ok: true, value: { agent: "Slack", text: "and #random?" } });
+  assert.deepEqual(parseMessageAgentArgs({ agentId: "5aac1c53", text: "hi" }), { ok: true, value: { agent: "5aac1c53", text: "hi" } });
+  assert.equal(parseMessageAgentArgs({ text: "hi" }).ok, false);
 });
