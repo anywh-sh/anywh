@@ -499,10 +499,9 @@
   padding: 0 4px 0 0;
   cursor: grab;
   white-space: nowrap;
-  /* A link coming down into the frame is never drawn across the label where
-     it can be helped: the bar sits in a gap between links (`--label-x`, world
-     units; the bar is scaled by --inv, so it is divided by it). */
-  left: calc(-1px + var(--label-x, 0px) / var(--inv, 1));
+  /* Where the design puts it: against the frame's left edge, links crossing
+     the label or not. */
+  left: -1px;
 }
 .sala-frame-meta {
   display: flex;

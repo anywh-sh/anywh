@@ -490,29 +490,3 @@ export function subtreeIds(agents: readonly RoomAgent[], id: string): string[] {
 }
 
 export { GRID };
-
-/** Roughly how wide an area's label is at 100%: its name, its counts and the
- * remove button. The bar is drawn at a constant size on screen, so this is
- * only used to choose where along the frame it can sit. */
-export function labelWidthEstimate(name: string, meta: string): number {
-  return Math.max(48, name.length * 9) + (meta === "" ? 0 : meta.length * 6.6 + 8) + 28;
-}
-
-/**
- * Where an area's label sits so that no link drawn down into the frame goes
- * through it: `linkXs` are where those links enter (distance from the frame's
- * left edge). The label takes the first gap between links that is wide enough
- * for `width`; when none is, the widest one, and the label is cut short of the
- * next link. All in world units.
- */
-export function labelSlot(linkXs: readonly number[], frameWidth: number, width: number): { left: number; room: number } {
-  const edge = 8;
-  const xs = [...linkXs].sort((a, b) => a - b);
-  const bounds = [0, ...xs, frameWidth];
-  const slots = bounds.slice(0, -1).map((start, i) => {
-    const from = i === 0 ? 0 : start + edge;
-    const to = (i === bounds.length - 2 ? frameWidth : bounds[i + 1]) - (i === bounds.length - 2 ? 0 : edge);
-    return { left: from, room: Math.max(0, to - from) };
-  });
-  return slots.find((slot) => slot.room >= width) ?? slots.reduce((best, slot) => (slot.room > best.room ? slot : best));
-}

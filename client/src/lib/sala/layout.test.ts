@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_BAR, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, labelSlot, labelWidthEstimate, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_BAR, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
@@ -302,28 +302,6 @@ describe("groupInto and subtreeIds", () => {
   it("lists an agent and all it delegated, deep", () => {
     const agents = [main, agent("a"), agent("b", { parentId: "a" }), agent("c", { parentId: "b" }), agent("d")];
     expect(subtreeIds(agents, "a").sort()).toEqual(["a", "b", "c"]);
-  });
-});
-
-describe("labelSlot", () => {
-  it("keeps the label at the start when no link comes in", () => {
-    expect(labelSlot([], 600, 250)).toEqual({ left: 0, room: 600 });
-  });
-  it("takes the first gap between links that fits the label", () => {
-    expect(labelSlot([156, 444, 732], 840, 250)).toEqual({ left: 164, room: 272 });
-  });
-  it("starts at the left when the first gap is wide enough", () => {
-    expect(labelSlot([400], 700, 250)).toEqual({ left: 0, room: 392 });
-  });
-  it("falls back to the widest gap, to be cut short of the next link", () => {
-    expect(labelSlot([156], 312, 250)).toEqual({ left: 0, room: 148 });
-  });
-});
-
-describe("labelWidthEstimate", () => {
-  it("grows with the name and the counts", () => {
-    expect(labelWidthEstimate("Design", "3 agents · 2 running")).toBeGreaterThan(labelWidthEstimate("Design", ""));
-    expect(labelWidthEstimate("Design", "")).toBeGreaterThan(labelWidthEstimate("", ""));
   });
 });
 

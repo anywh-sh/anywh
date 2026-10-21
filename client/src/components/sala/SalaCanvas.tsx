@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,7 @@ import {
 } from "@/lib/sala/camera";
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
-import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, labelSlot, labelWidthEstimate, membershipAfterDrop, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
 import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
@@ -164,20 +164,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
           return agent && rects.has(id) ? [agent] : [];
         });
         const rect = areaRect(area, rects);
-        // A link comes down into the frame at the middle of each card whose
-        // parent is outside it; the label sits in a gap between them.
-        const entering = members.flatMap((m) => {
-          const parent = m.parentId === undefined ? undefined : byId.get(m.parentId);
-          const card = rects.get(m.agentId);
-          return parent && card && !members.includes(parent) ? [card.x + card.w / 2 - rect.x] : [];
-        });
         const running = members.filter((m) => cardStatus(m, m.role === "principal" ? liveWorkers : 0).tone === "run").length;
         const waiting = members.filter((m) => cardStatus(m, m.role === "principal" ? liveWorkers : 0).tone === "wait").length;
-        const meta = [members.length === 1 ? dict.area.agentsOne : dict.area.agents.replace("{count}", String(members.length)), running > 0 ? `· ${dict.area.running.replace("{count}", String(running))}` : "", waiting > 0 ? dict.area.waiting.replace("{count}", String(waiting)) : ""].join(" ");
         return {
           area,
           rect,
-          slot: entering.length > 0 ? labelSlot(entering, rect.w, labelWidthEstimate(area.label || dict.area.namePlaceholder, meta)) : undefined,
           count: members.length,
           running,
           waiting,
@@ -1030,12 +1021,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
           })}
         </svg>
 
-        {frames.map(({ area, rect, slot, count, running, waiting }) => (
+        {frames.map(({ area, rect, count, running, waiting }) => (
           <div
             key={area.id}
             data-area-id={area.id}
             className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel")}
-            style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h, ...(slot === undefined ? {} : ({ "--label-x": `${String(Math.round(slot.left))}px` } as CSSProperties)) }}
+            style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
           >
             <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
               <input
