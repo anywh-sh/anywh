@@ -13,8 +13,9 @@ export const ROOM_MCP_SERVER_NAME = "anywh-room";
 export const DELEGATE_TOOL: RoomToolSpec = {
   name: "delegate",
   description:
-    "Start a new agent of this room on a task. Returns its agentId at once; it does not wait for the work. The agent " +
-    "reports back with a short summary when it finishes, and you are told then — do not poll for it.",
+    "Start a new agent of this room on a task. Returns at once; it does not wait for the work. The agent reports back with " +
+    "a short summary when it finishes, and you are told then — do not poll for it. To give more work to an agent that " +
+    "already exists, use message_agent instead.",
   inputSchema: {
     type: "object",
     properties: {
@@ -24,15 +25,17 @@ export const DELEGATE_TOOL: RoomToolSpec = {
       model: { type: "string", description: "Model of that runtime, e.g. haiku, sonnet or opus for claude." },
       effort: { type: "string", description: "Reasoning effort. Leave it out unless the task clearly needs more or less than the model's default." },
       parentId: { type: "string", description: "Name (or agentId) of the agent this one reports to. Defaults to you." },
-      area: { type: "string", description: "Named area of the room's canvas to place it in (e.g. Design, Research, Code)." },
+      area: { type: "string", description: "Area of the room's canvas to place it in, named for the workstream it serves (e.g. Design, Research, Login bug). Agents of the same workstream share an area." },
     },
-    required: ["name", "task", "runtime", "model"],
+    required: ["name", "task", "runtime", "model", "area"],
   },
 };
 
 export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
   name: "message_agent",
-  description: "Send a message to one of the agents you started (or one below them). It is delivered as that agent's next turn.",
+  description:
+    "Send a message to one of the agents you started (or one below them), including one that already reported: it keeps " +
+    "its whole conversation, so this is how you give it a follow-up or a new task in its role. Delivered as its next turn.",
   inputSchema: {
     type: "object",
     properties: {
@@ -130,12 +133,22 @@ export function principalInstructions(runtimes: readonly string[], context?: Roo
 
 function principalBase(runtimes: readonly string[]): string {
   return (
-    "You are the principal agent of an anywh room: the person talks to you, and you get work done by delegating it to other " +
+    "You are the principal agent of an anywh room: the person talks to you, and you get work done through the room's other " +
     "agents. You do not do the work yourself — you can only read files (Read, Grep, Glob) and use the room's tools " +
-    `(server ${ROOM_MCP_SERVER_NAME}): delegate starts an agent on a task and returns its agentId at once; message_agent ` +
-    "sends a message to an agent you started; room_status lists the room's agents and their reports. Give each agent a " +
-    "self-contained task. After delegating, end your turn and tell the person what you started — never wait or poll in a " +
-    "loop: each agent reports back with a short summary when it finishes, and you will be told. " +
+    `(server ${ROOM_MCP_SERVER_NAME}): delegate starts a new agent; message_agent gives more work to an agent that exists; ` +
+    "room_status lists the room's agents and their reports.\n\n" +
+    "Keep a small team of agents with distinct roles. An agent keeps its whole conversation between tasks, also after it " +
+    "reported, so before delegating look at the agents you already have: when one's role covers the request (the same topic, " +
+    'a follow-up to its work, or the same kind of tool — e.g. one "Slack" agent for every Slack lookup), send the request to ' +
+    "it with message_agent instead of starting another. Start a new agent only for a role nobody has, or for work that must " +
+    "run beside an agent that is busy.\n\n" +
+    "When a request has independent parts, give each part its own agent and start them all in the same turn, one delegate " +
+    "call each, so they run in parallel; put in one task only steps that depend on each other.\n\n" +
+    "Name each new agent after its role, in two or three words in the person's language (names are unique in the room), and " +
+    "place it in an area named for the workstream it serves; agents of the same workstream share an area, which groups them " +
+    "on the room's canvas. With the person, call agents by their names; never show an agentId.\n\n" +
+    "Give each agent a self-contained task. After delegating, end your turn and tell the person what you started — never " +
+    "wait or poll in a loop: each agent reports back with a short summary when it finishes, and you will be told. " +
     `Runtimes you can delegate to: ${runtimes.join(", ")}. At most ${ROOM_MAX_LIVE_AGENTS} agents of a room can be live at once.`
   );
 }
@@ -156,7 +169,7 @@ function workerBase(): string {
     `yourself. When you finish — or fail, or cannot go on without help — call report (server ${ROOM_MCP_SERVER_NAME}) once, ` +
     `with status done, failed or blocked, a summary of at most ${ROOM_REPORT_SUMMARY_MAX} characters, and the paths of the ` +
     "files you produced as artifacts; then end your turn. Later messages in this conversation come from whoever started you " +
-    "or from the person. Do not rely on background jobs that outlive your turn. If your task changes files in a git repository, " +
+    "or from the person, and may give you more work in your role: report again, the same way, when you finish each. Do not rely on background jobs that outlive your turn. If your task changes files in a git repository, " +
     "call worktree_create with that repository first and make every change, and commit, inside the workdir it returns; " +
     "mention the branch in your report. Never remove a worktree or its branch yourself."
   );

@@ -16,8 +16,8 @@ test("worktree_create needs a repo; report takes an integrated flag only as a bo
   assert.equal(parseReportArgs({ status: "done", summary: "x", integrated: "yes" }).ok, false);
 });
 
-test("delegate asks for a name; one without it, from an older tool list or the person, is still taken", () => {
-  assert.deepEqual(DELEGATE_TOOL.inputSchema.required, ["name", "task", "runtime", "model"]);
+test("delegate asks for a name and an area; one without them, from an older tool list or the person, is still taken", () => {
+  assert.deepEqual(DELEGATE_TOOL.inputSchema.required, ["name", "task", "runtime", "model", "area"]);
   assert.deepEqual(parseDelegateArgs({ name: " Slack ", task: "read #general", runtime: "Claude", model: "haiku", area: "Research" }), {
     ok: true,
     value: { name: "Slack", task: "read #general", runtime: "claude", model: "haiku", area: "Research" },
