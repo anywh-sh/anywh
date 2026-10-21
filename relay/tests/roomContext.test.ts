@@ -34,10 +34,15 @@ after(async () => {
   rmSync(contextRoot, { recursive: true, force: true });
 });
 
-async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 15_000, what = "condition"): Promise<void> {
+/** `describe` says what the wait looked at when it gave up (a timeout that
+ * only names its condition cannot tell a lost event from a late one). */
+async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 15_000, what = "condition", describe?: () => unknown): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}\n${relay?.output.join("").slice(-3000) ?? ""}`);
+    if (Date.now() > deadline) {
+      const state = describe ? JSON.stringify(await Promise.resolve(describe()).catch((error: unknown) => `unavailable: ${String(error)}`)) : "";
+      throw new Error(`timed out waiting for ${what}\n${state}\n${relay?.output.join("").slice(-3000) ?? ""}`);
+    }
     await new Promise((r) => setTimeout(r, 25));
   }
 }
@@ -142,7 +147,7 @@ test("workers born with the same index get byte-identical system prompts; a resu
     // whichever it has when its report is read.
     const isGamma = (author: string | undefined): boolean => author?.startsWith("Worker gamma") === true || author === "ok";
     const result = async (): Promise<Listing["items"][number] | undefined> => ((await (await fetch(`${base}/rooms/${roomId}/context`)).json()) as Listing).items.find((item) => item.name === "result-a.md");
-    await waitFor(async () => isGamma((await result())?.author), 20_000, "the result credited to its worker");
+    await waitFor(async () => isGamma((await result())?.author), 20_000, "the result credited to its worker", async () => ({ listed: await result(), members: await (await fetch(`${base}/rooms/${roomId}`)).json() }));
     const found = (await result())!;
     assert.equal(found.summary, "Findings of A");
   } finally {
