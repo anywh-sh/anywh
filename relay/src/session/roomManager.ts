@@ -50,7 +50,7 @@ import {
 import type { RoomWorktrees, WorktreeInfo } from "./roomWorktrees.js";
 import { buildNotice } from "./roomContextIndex.js";
 import type { RoomContextStore } from "./roomContextStore.js";
-import type { SessionStore } from "./sessionStore.js";
+import type { PersistedChoice, SessionStore } from "./sessionStore.js";
 import type { SharedSession, TurnOutcome } from "./sharedSession.js";
 
 function defaultSchedule(fn: () => void, ms: number): () => void {
@@ -130,6 +130,9 @@ export interface RoomManagerOptions {
 /** What the model's cache needs to be written once before siblings can read
  * it: measured at about 6 s for the first response to start. */
 export const ROOM_WARM_UP_MS = 6000;
+
+/** How much of a waiting agent's question its card is sent: one line. */
+const ROOM_QUESTION_MAX = 200;
 
 export interface CreateRoomInput {
   agentId?: unknown;
@@ -469,10 +472,14 @@ export class RoomManager implements RoomToolHost {
     const out: NeedsYou[] = [];
     // Nobody can usefully answer an agent that was stopped or removed.
     if (this.store.getRoom(id)?.stopped) return out;
+    const asked = (prompt: PersistedChoice): Pick<NeedsYou, "askedAt" | "question"> => {
+      const question = prompt.questions[0]?.question.split("\n").find((l) => l.trim() !== "")?.trim();
+      return { ...(prompt.askedAt !== undefined ? { askedAt: prompt.askedAt } : {}), ...(question ? { question: question.slice(0, ROOM_QUESTION_MAX) } : {}) };
+    };
     const choice = this.store.getPendingChoice(id);
-    if (choice) out.push({ kind: "choice", promptId: choice.promptId, ...(choice.askedAt !== undefined ? { askedAt: choice.askedAt } : {}), count: choice.questions.length });
+    if (choice) out.push({ kind: "choice", promptId: choice.promptId, ...asked(choice), count: choice.questions.length });
     const approval = this.store.getPendingApproval(id);
-    if (approval) out.push({ kind: "approval", promptId: approval.promptId, ...(approval.askedAt !== undefined ? { askedAt: approval.askedAt } : {}), count: approval.calls.length });
+    if (approval) out.push({ kind: "approval", promptId: approval.promptId, ...asked(approval), count: approval.calls.length });
     return out;
   }
 

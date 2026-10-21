@@ -23,7 +23,7 @@ interface AgentView {
   role: string;
   state: string;
   report?: { status: string; summary: string };
-  needsYou: { kind: string; promptId: string; count: number }[];
+  needsYou: { kind: string; promptId: string; count: number; question?: string }[];
 }
 
 test("a worker's tool call becomes an approval card and its turn ends; approving runs it in the next turn, denying never does", async () => {
@@ -79,6 +79,7 @@ test("a worker's tool call becomes an approval card and its turn ends; approving
     await waitFor(() => agents.size === 3 && [0, 1].every((i) => worker(i)?.state === "awaiting_user" && worker(i)?.needsYou[0]?.kind === "approval"), "two approvals waiting");
     assert.ok(!existsSync(approved) && !existsSync(denied));
     assert.ok([0, 1].every((i) => worker(i)?.report === undefined), "an agent waiting for the person has not reported");
+    assert.ok([0, 1].every((i) => (worker(i)?.needsYou[0]?.question ?? "") !== ""), "each card carries what it asks, for the canvas to show");
 
     // The workers are told apart by the file their card is about.
     const answerCard = async (agentId: string, selected: string): Promise<{ file: string }> => {

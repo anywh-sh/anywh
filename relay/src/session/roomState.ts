@@ -12,6 +12,9 @@ export interface NeedsYou {
   askedAt?: number;
   /** How many questions (or refused tool calls) the card holds. */
   count: number;
+  /** The first question's words, cut to one line, so the agent's card can
+   * show what it asks without opening the card. */
+  question?: string;
 }
 
 export interface RoomAgentView {
