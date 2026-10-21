@@ -484,6 +484,21 @@ test("a worker whose turn fails, or ends without a report, gets one from the rel
   }
 });
 
+test("a worker that ends its work without reporting is reminded once, and its report reaches the principal without a blocked one first", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { name: "Forgetful", purpose: "forgets to report", task: "Find the ticket [[report-when-reminded:NGL-1106]]", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report !== undefined, 20_000, "the report");
+    const worker = (await members(roomId)).find((member) => member.id === agentId)!;
+    assert.deepEqual([worker.room.report?.status, worker.room.report?.summary], ["done", "NGL-1106"], "the reminder's report, not a blocked one from the relay");
+    assert.equal((worker.room as { queuedMessages?: unknown[] }).queuedMessages, undefined, "nothing left queued");
+  } finally {
+    socket.close();
+  }
+});
+
 test("messages wait in a bounded, persisted queue; removing a worker removes the agents below it and its report", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);

@@ -52,6 +52,11 @@
 //                        and once all run (a Write writes its file) the agent
 //                        reports done (a verdict of no: reports blocked). Without `--permission-prompt-tool` the
 //                        call is refused for good, as the real CLI does
+//   [[report-when-reminded:<summary>]] end the turn with a text answer and
+//                        no report, as a model that forgets the tool does;
+//                        when the relay's reminder (a message starting "You
+//                        ended your turn without calling report") arrives,
+//                        report done with <summary>
 //   [[subagent]]         start a native subagent in the background (the
 //                        CLI's `task_started`/`background_tasks_changed`)
 //                        and end the turn; it runs until a `stop_task`
@@ -87,6 +92,7 @@ export async function runPersistent(args) {
   let staleBeforeNext = null; // gate path, see [[stale-result]]
   let turns = 0;
   let refusedAsks = null; // calls to try again on the next message
+  let reportWhenReminded = null; // summary to report once the relay reminds
   const subagents = new Map(); // task id -> tool use id, still running
 
   const emit = (event) => process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
@@ -178,6 +184,18 @@ export async function runPersistent(args) {
       emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent", description: "survey the repo" })) });
       emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
       finish("started a subagent");
+      return;
+    }
+    if (reportWhenReminded !== null && text.startsWith("You ended your turn without calling report")) {
+      const reported = await callRoomTool("report", { status: "done", summary: reportWhenReminded, artifacts: [] });
+      reportWhenReminded = null;
+      finish(`reminded: ${reported.text}`);
+      return;
+    }
+    const forgetful = /\[\[report-when-reminded:([^\]]+)\]\]/.exec(text);
+    if (forgetful) {
+      reportWhenReminded = forgetful[1];
+      finish("Here is the answer, written as text instead of a report.");
       return;
     }
     if (process.env.FAKE_CLAUDE_DIGEST_REPLY !== undefined && text.startsWith("[anywh-room]")) {
