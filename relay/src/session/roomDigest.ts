@@ -64,7 +64,7 @@ export function buildRoomDigest(entries: readonly DigestEntry[], options: { stil
   if (urgent) {
     parts.push("An agent failed or is blocked, which needs a decision: message it, delegate the work again, or tell the person what happened.");
   } else {
-    parts.push("Carry on with the work if these results call for it, or tell the person what matters in them.");
+    parts.push("Carry on with the work if these results call for it (the next stage of your plan, if it was waiting on them), or tell the person what matters in them.");
   }
   parts.push(`If nothing needs doing and the person has nothing to learn from this (the room already shows each agent's status), ${NO_REPLY_OFFER_EN}.`);
   return parts.join("\n");
