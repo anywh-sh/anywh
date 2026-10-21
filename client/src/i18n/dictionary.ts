@@ -1345,6 +1345,7 @@ export interface Dictionary {
       running: string;
       /** `{count}` of its agents waiting for the person. */
       waiting: string;
+      waitingMany: string;
       remove: string;
     };
     text: {
@@ -1384,8 +1385,6 @@ export interface Dictionary {
         where: string;
         folder: string;
         profile: string;
-        areas: string;
-        noAreas: string;
         usage: string;
         /** What the numbers are, and what they are not. */
         usageNote: string;

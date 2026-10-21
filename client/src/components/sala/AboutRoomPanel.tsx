@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Folder, GitBranch } from "lucide-react";
 import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
-import { AreaIcon, RoomGlyph } from "@/components/sala/SalaIcons";
+import { RoomGlyph } from "@/components/sala/SalaIcons";
 import { useRoomWorktrees } from "@/hooks/sala/useRoomWorktrees";
 import { contextKindLabel } from "@/lib/sala/contextKind";
 import { useDict } from "@/i18n";
-import { fetchRoomContext, fetchRoomMembers, type RoomAgent, type RoomCanvas, type RoomContextItem, type RoomMemberInfo } from "@/lib/relay/roomClient";
+import { fetchRoomContext, fetchRoomMembers, type RoomAgent, type RoomContextItem, type RoomMemberInfo } from "@/lib/relay/roomClient";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
 import { isRoomCompleted } from "@/lib/sala/roomStatus";
-import { cardStatus } from "@/lib/sala/agentCard";
 import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
 
 interface AboutRoomPanelProps {
@@ -20,7 +19,6 @@ interface AboutRoomPanelProps {
   /** The room's title is still the provisional text. */
   titlePending?: boolean;
   agents: readonly RoomAgent[];
-  canvas: RoomCanvas;
   /** Changes whenever something an agent reports could have changed what the panel shows. */
   refreshKey: string;
   onClose: () => void;
@@ -41,7 +39,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * and the worktrees they made. Read from the relay when it opens and again
  * when the room's agents report something new.
  */
-export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, canvas, refreshKey, onClose }: AboutRoomPanelProps) {
+export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, refreshKey, onClose }: AboutRoomPanelProps) {
   const dict = useDict().sala.panel.aboutRoom;
   const [members, setMembers] = useState<RoomMemberInfo[]>([]);
   const [context, setContext] = useState<RoomContextItem[] | null>(null);
@@ -77,15 +75,6 @@ export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, c
     for (const agent of agents) for (const server of agent.connectors) byServer.set(server, (byServer.get(server) ?? 0) + 1);
     return [...byServer.entries()];
   }, [agents]);
-  const areas = useMemo(
-    () =>
-      canvas.areas.map((area) => {
-        const inside = (area.members ?? []).flatMap((id) => agents.filter((a) => a.agentId === id));
-        const waiting = inside.filter((a) => cardStatus(a).tone === "wait").length;
-        return { area, count: inside.length, waiting };
-      }),
-    [canvas.areas, agents],
-  );
   const retained = retainedWorktrees(worktrees.data.worktrees);
   const completed = isRoomCompleted(agents);
 
@@ -131,20 +120,6 @@ export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, c
             <span className="grow">{dict.profile}</span>
             <span className="mono">{profile.label}</span>
           </div>
-        </Section>
-
-        <Section title={dict.areas}>
-          {areas.length === 0 && <p className="sala-side-empty">{dict.noAreas}</p>}
-          {areas.map(({ area, count, waiting }) => (
-            <div key={area.id} className="sala-side-row">
-              <AreaIcon size={14} />
-              <span className="grow">{area.label || "—"}</span>
-              <span className={waiting > 0 ? "mono warn" : "mono"}>
-                {count}
-                {waiting > 0 ? ` · ${String(waiting)}` : ""}
-              </span>
-            </div>
-          ))}
         </Section>
 
         <Section title={dict.usage}>

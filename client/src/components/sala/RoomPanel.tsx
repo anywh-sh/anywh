@@ -267,7 +267,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
         )}
       </div>
       {panel?.kind === "about" && (
-        <AboutRoomPanel profile={profile} roomId={roomId} title={principalTitle ?? dict.card.untitled} titlePending={principalTitlePending} agents={channel.agents} canvas={layout.canvas} refreshKey={refreshKey} onClose={() => setPanel(null)} />
+        <AboutRoomPanel profile={profile} roomId={roomId} title={principalTitle ?? dict.card.untitled} titlePending={principalTitlePending} agents={channel.agents} refreshKey={refreshKey} onClose={() => setPanel(null)} />
       )}
       {panelAgent && (
         <AgentPanel

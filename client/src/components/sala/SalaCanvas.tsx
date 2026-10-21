@@ -1049,7 +1049,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 {waiting > 0 && (
                   <span className="sala-frame-wait">
                     <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                    {dict.area.waiting.replace("{count}", String(waiting))}
+                    {(waiting === 1 ? dict.area.waiting : dict.area.waitingMany).replace("{count}", String(waiting))}
                   </span>
                 )}
               </span>
