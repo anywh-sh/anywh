@@ -141,7 +141,14 @@ async function spawnRelayOnce(extraEnv: Record<string, string>): Promise<{ serve
     },
     cleanup() {
       if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL");
-      rmSync(workDir, { recursive: true, force: true });
+      // The killed relay (or an agent process it started) may still be
+      // writing into its home as the removal walks it: ENOTEMPTY, retried. A
+      // temp directory that stays is no reason to fail a test that passed.
+      try {
+        rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY") throw error;
+      }
     },
   };
   return { server, ready };
