@@ -3,6 +3,7 @@ import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scrubAmbientEnv } from "./env.js";
 import { getFreePort } from "./ports.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -66,6 +67,7 @@ export async function startTestServer(): Promise<TestServer> {
   mkdirSync(homeDir, { recursive: true });
   const port = await getFreePort();
 
+  scrubAmbientEnv();
   process.env.RELAY_PORT = String(port);
   process.env.RELAY_HOST = "127.0.0.1";
   process.env.RELAY_HOME_OVERRIDE = homeDir;

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cleanEnv } from "./env.js";
 import { getFreePort } from "./ports.js";
 import { FAKE_AGENT_BIN, FAKE_SYSTEMCTL_BIN } from "./testServer.js";
 
@@ -92,7 +93,7 @@ async function spawnRelayOnce(extraEnv: Record<string, string>): Promise<{ serve
   const proc = spawn(process.execPath, ["--import", "tsx", SERVER_ENTRY], {
     cwd: RELAY_ROOT,
     env: {
-      ...process.env,
+      ...cleanEnv(),
       RELAY_PORT: String(port),
       RELAY_HOST: "127.0.0.1",
       RELAY_HOME_OVERRIDE: homeDir,

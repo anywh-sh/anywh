@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cleanEnv } from "./env.js";
 import { FAKE_AGENT_BIN } from "./testServer.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -37,7 +38,7 @@ export function startHostProcess(dir: string, home: string, extraEnv: Record<str
     ["--import", "tsx", HOST_ENTRY, "--profile", "test", "--host-id", `t-${process.pid}-${Math.random().toString(36).slice(2, 8)}`, "--socket", socketPath, "--data-dir", join(dir, "data")],
     {
       cwd: RELAY_ROOT,
-      env: { ...process.env, ANYWH_AGENT_HOST_DRAIN_GRACE_MS: "500", ANYWH_AGENT_HOST_HIBERNATE: "off", RELAY_HOME_OVERRIDE: home, AGENT_BIN: FAKE_AGENT_BIN, ...extraEnv },
+      env: { ...cleanEnv(), ANYWH_AGENT_HOST_DRAIN_GRACE_MS: "500", ANYWH_AGENT_HOST_HIBERNATE: "off", RELAY_HOME_OVERRIDE: home, AGENT_BIN: FAKE_AGENT_BIN, ...extraEnv },
     },
   );
   proc.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
