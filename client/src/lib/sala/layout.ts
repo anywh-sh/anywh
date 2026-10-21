@@ -5,13 +5,17 @@
 import type { RoomAgent, RoomCanvas, RoomCanvasArea } from "@/lib/relay/roomClient";
 import { GRID, boundsOf, snap, type Rect } from "@/lib/sala/camera";
 
-export const CARD_W = 264;
-export const CARD_W_MAIN = 312;
+// One width for every card, the principal's included: a card is a terminal
+// window, and the role is a word in its strip rather than a bigger box. The
+// height holds the title bar, three log lines and the strip. A multiple of
+// the grid, so a card snapped to it keeps both edges on it.
+export const CARD_W = 312;
+export const CARD_W_MAIN = CARD_W;
 export const CARD_H = 145;
 /** Vertical distance between a card and the ones it delegated. */
 export const ROW = 288;
 /** Horizontal distance between siblings. */
-export const COL = 288;
+export const COL = 336;
 /** Space an area keeps around its members. */
 export const AREA_PAD = 24;
 /** The label bar above an area's frame. */
