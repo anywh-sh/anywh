@@ -1440,6 +1440,8 @@ export interface Dictionary {
         removedWork: string;
         permission: string;
         messagePlaceholder: string;
+        reply: string;
+        working: string;
         send: string;
         sendFailed: string;
         connecting: string;

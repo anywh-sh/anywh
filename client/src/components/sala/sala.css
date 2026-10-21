@@ -1135,6 +1135,33 @@
   font: 400 11.5px var(--font-mono);
   color: var(--destructive);
 }
+/* The agent's latest reply, under the message field. */
+.sala-side-reply {
+  flex: none;
+  margin: 0 16px 12px;
+}
+.sala-side-reply .sala-side-h {
+  margin-bottom: 6px;
+}
+.sala-side-working {
+  color: var(--text-faint);
+}
+.sala-side-reply-body {
+  max-height: 168px;
+  overflow-y: auto;
+}
+.sala-side-reply-body .prose-chat {
+  line-height: 1.5;
+}
+/* A code block's header bar only carries the copy button, which this compact
+   view leaves out. */
+.sala-side-reply-body .bg-card > .border-b {
+  display: none;
+}
+.sala-side-reply > .sala-side-err {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .sala-send {
   width: 26px;
   height: 26px;

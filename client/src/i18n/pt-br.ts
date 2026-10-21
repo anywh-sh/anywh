@@ -1050,6 +1050,8 @@ export const ptBr: Dictionary = {
         removedWork: "O trabalho dele fica guardado até você remover.",
         permission: "Modo de permissão",
         messagePlaceholder: "Mensagem para este agente",
+        reply: "Resposta",
+        working: "trabalhando",
         send: "Enviar",
         sendFailed: "A mensagem não foi entregue.",
         connecting: "Conectando ao agente…",

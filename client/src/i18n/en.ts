@@ -1050,6 +1050,8 @@ export const en: Dictionary = {
         removedWork: "Its work is kept until you remove it.",
         permission: "Permission mode",
         messagePlaceholder: "Message this agent",
+        reply: "Reply",
+        working: "working",
         send: "Send",
         sendFailed: "The message did not go through.",
         connecting: "Connecting to the agent…",

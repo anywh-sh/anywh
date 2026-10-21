@@ -9,10 +9,13 @@ import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { Clock } from "@/components/sala/SalaCard";
 import { CheckIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
+import { MarkdownContent } from "@/components/chat/MarkdownContent";
+import { useAgentReply } from "@/hooks/sala/useAgentReply";
 import { useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { useDict } from "@/i18n";
 import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
+import { shouldShowReply } from "@/lib/sala/agentReply";
 import { cardClock, cardStatus } from "@/lib/sala/agentCard";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { agentWork, formatBytes } from "@/lib/sala/roomFigures";
@@ -63,13 +66,16 @@ export function AgentPanel(props: AgentPanelProps) {
       </SalaSidePanel>
     );
   }
-  return <WorkerPanel {...props} title={title} subtitle={subtitle} />;
+  return <WorkerPanel key={agent.agentId} {...props} title={title} subtitle={subtitle} />;
 }
 
 function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, title, subtitle, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
   const dict = useDict();
   const text = dict.sala.panel.agent;
-  const session = useRelayClient(profile, agent.agentId);
+  // The panel's one connection to the worker's session. Its replies are read off
+  // the same socket (what the agent last said is not the principal's chat).
+  const { reply, handlers } = useAgentReply();
+  const session = useRelayClient(profile, agent.agentId, handlers);
   const status = cardStatus(agent, 0);
   const clock = cardClock(agent, observedSince, 0);
   const { subtasks, reload } = useAgentSubtasks(profile, roomId, agent.agentId, agent.subtasksRunning);
@@ -271,6 +277,26 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
           </button>
         </div>
       </div>
+      {shouldShowReply(reply, (agent.report?.summary ?? "") !== "") && (
+        <div className="sala-side-reply">
+          <h3 className="sala-side-h">
+            {text.reply}
+            {reply.running && <span className="sala-side-working"> · {text.working}</span>}
+          </h3>
+          {reply.text !== "" && (
+            <div className="sala-side-reply-body scrollbar-thin">
+              <div className="prose-chat text-[13px] text-foreground">
+                <MarkdownContent text={reply.text} />
+              </div>
+            </div>
+          )}
+          {reply.error !== null && (
+            <p className="sala-side-err" role="status">
+              {reply.error}
+            </p>
+          )}
+        </div>
+      )}
     </SalaSidePanel>
   );
 }
