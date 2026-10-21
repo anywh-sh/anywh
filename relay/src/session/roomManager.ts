@@ -723,9 +723,13 @@ export class RoomManager implements RoomToolHost {
         this.recordReport(sessionId, room, { ...room.report, summary: `${room.report.summary}${note}`.slice(0, ROOM_REPORT_SUMMARY_MAX + note.length) });
       } else if (outcome.error !== undefined) {
         this.recordReport(sessionId, room, { status: "failed", summary: `The agent's turn failed: ${outcome.error}`.slice(0, ROOM_REPORT_SUMMARY_MAX), artifacts: [], synthetic: true });
-      } else if (!reportedThisTurn && !this.awaitingUser(sessionId)) {
+      } else if (!reportedThisTurn && !this.awaitingUser(sessionId) && (sending !== undefined || room.report === undefined)) {
         // Not blocked when it ended its turn to wait for the person: it is
-        // waiting for them, which is its own state.
+        // waiting for them, which is its own state. Nor when the person wrote
+        // to an agent that had already reported and it simply answered: a
+        // turn the relay did not send (`sending`) is the person's own, and
+        // an answer owes no new report. What the principal or the task sent
+        // does.
         this.recordReport(sessionId, room, { status: "blocked", summary: "The agent ended its turn without reporting.", artifacts: [], synthetic: true });
       }
     }

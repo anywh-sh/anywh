@@ -365,6 +365,29 @@ test("stopping a worker frees its place, drops what was queued for it and never 
   }, 20_000, "every agent of the room removed from the host");
 });
 
+test("a person's question to a worker that already reported is answered without turning it blocked", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const report = marker("report", { status: "done", summary: "counted 7 files", artifacts: [] });
+    const { results } = await principalTurn(socket, marker("delegate", { task: `count ${report}`, runtime: "claude", model: "haiku" }));
+    const agentId = (JSON.parse(results[0].content) as { agentId: string }).agentId;
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report?.status === "done", 20_000, "the worker's own report");
+    const worker = await connectSession(relay.port, agentId);
+    try {
+      const ended = collectUntil(worker, isTurnEnded, 20_000);
+      sendUserMessage(worker, "just a question, no report needed");
+      await ended;
+    } finally {
+      worker.close();
+    }
+    const after = (await members(roomId)).find((member) => member.id === agentId)!.room.report as { status: string; summary: string; synthetic?: boolean };
+    assert.deepEqual([after.status, after.summary, after.synthetic], ["done", "counted 7 files", undefined]);
+  } finally {
+    socket.close();
+  }
+});
+
 test("a worker whose turn fails, or ends without a report, gets one from the relay, and the principal's outbox has it", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);
