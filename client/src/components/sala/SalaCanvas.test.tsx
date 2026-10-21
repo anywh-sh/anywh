@@ -248,3 +248,22 @@ describe("SalaCanvas — a title still being generated", () => {
     expect(card("a").querySelector('[role="status"]')).toBeNull();
   });
 });
+
+describe("SalaCanvas — what a running card's lines say", () => {
+  it("words each action like the conversation's Working block, the newest on the last line", () => {
+    const worker = agent("a", {
+      startedAt: 10_000,
+      activity: [
+        { id: "1", verb: "mcp", target: "linear.get_issue", startedAt: 10_000, endedAt: 40_000 },
+        { id: "2", verb: "read", target: "socket.ts", startedAt: 40_000, endedAt: 55_000 },
+        { id: "3", verb: "think", startedAt: 55_000 },
+      ],
+    });
+    mount(canvasOf(), { agents: [agents[0], worker, agents[2]] });
+    const rows = [...card("a").querySelectorAll(".sala-line")].map((row) => row.textContent);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toBe("0:30Queried linear.get_issue");
+    expect(rows[1]).toBe("0:45Read socket.ts");
+    expect(rows[2]).toContain("Thinking");
+  });
+});

@@ -29,6 +29,19 @@ export interface RoomReportView {
   fromRelay?: boolean;
 }
 
+/** One thing an agent did (a tool call, a bout of reasoning), as the relay
+ * saw it. `verb` is a key of the conversation's activity verbs, or `think`. */
+export interface RoomAction {
+  id: string;
+  verb: "think" | "read" | "edit" | "write" | "shell" | "searchFiles" | "searchContent" | "webSearch" | "webFetch" | "mcp" | "task" | "other";
+  target?: string;
+  /** Epoch ms. */
+  startedAt: number;
+  /** Absent while it is going on. */
+  endedAt?: number;
+  failed?: true;
+}
+
 export interface RoomAgent {
   agentId: string;
   role: "principal" | "worker";
@@ -50,6 +63,9 @@ export interface RoomAgent {
   startedAt?: number;
   /** MCP servers the agent has called, in order of first use. */
   connectors: string[];
+  /** Its latest actions, oldest first; absent from a relay that does not
+   * send them. */
+  activity?: RoomAction[];
 }
 
 export interface RoomSummary {
