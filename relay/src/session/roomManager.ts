@@ -61,6 +61,13 @@ function defaultSchedule(fn: () => void, ms: number): () => void {
   return () => clearTimeout(timer);
 }
 
+/** A member without its stop: the agent is back at work. */
+function withoutStop(room: RoomMembership): RoomMembership {
+  const { stopped: _stopped, ...rest } = room;
+  void _stopped;
+  return rest;
+}
+
 /** What a worker is told, once, when it ends a turn of work without
  * reporting. */
 export const ROOM_REPORT_REMINDER =
@@ -217,7 +224,10 @@ export class RoomManager implements RoomToolHost {
     const room = this.store.getRoom(sessionId);
     if (!room) return "This agent is no longer part of a room.";
     if (this.store.getRoom(room.roomId)?.role !== "principal") return "This agent's room no longer exists.";
-    if (room.stopped) return "This agent was stopped. Resume it from its room to give it more work.";
+    // Stopped is not closed: like an ordinary session's Stop, it only ended
+    // the turn, and the next message wakes the agent. Only a removed agent
+    // takes no more turns.
+    if (room.stopped?.reason === "removed") return "This agent was removed from its room.";
     return undefined;
   }
 
@@ -377,10 +387,11 @@ export class RoomManager implements RoomToolHost {
     return { ok: true, agentId: (JSON.parse(result.text) as { agentId: string }).agentId };
   }
 
-  /** The person stops one worker (only that card): its turn is
-   * interrupted, nothing queued for it runs, its process is ended in the
-   * host, and it is marked stopped, which frees its place under the room's
-   * cap and closes its room tools. */
+  /** The person stops one worker (only that card), as Stop does in an
+   * ordinary session: its turn is interrupted, nothing queued for it runs,
+   * and its process is ended in the host. It is marked stopped, which frees
+   * its place under the room's cap, until a new message wakes it: the
+   * conversation is kept, and the next turn resumes it. */
   async stopAgent(roomId: string, agentId: string): Promise<StopAgentResult> {
     const room = this.store.getRoom(agentId);
     if (this.store.getRoom(roomId)?.role !== "principal" || room?.roomId !== roomId) return { ok: false, status: 404, error: "no such agent in this room" };
@@ -396,7 +407,8 @@ export class RoomManager implements RoomToolHost {
     try {
       await this.options.stopInHost?.(agentId);
     } catch (error) {
-      // Marked stopped regardless: its driver refuses to start it again.
+      // Marked stopped regardless: the host resumes the conversation on the
+      // next message either way.
       console.warn(`[relay] could not stop agent ${agentId} in the agent host: ${(error as Error).message}`);
     }
     return { ok: true };
@@ -409,9 +421,7 @@ export class RoomManager implements RoomToolHost {
     if (room.role !== "worker") return { ok: false, status: 400, error: "only a worker is resumed this way" };
     if (!room.stopped) return { ok: true };
     if (room.stopped.reason === "removed") return { ok: false, status: 404, error: "no such agent in this room" };
-    const { stopped: _stopped, ...rest } = room;
-    void _stopped;
-    this.store.setRoom(agentId, rest);
+    this.store.setRoom(agentId, withoutStop(room));
     return { ok: true };
   }
 
@@ -465,8 +475,12 @@ export class RoomManager implements RoomToolHost {
    * principal is not work of its own, so it does not). */
   noteTurnStarted(id: string, startedAt: number, synthetic?: string): void {
     const room = this.store.getRoom(id);
-    if (!room || synthetic === "room_digest" || room.startedAt === startedAt) return;
-    this.store.setRoom(id, { ...room, startedAt });
+    if (!room || synthetic === "room_digest") return;
+    // A stopped agent given a new turn (the person's message, or one from
+    // the agent above it) is back at work.
+    const awake = room.stopped && room.stopped.reason !== "removed" ? withoutStop(room) : room;
+    if (awake === room && room.startedAt === startedAt) return;
+    this.store.setRoom(id, { ...awake, startedAt });
   }
 
   /** A member called a tool of MCP server `server`: remembered as a
@@ -1207,11 +1221,11 @@ export class RoomManager implements RoomToolHost {
     if (parent.room.stopped) return fail(`Agent "${this.nameOf(parentId)}" was stopped; pick another parent.`);
     if (args.name !== undefined) {
       const key = args.name.toLocaleLowerCase();
-      const taken = members.find((member) => !member.room.stopped && this.store.getTitle(member.id)?.trim().toLocaleLowerCase() === key);
+      const taken = members.find((member) => this.store.getTitle(member.id)?.trim().toLocaleLowerCase() === key);
       if (taken) {
         return fail(
           `There is already an agent named "${args.name}" in this room. If the work fits its role, send it with message_agent ` +
-            "(it keeps its conversation, also after reporting); otherwise pick another name.",
+            "(it keeps its conversation, also after reporting or being stopped); otherwise pick another name.",
         );
       }
     }
@@ -1291,7 +1305,6 @@ export class RoomManager implements RoomToolHost {
     const { text } = parsed.value;
     const target = this.store.getRoom(agentId)!;
     const name = this.nameOf(agentId);
-    if (target.stopped) return fail(`Agent "${name}" was stopped; it takes no messages.`);
     const queue = target.queuedMessages ?? [];
     if (queue.length >= ROOM_QUEUE_PER_AGENT_MAX) return fail(`Agent "${name}" already has ${queue.length} messages waiting (the limit); wait for it to get to them.`);
     const roomQueued = this.members(caller.roomId).reduce((sum, member) => sum + (member.room.queuedMessages?.length ?? 0), 0);
@@ -1301,7 +1314,8 @@ export class RoomManager implements RoomToolHost {
     if (!takesRoomPlace(this.stateOf(agentId, target)) && this.placesTaken(caller.roomId) >= ROOM_MAX_LIVE_AGENTS) {
       return fail(`room_cap_reached: this room already has ${ROOM_MAX_LIVE_AGENTS} agents at work; agent "${name}" cannot take this message until one is done.`);
     }
-    this.store.setRoom(agentId, { ...target, queuedMessages: [...queue, { text, at: this.now() }] });
+    // Work for a stopped agent wakes it, as the person's own message does.
+    this.store.setRoom(agentId, { ...withoutStop(target), queuedMessages: [...queue, { text, at: this.now() }] });
     this.pump(agentId);
     if (!this.options.hostConnected()) {
       return ok(`Message queued for ${name}; the agent host is not running, so it is delivered once it is back.`);
