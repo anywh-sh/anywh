@@ -1315,6 +1315,9 @@ export interface Dictionary {
         idle: string;
         stopped: string;
         noReport: string;
+        /** Reasoning, while it goes on and once it is over. */
+        thinking: string;
+        thought: string;
       };
       /** The line under the card; each takes `{time}` (`m:ss`) except
        * `starting`. */
