@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent } from "@/lib/relay/roomClient";
-import { cardActivity, cardClock, cardStatus, firstLine, formatClock, progressSegments, trackStateSince } from "@/lib/sala/agentCard";
+import { cardActivity, cardClock, cardStatus, firstLine, formatClock, trackStateSince } from "@/lib/sala/agentCard";
 
 function agent(over: Partial<RoomAgent> = {}): RoomAgent {
   return {
@@ -134,13 +134,5 @@ describe("trackStateSince", () => {
   it("forgets an agent that left", () => {
     const first = trackStateSince(new Map(), [{ agentId: "a", state: "working" }], 100);
     expect(trackStateSince(first, [], 200).size).toBe(0);
-  });
-});
-
-describe("progress", () => {
-  it("lights the whole bar only for a finished agent", () => {
-    expect(progressSegments("done").lit).toBeGreaterThan(0);
-    expect(progressSegments("run")).toEqual({ lit: 0, live: true });
-    expect(progressSegments("wait")).toEqual({ lit: 0, live: false });
   });
 });

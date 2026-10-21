@@ -7,7 +7,7 @@ import { GRID, boundsOf, snap, type Rect } from "@/lib/sala/camera";
 
 export const CARD_W = 264;
 export const CARD_W_MAIN = 312;
-export const CARD_H = 156;
+export const CARD_H = 145;
 /** Vertical distance between a card and the ones it delegated. */
 export const ROW = 288;
 /** Horizontal distance between siblings. */

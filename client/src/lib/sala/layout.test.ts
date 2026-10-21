@@ -187,10 +187,10 @@ describe("treeOrder", () => {
 describe("areaRect", () => {
   it("wraps its members with the area padding", () => {
     const cards = new Map([
-      ["a", { x: 0, y: 0, w: 264, h: 156 }],
-      ["b", { x: 288, y: 264, w: 264, h: 156 }],
+      ["a", { x: 0, y: 0, w: 264, h: 145 }],
+      ["b", { x: 288, y: 264, w: 264, h: 145 }],
     ]);
-    expect(areaRect({ id: "x", label: "", x: 0, y: 0, members: ["a", "b"] }, cards)).toEqual({ x: -AREA_PAD, y: -AREA_PAD, w: 552 + AREA_PAD * 2, h: 420 + AREA_PAD * 2 });
+    expect(areaRect({ id: "x", label: "", x: 0, y: 0, members: ["a", "b"] }, cards)).toEqual({ x: -AREA_PAD, y: -AREA_PAD, w: 552 + AREA_PAD * 2, h: 409 + AREA_PAD * 2 });
   });
   it("stretches when a member moves away", () => {
     const area = { id: "x", label: "", x: 0, y: 0, members: ["a", "b"] };
@@ -205,29 +205,29 @@ describe("areaRect", () => {
 
 describe("edgePath", () => {
   it("goes down, across, down for a child below its parent", () => {
-    expect(edgePath({ x: 0, y: 0, w: 264, h: 156 }, { x: 288, y: 264, w: 264, h: 156 })).toBe("M132 156V180H420V264");
+    expect(edgePath({ x: 0, y: 0, w: 264, h: 145 }, { x: 288, y: 264, w: 264, h: 145 })).toBe("M132 145V169H420V264");
   });
   it("runs across the middle when the rows are close", () => {
-    expect(edgePath({ x: 0, y: 0, w: 264, h: 156 }, { x: 288, y: 200, w: 264, h: 156 })).toBe("M132 156V178H420V200");
+    expect(edgePath({ x: 0, y: 0, w: 264, h: 145 }, { x: 288, y: 200, w: 264, h: 145 })).toBe("M132 145V172.5H420V200");
   });
   it("goes around the side for a child that is not below", () => {
-    const d = edgePath({ x: 0, y: 0, w: 264, h: 156 }, { x: 600, y: 100, w: 264, h: 156 });
-    expect(d.startsWith("M132 156V170H")).toBe(true);
+    const d = edgePath({ x: 0, y: 0, w: 264, h: 145 }, { x: 600, y: 100, w: 264, h: 145 });
+    expect(d.startsWith("M132 145V159H")).toBe(true);
     expect(d.endsWith("V100")).toBe(true);
   });
 });
 
 describe("spawnUnder", () => {
   it("skips a spot an obstacle covers", () => {
-    const parent = { x: 0, y: 0, w: 264, h: 156 };
-    const free = spawnUnder(parent, [], { w: 264, h: 156 }, [])!;
-    const taken = spawnUnder(parent, [], { w: 264, h: 156 }, [{ x: free.x, y: free.y, w: 264, h: 156 }]);
+    const parent = { x: 0, y: 0, w: 264, h: 145 };
+    const free = spawnUnder(parent, [], { w: 264, h: 145 }, [])!;
+    const taken = spawnUnder(parent, [], { w: 264, h: 145 }, [{ x: free.x, y: free.y, w: 264, h: 145 }]);
     expect(taken).toBeDefined();
     expect(taken).not.toEqual(free);
   });
 
   it("gives up (undefined) when no spot satisfies the extra condition", () => {
-    expect(spawnUnder({ x: 0, y: 0, w: 264, h: 156 }, [], { w: 264, h: 156 }, [], () => false)).toBeUndefined();
+    expect(spawnUnder({ x: 0, y: 0, w: 264, h: 145 }, [], { w: 264, h: 145 }, [], () => false)).toBeUndefined();
   });
 });
 
@@ -240,7 +240,7 @@ describe("worldBounds", () => {
 });
 
 describe("dragging between areas", () => {
-  const box = (x: number, y: number): Rect => ({ x, y, w: 264, h: 156 });
+  const box = (x: number, y: number): Rect => ({ x, y, w: 264, h: 145 });
   const areas = [
     { id: "left", label: "Left", x: 0, y: 0, members: ["a", "b"] },
     { id: "right", label: "Right", x: 1000, y: 0, members: ["c"] },

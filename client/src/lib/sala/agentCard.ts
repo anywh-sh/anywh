@@ -122,14 +122,3 @@ export function trackStateSince(
   }
   return next;
 }
-
-/** How many segments the card's progress bar draws, and how many are lit.
- * The relay reports no progress, so the bar is honest about it: lit only for
- * an agent that finished. */
-export const PROGRESS_SEGMENTS = 14;
-
-export function progressSegments(tone: CardTone): { lit: number; live: boolean } {
-  if (tone === "done") return { lit: PROGRESS_SEGMENTS, live: false };
-  if (tone === "run") return { lit: 0, live: true };
-  return { lit: 0, live: false };
-}

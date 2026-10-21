@@ -3,7 +3,7 @@ import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { cn } from "@/lib/utils";
-import { cardActivity, cardClock, cardStatus, formatClock, progressSegments, PROGRESS_SEGMENTS, type CardClock } from "@/lib/sala/agentCard";
+import { cardActivity, cardClock, cardStatus, formatClock, type CardClock } from "@/lib/sala/agentCard";
 import type { RoomAgent } from "@/lib/relay/roomClient";
 import { CheckIcon, CloseIcon, ConversationGlyph, LayersIcon, AreaIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
@@ -62,7 +62,6 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const status = cardStatus(agent, liveWorkers);
   const activity = cardActivity(agent, workers, liveWorkers);
   const clock = cardClock(agent, observedSince, liveWorkers);
-  const segments = progressSegments(status.tone);
   const title = agent.title ?? dict.untitled;
   const main = agent.role === "principal";
   const showBar = selected;
@@ -115,11 +114,6 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
           <div className="sala-title">{agent.titlePending === true ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}</div>
           <div className="sala-activity">
             <span>{activityText}</span>
-          </div>
-          <div className="sala-segs" aria-hidden="true">
-            {Array.from({ length: PROGRESS_SEGMENTS }, (_, i) => (
-              <span key={i} className={i < segments.lit ? "on" : segments.live && i === 5 ? "live" : undefined} />
-            ))}
           </div>
         </div>
         <div className="sala-strip">

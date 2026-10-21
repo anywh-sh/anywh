@@ -65,7 +65,7 @@ describe("fitCamera", () => {
   });
 
   it("does not blow a lone card up past 100%", () => {
-    expect(fitCamera({ x: 0, y: 0, w: 264, h: 156 }, vp).z).toBe(1);
+    expect(fitCamera({ x: 0, y: 0, w: 264, h: 145 }, vp).z).toBe(1);
   });
 
   it("does not shrink past 30% however large the room", () => {
