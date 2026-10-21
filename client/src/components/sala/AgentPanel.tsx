@@ -131,7 +131,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
 
   return (
     <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} subtitle={subtitle} kind="agent" footer={footer} onClose={onClose}>
-      <div className="sala-side-body flush">
+      <div className="sala-side-body flush scrollbar-thin">
         <div className="sala-side-status">
           <span className={cn("sala-side-state", status.tone)}>
             {(status.tone === "run" || status.tone === "start") && <span className="sala-spin" aria-hidden="true" />}
@@ -250,7 +250,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
       <div className="sala-side-compose">
         <textarea
           ref={boxRef}
-          className="sala-side-box"
+          className="sala-side-box scrollbar-thin"
           value={message}
           placeholder={text.messagePlaceholder}
           aria-label={text.messagePlaceholder}

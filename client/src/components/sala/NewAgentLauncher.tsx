@@ -70,7 +70,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
     <div className="sala-float sala-launcher" data-float role="dialog" aria-label={text.label}>
       <textarea
         ref={boxRef}
-        className="sala-launcher-box"
+        className="sala-launcher-box scrollbar-thin"
         value={task}
         placeholder={text.placeholder}
         aria-label={text.placeholder}

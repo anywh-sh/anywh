@@ -88,7 +88,7 @@ export function AboutRoomPanel({ profile, roomId, title, agents, canvas, refresh
 
   return (
     <SalaSidePanel mark={<RoomGlyph size={16} />} title={title} subtitle={dict.subtitle.replace("{count}", String(counts.agents))} kind="about" onClose={onClose}>
-      <div className="sala-side-body">
+      <div className="sala-side-body scrollbar-thin">
         <div className="sala-stats">
           <div>
             <b>{counts.agents}</b>
