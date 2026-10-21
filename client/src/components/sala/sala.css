@@ -13,8 +13,11 @@
  *    rasterised once and then stretched as a bitmap by WebKit, so the plane
  *    went soft as it was zoomed. Left to the browser, text and borders are
  *    painted again at the real scale on every frame, on every engine;
- *  - a looping animation is either `transform`/`opacity` on a small element
- *    or advances in `steps()`, and stops while the view moves.
+ *  - a looping animation advances in `steps()`, animates only what is painted
+ *    (never `transform` or `opacity`: any looping animation of those gets its
+ *    own compositing layer, and one such layer anywhere in the plane left all
+ *    of it painted at a stale scale, soft after a zoom), and stops while the
+ *    view moves.
  */
 .sala {
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
@@ -244,20 +247,33 @@
   border: 1.5px solid currentColor;
   border-radius: 9999px;
 }
+/* The spinner is a conic gradient whose start angle is animated, not an
+ * element that is rotated: a looping `transform` animation makes WebKit give
+ * the element a compositing layer, and a layer anywhere in the scaled plane
+ * left the whole plane painted at a stale scale (soft text) after a zoom.
+ * A painted animation promotes nothing. */
+@property --sala-spin-a {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
 .sala-spin {
   width: 11px;
   height: 11px;
-  border: 1.5px solid color-mix(in srgb, var(--foreground) 14%, transparent);
-  border-top-color: currentColor;
   border-radius: 9999px;
-  animation: sala-spin 0.9s linear infinite;
+  background:
+    conic-gradient(from var(--sala-spin-a), transparent 0 72%, currentColor),
+    color-mix(in srgb, var(--foreground) 14%, transparent);
+  -webkit-mask-image: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  mask-image: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
+  animation: sala-spin 0.9s steps(18) infinite;
 }
 .sala-world.moving .sala-spin {
   animation-play-state: paused;
 }
 @keyframes sala-spin {
   to {
-    transform: rotate(360deg);
+    --sala-spin-a: 360deg;
   }
 }
 .sala-title {
