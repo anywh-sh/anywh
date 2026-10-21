@@ -12,6 +12,9 @@ export interface NeedsYou {
   askedAt?: number;
   /** How many questions (or refused tool calls) the card holds. */
   count: number;
+  /** The first question's words, cut to one line, so the agent's card can
+   * show what it asks without opening the card. */
+  question?: string;
 }
 
 export interface RoomAgentView {
@@ -19,6 +22,9 @@ export interface RoomAgentView {
   role: RoomRole;
   parentId?: string;
   title: string | null;
+  /** `true` while `title` is only the provisional text (the task's first
+   * line) and a short generated one is on its way. */
+  titlePending?: true;
   runtime: string;
   model: string | null;
   area?: string;
@@ -30,6 +36,10 @@ export interface RoomAgentView {
    * agent that goes on working can have asked about something else. Empty for
    * an agent that was stopped or removed. */
   needsYou: NeedsYou[];
+  /** Epoch ms its latest turn began; absent if it never ran. */
+  startedAt?: number;
+  /** MCP servers (connectors) it has used. */
+  connectors: string[];
   /** Native subagents the agent has running right now. */
   subtasksRunning: number;
 }

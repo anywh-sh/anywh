@@ -132,6 +132,7 @@ export const Sidebar = memo(function Sidebar({
         onRename={(session) => setRenaming({ session, title: session.title })}
         onDelete={onDeleteSession}
         onClearFilter={onClearProfileFilter}
+        onOpenSearch={onOpenSearch}
       />
 
       <RenameSessionDialog

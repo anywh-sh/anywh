@@ -136,7 +136,7 @@ const sessionManager = new SessionManager(
   (event) => {
     const payload = JSON.stringify(
       event.type === "upsert"
-        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt }
+        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}) }
         : { type: "session_list_removed", id: event.id },
     );
     for (const watcher of sessionListWatchers) {
@@ -167,6 +167,12 @@ const sessionManager = new SessionManager(
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
     onUsage: (id, event) => roomUsage.observe(id, event),
+    onTurnStarted: (id, startedAt, synthetic): void => roomManager.noteTurnStarted(id, startedAt, synthetic),
+    onMcpServerUsed: (id, server): void => {
+      roomManager.noteConnector(id, server);
+      const roomId = sessionStore.getRoom(id)?.roomId;
+      if (roomId !== undefined) roomChannel.touch(roomId);
+    },
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
     owner: roomBridge.ownerId,

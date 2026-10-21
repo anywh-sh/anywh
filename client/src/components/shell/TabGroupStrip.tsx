@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
+import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { Loader2, Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { RoomGlyph } from "@/components/sala/SalaIcons";
 import { useDict } from "@/i18n";
 import { cn, scrollHorizontallyOnWheel, truncateWords } from "@/lib/utils";
 import type { Tab } from "@/hooks/tabs/useTabs";
@@ -12,6 +14,7 @@ import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
 import { profileColorClass } from "@/lib/profiles/profiles";
+import { RoomTabIndicator } from "@/components/sala/RoomTabIndicator";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -177,7 +180,9 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 // the new-session row it came from.
                 <Plus className="size-3.5 shrink-0" aria-hidden="true" />
               )}
-              {tab.isRunning ? (
+              {tab.room ? (
+                <RoomTabIndicator roomId={tab.id} />
+              ) : tab.isRunning ? (
                 <Loader2 className="size-3 shrink-0 animate-spin text-foreground" aria-label={dict.chat.tabs.agentWorking} />
               ) : (
                 tab.hasUnreadCompletion && (
@@ -186,7 +191,8 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
                 )
               )}
             </span>
-            <span className="min-w-0 flex-1 truncate">{title}</span>
+            {tab.room && <RoomGlyph size={14} className="shrink-0" aria-label={dict.sala.roomGlyph} role="img" />}
+            <span className="min-w-0 flex-1 truncate">{tab.titlePending === true ? <TitleSkeleton className="w-24" /> : title}</span>
           </button>
           <button
             type="button"

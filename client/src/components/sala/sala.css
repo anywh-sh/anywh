@@ -1,0 +1,1381 @@
+/*
+ * The room canvas. Written as CSS rather than utilities because most of it is
+ * per-frame work on a handful of elements (the camera, card drags, the grid):
+ * the cost model — what is composited, what is repainted — is the point, and
+ * a class list would hide it. Colors all come from the app's theme tokens.
+ *
+ * Performance rules this file is built on:
+ *  - the camera is one `transform` on `.sala-world`, written by script, never
+ *    through a render;
+ *  - the grid is one oversized layer moved and scaled by the compositor;
+ *  - nothing here asks for a compositing layer (`will-change`, `translateZ`,
+ *    `backface-visibility`): a promoted layer under `transform: scale()` is
+ *    rasterised once and then stretched as a bitmap by WebKit, so the plane
+ *    went soft as it was zoomed. Left to the browser, text and borders are
+ *    painted again at the real scale on every frame, on every engine;
+ *  - a looping animation is either `transform`/`opacity` on a small element
+ *    or advances in `steps()`, and stops while the view moves.
+ */
+.sala {
+  --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
+  /* Areas: the design's warm-white tint at 16% (frame) and 1.8% (fill), 30%
+   * when hovered or selected. */
+  --sala-hair: color-mix(in srgb, var(--foreground) 16%, transparent);
+  --sala-area-fill: color-mix(in srgb, var(--foreground) 1.8%, transparent);
+  --sala-area-hot: color-mix(in srgb, var(--foreground) 30%, transparent);
+  --sala-edge: color-mix(in srgb, var(--foreground) 24%, var(--background));
+  --sala-edge-done: color-mix(in srgb, var(--foreground) 32%, var(--background));
+  --sala-done-bg: color-mix(in srgb, var(--diff-add) 8%, transparent);
+  --sala-stop-bg: color-mix(in srgb, var(--text-faint) 10%, transparent);
+  --sala-fail-bg: color-mix(in srgb, var(--destructive) 10%, transparent);
+  --sala-seg: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  position: absolute;
+  /* One pixel taller than the plane, so the toolbar can sit over the status
+   * bar's line (the extra row is transparent: the fill is the ::before). */
+  inset: 0 0 -1px;
+  /* `clip`, not just `hidden`: a hidden box is still a scroll container, and
+   * focusing a card that sticks out of it scrolls the whole canvas under the
+   * toolbar and the minimap. */
+  overflow: clip;
+  outline: none;
+  touch-action: none;
+  cursor: default;
+}
+.sala::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 1px;
+  background: var(--background);
+}
+.sala:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 40%, var(--border));
+}
+.sala.hand,
+.sala.hand .sala-node,
+.sala.hand .sala-frame-bar,
+.sala.hand .sala-text {
+  cursor: grab;
+}
+.sala[data-panning],
+.sala[data-panning] * {
+  cursor: grabbing !important;
+}
+.sala.tool-area,
+.sala.tool-area .sala-frame {
+  cursor: crosshair;
+}
+.sala.tool-text {
+  cursor: text;
+}
+.sala-bg {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+.sala-vignette {
+  position: absolute;
+  inset: 0 0 1px;
+  pointer-events: none;
+  background: radial-gradient(130% 100% at 50% 42%, transparent 58%, color-mix(in srgb, var(--bg-chrome) 42%, transparent) 100%);
+}
+.sala-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+/* ─── links ─── */
+.sala-edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.sala-edge {
+  fill: none;
+  stroke: var(--sala-edge);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+.sala-edge.done {
+  stroke: var(--sala-edge-done);
+}
+.sala-edge.sel {
+  stroke: var(--text-faint);
+}
+.sala-edge-flow {
+  fill: none;
+  stroke: var(--muted-foreground);
+  stroke-width: 1.25;
+  stroke-dasharray: 8 6;
+  opacity: 0.72;
+  vector-effect: non-scaling-stroke;
+  animation: sala-flow 1.1s steps(28) infinite;
+}
+.sala-edge-flow.wait {
+  stroke: var(--primary);
+  opacity: 0.6;
+  stroke-dasharray: 3 6;
+  animation: none;
+}
+.sala-world.moving .sala-edge-flow {
+  animation-play-state: paused;
+}
+@keyframes sala-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+/* ─── cards ─── */
+.sala-node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+}
+.sala-node:hover {
+  z-index: 2;
+}
+.sala-node.sel {
+  z-index: 3;
+}
+.sala-node[data-drag] {
+  z-index: 6;
+}
+/* A card is a small terminal window: a title bar, a log, a strip. Its colors
+ * are the window chrome's (the darker base around the plane), so the card
+ * reads as a window set on the canvas. No drop shadow: under the camera's
+ * `scale()` every card is painted again each frame, and a blurred shadow
+ * that size is the most expensive thing that paint could hold. */
+.sala-node-card {
+  --sala-term-line: color-mix(in srgb, var(--border) 40%, var(--border-soft));
+  --sala-log-at: color-mix(in srgb, var(--text-faint) 35%, var(--bg-chrome));
+  --sala-log-past: color-mix(in srgb, var(--text-faint) 55%, var(--bg-chrome));
+  --c: var(--text-faint);
+  --rule: var(--sala-term-line);
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-chrome);
+  border: 1px solid var(--sala-term-line);
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+.sala-node:hover .sala-node-card {
+  border-color: var(--sala-edge);
+}
+.sala-node.sel .sala-node-card,
+.sala-node[data-drag] .sala-node-card {
+  outline: 1px solid var(--text-faint);
+  outline-offset: 0;
+}
+.sala-node[data-drag] .sala-node-card {
+  transform: scale(1.02);
+}
+/* The state's color: the icon in the title bar and the rule under it. */
+.sala-node.run .sala-node-card {
+  --c: var(--state-run);
+  --rule: color-mix(in srgb, var(--state-run) 60%, transparent);
+}
+.sala-node.start .sala-node-card {
+  --c: color-mix(in srgb, var(--state-run) 70%, var(--bg-chrome));
+  --rule: color-mix(in srgb, var(--state-run) 30%, transparent);
+}
+.sala-node.wait .sala-node-card {
+  --c: var(--primary-ink);
+  --rule: var(--primary);
+}
+.sala-node.done .sala-node-card {
+  --c: var(--diff-add);
+  --rule: color-mix(in srgb, var(--diff-add) 60%, transparent);
+}
+.sala-node.stop .sala-node-card {
+  --rule: color-mix(in srgb, var(--text-faint) 45%, var(--bg-chrome));
+}
+.sala-node.fail .sala-node-card {
+  --c: var(--destructive);
+  --rule: color-mix(in srgb, var(--destructive) 60%, transparent);
+}
+.sala-node.block .sala-node-card {
+  --c: var(--context-ring-warn);
+  --rule: color-mix(in srgb, var(--context-ring-warn) 60%, transparent);
+}
+.sala-node-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: inherit;
+}
+.sala-node-hit:focus-visible {
+  outline: 2px solid var(--muted-foreground);
+  outline-offset: 3px;
+}
+.sala-node-head {
+  height: 33px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--rule);
+}
+.sala-state {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c);
+}
+.sala-state-idle {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 9999px;
+}
+.sala-spin {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-top-color: currentColor;
+  border-radius: 9999px;
+  animation: sala-spin 0.9s linear infinite;
+}
+.sala-world.moving .sala-spin {
+  animation-play-state: paused;
+}
+@keyframes sala-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.sala-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sala-node.done .sala-title,
+.sala-node.stop .sala-title {
+  color: var(--muted-foreground);
+}
+.sala-node-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 11px 10px;
+  font: 400 11.5px/17px var(--font-mono);
+}
+.sala-line {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+  color: var(--sala-log-past);
+}
+.sala-line-at {
+  color: var(--sala-log-at);
+  font-variant-numeric: tabular-nums;
+}
+.sala-line-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sala-line.now {
+  color: var(--foreground);
+}
+.sala-line.ask .sala-line-text {
+  font: 400 12.5px/17px var(--font-sans);
+  color: var(--primary-ink);
+}
+.sala-line.fail {
+  color: var(--destructive);
+}
+.sala-line.block {
+  color: var(--context-ring-warn);
+}
+.sala-strip {
+  position: relative;
+  z-index: 2;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  border-top: 1px solid color-mix(in srgb, var(--border-soft) 60%, var(--bg-chrome));
+  font: 400 11px var(--font-mono);
+  color: var(--text-faint);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* The runtime's own mark, as the composer's agent selector draws it: no
+ * chip, no border, no background. */
+.sala-logo {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--foreground);
+}
+.sala-model {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sala-role {
+  opacity: 0.8;
+}
+.sala-strip-clock {
+  flex: none;
+  padding-right: 6px;
+}
+.sala-strip button {
+  pointer-events: auto;
+}
+.sala-reply {
+  height: 22px;
+  flex: none;
+  padding: 0 9px;
+  background: var(--foreground);
+  color: var(--bg-chrome);
+  font: 500 11.5px/1 var(--font-sans);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-ease);
+}
+.sala-reply:hover {
+  background: color-mix(in srgb, var(--foreground) 86%, white);
+}
+.sala-reply.on {
+  background: color-mix(in srgb, var(--foreground) 88%, var(--bg-chrome));
+}
+.sala-port {
+  position: absolute;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  background: var(--background);
+  border: 1px solid var(--sala-edge-done);
+  z-index: 3;
+  pointer-events: none;
+}
+.sala-port.top {
+  top: -4px;
+}
+.sala-port.bot {
+  bottom: -4px;
+}
+
+/* the bar over the selected card; counter-scaled so it keeps its size at any zoom */
+.sala-bar {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  transform: scale(var(--inv, 1));
+  transform-origin: 0 100%;
+  white-space: nowrap;
+  z-index: 5;
+}
+.sala-bar button {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-bar button:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+
+/* ─── areas and text ─── */
+.sala-frame {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 1px solid var(--sala-hair);
+  background: var(--sala-area-fill);
+}
+.sala-frame.empty {
+  border-style: dashed;
+}
+.sala-frame[data-release] {
+  border-style: dashed;
+  opacity: 0.55;
+}
+.sala-frame[data-drop] {
+  border-color: var(--text-faint);
+  background: color-mix(in srgb, var(--foreground) 5.5%, transparent);
+}
+.sala-frame:hover,
+.sala-frame.sel {
+  border-color: var(--sala-area-hot);
+}
+.sala-frame-bar {
+  position: absolute;
+  bottom: 100%;
+  transform: scale(var(--inv, 1));
+  transform-origin: 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 4px 0 0;
+  cursor: grab;
+  white-space: nowrap;
+  /* Where the design puts it: against the frame's left edge, links crossing
+     the label or not. */
+  left: -1px;
+}
+.sala-frame-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.sala-frame-x {
+  flex-shrink: 0;
+}
+.sala-frame-input {
+  background: none;
+  border: 0;
+  outline: none;
+  padding: 0 2px;
+  font: 500 14px var(--font-display);
+  letter-spacing: -0.005em;
+  color: var(--muted-foreground);
+  cursor: inherit;
+  min-width: 40px;
+  flex: 0 1 auto;
+}
+.sala-frame-input:focus {
+  color: var(--foreground);
+  cursor: text;
+  box-shadow: inset 0 -1px 0 var(--text-faint);
+}
+.sala-frame-input::placeholder {
+  color: var(--syntax-comment);
+}
+.sala-frame-count {
+  font: 400 11px var(--font-mono);
+  color: var(--syntax-comment);
+}
+.sala-frame-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 400 11px var(--font-mono);
+  color: var(--primary-ink);
+}
+.sala-frame-x {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  /* No transition: fading this in on hover makes WebKit promote it to its
+   * own layer, and the scaled plane under it is then painted soft. */
+  opacity: 0;
+  cursor: pointer;
+}
+.sala-frame:hover .sala-frame-x,
+.sala-frame-x:focus-visible {
+  opacity: 1;
+}
+.sala-frame-x:hover {
+  color: var(--foreground);
+}
+.sala-text {
+  position: absolute;
+  left: 0;
+  top: 0;
+  cursor: grab;
+}
+.sala-text-input {
+  background: none;
+  border: 0;
+  outline: none;
+  padding: 0;
+  font: 600 15px/1.2 var(--font-display);
+  color: var(--foreground);
+  cursor: inherit;
+  min-width: 24px;
+}
+.sala-text-input.big {
+  font-size: 34px;
+  letter-spacing: -0.025em;
+}
+.sala-text-input:focus {
+  cursor: text;
+  box-shadow: inset 0 -1px 0 var(--text-faint);
+}
+.sala-text-input::placeholder {
+  color: var(--syntax-comment);
+}
+
+/* ─── floating surfaces ─── */
+.sala-float {
+  position: absolute;
+  z-index: 20;
+}
+.sala-toolbar {
+  left: 50%;
+  bottom: 0;
+  z-index: 30;
+  transform: translateX(-50%);
+}
+.sala-toolbar-in {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border-soft);
+  border-bottom: 0;
+}
+.sala-tool {
+  position: relative;
+  height: 34px;
+  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 9px;
+  font-size: 13px;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-tool:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sala-tool.on {
+  background: var(--bg-elevated);
+  color: var(--foreground);
+}
+.sala-tool.zoom {
+  min-width: 54px;
+  padding: 0 6px;
+  font: 500 12px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 5px;
+  flex: none;
+}
+.sala-minimap {
+  left: 12px;
+  bottom: 12px;
+  padding: 5px;
+  background: var(--sala-tray);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+.sala-minimap-in {
+  position: relative;
+  width: 136px;
+  height: 84px;
+  overflow: hidden;
+}
+.sala-mm-node {
+  position: absolute;
+  background: color-mix(in srgb, var(--foreground) 22%, var(--background));
+}
+.sala-mm-node.run {
+  background: color-mix(in srgb, var(--foreground) 45%, var(--background));
+}
+.sala-mm-node.wait {
+  background: var(--primary);
+}
+.sala-mm-node.done,
+.sala-mm-node.stop {
+  background: color-mix(in srgb, var(--foreground) 28%, var(--background));
+}
+.sala-mm-node.fail {
+  background: var(--destructive);
+}
+.sala-mm-node.sel {
+  background: var(--foreground);
+}
+.sala-mm-view {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 1px solid var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  pointer-events: none;
+}
+.sala-toast {
+  left: 50%;
+  bottom: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 14px 0 12px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  font-size: 13px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.sala-toast.act {
+  padding-right: 5px;
+}
+.sala-toast button {
+  height: 26px;
+  margin-left: 4px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--foreground);
+  background: var(--composer-border);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-ease);
+}
+.sala-toast button:hover {
+  background: var(--border);
+}
+.sala-banner {
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  font: 400 12px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 400 13px var(--font-mono);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sala-edge-flow,
+  .sala-spin {
+    animation: none !important;
+  }
+}
+
+/* ─── the side panel, docked in the plane ─── */
+.sala-side {
+  flex: none;
+  /* 384px of panel plus the divider's own pixel. */
+  width: 385px;
+  height: 100%;
+  min-width: 0;
+  /* The window chrome's colour, like the sidebar: the panel is docked in the
+   * base plane, not drawn on the canvas, so it has no frame of its own and
+   * covers the status bar's line (the plane's frame is cut away from it, see
+   * the end of this file). The one line it does draw is the divider on its
+   * canvas side, the plane frame's right edge (the frame is masked there). */
+  background: var(--bg-chrome);
+  border-left: 1px solid var(--border-soft);
+  color: var(--foreground);
+  overflow: hidden;
+  margin-bottom: -1px;
+}
+.sala-side-in {
+  width: 384px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.sala-side-head {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 16px 14px;
+}
+.sala-side-mark {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.sala-logo.big {
+  width: 22px;
+  height: 22px;
+}
+.sala-side-mark:has(.sala-logo) {
+  border: 0;
+  width: auto;
+  height: auto;
+}
+.sala-side-titles {
+  min-width: 0;
+  flex: 1;
+}
+.sala-side-title {
+  margin: 0;
+  font: 600 15px/20px var(--font-display);
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+.sala-side-sub {
+  margin: 2px 0 0;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-close {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.sala-side-close:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+.sala-side-body.flush {
+  padding: 0;
+}
+.sala-side-pad {
+  padding: 4px 16px 16px;
+}
+.sala-side-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-side-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-side-act {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-side-act:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-side .grow {
+  flex: 1;
+  min-width: 0;
+}
+.sala-side .trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sala-side .mono {
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-side .dim {
+  color: var(--text-faint);
+}
+.sala-side .warn {
+  color: var(--primary-ink);
+}
+.sala-side .ok {
+  color: var(--diff-add);
+}
+.sala-side-sec {
+  margin-top: 18px;
+}
+.sala-side-h {
+  margin: 0 0 8px;
+  font: 500 12px var(--font-mono);
+  letter-spacing: 0.01em;
+  color: var(--text-faint);
+}
+.sala-side-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  font-size: 13.5px;
+  color: var(--foreground);
+}
+.sala-side-row > svg {
+  flex: none;
+  color: var(--muted-foreground);
+}
+.sala-side-row.wt {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.sala-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  background: var(--state-run);
+  opacity: 0.8;
+}
+.sala-side-empty {
+  margin: 0;
+  font: 400 12px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-empty.pad {
+  padding: 12px 16px;
+}
+.sala-side-fine {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+.sala-side-fine.first {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.sala-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--border-soft);
+}
+.sala-stats > div {
+  padding: 10px 12px 11px;
+  border-left: 1px solid var(--border-soft);
+}
+.sala-stats > div:first-child {
+  border-left: 0;
+}
+.sala-stats b {
+  display: block;
+  font: 500 20px/26px var(--font-display);
+}
+.sala-stats span {
+  display: block;
+  font: 400 11.5px/15px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-stats .warn b {
+  color: var(--primary-ink);
+}
+.sala-usage {
+  margin-bottom: 6px;
+}
+.sala-usage-bar {
+  display: block;
+  height: 2px;
+  background: var(--sala-seg);
+}
+.sala-usage-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--state-run);
+}
+.sala-ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+}
+/* The chip's selector carries `.sala-ctx-item` too: the generic
+ * `.sala-ctx-item span` rule below (the summary line) would otherwise win and
+ * turn the chip into a plain block with the summary's type. */
+.sala-ctx-item .sala-ctx-kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 18px;
+  padding: 0 3px;
+  border: 1px solid var(--border);
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.sala-ctx-item b {
+  display: block;
+  font: 500 14px/18px var(--font-display);
+  overflow-wrap: anywhere;
+}
+.sala-ctx-item div span {
+  display: block;
+  font: 400 11.5px/16px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  border-left: 2px solid var(--text-faint);
+  background: var(--sala-stop-bg);
+}
+.sala-side-note b {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.sala-side-note.done {
+  border-color: var(--diff-add);
+  background: var(--sala-done-bg);
+}
+.sala-side-note.fail {
+  margin: 0;
+  border-color: var(--destructive);
+  background: var(--sala-fail-bg);
+}
+.sala-side-note.fail b {
+  color: var(--destructive);
+}
+.sala-side-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+.sala-side-state {
+  --c: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 12.5px var(--font-mono);
+  color: var(--c);
+}
+.sala-side-state.run,
+.sala-side-state.start {
+  --c: var(--state-run);
+}
+.sala-side-state.wait {
+  --c: var(--primary-ink);
+}
+.sala-side-state.done {
+  --c: var(--diff-add);
+}
+.sala-side-state.fail {
+  --c: var(--destructive);
+}
+.sala-side-state.block {
+  --c: var(--context-ring-warn);
+}
+.sala-side-clock {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-side-by {
+  padding: 9px 16px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border-soft);
+}
+.sala-side-by.wait {
+  border-bottom-color: var(--primary);
+}
+.sala-side-q > div {
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.sala-side-report {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sala-side-files {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sala-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sala-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+}
+.sala-sub-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  background: var(--text-faint);
+}
+.sala-sub-dot.running {
+  background: var(--state-run);
+}
+.sala-sub-dot.completed {
+  background: var(--diff-add);
+}
+.sala-sub-dot.failed {
+  background: var(--destructive);
+}
+.sala-mini {
+  height: 22px;
+  padding: 0 8px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.sala-mini:hover {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+.sala-side-compose {
+  flex: none;
+  margin: 0 12px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.sala-side-box {
+  display: block;
+  width: 100%;
+  height: 72px;
+  padding: 10px 12px 0;
+  resize: none;
+  background: none;
+  border: 0;
+  outline: none;
+  font: 400 14px/20px var(--font-display);
+  color: var(--foreground);
+}
+.sala-side-box::placeholder {
+  color: var(--text-faint);
+}
+.sala-side-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 6px;
+}
+.sala-side-err {
+  font: 400 11.5px var(--font-mono);
+  color: var(--destructive);
+}
+/* The agent's latest reply, directly above the message field it answers. */
+.sala-side-reply {
+  flex: none;
+  margin: 8px 16px 10px;
+}
+.sala-side-reply .sala-side-h {
+  margin-bottom: 6px;
+}
+.sala-side-working {
+  color: var(--text-faint);
+}
+.sala-side-reply-body {
+  max-height: 168px;
+  overflow-y: auto;
+}
+.sala-side-reply-body .prose-chat {
+  line-height: 1.5;
+}
+/* A code block's header bar only carries the copy button, which this compact
+   view leaves out. */
+.sala-side-reply-body .bg-card > .border-b {
+  display: none;
+}
+.sala-side-reply > .sala-side-err {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.sala-send {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-hover);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.sala-send:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.sala-send:not(:disabled):hover {
+  background: var(--foreground);
+  color: var(--bg-chrome);
+}
+.sala-plus {
+  width: 13px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ─── about button, completed strip, launcher, answer popover ─── */
+.sala-about {
+  right: 12px;
+  top: 12px;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #181715;
+  border: 1px solid var(--border-soft);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-about:hover {
+  color: var(--foreground);
+}
+.sala-done {
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-top-color: var(--diff-add);
+  font-size: 12.5px;
+  color: var(--diff-add);
+  white-space: nowrap;
+}
+.sala-done b {
+  font-weight: 500;
+}
+.sala-done span {
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-done button {
+  height: 24px;
+  padding: 0 9px;
+  margin-left: 4px;
+  font-size: 12.5px;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.sala-done button:hover {
+  background: var(--surface-hover);
+}
+.sala-launcher {
+  left: 50%;
+  bottom: 52px;
+  width: min(620px, calc(100% - 24px));
+  transform: translateX(-50%);
+  z-index: 35;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+}
+.sala-launcher-box {
+  display: block;
+  width: 100%;
+  height: 64px;
+  padding: 12px 14px 0;
+  resize: none;
+  background: var(--bg-elevated);
+  border: 0;
+  outline: none;
+  font: 400 15px/22px var(--font-display);
+  color: var(--foreground);
+}
+.sala-launcher-box::placeholder {
+  color: var(--text-faint);
+}
+.sala-launcher-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 6px;
+  background: var(--bg-elevated);
+}
+.sala-launcher-parent {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-launcher-parent:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-launcher .grow {
+  flex: 1;
+  min-width: 0;
+}
+.sala-launcher .trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sala-launcher-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-faint);
+  border-top: 1px solid var(--border-soft);
+}
+.sala-kbd {
+  padding: 1px 5px;
+  font: 400 10.5px var(--font-mono);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.sala-answer-at {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 25;
+  transform-origin: 0 0;
+}
+.sala-answer {
+  width: 360px;
+  transform: scale(var(--inv, 1));
+  transform-origin: 0 0;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-top-color: var(--primary);
+  box-shadow: var(--shadow-popover);
+}
+.sala-answer > div:first-child {
+  margin: 0;
+  border: 0;
+}
+.sala-answer-wait {
+  margin: 0;
+  padding: 14px;
+  font: 400 12px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-answer-foot {
+  display: flex;
+  padding: 4px 6px;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-answer-foot button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sala-answer-foot button:hover {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+.sala-launcher:focus-within .sala-launcher-box {
+  box-shadow: inset 0 0 0 2px var(--foreground);
+}
+
+/* The plane's frame (a 1px rule along its top and sides, drawn by the shell
+ * over the whole plane) stops where the side panel begins: the panel is the
+ * base colour all the way to the window's edge, as the sidebar is. */
+:has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) > [data-plane-frame] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
+  mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
+}
+
+/* The status bar's top rule runs the window's width, and the side panel (the
+ * base colour, docked in the plane) cannot cover it: it lives outside the
+ * plane. So where the panel is, the rule is drawn only as far as the panel's
+ * divider and the bar's text stays whole: the border turns transparent and a
+ * 1px gradient takes its place, ending where the panel begins (385px of panel plus the plane's 8px
+ * margin of chrome on the window's right). */
+:has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) [data-status-bar] {
+  border-top-color: transparent;
+  background-image: linear-gradient(to right, var(--border-soft) calc(100% - 393px), transparent 0);
+  background-size: 100% 1px;
+  background-origin: border-box;
+  background-repeat: no-repeat;
+}

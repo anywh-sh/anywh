@@ -263,6 +263,13 @@ export interface TitledSession {
   id: string;
   title: string;
   lastActiveAt: number;
+  /** Present (`true`) on a room's principal: the row stands for the whole
+   * room, and a client opens it as a canvas rather than a conversation. */
+  room?: true;
+  /** Present (`true`) while a short title is being generated for the session
+   * and `title` is only the provisional text it was given: a client draws a
+   * placeholder instead of that text. */
+  titlePending?: true;
 }
 
 /** Shape prior to this change: id -> { session_id, cwd/lock }, without
@@ -575,7 +582,13 @@ export class SessionStore {
       // own — unless their room is gone, so they can still be found and removed.
       .filter((entry): entry is [string, SessionEntry & { title: string }] => entry[1].title !== null && !this.isHiddenWorker(entry[0]))
       .sort(([, a], [, b]) => b.lastActiveAt - a.lastActiveAt)
-      .map(([id, entry]) => ({ id, title: entry.title, lastActiveAt: entry.lastActiveAt }));
+      .map(([id, entry]) => ({
+        id,
+        title: entry.title,
+        lastActiveAt: entry.lastActiveAt,
+        ...(entry.room?.role === "principal" ? { room: true as const } : {}),
+        ...(this.titlePending.has(id) ? { titlePending: true as const } : {}),
+      }));
   }
 
   /** Last-turn timestamp of a single session, for the callers that report a
@@ -654,6 +667,23 @@ export class SessionStore {
   private notifyRoom(id: string): void {
     const roomId = this.records[id]?.room?.roomId;
     if (roomId !== undefined) this.roomChanged?.(id, roomId);
+  }
+
+  /** Sessions whose generated title has not arrived yet. Not persisted: a
+   * relay that restarts mid-generation just keeps the provisional title. */
+  private readonly titlePending = new Set<string>();
+
+  isTitlePending(id: string): boolean {
+    return this.titlePending.has(id);
+  }
+
+  /** Marks (or unmarks) a session as waiting for its generated title and
+   * tells its room, whose cards show a placeholder meanwhile. */
+  setTitlePending(id: string, pending: boolean): void {
+    if (this.titlePending.has(id) === pending) return;
+    if (pending) this.titlePending.add(id);
+    else this.titlePending.delete(id);
+    this.notifyRoom(id);
   }
 
   /** Used both to record the title inferred from the first prompt and for a

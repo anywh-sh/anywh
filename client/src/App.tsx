@@ -12,6 +12,8 @@ import { TabPanel } from "@/components/shell/TabPanel";
 import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
+import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
@@ -390,6 +392,8 @@ function AppShell() {
     () => new Set(tabsState.tabs.filter((tab) => tab.isRunning).map((tab) => tab.id)),
     [tabsState.tabs],
   );
+  // The sidebar's "Completed" group follows the same rule as that badge.
+  useSessionCompletionTracking(runningSessions, activeTabId, windowFocused);
   const backgroundJobSessions = useMemo(
     () => new Set(tabsState.tabs.filter((tab) => tab.hasBackgroundJob).map((tab) => tab.id)),
     [tabsState.tabs],
@@ -749,6 +753,7 @@ function AppShell() {
        * chrome to frame, and the mobile shell is out of the redesign's scope
        * (decision 1 of the plan). Reads the focused tab straight from `App`'s
        * own state — see StatusBar.tsx for why this one needs no portal. */}
+      <RoomStatusProbes sessions={sessions} />
       <StatusBar
         profile={activeTab ? (findProfile(activeTab.profileId) ?? null) : null}
         sessionId={activeTab?.id ?? null}

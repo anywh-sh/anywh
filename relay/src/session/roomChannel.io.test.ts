@@ -7,7 +7,7 @@ import { RoomChannel, type RoomStateSource } from "./roomChannel.js";
 import { summarizeRoom, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
 
 const agent = (id: string, state: RoomAgentView["state"]): RoomAgentView => ({
-  agentId: id, role: "worker", title: id, runtime: "claude", model: null, createdBy: "agent", state, queuedMessages: 0, needsYou: [], subtasksRunning: 0,
+  agentId: id, role: "worker", title: id, runtime: "claude", model: null, createdBy: "agent", state, queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [],
 });
 
 /** A real WebSocket server with the channel behind it, and a source the test edits. */

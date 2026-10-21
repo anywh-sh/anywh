@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isDescendant, isRoomMembership, liveAncestorId, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
+import { ROOM_CONNECTORS_MAX, isConnectorServer, isDescendant, isRoomMembership, liveAncestorId, roomAgentState, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
 
 const worker: RoomMembership = { roomId: "p", role: "worker", parentId: "p", createdBy: "agent", task: "count lines" };
 const principal: RoomMembership = { roomId: "p", role: "principal", createdBy: "user", task: "", undeliveredReports: [] };
@@ -12,6 +12,9 @@ test("isRoomMembership accepts the two shapes and rejects anything that would co
 
   const rejected: [string, unknown][] = [
     ["not an object", "worker"],
+    ["startedAt not a time", { ...worker, startedAt: "now" }],
+    ["connectors not strings", { ...worker, connectors: [1] }],
+    ["too many connectors", { ...worker, connectors: Array.from({ length: ROOM_CONNECTORS_MAX + 1 }, (_, n) => `s${n}`) }],
     ["no roomId", { ...worker, roomId: "" }],
     ["unknown role", { ...worker, role: "lead" }],
     ["unknown creator", { ...worker, createdBy: "someone" }],
@@ -115,4 +118,13 @@ test("contextSeenAt is a timestamp or absent", () => {
   assert.equal(isRoomMembership({ ...base, contextSeenAt: 1700000000000 }), true);
   assert.equal(isRoomMembership({ ...base, contextSeenAt: "soon" }), false);
   assert.equal(isRoomMembership({ ...base, contextSeenAt: -1 }), false);
+});
+
+test("the clock and the connectors of an agent are part of its persisted record", () => {
+  assert.equal(isRoomMembership({ ...worker, startedAt: 5, connectors: ["figma", "linear"] }), true);
+});
+
+test("the relay's own MCP bridges are not connectors", () => {
+  for (const own of ["anywh-choice", "anywh-room", "anywh-permission", ""]) assert.equal(isConnectorServer(own), false, own);
+  for (const server of ["figma", "claude_ai_Linear", "my-server"]) assert.equal(isConnectorServer(server), true, server);
 });
