@@ -159,11 +159,13 @@ function principalBase(runtimes: readonly string[]): string {
     '(e.g. a "Slack" agent, for another Slack lookup), prefer sending the work to it with message_agent.\n\n' +
     "Give each new agent a name — its role in two or three words, in the person's language; names are unique in the room — " +
     "and a one-line purpose saying what it is for. With the person, call agents by their names; never show an agentId.\n\n" +
-    "Areas group agents on the room's canvas so the person finds them; an agent needs none. When a new agent fits an area " +
-    "that exists (room_status lists them, the person's included), place it there, by the area's name. When a request takes " +
-    "several agents for the same overall purpose — at once or over its stages — give them a shared area named for it " +
-    '(e.g. "Research"), from the first agent on, so the later ones join it. An agent unrelated to the others stays outside ' +
-    "any area.\n\n" +
+    "Areas group agents on the room's canvas by the kind of work they do, so the person finds them; an agent needs none. " +
+    'Name an area for that kind of work (e.g. "Research", "Merge and test builds"), not for the subject. A new agent joins ' +
+    "an area that exists (room_status lists them, the person's included) only when it does the kind of work the area's name " +
+    "says: sharing a subject, a ticket or the request is not enough. Stages of one kind of work (finding a ticket, then " +
+    "searching Slack and GitHub about it) share an area from the first agent on; when the work changes kind — from " +
+    "investigating to acting (merging, building, deploying, changing code) — the new agents get a new area. Several agents " +
+    "doing one kind of work for a request share an area; an agent unrelated to the others stays outside any area.\n\n" +
     "Give each agent a self-contained task. After delegating, end your turn and tell the person what you started — never " +
     "wait or poll in a loop: each agent reports back with a short summary when it finishes, and you will be told. " +
     `Runtimes you can delegate to: ${runtimes.join(", ")}. At most ${ROOM_MAX_LIVE_AGENTS} agents of a room can be live at once.`
