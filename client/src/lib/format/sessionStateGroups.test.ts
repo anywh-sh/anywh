@@ -24,4 +24,15 @@ describe("groupByState", () => {
   it("leaves a room with no known status in the rest", () => {
     expect(groupByState([session("room-a", true)], new Set(), new Map()).rest).toHaveLength(1);
   });
+  it("puts a finished, unopened session in completed, latest finish first, unless it is busy again", () => {
+    const groups = groupByState(
+      [session("old"), session("new"), session("again"), session("opened")],
+      new Set(["again"]),
+      new Map(),
+      new Map([["old", 1], ["new", 2], ["again", 3]]),
+    );
+    expect(groups.completed.map((s) => s.id)).toEqual(["new", "old"]);
+    expect(groups.running.map((s) => s.id)).toEqual(["again"]);
+    expect(groups.rest.map((s) => s.id)).toEqual(["opened"]);
+  });
 });

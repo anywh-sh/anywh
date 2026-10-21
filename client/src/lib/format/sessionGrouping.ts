@@ -92,7 +92,7 @@ export function groupSessionsByRecency(sessions: readonly MergedSession[], now: 
 }
 
 /** How many sessions the desktop sidebar lists. Older ones are reached by search. */
-export const RECENT_SESSION_LIMIT = 10;
+export const RECENT_SESSION_LIMIT = 8;
 
 /** The latest sessions, newest first — the sidebar's single list. The input is
  * already merged and sorted (`mergeProfileSessions`), so this only cuts it. */
