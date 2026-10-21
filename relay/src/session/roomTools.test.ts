@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DELEGATE_TOOL, parseDelegateArgs, parseMessageAgentArgs, parseReportArgs, parseWorktreeCreateArgs, roomToolsFor } from "./roomTools.js";
+import { DELEGATE_TOOL, parseDelegateArgs, parseMessageAgentArgs, parseReportArgs, parseStopAgentArgs, parseWorktreeCreateArgs, principalInstructions, roomToolsFor } from "./roomTools.js";
 
 test("only a worker is offered worktree_create; the principal, who changes nothing, is not", () => {
   assert.deepEqual(roomToolsFor("worker").map((tool) => tool.name), ["report", "worktree_create"]);
@@ -31,4 +31,15 @@ test("message_agent takes the agent by name or id, and still takes the agentId f
   assert.deepEqual(parseMessageAgentArgs({ agent: "Slack", text: "and #random?" }), { ok: true, value: { agent: "Slack", text: "and #random?" } });
   assert.deepEqual(parseMessageAgentArgs({ agentId: "5aac1c53", text: "hi" }), { ok: true, value: { agent: "5aac1c53", text: "hi" } });
   assert.equal(parseMessageAgentArgs({ text: "hi" }).ok, false);
+});
+
+test("the principal is offered stop_agent, told to use it instead of message_agent to interrupt; a worker is not", () => {
+  const principal = roomToolsFor("principal");
+  assert.deepEqual(principal.map((tool) => tool.name), ["delegate", "message_agent", "stop_agent", "room_status"]);
+  assert.ok(!roomToolsFor("worker").some((tool) => tool.name === "stop_agent"));
+  assert.match(principal.find((tool) => tool.name === "message_agent")!.description, /does NOT interrupt/);
+  assert.match(principalInstructions(["claude"]), /call stop_agent/);
+  assert.deepEqual(parseStopAgentArgs({ agent: " Slack " }), { ok: true, value: { agent: "Slack" } });
+  assert.deepEqual(parseStopAgentArgs({ agentId: "5aac1c53" }), { ok: true, value: { agent: "5aac1c53" } });
+  assert.equal(parseStopAgentArgs({}).ok, false);
 });

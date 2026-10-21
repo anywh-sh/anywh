@@ -42,6 +42,7 @@ import {
   parseDelegateArgs,
   type DelegateArgs,
   parseMessageAgentArgs,
+  parseStopAgentArgs,
   parseReportArgs,
   parseWorktreeCreateArgs,
   principalInstructions,
@@ -294,6 +295,8 @@ export class RoomManager implements RoomToolHost {
       }
       case "message_agent":
         return this.messageAgent(sessionId, room, args);
+      case "stop_agent":
+        return this.stopAgentTool(sessionId, room, args);
       case "room_status":
         return Promise.resolve(this.roomStatus(sessionId, room));
       case "approve":
@@ -1321,6 +1324,24 @@ export class RoomManager implements RoomToolHost {
       return ok(`Message queued for ${name}; the agent host is not running, so it is delivered once it is back.`);
     }
     return ok(`Message queued for ${name}; it is delivered as its next turn.`);
+  }
+
+  /** The principal stops an agent below it: the same stop as the person's
+   * (`stopAgent`) — turn interrupted, queue dropped, process ended, state
+   * `stopped` — with the conversation kept for the next message to wake. */
+  private async stopAgentTool(callerId: string, caller: RoomMembership, rawArgs: unknown): Promise<RoomToolResult> {
+    if (caller.role !== "principal") return fail("Only the room's principal can stop other agents.");
+    const parsed = parseStopAgentArgs(rawArgs);
+    if (!parsed.ok) return fail(parsed.error);
+    const parentOf = (id: string): string | undefined => this.store.getRoom(id)?.parentId;
+    const below = this.members(caller.roomId).filter((member) => member.room.stopped?.reason !== "removed" && isDescendant(member.id, callerId, parentOf));
+    const resolved = this.resolveAgent(parsed.value.agent, below, "below you in this room");
+    if ("error" in resolved) return fail(resolved.error);
+    const name = this.nameOf(resolved.id);
+    if (this.store.getRoom(resolved.id)?.stopped) return ok(`${name} is already stopped; message_agent wakes it with new work.`);
+    const result = await this.stopAgent(caller.roomId, resolved.id);
+    if (!result.ok) return fail(result.error);
+    return ok(`${name} was stopped: its turn is interrupted and its queued messages dropped. Its conversation is kept; message_agent wakes it with new work.`);
   }
 
   /** The CLI of a worker asks whether a tool call may run. The worker's

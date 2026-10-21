@@ -40,8 +40,9 @@ export const DELEGATE_TOOL: RoomToolSpec = {
 export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
   name: "message_agent",
   description:
-    "Send a message to one of the agents you started (or one below them), including one that already reported: it keeps " +
-    "its whole conversation, so this is how you give it a follow-up or a new task in its role. Delivered as its next turn.",
+    "Give one of the agents you started (or one below them), including one that already reported, a follow-up or a new task in its role: it keeps " +
+    "its whole conversation. The message is queued and delivered as its next turn, after the turn it is running ends. It does NOT " +
+    "interrupt a running agent — to stop one, or to change its course now, call stop_agent first, then message_agent with the new instruction.",
   inputSchema: {
     type: "object",
     properties: {
@@ -49,6 +50,19 @@ export const MESSAGE_AGENT_TOOL: RoomToolSpec = {
       text: { type: "string" },
     },
     required: ["agent", "text"],
+  },
+};
+
+export const STOP_AGENT_TOOL: RoomToolSpec = {
+  name: "stop_agent",
+  description:
+    "Stop an agent you started (or one below them) right now: its running turn is interrupted and every message still queued for " +
+    "it is dropped. It shows as stopped and keeps its conversation; message_agent wakes it later with new work. Use it when the " +
+    "person asks to stop an agent, or when you change course and its current work is no longer wanted. What it already wrote stays.",
+  inputSchema: {
+    type: "object",
+    properties: { agent: { type: "string", description: "The agent's name (or its agentId)." } },
+    required: ["agent"],
   },
 };
 
@@ -112,7 +126,7 @@ export const WORKTREE_CREATE_TOOL: RoomToolSpec = {
 };
 
 export function roomToolsFor(role: RoomRole): readonly RoomToolSpec[] {
-  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
+  return role === "principal" ? [DELEGATE_TOOL, MESSAGE_AGENT_TOOL, STOP_AGENT_TOOL, ROOM_STATUS_TOOL] : [REPORT_TOOL, WORKTREE_CREATE_TOOL];
 }
 
 /** The room's context as the standing instructions show it: where the
@@ -150,6 +164,9 @@ function principalBase(runtimes: readonly string[]): string {
     "independently go to separate agents, started together in the same turn. A piece that needs another's result starts " +
     "once that agent has reported, as its own agent. Don't split work too small to be worth an agent, and never let two " +
     "agents change the same files.\n" +
+    "- Stopping and changing course. When the person asks to stop an agent, or you change course and its current work is no " +
+    "longer wanted, call stop_agent — message_agent alone would wait behind the work being done. Then, if there is new work, " +
+    "message_agent gives it.\n" +
     "- Reuse before you add. Agents keep their conversation after reporting or being stopped; when an existing agent's " +
     "purpose fits the new work, give it the work with message_agent. A message wakes a stopped agent, so leave one the " +
     "person stopped alone unless they ask for it.\n" +
@@ -298,6 +315,12 @@ export function parseMessageAgentArgs(raw: unknown): Parsed<MessageAgentArgs> {
   const text = requiredString(args, "text", ROOM_TASK_MAX);
   if (!text.ok) return text;
   return { ok: true, value: { agent: agent.value, text: text.value } };
+}
+
+export function parseStopAgentArgs(raw: unknown): Parsed<{ agent: string }> {
+  const args = isRecord(raw) ? raw : {};
+  const agent = requiredString(args.agent === undefined ? { agent: args.agentId } : args, "agent", 200);
+  return agent.ok ? { ok: true, value: { agent: agent.value } } : agent;
 }
 
 export function parseWorktreeCreateArgs(raw: unknown): Parsed<{ repo: string }> {
