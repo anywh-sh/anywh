@@ -3,6 +3,7 @@ import { readRawBody } from "../fs/uploads.js";
 import { readJsonBody } from "../protocol/httpBody.js";
 import { parseRoomCanvas } from "../session/roomCanvas.js";
 import { CONTEXT_ITEM_MAX_BYTES } from "../session/roomContextStore.js";
+import type { AgentId } from "../session/sessionStore.js";
 import type { RouteContext, RouteHandler } from "./context.js";
 
 /** `undefined` for a malformed escape, which is answered rather than thrown. */
@@ -128,6 +129,19 @@ async function handleContextNow(req: IncomingMessage, res: ServerResponse, ctx: 
   send(res, 405, { error: "method not allowed" });
 }
 
+/** What an ordinary session's context button shows, for one room agent: the
+ * latest response's prefix (live, so it moves mid-turn) and the window. The
+ * window is only known after the agent's first turn ends (Claude reports it
+ * in the turn's result), so until then there are tokens and no window. */
+function agentContextUsage(ctx: RouteContext, id: string, agentId: AgentId): { usedTokens: number; contextWindowSize?: number } | null {
+  const live = ctx.agentContext.get(id);
+  const stored = ctx.sessionStore.getContextUsage(id, agentId);
+  const usedTokens = live?.usedTokens ?? stored?.usedTokens;
+  if (usedTokens === undefined) return null;
+  const contextWindowSize = live?.contextWindowSize ?? stored?.contextWindowSize;
+  return { usedTokens, ...(contextWindowSize !== undefined ? { contextWindowSize } : {}) };
+}
+
 /**
  * Rooms over HTTP:
  *   POST /rooms                  opens a room: `{ agentId?, model?, effort?,
@@ -137,8 +151,8 @@ async function handleContextNow(req: IncomingMessage, res: ServerResponse, ctx: 
  *                                principal → `201 { roomId }` (the principal's
  *                                session id: chat with it like any session)
  *   GET  /rooms/:roomId          the room's agents (principal first), each with its
- *                                folder (`cwd`) and the cache it read and
- *                                wrote (`usage`)
+ *                                folder (`cwd`) and how full its context
+ *                                window is (`contextUsage`)
  *   GET  /rooms/:roomId/canvas   the room's canvas (layout only)
  *   PUT  /rooms/:roomId/canvas   replaces it: `{ canvas }`, validated whole
  *   GET  /rooms/:roomId/agents/:agentId/subtasks
@@ -348,7 +362,7 @@ export const handleRoomRoutes: RouteHandler = async (req, res, ctx) => {
     .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
     .map(({ id, room }) => {
       const agentId = ctx.sessionStore.getAgentId(id);
-      return { id, title: ctx.sessionStore.getTitle(id), agentId, model: ctx.sessionStore.getModel(id, agentId) ?? null, room, cwd: ctx.sessionStore.getCwdState(id).cwd, usage: ctx.roomUsage.get(id) };
+      return { id, title: ctx.sessionStore.getTitle(id), agentId, model: ctx.sessionStore.getModel(id, agentId) ?? null, room, cwd: ctx.sessionStore.getCwdState(id).cwd, contextUsage: agentContextUsage(ctx, id, agentId) };
     });
   send(res, 200, { roomId, members });
   return true;

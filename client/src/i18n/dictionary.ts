@@ -1415,6 +1415,10 @@ export interface Dictionary {
       agent: {
         /** `{runtime}`, `{model}`. */
         subtitle: string;
+        /** `{tokens}` in the agent's context, `{percent}` of its window. */
+        contextUsed: string;
+        /** Same, before the window is known: `{tokens}`. */
+        contextUsedNoWindow: string;
         /** `{title}`. */
         delegatedBy: string;
         principal: string;

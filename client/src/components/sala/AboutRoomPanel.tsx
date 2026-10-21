@@ -123,20 +123,20 @@ export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, r
         </Section>
 
         <Section title={dict.usage}>
-          {usage.rows.length === 0 && <p className="sala-side-empty">{dict.usageEmpty}</p>}
-          {usage.rows.map((row) => (
+          {usage.length === 0 && <p className="sala-side-empty">{dict.usageEmpty}</p>}
+          {usage.map((row) => (
             <div key={row.agentId} className="sala-usage">
               <div className="sala-side-row">
                 <span className="grow trunc">{titleOf(row.agentId)}</span>
                 <span className="mono">{dict.tokens.replace("{count}", formatTokens(row.tokens))}</span>
-                <span className="mono dim">{row.share}%</span>
+                {row.percent !== null && <span className="mono dim">{row.percent}%</span>}
               </div>
               <span className="sala-usage-bar" aria-hidden="true">
-                <span style={{ width: `${String(row.share)}%` }} />
+                <span style={{ width: `${String(row.percent ?? 0)}%` }} />
               </span>
             </div>
           ))}
-          {usage.rows.length > 0 && <p className="sala-side-fine">{dict.usageNote}</p>}
+          {usage.length > 0 && <p className="sala-side-fine">{dict.usageNote}</p>}
         </Section>
 
         <Section title={dict.connectors}>
