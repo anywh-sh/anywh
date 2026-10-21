@@ -38,6 +38,7 @@ import { RoomWorktrees } from "./session/roomWorktrees.js";
 import { WorktreeRegistry, worktreeRegistryPathFor } from "./host/worktreeRegistry.js";
 import { RoomContextStore } from "./session/roomContextStore.js";
 import { HOST_RUNTIMES, RoomManager } from "./session/roomManager.js";
+import { ActivityTrail } from "./session/roomActivity.js";
 import { ContextTally } from "./session/roomContextUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
@@ -88,6 +89,7 @@ const roomContext = new RoomContextStore({
 });
 // Per room agent: what it read from the model's cache and what it wrote.
 const agentContext = new ContextTally();
+const roomActivity = new ActivityTrail();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
 // machine (see the comment on `SharedSessionOptions.mcpBridgeBaseUrl`), not
@@ -167,6 +169,11 @@ const sessionManager = new SessionManager(
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
     onUsage: (id, event) => agentContext.observe(id, event),
+    onActivity: (id, event): void => {
+      if (!roomActivity.observe(id, event)) return;
+      const roomId = sessionStore.getRoom(id)?.roomId;
+      if (roomId !== undefined) roomChannel.touch(roomId);
+    },
     onTurnStarted: (id, startedAt, synthetic): void => roomManager.noteTurnStarted(id, startedAt, synthetic),
     onMcpServerUsed: (id, server): void => {
       roomManager.noteConnector(id, server);
@@ -176,7 +183,10 @@ const sessionManager = new SessionManager(
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
     owner: roomBridge.ownerId,
-    onMemberDeleted: (id): void => roomManager.onMemberDeleted(id),
+    onMemberDeleted: (id): void => {
+      roomManager.onMemberDeleted(id);
+      roomActivity.forget(id);
+    },
     cursors: new FileCursorStore(process.env.RELAY_ROOM_CURSORS_FILE ?? roomCanvasPathFor(SESSIONS_FILE).replace(/-rooms\.json$/, "-room-cursors.json")),
   },
 );
@@ -228,7 +238,13 @@ const roomManager: RoomManager = new RoomManager({
 });
 roomBridge.attach(roomManager);
 // Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
-const roomChannel = new RoomChannel(roomManager);
+const roomChannel = new RoomChannel({
+  // What an agent has just been doing lives here, not in the room's store.
+  snapshot: (roomId) => {
+    const snapshot = roomManager.snapshot(roomId);
+    return snapshot && { ...snapshot, agents: snapshot.agents.map((agent) => ({ ...agent, activity: roomActivity.recent(agent.agentId) })) };
+  },
+});
 sessionStore.onRoomChange((_sessionId, roomId) => roomChannel.touch(roomId));
 // Removals that were waiting out their undo window when the relay stopped.
 roomManager.sweepRemoved();

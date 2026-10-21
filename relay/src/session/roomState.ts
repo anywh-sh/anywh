@@ -2,6 +2,7 @@
 // waiting for the person, and the totals a room's header needs. Built from
 // what is persisted plus whether an agent has a turn running, so it reads the
 // same whether an agent's process is awake or hibernated. Pure.
+import type { RoomAction } from "./roomActivity.js";
 import { ROOM_MAX_LIVE_AGENTS, takesRoomPlace, type RoomAgentState, type RoomReport, type RoomRole } from "./room.js";
 
 /** A question or a tool approval waiting for the person. */
@@ -42,6 +43,10 @@ export interface RoomAgentView {
   connectors: string[];
   /** Native subagents the agent has running right now. */
   subtasksRunning: number;
+  /** Its latest actions, oldest first (a tool call, a bout of reasoning),
+   * for the card's log. Not kept with the room: it is added when the state
+   * is sent. */
+  activity?: RoomAction[];
 }
 
 export interface RoomSummary {

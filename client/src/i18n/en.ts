@@ -946,6 +946,8 @@ export const en: Dictionary = {
         idle: "Waiting for its task",
         stopped: "Stopped by you",
         noReport: "Finished without a report",
+        thinking: "Thinking",
+        thought: "Thought",
       },
       clock: {
         running: "for {time}",
