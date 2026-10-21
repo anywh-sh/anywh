@@ -1,53 +1,32 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer as createNetServer, connect as netConnect } from "node:net";
+import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getFreePort } from "./ports.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const FAKE_AGENT_BIN = resolvePath(HERE, "../fixtures/fake-claude.mjs");
 export const FAKE_SYSTEMCTL_BIN = resolvePath(HERE, "../fixtures/fake-systemctl.mjs");
 
-/** Asks the OS for a free ephemeral port by binding to port 0, then releases
- * it immediately — same "probably still free" tradeoff every test suite that
- * needs a real listening server makes. Good enough for local runs and CI. */
-function getFreePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const probe = createNetServer();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (typeof address === "object" && address !== null) {
-        const port = address.port;
-        probe.close(() => resolvePort(port));
-      } else {
-        probe.close(() => reject(new Error("could not determine a free port")));
-      }
-    });
-  });
-}
-
-/** Explicit-synchronization wait (see the skill's "Determinism" section) for
- * the server to actually be accepting connections — `server.ts`'s
- * `httpServer.listen` callback only logs, it isn't awaitable from here. */
-function waitForPort(port: number, timeoutMs = 5000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+/** Resolves once `server.ts`'s own `httpServer` is listening — not merely once
+ * something answers on the port, which would also be true of another test
+ * process that was handed the same port, leaving this relay unbound and the
+ * test talking to a stranger. Rejects if the bind fails (EADDRINUSE). */
+function waitForListening(server: Server, port: number, timeoutMs = 10_000): Promise<void> {
   return new Promise((resolveWait, reject) => {
-    const attempt = () => {
-      const socket = netConnect({ port, host: "127.0.0.1" }, () => {
-        socket.end();
-        resolveWait();
-      });
-      socket.on("error", () => {
-        socket.destroy();
-        if (Date.now() > deadline) {
-          reject(new Error(`relay did not start listening on port ${port} within ${timeoutMs}ms`));
-          return;
-        }
-        setTimeout(attempt, 25);
-      });
+    if (server.listening) return resolveWait();
+    const timer = setTimeout(() => settle(new Error(`relay did not start listening on port ${port} within ${timeoutMs}ms`)), timeoutMs);
+    const settle = (error?: Error) => {
+      clearTimeout(timer);
+      server.off("listening", onListening);
+      server.off("error", settle);
+      if (error) reject(error);
+      else resolveWait();
     };
-    attempt();
+    const onListening = () => settle();
+    server.once("listening", onListening);
+    server.once("error", settle);
   });
 }
 
@@ -110,7 +89,7 @@ export async function startTestServer(): Promise<TestServer> {
   process.env.ANYWH_SESSIONS_ROOT = join(workDir, "sessions-root");
 
   const serverModule = await import("../../src/server.js");
-  await waitForPort(port);
+  await waitForListening(serverModule.httpServer, port);
 
   return {
     port,

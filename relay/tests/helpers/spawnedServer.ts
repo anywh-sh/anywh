@@ -1,49 +1,38 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { createServer as createNetServer, connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getFreePort } from "./ports.js";
 import { FAKE_AGENT_BIN, FAKE_SYSTEMCTL_BIN } from "./testServer.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELAY_ROOT = resolvePath(HERE, "../..");
 const SERVER_ENTRY = resolvePath(RELAY_ROOT, "src/server.ts");
 
-function getFreePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const probe = createNetServer();
-    probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address();
-      if (typeof address === "object" && address !== null) {
-        const port = address.port;
-        probe.close(() => resolvePort(port));
-      } else {
-        probe.close(() => reject(new Error("could not determine a free port")));
-      }
-    });
-  });
-}
-
-function waitForPort(port: number, timeoutMs = 10000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+/** Resolves once the child itself logged that it is listening on `port` — a
+ * connection to the port would also succeed against a different process that
+ * holds it — and rejects if the child exits first or says nothing in time. */
+function waitUntilListening(proc: ChildProcess, output: string[], port: number, timeoutMs = 15_000): Promise<void> {
   return new Promise((resolveWait, reject) => {
-    const attempt = () => {
-      const socket = netConnect({ port, host: "127.0.0.1" }, () => {
-        socket.end();
-        resolveWait();
-      });
-      socket.on("error", () => {
-        socket.destroy();
-        if (Date.now() > deadline) {
-          reject(new Error(`relay did not start listening on port ${port} within ${timeoutMs}ms`));
-          return;
-        }
-        setTimeout(attempt, 25);
-      });
-    };
-    attempt();
+    const listening = (): boolean => output.join("").includes(`[relay] listening on ws://127.0.0.1:${port}`);
+    const timer = setInterval(check, 25);
+    const deadline = Date.now() + timeoutMs;
+    function finish(error?: Error): void {
+      clearInterval(timer);
+      proc.off("exit", onExit);
+      if (error) reject(error);
+      else resolveWait();
+    }
+    function onExit(code: number | null): void {
+      finish(new Error(`relay exited (code ${code}) before listening on port ${port}:\n${output.join("")}`));
+    }
+    function check(): void {
+      if (listening()) finish();
+      else if (Date.now() > deadline) finish(new Error(`relay did not start listening on port ${port} within ${timeoutMs}ms:\n${output.join("")}`));
+    }
+    proc.once("exit", onExit);
+    check();
   });
 }
 
@@ -78,6 +67,23 @@ export interface SpawnedServer {
  * land on that separate process, never on the test runner's own.
  */
 export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise<SpawnedServer> {
+  // A port is free when picked, not when the child binds it: another test
+  // process may take it in between, and the child then dies on EADDRINUSE.
+  // That is retried on a new port; a test that fixed its own port gets the error.
+  const attempts = extraEnv.RELAY_PORT ? 1 : 3;
+  for (let attempt = 1; ; attempt++) {
+    const spawned = await spawnRelayOnce(extraEnv);
+    try {
+      await spawned.ready;
+      return spawned.server;
+    } catch (error) {
+      spawned.server.cleanup();
+      if (attempt >= attempts || !/EADDRINUSE/.test(spawned.server.output.join(""))) throw error;
+    }
+  }
+}
+
+async function spawnRelayOnce(extraEnv: Record<string, string>): Promise<{ server: SpawnedServer; ready: Promise<void> }> {
   const workDir = mkdtempSync(join(tmpdir(), "anywh-relay-spawn-"));
   const homeDir = join(workDir, "home");
   mkdirSync(homeDir, { recursive: true });
@@ -111,9 +117,9 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
   proc.stdout?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
   proc.stderr?.on("data", (chunk: Buffer) => output.push(chunk.toString()));
 
-  await waitForPort(port);
+  const ready = waitUntilListening(proc, output, port);
 
-  return {
+  const server: SpawnedServer = {
     port,
     proc,
     output,
@@ -137,4 +143,5 @@ export async function spawnRelay(extraEnv: Record<string, string> = {}): Promise
       rmSync(workDir, { recursive: true, force: true });
     },
   };
+  return { server, ready };
 }
