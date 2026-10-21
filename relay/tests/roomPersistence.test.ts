@@ -218,16 +218,11 @@ test("on connecting to its host the relay delivers messages queued before a rest
     }
     const now = await agents();
     assert.ok(now.some((agent) => agent.agentId === "plain1"), "an agent of no room is not the rooms' business");
-    // The relay rewrites this file in place, so a read can land on a half
-    // written one (its turn's end writes it again just after going idle).
+    // The turn's end writes the file again just after going idle.
     let queued: unknown[] | undefined = [];
     for (let attempt = 0; attempt < 100 && queued !== undefined; attempt++) {
-      try {
-        const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: unknown[] } }>;
-        queued = onDisk.w9.room?.queuedMessages;
-      } catch {
-        // torn read: try again
-      }
+      const onDisk = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: unknown[] } }>;
+      queued = onDisk.w9.room?.queuedMessages;
       if (queued !== undefined) await new Promise((r) => setTimeout(r, 50));
     }
     assert.equal(queued, undefined, "delivered, so no longer queued");
@@ -253,17 +248,9 @@ test("with its host down a worker's queue stays on disk, untouched, and goes out
       },
     }),
   );
-  // The relay rewrites this file in place (truncate, then write), so a read
-  // can land on a half-written file: keep the last complete answer instead.
-  let lastQueued: string[] = ["first", "second"];
   const queued = (): string[] => {
-    try {
-      const records = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: { text: string }[] } }>;
-      lastQueued = (records.w7.room?.queuedMessages ?? []).map((m) => m.text);
-    } catch {
-      // Torn read; retry on the next call.
-    }
-    return lastQueued;
+    const records = JSON.parse(readFileSync(sessionsFile, "utf8")) as Record<string, { room?: { queuedMessages?: { text: string }[] } }>;
+    return (records.w7.room?.queuedMessages ?? []).map((m) => m.text);
   };
   const relay = await spawnRelay({ ANYWH_AGENT_HOST_SOCKET: socketPath, RELAY_SESSIONS_FILE: sessionsFile });
   let host: ReturnType<typeof startHostProcess> | undefined;
