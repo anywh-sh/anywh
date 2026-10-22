@@ -521,7 +521,10 @@ describe("anywh room canvas", () => {
         panel: Math.round(document.querySelector("aside.sala-side").getBoundingClientRect().width),
         canvas: Math.round(document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect().width),
         stored: localStorage.getItem("anywh:sala-side-width"),
-        max: Math.min(640, Math.max(385, Math.floor(window.innerWidth / 2))),
+        // What the conversation's text column can use (680px, its padding and
+        // gutters, the divider), or half the window if that is narrower.
+        max: Math.max(385, Math.min(729, Math.floor(window.innerWidth / 2))),
+        lit: document.querySelector('aside.sala-side [role="separator"]').hasAttribute("data-dragging"),
       }));
 
     const before = await measure();
@@ -539,6 +542,10 @@ describe("anywh room canvas", () => {
 
     await drag(-2000);
     await browser.waitUntil(async () => (await measure()).panel === before.max, { timeout: 5000, timeoutMsg: "the panel did not stop at its maximum" });
+    // Let go at the maximum, with the handle left behind the pointer: it is not lit any more.
+    expect((await measure()).lit).toBe(false);
+    // The width goes on the panel itself, never on the document root.
+    expect(await browser.execute(() => document.documentElement.style.getPropertyValue("--sala-side-w"))).toBe("");
 
     // Closing and opening again keeps the width.
     await browser.keys("Escape");
