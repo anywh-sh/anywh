@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDict } from "@/i18n";
+import { shiftKeyLabel } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 import { AreaIcon, AttachIcon, FitIcon, HandIcon, MinusIcon, NewAgentIcon, PlusIcon, SelectIcon, TextIcon } from "@/components/sala/SalaIcons";
 
@@ -71,7 +72,7 @@ export function SalaToolbar(props: SalaToolbarProps) {
             <MinusIcon />
           </button>
         </Tip>
-        <Tip label={dict.zoomReset.replace("{percent}", props.zoomText)} keys={["⇧", "0"]}>
+        <Tip label={dict.zoomReset.replace("{percent}", props.zoomText)} keys={[shiftKeyLabel(), "0"]}>
           <button type="button" className="sala-tool zoom" aria-label={dict.zoomReset.replace("{percent}", props.zoomText)} onClick={props.onZoomReset}>
             <span ref={props.zoomLabelRef}>{props.zoomText}</span>
           </button>
@@ -81,7 +82,7 @@ export function SalaToolbar(props: SalaToolbarProps) {
             <PlusIcon />
           </button>
         </Tip>
-        <Tip label={dict.fit} keys={["⇧", "1"]}>
+        <Tip label={dict.fit} keys={[shiftKeyLabel(), "1"]}>
           <button type="button" className="sala-tool" aria-label={dict.fit} onClick={props.onFit}>
             <FitIcon />
           </button>

@@ -1091,9 +1091,7 @@ export const en: Dictionary = {
     multi: {
       label: "Actions for the selected agents",
       count: "{count} agents",
-      hint: "{keys} + click to change",
-      keysMac: "⇧ or ⌘",
-      keysOther: "Shift or Ctrl",
+      hint: "{shift} or {mod} + click to change",
       group: "Group",
       stop: "Stop",
       remove: "Remove",

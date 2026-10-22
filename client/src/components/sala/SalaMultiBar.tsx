@@ -1,5 +1,5 @@
 import { useDict } from "@/i18n";
-import { isMacOS } from "@/lib/platform/platform";
+import { modifierKeyLabel, shiftKeyLabel } from "@/lib/platform/platform";
 import { AreaIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
 
 interface SalaMultiBarProps {
@@ -19,7 +19,7 @@ export function SalaMultiBar({ count, canStop, onGroup, onStop, onRemove, onClea
   return (
     <div className="sala-float sala-mbar" data-float role="toolbar" aria-label={dict.label}>
       <span className="sala-mbar-n">{dict.count.replace("{count}", String(count))}</span>
-      <span className="sala-mbar-h">{dict.hint.replace("{keys}", isMacOS() ? dict.keysMac : dict.keysOther)}</span>
+      <span className="sala-mbar-h">{dict.hint.replace("{shift}", shiftKeyLabel()).replace("{mod}", modifierKeyLabel())}</span>
       <button type="button" onClick={onGroup}>
         <AreaIcon size={13} />
         <span>{dict.group}</span>

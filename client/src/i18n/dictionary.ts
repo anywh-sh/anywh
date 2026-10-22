@@ -1493,10 +1493,8 @@ export interface Dictionary {
       label: string;
       /** `{count}`. */
       count: string;
-      /** `{keys}`: one of the two below. */
+      /** `{shift}` and `{mod}`: the platform's Shift and command keys (⇧ and ⌘ on macOS, Shift and Ctrl elsewhere). */
       hint: string;
-      keysMac: string;
-      keysOther: string;
       group: string;
       stop: string;
       remove: string;

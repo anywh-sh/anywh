@@ -1091,9 +1091,7 @@ export const ptBr: Dictionary = {
     multi: {
       label: "Ações para os agentes selecionados",
       count: "{count} agentes",
-      hint: "{keys} + clique para mudar",
-      keysMac: "⇧ ou ⌘",
-      keysOther: "Shift ou Ctrl",
+      hint: "{shift} ou {mod} + clique para mudar",
       group: "Agrupar",
       stop: "Parar",
       remove: "Remover",

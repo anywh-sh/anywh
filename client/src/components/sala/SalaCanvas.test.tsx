@@ -653,6 +653,18 @@ describe("SalaCanvas — selecting several agents", () => {
     expect(multiBar()).toHaveTextContent("3 agents");
   });
 
+  it("names the keys as the platform writes them", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)");
+    try {
+      mountRoom();
+      fireEvent.click(hit("a"), { shiftKey: true });
+      fireEvent.click(hit("b"), { metaKey: true });
+      expect(multiBar()).toHaveTextContent("⇧ or ⌘ + click to change");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("takes Ctrl+click off macOS, where Command is not the selection's key", () => {
     mountRoom();
     fireEvent.click(hit("a"), { ctrlKey: true });
