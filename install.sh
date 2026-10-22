@@ -412,7 +412,16 @@ else
   # as an asset instead of this script carrying a copy, so a fork's release
   # installs under its own identifier. It becomes a file name below, so
   # anything that isn't a plain reverse-DNS string is refused outright.
-  download_verified "anywh-app-id.txt" "$staging/app-id.txt"
+  #
+  # Releases up to v0.1.8 predate the asset, so `--version` pinned to one of
+  # them would fail here: those were all built with the official identifier,
+  # which is what such a pin gets. $tmp/SHA256SUMS is that release's own
+  # list, already fetched by the AppImage download above.
+  if grep -q " anywh-app-id.txt\$" "$tmp/SHA256SUMS"; then
+    download_verified "anywh-app-id.txt" "$staging/app-id.txt"
+  else
+    printf '%s\n' "sh.anywh.client" > "$staging/app-id.txt"
+  fi
   app_id="$(head -n 1 "$staging/app-id.txt" | tr -d '\r\n ')"
   printf '%s' "$app_id" | grep -Eq '^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$' ||
     err "the release's anywh-app-id.txt doesn't hold a valid app identifier"
