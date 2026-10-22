@@ -21,6 +21,8 @@ interface SalaConfirmProps {
   /** The canvas: the question and its backdrop cover it, not the side panel. */
   container: HTMLElement | null;
   cancelLabel: string;
+  /** The answer button's name while it waits (`pending`). */
+  pendingLabel: string;
   onCancel: () => void;
   onConfirm: () => void;
   /** Focus goes back to the canvas once the question is gone. */
@@ -37,7 +39,7 @@ interface SalaConfirmProps {
  * transform left its text soft. It comes in and goes out with one-shot
  * fades (`sala.css`) that leave nothing composited once they end.
  */
-export function SalaConfirm({ view, container, cancelLabel, onCancel, onConfirm, onClosed }: SalaConfirmProps) {
+export function SalaConfirm({ view, container, cancelLabel, pendingLabel, onCancel, onConfirm, onClosed }: SalaConfirmProps) {
   // The last question stays drawn while it animates out.
   const last = useRef<SalaConfirmView | null>(view);
   if (view) last.current = view;
@@ -78,12 +80,17 @@ export function SalaConfirm({ view, container, cancelLabel, onCancel, onConfirm,
                 <Dialog.Action
                   className={cn("sala-cfm-ok", shown.danger && "danger")}
                   disabled={shown.pending}
+                  aria-busy={shown.pending}
+                  aria-label={shown.pending ? pendingLabel : undefined}
                   onClick={(event) => {
                     event.preventDefault();
                     onConfirm();
                   }}
                 >
-                  {shown.ok}
+                  {/* The label keeps its place while a spinner stands in for
+                      it, so the button does not change size. */}
+                  <span className="sala-cfm-ok-label">{shown.ok}</span>
+                  {shown.pending && <span className="sala-spin" aria-hidden="true" />}
                 </Dialog.Action>
               </div>
             </>

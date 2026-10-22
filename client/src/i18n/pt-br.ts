@@ -1113,6 +1113,7 @@ export const ptBr: Dictionary = {
       discardBody: "O trabalho deles que não foi integrado também é descartado:",
       discard: "Descartar e remover",
       checking: "Verificando se há trabalho não integrado…",
+      checkFailed: "Não foi possível verificar se há trabalho não integrado; se houver, a sala pergunta de novo antes de descartá-lo.",
       groupTitle: "Criar uma área nova?",
       groupBodyOne: "{count} agentes vão para uma área nova e saem da área onde estão hoje:",
       groupBodyMany: "{count} agentes vão para uma área nova e saem das áreas onde estão hoje:",

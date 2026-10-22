@@ -1526,6 +1526,8 @@ export interface Dictionary {
       discard: string;
       /** While the room checks for that work. */
       checking: string;
+      /** Appended when that check failed. */
+      checkFailed: string;
       groupTitle: string;
       /** `{count}` agents; the areas' names follow. */
       groupBodyOne: string;

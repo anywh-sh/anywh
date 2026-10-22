@@ -150,9 +150,9 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       fetchRoomWorktrees(profile, roomId).then(
         (data) => data.worktrees.filter((tree) => agentIds.includes(tree.agentId) && !tree.integrated),
         (error: unknown) => {
-          // The removal still asks the relay, which refuses to drop such work unasked.
+          // The question says so; the relay still refuses to drop such work unasked.
           console.error("[anywh] failed to check the agents' work before removing them", error);
-          return [];
+          return null;
         },
       ),
     [profile, roomId],

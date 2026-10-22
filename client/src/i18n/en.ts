@@ -1113,6 +1113,7 @@ export const en: Dictionary = {
       discardBody: "Their work that was not integrated is discarded too:",
       discard: "Discard and remove",
       checking: "Checking for work that was not integrated…",
+      checkFailed: "The room could not check for work that was not integrated; if there is any, it asks again before discarding it.",
       groupTitle: "Create a new area?",
       groupBodyOne: "{count} agents go to a new area and leave the area they are in now:",
       groupBodyMany: "{count} agents go to a new area and leave the areas they are in now:",

@@ -1157,6 +1157,14 @@
 .sala-cfm-ok:disabled {
   cursor: default;
 }
+.sala-cfm-ok[aria-busy="true"] .sala-cfm-ok-label {
+  visibility: hidden;
+}
+.sala-cfm-ok .sala-spin {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
 .sala-cfm-c:focus-visible,
 .sala-cfm-ok:focus-visible {
   outline: 2px solid var(--muted-foreground);

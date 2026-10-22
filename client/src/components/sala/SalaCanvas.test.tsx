@@ -533,6 +533,48 @@ describe("SalaCanvas — removing agents asks first", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
+  it("opens the question once the check is done, already saying what it will say", async () => {
+    let answer: (work: RoomWorktree[]) => void = () => undefined;
+    const onCheckWork = vi.fn(() => new Promise<RoomWorktree[]>((resolve) => (answer = resolve)));
+    mount(canvasOf(), { onCheckWork });
+    pressBar("Remove");
+    // Not yet: no question that would change under the person's eyes.
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    answer([worktree("a", "anywh/spike")]);
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Discard and remove" })).toBeEnabled();
+    expect(within(dialog).queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  it("opens without the check when it is slow, the answer waiting on a spinner in its place", async () => {
+    let answer: (work: RoomWorktree[]) => void = () => undefined;
+    const onCheckWork = vi.fn(() => new Promise<RoomWorktree[]>((resolve) => (answer = resolve)));
+    mount(canvasOf(), { onCheckWork });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    const waiting = within(dialog).getByRole("button", { name: "Checking for work that was not integrated…" });
+    expect(waiting).toBeDisabled();
+    expect(waiting).toHaveAttribute("aria-busy", "true");
+    expect(waiting.querySelector(".sala-spin")).not.toBeNull();
+    // The label keeps its place under the spinner: the button does not change size.
+    expect(waiting).toHaveTextContent("Remove");
+    expect(dialog).not.toHaveTextContent("Checking");
+    answer([]);
+    const remove = await within(dialog).findByRole("button", { name: "Remove" });
+    expect(remove).toBeEnabled();
+    expect(remove.querySelector(".sala-spin")).toBeNull();
+  });
+
+  it("says so when the work could not be checked, and still lets the removal go ahead", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent, onCheckWork: () => Promise.resolve(null) });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("The room could not check for work that was not integrated");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", false);
+  });
+
   it("asks again, with the work, when the relay finds some the check did not", async () => {
     const onRemoveAgent = vi.fn((_: string, discard: boolean) => Promise.resolve(discard ? { undoMs: 5000 } : { needsDiscard: [worktree("a", "anywh/late")] }));
     mount(canvasOf(), { onRemoveAgent });
