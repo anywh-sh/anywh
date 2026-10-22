@@ -14,6 +14,7 @@ import {
   addRoomContextFile,
   DiscardNeededError,
   fetchRoomContextCount,
+  fetchRoomWorktrees,
   launchRoomAgent,
   removeRoomAgent,
   restoreRoomAgent,
@@ -144,6 +145,18 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       ),
     [profile, roomId],
   );
+  const onCheckWork = useCallback(
+    (agentIds: readonly string[]) =>
+      fetchRoomWorktrees(profile, roomId).then(
+        (data) => data.worktrees.filter((tree) => agentIds.includes(tree.agentId) && !tree.integrated),
+        (error: unknown) => {
+          // The removal still asks the relay, which refuses to drop such work unasked.
+          console.error("[anywh] failed to check the agents' work before removing them", error);
+          return [];
+        },
+      ),
+    [profile, roomId],
+  );
   const onResumeAgent = useCallback(
     (agentId: string) => {
       resumeRoomAgent(profile, roomId, agentId).catch((error: unknown) => console.error("[anywh] failed to resume a room agent", error));
@@ -232,6 +245,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           onStopAgent={onStopAgent}
           onRemoveAgent={onRemoveAgent}
           onRestoreAgent={onRestoreAgent}
+          onCheckWork={onCheckWork}
           onAttachFiles={onAttachFiles}
           onOpenAgent={(agentId) => setPanel({ kind: "agent", id: agentId })}
           onNewAgent={openLauncher}

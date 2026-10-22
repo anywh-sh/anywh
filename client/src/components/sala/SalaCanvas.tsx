@@ -31,6 +31,7 @@ import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
 import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
 import { prefersReducedMotion, useArrivals, useNewAreas } from "@/components/sala/useArrivals";
+import { removalPlan, type RemovalPlan } from "@/lib/sala/selection";
 import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
@@ -52,6 +53,9 @@ export interface SalaCanvasProps {
    * for the person to say it may be thrown away. */
   onRemoveAgent: (agentId: string, discard: boolean) => Promise<{ undoMs: number } | { needsDiscard: RoomWorktree[] } | null>;
   onRestoreAgent: (agentId: string) => Promise<boolean>;
+  /** The work of `agentIds` nobody integrated, which removing them would
+   * discard: asked before the removal, so one question covers both. */
+  onCheckWork: (agentIds: readonly string[]) => Promise<RoomWorktree[]>;
   onAttachFiles: (files: File[]) => Promise<boolean>;
   /** "Open conversation" on a card: the room's side panel shows that agent. */
   onOpenAgent: (agentId: string) => void;
@@ -78,6 +82,7 @@ export interface SalaCanvasHandle {
 interface Toast {
   key: number;
   title: string;
+  sub?: string;
   action?: { label: string; run: () => void };
 }
 
@@ -361,9 +366,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
   }, []);
 
   // ─── toasts ───
-  const showToast = useCallback((title: string, action?: Toast["action"], ms = 3500) => {
+  const showToast = useCallback((title: string, action?: Toast["action"], ms = 3500, sub?: string) => {
     window.clearTimeout(toastTimer.current);
-    setToast({ key: Date.now(), title, action });
+    setToast({ key: Date.now(), title, sub, action });
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
@@ -466,8 +471,15 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const handMode = (): boolean => latest.current.tool === "hand" || latest.current.spaceDown;
 
+  /** Whether an event happened on the canvas itself. React bubbles events
+   * from a portal (the dialog that asks before removing) through the tree it
+   * is declared in, and a press on that dialog's buttons must not pan the
+   * room, capture the pointer away from them or run the room's shortcuts. */
+  const onCanvas = (event: { target: EventTarget }): boolean => vpRef.current?.contains(event.target as Node) === true;
+
   const onViewportDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0 && event.button !== 1) return;
+    if (!onCanvas(event)) return;
     // A second finger while one is dragging something is not a new gesture.
     if (dragRef.current) return;
     const target = event.target as Element;
@@ -881,38 +893,60 @@ export function SalaCanvas(props: SalaCanvasProps) {
     [dict.toast.stopFailed, showToast],
   );
 
-  const [discardAsk, setDiscardAsk] = useState<{ agentId: string; worktrees: RoomWorktree[] } | null>(null);
-  const removeAgent = useCallback(
-    (agentId: string, discard = false) => {
+  /** The question open over the room before an action that cannot simply be
+   * taken back. Removing asks once: whether the agents' work nobody
+   * integrated is discarded is part of the same question (`work`, `null`
+   * while the room checks), never a second one after it. */
+  const [confirm, setConfirm] = useState<{ kind: "remove"; plan: RemovalPlan; work: RoomWorktree[] | null } | null>(null);
+  const askRemove = useCallback((ids: readonly string[]) => {
+    const plan = removalPlan(latest.current.agents, ids);
+    if (plan.roots.length === 0) return;
+    setConfirm({ kind: "remove", plan, work: null });
+    void latest.current.onCheckWork(plan.all).then((work) => {
+      setConfirm((current) => (current?.kind === "remove" && current.plan === plan ? { ...current, work } : current));
+    });
+  }, []);
+  const askRemoveOne = useCallback((agentId: string) => askRemove([agentId]), [askRemove]);
+
+  const removeAgents = useCallback(
+    (plan: RemovalPlan, discard: boolean) => {
       setSelected(null);
-      void latest.current.onRemoveAgent(agentId, discard).then((result) => {
-        if (!result) {
-          showToast(dict.toast.removeFailed);
+      void Promise.all(plan.roots.map((id) => latest.current.onRemoveAgent(id, discard).then((result) => ({ id, result })))).then((outcomes) => {
+        const removed = outcomes.flatMap(({ id, result }) => (result && "undoMs" in result ? [{ id, undoMs: result.undoMs }] : []));
+        const refused = outcomes.flatMap(({ id, result }) => (result && "needsDiscard" in result ? [{ id, work: result.needsDiscard }] : []));
+        // Work that showed up after the room checked: the question comes back with it.
+        if (refused.length > 0) setConfirm({ kind: "remove", plan: removalPlan(latest.current.agents, refused.map((r) => r.id)), work: refused.flatMap((r) => r.work) });
+        if (removed.length === 0) {
+          if (refused.length === 0) showToast(dict.toast.removeFailed);
           return;
         }
-        if ("needsDiscard" in result) {
-          setDiscardAsk({ agentId, worktrees: result.needsDiscard });
-          return;
-        }
+        const count = removed.length === plan.roots.length ? plan.all.length : removed.length;
         showToast(
-          dict.toast.removed,
+          count === 1 ? dict.toast.removed : dict.toast.removedMany.replace("{count}", String(count)),
           {
             label: dict.toast.undo,
             run: () => {
-              void latest.current.onRestoreAgent(agentId).then((ok) => {
-                if (ok) setToast(null);
+              void Promise.all(removed.map((r) => latest.current.onRestoreAgent(r.id))).then((restored) => {
+                if (restored.every(Boolean)) setToast(null);
                 else showToast(dict.toast.restoreFailed);
               });
             },
           },
-          Math.min(result.undoMs, 10_000),
+          Math.min(...removed.map((r) => r.undoMs), 10_000),
+          count === 1 ? dict.toast.removedSub : dict.toast.removedManySub,
         );
       });
     },
     [dict.toast, showToast],
   );
 
-  useImperativeHandle(props.handleRef, () => ({ removeAgent: (agentId: string) => removeAgent(agentId) }), [removeAgent]);
+  const confirmOk = (): void => {
+    if (confirm?.kind !== "remove" || confirm.work === null) return;
+    setConfirm(null);
+    removeAgents(confirm.plan, confirm.work.length > 0);
+  };
+
+  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne }), [askRemoveOne]);
 
   const attach = useCallback(
     (files: File[]) => {
@@ -934,6 +968,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (!onCanvas(event)) return;
     const target = event.target as HTMLElement;
     const typing = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
     if (event.key === "Escape") {
@@ -990,7 +1025,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const agent = byId.get(selected);
       if (agent?.role === "worker") {
         event.preventDefault();
-        removeAgent(selected);
+        askRemoveOne(selected);
       }
     } else if (key === "+" || key === "=") zoomStep(1);
     else if (key === "-" || key === "_") zoomStep(-1);
@@ -1229,7 +1264,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 onReply={reply}
                 onGroup={groupAgent}
                 onStop={stopAgent}
-                onRemove={removeAgent}
+                onRemove={askRemoveOne}
               />
             );
           })}
@@ -1304,6 +1339,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       {toast && (
         <div key={toast.key} className={cn("sala-float sala-toast", toast.action && "act")} data-float role="status">
           <span>{toast.title}</span>
+          {toast.sub && <span className="sala-toast-sub">{toast.sub}</span>}
           {toast.action && (
             <button type="button" onClick={toast.action.run}>
               {toast.action.label}
@@ -1326,32 +1362,62 @@ export function SalaCanvas(props: SalaCanvasProps) {
         onFit={() => fit(true, true)}
       />
       {props.launcher}
-      <AlertDialog open={discardAsk !== null} onOpenChange={(open) => !open && setDiscardAsk(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{dict.discard.title}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogBody>
-            <AlertDialogDescription>
-              {dict.discard.body
-                .replace("{title}", byId.get(discardAsk?.agentId ?? "")?.title ?? dict.card.untitled)
-                .replace("{work}", (discardAsk?.worktrees ?? []).map((w) => w.branch).join(", "))}
-            </AlertDialogDescription>
-          </AlertDialogBody>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{dict.discard.cancel}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const ask = discardAsk;
-                setDiscardAsk(null);
-                if (ask) removeAgent(ask.agentId, true);
+      {(() => {
+        if (!confirm) return null;
+        const text = dict.confirm;
+        const { plan, work } = confirm;
+        const one = plan.roots.length === 1;
+        const along =
+          plan.extra === 0 ? "" : plan.extra === 1 ? (one ? text.alongOne : text.alongOneOfMany) : (one ? text.alongMany : text.alongManyOfMany).replace("{count}", String(plan.extra));
+        const title = one ? text.removeOneTitle.replace("{title}", byId.get(plan.roots[0])?.title ?? dict.card.untitled) : text.removeManyTitle.replace("{count}", String(plan.roots.length));
+        return (
+          <AlertDialog open onOpenChange={(open) => !open && setConfirm(null)}>
+            <AlertDialogContent
+              className="sala-confirm sm:max-w-[400px]"
+              // Enter answers yes, as Esc answers no; focus goes back to the room after.
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                event.preventDefault();
+                confirmOk();
+              }}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                vpRef.current?.focus({ preventScroll: true });
               }}
             >
-              {dict.discard.confirm}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{title}</AlertDialogTitle>
+              </AlertDialogHeader>
+              <AlertDialogBody>
+                <AlertDialogDescription>{(one ? text.removeOneBody : text.removeManyBody).replace("{along}", along)}</AlertDialogDescription>
+                {work === null && <p className="sala-confirm-note">{text.checking}</p>}
+                {work !== null && work.length > 0 && (
+                  <>
+                    <p className="sala-confirm-note warn">{text.discardBody}</p>
+                    <div className="sala-confirm-tags">
+                      {work.map((w) => (
+                        <span key={w.id}>{w.branch}</span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </AlertDialogBody>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{text.cancel}</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={work === null}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    confirmOk();
+                  }}
+                >
+                  {work !== null && work.length > 0 ? text.discard : text.remove}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        );
+      })()}
       <input
         ref={fileRef}
         type="file"

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SalaCanvas, type SalaCanvasProps } from "@/components/sala/SalaCanvas";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
+import type { RoomAgent, RoomCanvas, RoomWorktree } from "@/lib/relay/roomClient";
 
 afterEach(cleanup);
 
@@ -48,6 +48,7 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         onStopAgent={() => Promise.resolve(true)}
         onRemoveAgent={() => Promise.resolve({ undoMs: 1000 })}
         onRestoreAgent={() => Promise.resolve(true)}
+        onCheckWork={() => Promise.resolve([])}
         onAttachFiles={() => Promise.resolve(true)}
         {...props}
         {...over}
@@ -447,5 +448,114 @@ describe("SalaCanvas — the orchestrator's card", () => {
     expect(onOpenAgent).not.toHaveBeenCalled();
     expect(card("a")).toHaveClass("sel");
     expect(screen.getByRole("toolbar", { name: "Agent actions" })).toBeInTheDocument();
+  });
+});
+
+describe("SalaCanvas — removing agents asks first", () => {
+  const worktree = (agentId: string, branch: string): RoomWorktree => ({ id: `wt-${branch}`, agentId, repoRoot: "/r", path: `/r/${branch}`, branch, state: "ready", phase: "idle", integrated: false });
+  const pressBar = (label: string): void => {
+    fireEvent.click(card("a").querySelector(".sala-node-hit")!);
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Agent actions" })).getByRole("button", { name: label }));
+  };
+
+  it("asks before removing, and removes only once the person says so, with a way back", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Remove “a” from the room?");
+    expect(dialog).toHaveTextContent("The agent stops and leaves the room. What they already wrote stays in the context.");
+    expect(onRemoveAgent).not.toHaveBeenCalled();
+    const remove = within(dialog).getByRole("button", { name: "Remove" });
+    await waitFor(() => expect(remove).toBeEnabled());
+    fireEvent.click(remove);
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", false);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(screen.getByText("Agent removed from the room")).toBeInTheDocument();
+  });
+
+  it("removes nothing when the question is cancelled, by its button or by Esc", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    pressBar("Remove");
+    fireEvent.keyDown(await screen.findByRole("alertdialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(onRemoveAgent).not.toHaveBeenCalled();
+  });
+
+  it("answers yes on Enter, wherever the focus is in the dialog", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Remove" })).toBeEnabled());
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: "Cancel" }), { key: "Enter" });
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", false);
+  });
+
+  it("says which agents leave along: the ones it delegated to", async () => {
+    const room = [...agents, agent("a1", { parentId: "a" }), agent("a2", { parentId: "a" })];
+    mount(canvasOf({ positions: { ...canvasOf().positions, a1: { x: 24, y: 600 }, a2: { x: 360, y: 600 } } }), { agents: room });
+    pressBar("Remove");
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("The agent stops and leaves the room, along with the 2 agents it delegated to.");
+  });
+
+  it("asks about work nobody integrated in the same question, never in a second one", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    const onCheckWork = vi.fn(() => Promise.resolve([worktree("a", "anywh/spike")]));
+    mount(canvasOf(), { onRemoveAgent, onCheckWork });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(onCheckWork).toHaveBeenCalledWith(["a"]);
+    const discard = await within(dialog).findByRole("button", { name: "Discard and remove" });
+    expect(dialog).toHaveTextContent("Their work that was not integrated is discarded too:");
+    expect(dialog).toHaveTextContent("anywh/spike");
+    fireEvent.click(discard);
+    expect(onRemoveAgent).toHaveBeenCalledTimes(1);
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", true);
+    await screen.findByRole("button", { name: "Undo" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("asks again, with the work, when the relay finds some the check did not", async () => {
+    const onRemoveAgent = vi.fn((_: string, discard: boolean) => Promise.resolve(discard ? { undoMs: 5000 } : { needsDiscard: [worktree("a", "anywh/late")] }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const first = await screen.findByRole("alertdialog");
+    await waitFor(() => expect(within(first).getByRole("button", { name: "Remove" })).toBeEnabled());
+    fireEvent.click(within(first).getByRole("button", { name: "Remove" }));
+    const again = await screen.findByRole("button", { name: "Discard and remove" });
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("anywh/late");
+    fireEvent.click(again);
+    expect(onRemoveAgent).toHaveBeenLastCalledWith("a", true);
+  });
+
+  it("leaves the room alone while the dialog is pressed or typed in: no pan, no shortcut, no Esc for the room", async () => {
+    const onEscape = vi.fn();
+    const onNewAgent = vi.fn();
+    const { viewport } = mount(canvasOf(), { onEscape, onNewAgent });
+    pressBar("Remove");
+    const cancel = within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" });
+    pointer("pointerDown", cancel, 10, 10);
+    pointer("pointerMove", viewport, 60, 60);
+    expect(viewport).not.toHaveAttribute("data-panning");
+    pointer("pointerUp", viewport, 60, 60);
+    fireEvent.keyDown(cancel, { key: "a" });
+    expect(onNewAgent).not.toHaveBeenCalled();
+    fireEvent.keyDown(cancel, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(onEscape).not.toHaveBeenCalled();
+  });
+
+  it("stops an agent without asking", () => {
+    const onStopAgent = vi.fn(() => Promise.resolve(true));
+    mount(canvasOf(), { onStopAgent });
+    pressBar("Stop");
+    expect(onStopAgent).toHaveBeenCalledWith("a");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 });

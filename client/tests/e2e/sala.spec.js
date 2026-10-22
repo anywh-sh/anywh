@@ -773,16 +773,20 @@ describe("anywh room canvas", () => {
     await shot("B-sala-concluida-sobre");
     await press('aside[data-panel="about"] button[aria-label="Close panel"]');
 
-    // Removing the agent that made it asks first: the work would be lost.
+    // Removing the agent that made it asks first, and the one question says
+    // the work would be lost: no second dialog after the relay's answer.
     // The agent that made the worktree: its card does not carry the task (the title is generated).
     const spike = worktree.agentId;
     await press(`[data-agent-id="${spike}"] .sala-node-hit`);
     await pressBar("Remove");
     const dialog = await $('[role="alertdialog"]');
-    await dialog.waitForExist({ timeout: 15000, timeoutMsg: "the relay's refusal never became a question" });
+    await dialog.waitForExist({ timeout: 15000, timeoutMsg: "removing never asked first" });
+    const discard = await dialog.$("button*=Discard and remove");
+    await discard.waitForExist({ timeout: 15000, timeoutMsg: "the question never said the work would be discarded" });
     expect(await dialog.getText()).toContain("not integrated");
+    expect(await dialog.getText()).toContain(worktree.branch);
     await shot("B-descartar-trabalho");
-    await dialog.$("button*=Discard and remove").click();
+    await discard.click();
     await browser.waitUntil(async () => (await cards()).length === 2, { timeout: 30000, timeoutMsg: "the agent was never removed" });
     await browser.waitUntil(async () => (await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json()).worktrees.length === 0, { timeout: 45000, timeoutMsg: "the worktree was never discarded after the undo window" });
   });

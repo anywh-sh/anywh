@@ -1488,18 +1488,39 @@ export interface Dictionary {
       keptOne: string;
       review: string;
     };
-    /** Removing an agent whose work was never integrated. */
-    discard: {
-      title: string;
-      /** `{title}`, `{work}`. */
-      body: string;
-      confirm: string;
+    /** What the room asks before an action that cannot simply be taken back. */
+    confirm: {
       cancel: string;
+      /** `{title}`. */
+      removeOneTitle: string;
+      /** `{count}`. */
+      removeManyTitle: string;
+      /** `{along}`: one of the `along*` below, or nothing. */
+      removeOneBody: string;
+      removeManyBody: string;
+      /** The agents the removed one delegated to, which leave with it. */
+      alongOne: string;
+      /** `{count}`. */
+      alongMany: string;
+      /** Same, when several agents are removed. */
+      alongOneOfMany: string;
+      /** `{count}`. */
+      alongManyOfMany: string;
+      remove: string;
+      /** Shown when some of the agents have work nobody integrated; the branches follow. */
+      discardBody: string;
+      discard: string;
+      /** While the room checks for that work. */
+      checking: string;
     };
     minimap: string;
     toast: {
       backTo100: string;
       removed: string;
+      removedSub: string;
+      /** `{count}`. */
+      removedMany: string;
+      removedManySub: string;
       undo: string;
       stopFailed: string;
       removeFailed: string;

@@ -966,6 +966,34 @@
 .sala-toast button:hover {
   background: var(--border);
 }
+.sala-toast-sub {
+  color: var(--text-faint);
+}
+
+/* the question before removing agents (a dialog, portaled out of the canvas) */
+.sala-confirm-note {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.sala-confirm-note.warn {
+  color: var(--foreground);
+}
+.sala-confirm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sala-confirm-tags span {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+}
 .sala-banner {
   left: 50%;
   top: 12px;
