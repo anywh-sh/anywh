@@ -1,0 +1,40 @@
+name: PR guard re-run
+
+# The breaking-change guard (pr.yml) fails until the PR title carries `!` or
+# the PR has the `not-breaking` label — but editing a title or a label runs
+# none of pr.yml's triggers, and triggering it on those events would re-run
+# the whole test suite for a title change. This re-runs only the failed jobs
+# of the PR's latest run instead, so fixing the title or the label is all
+# the author has to do.
+on:
+  pull_request:
+    types: [edited, labeled, unlabeled]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  rerun:
+    # `edited` also fires for a body change, which can't change the verdict.
+    if: github.event.action != 'edited' || github.event.changes.title != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-run the guard if it failed on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          run_id="$(gh run list --repo "$REPO" --workflow pr.yml --commit "$HEAD" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "No PR run for $HEAD yet; it will read the current title when it runs."
+            exit 0
+          fi
+          guard="$(gh run view "$run_id" --repo "$REPO" --json jobs --jq '.jobs[] | select(.name == "breaking-change guard") | .conclusion')"
+          if [ "$guard" != "failure" ]; then
+            echo "The guard on run $run_id is '${guard:-not finished}', nothing to re-run."
+            exit 0
+          fi
+          gh run rerun "$run_id" --repo "$REPO" --failed
