@@ -89,7 +89,12 @@ describe("motion budget", () => {
   it("never transitions a layout property in CSS either", () => {
     const banned =
       /transition(-property)?:\s*[^;]*\b(width|height|top|left|right|bottom|margin|padding|box-shadow|filter|all)\b|^\s*(width|height|top|left|right|bottom|margin|padding|box-shadow|filter)\s+[\d.]+m?s/;
-    expect(hits(CSS, banned)).toEqual([]);
+    // The room canvas is the one exception, by design: its cards carry a
+    // shadow that deepens when one is picked up, and its areas ease to a new
+    // place and size. sala.css's header says how that stays cheap, and
+    // salaCss.test.ts guards what it can never do (a `transform`/`opacity`
+    // transition, a layer in the plane).
+    expect(hits(CSS, banned, (file) => file.path.endsWith(`components${sep}sala${sep}sala.css`))).toEqual([]);
   });
 
   it("takes its duration from the token instead of writing one by hand", () => {

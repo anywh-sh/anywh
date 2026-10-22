@@ -129,7 +129,7 @@ describe("SalaCanvas — areas", () => {
   it("draws an area around its members with their count, and takes a card in when it is dropped over it", () => {
     const { onCanvasChange, viewport } = mount(canvasOf({ areas: [area] }));
     const frame = document.querySelector<HTMLElement>('[data-area-id="x"]')!;
-    expect(frame.style.transform).toBe("translate(0px, 264px)");
+    expect([frame.style.left, frame.style.top]).toEqual(["0px", "264px"]);
     expect(frame).toHaveTextContent("2 agents");
     // The principal is dragged onto the area: it changes area.
     pointer("pointerDown", card("main").querySelector(".sala-node-body")!, 300, 80);
@@ -349,5 +349,23 @@ describe("SalaCanvas — motion", () => {
     expect(document.querySelector('[data-area-id="x"]')).toHaveClass("born");
     act(() => void vi.advanceTimersByTime(400));
     expect(document.querySelector('[data-area-id="x"]')).not.toHaveClass("born");
+  });
+
+  it("eases a dropped card onto the grid: saved at once, settled within 180ms", () => {
+    vi.useFakeTimers();
+    const { onCanvasChange, viewport } = mount(canvasOf());
+    pointer("pointerDown", card("a").querySelector(".sala-node-body")!, 100, 340);
+    pointer("pointerMove", viewport, 150, 360);
+    pointer("pointerMove", viewport, 197, 393);
+    expect(document.querySelector(".sala-world")).not.toHaveClass("moving");
+    expect(viewport).toHaveAttribute("data-dragging");
+    pointer("pointerUp", viewport, 197, 393);
+    expect(onCanvasChange).toHaveBeenCalledTimes(1);
+    expect(card("a").style.transform).toBe("translate(120px, 336px)");
+    // Dropped at (121, 341): it starts there and eases the last pixels.
+    expect(card("a").style.translate).toBe("1px 5px");
+    act(() => void vi.advanceTimersByTime(200));
+    expect(card("a").style.translate).toBe("");
+    expect(viewport).not.toHaveAttribute("data-dragging");
   });
 });

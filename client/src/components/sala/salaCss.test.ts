@@ -35,6 +35,18 @@ describe("sala.css", () => {
     expect(promoting).toEqual([".sala-world.moving"]);
   });
 
+  // A transition of `transform` or `opacity` runs on WebKit's compositor in a
+  // layer of its own just as an animation does; the canvas eases them through
+  // a registered number instead (`--sala-fade`, `--sala-lift`).
+  it("has no transition of transform or opacity", () => {
+    const easing = rules.filter((r) => /transition[^;]*(?<![\w-])(transform|opacity|translate|scale|all)(?![\w-])/.test(r.body)).map((r) => r.selector);
+    expect(easing).toEqual([]);
+  });
+
+  it("registers the numbers it fades and lifts by, so they animate", () => {
+    for (const name of ["--sala-fade", "--sala-lift"]) expect(css).toMatch(new RegExp(`@property ${name}\\s*\\{[^}]*syntax:\\s*"<number>"`));
+  });
+
   // The room's motion is part of its design: nothing holds still while the
   // view moves (it is the world's layer that keeps a pan cheap).
   it("keeps every animation running while the view moves", () => {

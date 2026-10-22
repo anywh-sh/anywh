@@ -287,9 +287,18 @@
 }
 /* A card is a small terminal window: a title bar, a log, a strip. Its colors
  * are the window chrome's (the darker base around the plane), so the card
- * reads as a window set on the canvas. No drop shadow: under the camera's
- * `scale()` every card is painted again each frame, and a blurred shadow
- * that size is the most expensive thing that paint could hold. */
+ * reads as a window set on the canvas, with a soft shadow under it. Picked up
+ * (dragged) it rises: a little larger, a deeper shadow, both eased in and out.
+ * The rise is a registered number (`--sala-lift`) that the scale is computed
+ * from, not a `transform` transition: WebKit runs one of those in a layer of
+ * its own, and a layer in the scaled plane paints soft (see the sharpness
+ * rules above). A shadow is painted with its card, so it costs nothing while
+ * the camera moves (`.sala-world.moving` moves one bitmap then). */
+@property --sala-lift {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
 .sala-node-card {
   --sala-term-line: color-mix(in srgb, var(--border) 40%, var(--border-soft));
   --sala-log-at: color-mix(in srgb, var(--text-faint) 35%, var(--bg-chrome));
@@ -302,18 +311,26 @@
   flex-direction: column;
   background: var(--bg-chrome);
   border: 1px solid var(--sala-term-line);
-  transition: border-color var(--motion-fast) var(--motion-ease);
+  box-shadow: 0 16px 36px -20px var(--shadow-color);
+  transform: scale(calc(1 + 0.02 * var(--sala-lift)));
+  transition:
+    background-color 0.16s ease,
+    box-shadow 0.24s ease,
+    --sala-lift 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .sala-node:hover .sala-node-card {
   border-color: var(--sala-edge);
 }
-.sala-node.sel .sala-node-card,
-.sala-node[data-drag] .sala-node-card {
-  outline: 1px solid var(--text-faint);
-  outline-offset: 0;
+.sala-node.sel .sala-node-card {
+  box-shadow:
+    0 0 0 1px var(--text-faint),
+    0 22px 48px -20px var(--shadow-color);
 }
 .sala-node[data-drag] .sala-node-card {
-  transform: scale(1.02);
+  --sala-lift: 1;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--text-faint) 60%, var(--background)),
+    0 36px 72px -22px var(--shadow-color);
 }
 /* The state's color: the icon in the title bar and the rule under it. */
 .sala-node.run .sala-node-card {
@@ -639,8 +656,8 @@
   color: var(--muted-foreground);
   cursor: pointer;
   transition:
-    background-color var(--motion-fast) var(--motion-ease),
-    color var(--motion-fast) var(--motion-ease);
+    background-color 0.14s ease,
+    color 0.14s ease;
 }
 .sala-bar button:hover {
   background: var(--surface-hover);
@@ -648,12 +665,31 @@
 }
 
 /* ─── areas and text ─── */
+/* An area is placed by `left`/`top`, not a transform, so that it can ease to
+ * a new place and size when a card joins or leaves it: a `transform`
+ * transition would run in a compositor layer of its own (soft in the scaled
+ * plane), a `left`/`top` one is a layout of this one box per frame. While
+ * something is dragged the frame follows the pointer, so only its colors ease
+ * (`[data-dragging]`), and so does the rectangle the Area tool draws. */
 .sala-frame {
   position: absolute;
   left: 0;
   top: 0;
   border: 1px solid var(--sala-hair);
   background: var(--sala-area-fill);
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    top 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sala[data-dragging] .sala-frame,
+.sala-frame.draw {
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease;
 }
 .sala-frame.born {
   opacity: var(--sala-fade);
@@ -738,14 +774,19 @@
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
-  /* No transition: fading this in on hover makes WebKit promote it to its
-   * own layer, and the scaled plane under it is then painted soft. */
-  opacity: 0;
+  /* Faded through `--sala-fade`, not `opacity` itself: an `opacity`
+   * transition makes WebKit promote the button to its own layer, and the
+   * scaled plane under it is then painted soft. */
+  --sala-fade: 0;
+  opacity: var(--sala-fade);
+  transition:
+    --sala-fade 0.14s ease,
+    color 0.14s ease;
   cursor: pointer;
 }
 .sala-frame:hover .sala-frame-x,
 .sala-frame-x:focus-visible {
-  opacity: 1;
+  --sala-fade: 1;
 }
 .sala-frame-x:hover {
   color: var(--foreground);
@@ -948,6 +989,10 @@
   .sala-edge-pulse,
   .sala-edge-head {
     display: none;
+  }
+  .sala-node-card,
+  .sala-frame {
+    transition: none !important;
   }
 }
 

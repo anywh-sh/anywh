@@ -30,7 +30,7 @@ import {
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
 import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
-import { useArrivals, useNewAreas } from "@/components/sala/useArrivals";
+import { prefersReducedMotion, useArrivals, useNewAreas } from "@/components/sala/useArrivals";
 import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
@@ -106,6 +106,18 @@ function isBigText(texts: readonly RoomCanvasText[], id: string): boolean {
 const textLift = (big: boolean): number => (big ? 42 : 22);
 
 const translate = (x: number, y: number): string => `translate(${String(x)}px, ${String(y)}px)`;
+
+/** How long a dropped card takes to settle on the grid. */
+export const DROP_SETTLE_MS = 180;
+const easeOutQuart = (t: number): number => 1 - (1 - t) ** 4;
+
+/** Places an area's frame. By `left`/`top`, not a transform: see `.sala-frame`. */
+const placeFrame = (el: HTMLElement, rect: Rect): void => {
+  el.style.left = `${String(rect.x)}px`;
+  el.style.top = `${String(rect.y)}px`;
+  el.style.width = `${String(rect.w)}px`;
+  el.style.height = `${String(rect.h)}px`;
+};
 
 /** The states a link takes the color of (its child's); any other draws the neutral line. */
 const linkTone = (tone: string): string | false => (tone === "run" || tone === "start" || tone === "wait" || tone === "done" || tone === "stop") && tone;
@@ -382,10 +394,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const writeFrame = useCallback((id: string, rect: Rect): void => {
     const el = worldRef.current?.querySelector<HTMLElement>(`[data-area-id="${CSS.escape(id)}"]`);
-    if (!el) return;
-    el.style.transform = translate(rect.x, rect.y);
-    el.style.width = `${String(rect.w)}px`;
-    el.style.height = `${String(rect.h)}px`;
+    if (el) placeFrame(el, rect);
   }, []);
 
   const writeEdges = useCallback((rectsNow: ReadonlyMap<string, Rect>, agentId: string): void => {
@@ -430,9 +439,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       return;
     }
     el.style.display = "";
-    el.style.transform = translate(rect.x, rect.y);
-    el.style.width = `${String(rect.w)}px`;
-    el.style.height = `${String(rect.h)}px`;
+    placeFrame(el, rect);
   };
 
   /** Keeps the pointer's events coming here once it leaves the viewport. A
@@ -488,6 +495,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (target.closest("[data-nodrag]")) return;
     event.stopPropagation();
     if (dragRef.current) return;
+    stopSettle();
     vpRef.current?.focus({ preventScroll: true });
     if (handMode() || event.button === 1) {
       beginPan(event);
@@ -571,7 +579,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       if (d.kind === "pan") {
         vpRef.current?.setAttribute("data-panning", "");
         worldRef.current?.classList.add("moving");
-      }
+      } else vpRef.current?.setAttribute("data-dragging", "");
       if (d.kind === "node") d.el?.setAttribute("data-drag", "");
     }
     if (d.kind === "pan") {
@@ -666,6 +674,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       // Already released (cancelled pointer).
     }
     vpRef.current?.removeAttribute("data-panning");
+    vpRef.current?.removeAttribute("data-dragging");
     const { canvas: cv, agents: list } = latest.current;
 
     if (cancelled) {
@@ -739,8 +748,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
         return;
       }
       const z = cam().cam.z;
-      const x = snap(d.ox + (event.clientX - d.sx) / z);
-      const y = snap(d.oy + (event.clientY - d.sy) / z);
+      const from = { x: d.ox + (event.clientX - d.sx) / z, y: d.oy + (event.clientY - d.sy) / z };
+      const x = snap(from.x);
+      const y = snap(from.y);
       const positions = { ...cv.positions, [d.id]: { x, y } };
       const cards = cardRects(list, positions);
       const { areas } = membershipAfterDrop(cv.areas, cards, d.id);
@@ -748,6 +758,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       writeEdges(cards, d.id);
       for (const area of areas) writeFrame(area.id, areaRect(area, cards));
       commit({ ...cv, positions, areas });
+      if (d.el) settleDrop(d.el, d.id, from.x - x, from.y - y);
       return;
     }
 
@@ -776,6 +787,44 @@ export function SalaCanvas(props: SalaCanvasProps) {
       writeEdges(cards, m.id);
     }
   };
+
+  /** A dropped card eases onto its grid spot instead of jumping there. Its
+   * place is saved at once; what eases is a `translate` over it (the property,
+   * so the `transform` the card is placed by stays the saved one), with its
+   * links and its area following. */
+  const settling = useRef<{ raf: number; el: HTMLElement } | null>(null);
+  const stopSettle = (): void => {
+    const s = settling.current;
+    if (!s) return;
+    settling.current = null;
+    cancelAnimationFrame(s.raf);
+    s.el.style.translate = "";
+    vpRef.current?.removeAttribute("data-dragging");
+  };
+  const settleDrop = (el: HTMLElement, id: string, dx: number, dy: number): void => {
+    stopSettle();
+    if ((dx === 0 && dy === 0) || prefersReducedMotion()) return;
+    // The area around it follows frame by frame, not on its own transition.
+    vpRef.current?.setAttribute("data-dragging", "");
+    const t0 = performance.now();
+    const step = (now: number): void => {
+      const k = Math.min(1, (now - t0) / DROP_SETTLE_MS);
+      const left = 1 - easeOutQuart(k);
+      const ox = dx * left;
+      const oy = dy * left;
+      el.style.translate = k < 1 ? `${String(ox)}px ${String(oy)}px` : "";
+      const { canvas: cv, agents: list } = latest.current;
+      const cards = cardRects(list, cv.positions);
+      const at = cards.get(id);
+      if (at) cards.set(id, { ...at, x: at.x + ox, y: at.y + oy });
+      writeEdges(cards, id);
+      for (const area of cv.areas) if (area.members?.includes(id)) writeFrame(area.id, areaRect(area, cards));
+      if (k < 1) settling.current = { raf: requestAnimationFrame(step), el };
+      else stopSettle();
+    };
+    step(t0);
+  };
+  useEffect(() => () => stopSettle(), []);
 
   // ─── actions ───
   const select = useCallback((id: string) => {
@@ -1076,7 +1125,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
               key={area.id}
               data-area-id={area.id}
               className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel", newAreas.has(area.id) && "born")}
-              style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
+              style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
             >
               <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
                 <input
@@ -1179,7 +1228,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 </div>
               );
             })()}
-          <div ref={drawEl} className="sala-frame empty" aria-hidden="true" style={{ display: "none" }} />
+          <div ref={drawEl} className="sala-frame empty draw" aria-hidden="true" style={{ display: "none" }} />
         </div>
       </div>
 
