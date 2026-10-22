@@ -1,24 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowUp, GitBranch, Layers } from "lucide-react";
+import { GitBranch, Layers } from "lucide-react";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { ChoiceCard } from "@/components/chat/ChoiceCard";
-import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { Clock } from "@/components/sala/SalaCard";
 import { CheckIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
-import { MarkdownContent } from "@/components/chat/MarkdownContent";
-import { useAgentReply } from "@/hooks/sala/useAgentReply";
 import { useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
-import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { useDict } from "@/i18n";
 import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
-import { shouldShowReply } from "@/lib/sala/agentReply";
 import { cardClock, cardStatus } from "@/lib/sala/agentCard";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
-import { agentWork, formatBytes, formatTokens, windowPercent } from "@/lib/sala/roomFigures";
+import { agentWork, formatBytes } from "@/lib/sala/roomFigures";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -45,9 +38,11 @@ function Tile({ runtime }: { runtime: string }) {
 
 /**
  * One agent of the room in the side panel. The principal's panel is its whole
- * conversation (the same chat a session tab shows); a worker's is a summary
- * with what the person can do about it: answer what it asked, message it,
- * change its permission mode, stop or remove it.
+ * conversation (the same chat a session tab shows); a worker's is that same
+ * chat under a short summary (state, who delegated it, what it produced), with
+ * what the person can do about it: open it in a tab, delegate from it, stop or
+ * remove it. The chat carries the rest: what it is doing and has done, the
+ * question it asked, the message field and its permission mode.
  */
 export function AgentPanel(props: AgentPanelProps) {
   const { agent } = props;
@@ -72,42 +67,12 @@ export function AgentPanel(props: AgentPanelProps) {
 function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, title, subtitle, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
   const dict = useDict();
   const text = dict.sala.panel.agent;
-  // The panel's one connection to the worker's session. Its replies are read off
-  // the same socket (what the agent last said is not the principal's chat).
-  const { reply, handlers } = useAgentReply();
-  const session = useRelayClient(profile, agent.agentId, handlers);
   const status = cardStatus(agent, 0);
-  const percent = session.contextUsage ? windowPercent(session.contextUsage) : null;
-  const contextFigure = session.contextUsage
-    ? (percent === null ? text.contextUsedNoWindow : text.contextUsed).replace("{tokens}", formatTokens(session.contextUsage.usedTokens)).replace("{percent}", String(percent))
-    : null;
   const clock = cardClock(agent, observedSince, 0);
   const { subtasks, reload } = useAgentSubtasks(profile, roomId, agent.agentId, agent.subtasksRunning);
   const work = agentWork(worktrees, agent.agentId);
-  const [message, setMessage] = useState("");
-  const [sendFailed, setSendFailed] = useState(false);
-  const boxRef = useRef<HTMLTextAreaElement>(null);
   const canStop = agent.state !== "stopped" && agent.state !== "done";
   const stopped = agent.state === "stopped";
-
-  // A different agent starts with an empty box.
-  useEffect(() => {
-    setMessage("");
-    setSendFailed(false);
-  }, [agent.agentId]);
-
-  function send(): void {
-    const value = message.trim();
-    if (value === "" || !session.connected) return;
-    try {
-      session.sendMessage(value);
-      setMessage("");
-      setSendFailed(false);
-    } catch (error) {
-      console.error("[anywh] failed to message a room agent", error);
-      setSendFailed(true);
-    }
-  }
 
   const footer = (
     <>
@@ -141,7 +106,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
 
   return (
     <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} titlePending={agent.titlePending} subtitle={subtitle} kind="agent" footer={footer} onClose={onClose}>
-      <div className="sala-side-body flush scrollbar-thin">
+      <div className="sala-side-summary">
         <div className="sala-side-status">
           <span className={cn("sala-side-state", status.tone)}>
             {(status.tone === "run" || status.tone === "start") && <span className="sala-spin" aria-hidden="true" />}
@@ -152,22 +117,11 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
             <span>{dict.sala.card.status[status.label]}</span>
           </span>
           <span className="sala-side-clock">
-            {contextFigure !== null && `${contextFigure} · `}
             <Clock clock={clock} />
           </span>
         </div>
 
         <div className={cn("sala-side-by", agent.needsYou.length > 0 && "wait")}>{text.delegatedBy.replace("{title}", parent ? (parent.title ?? dict.sala.card.untitled) : text.principal)}</div>
-
-        {agent.needsYou.length > 0 && (
-          <div className="sala-side-q">
-            {session.choicePrompt ? (
-              <ChoiceCard key={session.choicePrompt.promptId} promptId={session.choicePrompt.promptId} questions={session.choicePrompt.questions} kind={session.choicePrompt.kind} onAnswer={(answers) => session.answerChoice(answers)} />
-            ) : (
-              <p className="sala-side-empty pad">{text.connecting}</p>
-            )}
-          </div>
-        )}
 
         {status.tone === "fail" && (
           <div className="sala-side-note fail" role="status">
@@ -176,7 +130,10 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
           </div>
         )}
 
-        <div className="sala-side-pad">
+      </div>
+      <details className="sala-side-details">
+        <summary>{text.details}</summary>
+        <div className="sala-side-pad scrollbar-thin">
           {agent.report && agent.report.summary !== "" && (
             <section className="sala-side-sec">
               <h3 className="sala-side-h">{text.report}</h3>
@@ -256,51 +213,9 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
             </p>
           )}
         </div>
-      </div>
-
-      {shouldShowReply(reply, (agent.report?.summary ?? "") !== "") && (
-        <div className="sala-side-reply">
-          <h3 className="sala-side-h">
-            {text.reply}
-            {reply.running && <span className="sala-side-working"> · {text.working}</span>}
-          </h3>
-          {reply.text !== "" && (
-            <div className="sala-side-reply-body scrollbar-thin">
-              <div className="prose-chat text-[13px] text-foreground">
-                <MarkdownContent text={reply.text} />
-              </div>
-            </div>
-          )}
-          {reply.error !== null && (
-            <p className="sala-side-err" role="status">
-              {reply.error}
-            </p>
-          )}
-        </div>
-      )}
-      <div className="sala-side-compose">
-        <textarea
-          ref={boxRef}
-          className="sala-side-box scrollbar-thin"
-          value={message}
-          placeholder={text.messagePlaceholder}
-          aria-label={text.messagePlaceholder}
-          onChange={(event) => setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              send();
-            }
-          }}
-        />
-        <div className="sala-side-compose-bar">
-          {session.permissionMode !== null && <PermissionModeButton mode={session.permissionMode} available={session.permissionModes} onChange={session.setPermissionMode} />}
-          <span className="grow" />
-          {sendFailed && <span className="sala-side-err">{text.sendFailed}</span>}
-          <button type="button" className="sala-send" onClick={send} disabled={message.trim() === "" || !session.connected} aria-label={text.send} title={text.send}>
-            <ArrowUp size={14} aria-hidden="true" />
-          </button>
-        </div>
+      </details>
+      <div className="sala-side-chat">
+        <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} />
       </div>
     </SalaSidePanel>
   );

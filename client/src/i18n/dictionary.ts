@@ -1444,12 +1444,7 @@ export interface Dictionary {
         stoppedTitle: string;
         removedWork: string;
         permission: string;
-        messagePlaceholder: string;
-        reply: string;
-        working: string;
-        send: string;
-        sendFailed: string;
-        connecting: string;
+        details: string;
         openInTab: string;
         delegate: string;
         stop: string;

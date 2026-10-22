@@ -817,6 +817,25 @@
 .sala-side-pad {
   padding: 4px 16px 16px;
 }
+/* A worker's panel: a short summary, its details folded away, and the chat
+   (the same one a session tab shows) taking the rest. */
+.sala-side-summary {
+  flex: none;
+}
+.sala-side-details {
+  flex: none;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-side-details > summary {
+  padding: 8px 16px;
+  font: 500 11.5px var(--font-mono);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.sala-side-details[open] > .sala-side-pad {
+  max-height: 40vh;
+  overflow-y: auto;
+}
 .sala-side-chat {
   flex: 1;
   min-height: 0;
@@ -1061,11 +1080,6 @@
 .sala-side-by.wait {
   border-bottom-color: var(--primary);
 }
-.sala-side-q > div {
-  margin: 0;
-  border: 0;
-  border-bottom: 1px solid var(--border-soft);
-}
 .sala-side-report {
   margin: 0;
   font-size: 13px;
@@ -1120,64 +1134,6 @@
 .sala-mini:hover {
   color: var(--foreground);
   background: var(--surface-hover);
-}
-.sala-side-compose {
-  flex: none;
-  margin: 0 12px 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-}
-.sala-side-box {
-  display: block;
-  width: 100%;
-  height: 72px;
-  padding: 10px 12px 0;
-  resize: none;
-  background: none;
-  border: 0;
-  outline: none;
-  font: 400 14px/20px var(--font-display);
-  color: var(--foreground);
-}
-.sala-side-box::placeholder {
-  color: var(--text-faint);
-}
-.sala-side-compose-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px 6px;
-}
-.sala-side-err {
-  font: 400 11.5px var(--font-mono);
-  color: var(--destructive);
-}
-/* The agent's latest reply, directly above the message field it answers. */
-.sala-side-reply {
-  flex: none;
-  margin: 8px 16px 10px;
-}
-.sala-side-reply .sala-side-h {
-  margin-bottom: 6px;
-}
-.sala-side-working {
-  color: var(--text-faint);
-}
-.sala-side-reply-body {
-  max-height: 168px;
-  overflow-y: auto;
-}
-.sala-side-reply-body .prose-chat {
-  line-height: 1.5;
-}
-/* A code block's header bar only carries the copy button, which this compact
-   view leaves out. */
-.sala-side-reply-body .bg-card > .border-b {
-  display: none;
-}
-.sala-side-reply > .sala-side-err {
-  margin: 0;
-  overflow-wrap: anywhere;
 }
 .sala-send {
   width: 26px;
