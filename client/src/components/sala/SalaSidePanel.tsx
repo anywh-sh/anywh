@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { CloseIcon } from "@/components/sala/SalaIcons";
+import { useSalaSideWidth } from "@/hooks/sala/useSalaSideWidth";
 
 interface SalaSidePanelProps {
   /** The mark at the start of the header (an agent tile, the room glyph). */
@@ -21,10 +22,12 @@ interface SalaSidePanelProps {
  * The room's right-hand panel: docked in the plane like the sidebar (it
  * takes width from the canvas rather than floating over it), a header with
  * what it is about and a close button, a scrolling body and an optional
- * footer. Esc closes it from anywhere inside.
+ * footer. Esc closes it from anywhere inside. Its left edge is a handle that
+ * resizes it (`useSalaSideWidth`); a double click there restores the default.
  */
 export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, footer, onClose, children }: SalaSidePanelProps) {
   const dict = useDict().sala.panel;
+  const size = useSalaSideWidth();
   return (
     <aside
       className="sala-side"
@@ -37,6 +40,19 @@ export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, foote
         }
       }}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={dict.resize}
+        aria-valuenow={size.width}
+        aria-valuemin={size.min}
+        aria-valuemax={size.max}
+        tabIndex={0}
+        className="sala-side-grip"
+        onPointerDown={size.startDrag}
+        onDoubleClick={size.reset}
+        onKeyDown={size.onKeyDown}
+      />
       <div className="sala-side-in">
         <header className="sala-side-head">
           <span className="sala-side-mark">{mark}</span>

@@ -1382,6 +1382,8 @@ export interface Dictionary {
     /** The right-hand panel: about the room, one agent, the principal's chat. */
     panel: {
       close: string;
+      /** The handle on the panel's left edge that resizes it. */
+      resize: string;
       /** The "i" button over the canvas. */
       about: string;
       aboutRoom: {

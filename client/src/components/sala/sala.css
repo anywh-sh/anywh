@@ -1014,9 +1014,12 @@
 
 /* ─── the side panel, docked in the plane ─── */
 .sala-side {
+  position: relative;
   flex: none;
-  /* 384px of panel plus the divider's own pixel. */
-  width: 385px;
+  /* Panel plus the divider's own pixel: 385px unless the person resized it
+   * (`useSalaSideWidth` publishes the width on the document root, so the rules
+   * at the end of this file can line up with it too). */
+  width: var(--sala-side-w, 385px);
   height: 100%;
   min-width: 0;
   /* The window chrome's colour, like the sidebar: the panel is docked in the
@@ -1030,8 +1033,25 @@
   overflow: hidden;
   margin-bottom: -1px;
 }
+/* The resize handle, over the divider on the panel's canvas side. */
+.sala-side-grip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.sala-side-grip:hover,
+.sala-side-grip:active,
+.sala-side-grip:focus-visible {
+  background: var(--border);
+}
 .sala-side-in {
-  width: 384px;
+  width: calc(var(--sala-side-w, 385px) - 1px);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -1664,19 +1684,19 @@
  * over the whole plane) stops where the side panel begins: the panel is the
  * base colour all the way to the window's edge, as the sidebar is. */
 :has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) > [data-plane-frame] {
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
-  mask-image: linear-gradient(to right, #000 calc(100% - 385px), transparent 0);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--sala-side-w, 385px)), transparent 0);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--sala-side-w, 385px)), transparent 0);
 }
 
 /* The status bar's top rule runs the window's width, and the side panel (the
  * base colour, docked in the plane) cannot cover it: it lives outside the
  * plane. So where the panel is, the rule is drawn only as far as the panel's
  * divider and the bar's text stays whole: the border turns transparent and a
- * 1px gradient takes its place, ending where the panel begins (385px of panel plus the plane's 8px
+ * 1px gradient takes its place, ending where the panel begins (the panel's width plus the plane's 8px
  * margin of chrome on the window's right). */
 :has([data-testid^="tab-panel-"]:not(.invisible) .sala-side) [data-status-bar] {
   border-top-color: transparent;
-  background-image: linear-gradient(to right, var(--border-soft) calc(100% - 393px), transparent 0);
+  background-image: linear-gradient(to right, var(--border-soft) calc(100% - var(--sala-side-w, 385px) - 8px), transparent 0);
   background-size: 100% 1px;
   background-origin: border-box;
   background-repeat: no-repeat;
