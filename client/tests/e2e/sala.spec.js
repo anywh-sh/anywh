@@ -504,7 +504,7 @@ describe("anywh room canvas", () => {
     await shot("B-pergunta-no-card");
   });
 
-  it("opens the agent's summary: state, who delegated it, the question, work and the message box", async () => {
+  it("opens the agent's conversation under its summary: state, who delegated it, what it was asked and did, the question and the message box", async () => {
     await press(".sala-answer-foot button");
     const panel = await $('aside[data-panel="agent"]');
     await panel.waitForExist({ timeout: 15000 });
@@ -512,8 +512,11 @@ describe("anywh room canvas", () => {
     const text = await panel.getText();
     expect(text).toContain("Your turn");
     expect(text).toContain("Delegated by");
-    expect(text).toContain("Work");
-    await expect(await panel.$("textarea")).toBeExisting();
+    expect(text).toContain("Details");
+    // The conversation is the one a session tab shows, not a copy of it: the
+    // task the agent was given, its tool call, and the composer.
+    await panel.$(".composer-editor").waitForExist({ timeout: 30000, timeoutMsg: "the agent's composer never appeared" });
+    await browser.waitUntil(async () => (await panel.getText()).includes("Investigate the user API"), { timeout: 30000, timeoutMsg: "the agent's history never showed what it was asked" });
     for (const action of ["Open in tab", "Delegate", "Stop", "Remove"]) expect(text).toContain(action);
     await panelSettled();
     await shot("B-resumo-do-agente");
