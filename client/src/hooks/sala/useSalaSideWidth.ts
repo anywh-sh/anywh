@@ -1,32 +1,45 @@
 import { useCallback, useLayoutEffect, useSyncExternalStore } from "react";
 import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
+import { DEFAULT_FONT_SIZE, readFontSize, subscribeFontSize } from "@/lib/fontSize";
 
 /** 384px of panel plus the divider's own pixel: the width the panel always had. */
 export const SALA_SIDE_DEFAULT_WIDTH = 385;
 /** The panel never gets narrower than its original width. */
 export const SALA_SIDE_MIN_WIDTH = SALA_SIDE_DEFAULT_WIDTH;
-/** Nor wider than this, or than half the window, whichever is smaller. */
-export const SALA_SIDE_MAX_WIDTH = 640;
 export const SALA_SIDE_STORAGE_KEY = "anywh:sala-side-width";
 /** How far one arrow key press moves the panel's edge. */
 const KEY_STEP = 16;
 
-/** The widest the panel may be in a window `viewportWidth` wide; never below the minimum. */
-export function salaSideMaxWidth(viewportWidth: number): number {
-  return Math.max(SALA_SIDE_MIN_WIDTH, Math.min(SALA_SIDE_MAX_WIDTH, Math.floor(viewportWidth / 2)));
+// What a conversation's text can use, from `MessageLog`: a column capped at
+// `680px * --chrome-scale`, inside the scroller's `px-4` and its stable
+// scrollbar gutter on both edges (8px each, `.scrollbar-thin`). Past this a
+// wider panel only adds empty margin around the principal's conversation.
+const CHAT_TEXT_PX = 680;
+const CHAT_CHROME_PX = 2 * 16 + 2 * 8;
+const DIVIDER_PX = 1;
+
+/** The panel's width when the conversation in it reaches its widest text. */
+export function salaSideChatWidth(chromeScale: number): number {
+  return Math.round(CHAT_TEXT_PX * chromeScale) + CHAT_CHROME_PX + DIVIDER_PX;
 }
 
-export function clampSalaSideWidth(width: number, viewportWidth: number): number {
+/** The widest the panel may be: no wider than a conversation can use, nor
+ * than half the window; never below the minimum. */
+export function salaSideMaxWidth(viewportWidth: number, chromeScale = 1): number {
+  return Math.max(SALA_SIDE_MIN_WIDTH, Math.min(salaSideChatWidth(chromeScale), Math.floor(viewportWidth / 2)));
+}
+
+export function clampSalaSideWidth(width: number, max: number): number {
   if (!Number.isFinite(width)) return SALA_SIDE_DEFAULT_WIDTH;
-  return Math.min(salaSideMaxWidth(viewportWidth), Math.max(SALA_SIDE_MIN_WIDTH, Math.round(width)));
+  return Math.min(Math.max(SALA_SIDE_MIN_WIDTH, max), Math.max(SALA_SIDE_MIN_WIDTH, Math.round(width)));
 }
 
-/** A stored width, if it is one at all; only the hard limits apply here, the window's come later. */
+/** A stored width, if it is one at all; the limits apply when it is drawn. */
 export function parseSalaSideWidth(raw: string | null): number {
   if (raw === null || raw.trim() === "") return SALA_SIDE_DEFAULT_WIDTH;
   const value = Number(raw);
   if (!Number.isFinite(value)) return SALA_SIDE_DEFAULT_WIDTH;
-  return Math.min(SALA_SIDE_MAX_WIDTH, Math.max(SALA_SIDE_MIN_WIDTH, Math.round(value)));
+  return Math.max(SALA_SIDE_MIN_WIDTH, Math.round(value));
 }
 
 // The width the person asked for, shared by every room's panel (the setting
@@ -75,21 +88,22 @@ export interface SalaSideWidth {
 
 /**
  * The room side panel's width: dragged from its left edge, persisted in
- * `localStorage`, clamped to the window. It also publishes the width as
+ * `localStorage`, clamped to the window and to what a conversation can use. It also publishes the width as
  * `--sala-side-w` on the document root, for the rules outside the panel that
  * have to line up with it (the plane's frame, the status bar's rule).
  */
 export function useSalaSideWidth(): SalaSideWidth {
   const chosen = useSyncExternalStore(subscribePreferred, getPreferred);
   const viewport = useSyncExternalStore(subscribeViewport, getViewportWidth);
-  const width = clampSalaSideWidth(chosen, viewport);
-  const max = salaSideMaxWidth(viewport);
+  const fontSize = useSyncExternalStore(subscribeFontSize, readFontSize);
+  const max = salaSideMaxWidth(viewport, fontSize / DEFAULT_FONT_SIZE);
+  const width = clampSalaSideWidth(chosen, max);
 
   useLayoutEffect(() => {
     document.documentElement.style.setProperty("--sala-side-w", `${width}px`);
   }, [width]);
 
-  const onChange = useCallback((next: number) => setPreferred(clampSalaSideWidth(next, window.innerWidth), false), []);
+  const onChange = useCallback((next: number) => setPreferred(clampSalaSideWidth(next, salaSideMaxWidth(window.innerWidth, readFontSize() / DEFAULT_FONT_SIZE)), false), []);
   const onDragEnd = useCallback(() => setPreferred(getPreferred(), true), []);
   const { startDrag } = usePanelDrag(width, onChange, onDragEnd);
 
@@ -104,7 +118,7 @@ export function useSalaSideWidth(): SalaSideWidth {
         : null;
       if (next === null) return;
       event.preventDefault();
-      setPreferred(clampSalaSideWidth(next, window.innerWidth), true);
+      setPreferred(clampSalaSideWidth(next, max), true);
     },
     [width, max],
   );

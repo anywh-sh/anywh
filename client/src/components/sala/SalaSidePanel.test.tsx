@@ -28,7 +28,8 @@ const drawnWidth = (): string => document.documentElement.style.getPropertyValue
 describe("SalaSidePanel resizing", () => {
   beforeEach(() => {
     localStorage.clear();
-    setWindowWidth(1440);
+    // Wide enough that the conversation's text column (729px) is the limit.
+    setWindowWidth(1600);
   });
   afterEach(() => {
     cleanup();
@@ -39,7 +40,7 @@ describe("SalaSidePanel resizing", () => {
     const grip = await renderPanel();
     expect(grip).toHaveAttribute("aria-valuenow", "385");
     expect(grip).toHaveAttribute("aria-valuemin", "385");
-    expect(grip).toHaveAttribute("aria-valuemax", "640");
+    expect(grip).toHaveAttribute("aria-valuemax", "729");
     expect(drawnWidth()).toBe("385px");
   });
 
@@ -60,7 +61,7 @@ describe("SalaSidePanel resizing", () => {
     fireEvent.pointerMove(window, { clientX: 1200 });
     expect(grip).toHaveAttribute("aria-valuenow", "385");
     fireEvent.pointerMove(window, { clientX: 100 });
-    expect(grip).toHaveAttribute("aria-valuenow", "640");
+    expect(grip).toHaveAttribute("aria-valuenow", "729");
     fireEvent.pointerUp(window);
   });
 
@@ -72,8 +73,8 @@ describe("SalaSidePanel resizing", () => {
     fireEvent.keyDown(grip, { key: "ArrowRight" });
     expect(grip).toHaveAttribute("aria-valuenow", "385");
     fireEvent.keyDown(grip, { key: "End" });
-    expect(grip).toHaveAttribute("aria-valuenow", "640");
-    expect(localStorage.getItem(KEY)).toBe("640");
+    expect(grip).toHaveAttribute("aria-valuenow", "729");
+    expect(localStorage.getItem(KEY)).toBe("729");
     fireEvent.keyDown(grip, { key: "Home" });
     expect(grip).toHaveAttribute("aria-valuenow", "385");
   });
@@ -89,7 +90,7 @@ describe("SalaSidePanel resizing", () => {
 
   it("clamps a stored width that is out of range or not a number", async () => {
     localStorage.setItem(KEY, "9000");
-    expect(await renderPanel()).toHaveAttribute("aria-valuenow", "640");
+    expect(await renderPanel()).toHaveAttribute("aria-valuenow", "729");
   });
 
   it("narrows with the window and returns to the chosen width when it grows back", async () => {
@@ -99,7 +100,8 @@ describe("SalaSidePanel resizing", () => {
     expect(grip).toHaveAttribute("aria-valuenow", "500");
     expect(grip).toHaveAttribute("aria-valuemax", "500");
     expect(drawnWidth()).toBe("500px");
-    setWindowWidth(1440);
+    // Wide enough that the conversation's text column (729px) is the limit.
+    setWindowWidth(1600);
     expect(grip).toHaveAttribute("aria-valuenow", "600");
   });
 });
