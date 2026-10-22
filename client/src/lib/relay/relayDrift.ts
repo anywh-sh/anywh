@@ -1,4 +1,4 @@
-import { UNRELEASED_VERSION } from "@/lib/install/appVersion";
+import { isUnreleasedVersion } from "@/lib/install/appVersion";
 import { compareVersions } from "@/lib/install/semver";
 
 /**
@@ -44,7 +44,7 @@ export function evaluateRelayDrift(
   minRelayVersion: string,
   platform: string | null,
 ): RelayDrift {
-  if (relayVersion === null || relayVersion === UNRELEASED_VERSION) return NO_DRIFT;
+  if (relayVersion === null || isUnreleasedVersion(relayVersion)) return NO_DRIFT;
 
   const vsApp = compareVersions(relayVersion, appVersion);
   if (vsApp === null || vsApp >= 0) return NO_DRIFT;

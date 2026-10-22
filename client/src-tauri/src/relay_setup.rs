@@ -994,8 +994,13 @@ fn create_log(path: &Path) -> Result<std::fs::File, String> {
 /// stamped (it reports `0.0.0`, which has no release to download) — that one
 /// installs the latest release instead.
 fn relay_release_tag(app_version: &str) -> Option<String> {
-    (app_version != "0.0.0").then(|| format!("v{app_version}"))
+    (app_version != UNRELEASED_VERSION).then(|| format!("v{app_version}"))
 }
+
+/// What an unstamped build reports — the same placeholder as
+/// `UNRELEASED_VERSION` in appVersion.ts and scripts/version.mjs
+/// (appVersion.test.ts keeps them in step).
+const UNRELEASED_VERSION: &str = "0.0.0";
 
 /// Starts the installer for this machine, or joins the run already alive.
 #[tauri::command]

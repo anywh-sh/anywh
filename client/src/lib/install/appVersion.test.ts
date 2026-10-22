@@ -33,8 +33,9 @@ describe("app version", () => {
     expect(readJson("../relay/package.json").version).toBe(UNRELEASED_VERSION);
   });
 
-  it("agrees with the placeholder scripts/version.mjs stamps over", () => {
+  it("agrees with the placeholder scripts/version.mjs stamps over and relay_setup.rs refuses to pin", () => {
     expect(readText("../scripts/version.mjs")).toContain(`export const UNRELEASED_VERSION = "${UNRELEASED_VERSION}";`);
+    expect(readText("src-tauri/src/relay_setup.rs")).toContain(`const UNRELEASED_VERSION: &str = "${UNRELEASED_VERSION}";`);
   });
 
   /**

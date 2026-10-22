@@ -18,9 +18,16 @@ export const APP_VERSION: string = version;
  * What every manifest says in git, and so what a build from source that no
  * release stamped reports — for the app and for a relay run from a checkout
  * alike. Means "unknown", not "older than everything": nothing should treat
- * it as a release to compare against. Same value as scripts/version.mjs's.
+ * it as a release to compare against. Same value as scripts/version.mjs's and relay_setup.rs's
+ * (appVersion.test.ts keeps the three in step).
  */
 export const UNRELEASED_VERSION = "0.0.0";
+
+/** Whether `version` is that placeholder — the one check every comparison
+ * against a release goes through first (relay drift, the update check). */
+export function isUnreleasedVersion(version: string): boolean {
+  return version === UNRELEASED_VERSION;
+}
 
 /**
  * The floor below which a stale relay is severe enough to warrant a banner
