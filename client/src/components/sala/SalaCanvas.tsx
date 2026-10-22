@@ -876,7 +876,10 @@ export function SalaCanvas(props: SalaCanvasProps) {
       select(id);
       return;
     }
-    const next = toggleInSelection(manyNow, selected, id);
+    // Read from the ref, not this render: two clicks can land before React
+    // renders again, and the second must see what the first selected.
+    const next = toggleInSelection(selection.current.many, selection.current.single, id);
+    selection.current = next;
     setMany(next.many);
     setSelected(next.single);
     setSelectedArea(null);
@@ -986,6 +989,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     const left = many.filter((id) => byId.get(id)?.role === "worker");
     return left.length > 1 ? left : [];
   }, [many, byId]);
+  const selection = useRef({ many: manyNow, single: selected });
+  selection.current = { many: manyNow, single: selected };
   const stoppable = (id: string): boolean => {
     const state = byId.get(id)?.state;
     return state !== undefined && state !== "stopped" && state !== "done";

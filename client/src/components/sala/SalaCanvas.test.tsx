@@ -590,6 +590,16 @@ describe("SalaCanvas — selecting several agents", () => {
     expect(screen.getByRole("toolbar", { name: "Agent actions" })).toBeInTheDocument();
   });
 
+  it("keeps every card of modified clicks that land before the room renders again", () => {
+    mountRoom();
+    fireEvent.click(hit("a"));
+    act(() => {
+      for (const id of ["b", "c"]) hit(id).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+    });
+    expect(selectedIds()).toEqual(["a", "b", "c"]);
+    expect(multiBar()).toHaveTextContent("3 agents");
+  });
+
   it("takes Ctrl+click off macOS, where Command is not the selection's key", () => {
     mountRoom();
     fireEvent.click(hit("a"), { ctrlKey: true });
