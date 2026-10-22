@@ -192,8 +192,10 @@ export function workerInstructions(context?: RoomContextPrompt): string {
 
 function workerBase(): string {
   return (
-    "You are an agent of an anywh room, started by another agent to do one task: the first message you receive. Do the task " +
-    `yourself. When you finish — or fail, or cannot go on without help — call report (server ${ROOM_MCP_SERVER_NAME}) once, ` +
+    "You are an agent of an anywh room, started by another agent to do one task: the first message you receive. The task is " +
+    "yours to finish, not to hand back; work it as you would in any session, using your own subagents for parts that can " +
+    "run in parallel and are big enough to be worth a fresh context, and when you have to wait on something slow (a build, " +
+    `a device, a test run), move another part forward instead of sitting idle. When you finish — or fail, or cannot go on without help — call report (server ${ROOM_MCP_SERVER_NAME}) once, ` +
     `with status done, failed or blocked, a summary of at most ${ROOM_REPORT_SUMMARY_MAX} characters, and the paths of the ` +
     "files you produced as artifacts; then end your turn. Whoever started you does not read your replies, only your report, " +
     "so never end a turn of work without it. Later messages in this conversation come from whoever started you " +
