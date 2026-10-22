@@ -150,6 +150,8 @@ describe("UpdateModal", () => {
       checkLatestRelease: () =>
         Promise.resolve({ kind: "available", tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
       downloadUpdate: () => Promise.resolve(fakeUpdate("999.0.0", install)),
+      // A released app: an unstamped one (git's 0.0.0) never checks.
+      appVersion: "0.2.0",
     });
 
     render(<UpdateModal open onOpenChange={() => {}} />);

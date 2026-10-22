@@ -50,12 +50,14 @@ export function buildLatestJson({ distDir, version, repoUrl, notes = "", pubDate
 
 function main() {
   const distDir = process.argv[2] || "dist";
-  const version = (process.env.GITHUB_REF_NAME || "").replace(/^v/, "");
+  // RELEASE_TAG, not GITHUB_REF_NAME: the release workflow is dispatched by
+  // hand, so its ref is the branch it was started from, not the tag.
+  const version = (process.env.RELEASE_TAG || "").replace(/^v/, "");
   const repository = process.env.GITHUB_REPOSITORY;
   const notes = process.env.RELEASE_NOTES || "";
 
   if (!version || !repository) {
-    console.error("GITHUB_REF_NAME and GITHUB_REPOSITORY must be set — this script only runs inside the release workflow");
+    console.error("RELEASE_TAG and GITHUB_REPOSITORY must be set — this script only runs inside the release workflow");
     process.exit(1);
   }
 

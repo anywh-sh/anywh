@@ -36,6 +36,14 @@ jobs:
               - 'relay/**'
             scripts:
               - 'scripts/**'
+              # scripts/version.test.mjs is where "PRs never change a
+              # version" is enforced for all three manifests — it has to run
+              # for a PR that only touches relay/, which skips the client tier.
+              - 'client/package.json'
+              - 'client/package-lock.json'
+              - 'client/src-tauri/tauri.conf.json'
+              - 'relay/package.json'
+              - 'relay/package-lock.json'
             client:
               - 'client/**'
               # The client tier also guards that relay/src/host/theme.ts is
@@ -210,6 +218,44 @@ jobs:
       - run: xvfb-run -a npm run test:e2e
         working-directory: client
 
+  # Every merge is a version (version.yml), and only `!` in the squash title
+  # (the PR title) makes it a MINOR. This holds a PR that touches a surface
+  # where an existing install or an older peer can break — a protocol or
+  # schema version, an on-disk migration, the installers and systemd units,
+  # the embedding surface the iOS build uses — until its title says `!` or
+  # the `not-breaking` label says it was checked. The rules live in
+  # scripts/version.mjs (findBreakingSurfaces).
+  breaking-guard:
+    name: breaking-change guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+      # Title, labels and base read live rather than from the event payload:
+      # a re-run (pr-guard-rerun.yml does one when any of them changes)
+      # reuses the original payload, and has to see the fixed title or the
+      # new base. fetch-depth 0 above brings every branch, the base included.
+      - name: Require "!" in the title for a breaking-sensitive change
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pr="$(gh pr view "$PR" --repo "${{ github.repository }}" --json title,labels,baseRefName)"
+          title="$(printf '%s' "$pr" | jq -r .title)"
+          labels="$(printf '%s' "$pr" | jq -r '[.labels[].name] | join(",")')"
+          base="origin/$(printf '%s' "$pr" | jq -r .baseRefName)"
+          node scripts/version.mjs guard --base "$base" --head "$HEAD" --title "$title" --labels "$labels"
+
   # The one job branch protection points at. Every other job above is gated on
   # paths-filter, so which of them even report on a given PR changes with what
   # it touched — naming them individually as required checks means the ruleset
@@ -220,7 +266,7 @@ jobs:
   # purpose — that's paths-filter correctly deciding a tier had nothing to do.
   ci:
     name: ci
-    needs: [changes, relay, scripts, client-unit, client-e2e]
+    needs: [changes, relay, scripts, client-unit, client-e2e, breaking-guard]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -233,4 +279,5 @@ jobs:
           echo "scripts=${{ needs.scripts.result }}"
           echo "client-unit=${{ needs.client-unit.result }}"
           echo "client-e2e=${{ needs.client-e2e.result }}"
+          echo "breaking-guard=${{ needs.breaking-guard.result }}"
           exit 1

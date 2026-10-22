@@ -989,6 +989,19 @@ fn create_log(path: &Path) -> Result<std::fs::File, String> {
     options.open(path).map_err(|e| e.to_string())
 }
 
+/// The `--version` to pin the relay to: this app's own release, so the two
+/// speak the same wire. `None` for a build from source that no release
+/// stamped (it reports `0.0.0`, which has no release to download) — that one
+/// installs the latest release instead.
+fn relay_release_tag(app_version: &str) -> Option<String> {
+    (app_version != UNRELEASED_VERSION).then(|| format!("v{app_version}"))
+}
+
+/// What an unstamped build reports — the same placeholder as
+/// `UNRELEASED_VERSION` in appVersion.ts and scripts/version.mjs
+/// (appVersion.test.ts keeps them in step).
+const UNRELEASED_VERSION: &str = "0.0.0";
+
 /// Starts the installer for this machine, or joins the run already alive.
 #[tauri::command]
 pub async fn relay_setup_start(
@@ -1056,9 +1069,11 @@ pub async fn relay_setup_start(
             command.args(["--profile-label", label]);
         }
     } else {
-        let version = format!("v{}", app.package_info().version);
+        if let Some(tag) = relay_release_tag(&app.package_info().version.to_string()) {
+            command.args(["--version", &tag]);
+        }
         let mode = params.mode.clone().unwrap_or_else(|| "prod".to_string());
-        command.args(["--version", &version, "--mode", &mode]);
+        command.args(["--mode", &mode]);
         if let Some(id) = &params.profile_id {
             command.args(["--profile-id", id]);
         }
@@ -1177,6 +1192,12 @@ pub async fn relay_setup_confirm_close(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pins_the_relay_to_this_release_but_not_to_an_unstamped_build() {
+        assert_eq!(relay_release_tag("0.2.0").as_deref(), Some("v0.2.0"));
+        assert_eq!(relay_release_tag("0.0.0"), None);
+    }
 
     #[test]
     fn node_threshold_is_20_12() {

@@ -1,0 +1,58 @@
+name: PR guard re-run
+
+# The breaking-change guard (pr.yml) decides on the PR's title, labels and
+# base, but editing any of them runs none of pr.yml's triggers, and
+# triggering pr.yml on those events would re-run the whole test suite for a
+# title change. This re-runs the guard job alone (and the `ci` aggregate that
+# depends on it) instead, so fixing the title or the label is all an author
+# has to do.
+#
+# GitHub refuses to re-run jobs of a run that is still going, and the usual
+# case is exactly that: the guard fails within seconds, the author fixes the
+# title while client-e2e is still building. So this waits for the run to
+# finish first.
+on:
+  pull_request:
+    types: [edited, labeled, unlabeled]
+
+permissions:
+  actions: write
+  contents: read
+
+# A newer edit supersedes a re-run still waiting on the same PR.
+concurrency:
+  group: pr-guard-rerun-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rerun:
+    # `edited` also fires for a body change, which can't change the verdict;
+    # a title or a base change can (the base changes the diff it reads).
+    if: github.event.action != 'edited' || github.event.changes.title != null || github.event.changes.base != null
+    runs-on: ubuntu-latest
+    # client-e2e, the slowest job the wait can sit behind, has a 45-minute
+    # ceiling of its own.
+    timeout-minutes: 60
+    steps:
+      - name: Re-run the guard once the PR run is done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          run_id="$(gh run list --repo "$REPO" --workflow pr.yml --commit "$HEAD" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "No PR run for $HEAD yet; it will read the current title and labels when it runs."
+            exit 0
+          fi
+          while [ "$(gh run view "$run_id" --repo "$REPO" --json status --jq .status)" != "completed" ]; do
+            sleep 30
+          done
+          # Re-run whatever the guard said before: a title that lost its `!`
+          # has to be able to turn a pass into a failure, too.
+          job_id="$(gh run view "$run_id" --repo "$REPO" --json jobs --jq '.jobs[] | select(.name == "breaking-change guard") | .databaseId')"
+          if [ -z "$job_id" ]; then
+            echo "Run $run_id has no breaking-change guard job, nothing to re-run."
+            exit 0
+          fi
+          gh run rerun --repo "$REPO" --job "$job_id"

@@ -12,6 +12,13 @@ describe("evaluateRelayDrift", () => {
     });
   });
 
+  it("says nothing about a relay run from a checkout, which no release stamped", () => {
+    expect(evaluateRelayDrift("0.0.0", APP_VERSION, MIN_RELAY_VERSION, "linux")).toEqual({
+      severity: "none",
+      action: null,
+    });
+  });
+
   it("says nothing when the relay is newer than the app — normal for a self-hosted upgrade", () => {
     expect(evaluateRelayDrift("0.1.9", APP_VERSION, MIN_RELAY_VERSION, "linux")).toEqual({
       severity: "none",
