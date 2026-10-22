@@ -99,6 +99,21 @@ test("the diff parser keeps each file's changed lines", () => {
   ]);
 });
 
+test("a changed line that starts with -- or ++ is content, not a file header", () => {
+  const diff = [
+    "diff --git a/relay/src/store.ts b/relay/src/store.ts",
+    "index 1..2 100644",
+    "--- a/relay/src/store.ts",
+    "+++ b/relay/src/store.ts",
+    "@@ -10 +10 @@",
+    "--- migrate the legacy record",
+    "+++counter;",
+    "",
+  ].join("\n");
+  assert.deepEqual(parseUnifiedDiff(diff), [{ path: "relay/src/store.ts", lines: ["-- migrate the legacy record", "++counter;"] }]);
+  assert.deepEqual(findBreakingSurfaces(parseUnifiedDiff(diff)).map((hit) => hit.path), ["relay/src/store.ts"]);
+});
+
 test("each breaking-sensitive surface is caught, and ordinary changes are not", () => {
   const hit = (path, lines = ["x"]) => findBreakingSurfaces([{ path, lines }]).map((h) => h.path);
   assert.deepEqual(hit("relay/src/protocol/version.ts", ["export const WS_PROTOCOL_VERSION = 4;"]), ["relay/src/protocol/version.ts"]);

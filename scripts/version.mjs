@@ -140,19 +140,27 @@ export function renderChangelog(entries) {
 }
 
 /** Splits `git diff --unified=0` into `{ path, lines }`, where `lines` are
- * the added and removed lines without their `+`/`-`. */
+ * the added and removed lines without their `+`/`-`. A `---`/`+++` line is a
+ * file header only before the file's first `@@`: inside a hunk it is content
+ * (a removed `-- comment`, an added YAML `---`) and must not be dropped. */
 export function parseUnifiedDiff(text) {
   const files = [];
   let current = null;
+  let inHunk = false;
   for (const line of text.split("\n")) {
     const header = /^diff --git a\/(.+) b\/(.+)$/.exec(line);
     if (header) {
       current = { path: header[2], lines: [] };
       files.push(current);
+      inHunk = false;
       continue;
     }
-    if (!current || line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+") || line.startsWith("-")) current.lines.push(line.slice(1));
+    if (!current) continue;
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (inHunk && (line.startsWith("+") || line.startsWith("-"))) current.lines.push(line.slice(1));
   }
   return files;
 }
