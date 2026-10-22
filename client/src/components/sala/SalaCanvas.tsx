@@ -208,7 +208,10 @@ export function SalaCanvas(props: SalaCanvasProps) {
   // What the room held when it first showed is not arriving; what joins it
   // while it is open is.
   const shown = measured && rects.size > 0;
-  const arrivals = useArrivals(agents, shown);
+  // Only what is drawn arrives: a card whose place is not known yet arrives
+  // when it shows up, not before.
+  const drawn = useMemo(() => agents.filter((a) => rects.has(a.agentId)), [agents, rects]);
+  const arrivals = useArrivals(drawn, shown);
   const delegating = useMemo(() => new Set([...arrivals.keys()].flatMap((id) => byId.get(id)?.parentId ?? [])), [arrivals, byId]);
   const newAreas = useNewAreas(
     canvas.areas.map((a) => a.id),

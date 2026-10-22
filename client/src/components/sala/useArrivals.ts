@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef } from "react";
 
 /** A delegated agent's link draws for this long before its window opens. */
 export const LINK_DRAW_MS = 420;
@@ -14,41 +14,48 @@ export function prefersReducedMotion(): boolean {
 }
 
 /**
- * Calls `onNew` for every id that shows up after the first time `ready` is
- * true: what was there when the canvas opened is not new, what arrives while
- * it is open is.
+ * How long ago each id arrived, for as long as `span(id)` says it is still
+ * arriving. An id arrives when it shows up after the first render where
+ * `ready` is true: what was there when the canvas opened is not new, what
+ * joins it while it is open is (a card that comes back on Undo too).
+ *
+ * Worked out during the render itself, not in an effect: the element of an
+ * arriving id must carry its arrival classes from its very first render. Set
+ * by an effect after mount, a card was painted in place for a frame, hidden by
+ * its first phase, and only then opened — a flicker that showed whenever the
+ * arrival came from the relay rather than a click (an effect after a click is
+ * flushed before the paint, one after a socket message is not). A timer only
+ * renders again when a phase ends; the phase is read from the clock.
  */
-function useNewIds(ids: readonly string[], ready: boolean, onNew: (id: string) => void): void {
+function useArrivalClock(ids: readonly string[], ready: boolean, span: (id: string) => number): ReadonlyMap<string, number> {
   const seen = useRef<Set<string> | null>(null);
-  const key = ids.join("\n");
-  useEffect(() => {
-    if (!ready) return;
-    const before = seen.current;
-    seen.current = new Set(ids);
-    if (!before) return;
-    for (const id of ids) if (!before.has(id)) onNew(id);
-    // `key` stands for `ids`; `onNew` reads only refs and setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, ready]);
+  const since = useRef(new Map<string, number>());
+  const now = performance.now();
+  if (ready) {
+    const present = new Set(ids);
+    if (seen.current && !prefersReducedMotion()) for (const id of ids) if (!seen.current.has(id)) since.current.set(id, now);
+    for (const id of since.current.keys()) if (!present.has(id)) since.current.delete(id);
+    seen.current = present;
+  }
+  const out = new Map<string, number>();
+  for (const [id, at] of since.current) {
+    if (now - at >= span(id)) since.current.delete(id);
+    else out.set(id, now - at);
+  }
+  return out;
 }
 
-/** Timers that are cleared when the canvas goes away. */
-function useTimers(): (fn: () => void, ms: number) => void {
-  const timers = useRef(new Set<number>());
+/** Renders again when the next of these moments (ms from now) comes. */
+function useWakeAt(delays: readonly number[]): void {
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const next = delays.length > 0 ? Math.min(...delays) : Infinity;
   useEffect(() => {
-    const all = timers.current;
-    return () => {
-      for (const t of all) window.clearTimeout(t);
-      all.clear();
-    };
-  }, []);
-  return (fn, ms) => {
-    const t = window.setTimeout(() => {
-      timers.current.delete(t);
-      fn();
-    }, ms);
-    timers.current.add(t);
-  };
+    if (next === Infinity) return;
+    // Woken a hair early, the render reads the clock, finds the phase still
+    // on and asks for another wake: nothing depends on the timer's precision.
+    const timer = window.setTimeout(rerender, Math.max(0, next));
+    return () => window.clearTimeout(timer);
+  });
 }
 
 /**
@@ -56,52 +63,39 @@ function useTimers(): (fn: () => void, ms: number) => void {
  * design's choreography: an agent delegated by one already on the canvas is
  * unseen while its link draws down from the parent (`edge`), then its window
  * opens (`frame`); one with no parent there opens at once. Nothing arrives
- * under `prefers-reduced-motion`.
+ * under `prefers-reduced-motion`. `agents` are the ones drawn on the canvas.
  */
 export function useArrivals(agents: readonly { agentId: string; parentId?: string }[], ready: boolean): ReadonlyMap<string, ArrivalPhase> {
-  const [phases, setPhases] = useState<ReadonlyMap<string, ArrivalPhase>>(new Map());
-  const later = useTimers();
-  const byId = useRef(new Map<string, string | undefined>());
-  byId.current = new Map(agents.map((a) => [a.agentId, a.parentId]));
-  const set = (id: string, phase: ArrivalPhase | null): void =>
-    setPhases((prev) => {
-      const next = new Map(prev);
-      if (phase) next.set(id, phase);
-      else next.delete(id);
-      return next;
-    });
-  useNewIds(
+  const ids = new Set(agents.map((a) => a.agentId));
+  const draw = (id: string): number => {
+    const parent = agents.find((a) => a.agentId === id)?.parentId;
+    return parent !== undefined && ids.has(parent) ? LINK_DRAW_MS : 0;
+  };
+  // The link's draw time is fixed when the agent arrives, not re-read later.
+  const linked = useRef(new Map<string, number>());
+  const clock = useArrivalClock(
     agents.map((a) => a.agentId),
     ready,
     (id) => {
-      if (prefersReducedMotion()) return;
-      const parent = byId.current.get(id);
-      const linked = parent !== undefined && byId.current.has(parent);
-      const draw = linked ? LINK_DRAW_MS : 0;
-      set(id, linked ? "edge" : "frame");
-      if (linked) later(() => set(id, "frame"), draw);
-      later(() => set(id, null), draw + WINDOW_OPEN_MS);
+      if (!linked.current.has(id)) linked.current.set(id, draw(id));
+      return (linked.current.get(id) ?? 0) + WINDOW_OPEN_MS;
     },
   );
+  for (const id of linked.current.keys()) if (!clock.has(id)) linked.current.delete(id);
+  const phases = new Map<string, ArrivalPhase>();
+  const wake: number[] = [];
+  for (const [id, t] of clock) {
+    const d = linked.current.get(id) ?? 0;
+    phases.set(id, t < d ? "edge" : "frame");
+    wake.push(t < d ? d - t : d + WINDOW_OPEN_MS - t);
+  }
+  useWakeAt(wake);
   return phases;
 }
 
 /** The areas created in the last moment, which fade in. */
 export function useNewAreas(ids: readonly string[], ready: boolean): ReadonlySet<string> {
-  const [born, setBorn] = useState<ReadonlySet<string>>(new Set());
-  const later = useTimers();
-  useNewIds(ids, ready, (id) => {
-    if (prefersReducedMotion()) return;
-    setBorn((prev) => new Set(prev).add(id));
-    later(
-      () =>
-        setBorn((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        }),
-      AREA_BORN_MS,
-    );
-  });
-  return born;
+  const clock = useArrivalClock(ids, ready, () => AREA_BORN_MS);
+  useWakeAt([...clock.values()].map((t) => AREA_BORN_MS - t));
+  return new Set(clock.keys());
 }

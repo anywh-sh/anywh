@@ -343,6 +343,32 @@ describe("SalaCanvas — motion", () => {
     expect(card("c")).not.toHaveClass("boot-frame");
   });
 
+  // A card that comes back (Undo after a removal) or arrives over the relay
+  // must be in the DOM with its arrival classes from its first render: added
+  // after mount, it was painted in place for a frame, hidden, then opened.
+  it.each([0, 2000])("puts a returning card and its link in with their arrival classes from the first render (undone after %ims)", (after) => {
+    vi.useFakeTimers();
+    const withC = [...agents, agent("c", { parentId: "a" })];
+    const { rerender } = mount(canvasOf({ positions: { ...canvasOf().positions, c: { x: 24, y: 552 } } }), { agents: withC });
+    const positions = { ...canvasOf().positions, c: { x: 24, y: 552 } };
+    rerender({ agents, canvas: canvasOf({ positions }) });
+    expect(document.querySelector('[data-agent-id="c"]')).toBeNull();
+    act(() => void vi.advanceTimersByTime(after));
+    const seen = new MutationObserver(() => undefined);
+    seen.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"], attributeOldValue: true });
+    rerender({ agents: withC, canvas: canvasOf({ positions }) });
+    const changes = seen.takeRecords().filter((r) => (r.target as Element).closest('[data-agent-id="c"], [data-edge="c"]'));
+    seen.disconnect();
+    // Nothing was put in plain and switched to arriving afterwards.
+    expect(changes.map((r) => `${(r.target as Element).getAttribute("class") ?? ""} <- ${r.oldValue ?? ""}`)).toEqual([]);
+    expect(card("c")).toHaveClass("boot-edge");
+    expect(edge("c")).toHaveClass("in");
+    act(() => void vi.advanceTimersByTime(420));
+    expect(card("c")).toHaveClass("boot-frame");
+    act(() => void vi.advanceTimersByTime(700));
+    expect(card("c").className).not.toMatch(/boot-/);
+  });
+
   it("fades a new area in", () => {
     vi.useFakeTimers();
     const { rerender } = mount(canvasOf());
