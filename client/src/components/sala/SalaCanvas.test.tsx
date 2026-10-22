@@ -291,6 +291,7 @@ describe("SalaCanvas — motion", () => {
   });
   const edge = (id: string): SVGPathElement => document.querySelector<SVGPathElement>(`.sala-edge[data-edge="${id}"]`)!;
   const pulse = (id: string): Element | null => document.querySelector(`.sala-edge-pulse[data-edge="${id}"]`);
+  const bar = (): HTMLElement | null => document.querySelector<HTMLElement>(".sala-bar");
   const withC = canvasOf({ positions: { ...canvasOf().positions, c: { x: 24, y: 552 } } });
 
   it("draws each link in its child's state, with a glint along a running one only", () => {
@@ -367,5 +368,20 @@ describe("SalaCanvas — motion", () => {
     act(() => void vi.advanceTimersByTime(200));
     expect(card("a").style.translate).toBe("");
     expect(viewport).not.toHaveAttribute("data-dragging");
+  });
+
+  it("fades the toolbar out when its card is deselected before taking it away", () => {
+    vi.useFakeTimers();
+    const { viewport } = mount(canvasOf());
+    pointer("pointerDown", card("a").querySelector(".sala-node-body")!, 100, 340);
+    pointer("pointerUp", viewport, 100, 340);
+    expect(bar()).not.toHaveClass("out");
+    pointer("pointerDown", viewport, 900, 700);
+    pointer("pointerUp", viewport, 900, 700);
+    expect(card("a")).not.toHaveClass("sel");
+    expect(bar()).toHaveClass("out");
+    expect(bar()).toHaveAttribute("inert");
+    act(() => void vi.advanceTimersByTime(120));
+    expect(bar()).toBeNull();
   });
 });

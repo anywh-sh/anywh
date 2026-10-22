@@ -573,6 +573,14 @@
     --sala-fade: 1;
   }
 }
+@keyframes sala-fade-out {
+  from {
+    --sala-fade: 1;
+  }
+  to {
+    --sala-fade: 0;
+  }
+}
 
 /* A new agent arrives as the design choreographs it (`SalaCanvas`'s
  * `useArrivals` sets the classes): a delegated one first waits, unseen, while
@@ -645,6 +653,13 @@
   transform-origin: 0 100%;
   white-space: nowrap;
   z-index: 5;
+  opacity: var(--sala-fade);
+  animation: sala-fade-in 0.16s ease both;
+}
+/* Closing, it fades out as fast as it came, then unmounts (`SalaCard`). */
+.sala-bar.out {
+  pointer-events: none;
+  animation: sala-fade-out 0.12s ease both;
 }
 .sala-bar button {
   height: 26px;
@@ -983,6 +998,7 @@
   .sala-node-body,
   .sala-strip,
   .sala-port,
+  .sala-bar,
   .sala-frame {
     animation: none !important;
   }
