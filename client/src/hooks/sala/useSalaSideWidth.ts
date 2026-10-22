@@ -1,5 +1,4 @@
-import { useCallback, useLayoutEffect, useSyncExternalStore } from "react";
-import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
+import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { DEFAULT_FONT_SIZE, readFontSize, subscribeFontSize } from "@/lib/fontSize";
 
 /** 384px of panel plus the divider's own pixel: the width the panel always had. */
@@ -54,9 +53,9 @@ function getPreferred(): number {
   return preferred;
 }
 
-function setPreferred(width: number, persist: boolean): void {
+function setPreferred(width: number): void {
   const next = parseSalaSideWidth(String(width));
-  if (persist) localStorage.setItem(SALA_SIDE_STORAGE_KEY, String(next));
+  localStorage.setItem(SALA_SIDE_STORAGE_KEY, String(next));
   if (next === preferred) return;
   preferred = next;
   for (const listener of listeners) listener();
@@ -74,42 +73,91 @@ function subscribeViewport(listener: () => void): () => void {
 
 const getViewportWidth = (): number => window.innerWidth;
 
+/** The rules outside the panel that have to line up with its edge (the
+ * plane's frame and the status bar's rule, at the end of `sala.css`). */
+const OUTSIDE = "[data-plane-frame], [data-status-bar]";
+
+/**
+ * Draws `width`. The panel gets a plain `width`, which nothing inherits; the
+ * two rules outside it get `--sala-side-w`. Never on the document root: a
+ * custom property there restyles the whole page, and `<html style>` is
+ * watched by the theme observer, which re-renders the whole shell; measured,
+ * that made a drag drop most of its frames.
+ */
+function publish(panel: HTMLElement | null, width: number): void {
+  const value = `${width}px`;
+  if (panel) panel.style.width = value;
+  for (const el of document.querySelectorAll<HTMLElement>(OUTSIDE)) el.style.setProperty("--sala-side-w", value);
+}
+
 export interface SalaSideWidth {
   /** The width to draw, in px (divider included). */
   width: number;
   min: number;
   max: number;
-  startDrag: (event: React.PointerEvent) => void;
-  /** Arrow keys move the edge, Home/End jump to the limits. */
-  onKeyDown: (event: React.KeyboardEvent) => void;
-  /** Back to the default width. */
-  reset: () => void;
+  gripProps: {
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
+    onKeyDown: (event: React.KeyboardEvent) => void;
+    onDoubleClick: () => void;
+  };
 }
 
 /**
  * The room side panel's width: dragged from its left edge, persisted in
- * `localStorage`, clamped to the window and to what a conversation can use. It also publishes the width as
- * `--sala-side-w` on the document root, for the rules outside the panel that
- * have to line up with it (the plane's frame, the status bar's rule).
+ * `localStorage`, clamped to the window and to what a conversation can use.
+ * A drag writes the width straight to the DOM once per frame and only goes
+ * through React (and storage) when it ends.
  */
-export function useSalaSideWidth(): SalaSideWidth {
+export function useSalaSideWidth(panelRef: React.RefObject<HTMLElement | null>): SalaSideWidth {
   const chosen = useSyncExternalStore(subscribePreferred, getPreferred);
   const viewport = useSyncExternalStore(subscribeViewport, getViewportWidth);
   const fontSize = useSyncExternalStore(subscribeFontSize, readFontSize);
   const max = salaSideMaxWidth(viewport, fontSize / DEFAULT_FONT_SIZE);
   const width = clampSalaSideWidth(chosen, max);
+  const endDrag = useRef<(() => void) | null>(null);
 
-  useLayoutEffect(() => {
-    document.documentElement.style.setProperty("--sala-side-w", `${width}px`);
-  }, [width]);
+  useLayoutEffect(() => publish(panelRef.current, width), [panelRef, width]);
+  // A panel that goes away mid-drag must not leave its listeners behind.
+  useLayoutEffect(() => () => endDrag.current?.(), []);
 
-  const onChange = useCallback((next: number) => setPreferred(clampSalaSideWidth(next, salaSideMaxWidth(window.innerWidth, readFontSize() / DEFAULT_FONT_SIZE)), false), []);
-  const onDragEnd = useCallback(() => setPreferred(getPreferred(), true), []);
-  const { startDrag } = usePanelDrag(width, onChange, onDragEnd);
+  const onPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      event.preventDefault();
+      endDrag.current?.();
+      const grip = event.currentTarget;
+      const startX = event.clientX;
+      let next = width;
+      let frame = 0;
+
+      function draw(): void {
+        frame = 0;
+        publish(panelRef.current, next);
+        grip.setAttribute("aria-valuenow", String(next));
+      }
+      function finish(): void {
+        endDrag.current = null;
+        if (frame !== 0) cancelAnimationFrame(frame);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", finish);
+        draw();
+        setPreferred(next);
+      }
+      function onMove(move: PointerEvent): void {
+        // The edge sits on the panel's left: moving it left widens the panel.
+        next = clampSalaSideWidth(width - (move.clientX - startX), salaSideMaxWidth(window.innerWidth, readFontSize() / DEFAULT_FONT_SIZE));
+        // One write per frame, however many moves the frame saw.
+        if (frame === 0) frame = requestAnimationFrame(draw);
+      }
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", finish);
+      endDrag.current = finish;
+    },
+    [panelRef, width],
+  );
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      // The edge sits on the panel's left: moving it left widens the panel.
       const next =
         event.key === "ArrowLeft" ? width + KEY_STEP
         : event.key === "ArrowRight" ? width - KEY_STEP
@@ -118,12 +166,12 @@ export function useSalaSideWidth(): SalaSideWidth {
         : null;
       if (next === null) return;
       event.preventDefault();
-      setPreferred(clampSalaSideWidth(next, max), true);
+      setPreferred(clampSalaSideWidth(next, max));
     },
     [width, max],
   );
 
-  const reset = useCallback(() => setPreferred(SALA_SIDE_DEFAULT_WIDTH, true), []);
+  const onDoubleClick = useCallback(() => setPreferred(SALA_SIDE_DEFAULT_WIDTH), []);
 
-  return { width, min: SALA_SIDE_MIN_WIDTH, max, startDrag, onKeyDown, reset };
+  return { width, min: SALA_SIDE_MIN_WIDTH, max, gripProps: { onPointerDown, onKeyDown, onDoubleClick } };
 }

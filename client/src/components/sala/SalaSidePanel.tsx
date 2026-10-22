@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { CloseIcon } from "@/components/sala/SalaIcons";
@@ -27,9 +27,11 @@ interface SalaSidePanelProps {
  */
 export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, footer, onClose, children }: SalaSidePanelProps) {
   const dict = useDict().sala.panel;
-  const size = useSalaSideWidth();
+  const panel = useRef<HTMLElement>(null);
+  const size = useSalaSideWidth(panel);
   return (
     <aside
+      ref={panel}
       className="sala-side"
       data-panel={kind}
       aria-label={title}
@@ -49,9 +51,7 @@ export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, foote
         aria-valuemax={size.max}
         tabIndex={0}
         className="sala-side-grip"
-        onPointerDown={size.startDrag}
-        onDoubleClick={size.reset}
-        onKeyDown={size.onKeyDown}
+        {...size.gripProps}
       />
       <div className="sala-side-in">
         <header className="sala-side-head">

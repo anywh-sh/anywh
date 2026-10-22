@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const KEY = "anywh:sala-side-width";
@@ -16,14 +16,18 @@ async function renderPanel() {
   vi.resetModules();
   const { SalaSidePanel } = await import("./SalaSidePanel");
   render(
-    <SalaSidePanel mark={null} title="Room" subtitle="About" kind="about" onClose={() => {}}>
-      <p>body</p>
-    </SalaSidePanel>,
+    <>
+      <div data-plane-frame="" />
+      <SalaSidePanel mark={null} title="Room" subtitle="About" kind="about" onClose={() => {}}>
+        <p>body</p>
+      </SalaSidePanel>
+    </>,
   );
   return screen.getByRole("separator");
 }
 
-const drawnWidth = (): string => document.documentElement.style.getPropertyValue("--sala-side-w");
+const panelWidth = (): string => (document.querySelector("aside.sala-side") as HTMLElement).style.width;
+const frameWidth = (): string => (document.querySelector("[data-plane-frame]") as HTMLElement).style.getPropertyValue("--sala-side-w");
 
 describe("SalaSidePanel resizing", () => {
   beforeEach(() => {
@@ -33,7 +37,6 @@ describe("SalaSidePanel resizing", () => {
   });
   afterEach(() => {
     cleanup();
-    document.documentElement.style.removeProperty("--sala-side-w");
   });
 
   it("starts at the default width, which is also the minimum", async () => {
@@ -41,28 +44,40 @@ describe("SalaSidePanel resizing", () => {
     expect(grip).toHaveAttribute("aria-valuenow", "385");
     expect(grip).toHaveAttribute("aria-valuemin", "385");
     expect(grip).toHaveAttribute("aria-valuemax", "729");
-    expect(drawnWidth()).toBe("385px");
+    expect(panelWidth()).toBe("385px");
+    expect(frameWidth()).toBe("385px");
   });
 
-  it("widens when the left edge is dragged left, and keeps the width once let go", async () => {
+  it("never writes the width on the document root", async () => {
     const grip = await renderPanel();
     fireEvent.pointerDown(grip, { clientX: 1000 });
     fireEvent.pointerMove(window, { clientX: 900 });
+    fireEvent.pointerUp(window);
+    expect(document.documentElement.getAttribute("style") ?? "").not.toContain("--sala-side-w");
+  });
+
+  it("follows a drag of the left edge without saving until it is let go", async () => {
+    const grip = await renderPanel();
+    fireEvent.pointerDown(grip, { clientX: 1000 });
+    fireEvent.pointerMove(window, { clientX: 900 });
+    await waitFor(() => expect(panelWidth()).toBe("485px"));
     expect(grip).toHaveAttribute("aria-valuenow", "485");
+    expect(frameWidth()).toBe("485px");
     expect(localStorage.getItem(KEY)).toBeNull();
     fireEvent.pointerUp(window);
     expect(localStorage.getItem(KEY)).toBe("485");
-    expect(drawnWidth()).toBe("485px");
+    expect(panelWidth()).toBe("485px");
   });
 
   it("does not shrink below the default nor grow past the maximum", async () => {
     const grip = await renderPanel();
     fireEvent.pointerDown(grip, { clientX: 1000 });
     fireEvent.pointerMove(window, { clientX: 1200 });
-    expect(grip).toHaveAttribute("aria-valuenow", "385");
+    await waitFor(() => expect(grip).toHaveAttribute("aria-valuenow", "385"));
     fireEvent.pointerMove(window, { clientX: 100 });
-    expect(grip).toHaveAttribute("aria-valuenow", "729");
+    await waitFor(() => expect(grip).toHaveAttribute("aria-valuenow", "729"));
     fireEvent.pointerUp(window);
+    expect(localStorage.getItem(KEY)).toBe("729");
   });
 
   it("moves with the arrow keys and jumps to the limits with Home and End", async () => {
@@ -88,7 +103,7 @@ describe("SalaSidePanel resizing", () => {
     expect(localStorage.getItem(KEY)).toBe("385");
   });
 
-  it("clamps a stored width that is out of range or not a number", async () => {
+  it("clamps a stored width that is out of range", async () => {
     localStorage.setItem(KEY, "9000");
     expect(await renderPanel()).toHaveAttribute("aria-valuenow", "729");
   });
@@ -99,8 +114,7 @@ describe("SalaSidePanel resizing", () => {
     setWindowWidth(1000);
     expect(grip).toHaveAttribute("aria-valuenow", "500");
     expect(grip).toHaveAttribute("aria-valuemax", "500");
-    expect(drawnWidth()).toBe("500px");
-    // Wide enough that the conversation's text column (729px) is the limit.
+    expect(panelWidth()).toBe("500px");
     setWindowWidth(1600);
     expect(grip).toHaveAttribute("aria-valuenow", "600");
   });
