@@ -5,19 +5,35 @@
  * a class list would hide it. Colors all come from the app's theme tokens.
  *
  * Performance rules this file is built on:
- *  - the camera is one `transform` on `.sala-world`, written by script, never
- *    through a render;
+ *  - the camera is written by script, never through a render: the offset is
+ *    a `transform` on `.sala-world`, the scale a CSS `zoom` on `.sala-plane`
+ *    (`planeStyle` in lib/sala/camera.ts);
  *  - the grid is one oversized layer moved and scaled by the compositor;
- *  - nothing here asks for a compositing layer (`will-change`, `translateZ`,
- *    `backface-visibility`): a promoted layer under `transform: scale()` is
- *    rasterised once and then stretched as a bitmap by WebKit, so the plane
- *    went soft as it was zoomed. Left to the browser, text and borders are
- *    painted again at the real scale on every frame, on every engine;
  *  - a looping animation advances in `steps()`, animates only what is painted
- *    (never `transform` or `opacity`: any looping animation of those gets its
- *    own compositing layer, and one such layer anywhere in the plane left all
- *    of it painted at a stale scale, soft after a zoom), and stops while the
- *    view moves.
+ *    (never `transform` or `opacity`), and stops while the view moves.
+ *
+ * Sharpness rules. WebKit rasterises a composited layer at its own, unscaled
+ * size and stretches that bitmap by the layer's transform, and it never
+ * paints it again when only the transform changes. So a plane scaled by
+ * `transform: scale()` went soft at any zoom but 100% as soon as it got a
+ * layer of its own — and what gives it one is mostly out of this file's
+ * hands: a looping `transform` animation in a card, a hover fade, and even a
+ * scroller in the side panel next to the canvas (opening an agent's
+ * conversation did it). Fixing each trigger in turn never held. Instead:
+ *  - at rest the plane carries no scale in any transform: the camera's zoom
+ *    is a CSS `zoom`, so text and borders are laid out and painted at the
+ *    real size whatever layer they land in. A zoom gesture is a transform
+ *    over the last layout while in flight, and the layout catches up once it
+ *    settles;
+ *  - `.sala` has a compositing layer of its own, unscaled: what is composited
+ *    outside the canvas no longer makes the plane a layer, so the plane is
+ *    painted into this one with everything else, at the real scale, and its
+ *    text keeps one look whether a panel is open or not;
+ *  - inside the plane, nothing asks for a layer (`will-change`,
+ *    `translateZ`, `backface-visibility`, looping `transform`/`opacity`
+ *    animations): below `MIN_LAYOUT_ZOOM` the plane is still scaled down by
+ *    a transform, and there a layer would be minified as a bitmap.
+ *  `salaCss.test.ts` and `camera.test.ts` hold these.
  */
 .sala {
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
@@ -43,6 +59,10 @@
   outline: none;
   touch-action: none;
   cursor: default;
+  /* The canvas's own layer, unscaled (see the sharpness rules above): it
+   * keeps what is composited elsewhere in the window from making the scaled
+   * plane a layer. */
+  will-change: transform;
 }
 .sala::before {
   content: "";
@@ -90,6 +110,13 @@
   width: 0;
   height: 0;
   transform-origin: 0 0;
+}
+.sala-plane {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
 }
 
 /* ─── links ─── */

@@ -201,6 +201,21 @@ describe("SalaCanvas — camera and keyboard", () => {
     expect(viewport).not.toHaveAttribute("data-panning");
   });
 
+  it("lays the plane out at the zoom once a zoom settles, with no scale left in a transform", () => {
+    vi.useFakeTimers();
+    try {
+      mount(canvasOf());
+      const world = document.querySelector<HTMLElement>(".sala-world")!;
+      const plane = document.querySelector<HTMLElement>(".sala-plane")!;
+      fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+      vi.advanceTimersByTime(1000);
+      expect(plane.style.zoom).toBe("1.25");
+      expect(world.style.transform).not.toContain("scale");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the zoom and moves in the toolbar's steps", () => {
     mount(canvasOf());
     expect(screen.getByRole("button", { name: /back to 100%/ })).toHaveTextContent("100%");

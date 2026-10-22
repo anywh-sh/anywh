@@ -190,6 +190,52 @@ export function minimapToWorld(map: MinimapMap, mx: number, my: number): { x: nu
   return { x: (mx - map.offX) / map.s + map.ox, y: (my - map.offY) / map.s + map.oy };
 }
 
+// ─── the plane ───
+
+/**
+ * The lowest zoom the plane is laid out at. WebKit holds text that a CSS
+ * `zoom` shrinks to its minimum logical font size (9px): laid out at 0.3, the
+ * cards' 11.5px text stays 9px and spills out of them. At 0.9 the plane's
+ * text is still above it (the cards' smallest is 11px); below, the plane is
+ * laid out at this zoom and scaled down the rest of the way.
+ */
+export const MIN_LAYOUT_ZOOM = 0.9;
+
+/** The zoom the plane is laid out at for a camera zoom `z`. */
+export function layoutZoom(z: number): number {
+  return Math.max(z, MIN_LAYOUT_ZOOM);
+}
+
+export interface PlaneStyle {
+  /** The inner plane's CSS `zoom`: the scale its text and borders are laid out and painted at. */
+  zoom: string;
+  /** The outer plane's `transform`: where it sits, and what is left of the scale. */
+  transform: string;
+}
+
+/**
+ * How the plane is drawn for a camera. The scale is a CSS `zoom` (layout at
+ * the real size), never a `transform: scale()` at rest: WebKit rasterises a
+ * composited layer at its unscaled size and stretches the bitmap by its
+ * transform, and the plane gets its own layer for reasons out of its hands —
+ * a looping animation in a card, a scroller anywhere in the window — so a
+ * scaled plane went soft at any zoom but 100%. Laid out at the real size,
+ * whatever layer it lands in is painted at the real size.
+ *
+ * `zoomAt` is the zoom the plane is laid out at: `layoutZoom(cam.z)` at rest,
+ * and the one from before a zoom gesture while it is in flight, so the
+ * gesture is only a transform (no layout per frame) and the layout catches up
+ * once, when it settles. At rest the offset is snapped to device pixels: a
+ * layer at a fractional offset is resampled, which softens it as well.
+ */
+export function planeStyle(cam: Camera, zoomAt: number, rest: boolean, dpr: number): PlaneStyle {
+  const k = cam.z / zoomAt;
+  const x = rest ? Math.round(cam.x * dpr) / dpr : cam.x;
+  const y = rest ? Math.round(cam.y * dpr) / dpr : cam.y;
+  const translate = `translate(${String(x)}px, ${String(y)}px)`;
+  return { zoom: String(zoomAt), transform: k === 1 ? translate : `${translate} scale(${k.toFixed(5)})` };
+}
+
 // ─── grid backdrop ───
 
 export interface GridLayer {
