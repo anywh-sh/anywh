@@ -913,6 +913,7 @@ export const en: Dictionary = {
       createFailed: "The room could not be opened.",
     },
     roomGlyph: "Room",
+    orchestrator: "Orchestrator",
     canvas: {
       label: "Room",
       loading: "Opening the room…",
@@ -921,7 +922,6 @@ export const en: Dictionary = {
       empty: "No agents yet",
     },
     card: {
-      main: "Main",
       aria: "{title}, {status}",
       untitled: "Starting…",
       reply: "Reply",
@@ -1035,7 +1035,6 @@ export const en: Dictionary = {
         contextUsed: "{tokens} tokens · {percent}% of window",
         contextUsedNoWindow: "{tokens} tokens",
         delegatedBy: "Delegated by {title}",
-        principal: "Principal",
         work: "Work",
         noWork: "No worktree",
         commits: "{count} commits",
@@ -1064,9 +1063,6 @@ export const en: Dictionary = {
         stop: "Stop",
         resume: "Resume",
         remove: "Remove",
-      },
-      principal: {
-        subtitle: "Principal · {model}",
       },
     },
     launcher: {

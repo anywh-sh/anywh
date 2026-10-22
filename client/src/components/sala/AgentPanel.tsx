@@ -54,19 +54,19 @@ export function AgentPanel(props: AgentPanelProps) {
   const dict = useDict();
   const text = dict.sala.panel;
   const runtimeName = agentName(dict.chat.composer.agentNames, agent.runtime);
-  const title = agent.title ?? dict.sala.card.untitled;
-  const subtitle = (agent.role === "principal" ? text.principal.subtitle : text.agent.subtitle).replace("{runtime}", runtimeName).replace("{model}", props.modelLabel);
+  const subtitle = text.agent.subtitle.replace("{runtime}", runtimeName).replace("{model}", props.modelLabel);
 
   if (agent.role === "principal") {
+    // A fixed name, never a placeholder: the generated title is the room's.
     return (
-      <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} titlePending={agent.titlePending} subtitle={subtitle} kind="principal" onClose={props.onClose}>
+      <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={dict.sala.orchestrator} subtitle={subtitle} kind="principal" onClose={props.onClose}>
         <div className="sala-side-chat">
           <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} />
         </div>
       </SalaSidePanel>
     );
   }
-  return <WorkerPanel key={agent.agentId} {...props} title={title} subtitle={subtitle} />;
+  return <WorkerPanel key={agent.agentId} {...props} title={agent.title ?? dict.sala.card.untitled} subtitle={subtitle} />;
 }
 
 function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, title, subtitle, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
@@ -157,7 +157,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
           </span>
         </div>
 
-        <div className={cn("sala-side-by", agent.needsYou.length > 0 && "wait")}>{text.delegatedBy.replace("{title}", parent ? (parent.title ?? dict.sala.card.untitled) : text.principal)}</div>
+        <div className={cn("sala-side-by", agent.needsYou.length > 0 && "wait")}>{text.delegatedBy.replace("{title}", parent ? (parent.title ?? dict.sala.card.untitled) : dict.sala.orchestrator)}</div>
 
         {agent.needsYou.length > 0 && (
           <div className="sala-side-q">

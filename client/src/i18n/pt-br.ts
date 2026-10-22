@@ -913,6 +913,7 @@ export const ptBr: Dictionary = {
       createFailed: "Não foi possível abrir a sala.",
     },
     roomGlyph: "Sala",
+    orchestrator: "Orquestrador",
     canvas: {
       label: "Sala",
       loading: "Abrindo a sala…",
@@ -921,7 +922,6 @@ export const ptBr: Dictionary = {
       empty: "Ainda sem agentes",
     },
     card: {
-      main: "Principal",
       aria: "{title}, {status}",
       untitled: "Iniciando…",
       reply: "Responder",
@@ -1035,7 +1035,6 @@ export const ptBr: Dictionary = {
         contextUsed: "{tokens} tokens · {percent}% da janela",
         contextUsedNoWindow: "{tokens} tokens",
         delegatedBy: "Delegado por {title}",
-        principal: "Principal",
         work: "Trabalho",
         noWork: "Sem worktree",
         commits: "{count} commits",
@@ -1064,9 +1063,6 @@ export const ptBr: Dictionary = {
         stop: "Parar",
         resume: "Retomar",
         remove: "Remover",
-      },
-      principal: {
-        subtitle: "Principal · {model}",
       },
     },
     launcher: {

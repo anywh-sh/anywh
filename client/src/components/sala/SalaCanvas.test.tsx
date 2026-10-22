@@ -264,6 +264,14 @@ describe("SalaCanvas — a title still being generated", () => {
     expect(card("a").textContent).toContain("Reconnect loop");
     expect(card("a").querySelector('[role="status"]')).toBeNull();
   });
+
+  it("names the principal Orchestrator, never by its generated title nor with a placeholder", () => {
+    mount(canvasOf(), { agents: [agent("main", { role: "principal", parentId: undefined, title: "Profile page", titlePending: true }), agents[1], agents[2]] });
+    expect(card("main").querySelector(".sala-title")).toHaveTextContent("Orchestrator");
+    expect(card("main").textContent).not.toContain("Profile page");
+    expect(card("main").textContent).not.toContain("Main");
+    expect(card("main").querySelector('[role="status"]')).toBeNull();
+  });
 });
 
 describe("SalaCanvas — what a running card's lines say", () => {

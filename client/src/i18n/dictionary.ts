@@ -1279,6 +1279,8 @@ export interface Dictionary {
     };
     /** Accessible name of the room glyph in the session list and tab strip. */
     roomGlyph: string;
+    /** The room's principal agent, by a fixed name: its card, its panel and who delegated a worker. */
+    orchestrator: string;
     /** The room's tab and its canvas. */
     canvas: {
       label: string;
@@ -1288,7 +1290,6 @@ export interface Dictionary {
       empty: string;
     };
     card: {
-      main: string;
       /** `{title}`, `{status}`. */
       aria: string;
       untitled: string;
@@ -1426,7 +1427,6 @@ export interface Dictionary {
         contextUsedNoWindow: string;
         /** `{title}`. */
         delegatedBy: string;
-        principal: string;
         work: string;
         noWork: string;
         /** `{count}` commits. */
@@ -1457,10 +1457,6 @@ export interface Dictionary {
         stop: string;
         resume: string;
         remove: string;
-      };
-      principal: {
-        /** `{model}`. */
-        subtitle: string;
       };
     };
     /** The launcher over the toolbar. */

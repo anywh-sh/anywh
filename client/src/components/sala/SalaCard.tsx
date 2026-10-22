@@ -100,8 +100,10 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const status = cardStatus(agent, liveWorkers);
   const activity = cardActivity(agent, workers, liveWorkers);
   const clock = cardClock(agent, observedSince, liveWorkers);
-  const title = agent.title ?? dict.untitled;
   const main = agent.role === "principal";
+  // The principal goes by a fixed name: its generated title is the room's.
+  const title = main ? fullDict.sala.orchestrator : (agent.title ?? dict.untitled);
+  const titlePending = !main && agent.titlePending === true;
   const bar = useBarPresence(selected);
   const lines = cardLines(agent, status);
 
@@ -153,8 +155,8 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
             {(status.tone === "fail" || status.tone === "block") && <CloseIcon size={12} />}
             {status.tone === "idle" && <span aria-hidden="true" className="sala-state-idle" />}
           </span>
-          <span className="sala-title" title={agent.titlePending === true ? undefined : title}>
-            {agent.titlePending === true ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}
+          <span className="sala-title" title={titlePending ? undefined : title}>
+            {titlePending ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}
           </span>
         </div>
         <div className="sala-node-body">
@@ -167,10 +169,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
         </div>
         <div className="sala-strip">
           <AgentLogo agentId={agent.runtime} className="sala-logo" />
-          <span className="sala-model">
-            {modelLabel}
-            {main && <span className="sala-role"> · {dict.main}</span>}
-          </span>
+          <span className="sala-model">{modelLabel}</span>
           {status.tone === "wait" ? (
             <button type="button" className={cn("sala-reply", props.answering && "on")} data-nodrag aria-expanded={props.answering} onClick={() => props.onReply(agent.agentId)}>
               {dict.reply}

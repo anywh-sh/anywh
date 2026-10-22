@@ -502,9 +502,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sala-role {
-  opacity: 0.8;
-}
 .sala-strip-clock {
   flex: none;
   padding-right: 6px;

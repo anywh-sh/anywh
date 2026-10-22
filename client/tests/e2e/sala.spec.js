@@ -209,8 +209,8 @@ describe("anywh room canvas", () => {
   it("draws the principal's card on it", async () => {
     await browser.waitUntil(async () => (await cards()).length === 1, { timeout: 30000, timeoutMsg: "the principal's card never appeared" });
     const principal = await $("[data-agent-id]");
-    await expect(principal).toHaveText(expect.stringContaining("Main"));
-    await expect(principal).toHaveText(expect.stringContaining("Profile page"));
+    // The principal goes by a fixed name; the generated title names the room's tab.
+    await expect(principal).toHaveText(expect.stringContaining("Orchestrator"));
     await shot("B-sala-so-principal");
   });
 
@@ -595,7 +595,7 @@ describe("anywh room canvas", () => {
     });
     await browser.waitUntil(async () => (await cards()).length === 10, { timeout: 30000, timeoutMsg: "the room did not come back" });
     const text = await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').innerText);
-    expect(text).toContain("Principal");
+    expect(text).toContain("Orquestrador");
     await expect(await $('[data-state="awaiting_user"] .sala-state')).toHaveAttribute("title", "Sua vez");
     expect(text).toContain("Responder");
     expect(text).toMatch(/precisa de você/);
