@@ -1,0 +1,67 @@
+name: Version
+
+# Every merge to main is a version: this tags the merge commit `vX.Y.Z`,
+# computed by scripts/version.mjs from the commit messages since the last tag
+# — `!` after the type or a `BREAKING CHANGE:` footer bumps MINOR, anything
+# else bumps PATCH. MAJOR is never inferred: only this workflow's manual run
+# bumps it (a milestone like 1.0.0 is the owner's call, not a commit's).
+#
+# A tag is not a release. Nothing is built or published here, and a tag
+# pushed with GITHUB_TOKEN triggers no other workflow; publishing a tag is
+# the manual `Release` workflow (.anywh/skills/release/SKILL.md).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Manual bumps only: MAJOR, on the current tip of main"
+        type: choice
+        options: [major]
+        required: true
+
+permissions:
+  contents: write
+
+# One at a time, never cancelled: two merges in quick succession must each
+# see the other's tag, or both would compute the same next version.
+concurrency:
+  group: version
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The pushed commit itself, not whatever main is by the time this
+          # queued run starts — each merge is tagged where it landed.
+          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+
+      - name: Compute the tag
+        id: next
+        run: |
+          tag="$(node scripts/version.mjs next ${{ github.event_name == 'workflow_dispatch' && '--major' || '' }})"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -z "$tag" ]; then
+            echo "$(git rev-parse --short HEAD) already has a version tag, nothing to do."
+          fi
+
+      - name: Push the tag
+        if: steps.next.outputs.tag != ''
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          git config user.name "anywh-release-bot"
+          git config user.email "actions@github.com"
+          git tag -a "$TAG" -m "$TAG" -m "$(git log -1 --format=%s)"
+          git push origin "refs/tags/$TAG"
+          echo "Tagged $(git rev-parse --short HEAD) as $TAG" >> "$GITHUB_STEP_SUMMARY"
