@@ -78,8 +78,6 @@ async function createRoom(stack: Stack): Promise<string> {
   return roomId;
 }
 
-/** One principal turn that makes the calls the text names, and returns the
- * `agentId` of the first `delegate` among them. */
 /** The name each delegated agent was given, by id. */
 const names = new Map<string, string>();
 let delegated = 0;
@@ -87,14 +85,33 @@ let delegated = 0;
 /** How a digest shows an agent: by its name, quoted. */
 const shown = (id: string): string => `"${names.get(id)}"`;
 
+/** The `agentId` a `delegate` call's `tool_ended` answered with, if the
+ * message is one. */
+function delegatedId(message: Record<string, unknown>): string | undefined {
+  const event = message.event as { type?: string; content?: unknown } | undefined;
+  if (message.type !== "agent_event" || event?.type !== "tool_ended") return undefined;
+  try {
+    return (JSON.parse(String(event.content)) as { agentId?: string }).agentId;
+  } catch {
+    return undefined;
+  }
+}
+
+/** One principal turn that makes the `delegate` calls `args` describe, and
+ * the `agentId` each one returned, in order. Waits for the `turn_ended` of
+ * that turn, not merely the next one: the principal may still be running a
+ * digest turn when the message is sent (it is then queued behind it), and
+ * that turn's end would otherwise be taken for this one's. */
 async function delegateVia(socket: WebSocket, ...args: Record<string, unknown>[]): Promise<string[]> {
   const named = args.map((a) => ({ name: `Agent ${++delegated}`, ...a }));
-  const done = collectUntil(socket, isTurnEnded, 30_000);
+  let seen = 0;
+  const done = collectUntil(socket, (message) => {
+    if (delegatedId(message) !== undefined) seen++;
+    return isTurnEnded(message) && seen >= named.length;
+  }, 30_000);
   sendUserMessage(socket, named.map((a) => marker("delegate", a)).join(" "));
-  const messages = await done;
-  const ids = messages
-    .filter((message) => message.type === "agent_event" && (message.event as { type?: string }).type === "tool_ended")
-    .map((message) => (JSON.parse(String((message.event as { content?: unknown }).content)) as { agentId: string }).agentId);
+  const ids = (await done).map(delegatedId).filter((id): id is string => id !== undefined);
+  assert.equal(ids.length, named.length, `one agent per delegate call: ${JSON.stringify(ids)}`);
   ids.forEach((id, index) => names.set(id, named[index].name));
   return ids;
 }
