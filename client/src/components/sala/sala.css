@@ -9,8 +9,14 @@
  *    a `transform` on `.sala-world`, the scale a CSS `zoom` on `.sala-plane`
  *    (`planeStyle` in lib/sala/camera.ts);
  *  - the grid is one oversized layer moved and scaled by the compositor;
- *  - a looping animation advances in `steps()`, animates only what is painted
- *    (never `transform` or `opacity`), and stops while the view moves.
+ *  - while the camera moves (`.moving`), the world is one more layer, moved
+ *    by the compositor like the grid, and only then: a pan or a zoom never
+ *    paints a card, its shadow or a link again, which is what lets the cards
+ *    keep their shadows and every animation keep running as the view moves;
+ *  - an animation or a transition animates only what is painted (a color, a
+ *    stroke, a clip, or a registered number that `opacity` or a `scale()`
+ *    is computed from — `--sala-fade`, `--sala-lift`), never `transform` or
+ *    `opacity` themselves, which WebKit would run in a layer of their own.
  *
  * Sharpness rules. WebKit rasterises a composited layer at its own, unscaled
  * size and stretches that bitmap by the layer's transform, and it never
@@ -30,9 +36,11 @@
  *    painted into this one with everything else, at the real scale, and its
  *    text keeps one look whether a panel is open or not;
  *  - inside the plane, nothing asks for a layer (`will-change`,
- *    `translateZ`, `backface-visibility`, looping `transform`/`opacity`
- *    animations): below `MIN_LAYOUT_ZOOM` the plane is still scaled down by
- *    a transform, and there a layer would be minified as a bitmap.
+ *    `translateZ`, `backface-visibility`, `transform`/`opacity` animations
+ *    or transitions): below `MIN_LAYOUT_ZOOM` the plane is still scaled down
+ *    by a transform, and there a layer would be minified as a bitmap. The
+ *    world's layer while it moves is around the plane, not in it: the plane
+ *    is painted into it at its own scale, and the layer is gone at rest.
  *  `salaCss.test.ts` and `camera.test.ts` hold these.
  */
 .sala {
@@ -111,6 +119,13 @@
   height: 0;
   transform-origin: 0 0;
 }
+/* While the camera moves, the world is a layer of its own: a pan or a zoom
+ * moves one bitmap instead of painting every card, shadow and link again on
+ * each frame. Dropped as soon as it settles, so at rest the plane is painted
+ * into the canvas's layer at the real scale (the sharpness rules above). */
+.sala-world.moving {
+  will-change: transform;
+}
 .sala-plane {
   position: absolute;
   left: 0;
@@ -155,9 +170,6 @@
   opacity: 0.6;
   stroke-dasharray: 3 6;
   animation: none;
-}
-.sala-world.moving .sala-edge-flow {
-  animation-play-state: paused;
 }
 @keyframes sala-flow {
   to {
@@ -294,9 +306,6 @@
   -webkit-mask-image: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
   mask-image: radial-gradient(farthest-side, transparent calc(100% - 1.5px), #000 calc(100% - 1.5px));
   animation: sala-spin 0.9s steps(18) infinite;
-}
-.sala-world.moving .sala-spin {
-  animation-play-state: paused;
 }
 @keyframes sala-spin {
   to {

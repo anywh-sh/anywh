@@ -549,8 +549,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (!d.moved) {
       if (dx * dx + dy * dy < 10) return;
       d.moved = true;
-      if (d.kind === "pan") vpRef.current?.setAttribute("data-panning", "");
-      worldRef.current?.classList.add("moving");
+      // The world is a layer of its own only while the camera moves (see
+      // `.sala-world.moving`); a card or an area moved inside it is not that.
+      if (d.kind === "pan") {
+        vpRef.current?.setAttribute("data-panning", "");
+        worldRef.current?.classList.add("moving");
+      }
       if (d.kind === "node") d.el?.setAttribute("data-drag", "");
     }
     if (d.kind === "pan") {

@@ -188,7 +188,7 @@ describe("SalaCanvas — text", () => {
 });
 
 describe("SalaCanvas — camera and keyboard", () => {
-  it("holds what loops in the background still while the view is dragged, and lets go after", () => {
+  it("makes the world a layer of its own while the view is dragged, and lets go after", () => {
     const { viewport } = mount(canvasOf());
     const world = document.querySelector(".sala-world")!;
     pointer("pointerDown", viewport, 700, 500);
