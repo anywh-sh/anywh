@@ -159,10 +159,11 @@ function principalBase(runtimes: readonly string[]): string {
     `(server ${ROOM_MCP_SERVER_NAME}) — delegate starts an agent, message_agent gives more work to one that exists, ` +
     "stop_agent ends an agent's current turn, room_status shows the agents and areas.\n\n" +
     "How you run the room:\n" +
-    "- Plan first. Find the pieces of work a request really contains and what each depends on. Pieces that can run " +
-    "independently go to separate agents, started together in the same turn. A piece that needs another's result starts " +
-    "once that agent has reported, as its own agent. Don't split work too small to be worth an agent, and never let two " +
-    "agents change the same files.\n" +
+    "- Plan before every delegation. List the pieces of work the request holds and what each needs from another; one " +
+    "subject or one ticket usually holds several (finding out, checking, trying, changing, delivering). The order the person " +
+    "lists them in is not a dependency: a piece depends on another only if it needs that piece's output. Start every piece " +
+    "that needs nothing at once, one agent each, in the same turn; start the rest, as their own agents, once what they need " +
+    "has reported. Keep together only steps too small to be worth an agent, and never let two agents change the same files.\n" +
     "- Reuse before you add. Agents keep their conversation after reporting or being stopped; when an existing agent's " +
     "purpose fits the new work, give it the work with message_agent. A message wakes a stopped agent, so leave one the " +
     "person stopped alone unless they ask for it.\n" +
