@@ -25,11 +25,15 @@
  *    real size whatever layer they land in. A zoom gesture is a transform
  *    over the last layout while in flight, and the layout catches up once it
  *    settles;
+ *  - `.sala` has a compositing layer of its own, unscaled: what is composited
+ *    outside the canvas no longer makes the plane a layer, so the plane is
+ *    painted into this one with everything else, at the real scale, and its
+ *    text keeps one look whether a panel is open or not;
  *  - inside the plane, nothing asks for a layer (`will-change`,
  *    `translateZ`, `backface-visibility`, looping `transform`/`opacity`
  *    animations): below `MIN_LAYOUT_ZOOM` the plane is still scaled down by
  *    a transform, and there a layer would be minified as a bitmap.
- *  `camera.test.ts` and `salaCss.test.ts` hold these.
+ *  `salaCss.test.ts` and `camera.test.ts` hold these.
  */
 .sala {
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
@@ -55,6 +59,10 @@
   outline: none;
   touch-action: none;
   cursor: default;
+  /* The canvas's own layer, unscaled (see the sharpness rules above): it
+   * keeps what is composited elsewhere in the window from making the scaled
+   * plane a layer. */
+  will-change: transform;
 }
 .sala::before {
   content: "";
