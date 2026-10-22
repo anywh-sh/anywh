@@ -74,26 +74,41 @@ jobs:
             fail "$RELEASE_TAG predates scripts/version.mjs, so its build can't be stamped with its version"
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
 
-          state="$(gh release view "$RELEASE_TAG" --repo "$REPO" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"' 2> /dev/null || echo none)"
+          # The release API, not `gh release view`: that one's failure means
+          # "no release" and "the API didn't answer" alike, and reading a
+          # network or rate-limit error as "no release" would rebuild a tag
+          # that is already published. The list includes drafts, which the
+          # by-tag endpoint doesn't; set -e fails the step on any API error.
+          state="$(gh api --paginate "repos/$REPO/releases" --jq '.[] | select(.tag_name == env.RELEASE_TAG) | "\(.draft) \(.prerelease)"')"
+          drop_draft=false
           case "$state" in
-            none) mode=build ;;
+            "") mode=build ;;
             # A draft is what a failed run leaves behind; nobody ever saw it.
-            # Deleting it keeps the tag (tags are immutable here), so the
-            # same tag can simply be built again.
+            # It is dropped once every check below has passed (the tag stays
+            # — tags are immutable here), and the same tag is built again.
             "true "*)
-              gh release delete "$RELEASE_TAG" --repo "$REPO" --yes
-              mode=build ;;
+              mode=build
+              drop_draft=true ;;
             "false true")
               [ "$CHANNEL" = stable ] || fail "$RELEASE_TAG is already published as a prerelease"
               mode=promote ;;
             *) fail "$RELEASE_TAG is already published as a stable release" ;;
           esac
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "drop_draft=$drop_draft" >> "$GITHUB_OUTPUT"
 
           # The current stable release, which the changelog and the upgrade
           # notes are counted from. A stable release only ever moves forward:
-          # making an older tag "Latest" would downgrade every updater.
-          previous="$(gh release view --repo "$REPO" --json tagName --jq .tagName 2> /dev/null || true)"
+          # making an older tag "Latest" would downgrade every updater. Only a
+          # 404 means there is none; any other failure stops the run.
+          if previous="$(gh api "repos/$REPO/releases/latest" --jq .tag_name 2> latest.err)"; then
+            :
+          elif grep -q "HTTP 404" latest.err; then
+            previous=""
+          else
+            cat latest.err
+            fail "couldn't read the current stable release"
+          fi
           if [ "$CHANNEL" = stable ] && [ -n "$previous" ]; then
             newest="$(printf '%s\n%s\n' "$previous" "$RELEASE_TAG" | sort -V | tail -n 1)"
             [ "$newest" = "$RELEASE_TAG" ] && [ "$previous" != "$RELEASE_TAG" ] ||
@@ -117,6 +132,14 @@ jobs:
             echo "RELEASE_NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
           cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      # Last, after every check that can still refuse the run (the version
+      # order, the upgrade notes): a refused run leaves the draft as it was.
+      - name: Drop the draft a failed run left behind
+        if: steps.check.outputs.drop_draft == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$RELEASE_TAG" --repo "${{ github.repository }}" --yes
 
   # Gates the release on both workspaces having no known high/critical
   # vulnerability at tag time — deliberately not in pr.yml: a dependency can
