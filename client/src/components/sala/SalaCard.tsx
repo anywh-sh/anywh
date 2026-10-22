@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { AgentLogo } from "@/components/chat/AgentLogo";
@@ -15,7 +15,10 @@ export interface SalaCardProps {
   y: number;
   w: number;
   h: number;
+  /** Drawn as selected: alone, or as one of several. */
   selected: boolean;
+  /** Selected alone: its action bar shows. */
+  bar: boolean;
   hasParent: boolean;
   hasKids: boolean;
   modelLabel: string;
@@ -37,7 +40,8 @@ export interface SalaCardProps {
   canStop: boolean;
   canRemove: boolean;
   onPointerDown: (agentId: string, event: ReactPointerEvent<HTMLElement>) => void;
-  onSelect: (agentId: string) => void;
+  /** A click (or Enter) on the card; the event carries the modifier keys. */
+  onSelect: (agentId: string, event: ReactMouseEvent<HTMLElement>) => void;
   onOpen: (agentId: string) => void;
   onDelegate: (agentId: string) => void;
   onReply: (agentId: string) => void;
@@ -105,7 +109,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const title = main ? fullDict.sala.orchestrator : (agent.title ?? dict.untitled);
   const titlePending = !main && agent.titlePending === true;
   // The principal opens its conversation on a click instead: it has no bar.
-  const bar = useBarPresence(selected && !main);
+  const bar = useBarPresence(props.bar && !main);
   const lines = cardLines(agent, status);
 
   const activityText = ((): string => {
@@ -146,7 +150,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
       onPointerDown={(event) => props.onPointerDown(agent.agentId, event)}
     >
       <div className="sala-node-card">
-        <button type="button" className="sala-node-hit" tabIndex={0} onClick={() => props.onSelect(agent.agentId)} aria-label={dict.aria.replace("{title}", title).replace("{status}", dict.status[status.label])} />
+        <button type="button" className="sala-node-hit" tabIndex={0} onClick={(event) => props.onSelect(agent.agentId, event)} aria-label={dict.aria.replace("{title}", title).replace("{status}", dict.status[status.label])} />
         <div className="sala-node-head">
           <span className="sala-state" data-status={status.label} title={dict.status[status.label]}>
             {(status.tone === "run" || status.tone === "start") && <span className="sala-spin" aria-hidden="true" />}

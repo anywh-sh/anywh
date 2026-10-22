@@ -362,6 +362,23 @@ describe("anywh room canvas", () => {
     expect(states.filter((s) => s === "working").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("selects several agents with a modified click, and lets go of them", async () => {
+    // The stopped card is still selected; a Shift+click on two more adds them.
+    const added = await browser.execute(() => {
+      const ids = [...document.querySelectorAll('[data-agent-id][data-state="working"]:not(.main)')].slice(0, 2).map((el) => el.getAttribute("data-agent-id"));
+      for (const id of ids) document.querySelector(`[data-agent-id="${id}"] .sala-node-hit`).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+      return ids.length;
+    });
+    expect(added).toBe(2);
+    const bar = await $('[role="toolbar"][aria-label="Actions for the selected agents"]');
+    await bar.waitForExist({ timeout: 5000, timeoutMsg: "the bar for several agents never showed" });
+    await expect(bar).toHaveText(expect.stringContaining("3 agents"));
+    expect(await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)).toBe(3);
+    expect(await $(".sala-bar").isExisting()).toBe(false);
+    await bar.$('button[aria-label="Clear the selection"]').click();
+    await browser.waitUntil(async () => (await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)) === 0, { timeout: 5000, timeoutMsg: "the selection was never cleared" });
+  });
+
   it("opens ten agents on one canvas and reads them all (principal and nine workers)", async () => {
     // A room of its own, so the screen is a feature with its three fronts and
     // not what the earlier tests did to the first room.

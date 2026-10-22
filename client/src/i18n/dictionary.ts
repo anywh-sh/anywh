@@ -1488,6 +1488,20 @@ export interface Dictionary {
       keptOne: string;
       review: string;
     };
+    /** The bar over the room while several agents are selected. */
+    multi: {
+      label: string;
+      /** `{count}`. */
+      count: string;
+      /** `{keys}`: one of the two below. */
+      hint: string;
+      keysMac: string;
+      keysOther: string;
+      group: string;
+      stop: string;
+      remove: string;
+      clear: string;
+    };
     /** What the room asks before an action that cannot simply be taken back. */
     confirm: {
       cancel: string;
@@ -1512,6 +1526,11 @@ export interface Dictionary {
       discard: string;
       /** While the room checks for that work. */
       checking: string;
+      groupTitle: string;
+      /** `{count}` agents; the areas' names follow. */
+      groupBodyOne: string;
+      groupBodyMany: string;
+      group: string;
     };
     minimap: string;
     toast: {
@@ -1521,6 +1540,12 @@ export interface Dictionary {
       /** `{count}`. */
       removedMany: string;
       removedManySub: string;
+      stoppedOne: string;
+      /** `{count}`. */
+      stoppedMany: string;
+      stoppedManySub: string;
+      /** `{count}`. */
+      grouped: string;
       undo: string;
       stopFailed: string;
       removeFailed: string;

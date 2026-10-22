@@ -45,6 +45,7 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         aboutVisible
         renderAnswer={() => null}
         onEscape={vi.fn()}
+        onSelectMany={vi.fn()}
         onStopAgent={() => Promise.resolve(true)}
         onRemoveAgent={() => Promise.resolve({ undoMs: 1000 })}
         onRestoreAgent={() => Promise.resolve(true)}
@@ -557,5 +558,152 @@ describe("SalaCanvas — removing agents asks first", () => {
     pressBar("Stop");
     expect(onStopAgent).toHaveBeenCalledWith("a");
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+describe("SalaCanvas — selecting several agents", () => {
+  const room = [...agents, agent("c", { state: "done" })];
+  const positions = { ...canvasOf().positions, c: { x: 600, y: 288 } };
+  const mountRoom = (props: Partial<SalaCanvasProps> = {}, over: Partial<RoomCanvas> = {}) => mount(canvasOf({ positions, ...over }), { agents: room, ...props });
+  const hit = (id: string): HTMLElement => card(id).querySelector<HTMLElement>(".sala-node-hit")!;
+  const multiBar = (): HTMLElement => screen.getByRole("toolbar", { name: "Actions for the selected agents" });
+  const selectedIds = (): string[] => [...document.querySelectorAll(".sala-node.sel")].map((el) => el.getAttribute("data-agent-id")!);
+
+  it("adds and takes cards with Shift+click, and shows the bar for all of them instead of one card's", () => {
+    const onSelectMany = vi.fn();
+    mountRoom({ onSelectMany });
+    fireEvent.click(hit("a"));
+    fireEvent.click(hit("b"), { shiftKey: true });
+    expect(selectedIds()).toEqual(["a", "b"]);
+    expect(multiBar()).toHaveTextContent("2 agents");
+    expect(multiBar()).toHaveTextContent("Shift or Ctrl + click to change");
+    // The single card's bar is on its way out (it fades), never shown with the other.
+    expect(document.querySelector(".sala-bar:not(.out)")).toBeNull();
+    expect(onSelectMany).toHaveBeenCalled();
+    fireEvent.click(hit("c"), { shiftKey: true });
+    expect(multiBar()).toHaveTextContent("3 agents");
+    // Back down to one: a plain selection again, with its own bar.
+    fireEvent.click(hit("c"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    expect(selectedIds()).toEqual(["a"]);
+    expect(screen.queryByRole("toolbar", { name: "Actions for the selected agents" })).toBeNull();
+    expect(screen.getByRole("toolbar", { name: "Agent actions" })).toBeInTheDocument();
+  });
+
+  it("takes Ctrl+click off macOS, where Command is not the selection's key", () => {
+    mountRoom();
+    fireEvent.click(hit("a"), { ctrlKey: true });
+    fireEvent.click(hit("b"), { ctrlKey: true });
+    expect(selectedIds()).toEqual(["a", "b"]);
+    fireEvent.click(hit("c"), { metaKey: true });
+    expect(selectedIds()).toEqual(["c"]);
+  });
+
+  it("never takes the orchestrator in: a modified click on it opens its conversation", () => {
+    const onOpenAgent = vi.fn();
+    mountRoom({ onOpenAgent });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("main"), { shiftKey: true });
+    expect(onOpenAgent).toHaveBeenCalledWith("main");
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it("counts one press once, though the pointer and the card's button both report it", () => {
+    const { viewport } = mountRoom();
+    fireEvent.click(hit("a"));
+    fireEvent.pointerDown(card("b").querySelector(".sala-node-body")!, { clientX: 400, clientY: 340, pointerId: 1, button: 0, shiftKey: true });
+    fireEvent.pointerUp(viewport, { clientX: 400, clientY: 340, pointerId: 1, button: 0, shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true, detail: 1 });
+    expect(selectedIds()).toEqual(["a", "b"]);
+  });
+
+  it("clears with Esc, with a click on the room and with the bar's ×", () => {
+    const { viewport } = mountRoom();
+    const pickTwo = (): void => {
+      fireEvent.click(hit("a"), { shiftKey: true });
+      fireEvent.click(hit("b"), { shiftKey: true });
+      expect(selectedIds()).toEqual(["a", "b"]);
+    };
+    pickTwo();
+    fireEvent.keyDown(viewport, { key: "Escape" });
+    expect(selectedIds()).toEqual([]);
+    pickTwo();
+    pointer("pointerDown", viewport, 1000, 700);
+    pointer("pointerUp", viewport, 1000, 700);
+    expect(selectedIds()).toEqual([]);
+    pickTwo();
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Clear the selection" }));
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it("groups the selection in a new area at once when none of it is in an area", () => {
+    const { onCanvasChange } = mountRoom();
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Group" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    const saved = onCanvasChange.mock.calls[0][0] as RoomCanvas;
+    expect(saved.areas).toHaveLength(1);
+    expect(saved.areas[0].members).toEqual(["a", "b"]);
+    expect(screen.getByText("Area created · 2 agents grouped")).toBeInTheDocument();
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it("asks before grouping agents out of the areas they are in, naming them", async () => {
+    const { onCanvasChange } = mountRoom({}, { areas: [{ id: "x", label: "Design", x: 0, y: 0, members: ["a"] }, { id: "y", label: "", x: 0, y: 0, members: ["c"] }] });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    fireEvent.click(hit("c"), { shiftKey: true });
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Group" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Create a new area?");
+    expect(dialog).toHaveTextContent("3 agents go to a new area and leave the areas they are in now:");
+    expect(within(dialog).getByText("Design")).toBeInTheDocument();
+    expect(within(dialog).getByText("Unnamed area")).toBeInTheDocument();
+    expect(onCanvasChange).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create area" }));
+    const saved = onCanvasChange.mock.calls[0][0] as RoomCanvas;
+    expect(saved.areas[saved.areas.length - 1].members).toEqual(["a", "b", "c"]);
+    expect(saved.areas.slice(0, 2).map((a) => a.members)).toEqual([[], []]);
+  });
+
+  it("stops the ones that can stop, without asking", async () => {
+    const onStopAgent = vi.fn(() => Promise.resolve(true));
+    mountRoom({ onStopAgent });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("c"), { shiftKey: true });
+    expect(within(multiBar()).getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Stop" }));
+    expect(onStopAgent).toHaveBeenCalledTimes(1);
+    expect(onStopAgent).toHaveBeenCalledWith("a");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(await screen.findByText("Agent stopped")).toBeInTheDocument();
+  });
+
+  it("offers no Stop when none of them can stop", () => {
+    mountRoom({ agents: [...room, agent("d", { state: "stopped" })] }, { positions: { ...positions, d: { x: 900, y: 288 } } });
+    fireEvent.click(hit("c"), { shiftKey: true });
+    fireEvent.click(hit("d"), { shiftKey: true });
+    expect(within(multiBar()).queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("removes them all after one question, from the bar or with Delete", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    const { viewport } = mountRoom({ onRemoveAgent });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    fireEvent.keyDown(viewport, { key: "Delete" });
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Remove 2 agents from the room?");
+    expect(dialog).toHaveTextContent("The agents stop and leave the room. What they already wrote stays in the context.");
+    const remove = within(dialog).getByRole("button", { name: "Remove" });
+    await waitFor(() => expect(remove).toBeEnabled());
+    fireEvent.click(remove);
+    expect(onRemoveAgent.mock.calls).toEqual([
+      ["a", false],
+      ["b", false],
+    ]);
+    expect(await screen.findByText("2 agents left the room")).toBeInTheDocument();
+    expect(selectedIds()).toEqual([]);
   });
 });

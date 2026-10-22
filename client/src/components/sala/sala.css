@@ -969,6 +969,61 @@
 .sala-toast-sub {
   color: var(--text-faint);
 }
+/* over the bar of a multiple selection, not on it */
+.sala-toast.above {
+  bottom: 104px;
+}
+
+/* the bar of a multiple selection, where the toast sits otherwise */
+.sala-mbar {
+  left: 50%;
+  bottom: 56px;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 3px 3px 12px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.sala-mbar-n {
+  padding-right: 8px;
+  font: 500 12px var(--font-mono);
+  color: var(--foreground);
+}
+.sala-mbar-h {
+  padding: 0 10px 0 2px;
+  font: 400 11px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-mbar button {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-mbar button:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-mbar button.danger:hover {
+  color: var(--destructive);
+}
+.sala-mbar .sala-mbar-x {
+  width: 26px;
+  justify-content: center;
+  padding: 0;
+}
 
 /* the question before removing agents (a dialog, portaled out of the canvas) */
 .sala-confirm-note {

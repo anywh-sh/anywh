@@ -267,6 +267,10 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           aboutVisible={panel === null}
           renderAnswer={(agent, close) => <AgentAnswer profile={profile} agent={agent} onClose={close} onOpenConversation={() => setPanel({ kind: "agent", id: agent.agentId })} />}
           onEscape={() => setPanel(null)}
+          onSelectMany={() => {
+            setPanel(null);
+            setLauncher({ open: false, parentId: undefined });
+          }}
         />
         {completed && (
           <div className="sala-float sala-done" data-float role="status">
