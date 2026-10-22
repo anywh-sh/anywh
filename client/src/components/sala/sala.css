@@ -1025,30 +1025,121 @@
   padding: 0;
 }
 
-/* the question before removing agents (a dialog, portaled out of the canvas) */
-.sala-confirm-note {
-  font-size: 13px;
-  color: var(--muted-foreground);
+/* the question before an action that cannot simply be taken back
+ * (SalaConfirm): the design's card over the canvas. Placed by layout (auto
+ * margins in a box that ends 24% above the bottom, so its middle sits at 38%
+ * of the canvas), never by `translate(-50%)`: a fractional offset in a
+ * transform left its text soft. */
+/* The backdrop only takes the clicks around the card (one cancels): it
+ * does not dim the room, as the design does not. */
+.sala-cfm-bd {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  cursor: default;
 }
-.sala-confirm-note.warn {
+.sala-cfm {
+  position: absolute;
+  inset: 0 16px 24%;
+  z-index: 41;
+  width: 400px;
+  max-width: calc(100% - 32px);
+  height: fit-content;
+  margin: auto;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: 0 32px 80px -20px var(--shadow-color);
+  outline: none;
+}
+.sala-cfm-b {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 16px;
+}
+.sala-cfm-t {
+  margin: 0;
+  font: 600 17px/1.3 var(--font-display);
+  letter-spacing: -0.005em;
   color: var(--foreground);
 }
-.sala-confirm-tags {
+.sala-cfm-d {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+.sala-cfm-l {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 4px;
 }
-.sala-confirm-tags span {
+.sala-cfm-l span {
   height: 22px;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding: 0 8px;
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
+  border: 1px solid var(--border-soft);
+  font: 400 11.5px var(--font-mono);
   color: var(--muted-foreground);
 }
+.sala-cfm-a {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.sala-cfm-c,
+.sala-cfm-ok {
+  position: relative;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-cfm-c {
+  padding: 0 12px;
+  color: var(--muted-foreground);
+}
+.sala-cfm-c:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-cfm-ok {
+  padding: 0 14px;
+  font-weight: 500;
+  background: var(--foreground);
+  color: var(--bg-chrome);
+}
+.sala-cfm-ok:hover {
+  background: color-mix(in srgb, var(--foreground), white 60%);
+}
+.sala-cfm-ok.danger {
+  background: color-mix(in srgb, var(--destructive) 16%, transparent);
+  color: var(--destructive);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--destructive) 45%, transparent);
+}
+.sala-cfm-ok.danger:hover {
+  background: color-mix(in srgb, var(--destructive) 26%, transparent);
+}
+.sala-cfm-ok:disabled {
+  cursor: default;
+}
+.sala-cfm-c:focus-visible,
+.sala-cfm-ok:focus-visible {
+  outline: 2px solid var(--muted-foreground);
+  outline-offset: 1px;
+}
+
 .sala-banner {
   left: 50%;
   top: 12px;

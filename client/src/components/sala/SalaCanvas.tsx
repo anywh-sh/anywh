@@ -33,11 +33,10 @@ import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop
 import { prefersReducedMotion, useArrivals, useNewAreas } from "@/components/sala/useArrivals";
 import { areasLeft, isAdditiveClick, removalPlan, toggleInSelection, type RemovalPlan } from "@/lib/sala/selection";
 import { isMacOS } from "@/lib/platform/platform";
-import { buttonVariants } from "@/components/ui/button";
-import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
 import { SalaMultiBar } from "@/components/sala/SalaMultiBar";
+import { SalaConfirm, type SalaConfirmView } from "@/components/sala/SalaConfirm";
 import { AboutIcon, CloseIcon } from "@/components/sala/SalaIcons";
 
 export interface SalaCanvasProps {
@@ -349,7 +348,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (!vp) return;
     const onWheel = (event: WheelEvent): void => {
       const zoomy = event.ctrlKey || event.metaKey;
-      if (!zoomy && (event.target as Element | null)?.closest?.("[data-float]")) return;
+      const over = event.target as Element | null;
+      if (over?.closest?.("[data-confirm]") || (!zoomy && over?.closest?.("[data-float]"))) return;
       event.preventDefault();
       const rect = vp.getBoundingClientRect();
       const mx = event.clientX - rect.left;
@@ -479,11 +479,14 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const handMode = (): boolean => latest.current.tool === "hand" || latest.current.spaceDown;
 
-  /** Whether an event happened on the canvas itself. React bubbles events
-   * from a portal (the dialog that asks before removing) through the tree it
-   * is declared in, and a press on that dialog's buttons must not pan the
-   * room, capture the pointer away from them or run the room's shortcuts. */
-  const onCanvas = (event: { target: EventTarget }): boolean => vpRef.current?.contains(event.target as Node) === true;
+  /** Whether an event happened on the canvas itself, not on the question
+   * drawn over it (`SalaConfirm`, inside the canvas): a press on its buttons
+   * must not pan the room, capture the pointer away from them or run the
+   * room's shortcuts. */
+  const onCanvas = (event: { target: EventTarget }): boolean => {
+    const target = event.target as Element;
+    return vpRef.current?.contains(target) === true && !target.closest?.("[data-confirm]");
+  };
 
   const onViewportDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0 && event.button !== 1) return;
@@ -1038,6 +1041,34 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne }), [askRemoveOne]);
 
+  const confirmView = ((): SalaConfirmView | null => {
+    if (!confirm) return null;
+    const text = dict.confirm;
+    if (confirm.kind === "group") {
+      return {
+        title: text.groupTitle,
+        body: (confirm.areas.length > 1 ? text.groupBodyMany : text.groupBodyOne).replace("{count}", String(confirm.ids.length)),
+        tags: confirm.areas.map((label, i) => ({ key: String(i), label })),
+        ok: text.group,
+        danger: false,
+        pending: false,
+      };
+    }
+    const { plan, work } = confirm;
+    const one = plan.roots.length === 1;
+    const along = plan.extra === 0 ? "" : plan.extra === 1 ? (one ? text.alongOne : text.alongOneOfMany) : (one ? text.alongMany : text.alongManyOfMany).replace("{count}", String(plan.extra));
+    const discard = work !== null && work.length > 0;
+    const body = (one ? text.removeOneBody : text.removeManyBody).replace("{along}", along);
+    return {
+      title: one ? text.removeOneTitle.replace("{title}", byId.get(plan.roots[0])?.title ?? dict.card.untitled) : text.removeManyTitle.replace("{count}", String(plan.roots.length)),
+      body: discard ? `${body} ${text.discardBody}` : body,
+      tags: discard ? work.map((w) => ({ key: w.id, label: w.branch })) : [],
+      ok: discard ? text.discard : text.remove,
+      danger: true,
+      pending: work === null,
+    };
+  })();
+
   const attach = useCallback(
     (files: File[]) => {
       if (files.length === 0) return;
@@ -1475,88 +1506,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         onFit={() => fit(true, true)}
       />
       {props.launcher}
-      {(() => {
-        if (!confirm) return null;
-        const text = dict.confirm;
-        const tags = (list: readonly { key: string; label: string }[]) => (
-          <div className="sala-confirm-tags">
-            {list.map((t) => (
-              <span key={t.key}>{t.label}</span>
-            ))}
-          </div>
-        );
-        let view: { title: string; body: string; more: ReactNode; ok: string; danger: boolean; ready: boolean };
-        if (confirm.kind === "group") {
-          view = {
-            title: text.groupTitle,
-            body: (confirm.areas.length > 1 ? text.groupBodyMany : text.groupBodyOne).replace("{count}", String(confirm.ids.length)),
-            more: tags(confirm.areas.map((label, i) => ({ key: String(i), label }))),
-            ok: text.group,
-            danger: false,
-            ready: true,
-          };
-        } else {
-          const { plan, work } = confirm;
-          const one = plan.roots.length === 1;
-          const along =
-            plan.extra === 0 ? "" : plan.extra === 1 ? (one ? text.alongOne : text.alongOneOfMany) : (one ? text.alongMany : text.alongManyOfMany).replace("{count}", String(plan.extra));
-          const discard = work !== null && work.length > 0;
-          view = {
-            title: one ? text.removeOneTitle.replace("{title}", byId.get(plan.roots[0])?.title ?? dict.card.untitled) : text.removeManyTitle.replace("{count}", String(plan.roots.length)),
-            body: (one ? text.removeOneBody : text.removeManyBody).replace("{along}", along),
-            more:
-              work === null ? (
-                <p className="sala-confirm-note">{text.checking}</p>
-              ) : discard ? (
-                <>
-                  <p className="sala-confirm-note warn">{text.discardBody}</p>
-                  {tags(work.map((w) => ({ key: w.id, label: w.branch })))}
-                </>
-              ) : null,
-            ok: discard ? text.discard : text.remove,
-            danger: true,
-            ready: work !== null,
-          };
-        }
-        return (
-          <AlertDialog open onOpenChange={(open) => !open && setConfirm(null)}>
-            <AlertDialogContent
-              className="sala-confirm sm:max-w-[400px]"
-              // Enter answers yes, as Esc answers no; focus goes back to the room after.
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-                event.preventDefault();
-                confirmOk();
-              }}
-              onCloseAutoFocus={(event) => {
-                event.preventDefault();
-                vpRef.current?.focus({ preventScroll: true });
-              }}
-            >
-              <AlertDialogHeader>
-                <AlertDialogTitle>{view.title}</AlertDialogTitle>
-              </AlertDialogHeader>
-              <AlertDialogBody>
-                <AlertDialogDescription>{view.body}</AlertDialogDescription>
-                {view.more}
-              </AlertDialogBody>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{text.cancel}</AlertDialogCancel>
-                <AlertDialogAction
-                  className={view.danger ? undefined : buttonVariants({ variant: "default" })}
-                  disabled={!view.ready}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    confirmOk();
-                  }}
-                >
-                  {view.ok}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        );
-      })()}
+      <SalaConfirm view={confirmView} container={vpRef.current} cancelLabel={dict.confirm.cancel} onCancel={() => setConfirm(null)} onConfirm={confirmOk} onClosed={() => vpRef.current?.focus({ preventScroll: true })} />
       <input
         ref={fileRef}
         type="file"

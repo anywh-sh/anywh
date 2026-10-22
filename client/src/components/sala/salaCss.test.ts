@@ -53,4 +53,12 @@ describe("sala.css", () => {
     const paused = rules.filter((r) => /\.moving\b/.test(r.selector) && /animation/.test(r.body)).map((r) => r.selector);
     expect(paused).toEqual([]);
   });
+
+  // A card placed with `translate(-50%, -50%)` lands on half pixels, and its
+  // text went soft; the question over the canvas is placed by layout.
+  it("places the question over the canvas without a transform", () => {
+    const placed = rules.filter((r) => r.selector.split(",").some((s) => s.trim() === ".sala-cfm"));
+    expect(placed.length).toBeGreaterThan(0);
+    for (const rule of placed) expect(rule.body).not.toMatch(/(^|[\s;])(transform|translate|scale)\s*:/);
+  });
 });

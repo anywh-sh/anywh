@@ -476,6 +476,17 @@ describe("SalaCanvas — removing agents asks first", () => {
     expect(screen.getByText("Agent removed from the room")).toBeInTheDocument();
   });
 
+  it("asks over the canvas itself, and a click beside the question cancels it", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    const { viewport } = mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(viewport).toContainElement(dialog);
+    fireEvent.click(document.querySelector(".sala-cfm-bd")!);
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(onRemoveAgent).not.toHaveBeenCalled();
+  });
+
   it("removes nothing when the question is cancelled, by its button or by Esc", async () => {
     const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
     mount(canvasOf(), { onRemoveAgent });
