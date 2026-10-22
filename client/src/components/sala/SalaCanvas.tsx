@@ -11,11 +11,13 @@ import {
   fitCamera,
   gridLayer,
   gridNeedsRedraw,
+  layoutZoom,
   minimapMap,
   minimapRect,
   minimapToWorld,
   minimapView,
   nextZoomLevel,
+  planeStyle,
   revealCamera,
   screenToWorld,
   snap,
@@ -112,6 +114,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const { agents, canvas } = props;
   const vpRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
+  const planeRef = useRef<HTMLDivElement>(null);
   const bgRef = useRef<HTMLDivElement>(null);
   const mmViewRef = useRef<HTMLSpanElement>(null);
   const zoomLabelRef = useRef<HTMLSpanElement>(null);
@@ -136,6 +139,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const bgZ = useRef(1);
   const bgKey = useRef("");
   const zooming = useRef(false);
+  /** The zoom the plane is laid out at (`planeStyle`): held still while a zoom is in flight. */
+  const planeZoom = useRef<number | null>(null);
   const initialized = useRef(false);
   /** Set while the camera is put back where it was saved, which saves nothing. */
   const quiet = useRef(false);
@@ -194,8 +199,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const applyCamera = useCallback((cam: Camera) => {
     const world = worldRef.current;
     const bg = bgRef.current;
-    if (world) {
-      world.style.transform = `${translate(cam.x, cam.y)} scale(${cam.z.toFixed(4)})`;
+    const plane = planeRef.current;
+    if (world && plane) {
+      if (!zooming.current || planeZoom.current === null) planeZoom.current = layoutZoom(cam.z);
+      const s = planeStyle(cam, planeZoom.current, !zooming.current, window.devicePixelRatio || 1);
+      world.style.transform = s.transform;
+      if (plane.style.zoom !== s.zoom) plane.style.zoom = s.zoom;
       world.style.setProperty("--inv", (1 / cam.z).toFixed(4));
     }
     if (bg) {
@@ -951,8 +960,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     requestAnimationFrame(() => {
       const world = worldRef.current;
       if (!world) return;
-      const c = cam().cam;
-      world.style.transform = `${translate(c.x, c.y)} scale(${(c.z + 0.0001).toFixed(4)})`;
+      world.style.transform = `${world.style.transform} scale(1.0001)`;
       requestAnimationFrame(() => applyCamera(cam().cam));
     });
   }, [applyCamera]);
@@ -1018,129 +1026,131 @@ export function SalaCanvas(props: SalaCanvasProps) {
       <div className="sala-vignette" aria-hidden="true" />
 
       <div ref={worldRef} className="sala-world">
-        <svg className="sala-edges" aria-hidden="true">
-          {agents.map((a) => {
-            const p = a.parentId === undefined ? undefined : rects.get(a.parentId);
-            const c = rects.get(a.agentId);
-            if (!p || !c) return null;
-            const d = edgePath(p, c);
-            const tone = cardStatus(a, a.role === "principal" ? liveWorkers : 0).tone;
-            return (
-              <g key={a.agentId}>
-                <path data-edge={a.agentId} className={cn("sala-edge", (tone === "done" || tone === "stop") && "done", selected === a.agentId && "sel")} d={d} />
-                {(tone === "run" || tone === "wait") && <path data-edge={a.agentId} className={cn("sala-edge-flow", tone === "wait" && "wait")} d={d} />}
-              </g>
-            );
-          })}
-        </svg>
+        <div ref={planeRef} className="sala-plane">
+          <svg className="sala-edges" aria-hidden="true">
+            {agents.map((a) => {
+              const p = a.parentId === undefined ? undefined : rects.get(a.parentId);
+              const c = rects.get(a.agentId);
+              if (!p || !c) return null;
+              const d = edgePath(p, c);
+              const tone = cardStatus(a, a.role === "principal" ? liveWorkers : 0).tone;
+              return (
+                <g key={a.agentId}>
+                  <path data-edge={a.agentId} className={cn("sala-edge", (tone === "done" || tone === "stop") && "done", selected === a.agentId && "sel")} d={d} />
+                  {(tone === "run" || tone === "wait") && <path data-edge={a.agentId} className={cn("sala-edge-flow", tone === "wait" && "wait")} d={d} />}
+                </g>
+              );
+            })}
+          </svg>
 
-        {frames.map(({ area, rect, count, running, waiting }) => (
-          <div
-            key={area.id}
-            data-area-id={area.id}
-            className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel")}
-            style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
-          >
-            <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
-              <input
-                key={`${area.id}:${area.label}`}
-                className="sala-frame-input"
-                aria-label={dict.area.nameLabel}
-                maxLength={AREA_LABEL_MAX}
-                placeholder={dict.area.namePlaceholder}
-                defaultValue={area.label}
-                size={Math.max(8, area.label.length || dict.area.namePlaceholder.length)}
-                autoComplete="off"
-                onBlur={(event) => renameArea(area.id, event.currentTarget.value.trim())}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
-                }}
-              />
-              <span className="sala-frame-meta">
-                <span className="sala-frame-count">{count === 1 ? dict.area.agentsOne : dict.area.agents.replace("{count}", String(count))}</span>
-                {running > 0 && <span className="sala-frame-count">· {dict.area.running.replace("{count}", String(running))}</span>}
-                {waiting > 0 && (
-                  <span className="sala-frame-wait">
-                    <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
-                    {(waiting === 1 ? dict.area.waiting : dict.area.waitingMany).replace("{count}", String(waiting))}
-                  </span>
-                )}
-              </span>
-              <button type="button" className="sala-frame-x" data-nodrag onClick={() => removeArea(area.id)} aria-label={dict.area.remove} title={dict.area.remove}>
-                <CloseIcon size={11} />
-              </button>
+          {frames.map(({ area, rect, count, running, waiting }) => (
+            <div
+              key={area.id}
+              data-area-id={area.id}
+              className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel")}
+              style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
+            >
+              <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
+                <input
+                  key={`${area.id}:${area.label}`}
+                  className="sala-frame-input"
+                  aria-label={dict.area.nameLabel}
+                  maxLength={AREA_LABEL_MAX}
+                  placeholder={dict.area.namePlaceholder}
+                  defaultValue={area.label}
+                  size={Math.max(8, area.label.length || dict.area.namePlaceholder.length)}
+                  autoComplete="off"
+                  onBlur={(event) => renameArea(area.id, event.currentTarget.value.trim())}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                />
+                <span className="sala-frame-meta">
+                  <span className="sala-frame-count">{count === 1 ? dict.area.agentsOne : dict.area.agents.replace("{count}", String(count))}</span>
+                  {running > 0 && <span className="sala-frame-count">· {dict.area.running.replace("{count}", String(running))}</span>}
+                  {waiting > 0 && (
+                    <span className="sala-frame-wait">
+                      <span aria-hidden="true" className="size-1.5 rounded-full bg-primary" />
+                      {(waiting === 1 ? dict.area.waiting : dict.area.waitingMany).replace("{count}", String(waiting))}
+                    </span>
+                  )}
+                </span>
+                <button type="button" className="sala-frame-x" data-nodrag onClick={() => removeArea(area.id)} aria-label={dict.area.remove} title={dict.area.remove}>
+                  <CloseIcon size={11} />
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
 
-        {canvas.texts.map((t) => {
-          const big = isBigText(canvas.texts, t.id);
-          return (
-            <div key={t.id} data-text-id={t.id} className="sala-text" style={{ transform: translate(t.x, t.y - textLift(big)) }} onPointerDown={(event) => onItemDown("text", t.id, event)}>
-              <input
-                key={`${t.id}:${t.text}`}
-                className={cn("sala-text-input", big && "big")}
-                aria-label={dict.text.label}
-                maxLength={TEXT_MAX}
-                placeholder={dict.text.placeholder}
-                defaultValue={t.text}
-                size={Math.max(6, t.text.length)}
-                autoComplete="off"
-                onBlur={(event) => editText(t.id, event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
-                }}
-              />
-            </div>
-          );
-        })}
-
-        {agents.map((agent) => {
-          const rect = rects.get(agent.agentId);
-          if (!rect) return null;
-          return (
-            <SalaCard
-              key={agent.agentId}
-              agent={agent}
-              x={rect.x}
-              y={rect.y}
-              w={rect.w}
-              h={rect.h}
-              selected={selected === agent.agentId}
-              hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
-              hasKids={(kids.get(agent.agentId) ?? 0) > 0}
-              modelLabel={props.modelLabelOf(agent)}
-              answering={answering === agent.agentId}
-              workers={workers}
-              liveWorkers={liveWorkers}
-              observedSince={props.since.get(agent.agentId)?.since ?? 0}
-              canGroup={agent.role === "worker"}
-              canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}
-              canRemove={agent.role === "worker"}
-              onPointerDown={onNodeDown}
-              onSelect={select}
-              onOpen={props.onOpenAgent}
-              onDelegate={props.onNewAgent}
-              onReply={reply}
-              onGroup={groupAgent}
-              onStop={stopAgent}
-              onRemove={removeAgent}
-            />
-          );
-        })}
-        {answering !== null &&
-          (() => {
-            const agent = byId.get(answering);
-            const rect = rects.get(answering);
-            if (!agent || !rect || agent.needsYou.length === 0) return null;
+          {canvas.texts.map((t) => {
+            const big = isBigText(canvas.texts, t.id);
             return (
-              <div className="sala-answer-at" data-answer-for={answering} style={{ transform: translate(rect.x, rect.y + rect.h + 12) }}>
-                {props.renderAnswer(agent, () => setAnswering(null))}
+              <div key={t.id} data-text-id={t.id} className="sala-text" style={{ transform: translate(t.x, t.y - textLift(big)) }} onPointerDown={(event) => onItemDown("text", t.id, event)}>
+                <input
+                  key={`${t.id}:${t.text}`}
+                  className={cn("sala-text-input", big && "big")}
+                  aria-label={dict.text.label}
+                  maxLength={TEXT_MAX}
+                  placeholder={dict.text.placeholder}
+                  defaultValue={t.text}
+                  size={Math.max(6, t.text.length)}
+                  autoComplete="off"
+                  onBlur={(event) => editText(t.id, event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                />
               </div>
             );
-          })()}
-        <div ref={drawEl} className="sala-frame empty" aria-hidden="true" style={{ display: "none" }} />
+          })}
+
+          {agents.map((agent) => {
+            const rect = rects.get(agent.agentId);
+            if (!rect) return null;
+            return (
+              <SalaCard
+                key={agent.agentId}
+                agent={agent}
+                x={rect.x}
+                y={rect.y}
+                w={rect.w}
+                h={rect.h}
+                selected={selected === agent.agentId}
+                hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
+                hasKids={(kids.get(agent.agentId) ?? 0) > 0}
+                modelLabel={props.modelLabelOf(agent)}
+                answering={answering === agent.agentId}
+                workers={workers}
+                liveWorkers={liveWorkers}
+                observedSince={props.since.get(agent.agentId)?.since ?? 0}
+                canGroup={agent.role === "worker"}
+                canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}
+                canRemove={agent.role === "worker"}
+                onPointerDown={onNodeDown}
+                onSelect={select}
+                onOpen={props.onOpenAgent}
+                onDelegate={props.onNewAgent}
+                onReply={reply}
+                onGroup={groupAgent}
+                onStop={stopAgent}
+                onRemove={removeAgent}
+              />
+            );
+          })}
+          {answering !== null &&
+            (() => {
+              const agent = byId.get(answering);
+              const rect = rects.get(answering);
+              if (!agent || !rect || agent.needsYou.length === 0) return null;
+              return (
+                <div className="sala-answer-at" data-answer-for={answering} style={{ transform: translate(rect.x, rect.y + rect.h + 12) }}>
+                  {props.renderAnswer(agent, () => setAnswering(null))}
+                </div>
+              );
+            })()}
+          <div ref={drawEl} className="sala-frame empty" aria-hidden="true" style={{ display: "none" }} />
+        </div>
       </div>
 
       {props.aboutVisible && (
