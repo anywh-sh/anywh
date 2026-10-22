@@ -1,14 +1,123 @@
 name: Release
 
+# Publishing is a manual step, separate from versioning: every merge to main
+# already has a `vX.Y.Z` tag (version.yml), and this builds and publishes the
+# one the owner picks (.anywh/skills/release/SKILL.md).
+#
+# - channel `stable`: the release becomes "Latest" on GitHub, which is what
+#   the in-app updater (releases/latest/download/latest.json), install.sh,
+#   the landing page and the Homebrew tap all follow. Crossing a minor line
+#   since the current stable release requires its upgrade notes
+#   (docs/upgrade-notes/X.Y.md on main, reviewed — no `<!-- draft -->`).
+# - channel `prerelease`: built and published, but never "Latest", so none
+#   of the above sees it. Running `stable` later on the same tag promotes it
+#   without rebuilding.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v0.2.0) — an existing tag from the Version workflow"
+        required: true
+      channel:
+        description: "stable = Latest (updater, install.sh, Homebrew); prerelease = published but followed by none of them"
+        type: choice
+        options: [stable, prerelease]
+        default: stable
 
 permissions:
   contents: write
 
+# Every step below addresses the release by this, never by GITHUB_REF_NAME:
+# a dispatched run's ref is the branch it was started from, not the tag.
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
+  # Decides what this run does before anything is built or published: build
+  # a new release, promote an existing prerelease, or refuse.
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      mode: ${{ steps.check.outputs.mode }}
+      notes: ${{ steps.notes.outputs.notes }}
+    steps:
+      # main, not the tag: the upgrade notes are written after the tag they
+      # describe exists, so only main has them.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+
+      - name: Check the tag and decide what to do
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANNEL: ${{ inputs.channel }}
+          REPO: ${{ github.repository }}
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          printf '%s' "$RELEASE_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+            fail "'$RELEASE_TAG' is not a vX.Y.Z tag"
+          git rev-parse -q --verify "refs/tags/$RELEASE_TAG" > /dev/null ||
+            fail "there is no tag $RELEASE_TAG — tags come from the Version workflow, one per merge to main"
+          git cat-file -e "$RELEASE_TAG:scripts/version.mjs" 2> /dev/null ||
+            fail "$RELEASE_TAG predates scripts/version.mjs, so its build can't be stamped with its version"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+          state="$(gh release view "$RELEASE_TAG" --repo "$REPO" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"' 2> /dev/null || echo none)"
+          case "$state" in
+            none) mode=build ;;
+            # A draft is what a failed run leaves behind; nobody ever saw it.
+            # Deleting it keeps the tag (tags are immutable here), so the
+            # same tag can simply be built again.
+            "true "*)
+              gh release delete "$RELEASE_TAG" --repo "$REPO" --yes
+              mode=build ;;
+            "false true")
+              [ "$CHANNEL" = stable ] || fail "$RELEASE_TAG is already published as a prerelease"
+              mode=promote ;;
+            *) fail "$RELEASE_TAG is already published as a stable release" ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+          # The current stable release, which the changelog and the upgrade
+          # notes are counted from. A stable release only ever moves forward:
+          # making an older tag "Latest" would downgrade every updater.
+          previous="$(gh release view --repo "$REPO" --json tagName --jq .tagName 2> /dev/null || true)"
+          if [ "$CHANNEL" = stable ] && [ -n "$previous" ]; then
+            newest="$(printf '%s\n%s\n' "$previous" "$RELEASE_TAG" | sort -V | tail -n 1)"
+            [ "$newest" = "$RELEASE_TAG" ] && [ "$previous" != "$RELEASE_TAG" ] ||
+              fail "$RELEASE_TAG is not newer than the current stable release $previous"
+          fi
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes
+        id: notes
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          PREVIOUS: ${{ steps.check.outputs.previous }}
+        run: |
+          set -- --tag "$RELEASE_TAG"
+          [ -n "$PREVIOUS" ] && set -- "$@" --previous "$PREVIOUS"
+          [ "$CHANNEL" = stable ] && set -- "$@" --require-upgrade-notes
+          node scripts/version.mjs notes "$@" > notes.md
+          {
+            echo "notes<<RELEASE_NOTES_EOF"
+            cat notes.md
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+
   # Gates the release on both workspaces having no known high/critical
   # vulnerability at tag time — deliberately not in pr.yml: a dependency can
   # grow a new CVE with zero code change here, which would fail PRs for
@@ -18,6 +127,8 @@ jobs:
   # before create-release so a failure here means no draft release — and no
   # spent build-matrix minutes — for a tag that shouldn't ship yet.
   audit:
+    needs: resolve
+    if: needs.resolve.outputs.mode == 'build'
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +137,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
@@ -52,7 +165,7 @@ jobs:
   # Staying draft is temporary, not the end state: the checksums job below
   # publishes it once every platform's assets are in.
   create-release:
-    needs: audit
+    needs: [resolve, audit]
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create-release.outputs.result }}
@@ -75,20 +188,26 @@ jobs:
 
       - uses: actions/github-script@v7
         id: create-release
+        env:
+          NOTES: ${{ needs.resolve.outputs.notes }}
+          PRERELEASE: ${{ inputs.channel == 'prerelease' }}
         with:
           script: |
-            const tag = context.ref.replace("refs/tags/", "");
+            const tag = process.env.RELEASE_TAG;
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tag,
               name: `anywh ${tag}`,
+              body: process.env.NOTES,
               draft: true,
-              prerelease: false,
+              prerelease: process.env.PRERELEASE === "true",
             });
             return data.id;
 
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
 
       # Both halves of the installer ship as release assets, not only as
       # files on `main`, because https://anywh.sh/install redirects to
@@ -102,7 +221,7 @@ jobs:
       - name: Upload the install scripts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" install.sh install-relay.sh --repo "${{ github.repository }}" --clobber
+        run: gh release upload "${RELEASE_TAG}" install.sh install-relay.sh --repo "${{ github.repository }}" --clobber
 
       # The one file a Linux install needs that lives in neither the AppImage
       # nor the relay tarball: the icon a desktop entry points `Icon=` at.
@@ -116,7 +235,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cp client/src-tauri/icons/128x128@2x.png anywh-icon.png
-          gh release upload "${GITHUB_REF_NAME}" anywh-icon.png --repo "${{ github.repository }}" --clobber
+          gh release upload "${RELEASE_TAG}" anywh-icon.png --repo "${{ github.repository }}" --clobber
 
       # The identifier the desktop entry has to be named after (a Linux
       # shell matches a window to `<app-id>.desktop`). It is in no file
@@ -129,10 +248,10 @@ jobs:
           ANYWH_APP_IDENTIFIER: ${{ vars.ANYWH_APP_IDENTIFIER }}
         run: |
           printf '%s\n' "$ANYWH_APP_IDENTIFIER" > anywh-app-id.txt
-          gh release upload "${GITHUB_REF_NAME}" anywh-app-id.txt --repo "${{ github.repository }}" --clobber
+          gh release upload "${RELEASE_TAG}" anywh-app-id.txt --repo "${{ github.repository }}" --clobber
 
   build:
-    needs: create-release
+    needs: [resolve, create-release]
     strategy:
       fail-fast: false
       matrix:
@@ -184,6 +303,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v7
         with:
@@ -243,6 +364,16 @@ jobs:
       - run: npm ci
         working-directory: client
 
+      # Git keeps every manifest at the 0.0.0 placeholder; this is where the
+      # tag's version goes in, before anything reads it (Tauri names and
+      # stamps the bundle from tauri.conf.json, the frontend's APP_VERSION
+      # comes from package.json). After `npm ci`, which would otherwise see a
+      # package.json that disagrees with its lockfile.
+      - name: Stamp the version
+        run: |
+          node scripts/version.mjs stamp ${{ needs.resolve.outputs.version }}
+          node scripts/version.mjs check ${{ needs.resolve.outputs.version }}
+
       # Must run before tauri-action: tauri-build's build.rs fails the whole
       # cargo build if bundle.externalBin's binary isn't on disk yet
       # (same reason pr.yml's client-e2e job builds it before `tauri build`).
@@ -283,7 +414,7 @@ jobs:
   # in CI so a bare `curl | sh` on a clean Linux box (Fase 3) never has to
   # compile anything itself.
   build-relay:
-    needs: create-release
+    needs: [resolve, create-release]
     strategy:
       fail-fast: false
       matrix:
@@ -301,6 +432,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
 
       - uses: actions/setup-node@v7
         with:
@@ -316,6 +449,13 @@ jobs:
 
       - run: npm ci
         working-directory: relay
+
+      # Same as the client build: the relay reports package.json's version
+      # (GET /host-info, the agent host handshake), and both tarballs ship it.
+      - name: Stamp the version
+        run: |
+          node scripts/version.mjs stamp ${{ needs.resolve.outputs.version }}
+          node scripts/version.mjs check ${{ needs.resolve.outputs.version }}
 
       - run: npm run build
         working-directory: relay
@@ -380,12 +520,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           versioned="anywh-relay-${version}-${{ matrix.target }}.tar.gz"
           latest="anywh-relay-${{ matrix.target }}.tar.gz"
           tar czf "$versioned" -C stage $(ls stage)
           cp "$versioned" "$latest"
-          gh release upload "${GITHUB_REF_NAME}" "$versioned" "$latest" \
+          gh release upload "${RELEASE_TAG}" "$versioned" "$latest" \
             --repo "${{ github.repository }}" --clobber
 
   # Runs after every platform has uploaded its assets to the same draft
@@ -405,6 +545,8 @@ jobs:
       # else in this job is bash + the gh CLI against already-uploaded
       # release assets, no repo checkout required.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
@@ -412,7 +554,21 @@ jobs:
       - name: Download every asset this release published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --dir dist --skip-existing
+        run: gh release download "${RELEASE_TAG}" --repo "${{ github.repository }}" --dir dist --skip-existing
+
+      # The tag is the version, so the build has to carry it — checked on
+      # what was actually uploaded, not on the checkout. The app half is
+      # covered by the steps below: Tauri names every bundle after its
+      # stamped version, and both the manifest and the aliases fail on a
+      # missing `anywh_<tag version>_*` asset.
+      - name: Check the build carries the tag's version
+        run: |
+          version="${RELEASE_TAG#v}"
+          found="$(tar -xzOf "dist/anywh-relay-${version}-linux-x64.tar.gz" relay/package.json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+          if [ "$found" != "$version" ]; then
+            echo "::error::the relay tarball reports version $found, but the tag is $RELEASE_TAG"
+            exit 1
+          fi
 
       # Runs once here instead of once per matrix leg (see the comment next
       # to `uploadUpdaterJson: false` on the build job) — every platform's
@@ -425,7 +581,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           node scripts/build-latest-json.mjs dist
-          gh release upload "${GITHUB_REF_NAME}" dist/latest.json --repo "${{ github.repository }}" --clobber
+          gh release upload "${RELEASE_TAG}" dist/latest.json --repo "${{ github.repository }}" --clobber
 
       # A second name for the same bytes, exactly as build-relay already does
       # for the relay tarball and for the same reason: only a filename that
@@ -449,7 +605,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           alias_asset() {
             if [ ! -f "dist/$1" ]; then
               echo "::error::release asset '$1' is missing, so the alias '$2' can't be published"
@@ -466,7 +622,7 @@ jobs:
           alias_asset "anywh_${version}_aarch64.dmg"      "anywh-darwin-arm64.dmg"
           alias_asset "anywh_${version}_x64.dmg"          "anywh-darwin-x64.dmg"
           alias_asset "anywh_${version}_x64-setup.exe"    "anywh-windows-x64-setup.exe"
-          gh release upload "${GITHUB_REF_NAME}" \
+          gh release upload "${RELEASE_TAG}" \
             dist/anywh-linux-x64.AppImage \
             dist/anywh-linux-arm64.AppImage \
             dist/anywh-darwin-arm64.app.tar.gz \
@@ -483,9 +639,41 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           (cd dist && sha256sum -- * > SHA256SUMS)
-          gh release upload "${GITHUB_REF_NAME}" dist/SHA256SUMS --repo "${{ github.repository }}" --clobber
+          gh release upload "${RELEASE_TAG}" dist/SHA256SUMS --repo "${{ github.repository }}" --clobber
 
+      # `--latest` is what the updater, install.sh and the landing page
+      # follow; a prerelease is published without it, so it reaches none
+      # of them.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --draft=false
+        run: |
+          gh release edit "${RELEASE_TAG}" --repo "${{ github.repository }}" --draft=false \
+            --prerelease=${{ inputs.channel == 'prerelease' }} --latest=${{ inputs.channel == 'stable' }}
+
+  # An existing prerelease made stable: nothing to build, its assets
+  # (latest.json included) are already in place, and becoming "Latest" is
+  # what points the updater and install.sh at them.
+  promote:
+    needs: resolve
+    if: needs.resolve.outputs.mode == 'promote'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Make the prerelease the stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ needs.resolve.outputs.notes }}
+        run: |
+          printf '%s\n' "$NOTES" > notes.md
+          gh release edit "${RELEASE_TAG}" --repo "${{ github.repository }}" --prerelease=false --latest --notes-file notes.md
+
+  # Only a stable release reaches the tap, however it became stable.
+  homebrew:
+    needs: [resolve, checksums, promote]
+    if: always() && inputs.channel == 'stable' && (needs.checksums.result == 'success' || needs.promote.result == 'success')
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

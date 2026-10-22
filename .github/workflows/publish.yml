@@ -1,31 +1,31 @@
 name: Publish
 
-# Separate from release.yml on purpose: this only fires once a release is actually published —
-# release.yml's checksums job is the only thing that flips draft->published,
-# after every build leg has uploaded its assets — so this workflow only ever
-# reads assets that already exist, never races the build matrix. Keeping it
-# separate also keeps the tap-repo PAT out of reach of the (much larger,
-# third-party-action-heavy) build workflow.
+# Bumps the Homebrew tap to a stable release. A separate workflow from
+# release.yml on purpose: it only reads assets that already exist, and its
+# job is the only one that gets the tap-repo PAT — not the (much larger,
+# third-party-action-heavy) build jobs.
 #
-# Triggered by workflow_run, not `on: release: published` — the latter
-# never fires here. release.yml's checksums job flips draft->published
-# using the built-in GITHUB_TOKEN, and GitHub deliberately suppresses
-# events triggered by GITHUB_TOKEN from starting other workflow runs (loop
-# prevention). Confirmed live on v0.1.1 (2026-09-11): the release
-# published fine, this workflow just never started. workflow_run doesn't
-# have that restriction — it fires on the *workflow's* completion, which
-# happens after the exact same draft-flip either way.
+# Called by release.yml once a stable release is out (built, or promoted
+# from a prerelease) — a workflow_call rather than workflow_run, since a
+# dispatched Release run carries the branch it was started from as its
+# ref, not the tag. A prerelease never reaches the tap: it is refused below
+# even when someone dispatches this by hand.
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
-  # Manual replay for a tag whose workflow_run already fired and failed
-  # (e.g. a transient Homebrew push failure) — re-running the Release
-  # workflow would rebuild every platform for nothing just to retry this.
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+  # Manual replay for a stable release whose tap bump failed (e.g. a
+  # transient push failure) — re-running Release would have nothing left to
+  # do for an already published tag.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (e.g. v0.1.1)"
+        description: "Stable release tag to publish to the tap (e.g. v0.2.0)"
         required: true
 
 permissions:
@@ -37,15 +37,20 @@ jobs:
   # first, which is a real refactor to code the daily-used relay depends on
   # today, not just new code).
   homebrew:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      # workflow_run's head_branch is the tag name for a tag-triggered
-      # run (GitHub's own semantics, not anywh-specific) — there's no
-      # release object on this event to read tag_name from directly.
       - name: Resolve the release tag
         id: tag
-        run: echo "tag=${{ github.event.inputs.tag || github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          prerelease="$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')"
+          if [ "$prerelease" != "false" ]; then
+            echo "::error::$TAG is not a published stable release — only those go to the tap"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       # Reads the release's own SHA256SUMS instead of recomputing anything —
       # same reasoning as release.yml's checksums job: the formula's sha256
