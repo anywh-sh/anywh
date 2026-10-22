@@ -500,6 +500,61 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => !(await $('aside[data-panel="about"]').isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
   });
 
+  it("resizes the side panel from its left edge, keeps the width, and goes back to it on a double click", async () => {
+    await press('button[aria-label="About this room"]');
+    await $('aside[data-panel="about"]').waitForExist({ timeout: 15000 });
+    await panelSettled();
+    // A WebDriver pointer action delivers no pointerdown here, so the drag is
+    // dispatched as the events a real one fires.
+    const drag = (dx) =>
+      browser.execute((by) => {
+        const grip = document.querySelector('aside.sala-side [role="separator"]');
+        const box = grip.getBoundingClientRect();
+        const x = box.left + 2;
+        const y = box.top + box.height / 2;
+        grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1 }));
+        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x + by, clientY: y, pointerId: 1 }));
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: x + by, clientY: y, pointerId: 1 }));
+      }, dx);
+    const measure = () =>
+      browser.execute(() => ({
+        panel: Math.round(document.querySelector("aside.sala-side").getBoundingClientRect().width),
+        canvas: Math.round(document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect().width),
+        stored: localStorage.getItem("anywh:sala-side-width"),
+        max: Math.min(640, Math.max(385, Math.floor(window.innerWidth / 2))),
+      }));
+
+    const before = await measure();
+    expect(before.panel).toBe(385);
+    // Narrower than the default is not allowed.
+    await drag(120);
+    expect((await measure()).panel).toBe(385);
+
+    await drag(-80);
+    await browser.waitUntil(async () => (await measure()).panel === Math.min(465, before.max), { timeout: 5000, timeoutMsg: "the panel did not follow the drag" });
+    const wider = await measure();
+    expect(wider.stored).toBe(String(wider.panel));
+    // The canvas gives the panel the width it took.
+    expect(before.canvas - wider.canvas).toBe(wider.panel - before.panel);
+
+    await drag(-2000);
+    await browser.waitUntil(async () => (await measure()).panel === before.max, { timeout: 5000, timeoutMsg: "the panel did not stop at its maximum" });
+
+    // Closing and opening again keeps the width.
+    await browser.keys("Escape");
+    await browser.waitUntil(async () => !(await $("aside.sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    await press('button[aria-label="About this room"]');
+    await $('aside[data-panel="about"]').waitForExist({ timeout: 15000 });
+    expect((await measure()).panel).toBe(before.max);
+
+    await browser.execute(() => document.querySelector('aside.sala-side [role="separator"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    await browser.waitUntil(async () => (await measure()).panel === 385, { timeout: 5000, timeoutMsg: "a double click did not restore the default width" });
+    expect((await measure()).stored).toBe("385");
+
+    await browser.keys("Escape");
+    await browser.waitUntil(async () => !(await $("aside.sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+  });
+
   it("answers in the card: Reply opens the question under it, with a way into the whole conversation", async () => {
     await press('[data-agent-id][data-state="awaiting_user"] button.sala-reply');
     const popover = await $(".sala-answer");
