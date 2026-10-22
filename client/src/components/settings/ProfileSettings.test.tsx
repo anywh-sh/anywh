@@ -40,6 +40,13 @@ vi.mock("@/lib/install/localRelay", async (importOriginal) => {
     onInstallDone: onInstallDoneMock,
   };
 });
+// Drift only exists against a released app: git keeps APP_VERSION at the
+// unreleased placeholder, and only the release build stamps a real one. This
+// is the app as a release build sees itself.
+vi.mock("@/lib/install/appVersion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/install/appVersion")>();
+  return { ...actual, APP_VERSION: "0.2.0" };
+});
 vi.mock("@/lib/platform/platform", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/platform/platform")>();
   return { ...actual, currentPlatform: currentPlatformMock };

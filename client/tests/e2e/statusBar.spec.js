@@ -8,7 +8,7 @@ describe("anywh status bar", () => {
     // Matched by the title rather than by the number itself: hardcoding the
     // version here would make every release bump a failing e2e run, and the
     // number's agreement with package.json/tauri.conf.json is already
-    // pinned by src/lib/appVersion.test.ts.
+    // pinned by src/lib/install/appVersion.test.ts.
     const version = await $('//span[starts-with(@title, "anywh ")]');
     await version.waitForExist({ timeout: 15000 });
 
