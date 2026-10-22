@@ -51,6 +51,7 @@ export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, foote
         aria-valuemax={size.max}
         tabIndex={0}
         className="sala-side-grip"
+        data-dragging={size.dragging ? "" : undefined}
         {...size.gripProps}
       />
       <div className="sala-side-in">

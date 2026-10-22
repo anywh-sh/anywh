@@ -80,6 +80,33 @@ describe("SalaSidePanel resizing", () => {
     expect(localStorage.getItem(KEY)).toBe("729");
   });
 
+  describe("lets go of the handle however the drag ends", () => {
+    const ends: [string, (grip: HTMLElement) => void][] = [
+      ["a release", () => fireEvent.pointerUp(window)],
+      ["a cancelled pointer", () => fireEvent.pointerCancel(window)],
+      ["a lost capture", (grip) => fireEvent(grip, new PointerEvent("lostpointercapture"))],
+      ["a mouse move with no button down", () => fireEvent.pointerMove(window, { clientX: 300, pointerType: "mouse", buttons: 0 })],
+    ];
+    for (const [name, end] of ends) {
+      it(`on ${name}, even at the maximum`, async () => {
+        const grip = await renderPanel();
+        fireEvent.pointerDown(grip, { clientX: 1000 });
+        expect(grip).toHaveAttribute("data-dragging");
+        // Far past the maximum, so the handle is left behind the pointer.
+        fireEvent.pointerMove(window, { clientX: 100 });
+        await waitFor(() => expect(panelWidth()).toBe("729px"));
+        end(grip);
+        expect(grip).not.toHaveAttribute("data-dragging");
+        expect(localStorage.getItem(KEY)).toBe("729");
+        // Nothing listens any more: moving the pointer afterwards changes nothing.
+        fireEvent.pointerMove(window, { clientX: 1100 });
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        expect(panelWidth()).toBe("729px");
+        expect(grip).toHaveAttribute("aria-valuenow", "729");
+      });
+    }
+  });
+
   it("moves with the arrow keys and jumps to the limits with Home and End", async () => {
     const grip = await renderPanel();
     fireEvent.keyDown(grip, { key: "ArrowLeft" });

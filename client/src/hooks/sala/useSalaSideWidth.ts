@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DEFAULT_FONT_SIZE, readFontSize, subscribeFontSize } from "@/lib/fontSize";
 
 /** 384px of panel plus the divider's own pixel: the width the panel always had. */
@@ -95,6 +95,8 @@ export interface SalaSideWidth {
   width: number;
   min: number;
   max: number;
+  /** A drag is under way: the handle stays lit for it, wherever the pointer is. */
+  dragging: boolean;
   gripProps: {
     onPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
     onKeyDown: (event: React.KeyboardEvent) => void;
@@ -114,6 +116,7 @@ export function useSalaSideWidth(panelRef: React.RefObject<HTMLElement | null>):
   const fontSize = useSyncExternalStore(subscribeFontSize, readFontSize);
   const max = salaSideMaxWidth(viewport, fontSize / DEFAULT_FONT_SIZE);
   const width = clampSalaSideWidth(chosen, max);
+  const [dragging, setDragging] = useState(false);
   const endDrag = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => publish(panelRef.current, width), [panelRef, width]);
@@ -122,9 +125,11 @@ export function useSalaSideWidth(panelRef: React.RefObject<HTMLElement | null>):
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
       event.preventDefault();
       endDrag.current?.();
       const grip = event.currentTarget;
+      const pointerId = event.pointerId;
       const startX = event.clientX;
       let next = width;
       let frame = 0;
@@ -138,20 +143,45 @@ export function useSalaSideWidth(panelRef: React.RefObject<HTMLElement | null>):
         endDrag.current = null;
         if (frame !== 0) cancelAnimationFrame(frame);
         window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", finish);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+        grip.removeEventListener("lostpointercapture", onEnd);
+        if (grip.hasPointerCapture?.(pointerId)) grip.releasePointerCapture(pointerId);
+        // Focus a press gave the handle would light it up on the next key press.
+        if (document.activeElement === grip) grip.blur();
         draw();
+        setDragging(false);
         setPreferred(next);
       }
       function onMove(move: PointerEvent): void {
+        if (move.pointerId !== pointerId) return;
+        // A mouse with no button down: the release happened where this never heard of it.
+        if (move.pointerType === "mouse" && move.buttons === 0) {
+          finish();
+          return;
+        }
         // The edge sits on the panel's left: moving it left widens the panel.
         next = clampSalaSideWidth(width - (move.clientX - startX), salaSideMaxWidth(window.innerWidth, readFontSize() / DEFAULT_FONT_SIZE));
         // One write per frame, however many moves the frame saw.
         if (frame === 0) frame = requestAnimationFrame(draw);
       }
+      function onEnd(end: PointerEvent): void {
+        if (end.pointerId === pointerId) finish();
+      }
 
+      // Keeps every move and the release coming to the handle even once the
+      // clamp leaves it out from under the pointer, or the pointer leaves the window.
+      try {
+        grip.setPointerCapture(pointerId);
+      } catch {
+        // Not a live pointer (a synthetic event): the window listeners still hear it.
+      }
       window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointerup", onEnd);
+      window.addEventListener("pointercancel", onEnd);
+      grip.addEventListener("lostpointercapture", onEnd);
       endDrag.current = finish;
+      setDragging(true);
     },
     [panelRef, width],
   );
@@ -173,5 +203,5 @@ export function useSalaSideWidth(panelRef: React.RefObject<HTMLElement | null>):
 
   const onDoubleClick = useCallback(() => setPreferred(SALA_SIDE_DEFAULT_WIDTH), []);
 
-  return { width, min: SALA_SIDE_MIN_WIDTH, max, gripProps: { onPointerDown, onKeyDown, onDoubleClick } };
+  return { width, min: SALA_SIDE_MIN_WIDTH, max, dragging, gripProps: { onPointerDown, onKeyDown, onDoubleClick } };
 }

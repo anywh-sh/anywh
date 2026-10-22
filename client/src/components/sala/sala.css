@@ -1047,10 +1047,17 @@
   touch-action: none;
   outline: none;
 }
-.sala-side-grip:hover,
-.sala-side-grip:active,
+/* Lit while it is dragged by the hook's own state, not by `:active` (which a
+ * prevented pointerdown can leave stuck) nor by `:hover` alone (the clamp moves
+ * the handle out from under the pointer at the limits). */
+.sala-side-grip[data-dragging],
 .sala-side-grip:focus-visible {
   background: var(--border);
+}
+@media (hover: hover) {
+  .sala-side-grip:hover {
+    background: var(--border);
+  }
 }
 .sala-side-in {
   width: 100%;
