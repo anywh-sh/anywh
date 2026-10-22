@@ -746,8 +746,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         flag(area.id, "drop", false);
       }
       if (!d.moved) {
-        setSelected(d.id);
-        setSelectedArea(null);
+        pick(d.id);
         return;
       }
       const z = cam().cam.z;
@@ -835,6 +834,20 @@ export function SalaCanvas(props: SalaCanvasProps) {
     setSelectedArea(null);
     setAnswering(null);
   }, []);
+  /** A click on a card (or Enter on it). The principal's opens its
+   * conversation straight away: it is never selected and has no bar. */
+  const pickRef = useRef<(id: string) => void>(() => undefined);
+  pickRef.current = (id: string): void => {
+    if (byId.get(id)?.role === "principal") {
+      setSelected(null);
+      setSelectedArea(null);
+      setAnswering(null);
+      latest.current.onOpenAgent(id);
+      return;
+    }
+    select(id);
+  };
+  const pick = useCallback((id: string): void => pickRef.current(id), []);
   // The launcher takes the place of whatever was open over the canvas.
   useEffect(() => {
     if (props.newAgentOpen) setAnswering(null);
@@ -1210,7 +1223,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}
                 canRemove={agent.role === "worker"}
                 onPointerDown={onNodeDown}
-                onSelect={select}
+                onSelect={pick}
                 onOpen={props.onOpenAgent}
                 onDelegate={props.onNewAgent}
                 onReply={reply}

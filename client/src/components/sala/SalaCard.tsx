@@ -104,7 +104,8 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   // The principal goes by a fixed name: its generated title is the room's.
   const title = main ? fullDict.sala.orchestrator : (agent.title ?? dict.untitled);
   const titlePending = !main && agent.titlePending === true;
-  const bar = useBarPresence(selected);
+  // The principal opens its conversation on a click instead: it has no bar.
+  const bar = useBarPresence(selected && !main);
   const lines = cardLines(agent, status);
 
   const activityText = ((): string => {

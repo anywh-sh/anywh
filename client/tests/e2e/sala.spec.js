@@ -665,14 +665,16 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => !(await $(".sala-answer").isExisting()), { timeout: 5000 });
   });
 
-  it("shows the principal's whole conversation in the side panel", async () => {
+  it("opens the principal's whole conversation in the side panel with one click", async () => {
     await press('[data-agent-id].main .sala-node-hit');
-    await pressBar("Open conversation");
     const panel = await $('aside[data-panel="principal"]');
     await panel.waitForExist({ timeout: 15000 });
     // The same chat a session tab shows: its history and its composer.
     await panel.$(".composer-editor").waitForExist({ timeout: 30000, timeoutMsg: "the principal's composer never appeared" });
     await browser.waitUntil(async () => (await panel.getText()).includes("[[room:delegate"), { timeout: 30000, timeoutMsg: "the principal's history never showed what was said to it" });
+    // Straight to the conversation: the card is neither selected nor given a bar.
+    expect(await $(".sala-node.sel").isExisting()).toBe(false);
+    expect(await $(".sala-bar").isExisting()).toBe(false);
     await panelSettled();
     await shot("B-conversa-do-principal");
     await press('aside[data-panel="principal"] button[aria-label="Close panel"]');

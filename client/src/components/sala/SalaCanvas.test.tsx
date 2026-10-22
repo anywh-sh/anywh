@@ -316,11 +316,12 @@ describe("SalaCanvas — motion", () => {
   });
 
   it("marks the links to the selected card's children as well as to its parent", () => {
-    const { viewport } = mount(canvasOf());
-    pointer("pointerDown", card("main").querySelector(".sala-node-body")!, 300, 80);
-    pointer("pointerUp", viewport, 300, 80);
+    const { viewport } = mount(withC, { agents: [...agents, agent("c", { parentId: "a" })] });
+    pointer("pointerDown", card("a").querySelector(".sala-node-body")!, 100, 340);
+    pointer("pointerUp", viewport, 100, 340);
     expect(edge("a")).toHaveClass("sel");
-    expect(edge("b")).toHaveClass("sel");
+    expect(edge("c")).toHaveClass("sel");
+    expect(edge("b")).not.toHaveClass("sel");
   });
 
   it("brings a delegated agent in as the design does: its link draws, then its window opens", () => {
@@ -417,5 +418,34 @@ describe("SalaCanvas — motion", () => {
     expect(bar()).toHaveAttribute("inert");
     act(() => void vi.advanceTimersByTime(120));
     expect(bar()).toBeNull();
+  });
+});
+
+describe("SalaCanvas — the orchestrator's card", () => {
+  it("opens its conversation on a click, without selecting it or showing a bar", () => {
+    const onOpenAgent = vi.fn();
+    const { viewport } = mount(canvasOf(), { onOpenAgent });
+    pointer("pointerDown", card("main").querySelector(".sala-node-body")!, 300, 80);
+    pointer("pointerUp", viewport, 300, 80);
+    expect(onOpenAgent).toHaveBeenCalledWith("main");
+    expect(card("main")).not.toHaveClass("sel");
+    expect(document.querySelector(".sala-bar")).toBeNull();
+  });
+
+  it("opens it from the keyboard too (Enter on the card activates its button)", () => {
+    const onOpenAgent = vi.fn();
+    mount(canvasOf(), { onOpenAgent });
+    fireEvent.click(card("main").querySelector(".sala-node-hit")!, { detail: 0 });
+    expect(onOpenAgent).toHaveBeenCalledWith("main");
+    expect(document.querySelector(".sala-bar")).toBeNull();
+  });
+
+  it("still selects a worker and shows its bar", () => {
+    const onOpenAgent = vi.fn();
+    mount(canvasOf(), { onOpenAgent });
+    fireEvent.click(card("a").querySelector(".sala-node-hit")!);
+    expect(onOpenAgent).not.toHaveBeenCalled();
+    expect(card("a")).toHaveClass("sel");
+    expect(screen.getByRole("toolbar", { name: "Agent actions" })).toBeInTheDocument();
   });
 });
