@@ -1051,6 +1051,29 @@
   box-shadow: 0 32px 80px -20px var(--shadow-color);
   outline: none;
 }
+/* In as the design has it (0.18s, rising 6px into place while it fades
+ * in), out the same way, quicker. The rise is a layout move (`top`), not a
+ * transform, and neither animation fills past its end, so once at rest the
+ * card holds no transform and no opacity of its own: nothing is left to
+ * composite, and its text is painted like the rest of the canvas. */
+.sala-cfm[data-state="open"] {
+  animation: sala-cfm-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.sala-cfm[data-state="closed"] {
+  animation: sala-cfm-out 0.12s ease-in forwards;
+}
+@keyframes sala-cfm-in {
+  from {
+    top: 12px;
+    opacity: 0;
+  }
+}
+@keyframes sala-cfm-out {
+  to {
+    top: 12px;
+    opacity: 0;
+  }
+}
 .sala-cfm-b {
   display: flex;
   flex-direction: column;
@@ -1170,7 +1193,8 @@
   .sala-strip,
   .sala-port,
   .sala-bar,
-  .sala-frame {
+  .sala-frame,
+  .sala-cfm {
     animation: none !important;
   }
   .sala-edge-pulse,

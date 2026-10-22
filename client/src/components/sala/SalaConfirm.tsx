@@ -34,7 +34,8 @@ interface SalaConfirmProps {
  *
  * It sits inside the canvas, in the canvas's own unscaled layer, and is
  * placed by layout alone (auto margins, no `translate(-50%)`): a fractional
- * transform left its text soft.
+ * transform left its text soft. It comes in and goes out with one-shot
+ * fades (`sala.css`) that leave nothing composited once they end.
  */
 export function SalaConfirm({ view, container, cancelLabel, onCancel, onConfirm, onClosed }: SalaConfirmProps) {
   // The last question stays drawn while it animates out.
