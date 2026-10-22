@@ -46,8 +46,9 @@ build stamps the tag's version into them.
 
 ## How the version is computed
 
-On each merge, over the commits since the last `vX.Y.Z` tag
-(`node scripts/version.mjs next`):
+Each merge commit gets its own tag, bumped from the previous one by its own
+message (`node scripts/version.mjs plan`). A run tags every untagged merge
+since the last tag, so quick successive merges each still get one:
 
 | Commit | Bump | Example |
 |---|---|---|

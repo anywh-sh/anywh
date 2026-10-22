@@ -5,9 +5,10 @@
 // manual step.
 //
 // Usage:
-//   node scripts/version.mjs next [--major] [--ref <rev>]
-//       The tag <rev> (default HEAD) should get, or nothing when it already
-//       has one or there is nothing new since the last tag.
+//   node scripts/version.mjs plan [--major] [--ref <rev>]
+//       The tags to create, one `<sha> <tag>` line per untagged commit on
+//       the first-parent line from the last version tag up to <rev>
+//       (default HEAD), oldest first. Nothing when everything is tagged.
 //   node scripts/version.mjs stamp <X.Y.Z>
 //       Writes the version into every manifest that carries it.
 //   node scripts/version.mjs check <X.Y.Z>
@@ -84,6 +85,44 @@ export function nextVersion(current, messages, { major = false } = {}) {
   if (major) return [x + 1, 0, 0];
   if (messages.some(isBreaking)) return [x, y + 1, 0];
   return [x, y, z + 1];
+}
+
+/** One version per commit, in order, each bumped from the one before by
+ * its own messages — so every merge keeps its own tag even when several are
+ * tagged by one run. `commits` are `{ sha, messages }`, oldest first, all
+ * after `latest`; a commit carries more than one message only when earlier
+ * ones were folded into it (commandPlan). `major` puts a MAJOR on `head`:
+ * replacing that commit's own bump when it is in the list, as an extra tag
+ * on it otherwise. */
+export function planTags(commits, latest, { major = false, head } = {}) {
+  const plan = [];
+  let version = latest;
+  for (const { sha, messages } of commits) {
+    version = nextVersion(version, messages);
+    plan.push({ sha, version });
+  }
+  if (major) {
+    if (plan.at(-1)?.sha === head) plan.pop();
+    const base = plan.at(-1)?.version ?? latest;
+    plan.push({ sha: head, version: nextVersion(base, [], { major: true }) });
+  }
+  return plan.map(({ sha, version: v }) => ({ sha, tag: `v${formatVersion(v)}` }));
+}
+
+/** Merges from before this tool existed (a commit whose tree has no
+ * scripts/version.mjs) never get a tag of their own: their messages fold
+ * into the first commit that has it. Without this, the first run after the
+ * tool landed would tag every merge since v0.1.8 one PATCH apart. */
+export function foldUntooled(commits) {
+  const folded = [];
+  let pending = [];
+  for (const { sha, message, tooled } of commits) {
+    pending.push(message);
+    if (!tooled) continue;
+    folded.push({ sha, messages: pending });
+    pending = [];
+  }
+  return folded;
 }
 
 /** The minor lines a release from `previous` to `target` crosses, as the
@@ -282,17 +321,21 @@ function fail(message) {
   process.exit(1);
 }
 
-function commandNext(args) {
+function commandPlan(args) {
   const ref = option(args, "--ref") ?? "HEAD";
   const major = args.includes("--major");
-  const tags = listTags();
-  const ownTags = git(["tag", "--points-at", ref, "--list", "v*"]).split("\n").filter(Boolean);
-  if (!major && ownTags.some(parseVersionTag)) return;
-
-  const latest = latestVersionTag(tags);
-  const messages = latest ? commitMessages(`${latest.tag}..${ref}`) : commitMessages(ref);
-  if (messages.length === 0 && !major) return;
-  console.log(`v${formatVersion(nextVersion(latest?.version ?? null, messages, { major }))}`);
+  const latest = latestVersionTag(listTags());
+  const range = latest ? `${latest.tag}..${ref}` : ref;
+  const commits = git(["rev-list", "--first-parent", "--reverse", range])
+    .split("\n")
+    .filter(Boolean)
+    .map((sha) => ({
+      sha,
+      message: git(["log", "-1", "--format=%B", sha]).trim(),
+      tooled: git(["ls-tree", "--name-only", sha, "scripts/version.mjs"]).trim() !== "",
+    }));
+  const head = git(["rev-parse", ref]).trim();
+  for (const { sha, tag } of planTags(foldUntooled(commits), latest?.version ?? null, { major, head })) console.log(`${sha} ${tag}`);
 }
 
 const VERSION_FIELD = /^(\s*"version":\s*")[^"]*(")/m;
@@ -378,7 +421,7 @@ function commandGuard(args) {
   console.log(verdict.message);
 }
 
-const COMMANDS = { next: commandNext, stamp: commandStamp, check: commandCheck, notes: commandNotes, guard: commandGuard };
+const COMMANDS = { plan: commandPlan, stamp: commandStamp, check: commandCheck, notes: commandNotes, guard: commandGuard };
 
 // pathToFileURL, not a `file://` template: on the Windows build leg argv[1]
 // is `D:\a\...`, which a template never matches, and the stamp would

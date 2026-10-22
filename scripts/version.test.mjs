@@ -13,6 +13,8 @@ import {
   isBreaking,
   latestVersionTag,
   nextVersion,
+  planTags,
+  foldUntooled,
   parseUnifiedDiff,
   readUpgradeNotes,
   renderChangelog,
@@ -165,25 +167,64 @@ function withRepo(fn) {
     const commit = (message) => run("git", ["commit", "-q", "--allow-empty", "-m", message]);
     const tag = (name) => run("git", ["tag", "-a", name, "-m", name]);
     const version = (...args) => run("node", ["scripts/version.mjs", ...args]).trim();
-    fn({ dir, commit, tag, version });
+    fn({ dir, run, commit, tag, version });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-test("next: counts from the last release tag over every commit since", () => {
-  withRepo(({ commit, tag, version }) => {
+test("plan: one tag per commit, each bumped by its own message", () => {
+  const commits = [
+    { sha: "b", messages: ["fix: scroll"] },
+    { sha: "c", messages: ["feat(relay)!: protocol 4"] },
+    { sha: "d", messages: ["feat: rooms"] },
+  ];
+  assert.deepEqual(planTags(commits, [0, 2, 0]), [
+    { sha: "b", tag: "v0.2.1" },
+    { sha: "c", tag: "v0.3.0" },
+    { sha: "d", tag: "v0.3.1" },
+  ]);
+  assert.deepEqual(planTags([], [0, 2, 0]), []);
+  // MAJOR replaces the head's own bump when the head is untagged...
+  assert.deepEqual(planTags(commits, [0, 2, 0], { major: true, head: "d" }).at(-1), { sha: "d", tag: "v1.0.0" });
+  assert.equal(planTags(commits, [0, 2, 0], { major: true, head: "d" }).length, 3);
+  // ...and is an extra tag on a head that already has one.
+  assert.deepEqual(planTags([], [0, 3, 1], { major: true, head: "d" }), [{ sha: "d", tag: "v1.0.0" }]);
+});
+
+test("merges from before the tool fold into the first one that has it", () => {
+  const folded = foldUntooled([
+    { sha: "a", message: "feat(relay): protocol 3", tooled: false },
+    { sha: "b", message: "fix: scroll", tooled: false },
+    { sha: "c", message: "feat!: version every merge", tooled: true },
+    { sha: "d", message: "fix: typo", tooled: true },
+  ]);
+  assert.deepEqual(folded, [
+    { sha: "c", messages: ["feat(relay): protocol 3", "fix: scroll", "feat!: version every merge"] },
+    { sha: "d", messages: ["fix: typo"] },
+  ]);
+  assert.deepEqual(planTags(folded, [0, 1, 8]), [
+    { sha: "c", tag: "v0.2.0" },
+    { sha: "d", tag: "v0.2.1" },
+  ]);
+});
+
+test("plan: tags every untagged merge since the last tag, so a run that never ran loses nothing", () => {
+  withRepo(({ run, commit, tag, version }) => {
     commit("chore: initial");
     tag("v0.1.8");
     tag("v0.1.8-rc.1");
     commit("feat: rooms");
+    assert.equal(version("plan"), "", "nothing from before the tool gets a tag of its own");
+    run("git", ["add", "scripts/version.mjs"]);
     commit("feat!: version every merge");
-    assert.equal(version("next"), "v0.2.0");
-    tag("v0.2.0");
-    assert.equal(version("next"), "", "a tagged commit gets no second tag");
-    assert.equal(version("next", "--major"), "v1.0.0", "a manual MAJOR may land on an already tagged commit");
     commit("fix: scroll");
-    assert.equal(version("next"), "v0.2.1");
+    commit("feat: canvas");
+    const plan = version("plan").split("\n").map((line) => line.split(" ")[1]);
+    assert.deepEqual(plan, ["v0.2.0", "v0.2.1", "v0.2.2"]);
+    tag("v0.2.2");
+    assert.equal(version("plan"), "", "everything up to the newest tag counts as tagged");
+    assert.match(version("plan", "--major"), /^[0-9a-f]{40} v1\.0\.0$/);
   });
 });
 
