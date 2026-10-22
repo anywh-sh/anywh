@@ -11,10 +11,10 @@ import { APP_VERSION, UNRELEASED_VERSION } from "@/lib/install/appVersion";
  * the app compares against its own to spot a stale relay). None of them is
  * ever edited by hand: git keeps all three at the unreleased placeholder,
  * and only the release build stamps a real version into them
- * (`node scripts/version.mjs stamp`, .anywh/skills/release/SKILL.md). So
- * these tests are the rule "PRs don't change the version", enforced: a PR
- * that bumps one of them fails here instead of colliding with every other
- * PR that bumped it too.
+ * (`node scripts/version.mjs stamp`, .anywh/skills/release/SKILL.md). The
+ * rule "PRs don't change the version" is enforced for every manifest by
+ * scripts/version.test.mjs, which also runs for a relay-only PR; this tier
+ * pins what only the client can see — that APP_VERSION follows them.
  */
 // Resolved from the runner's cwd (always `client/`, where vitest.config.ts
 // lives) — same reasoning as builtinThemes.test.ts's read of index.css.

@@ -36,6 +36,14 @@ jobs:
               - 'relay/**'
             scripts:
               - 'scripts/**'
+              # scripts/version.test.mjs is where "PRs never change a
+              # version" is enforced for all three manifests — it has to run
+              # for a PR that only touches relay/, which skips the client tier.
+              - 'client/package.json'
+              - 'client/package-lock.json'
+              - 'client/src-tauri/tauri.conf.json'
+              - 'relay/package.json'
+              - 'relay/package-lock.json'
             client:
               - 'client/**'
               # The client tier also guards that relay/src/host/theme.ts is

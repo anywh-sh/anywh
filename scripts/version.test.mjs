@@ -18,9 +18,28 @@ import {
   parseUnifiedDiff,
   readUpgradeNotes,
   renderChangelog,
+  UNRELEASED_VERSION,
+  VERSIONED_MANIFESTS,
 } from "./version.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+// The rule "PRs never change a version", enforced on this repository's own
+// files. Here rather than only in the client's unit tier, which pr.yml skips
+// for a PR that touches nothing under client/: pr.yml runs this tier
+// whenever a manifest or a lockfile changes.
+test("every manifest and lockfile in the repository stays at the unreleased placeholder", () => {
+  const repo = join(here, "..");
+  const read = (path) => JSON.parse(readFileSync(join(repo, path), "utf8"));
+  for (const path of VERSIONED_MANIFESTS) {
+    assert.equal(read(path).version, UNRELEASED_VERSION, `${path} carries a version — PRs never change it (.anywh/skills/release/SKILL.md)`);
+  }
+  for (const path of ["client/package-lock.json", "relay/package-lock.json"]) {
+    const lock = read(path);
+    assert.equal(lock.version, UNRELEASED_VERSION, `${path}'s version`);
+    assert.equal(lock.packages[""].version, UNRELEASED_VERSION, `${path}'s root package version`);
+  }
+});
 
 test("only `!` after the type or a BREAKING CHANGE footer is breaking", () => {
   assert.equal(isBreaking("feat!: drop the v1 wire"), true);
