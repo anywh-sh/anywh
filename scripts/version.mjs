@@ -287,8 +287,8 @@ export function guardVerdict({ surfaces, title, labels }) {
       "    upgrade notes in docs/upgrade-notes/<X.Y>.md.",
       `  - It is NOT breaking (no older client/relay/host misreads anything, no operator action, no one-way`,
       `    migration): add the label "${NOT_BREAKING_LABEL}".`,
-      "Changing the title or the labels re-runs this check on its own (pr-guard-rerun.yml); if it",
-      "doesn't, run: gh run rerun <run-id> --failed — it reads the title and labels again.",
+      "Changing the title or the labels re-runs this check on its own once the PR's run has finished",
+      "(pr-guard-rerun.yml); if it doesn't, run: gh run rerun <run-id> --failed — it reads them again.",
     ].join("\n"),
   };
 }

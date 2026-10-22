@@ -240,19 +240,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "lts/*"
-      # Title and labels read live rather than from the event payload: a
-      # re-run (pr-guard-rerun.yml does one when either changes) has to see
-      # the fixed title, and a re-run reuses the original payload.
+      # Title, labels and base read live rather than from the event payload:
+      # a re-run (pr-guard-rerun.yml does one when any of them changes)
+      # reuses the original payload, and has to see the fixed title or the
+      # new base. fetch-depth 0 above brings every branch, the base included.
       - name: Require "!" in the title for a breaking-sensitive change
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
-          BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          title="$(gh pr view "$PR" --repo "${{ github.repository }}" --json title --jq .title)"
-          labels="$(gh pr view "$PR" --repo "${{ github.repository }}" --json labels --jq '[.labels[].name] | join(",")')"
-          node scripts/version.mjs guard --base "$BASE" --head "$HEAD" --title "$title" --labels "$labels"
+          pr="$(gh pr view "$PR" --repo "${{ github.repository }}" --json title,labels,baseRefName)"
+          title="$(printf '%s' "$pr" | jq -r .title)"
+          labels="$(printf '%s' "$pr" | jq -r '[.labels[].name] | join(",")')"
+          base="origin/$(printf '%s' "$pr" | jq -r .baseRefName)"
+          node scripts/version.mjs guard --base "$base" --head "$HEAD" --title "$title" --labels "$labels"
 
   # The one job branch protection points at. Every other job above is gated on
   # paths-filter, so which of them even report on a given PR changes with what
