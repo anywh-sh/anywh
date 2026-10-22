@@ -7,10 +7,13 @@ import {
   fitCamera,
   gridLayer,
   gridNeedsRedraw,
+  layoutZoom,
+  MIN_LAYOUT_ZOOM,
   minimapMap,
   minimapToWorld,
   minimapView,
   nextZoomLevel,
+  planeStyle,
   revealCamera,
   screenToWorld,
   snap,
@@ -190,5 +193,30 @@ describe("gridLayer", () => {
   it("fades the dots out when cells get too small to read", () => {
     const small = gridLayer({ x: 0, y: 0, z: 0.25 }, 0.25, vp).backgroundImage;
     expect(small).toContain("rgba(255,240,225,0.000)");
+  });
+});
+
+describe("planeStyle", () => {
+  // A plane scaled by a transform is painted soft by WebKit as soon as it gets
+  // a compositing layer (a bitmap of its unscaled size, stretched): at rest,
+  // the scale has to be the CSS zoom, never a transform.
+  it("carries the whole scale as the zoom at rest, at every zoom it is laid out at", () => {
+    for (const z of [MIN_LAYOUT_ZOOM, 1, 1.25, 1.5, 2, 1.7342]) {
+      const s = planeStyle({ x: 10, y: 20, z }, layoutZoom(z), true, 1);
+      expect(s).toEqual({ zoom: String(z), transform: "translate(10px, 20px)" });
+    }
+  });
+
+  it("snaps the offset to device pixels at rest, and not while a zoom is in flight", () => {
+    expect(planeStyle({ x: 10.37, y: -3.81, z: 1 }, 1, true, 1).transform).toBe("translate(10px, -4px)");
+    expect(planeStyle({ x: 10.37, y: -3.81, z: 1 }, 1, true, 2).transform).toBe("translate(10.5px, -4px)");
+    expect(planeStyle({ x: 10.37, y: -3.81, z: 1.2 }, 1, false, 1).transform).toBe("translate(10.37px, -3.81px) scale(1.20000)");
+  });
+
+  it("is laid out no smaller than WebKit lets text shrink, and scaled down from there", () => {
+    expect(layoutZoom(0.5)).toBe(MIN_LAYOUT_ZOOM);
+    expect(layoutZoom(1.5)).toBe(1.5);
+    const s = planeStyle({ x: 0, y: 0, z: 0.45 }, layoutZoom(0.45), true, 1);
+    expect(s).toEqual({ zoom: String(MIN_LAYOUT_ZOOM), transform: "translate(0px, 0px) scale(0.50000)" });
   });
 });
