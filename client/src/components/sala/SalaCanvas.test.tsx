@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SalaCanvas, type SalaCanvasProps } from "@/components/sala/SalaCanvas";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
@@ -26,7 +26,7 @@ function canvasOf(over: Partial<RoomCanvas> = {}): RoomCanvas {
 function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
   const onCanvasChange = vi.fn();
   const onCameraSettled = vi.fn();
-  render(
+  const tree = (over: Partial<SalaCanvasProps>) => (
     <TooltipProvider>
       <SalaCanvas
         agents={agents}
@@ -50,10 +50,12 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         onRestoreAgent={() => Promise.resolve(true)}
         onAttachFiles={() => Promise.resolve(true)}
         {...props}
+        {...over}
       />
-    </TooltipProvider>,
+    </TooltipProvider>
   );
-  return { onCanvasChange, onCameraSettled, viewport: screen.getByTestId("sala-canvas") };
+  const { rerender } = render(tree({}));
+  return { onCanvasChange, onCameraSettled, viewport: screen.getByTestId("sala-canvas"), rerender: (over: Partial<SalaCanvasProps>) => rerender(tree(over)) };
 }
 
 const card = (id: string): HTMLElement => document.querySelector<HTMLElement>(`[data-agent-id="${id}"]`)!;
@@ -280,5 +282,72 @@ describe("SalaCanvas — what a running card's lines say", () => {
     expect(rows[0]).toBe("0:30Queried linear.get_issue");
     expect(rows[1]).toBe("0:45Read socket.ts");
     expect(rows[2]).toContain("Thinking");
+  });
+});
+
+describe("SalaCanvas — motion", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const edge = (id: string): SVGPathElement => document.querySelector<SVGPathElement>(`.sala-edge[data-edge="${id}"]`)!;
+  const pulse = (id: string): Element | null => document.querySelector(`.sala-edge-pulse[data-edge="${id}"]`);
+  const withC = canvasOf({ positions: { ...canvasOf().positions, c: { x: 24, y: 552 } } });
+
+  it("draws each link in its child's state, with a glint along a running one only", () => {
+    const list = [agents[0], agent("a"), agent("b", { state: "awaiting_user" }), agent("c", { state: "done" })];
+    mount(canvasOf({ positions: { ...canvasOf().positions, c: { x: 600, y: 288 } } }), { agents: list });
+    expect(edge("a")).toHaveClass("run");
+    expect(edge("b")).toHaveClass("wait");
+    expect(edge("c")).toHaveClass("done");
+    expect(pulse("a")).not.toBeNull();
+    expect(pulse("b")).toBeNull();
+    expect(pulse("c")).toBeNull();
+    // Dashes are measured against the path's own length.
+    expect(edge("a").style.getPropertyValue("--len")).toMatch(/^\d+(\.\d)?px$/);
+  });
+
+  it("marks the links to the selected card's children as well as to its parent", () => {
+    const { viewport } = mount(canvasOf());
+    pointer("pointerDown", card("main").querySelector(".sala-node-body")!, 300, 80);
+    pointer("pointerUp", viewport, 300, 80);
+    expect(edge("a")).toHaveClass("sel");
+    expect(edge("b")).toHaveClass("sel");
+  });
+
+  it("brings a delegated agent in as the design does: its link draws, then its window opens", () => {
+    vi.useFakeTimers();
+    const { rerender } = mount(canvasOf());
+    rerender({ agents: [...agents, agent("c", { parentId: "a" })], canvas: withC });
+    expect(card("c")).toHaveClass("boot-edge");
+    expect(edge("c")).toHaveClass("in");
+    expect(document.querySelector('.sala-edge-head[data-edge="c"]')).not.toBeNull();
+    expect(card("a")).toHaveClass("delegating");
+    act(() => void vi.advanceTimersByTime(420));
+    expect(card("c")).toHaveClass("boot-frame");
+    expect(card("c")).not.toHaveClass("boot-edge");
+    act(() => void vi.advanceTimersByTime(700));
+    expect(card("c").className).not.toMatch(/boot-/);
+    expect(edge("c")).not.toHaveClass("in");
+    expect(document.querySelector('.sala-edge-head[data-edge="c"]')).toBeNull();
+    expect(card("a")).not.toHaveClass("delegating");
+  });
+
+  it("opens an agent whose parent is not on the canvas at once, and leaves the ones it opened with alone", () => {
+    vi.useFakeTimers();
+    const { rerender } = mount(canvasOf());
+    expect(document.querySelector('[class*="boot-"]')).toBeNull();
+    rerender({ agents: [...agents, agent("c", { parentId: "elsewhere" })], canvas: withC });
+    expect(card("c")).toHaveClass("boot-frame");
+    act(() => void vi.advanceTimersByTime(700));
+    expect(card("c")).not.toHaveClass("boot-frame");
+  });
+
+  it("fades a new area in", () => {
+    vi.useFakeTimers();
+    const { rerender } = mount(canvasOf());
+    rerender({ canvas: canvasOf({ areas: [{ id: "x", label: "", x: 0, y: 0, members: ["a"] }] }) });
+    expect(document.querySelector('[data-area-id="x"]')).toHaveClass("born");
+    act(() => void vi.advanceTimersByTime(400));
+    expect(document.querySelector('[data-area-id="x"]')).not.toHaveClass("born");
   });
 });

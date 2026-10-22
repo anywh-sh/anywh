@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_BAR, AREA_ROW_MAX, WRAP_SHIFT, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_BAR, AREA_ROW_MAX, WRAP_SHIFT, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
@@ -214,6 +214,22 @@ describe("edgePath", () => {
     const d = edgePath({ x: 0, y: 0, w: 264, h: 145 }, { x: 600, y: 100, w: 264, h: 145 });
     expect(d.startsWith("M132 145V159H")).toBe(true);
     expect(d.endsWith("V100")).toBe(true);
+  });
+});
+
+describe("pathLength", () => {
+  it("sums the runs of an elbow", () => {
+    // 24 down, 288 across, 95 down.
+    expect(pathLength(edgePath({ x: 0, y: 0, w: 264, h: 145 }, { x: 288, y: 264, w: 264, h: 145 }))).toBe(407);
+  });
+  it("counts a run back to the left as much as one to the right", () => {
+    expect(pathLength("M420 145V169H132V264")).toBe(407);
+  });
+  it("measures a link that goes around the side", () => {
+    const d = edgePath({ x: 0, y: 0, w: 264, h: 145 }, { x: 600, y: 100, w: 264, h: 145 });
+    // 14 down, out to the gap, 55 up (159 to 86), into the child's centre, 14 down.
+    const xm = Number(/H([\d.]+)V/.exec(d)![1]);
+    expect(pathLength(d)).toBeCloseTo(14 + (xm - 132) + 73 + (732 - xm) + 14, 1);
   });
 });
 

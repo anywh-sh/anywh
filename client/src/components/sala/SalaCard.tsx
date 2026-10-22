@@ -27,6 +27,11 @@ export interface SalaCardProps {
   liveWorkers: number;
   /** When this screen first saw the agent in its present state. */
   observedSince: number;
+  /** Where this card is in its arrival (`useArrivals`): unseen while its link
+   * draws, then opening. */
+  boot?: "edge" | "frame";
+  /** A card this one just delegated to is arriving: its bottom port lights up. */
+  delegating?: boolean;
   canGroup: boolean;
   canStop: boolean;
   canRemove: boolean;
@@ -112,7 +117,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
     <div
       data-agent-id={agent.agentId}
       data-state={agent.state}
-      className={cn("sala-node", status.tone, main && "main", selected && "sel")}
+      className={cn("sala-node", status.tone, main && "main", selected && "sel", props.boot && `boot-${props.boot}`, props.delegating && "delegating")}
       style={{ transform: `translate(${String(x)}px, ${String(y)}px)`, width: w, height: h }}
       onPointerDown={(event) => props.onPointerDown(agent.agentId, event)}
     >

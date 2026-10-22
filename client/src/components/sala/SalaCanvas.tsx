@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,8 @@ import {
 } from "@/lib/sala/camera";
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
-import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { useArrivals, useNewAreas } from "@/components/sala/useArrivals";
 import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
@@ -105,6 +106,9 @@ function isBigText(texts: readonly RoomCanvasText[], id: string): boolean {
 const textLift = (big: boolean): number => (big ? 42 : 22);
 
 const translate = (x: number, y: number): string => `translate(${String(x)}px, ${String(y)}px)`;
+
+/** The states a link takes the color of (its child's); any other draws the neutral line. */
+const linkTone = (tone: string): string | false => (tone === "run" || tone === "start" || tone === "wait" || tone === "done" || tone === "stop") && tone;
 
 let nextId = 0;
 const newId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${String((nextId += 1))}`;
@@ -188,6 +192,15 @@ export function SalaCanvas(props: SalaCanvasProps) {
         canvas.texts.map((t, i) => ({ x: t.x, y: t.y, text: t.text, big: i === TEXT_BIG_AT })),
       ),
     [rects, frames, canvas.texts],
+  );
+  // What the room held when it first showed is not arriving; what joins it
+  // while it is open is.
+  const shown = measured && rects.size > 0;
+  const arrivals = useArrivals(agents, shown);
+  const delegating = useMemo(() => new Set([...arrivals.keys()].flatMap((id) => byId.get(id)?.parentId ?? [])), [arrivals, byId]);
+  const newAreas = useNewAreas(
+    canvas.areas.map((a) => a.id),
+    shown,
   );
   const mm = useMemo(() => minimapMap(bounds), [bounds]);
   const mmRef = useRef<MinimapMap>(mm);
@@ -384,7 +397,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const c = rectsNow.get(a.agentId);
       if (!p || !c) continue;
       const d = edgePath(p, c);
-      for (const path of world.querySelectorAll<SVGPathElement>(`[data-edge="${CSS.escape(a.agentId)}"]`)) path.setAttribute("d", d);
+      const len = `${String(pathLength(d))}px`;
+      for (const path of world.querySelectorAll<SVGPathElement>(`[data-edge="${CSS.escape(a.agentId)}"]`)) {
+        path.setAttribute("d", d);
+        path.style.setProperty("--len", len);
+      }
     }
   }, []);
 
@@ -1032,16 +1049,23 @@ export function SalaCanvas(props: SalaCanvasProps) {
       <div ref={worldRef} className="sala-world">
         <div ref={planeRef} className="sala-plane">
           <svg className="sala-edges" aria-hidden="true">
-            {agents.map((a) => {
+            {agents.map((a, i) => {
               const p = a.parentId === undefined ? undefined : rects.get(a.parentId);
               const c = rects.get(a.agentId);
               if (!p || !c) return null;
               const d = edgePath(p, c);
+              const len = { "--len": `${String(pathLength(d))}px` } as CSSProperties;
               const tone = cardStatus(a, a.role === "principal" ? liveWorkers : 0).tone;
+              const arriving = arrivals.has(a.agentId);
               return (
                 <g key={a.agentId}>
-                  <path data-edge={a.agentId} className={cn("sala-edge", (tone === "done" || tone === "stop") && "done", selected === a.agentId && "sel")} d={d} />
-                  {(tone === "run" || tone === "wait") && <path data-edge={a.agentId} className={cn("sala-edge-flow", tone === "wait" && "wait")} d={d} />}
+                  <path data-edge={a.agentId} className={cn("sala-edge", linkTone(tone), (selected === a.agentId || selected === a.parentId) && "sel", arriving && "in")} d={d} style={len} />
+                  {/* Out of phase from link to link, so a busy room does not pulse in step. */}
+                  {tone === "run" &&
+                    (["sala-edge-pulse glow", "sala-edge-pulse"] as const).map((cls) => (
+                      <path key={cls} data-edge={a.agentId} className={cls} d={d} style={{ ...len, "--d": `${(-((i * 0.37) % 1.9)).toFixed(2)}s` } as CSSProperties} />
+                    ))}
+                  {arriving && <path data-edge={a.agentId} className="sala-edge-head" d={d} style={len} />}
                 </g>
               );
             })}
@@ -1051,7 +1075,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
             <div
               key={area.id}
               data-area-id={area.id}
-              className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel")}
+              className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel", newAreas.has(area.id) && "born")}
               style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
             >
               <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
@@ -1123,6 +1147,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 selected={selected === agent.agentId}
                 hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
                 hasKids={(kids.get(agent.agentId) ?? 0) > 0}
+                boot={arrivals.get(agent.agentId)}
+                delegating={delegating.has(agent.agentId)}
                 modelLabel={props.modelLabelOf(agent)}
                 answering={answering === agent.agentId}
                 workers={workers}
