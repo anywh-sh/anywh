@@ -1134,10 +1134,33 @@
 }
 .sala-cfm-a {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 6px;
   padding: 10px 12px;
   border-top: 1px solid var(--border-soft);
+}
+/* What the check found, beside the buttons: two lines at most, in the
+ * buttons' height, so it never grows the footer. */
+.sala-cfm-note {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  font: 400 11.5px/15px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-cfm-note > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.sala-cfm-note.warn {
+  color: var(--destructive);
 }
 .sala-cfm-c,
 .sala-cfm-ok {
@@ -1153,6 +1176,7 @@
     color var(--motion-fast) var(--motion-ease);
 }
 .sala-cfm-c {
+  flex: none;
   padding: 0 12px;
   color: var(--muted-foreground);
 }
@@ -1161,6 +1185,7 @@
   color: var(--foreground);
 }
 .sala-cfm-ok {
+  flex: none;
   padding: 0 14px;
   font-weight: 500;
   background: var(--foreground);

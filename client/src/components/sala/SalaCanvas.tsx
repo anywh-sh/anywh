@@ -106,9 +106,6 @@ const AREA_LABEL_MAX = 200;
 const TEXT_MAX = 4000;
 const MIN_DRAWN = 48;
 const DEFAULT_AREA = { w: 480, h: 312 };
-/** How long the removal question waits for the check of the agents' work
- * before it shows without it. */
-const CHECK_GRACE_MS = 250;
 
 /** Texts on the canvas read as a heading when they are the first one: the
  * relay stores no size, and the design's one title is the room's name. */
@@ -947,25 +944,16 @@ export function SalaCanvas(props: SalaCanvasProps) {
    * while the room checks, `"unknown"` if it could not), never a second one
    * after it. Grouping asks when the agents would leave the areas they are in.
    *
-   * The removal question waits for that check before it shows (`shown`), up
-   * to `CHECK_GRACE_MS`: usually it opens once, already saying what it will
-   * say, instead of opening and then changing. Past the grace it opens with
-   * the answer button waiting. */
-  const [confirm, setConfirm] = useState<
-    { kind: "remove"; plan: RemovalPlan; work: RoomWorktree[] | "unknown" | null; shown: boolean } | { kind: "group"; ids: string[]; areas: string[] } | null
-  >(null);
-  const graceTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(graceTimer.current), []);
+   * The removal question opens at once and the check runs behind it: the
+   * answer button waits on a spinner, and what the check finds is said in
+   * the footer's free space, so nothing in the card moves when it lands. */
+  const [confirm, setConfirm] = useState<{ kind: "remove"; plan: RemovalPlan; work: RoomWorktree[] | "unknown" | null } | { kind: "group"; ids: string[]; areas: string[] } | null>(null);
   const askRemove = useCallback((ids: readonly string[]) => {
     const plan = removalPlan(latest.current.agents, ids);
     if (plan.roots.length === 0) return;
-    const same = (current: typeof confirm): boolean => current?.kind === "remove" && current.plan === plan;
-    setConfirm({ kind: "remove", plan, work: null, shown: false });
-    window.clearTimeout(graceTimer.current);
-    graceTimer.current = window.setTimeout(() => setConfirm((current) => (same(current) ? { ...current!, shown: true } : current)), CHECK_GRACE_MS);
+    setConfirm({ kind: "remove", plan, work: null });
     void latest.current.onCheckWork(plan.all).then((work) => {
-      window.clearTimeout(graceTimer.current);
-      setConfirm((current) => (same(current) ? { ...(current as { kind: "remove"; plan: RemovalPlan }), work: work ?? "unknown", shown: true } : current));
+      setConfirm((current) => (current?.kind === "remove" && current.plan === plan ? { ...current, work: work ?? "unknown" } : current));
     });
   }, []);
   const askRemoveOne = useCallback((agentId: string) => askRemove([agentId]), [askRemove]);
@@ -978,7 +966,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         const removed = outcomes.flatMap(({ id, result }) => (result && "undoMs" in result ? [{ id, undoMs: result.undoMs }] : []));
         const refused = outcomes.flatMap(({ id, result }) => (result && "needsDiscard" in result ? [{ id, work: result.needsDiscard }] : []));
         // Work that showed up after the room checked: the question comes back with it.
-        if (refused.length > 0) setConfirm({ kind: "remove", plan: removalPlan(latest.current.agents, refused.map((r) => r.id)), work: refused.flatMap((r) => r.work), shown: true });
+        if (refused.length > 0) setConfirm({ kind: "remove", plan: removalPlan(latest.current.agents, refused.map((r) => r.id)), work: refused.flatMap((r) => r.work) });
         if (removed.length === 0) {
           if (refused.length === 0) showToast(dict.toast.removeFailed);
           return;
@@ -1069,9 +1057,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
         ok: text.group,
         danger: false,
         pending: false,
+        note: null,
       };
     }
-    if (!confirm.shown) return null;
     const { plan, work } = confirm;
     const one = plan.roots.length === 1;
     const along = plan.extra === 0 ? "" : plan.extra === 1 ? (one ? text.alongOne : text.alongOneOfMany) : (one ? text.alongMany : text.alongManyOfMany).replace("{count}", String(plan.extra));
@@ -1079,11 +1067,16 @@ export function SalaCanvas(props: SalaCanvasProps) {
     const body = (one ? text.removeOneBody : text.removeManyBody).replace("{along}", along);
     return {
       title: one ? text.removeOneTitle.replace("{title}", byId.get(plan.roots[0])?.title ?? dict.card.untitled) : text.removeManyTitle.replace("{count}", String(plan.roots.length)),
-      body: discard ? `${body} ${text.discardBody}` : work === "unknown" ? `${body} ${text.checkFailed}` : body,
-      tags: discard ? work.map((w) => ({ key: w.id, label: w.branch })) : [],
-      ok: discard ? text.discard : text.remove,
+      body,
+      tags: [],
+      ok: text.remove,
       danger: true,
       pending: work === null,
+      note: discard
+        ? { text: text.discardNote.replace("{branches}", work.map((w) => w.branch).join(", ")), warn: true }
+        : work === "unknown"
+          ? { text: text.checkFailed, warn: false }
+          : null,
     };
   })();
 
@@ -1119,9 +1112,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         vpRef.current?.focus({ preventScroll: true });
         return;
       }
-      // A removal still waiting for its check, before its question shows.
-      if (confirm !== null && confirmView === null) setConfirm(null);
-      else if (tool !== "select") setTool("select");
+      if (tool !== "select") setTool("select");
       else if (answering !== null) setAnswering(null);
       else if (selected !== null || manyNow.length > 0 || selectedArea !== null) {
         setSelected(null);

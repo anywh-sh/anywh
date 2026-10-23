@@ -798,12 +798,13 @@ describe("anywh room canvas", () => {
     await pressBar("Remove");
     const dialog = await $('[role="alertdialog"]');
     await dialog.waitForExist({ timeout: 15000, timeoutMsg: "removing never asked first" });
-    const discard = await dialog.$("button*=Discard and remove");
-    await discard.waitForExist({ timeout: 15000, timeoutMsg: "the question never said the work would be discarded" });
-    expect(await dialog.getText()).toContain("not integrated");
-    expect(await dialog.getText()).toContain(worktree.branch);
+    const note = await dialog.$(".sala-cfm-note.warn");
+    await note.waitForExist({ timeout: 15000, timeoutMsg: "the question never said the work would be discarded" });
+    // Clamped to the footer's height: the whole of it is in its title.
+    expect(await note.getAttribute("title")).toContain("unintegrated");
+    expect(await note.getAttribute("title")).toContain(worktree.branch);
     await shot("B-descartar-trabalho");
-    await discard.click();
+    await dialog.$('button[aria-busy="false"]').click();
     await browser.waitUntil(async () => (await cards()).length === 2, { timeout: 30000, timeoutMsg: "the agent was never removed" });
     await browser.waitUntil(async () => (await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json()).worktrees.length === 0, { timeout: 45000, timeoutMsg: "the worktree was never discarded after the undo window" });
   });

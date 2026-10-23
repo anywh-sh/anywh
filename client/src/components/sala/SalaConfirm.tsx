@@ -13,6 +13,9 @@ export interface SalaConfirmView {
   danger: boolean;
   /** The answer cannot be given yet (the room is still checking). */
   pending: boolean;
+  /** What the check found, said in the footer's free space beside the
+   * buttons (`warn`: work that the answer discards). */
+  note: { text: string; warn: boolean } | null;
 }
 
 interface SalaConfirmProps {
@@ -94,6 +97,11 @@ export function SalaConfirm({ view, container, cancelLabel, pendingLabel, onCanc
                 )}
               </div>
               <div className="sala-cfm-a">
+                {/* Always there, empty or not, and as tall as the buttons:
+                    what the check finds changes no size in the card. */}
+                <span className={cn("sala-cfm-note", shown.note?.warn && "warn")} role="status" title={shown.note?.text}>
+                  <span>{shown.note?.text}</span>
+                </span>
                 <Dialog.Cancel className="sala-cfm-c">{cancelLabel}</Dialog.Cancel>
                 <Dialog.Action
                   className={cn("sala-cfm-ok", shown.danger && "danger")}

@@ -1519,9 +1519,8 @@ export interface Dictionary {
       /** `{count}`. */
       alongManyOfMany: string;
       remove: string;
-      /** Shown when some of the agents have work nobody integrated; the branches follow. */
-      discardBody: string;
-      discard: string;
+      /** Beside the buttons when some of the agents have work nobody integrated: `{branches}`. */
+      discardNote: string;
       /** While the room checks for that work. */
       checking: string;
       /** Appended when that check failed. */
