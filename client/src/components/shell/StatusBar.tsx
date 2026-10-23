@@ -319,7 +319,7 @@ export function StatusBar({
                 <span className="whitespace-nowrap text-destructive">{activityStrings.failedSuffix.replace("{count}", String(failCount))}</span>
               </>
             )}
-            <span className="text-[8px] opacity-60">{activityOpen ? "▾" : "▴"}</span>
+            <span className="text-[8px] dark:opacity-60">{activityOpen ? "▾" : "▴"}</span>
           </button>
         </DropdownMenuTrigger>
 

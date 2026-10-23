@@ -24,7 +24,7 @@ function NavEyebrow({ children, count }: { children: string; count?: number }) {
   return (
     <div className="flex items-baseline gap-1.5 px-2.5 pt-4 pb-1.5 font-mono text-[9.5px] tracking-[0.13em] text-text-faint uppercase first:pt-1">
       <span className="flex-1">{children}</span>
-      {count !== undefined && <span className="tracking-normal opacity-80">{count}</span>}
+      {count !== undefined && <span className="tracking-normal dark:opacity-80">{count}</span>}
     </div>
   );
 }
