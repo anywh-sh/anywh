@@ -1002,6 +1002,7 @@ export const ptBr: Dictionary = {
     },
     panel: {
       close: "Fechar painel",
+      resize: "Redimensionar painel",
       about: "Sobre a sala",
       aboutRoom: {
         subtitle: "Sala · {count} agentes",

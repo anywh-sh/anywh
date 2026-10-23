@@ -1002,6 +1002,7 @@ export const en: Dictionary = {
     },
     panel: {
       close: "Close panel",
+      resize: "Resize panel",
       about: "About this room",
       aboutRoom: {
         subtitle: "Room · {count} agents",
