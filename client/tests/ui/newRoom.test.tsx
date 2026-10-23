@@ -111,7 +111,8 @@ describe("a new session in room mode", () => {
     const summary = { counts: { working: 1, awaiting_user: 0, queued: 0, waiting: 0, done: 0, blocked: 0, failed: 0, stopped: 0 }, needsYou: 0, live: 1, liveLimit: 10 };
     relay.emit({ type: "room_snapshot", roomId: "room-1", agents: [principal()], summary });
     expect(await screen.findByTestId("sala-canvas")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: /Profile page, Running/ })).toBeInTheDocument();
+    // The principal's card goes by its fixed name; its title is the room's.
+    expect(await screen.findByRole("button", { name: /Orchestrator, Running/ })).toBeInTheDocument();
   });
 
   it("does not offer Room on a session that has had a turn, even when its log is empty again (/clear)", async () => {

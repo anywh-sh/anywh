@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -31,9 +31,12 @@ import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
 import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
 import { prefersReducedMotion, useArrivals, useNewAreas } from "@/components/sala/useArrivals";
-import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { areasLeft, isAdditiveClick, removalPlan, toggleInSelection, type RemovalPlan } from "@/lib/sala/selection";
+import { isMacOS } from "@/lib/platform/platform";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
+import { SalaMultiBar } from "@/components/sala/SalaMultiBar";
+import { SalaConfirm, type SalaConfirmView } from "@/components/sala/SalaConfirm";
 import { AboutIcon, CloseIcon } from "@/components/sala/SalaIcons";
 
 export interface SalaCanvasProps {
@@ -52,6 +55,10 @@ export interface SalaCanvasProps {
    * for the person to say it may be thrown away. */
   onRemoveAgent: (agentId: string, discard: boolean) => Promise<{ undoMs: number } | { needsDiscard: RoomWorktree[] } | null>;
   onRestoreAgent: (agentId: string) => Promise<boolean>;
+  /** The work of `agentIds` nobody integrated, which removing them would
+   * discard: asked before the removal, so one question covers both. `null`
+   * when it could not be checked. */
+  onCheckWork: (agentIds: readonly string[]) => Promise<RoomWorktree[] | null>;
   onAttachFiles: (files: File[]) => Promise<boolean>;
   /** "Open conversation" on a card: the room's side panel shows that agent. */
   onOpenAgent: (agentId: string) => void;
@@ -67,6 +74,9 @@ export interface SalaCanvasProps {
   renderAnswer: (agent: RoomAgent, close: () => void) => ReactNode;
   /** Esc with nothing left to clear: closes the side panel. */
   onEscape: () => void;
+  /** Several agents were selected: what is open over the room (the side
+   * panel, the launcher) gives way to the selection. */
+  onSelectMany: () => void;
   /** Lets the room's panel remove an agent through the same flow as the card's bar. */
   handleRef?: Ref<SalaCanvasHandle>;
 }
@@ -78,6 +88,7 @@ export interface SalaCanvasHandle {
 interface Toast {
   key: number;
   title: string;
+  sub?: string;
   action?: { label: string; run: () => void };
 }
 
@@ -139,6 +150,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const [tool, setTool] = useState<SalaTool>("select");
   const [spaceDown, setSpaceDown] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  /** Several agents selected at once (never one, never the principal). */
+  const [many, setMany] = useState<string[]>([]);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -336,7 +349,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (!vp) return;
     const onWheel = (event: WheelEvent): void => {
       const zoomy = event.ctrlKey || event.metaKey;
-      if (!zoomy && (event.target as Element | null)?.closest?.("[data-float]")) return;
+      const over = event.target as Element | null;
+      if (over?.closest?.("[data-confirm]") || (!zoomy && over?.closest?.("[data-float]"))) return;
       event.preventDefault();
       const rect = vp.getBoundingClientRect();
       const mx = event.clientX - rect.left;
@@ -361,9 +375,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
   }, []);
 
   // ─── toasts ───
-  const showToast = useCallback((title: string, action?: Toast["action"], ms = 3500) => {
+  const showToast = useCallback((title: string, action?: Toast["action"], ms = 3500, sub?: string) => {
     window.clearTimeout(toastTimer.current);
-    setToast({ key: Date.now(), title, action });
+    setToast({ key: Date.now(), title, sub, action });
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
   useEffect(() => () => window.clearTimeout(toastTimer.current), []);
@@ -466,8 +480,18 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const handMode = (): boolean => latest.current.tool === "hand" || latest.current.spaceDown;
 
+  /** Whether an event happened on the canvas itself, not on the question
+   * drawn over it (`SalaConfirm`, inside the canvas): a press on its buttons
+   * must not pan the room, capture the pointer away from them or run the
+   * room's shortcuts. */
+  const onCanvas = (event: { target: EventTarget }): boolean => {
+    const target = event.target as Element;
+    return vpRef.current?.contains(target) === true && !target.closest?.("[data-confirm]");
+  };
+
   const onViewportDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0 && event.button !== 1) return;
+    if (!onCanvas(event)) return;
     // A second finger while one is dragging something is not a new gesture.
     if (dragRef.current) return;
     const target = event.target as Element;
@@ -693,6 +717,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (d.kind === "pan") {
       if (!d.moved) {
         setSelected(null);
+        setMany([]);
         setSelectedArea(null);
         return;
       }
@@ -746,8 +771,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
         flag(area.id, "drop", false);
       }
       if (!d.moved) {
-        setSelected(d.id);
-        setSelectedArea(null);
+        pick(d.id, isAdditiveClick(event, isMacOS()));
+        // The click that follows on the card's button is the same pick.
+        lastPick.current = { id: d.id, at: performance.now() };
         return;
       }
       const z = cam().cam.z;
@@ -832,15 +858,59 @@ export function SalaCanvas(props: SalaCanvasProps) {
   // ─── actions ───
   const select = useCallback((id: string) => {
     setSelected(id);
+    setMany([]);
     setSelectedArea(null);
     setAnswering(null);
   }, []);
+  /** A click on a card (or Enter on it). The principal's opens its
+   * conversation straight away: it is never selected and has no bar, and
+   * so never joins a selection of several either. A modified click on a
+   * worker adds it to the selection or takes it out. */
+  const pickRef = useRef<(id: string, additive: boolean) => void>(() => undefined);
+  pickRef.current = (id: string, additive: boolean): void => {
+    if (byId.get(id)?.role === "principal") {
+      setSelected(null);
+      setMany([]);
+      setSelectedArea(null);
+      setAnswering(null);
+      latest.current.onOpenAgent(id);
+      return;
+    }
+    if (!additive) {
+      select(id);
+      return;
+    }
+    // Read from the ref, not this render: two clicks can land before React
+    // renders again, and the second must see what the first selected.
+    const next = toggleInSelection(selection.current.many, selection.current.single, id);
+    selection.current = next;
+    setMany(next.many);
+    setSelected(next.single);
+    setSelectedArea(null);
+    setAnswering(null);
+    if (next.many.length > 0) latest.current.onSelectMany();
+  };
+  const pick = useCallback((id: string, additive: boolean): void => pickRef.current(id, additive), []);
+  const lastPick = useRef<{ id: string; at: number } | null>(null);
+  /** The card's button: a click right after the pointer picked the card
+   * (both fire for one press) is not a second pick, which would undo a
+   * modified one. A click from the keyboard (`detail` 0) always is one. */
+  const onCardClick = useCallback(
+    (id: string, event: ReactMouseEvent<HTMLElement>): void => {
+      const last = lastPick.current;
+      lastPick.current = null;
+      if (event.detail > 0 && last?.id === id && performance.now() - last.at < 1000) return;
+      pick(id, isAdditiveClick(event, isMacOS()));
+    },
+    [pick],
+  );
   // The launcher takes the place of whatever was open over the canvas.
   useEffect(() => {
     if (props.newAgentOpen) setAnswering(null);
   }, [props.newAgentOpen]);
   const reply = useCallback((id: string) => {
     setSelected(id);
+    setMany([]);
     setSelectedArea(null);
     setAnswering((current) => (current === id ? null : id));
   }, []);
@@ -868,38 +938,147 @@ export function SalaCanvas(props: SalaCanvasProps) {
     [dict.toast.stopFailed, showToast],
   );
 
-  const [discardAsk, setDiscardAsk] = useState<{ agentId: string; worktrees: RoomWorktree[] } | null>(null);
-  const removeAgent = useCallback(
-    (agentId: string, discard = false) => {
+  /** The question open over the room before an action that cannot simply be
+   * taken back. Removing asks once: whether the agents' work nobody
+   * integrated is discarded is part of the same question (`work`, `null`
+   * while the room checks, `"unknown"` if it could not), never a second one
+   * after it. Grouping asks when the agents would leave the areas they are in.
+   *
+   * The removal question opens at once and the check runs behind it: the
+   * answer button waits on a spinner, and what the check finds is said in
+   * the footer's free space, so nothing in the card moves when it lands. */
+  const [confirm, setConfirm] = useState<{ kind: "remove"; plan: RemovalPlan; work: RoomWorktree[] | "unknown" | null } | { kind: "group"; ids: string[]; areas: string[] } | null>(null);
+  const askRemove = useCallback((ids: readonly string[]) => {
+    const plan = removalPlan(latest.current.agents, ids);
+    if (plan.roots.length === 0) return;
+    setConfirm({ kind: "remove", plan, work: null });
+    void latest.current.onCheckWork(plan.all).then((work) => {
+      setConfirm((current) => (current?.kind === "remove" && current.plan === plan ? { ...current, work: work ?? "unknown" } : current));
+    });
+  }, []);
+  const askRemoveOne = useCallback((agentId: string) => askRemove([agentId]), [askRemove]);
+
+  const removeAgents = useCallback(
+    (plan: RemovalPlan, discard: boolean) => {
       setSelected(null);
-      void latest.current.onRemoveAgent(agentId, discard).then((result) => {
-        if (!result) {
-          showToast(dict.toast.removeFailed);
+      setMany([]);
+      void Promise.all(plan.roots.map((id) => latest.current.onRemoveAgent(id, discard).then((result) => ({ id, result })))).then((outcomes) => {
+        const removed = outcomes.flatMap(({ id, result }) => (result && "undoMs" in result ? [{ id, undoMs: result.undoMs }] : []));
+        const refused = outcomes.flatMap(({ id, result }) => (result && "needsDiscard" in result ? [{ id, work: result.needsDiscard }] : []));
+        // Work that showed up after the room checked: the question comes back with it.
+        if (refused.length > 0) setConfirm({ kind: "remove", plan: removalPlan(latest.current.agents, refused.map((r) => r.id)), work: refused.flatMap((r) => r.work) });
+        if (removed.length === 0) {
+          if (refused.length === 0) showToast(dict.toast.removeFailed);
           return;
         }
-        if ("needsDiscard" in result) {
-          setDiscardAsk({ agentId, worktrees: result.needsDiscard });
-          return;
-        }
+        const count = removed.length === plan.roots.length ? plan.all.length : removed.length;
         showToast(
-          dict.toast.removed,
+          count === 1 ? dict.toast.removed : dict.toast.removedMany.replace("{count}", String(count)),
           {
             label: dict.toast.undo,
             run: () => {
-              void latest.current.onRestoreAgent(agentId).then((ok) => {
-                if (ok) setToast(null);
+              void Promise.all(removed.map((r) => latest.current.onRestoreAgent(r.id))).then((restored) => {
+                if (restored.every(Boolean)) setToast(null);
                 else showToast(dict.toast.restoreFailed);
               });
             },
           },
-          Math.min(result.undoMs, 10_000),
+          Math.min(...removed.map((r) => r.undoMs), 10_000),
+          count === 1 ? dict.toast.removedSub : dict.toast.removedManySub,
         );
       });
     },
     [dict.toast, showToast],
   );
 
-  useImperativeHandle(props.handleRef, () => ({ removeAgent: (agentId: string) => removeAgent(agentId) }), [removeAgent]);
+  // ─── several agents at once ───
+  /** The selection of several, as far as the room still has them. */
+  const manyNow = useMemo(() => {
+    const left = many.filter((id) => byId.get(id)?.role === "worker");
+    return left.length > 1 ? left : [];
+  }, [many, byId]);
+  const selection = useRef({ many: manyNow, single: selected });
+  selection.current = { many: manyNow, single: selected };
+  const stoppable = (id: string): boolean => {
+    const state = byId.get(id)?.state;
+    return state !== undefined && state !== "stopped" && state !== "done";
+  };
+
+  /** A new area around exactly `ids`, which leave whatever areas they were in. */
+  const makeArea = (ids: readonly string[]): void => {
+    const { canvas: cv, agents: list } = latest.current;
+    const cards = cardRects(list, cv.positions);
+    const inside = ids.filter((id) => cards.has(id));
+    if (inside.length === 0) return;
+    const id = newId("area");
+    pendingFocus.current = `area:${id}`;
+    commit({ ...cv, areas: groupInto(cv.areas, inside, areaRectForIds(inside, cards), id) });
+    setMany([]);
+    setSelected(null);
+    showToast(dict.toast.grouped.replace("{count}", String(inside.length)));
+  };
+  const groupMany = (): void => {
+    const areas = areasLeft(latest.current.canvas.areas, manyNow, dict.area.namePlaceholder);
+    if (areas.length > 0) setConfirm({ kind: "group", ids: manyNow, areas });
+    else makeArea(manyNow);
+  };
+  // Stopping is taken back by resuming: it does not ask.
+  const stopMany = (): void => {
+    const ids = manyNow.filter(stoppable);
+    void Promise.all(ids.map((id) => latest.current.onStopAgent(id))).then((stopped) => {
+      if (!stopped.every(Boolean)) showToast(dict.toast.stopFailed);
+      else if (ids.length === 1) showToast(dict.toast.stoppedOne, undefined, 3500, byId.get(ids[0])?.title ?? undefined);
+      else showToast(dict.toast.stoppedMany.replace("{count}", String(ids.length)), undefined, 3500, dict.toast.stoppedManySub);
+    });
+  };
+
+  const confirmOk = (): void => {
+    if (!confirm) return;
+    if (confirm.kind === "group") {
+      setConfirm(null);
+      makeArea(confirm.ids);
+      return;
+    }
+    if (confirm.work === null) return;
+    setConfirm(null);
+    removeAgents(confirm.plan, confirm.work !== "unknown" && confirm.work.length > 0);
+  };
+
+  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne }), [askRemoveOne]);
+
+  const confirmView = ((): SalaConfirmView | null => {
+    if (!confirm) return null;
+    const text = dict.confirm;
+    if (confirm.kind === "group") {
+      return {
+        title: text.groupTitle,
+        body: (confirm.areas.length > 1 ? text.groupBodyMany : text.groupBodyOne).replace("{count}", String(confirm.ids.length)),
+        tags: confirm.areas.map((label, i) => ({ key: String(i), label })),
+        ok: text.group,
+        danger: false,
+        pending: false,
+        note: null,
+      };
+    }
+    const { plan, work } = confirm;
+    const one = plan.roots.length === 1;
+    const along = plan.extra === 0 ? "" : plan.extra === 1 ? (one ? text.alongOne : text.alongOneOfMany) : (one ? text.alongMany : text.alongManyOfMany).replace("{count}", String(plan.extra));
+    const discard = work !== null && work !== "unknown" && work.length > 0;
+    const body = (one ? text.removeOneBody : text.removeManyBody).replace("{along}", along);
+    return {
+      title: one ? text.removeOneTitle.replace("{title}", byId.get(plan.roots[0])?.title ?? dict.card.untitled) : text.removeManyTitle.replace("{count}", String(plan.roots.length)),
+      body,
+      tags: [],
+      ok: text.remove,
+      danger: true,
+      pending: work === null,
+      note: discard
+        ? { text: text.discardNote.replace("{branches}", work.map((w) => w.branch).join(", ")), warn: true }
+        : work === "unknown"
+          ? { text: text.checkFailed, warn: false }
+          : null,
+    };
+  })();
 
   const attach = useCallback(
     (files: File[]) => {
@@ -921,12 +1100,13 @@ export function SalaCanvas(props: SalaCanvasProps) {
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (!onCanvas(event)) return;
     const target = event.target as HTMLElement;
     const typing = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
     if (event.key === "Escape") {
       // Whatever this press closes is the whole of what it does: the room's
       // panel listens for it too and must not close along.
-      if (typing || tool !== "select" || answering !== null || selected !== null || selectedArea !== null) event.preventDefault();
+      if (typing || tool !== "select" || answering !== null || selected !== null || manyNow.length > 0 || selectedArea !== null) event.preventDefault();
       if (typing) {
         target.blur();
         vpRef.current?.focus({ preventScroll: true });
@@ -934,8 +1114,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
       }
       if (tool !== "select") setTool("select");
       else if (answering !== null) setAnswering(null);
-      else if (selected !== null || selectedArea !== null) {
+      else if (selected !== null || manyNow.length > 0 || selectedArea !== null) {
         setSelected(null);
+        setMany([]);
         setSelectedArea(null);
       } else latest.current.onEscape();
       return;
@@ -973,11 +1154,14 @@ export function SalaCanvas(props: SalaCanvasProps) {
     } else if (lower === "u") {
       event.preventDefault();
       fileRef.current?.click();
+    } else if ((key === "Delete" || key === "Backspace") && manyNow.length > 0) {
+      event.preventDefault();
+      askRemove(manyNow);
     } else if ((key === "Delete" || key === "Backspace") && selected !== null) {
       const agent = byId.get(selected);
       if (agent?.role === "worker") {
         event.preventDefault();
-        removeAgent(selected);
+        askRemoveOne(selected);
       }
     } else if (key === "+" || key === "=") zoomStep(1);
     else if (key === "-" || key === "_") zoomStep(-1);
@@ -1111,7 +1295,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
               const arriving = arrivals.has(a.agentId);
               return (
                 <g key={a.agentId}>
-                  <path data-edge={a.agentId} className={cn("sala-edge", linkTone(tone), (selected === a.agentId || selected === a.parentId) && "sel", arriving && "in")} d={d} style={len} />
+                  <path
+                    data-edge={a.agentId}
+                    className={cn("sala-edge", linkTone(tone), (selected === a.agentId || selected === a.parentId || manyNow.includes(a.agentId)) && "sel", arriving && "in")}
+                    d={d}
+                    style={len}
+                  />
                   {/* Out of phase from link to link, so a busy room does not pulse in step. */}
                   {tone === "run" &&
                     (["sala-edge-pulse glow", "sala-edge-pulse"] as const).map((cls) => (
@@ -1196,7 +1385,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 y={rect.y}
                 w={rect.w}
                 h={rect.h}
-                selected={selected === agent.agentId}
+                selected={selected === agent.agentId || manyNow.includes(agent.agentId)}
+                bar={selected === agent.agentId}
                 hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
                 hasKids={(kids.get(agent.agentId) ?? 0) > 0}
                 boot={arrivals.get(agent.agentId)}
@@ -1210,13 +1400,13 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}
                 canRemove={agent.role === "worker"}
                 onPointerDown={onNodeDown}
-                onSelect={select}
+                onSelect={onCardClick}
                 onOpen={props.onOpenAgent}
                 onDelegate={props.onNewAgent}
                 onReply={reply}
                 onGroup={groupAgent}
                 onStop={stopAgent}
-                onRemove={removeAgent}
+                onRemove={askRemoveOne}
               />
             );
           })}
@@ -1280,7 +1470,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
           {mmItems.map((item) => (
             <span
               key={item.id}
-              className={cn("sala-mm-node", item.tone, selected === item.id && "sel")}
+              className={cn("sala-mm-node", item.tone, (selected === item.id || manyNow.includes(item.id)) && "sel")}
               style={{ left: item.rect.x, top: item.rect.y, width: item.rect.w, height: item.rect.h }}
             />
           ))}
@@ -1289,8 +1479,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
       </div>
 
       {toast && (
-        <div key={toast.key} className={cn("sala-float sala-toast", toast.action && "act")} data-float role="status">
+        <div key={toast.key} className={cn("sala-float sala-toast", toast.action && "act", manyNow.length > 0 && "above")} data-float role="status">
           <span>{toast.title}</span>
+          {toast.sub && <span className="sala-toast-sub">{toast.sub}</span>}
           {toast.action && (
             <button type="button" onClick={toast.action.run}>
               {toast.action.label}
@@ -1299,6 +1490,19 @@ export function SalaCanvas(props: SalaCanvasProps) {
         </div>
       )}
 
+      {manyNow.length > 0 && (
+        <SalaMultiBar
+          count={manyNow.length}
+          canStop={manyNow.some(stoppable)}
+          onGroup={groupMany}
+          onStop={stopMany}
+          onRemove={() => askRemove(manyNow)}
+          onClear={() => {
+            setMany([]);
+            vpRef.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
       <SalaToolbar
         tool={tool}
         zoomText={`${String(zoomPct)}%`}
@@ -1313,32 +1517,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         onFit={() => fit(true, true)}
       />
       {props.launcher}
-      <AlertDialog open={discardAsk !== null} onOpenChange={(open) => !open && setDiscardAsk(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{dict.discard.title}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogBody>
-            <AlertDialogDescription>
-              {dict.discard.body
-                .replace("{title}", byId.get(discardAsk?.agentId ?? "")?.title ?? dict.card.untitled)
-                .replace("{work}", (discardAsk?.worktrees ?? []).map((w) => w.branch).join(", "))}
-            </AlertDialogDescription>
-          </AlertDialogBody>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{dict.discard.cancel}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const ask = discardAsk;
-                setDiscardAsk(null);
-                if (ask) removeAgent(ask.agentId, true);
-              }}
-            >
-              {dict.discard.confirm}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SalaConfirm view={confirmView} container={vpRef.current} cancelLabel={dict.confirm.cancel} pendingLabel={dict.confirm.checking} onCancel={() => setConfirm(null)} onConfirm={confirmOk} onClosed={() => vpRef.current?.focus({ preventScroll: true })} />
       <input
         ref={fileRef}
         type="file"

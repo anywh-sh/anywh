@@ -1279,6 +1279,8 @@ export interface Dictionary {
     };
     /** Accessible name of the room glyph in the session list and tab strip. */
     roomGlyph: string;
+    /** The room's principal agent, by a fixed name: its card, its panel and who delegated a worker. */
+    orchestrator: string;
     /** The room's tab and its canvas. */
     canvas: {
       label: string;
@@ -1288,7 +1290,6 @@ export interface Dictionary {
       empty: string;
     };
     card: {
-      main: string;
       /** `{title}`, `{status}`. */
       aria: string;
       untitled: string;
@@ -1426,7 +1427,6 @@ export interface Dictionary {
         contextUsedNoWindow: string;
         /** `{title}`. */
         delegatedBy: string;
-        principal: string;
         work: string;
         noWork: string;
         /** `{count}` commits. */
@@ -1458,10 +1458,6 @@ export interface Dictionary {
         resume: string;
         remove: string;
       };
-      principal: {
-        /** `{model}`. */
-        subtitle: string;
-      };
     };
     /** The launcher over the toolbar. */
     launcher: {
@@ -1492,18 +1488,63 @@ export interface Dictionary {
       keptOne: string;
       review: string;
     };
-    /** Removing an agent whose work was never integrated. */
-    discard: {
-      title: string;
-      /** `{title}`, `{work}`. */
-      body: string;
-      confirm: string;
+    /** The bar over the room while several agents are selected. */
+    multi: {
+      label: string;
+      /** `{count}`. */
+      count: string;
+      /** `{shift}` and `{mod}`: the platform's Shift and command keys (⇧ and ⌘ on macOS, Shift and Ctrl elsewhere). */
+      hint: string;
+      group: string;
+      stop: string;
+      remove: string;
+      clear: string;
+    };
+    /** What the room asks before an action that cannot simply be taken back. */
+    confirm: {
       cancel: string;
+      /** `{title}`. */
+      removeOneTitle: string;
+      /** `{count}`. */
+      removeManyTitle: string;
+      /** `{along}`: one of the `along*` below, or nothing. */
+      removeOneBody: string;
+      removeManyBody: string;
+      /** The agents the removed one delegated to, which leave with it. */
+      alongOne: string;
+      /** `{count}`. */
+      alongMany: string;
+      /** Same, when several agents are removed. */
+      alongOneOfMany: string;
+      /** `{count}`. */
+      alongManyOfMany: string;
+      remove: string;
+      /** Beside the buttons when some of the agents have work nobody integrated: `{branches}`. */
+      discardNote: string;
+      /** While the room checks for that work. */
+      checking: string;
+      /** Appended when that check failed. */
+      checkFailed: string;
+      groupTitle: string;
+      /** `{count}` agents; the areas' names follow. */
+      groupBodyOne: string;
+      groupBodyMany: string;
+      group: string;
     };
     minimap: string;
     toast: {
       backTo100: string;
       removed: string;
+      removedSub: string;
+      /** `{count}`. */
+      removedMany: string;
+      removedManySub: string;
+      stoppedOne: string;
+      /** `{count}`. */
+      stoppedMany: string;
+      stoppedManySub: string;
+      /** `{count}`. */
+      grouped: string;
       undo: string;
       stopFailed: string;
       removeFailed: string;

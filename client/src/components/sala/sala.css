@@ -44,6 +44,8 @@
  *  `salaCss.test.ts` and `camera.test.ts` hold these.
  */
 .sala {
+  /* How dark the room goes behind a question (SalaConfirm). */
+  --sala-cfm-dim: rgb(0 0 0 / 0.22);
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
   /* Areas: the design's warm-white tint at 16% (frame) and 1.8% (fill), 30%
    * when hovered or selected. */
@@ -501,9 +503,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.sala-role {
-  opacity: 0.8;
 }
 .sala-strip-clock {
   flex: none;
@@ -969,6 +968,257 @@
 .sala-toast button:hover {
   background: var(--border);
 }
+.sala-toast-sub {
+  color: var(--text-faint);
+}
+/* over the bar of a multiple selection, not on it */
+.sala-toast.above {
+  bottom: 104px;
+}
+
+/* the bar of a multiple selection, where the toast sits otherwise */
+.sala-mbar {
+  left: 50%;
+  bottom: 56px;
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 3px 3px 12px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.sala-mbar-n {
+  padding-right: 8px;
+  font: 500 12px var(--font-mono);
+  color: var(--foreground);
+}
+.sala-mbar-h {
+  padding: 0 10px 0 2px;
+  font: 400 11px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-mbar button {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-mbar button:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-mbar button.danger:hover {
+  color: var(--destructive);
+}
+.sala-mbar .sala-mbar-x {
+  width: 26px;
+  justify-content: center;
+  padding: 0;
+}
+
+/* the question before an action that cannot simply be taken back
+ * (SalaConfirm): the design's card over the canvas. Placed by layout (auto
+ * margins in a box that ends 24% above the bottom, so its middle sits at 38%
+ * of the canvas), never by `translate(-50%)`: a fractional offset in a
+ * transform left its text soft. */
+/* The backdrop takes the clicks around the card (one cancels). */
+.sala-cfm-bd {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  /* A light dim, over the canvas only: a flat translucent fill (no filter,
+   * no backdrop-filter), so what is behind keeps its edges and only loses a
+   * little contrast. The window-wide 50% dim this replaced halved it. */
+  background: var(--sala-cfm-dim);
+  cursor: default;
+}
+.sala-cfm-bd[data-state="open"] {
+  animation: sala-cfm-dim-in 0.18s ease backwards;
+}
+.sala-cfm-bd[data-state="closed"] {
+  animation: sala-cfm-dim-out 0.12s ease-in forwards;
+}
+@keyframes sala-cfm-dim-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sala-cfm-dim-out {
+  to {
+    opacity: 0;
+  }
+}
+.sala-cfm {
+  position: absolute;
+  inset: 0 16px 24%;
+  z-index: 41;
+  width: 400px;
+  max-width: calc(100% - 32px);
+  height: fit-content;
+  margin: auto;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  box-shadow: 0 32px 80px -20px var(--shadow-color);
+  outline: none;
+}
+/* In as the design has it (0.18s, rising 6px into place while it fades
+ * in), out the same way, quicker. The rise is a layout move (`top`), not a
+ * transform, and neither animation fills past its end, so once at rest the
+ * card holds no transform and no opacity of its own: nothing is left to
+ * composite, and its text is painted like the rest of the canvas. */
+.sala-cfm[data-state="open"] {
+  animation: sala-cfm-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.sala-cfm[data-state="closed"] {
+  animation: sala-cfm-out 0.12s ease-in forwards;
+}
+@keyframes sala-cfm-in {
+  from {
+    top: 12px;
+    opacity: 0;
+  }
+}
+@keyframes sala-cfm-out {
+  to {
+    top: 12px;
+    opacity: 0;
+  }
+}
+.sala-cfm-b {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 16px;
+}
+.sala-cfm-t {
+  margin: 0;
+  /* Whole-pixel line heights (the design's 1.3 and 1.55, rounded) keep the
+   * card's height whole, so it can sit on the pixel grid. */
+  font: 600 17px/22px var(--font-display);
+  letter-spacing: -0.005em;
+  color: var(--foreground);
+}
+.sala-cfm-d {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-faint);
+}
+.sala-cfm-l {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.sala-cfm-l span {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  font: 400 11.5px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-cfm-a {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+/* What the check found, beside the buttons: two lines at most, in the
+ * buttons' height, so it never grows the footer. */
+.sala-cfm-note {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  font: 400 11.5px/15px var(--font-mono);
+  color: var(--text-faint);
+}
+.sala-cfm-note > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.sala-cfm-note.warn {
+  color: var(--destructive);
+}
+.sala-cfm-c,
+.sala-cfm-ok {
+  position: relative;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+.sala-cfm-c {
+  flex: none;
+  padding: 0 12px;
+  color: var(--muted-foreground);
+}
+.sala-cfm-c:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.sala-cfm-ok {
+  flex: none;
+  padding: 0 14px;
+  font-weight: 500;
+  background: var(--foreground);
+  color: var(--bg-chrome);
+}
+.sala-cfm-ok:hover {
+  background: color-mix(in srgb, var(--foreground), white 60%);
+}
+.sala-cfm-ok.danger {
+  background: color-mix(in srgb, var(--destructive) 16%, transparent);
+  color: var(--destructive);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--destructive) 45%, transparent);
+}
+.sala-cfm-ok.danger:hover {
+  background: color-mix(in srgb, var(--destructive) 26%, transparent);
+}
+.sala-cfm-ok:disabled {
+  cursor: default;
+}
+.sala-cfm-ok[aria-busy="true"] .sala-cfm-ok-label {
+  visibility: hidden;
+}
+.sala-cfm-ok .sala-spin {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+.sala-cfm-c:focus-visible,
+.sala-cfm-ok:focus-visible {
+  outline: 2px solid var(--muted-foreground);
+  outline-offset: 1px;
+}
+
 .sala-banner {
   left: 50%;
   top: 12px;
@@ -999,7 +1249,8 @@
   .sala-strip,
   .sala-port,
   .sala-bar,
-  .sala-frame {
+  .sala-frame,
+  .sala-cfm {
     animation: none !important;
   }
   .sala-edge-pulse,

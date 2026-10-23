@@ -209,8 +209,8 @@ describe("anywh room canvas", () => {
   it("draws the principal's card on it", async () => {
     await browser.waitUntil(async () => (await cards()).length === 1, { timeout: 30000, timeoutMsg: "the principal's card never appeared" });
     const principal = await $("[data-agent-id]");
-    await expect(principal).toHaveText(expect.stringContaining("Main"));
-    await expect(principal).toHaveText(expect.stringContaining("Profile page"));
+    // The principal goes by a fixed name; the generated title names the room's tab.
+    await expect(principal).toHaveText(expect.stringContaining("Orchestrator"));
     await shot("B-sala-so-principal");
   });
 
@@ -360,6 +360,23 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await cardState(id)) === "stopped", { timeout: 15000, timeoutMsg: "the card never showed as stopped" });
     const states = await browser.execute(() => [...document.querySelectorAll("[data-agent-id]")].map((el) => el.getAttribute("data-state")));
     expect(states.filter((s) => s === "working").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("selects several agents with a modified click, and lets go of them", async () => {
+    // The stopped card is still selected; a Shift+click on two more adds them.
+    const added = await browser.execute(() => {
+      const ids = [...document.querySelectorAll('[data-agent-id][data-state="working"]:not(.main)')].slice(0, 2).map((el) => el.getAttribute("data-agent-id"));
+      for (const id of ids) document.querySelector(`[data-agent-id="${id}"] .sala-node-hit`).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+      return ids.length;
+    });
+    expect(added).toBe(2);
+    const bar = await $('[role="toolbar"][aria-label="Actions for the selected agents"]');
+    await bar.waitForExist({ timeout: 5000, timeoutMsg: "the bar for several agents never showed" });
+    await expect(bar).toHaveText(expect.stringContaining("3 agents"));
+    expect(await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)).toBe(3);
+    expect(await $(".sala-bar").isExisting()).toBe(false);
+    await bar.$('button[aria-label="Clear the selection"]').click();
+    await browser.waitUntil(async () => (await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)) === 0, { timeout: 5000, timeoutMsg: "the selection was never cleared" });
   });
 
   it("opens ten agents on one canvas and reads them all (principal and nine workers)", async () => {
@@ -595,7 +612,7 @@ describe("anywh room canvas", () => {
     });
     await browser.waitUntil(async () => (await cards()).length === 10, { timeout: 30000, timeoutMsg: "the room did not come back" });
     const text = await browser.execute(() => document.querySelector('[data-testid="sala-canvas"]').innerText);
-    expect(text).toContain("Principal");
+    expect(text).toContain("Orquestrador");
     await expect(await $('[data-state="awaiting_user"] .sala-state')).toHaveAttribute("title", "Sua vez");
     expect(text).toContain("Responder");
     expect(text).toMatch(/precisa de você/);
@@ -665,14 +682,16 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => !(await $(".sala-answer").isExisting()), { timeout: 5000 });
   });
 
-  it("shows the principal's whole conversation in the side panel", async () => {
+  it("opens the principal's whole conversation in the side panel with one click", async () => {
     await press('[data-agent-id].main .sala-node-hit');
-    await pressBar("Open conversation");
     const panel = await $('aside[data-panel="principal"]');
     await panel.waitForExist({ timeout: 15000 });
     // The same chat a session tab shows: its history and its composer.
     await panel.$(".composer-editor").waitForExist({ timeout: 30000, timeoutMsg: "the principal's composer never appeared" });
     await browser.waitUntil(async () => (await panel.getText()).includes("[[room:delegate"), { timeout: 30000, timeoutMsg: "the principal's history never showed what was said to it" });
+    // Straight to the conversation: the card is neither selected nor given a bar.
+    expect(await $(".sala-node.sel").isExisting()).toBe(false);
+    expect(await $(".sala-bar").isExisting()).toBe(false);
     await panelSettled();
     await shot("B-conversa-do-principal");
     await press('aside[data-panel="principal"] button[aria-label="Close panel"]');
@@ -771,16 +790,21 @@ describe("anywh room canvas", () => {
     await shot("B-sala-concluida-sobre");
     await press('aside[data-panel="about"] button[aria-label="Close panel"]');
 
-    // Removing the agent that made it asks first: the work would be lost.
+    // Removing the agent that made it asks first, and the one question says
+    // the work would be lost: no second dialog after the relay's answer.
     // The agent that made the worktree: its card does not carry the task (the title is generated).
     const spike = worktree.agentId;
     await press(`[data-agent-id="${spike}"] .sala-node-hit`);
     await pressBar("Remove");
     const dialog = await $('[role="alertdialog"]');
-    await dialog.waitForExist({ timeout: 15000, timeoutMsg: "the relay's refusal never became a question" });
-    expect(await dialog.getText()).toContain("not integrated");
+    await dialog.waitForExist({ timeout: 15000, timeoutMsg: "removing never asked first" });
+    const note = await dialog.$(".sala-cfm-note.warn");
+    await note.waitForExist({ timeout: 15000, timeoutMsg: "the question never said the work would be discarded" });
+    // Clamped to the footer's height: the whole of it is in its title.
+    expect(await note.getAttribute("title")).toContain("unintegrated");
+    expect(await note.getAttribute("title")).toContain(worktree.branch);
     await shot("B-descartar-trabalho");
-    await dialog.$("button*=Discard and remove").click();
+    await dialog.$('button[aria-busy="false"]').click();
     await browser.waitUntil(async () => (await cards()).length === 2, { timeout: 30000, timeoutMsg: "the agent was never removed" });
     await browser.waitUntil(async () => (await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json()).worktrees.length === 0, { timeout: 45000, timeoutMsg: "the worktree was never discarded after the undo window" });
   });

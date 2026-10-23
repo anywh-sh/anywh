@@ -109,7 +109,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
           <DropdownMenuTrigger asChild>
             <button type="button" className="sala-launcher-parent" aria-label={text.pickParent}>
               {parent ? <AgentLogo agentId={parent.runtime} className="sala-logo" /> : <span aria-hidden="true">—</span>}
-              <span className="trunc">{text.delegatedBy.replace("{title}", parent?.role === "principal" ? dict.sala.panel.agent.principal : (parent?.title ?? dict.sala.card.untitled))}</span>
+              <span className="trunc">{text.delegatedBy.replace("{title}", parent?.role === "principal" ? dict.sala.orchestrator : (parent?.title ?? dict.sala.card.untitled))}</span>
               <ChevronDown size={12} aria-hidden="true" />
             </button>
           </DropdownMenuTrigger>
@@ -117,7 +117,7 @@ export function NewAgentLauncher({ profile, agents, parentId, contextCount, onPa
             {candidates.map((a) => (
               <DropdownMenuItem key={a.agentId} onSelect={() => onParent(a.agentId)}>
                 <AgentLogo agentId={a.runtime} className="sala-logo" />
-                <span className="trunc">{a.role === "principal" ? dict.sala.panel.agent.principal : a.titlePending === true ? <TitleSkeleton className="w-24" /> : (a.title ?? dict.sala.card.untitled)}</span>
+                <span className="trunc">{a.role === "principal" ? dict.sala.orchestrator : a.titlePending === true ? <TitleSkeleton className="w-24" /> : (a.title ?? dict.sala.card.untitled)}</span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>

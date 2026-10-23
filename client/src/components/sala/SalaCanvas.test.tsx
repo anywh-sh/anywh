@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SalaCanvas, type SalaCanvasProps } from "@/components/sala/SalaCanvas";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
+import type { RoomAgent, RoomCanvas, RoomWorktree } from "@/lib/relay/roomClient";
 
 afterEach(cleanup);
 
@@ -45,9 +45,11 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         aboutVisible
         renderAnswer={() => null}
         onEscape={vi.fn()}
+        onSelectMany={vi.fn()}
         onStopAgent={() => Promise.resolve(true)}
         onRemoveAgent={() => Promise.resolve({ undoMs: 1000 })}
         onRestoreAgent={() => Promise.resolve(true)}
+        onCheckWork={() => Promise.resolve([])}
         onAttachFiles={() => Promise.resolve(true)}
         {...props}
         {...over}
@@ -264,6 +266,14 @@ describe("SalaCanvas — a title still being generated", () => {
     expect(card("a").textContent).toContain("Reconnect loop");
     expect(card("a").querySelector('[role="status"]')).toBeNull();
   });
+
+  it("names the principal Orchestrator, never by its generated title nor with a placeholder", () => {
+    mount(canvasOf(), { agents: [agent("main", { role: "principal", parentId: undefined, title: "Profile page", titlePending: true }), agents[1], agents[2]] });
+    expect(card("main").querySelector(".sala-title")).toHaveTextContent("Orchestrator");
+    expect(card("main").textContent).not.toContain("Profile page");
+    expect(card("main").textContent).not.toContain("Main");
+    expect(card("main").querySelector('[role="status"]')).toBeNull();
+  });
 });
 
 describe("SalaCanvas — what a running card's lines say", () => {
@@ -308,11 +318,12 @@ describe("SalaCanvas — motion", () => {
   });
 
   it("marks the links to the selected card's children as well as to its parent", () => {
-    const { viewport } = mount(canvasOf());
-    pointer("pointerDown", card("main").querySelector(".sala-node-body")!, 300, 80);
-    pointer("pointerUp", viewport, 300, 80);
+    const { viewport } = mount(withC, { agents: [...agents, agent("c", { parentId: "a" })] });
+    pointer("pointerDown", card("a").querySelector(".sala-node-body")!, 100, 340);
+    pointer("pointerUp", viewport, 100, 340);
     expect(edge("a")).toHaveClass("sel");
-    expect(edge("b")).toHaveClass("sel");
+    expect(edge("c")).toHaveClass("sel");
+    expect(edge("b")).not.toHaveClass("sel");
   });
 
   it("brings a delegated agent in as the design does: its link draws, then its window opens", () => {
@@ -409,5 +420,358 @@ describe("SalaCanvas — motion", () => {
     expect(bar()).toHaveAttribute("inert");
     act(() => void vi.advanceTimersByTime(120));
     expect(bar()).toBeNull();
+  });
+});
+
+describe("SalaCanvas — the orchestrator's card", () => {
+  it("opens its conversation on a click, without selecting it or showing a bar", () => {
+    const onOpenAgent = vi.fn();
+    const { viewport } = mount(canvasOf(), { onOpenAgent });
+    pointer("pointerDown", card("main").querySelector(".sala-node-body")!, 300, 80);
+    pointer("pointerUp", viewport, 300, 80);
+    expect(onOpenAgent).toHaveBeenCalledWith("main");
+    expect(card("main")).not.toHaveClass("sel");
+    expect(document.querySelector(".sala-bar")).toBeNull();
+  });
+
+  it("opens it from the keyboard too (Enter on the card activates its button)", () => {
+    const onOpenAgent = vi.fn();
+    mount(canvasOf(), { onOpenAgent });
+    fireEvent.click(card("main").querySelector(".sala-node-hit")!, { detail: 0 });
+    expect(onOpenAgent).toHaveBeenCalledWith("main");
+    expect(document.querySelector(".sala-bar")).toBeNull();
+  });
+
+  it("still selects a worker and shows its bar", () => {
+    const onOpenAgent = vi.fn();
+    mount(canvasOf(), { onOpenAgent });
+    fireEvent.click(card("a").querySelector(".sala-node-hit")!);
+    expect(onOpenAgent).not.toHaveBeenCalled();
+    expect(card("a")).toHaveClass("sel");
+    expect(screen.getByRole("toolbar", { name: "Agent actions" })).toBeInTheDocument();
+  });
+});
+
+describe("SalaCanvas — removing agents asks first", () => {
+  const worktree = (agentId: string, branch: string): RoomWorktree => ({ id: `wt-${branch}`, agentId, repoRoot: "/r", path: `/r/${branch}`, branch, state: "ready", phase: "idle", integrated: false });
+  const pressBar = (label: string): void => {
+    fireEvent.click(card("a").querySelector(".sala-node-hit")!);
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Agent actions" })).getByRole("button", { name: label }));
+  };
+
+  it("asks before removing, and removes only once the person says so, with a way back", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Remove “a” from the room?");
+    expect(dialog).toHaveTextContent("The agent stops and leaves the room. What they already wrote stays in the context.");
+    expect(onRemoveAgent).not.toHaveBeenCalled();
+    const remove = within(dialog).getByRole("button", { name: "Remove" });
+    await waitFor(() => expect(remove).toBeEnabled());
+    fireEvent.click(remove);
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", false);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(screen.getByText("Agent removed from the room")).toBeInTheDocument();
+  });
+
+  it("asks over the canvas itself, and a click beside the question cancels it", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    const { viewport } = mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    expect(viewport).toContainElement(dialog);
+    fireEvent.click(document.querySelector(".sala-cfm-bd")!);
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(onRemoveAgent).not.toHaveBeenCalled();
+  });
+
+  it("removes nothing when the question is cancelled, by its button or by Esc", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    pressBar("Remove");
+    fireEvent.keyDown(await screen.findByRole("alertdialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(onRemoveAgent).not.toHaveBeenCalled();
+  });
+
+  it("answers yes on Enter, wherever the focus is in the dialog", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const dialog = await screen.findByRole("alertdialog");
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Remove" })).toBeEnabled());
+    fireEvent.keyDown(within(dialog).getByRole("button", { name: "Cancel" }), { key: "Enter" });
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", false);
+  });
+
+  it("says which agents leave along: the ones it delegated to", async () => {
+    const room = [...agents, agent("a1", { parentId: "a" }), agent("a2", { parentId: "a" })];
+    mount(canvasOf({ positions: { ...canvasOf().positions, a1: { x: 24, y: 600 }, a2: { x: 360, y: 600 } } }), { agents: room });
+    pressBar("Remove");
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("The agent stops and leaves the room, along with the 2 agents it delegated to.");
+  });
+
+  it("opens at once, the answer waiting on a spinner while the work is checked, the card unchanged in size", async () => {
+    let answer: (work: RoomWorktree[]) => void = () => undefined;
+    const onCheckWork = vi.fn(() => new Promise<RoomWorktree[]>((resolve) => (answer = resolve)));
+    mount(canvasOf(), { onCheckWork });
+    pressBar("Remove");
+    // No wait for the check: the question is there in the same tick.
+    const dialog = screen.getByRole("alertdialog");
+    expect(onCheckWork).toHaveBeenCalledWith(["a"]);
+    const waiting = within(dialog).getByRole("button", { name: "Checking for work that was not integrated…" });
+    expect(waiting).toBeDisabled();
+    expect(waiting).toHaveAttribute("aria-busy", "true");
+    expect(waiting.querySelector(".sala-spin")).not.toBeNull();
+    // The label keeps its place under the spinner, and the footer's note is
+    // already there, empty: nothing is inserted when the check lands.
+    expect(waiting).toHaveTextContent("Remove");
+    const note = dialog.querySelector(".sala-cfm-note")!;
+    expect(note).toHaveTextContent("");
+    const structure = (): string[] => [...dialog.querySelectorAll("*")].map((el) => el.className.toString().split(" ")[0]);
+    const before = structure();
+    answer([]);
+    const remove = await within(dialog).findByRole("button", { name: "Remove" });
+    expect(remove).toBeEnabled();
+    expect(remove.querySelector(".sala-spin")).toBeNull();
+    expect(structure().filter((c) => c !== "sala-spin")).toEqual(before.filter((c) => c !== "sala-spin"));
+    expect(note).toHaveTextContent("");
+  });
+
+  it("says in the footer which work the answer discards, in the same question", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    const onCheckWork = vi.fn(() => Promise.resolve([worktree("a", "anywh/spike")]));
+    mount(canvasOf(), { onRemoveAgent, onCheckWork });
+    pressBar("Remove");
+    const dialog = screen.getByRole("alertdialog");
+    const remove = await within(dialog).findByRole("button", { name: "Remove" });
+    expect(dialog.querySelector(".sala-cfm-note")).toHaveTextContent("Discards unintegrated work: anywh/spike");
+    expect(dialog.querySelector(".sala-cfm-note")).toHaveClass("warn");
+    fireEvent.click(remove);
+    expect(onRemoveAgent).toHaveBeenCalledTimes(1);
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", true);
+    await screen.findByRole("button", { name: "Undo" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("says so when the work could not be checked, and still lets the removal go ahead", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    mount(canvasOf(), { onRemoveAgent, onCheckWork: () => Promise.resolve(null) });
+    pressBar("Remove");
+    const dialog = screen.getByRole("alertdialog");
+    const remove = await within(dialog).findByRole("button", { name: "Remove" });
+    expect(dialog.querySelector(".sala-cfm-note")).toHaveTextContent("Could not check for work that was not integrated.");
+    fireEvent.click(remove);
+    expect(onRemoveAgent).toHaveBeenCalledWith("a", false);
+  });
+
+  it("asks again, with the work, when the relay finds some the check did not", async () => {
+    const onRemoveAgent = vi.fn((_: string, discard: boolean) => Promise.resolve(discard ? { undoMs: 5000 } : { needsDiscard: [worktree("a", "anywh/late")] }));
+    mount(canvasOf(), { onRemoveAgent });
+    pressBar("Remove");
+    const first = screen.getByRole("alertdialog");
+    fireEvent.click(await within(first).findByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(screen.getByRole("alertdialog").querySelector(".sala-cfm-note")).toHaveTextContent("anywh/late"));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Remove" }));
+    expect(onRemoveAgent).toHaveBeenLastCalledWith("a", true);
+  });
+
+  it("leaves the room alone while the dialog is pressed or typed in: no pan, no shortcut, no Esc for the room", async () => {
+    const onEscape = vi.fn();
+    const onNewAgent = vi.fn();
+    const { viewport } = mount(canvasOf(), { onEscape, onNewAgent });
+    pressBar("Remove");
+    const cancel = within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" });
+    pointer("pointerDown", cancel, 10, 10);
+    pointer("pointerMove", viewport, 60, 60);
+    expect(viewport).not.toHaveAttribute("data-panning");
+    pointer("pointerUp", viewport, 60, 60);
+    fireEvent.keyDown(cancel, { key: "a" });
+    expect(onNewAgent).not.toHaveBeenCalled();
+    fireEvent.keyDown(cancel, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(onEscape).not.toHaveBeenCalled();
+  });
+
+  it("stops an agent without asking", () => {
+    const onStopAgent = vi.fn(() => Promise.resolve(true));
+    mount(canvasOf(), { onStopAgent });
+    pressBar("Stop");
+    expect(onStopAgent).toHaveBeenCalledWith("a");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+describe("SalaCanvas — selecting several agents", () => {
+  const room = [...agents, agent("c", { state: "done" })];
+  const positions = { ...canvasOf().positions, c: { x: 600, y: 288 } };
+  const mountRoom = (props: Partial<SalaCanvasProps> = {}, over: Partial<RoomCanvas> = {}) => mount(canvasOf({ positions, ...over }), { agents: room, ...props });
+  const hit = (id: string): HTMLElement => card(id).querySelector<HTMLElement>(".sala-node-hit")!;
+  const multiBar = (): HTMLElement => screen.getByRole("toolbar", { name: "Actions for the selected agents" });
+  const selectedIds = (): string[] => [...document.querySelectorAll(".sala-node.sel")].map((el) => el.getAttribute("data-agent-id")!);
+
+  it("adds and takes cards with Shift+click, and shows the bar for all of them instead of one card's", () => {
+    const onSelectMany = vi.fn();
+    mountRoom({ onSelectMany });
+    fireEvent.click(hit("a"));
+    fireEvent.click(hit("b"), { shiftKey: true });
+    expect(selectedIds()).toEqual(["a", "b"]);
+    expect(multiBar()).toHaveTextContent("2 agents");
+    expect(multiBar()).toHaveTextContent("Shift or Ctrl + click to change");
+    // The single card's bar is on its way out (it fades), never shown with the other.
+    expect(document.querySelector(".sala-bar:not(.out)")).toBeNull();
+    expect(onSelectMany).toHaveBeenCalled();
+    fireEvent.click(hit("c"), { shiftKey: true });
+    expect(multiBar()).toHaveTextContent("3 agents");
+    // Back down to one: a plain selection again, with its own bar.
+    fireEvent.click(hit("c"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    expect(selectedIds()).toEqual(["a"]);
+    expect(screen.queryByRole("toolbar", { name: "Actions for the selected agents" })).toBeNull();
+    expect(screen.getByRole("toolbar", { name: "Agent actions" })).toBeInTheDocument();
+  });
+
+  it("keeps every card of modified clicks that land before the room renders again", () => {
+    mountRoom();
+    fireEvent.click(hit("a"));
+    act(() => {
+      for (const id of ["b", "c"]) hit(id).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+    });
+    expect(selectedIds()).toEqual(["a", "b", "c"]);
+    expect(multiBar()).toHaveTextContent("3 agents");
+  });
+
+  it("names the keys as the platform writes them", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)");
+    try {
+      mountRoom();
+      fireEvent.click(hit("a"), { shiftKey: true });
+      fireEvent.click(hit("b"), { metaKey: true });
+      expect(multiBar()).toHaveTextContent("⇧ or ⌘ + click to change");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("takes Ctrl+click off macOS, where Command is not the selection's key", () => {
+    mountRoom();
+    fireEvent.click(hit("a"), { ctrlKey: true });
+    fireEvent.click(hit("b"), { ctrlKey: true });
+    expect(selectedIds()).toEqual(["a", "b"]);
+    fireEvent.click(hit("c"), { metaKey: true });
+    expect(selectedIds()).toEqual(["c"]);
+  });
+
+  it("never takes the orchestrator in: a modified click on it opens its conversation", () => {
+    const onOpenAgent = vi.fn();
+    mountRoom({ onOpenAgent });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("main"), { shiftKey: true });
+    expect(onOpenAgent).toHaveBeenCalledWith("main");
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it("counts one press once, though the pointer and the card's button both report it", () => {
+    const { viewport } = mountRoom();
+    fireEvent.click(hit("a"));
+    fireEvent.pointerDown(card("b").querySelector(".sala-node-body")!, { clientX: 400, clientY: 340, pointerId: 1, button: 0, shiftKey: true });
+    fireEvent.pointerUp(viewport, { clientX: 400, clientY: 340, pointerId: 1, button: 0, shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true, detail: 1 });
+    expect(selectedIds()).toEqual(["a", "b"]);
+  });
+
+  it("clears with Esc, with a click on the room and with the bar's ×", () => {
+    const { viewport } = mountRoom();
+    const pickTwo = (): void => {
+      fireEvent.click(hit("a"), { shiftKey: true });
+      fireEvent.click(hit("b"), { shiftKey: true });
+      expect(selectedIds()).toEqual(["a", "b"]);
+    };
+    pickTwo();
+    fireEvent.keyDown(viewport, { key: "Escape" });
+    expect(selectedIds()).toEqual([]);
+    pickTwo();
+    pointer("pointerDown", viewport, 1000, 700);
+    pointer("pointerUp", viewport, 1000, 700);
+    expect(selectedIds()).toEqual([]);
+    pickTwo();
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Clear the selection" }));
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it("groups the selection in a new area at once when none of it is in an area", () => {
+    const { onCanvasChange } = mountRoom();
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Group" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    const saved = onCanvasChange.mock.calls[0][0] as RoomCanvas;
+    expect(saved.areas).toHaveLength(1);
+    expect(saved.areas[0].members).toEqual(["a", "b"]);
+    expect(screen.getByText("Area created · 2 agents grouped")).toBeInTheDocument();
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it("asks before grouping agents out of the areas they are in, naming them", async () => {
+    const { onCanvasChange } = mountRoom({}, { areas: [{ id: "x", label: "Design", x: 0, y: 0, members: ["a"] }, { id: "y", label: "", x: 0, y: 0, members: ["c"] }] });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    fireEvent.click(hit("c"), { shiftKey: true });
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Group" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Create a new area?");
+    expect(dialog).toHaveTextContent("3 agents go to a new area and leave the areas they are in now:");
+    expect(within(dialog).getByText("Design")).toBeInTheDocument();
+    expect(within(dialog).getByText("Unnamed area")).toBeInTheDocument();
+    expect(onCanvasChange).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create area" }));
+    const saved = onCanvasChange.mock.calls[0][0] as RoomCanvas;
+    expect(saved.areas[saved.areas.length - 1].members).toEqual(["a", "b", "c"]);
+    expect(saved.areas.slice(0, 2).map((a) => a.members)).toEqual([[], []]);
+  });
+
+  it("stops the ones that can stop, without asking", async () => {
+    const onStopAgent = vi.fn(() => Promise.resolve(true));
+    mountRoom({ onStopAgent });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("c"), { shiftKey: true });
+    expect(within(multiBar()).getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    fireEvent.click(within(multiBar()).getByRole("button", { name: "Stop" }));
+    expect(onStopAgent).toHaveBeenCalledTimes(1);
+    expect(onStopAgent).toHaveBeenCalledWith("a");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(await screen.findByText("Agent stopped")).toBeInTheDocument();
+  });
+
+  it("offers no Stop when none of them can stop", () => {
+    mountRoom({ agents: [...room, agent("d", { state: "stopped" })] }, { positions: { ...positions, d: { x: 900, y: 288 } } });
+    fireEvent.click(hit("c"), { shiftKey: true });
+    fireEvent.click(hit("d"), { shiftKey: true });
+    expect(within(multiBar()).queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("removes them all after one question, from the bar or with Delete", async () => {
+    const onRemoveAgent = vi.fn(() => Promise.resolve({ undoMs: 5000 }));
+    const { viewport } = mountRoom({ onRemoveAgent });
+    fireEvent.click(hit("a"), { shiftKey: true });
+    fireEvent.click(hit("b"), { shiftKey: true });
+    fireEvent.keyDown(viewport, { key: "Delete" });
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Remove 2 agents from the room?");
+    expect(dialog).toHaveTextContent("The agents stop and leave the room. What they already wrote stays in the context.");
+    const remove = within(dialog).getByRole("button", { name: "Remove" });
+    await waitFor(() => expect(remove).toBeEnabled());
+    fireEvent.click(remove);
+    expect(onRemoveAgent.mock.calls).toEqual([
+      ["a", false],
+      ["b", false],
+    ]);
+    expect(await screen.findByText("2 agents left the room")).toBeInTheDocument();
+    expect(selectedIds()).toEqual([]);
   });
 });

@@ -10,11 +10,17 @@ const css = readFileSync(resolve(process.cwd(), "src/components/sala/sala.css"),
 /** Each rule's selector and body, comments dropped. */
 const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({ selector: selector.trim(), body }));
 
+/** The question's entrance and exit fade it: it is drawn after the plane (a
+ * layer over the plane does not make the plane one), the fade runs once and
+ * fills nothing past its end, so at rest no layer is left. */
+const ONE_SHOT = new Set(["sala-cfm-in", "sala-cfm-out", "sala-cfm-dim-in", "sala-cfm-dim-out"]);
+
 describe("sala.css", () => {
   it("has no @keyframes that animate transform or opacity", () => {
     const blocks = [...css.matchAll(/@keyframes\s+([\w-]+)\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)];
     expect(blocks.length).toBeGreaterThan(0);
     for (const [, name, body] of blocks) {
+      if (ONE_SHOT.has(name)) continue;
       expect({ name, promotes: /(^|[\s;{])(transform|opacity)\s*:/.test(body) }).toEqual({ name, promotes: false });
     }
   });
@@ -52,5 +58,25 @@ describe("sala.css", () => {
   it("keeps every animation running while the view moves", () => {
     const paused = rules.filter((r) => /\.moving\b/.test(r.selector) && /animation/.test(r.body)).map((r) => r.selector);
     expect(paused).toEqual([]);
+  });
+
+  // A card placed with `translate(-50%, -50%)` lands on half pixels, and its
+  // text went soft; the question over the canvas is placed by layout.
+  it("places the question over the canvas without a transform", () => {
+    const placed = rules.filter((r) => r.selector.split(",").some((s) => s.trim() === ".sala-cfm"));
+    expect(placed.length).toBeGreaterThan(0);
+    for (const rule of placed) expect(rule.body).not.toMatch(/(^|[\s;])(transform|translate|scale)\s*:/);
+  });
+
+  it("runs the fades it allows once, and keeps nothing of them at rest", () => {
+    for (const name of ONE_SHOT) {
+      const users = rules.filter((r) => new RegExp(`animation:[^;]*\\b${name}\\b`).test(r.body));
+      expect(users.length).toBe(1);
+      expect(users[0].body).not.toMatch(/infinite/);
+    }
+    for (const name of ["sala-cfm-in", "sala-cfm-dim-in"]) {
+      const entrance = rules.find((r) => new RegExp(`\\b${name}\\b`).test(r.body) && r.selector.startsWith(".sala-cfm"));
+      expect(entrance?.body).not.toMatch(/\b(forwards|both)\b/);
+    }
   });
 });
