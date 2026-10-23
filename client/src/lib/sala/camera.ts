@@ -271,13 +271,17 @@ export function gridLayer(cam: Camera, bgZ: number, vp: Size): GridLayer {
   const oy = (((cam.y % L) + L) % L) - L;
   const f = (n: number): string => n.toFixed(3);
   const px = (n: number): string => `${n.toFixed(3)}px`;
-  const dotA = clamp((S0 - 6) / 10, 0, 1) * 0.075;
-  const lineA = 0.034 * clamp(0.55 + z0 * 0.45, 0.55, 1);
+  // Strengths relative to the theme's `--canvas-grid`, which is the dots at
+  // full size: mixing with `transparent` scales its alpha, so the grid takes
+  // the theme's color and keeps the same fade by zoom on any page.
+  const dotA = clamp((S0 - 6) / 10, 0, 1);
+  const lineA = 0.4533 * clamp(0.55 + z0 * 0.45, 0.55, 1);
   const width = Math.ceil((vp.w + 2 * L0 + 16) / 0.7);
   const height = Math.ceil((vp.h + 2 * L0 + 16) / 0.7);
-  const line = `rgba(255,240,225,${f(lineA)})`;
+  const tone = (a: number): string => `color-mix(in srgb, var(--canvas-grid) ${f(a * 100)}%, transparent)`;
+  const line = tone(lineA);
   return {
-    backgroundImage: `radial-gradient(circle, rgba(255,240,225,${f(dotA)}) 1px, transparent 1px), linear-gradient(to right, ${line} 1px, transparent 1px), linear-gradient(to bottom, ${line} 1px, transparent 1px)`,
+    backgroundImage: `radial-gradient(circle, ${tone(dotA)} 1px, transparent 1px), linear-gradient(to right, ${line} 1px, transparent 1px), linear-gradient(to bottom, ${line} 1px, transparent 1px)`,
     backgroundSize: `${px(S0)} ${px(S0)}, ${px(L0)} ${px(L0)}, ${px(L0)} ${px(L0)}`,
     backgroundPosition: `${px(0.5)} ${px(0.5)}, 0 0, 0 0`,
     width,

@@ -63,6 +63,14 @@ export const OPTIONAL_COLOR_KEYS = [
   "border-soft",
   "context-ring-warn",
   "diff-add",
+  // The "running" tone of a room (an agent's card label, its live link, the
+  // progress sweep). A hue of its own, like `diff-add`: orange already means
+  // "needs you", so the accent can't stand in for it.
+  "state-run",
+  // The room canvas's grid: lines and dots drawn behind the cards. Declared
+  // translucent — the canvas scales its alpha down by zoom from here — so it
+  // reads as a faint mark of the page, whatever color the page is.
+  "canvas-grid",
   "overlay",
   "glass-tint",
   "media-scrim",

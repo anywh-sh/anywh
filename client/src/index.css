@@ -75,6 +75,15 @@
      "green" of an addition (a Write card, which is nothing but additions,
      read as "everything removed"). */
   --diff-add: #85cf95;
+  /* A room's "running" tone (card status label, live edge, progress sweep).
+     Cyan on purpose: orange means "needs you" and nothing else, and the
+     syntax tokens are a different dimension of the theme. */
+  --state-run: #89cfd3;
+  /* The room canvas's grid (lib/sala/camera.ts). Dots are drawn at this
+     alpha, lines at under half of it, both fading further when zoomed out.
+     Was a literal warm white inside the gradient, which vanished on any
+     light page. */
+  --canvas-grid: rgb(255 240 225 / 0.075);
 
   --border: #3a3937;
   --border-soft: #2a2927;
@@ -140,10 +149,6 @@
   --composer-border: color-mix(in srgb, var(--border-soft) 75%, var(--border));
   --composer-focus: color-mix(in srgb, var(--text-faint) 28%, var(--border));
 
-  /* A room's "running" tone (card status label, live edge, progress sweep).
-     Cyan on purpose: orange means "needs you" and nothing else, and the
-     syntax tokens are a different dimension of the theme. */
-  --state-run: #89cfd3;
 
   /* Square corners are the brand, not a default left unset — same call as
      the account dashboard and the marketing site. */
