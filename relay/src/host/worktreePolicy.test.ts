@@ -9,6 +9,7 @@ const facts = (over: Partial<CleanupFacts> = {}): CleanupFacts => ({
   ancestor: false,
   declaredIntegrated: false,
   strayCommits: false,
+  squashed: false,
   prMerged: false,
   worktreeExists: true,
   clean: true,
@@ -41,12 +42,29 @@ test("nothing is removed without evidence; every kind of evidence removes a clea
   assert.deepEqual(decideCleanup(facts(), true), { action: "retain", reason: "its branch is not merged into its base, and nobody said it was integrated" });
   assert.deepEqual(decideCleanup(facts({ ancestor: true }), true), { action: "remove", evidence: "ancestor", force: false });
   assert.deepEqual(decideCleanup(facts({ declaredIntegrated: true }), true), { action: "remove", evidence: "declared", force: false });
+  assert.deepEqual(decideCleanup(facts({ squashed: true }), true), { action: "remove", evidence: "squash", force: false });
   assert.deepEqual(decideCleanup(facts({ prMerged: true }), true), { action: "remove", evidence: "pull_request", force: false });
+});
+
+test("the evidence named is the strongest one held: ancestor, then declared, then squash, then pull request", () => {
+  const all = { ancestor: true, declaredIntegrated: true, squashed: true, prMerged: true };
+  assert.equal((decideCleanup(facts(all), true) as { evidence: string }).evidence, "ancestor");
+  assert.equal((decideCleanup(facts({ ...all, ancestor: false }), true) as { evidence: string }).evidence, "declared");
+  assert.equal((decideCleanup(facts({ ...all, ancestor: false, declaredIntegrated: false }), true) as { evidence: string }).evidence, "squash");
+  assert.equal((decideCleanup(facts({ squashed: false, prMerged: true }), true) as { evidence: string }).evidence, "pull_request");
 });
 
 test("evidence does not remove a worktree with uncommitted changes or an initialized submodule", () => {
   assert.equal(decideCleanup(facts({ ancestor: true, clean: false }), true).action, "retain");
   assert.equal(decideCleanup(facts({ declaredIntegrated: true, hasSubmodules: true }), true).action, "retain");
+  assert.equal(decideCleanup(facts({ squashed: true, clean: false }), true).action, "retain");
+  assert.equal(decideCleanup(facts({ squashed: true, hasSubmodules: true }), true).action, "retain");
+});
+
+test("a squash found by patch does not cover commits held off the branch", () => {
+  assert.equal(decideCleanup(facts({ squashed: true, strayCommits: true }), true).action, "retain");
+  assert.equal(decideCleanup(facts({ squashed: true, agentDone: false }), true).action, "skip");
+  assert.equal(decideCleanup(facts({ squashed: true, agentBusy: true }), false).action, "skip");
 });
 
 test("an agent at work, or (for automatic cleanup) not done, is left alone; a discard forces", () => {
