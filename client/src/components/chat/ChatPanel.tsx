@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ImagePlus } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -27,7 +27,7 @@ import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
 import { BackgroundJobIndicator } from "@/components/chat/BackgroundJobIndicator";
 import { LaunchedInBackground } from "@/components/chat/LaunchedInBackground";
-import { PRESENCE_IDLE_MS, type BackgroundJobSummary, type FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
+import { PRESENCE_IDLE_MS, type BackgroundJobSummary, type ContextUsage, type FailedBackgroundJobSummary, type PermissionMode, type PermissionModeOption } from "@/lib/relay/relayClient";
 import { isIOS } from "@/lib/platform/platform";
 import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import { cn } from "@/lib/utils";
@@ -59,6 +59,19 @@ export interface TraySubagent {
   description: string | null;
   activity: string | null;
   startedAt: number | null;
+}
+
+/** What an embedder's own composer needs off the panel's session (see
+ * `ChatPanelProps.renderComposer`). */
+export interface EmbeddedComposerSession {
+  connected: boolean;
+  /** The normal composer's send: slash commands, the optimistic bubble and
+   * the turn's clock all behave as they do in a tab. */
+  send: (text: string) => void;
+  permissionMode: PermissionMode | null;
+  permissionModes: PermissionModeOption[];
+  setPermissionMode: (mode: PermissionMode) => void;
+  contextUsage: ContextUsage | null;
 }
 
 interface ChatPanelProps {
@@ -138,6 +151,11 @@ interface ChatPanelProps {
    * so each `ChatPanel` needs to know whether it's its turn to handle the
    * drop. */
   isActiveTab: boolean;
+  /** Draws a composer of the embedder's own in place of the session one —
+   * a room agent's side panel keeps its compact box. The log, the choice
+   * card and the session's socket stay this panel's, so there is still
+   * exactly one connection. */
+  renderComposer?: (session: EmbeddedComposerSession) => ReactNode;
 }
 
 function buildWireMessage(text: string, attachments: PendingAttachment[]): string {
@@ -197,6 +215,7 @@ export function ChatPanel({
   files,
   onOpenPath,
   isActiveTab,
+  renderComposer,
 }: ChatPanelProps) {
   const dict = useDict();
   const log = useMessageLog();
@@ -938,7 +957,16 @@ export function ChatPanel({
               />
             )}
 
-            {isIOS() ? (
+            {renderComposer ? (
+              renderComposer({
+                connected,
+                send: (text) => handleSend(text, []),
+                permissionMode,
+                permissionModes,
+                setPermissionMode,
+                contextUsage,
+              })
+            ) : isIOS() ? (
               <>
                 <NativeTopBarMenu
                   catalog={modelCatalog}
