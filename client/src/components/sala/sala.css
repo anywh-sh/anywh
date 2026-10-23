@@ -44,8 +44,12 @@
  *  `salaCss.test.ts` and `camera.test.ts` hold these.
  */
 .sala {
-  /* How dark the room goes behind a question (SalaConfirm). */
-  --sala-cfm-dim: rgb(0 0 0 / 0.22);
+  /* How dark the room goes behind a question (SalaConfirm): a share of the
+   * theme's own modal scrim, so a light theme's weaker one dims less. */
+  --sala-cfm-dim: color-mix(in srgb, var(--overlay) 44%, transparent);
+  /* What an emphasis moves a color toward: white on a dark page (a brighter
+   * glint, a lighter hover). A light page overrides it below. */
+  --sala-glint: color-mix(in srgb, var(--state-run) 40%, white);
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
   /* Areas: the design's warm-white tint at 16% (frame) and 1.8% (fill), 30%
    * when hovered or selected. */
@@ -204,7 +208,7 @@
 .sala-edge-pulse {
   --peak: 1;
   fill: none;
-  stroke: color-mix(in srgb, var(--state-run) 40%, white);
+  stroke: var(--sala-glint);
   stroke-width: 1.75;
   stroke-linecap: round;
   stroke-dasharray: 34px calc(var(--len) + 34px);
@@ -1780,7 +1784,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #181715;
+  background: color-mix(in srgb, var(--bg-elevated) 33%, var(--background));
   border: 1px solid var(--border-soft);
   color: var(--muted-foreground);
   cursor: pointer;
@@ -1960,4 +1964,28 @@
   background-size: 100% 1px;
   background-origin: border-box;
   background-repeat: no-repeat;
+}
+
+/* Light pages. Moving a color toward white is how this file says "brighter"
+ * on a dark page, and on a light one it says "fainter": a glint on a running
+ * link washed out into the page, and the confirm button's hover went to a
+ * mid gray its own pale label could not be read on (2.4:1). */
+/* The same mix also fades less on a pale page: the past lines of an agent's
+ * log are deliberately quiet, but at the dark theme's amounts they measured
+ * 1.6:1 (clock) and 2.2:1 (text) on the light card, under the dark theme's
+ * own 1.9 and 2.9. These amounts put the light card back at or above it. */
+:root[data-appearance="light"] .sala {
+  --sala-glint: color-mix(in srgb, var(--state-run) 55%, var(--foreground));
+}
+:root[data-appearance="light"] .sala-node-card {
+  --sala-log-at: color-mix(in srgb, var(--text-faint) 45%, var(--bg-chrome));
+  --sala-log-past: color-mix(in srgb, var(--text-faint) 75%, var(--bg-chrome));
+}
+/* A destructive label on its own 16% tint: 4.3:1 on the light theme, and
+ * lower on a custom one. Darkened a step so it stays a label. */
+:root[data-appearance="light"] .sala-cfm-ok.danger {
+  color: color-mix(in srgb, var(--destructive) 80%, var(--foreground));
+}
+:root[data-appearance="light"] .sala-cfm-ok:not(.danger):hover {
+  background: color-mix(in srgb, var(--foreground) 82%, var(--background));
 }
