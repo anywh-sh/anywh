@@ -599,6 +599,7 @@ describe("anywh room canvas", () => {
     expect(text).toContain("Your turn");
     expect(text).toContain("Delegated by");
     await expect(await panel.$("textarea")).toBeExisting();
+    await expect(await panel.$('button[aria-label="Record audio"]')).toBeExisting();
     for (const action of ["Open in tab", "Delegate", "Stop", "Remove"]) expect(text).toContain(action);
     await panelSettled();
     await shot("B-resumo-do-agente");

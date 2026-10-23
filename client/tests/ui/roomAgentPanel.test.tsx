@@ -11,11 +11,13 @@ import type { AgentEvent } from "@/lib/relay/relay-types";
 import type { RoomAgent, RoomWorktree } from "@/lib/relay/roomClient";
 import foreground from "./fixtures/subagent-fg.json";
 
-// Same Tauri seams as sendMessage.test.tsx.
+// Same Tauri seams as sendMessage.test.tsx; the mic-device probe answers
+// whatever `devices` holds, so a test can give the machine a microphone.
+let devices: string[] = [];
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => undefined) }),
 }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.resolve([]) }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (command: string) => Promise.resolve(command === "list_input_devices" ? devices : []) }));
 
 const BRANCH = "anywh/stop-the-spinner-in-message-log-on-the-phone";
 
@@ -32,6 +34,7 @@ let relay: FakeRelay;
 beforeEach(() => {
   localStorage.clear();
   seedShellProfile();
+  devices = [];
   relay = installFakeRelay("on it");
 });
 
@@ -117,5 +120,17 @@ describe("a room worker's side panel", () => {
     openWorker();
     expect(delegatedRow()).toHaveTextContent(en.sala.panel.agent.delegatedBy.replace("{title}", en.sala.orchestrator));
     expect(delegatedRow().querySelector(".sala-side-wt")).toBeNull();
+  });
+
+  it("has the composer's microphone, gated on an input device like it", async () => {
+    openWorker();
+    const mic = await within(panel()).findByRole("button", { name: en.chat.composer.record });
+    expect(mic).toBeDisabled();
+    cleanup();
+
+    devices = ["Built-in Microphone"];
+    openWorker();
+    const ready = await within(panel()).findByRole("button", { name: en.chat.composer.record });
+    await vi.waitFor(() => expect(ready).toBeEnabled());
   });
 });

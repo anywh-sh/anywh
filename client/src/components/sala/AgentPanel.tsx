@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ArrowUp, GitBranch, Layers } from "lucide-react";
 import { ChatPanel, type EmbeddedComposerSession } from "@/components/chat/ChatPanel";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
+import { VoiceButton } from "@/components/chat/VoiceButton";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
@@ -9,6 +10,7 @@ import { Clock } from "@/components/sala/SalaCard";
 import { CheckIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
 import { useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
+import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
 import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
@@ -227,12 +229,17 @@ function WorktreeMark({ work, text }: { work: AgentWork[]; text: Dictionary["sal
 
 /**
  * The room's compact box under a worker's conversation: a plain field, the
- * permission mode and send. It sends through the
+ * microphone, the permission mode and send. It sends through the
  * conversation's own session, so the message shows in the log at once.
  */
 function WorkerComposer({ session, text }: { session: EmbeddedComposerSession; text: Dictionary["sala"]["panel"]["agent"] }) {
+  const transcribing = useDict().chat.composer.transcribing;
   const [message, setMessage] = useState("");
   const [sendFailed, setSendFailed] = useState(false);
+  const voice = useVoiceRecording({
+    onTranscribed: (said) => setMessage((current) => (current.trim() === "" ? said : `${current} ${said}`)),
+    onError: (error) => window.alert(error),
+  });
   const percent = session.contextUsage ? windowPercent(session.contextUsage) : null;
   const contextFigure = session.contextUsage
     ? (percent === null ? text.contextUsedNoWindow : text.contextUsed).replace("{tokens}", formatTokens(session.contextUsage.usedTokens)).replace("{percent}", String(percent))
@@ -268,8 +275,10 @@ function WorkerComposer({ session, text }: { session: EmbeddedComposerSession; t
       />
       <div className="sala-side-compose-bar">
         {session.permissionMode !== null && <PermissionModeButton mode={session.permissionMode} available={session.permissionModes} onChange={session.setPermissionMode} />}
+        {voice.state === "transcribing" && <span className="sala-side-clock">{transcribing}</span>}
         <span className="grow" />
         {sendFailed ? <span className="sala-side-err">{text.sendFailed}</span> : contextFigure !== null && <span className="sala-side-clock trunc">{contextFigure}</span>}
+        <VoiceButton voice={voice} />
         <button type="button" className="sala-send" onClick={send} disabled={message.trim() === "" || !session.connected} aria-label={text.send} title={text.send}>
           <ArrowUp size={14} aria-hidden="true" />
         </button>
