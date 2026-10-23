@@ -292,14 +292,42 @@ export async function squashedIntoBase(repoRoot: string, tip: string, base: Work
   return lines.length > 0 && lines.every((line) => line.startsWith("="));
 }
 
-/** Whether the branch's pull request was merged *at this tip*, by `gh` when
- * it is installed and the repo has a remote: commits pushed after the merge
- * are not covered by it. Anything else (no `gh`, no network, no such PR) is `false`. */
-export function pullRequestMerged(repoRoot: string, branch: string, tip: string | undefined, gh = "gh"): Promise<boolean> {
-  if (!tip) return Promise.resolve(false);
+interface PullRequestSummary {
+  merged_at?: unknown;
+  base?: { ref?: unknown };
+  head?: { sha?: unknown };
+}
+
+/**
+ * Whether a pull request into the worktree's base branch was merged with
+ * `tip` as its head, asked of GitHub by commit (`gh api .../commits/<tip>/pulls`),
+ * so one opened from another branch at the same commit counts too. Only a
+ * merged one whose head is exactly `tip` and whose base is the branch the
+ * worktree started from: one whose head went on past `tip`, or that went
+ * into another branch, says nothing about this one. Anything else (no `gh`,
+ * no remote, no login, no network, a commit GitHub does not know) is `false`.
+ */
+export function pullRequestMerged(repoRoot: string, tip: string | undefined, base: WorktreeBase, gh = "gh"): Promise<boolean> {
+  const baseRef = base.ref;
+  if (!tip || !/^[0-9a-f]{40,64}$/.test(tip) || !baseRef) return Promise.resolve(false);
   return new Promise((resolveRun) => {
-    execFile(gh, ["pr", "view", branch, "--json", "state,headRefOid", "--jq", '.state + " " + .headRefOid'], { cwd: repoRoot, env: gitEnv(), timeout: 15_000, encoding: "utf8" }, (error, stdout) => {
-      resolveRun(!error && stdout.trim() === `MERGED ${tip}`);
+    const args = ["api", "-H", "Accept: application/vnd.github+json", `repos/{owner}/{repo}/commits/${tip}/pulls?per_page=100`];
+    execFile(gh, args, { cwd: repoRoot, env: { ...gitEnv(), GH_PROMPT_DISABLED: "1" }, timeout: 15_000, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
+      if (error) return resolveRun(false);
+      let pulls: unknown;
+      try {
+        pulls = JSON.parse(stdout);
+      } catch {
+        return resolveRun(false);
+      }
+      if (!Array.isArray(pulls)) return resolveRun(false);
+      resolveRun(
+        pulls.some((entry: unknown) => {
+          if (typeof entry !== "object" || entry === null) return false;
+          const pr = entry as PullRequestSummary;
+          return typeof pr.merged_at === "string" && pr.merged_at !== "" && pr.base?.ref === baseRef && pr.head?.sha === tip;
+        }),
+      );
     });
   });
 }

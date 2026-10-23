@@ -6,8 +6,8 @@
 // A worktree and its branch are removed only when the branch is merged into
 // the base it started from, or someone said its work was integrated, or its
 // whole patch is on the base as a squash or rebase merge (which leave no
-// ancestor for git to see), or its pull request was merged, and its
-// worktree is clean. Without such evidence it is retained, with the
+// ancestor for git to see), or a pull request into the base was merged with
+// the branch's exact tip as its head, and its worktree is clean. Without such evidence it is retained, with the
 // reason. Only "discard anyway", asked for by a person, forces. Only records
 // of this registry, under the worktrees folder and carrying the `anywh/`
 // branch prefix, are ever acted on: the person's own worktrees and branches
@@ -251,7 +251,7 @@ export class RoomWorktrees {
   }
 
   private async pullRequestMerged(record: WorktreeRecord, repo: string, tip: string | undefined): Promise<boolean> {
-    const merged = await pullRequestMerged(repo, record.branch, tip, this.options.gh);
+    const merged = await pullRequestMerged(repo, tip, record.base, this.options.gh);
     if (merged && tip) this.proofs.set(record.id, { ...this.proofs.get(record.id), pullRequestTip: tip });
     return merged;
   }

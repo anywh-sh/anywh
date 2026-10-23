@@ -361,14 +361,95 @@ test("a worktree with an initialized submodule is retained when integrated, and 
   assert.deepEqual(branches(repo), ["main"]);
 });
 
-/** A stand-in for `gh pr view <branch> --json ...`: answers $GH_ANSWER (with
- * the branch's current tip for "@tip") after $GH_SLEEP seconds. */
+/** A stand-in for `gh api repos/{owner}/{repo}/commits/<sha>/pulls`: answers
+ * $GH_ANSWER (with the sha asked about for "@tip") after $GH_SLEEP seconds,
+ * appending its arguments to $GH_MARK. Fails as gh does for anything else. */
 function fakeGh(): string {
   const path = join(dir, `gh-${++counter}.sh`);
-  writeFileSync(path, '#!/bin/sh\n[ -n "$GH_MARK" ] && echo called >> "$GH_MARK"\nsleep "${GH_SLEEP:-0}"\ntip=$(git rev-parse "refs/heads/$3")\necho "$GH_ANSWER" | sed "s/@tip/$tip/"\n');
+  writeFileSync(
+    path,
+    [
+      "#!/bin/sh",
+      '[ -n "$GH_MARK" ] && echo "$*" >> "$GH_MARK"',
+      'sleep "${GH_SLEEP:-0}"',
+      '[ "$1" = api ] || exit 1',
+      'tip=$(printf "%s" "$4" | sed -n "s#^repos/{owner}/{repo}/commits/\\([0-9a-f]*\\)/pulls.*#\\1#p")',
+      '[ -n "$tip" ] || exit 1',
+      '[ -n "$GH_FAIL" ] && { echo "HTTP 422" >&2; exit 1; }',
+      'printf "%s\\n" "$GH_ANSWER" | sed "s/@tip/$tip/g"',
+      "",
+    ].join("\n"),
+  );
   chmodSync(path, 0o755);
   return path;
 }
+
+/** What GitHub answers for a commit's pull requests: one, with these fields. */
+function pulls(pr: { merged?: boolean; base?: string; head?: string }): string {
+  return JSON.stringify([{ number: 184, state: "closed", merged_at: pr.merged === false ? null : "2026-10-20T12:00:00Z", base: { ref: pr.base ?? "main" }, head: { ref: "feat/another-branch", sha: pr.head ?? "@tip" } }]);
+}
+
+test("a pull request merged from another branch at the same tip is found by commit, and proves the work integrated", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const tip = git(h.repo, "rev-parse", wt.branch);
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = pulls({});
+  try {
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+    assert.match(readFileSync(mark, "utf8"), new RegExp(`^api .*repos/\\{owner\\}/\\{repo\\}/commits/${tip}/pulls`, "m"));
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+  }
+  assertNoTrace(h);
+});
+
+test("a pull request whose head went past the tip, into another base, or not merged, proves nothing; nor does gh failing", async () => {
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const later = git(h.repo, "rev-parse", "main");
+  const retained = async (answer: string, fail = false): Promise<void> => {
+    process.env.GH_ANSWER = answer;
+    if (fail) process.env.GH_FAIL = "1";
+    try {
+      const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+      assert.equal(outcome?.result, "retained", answer);
+    } finally {
+      delete process.env.GH_ANSWER;
+      delete process.env.GH_FAIL;
+    }
+  };
+  // The PR's head carries commits made after this tip (it contains the tip, but is not it).
+  await retained(pulls({ head: later }));
+  await retained(pulls({ base: "release" }));
+  await retained(pulls({ merged: false }));
+  await retained("[]");
+  await retained("not json");
+  await retained(pulls({}), true);
+  assert.ok(existsSync(wt.path));
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a worktree started from a detached HEAD has no base branch for a pull request to go into: gh is not trusted", async () => {
+  const repo = makeRepo();
+  git(repo, "checkout", "-q", "--detach");
+  const h = harness(repo, fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_ANSWER = pulls({});
+  try {
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+  } finally {
+    delete process.env.GH_ANSWER;
+  }
+});
 
 test("a declaration covers the tip it was made of: commits made after it are kept", async () => {
   const h = harness();
@@ -385,10 +466,10 @@ test("a pull request merged at an older tip does not cover commits pushed after 
   const h = harness(makeRepo(), fakeGh());
   const wt = await created(h);
   commitIn(wt.path);
-  process.env.GH_ANSWER = "MERGED 0000000000000000000000000000000000000000";
+  process.env.GH_ANSWER = pulls({ head: "0000000000000000000000000000000000000000" });
   try {
     assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
-    process.env.GH_ANSWER = "MERGED @tip";
+    process.env.GH_ANSWER = pulls({});
     assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
   } finally {
     delete process.env.GH_ANSWER;
@@ -413,7 +494,7 @@ test("an agent that starts a turn while the decision is being made keeps its wor
   const h = harness(makeRepo(), fakeGh());
   const wt = await created(h);
   commitIn(wt.path);
-  process.env.GH_ANSWER = "MERGED @tip";
+  process.env.GH_ANSWER = pulls({});
   process.env.GH_SLEEP = "1";
   try {
     setTimeout(() => (h.agent.busy = true), 300);
@@ -551,7 +632,7 @@ test("a removal decided before a crash is not carried out for commits made after
 test("gh is not asked about a worktree that cannot be removed anyway", async () => {
   const mark = join(dir, `gh-mark-${++counter}`);
   process.env.GH_MARK = mark;
-  process.env.GH_ANSWER = "MERGED @tip";
+  process.env.GH_ANSWER = pulls({});
   try {
     const h = harness(makeRepo(), fakeGh());
     const wt = await created(h);
