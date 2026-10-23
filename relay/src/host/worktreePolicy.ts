@@ -102,7 +102,11 @@ export interface CleanupFacts {
   declaredIntegrated: boolean;
   /** The worktree's HEAD holds commits no branch of ours has (detached, or on another branch). */
   strayCommits: boolean;
-  /** The branch's pull request was merged (best effort; false when unknown). */
+  /** The branch's work, at the tip it has now, is on its base as a squash or
+   * rebase merge, by patch (false when unknown). */
+  squashed: boolean;
+  /** A pull request into its base was merged with the branch's tip as its
+   * head (best effort; false when unknown). */
   prMerged: boolean;
   worktreeExists: boolean;
   /** No uncommitted or untracked changes (true when there is no worktree). */
@@ -114,14 +118,14 @@ export interface CleanupFacts {
 export type CleanupDecision =
   | { action: "skip"; reason: string }
   | { action: "retain"; reason: string }
-  | { action: "remove"; evidence: "ancestor" | "declared" | "pull_request" | "discard"; force: boolean };
+  | { action: "remove"; evidence: "ancestor" | "declared" | "squash" | "pull_request" | "discard"; force: boolean };
 
 export function decideCleanup(facts: CleanupFacts, auto: boolean): CleanupDecision {
   if (facts.agentBusy) return { action: "skip", reason: "the agent has a turn running" };
   if (auto && !facts.agentDone) return { action: "skip", reason: "the agent is not done" };
   if (facts.discard) return { action: "remove", evidence: "discard", force: true };
   if (facts.strayCommits) return { action: "retain", reason: "its worktree holds commits that are on no branch of its own" };
-  const evidence = facts.ancestor ? "ancestor" : facts.declaredIntegrated ? "declared" : facts.prMerged ? "pull_request" : undefined;
+  const evidence = facts.ancestor ? "ancestor" : facts.declaredIntegrated ? "declared" : facts.squashed ? "squash" : facts.prMerged ? "pull_request" : undefined;
   if (!evidence) return { action: "retain", reason: "its branch is not merged into its base, and nobody said it was integrated" };
   if (!facts.clean) return { action: "retain", reason: "its worktree has uncommitted changes or files git ignores" };
   if (facts.hasSubmodules) return { action: "retain", reason: "a submodule is initialized in it; removing it needs an explicit discard" };

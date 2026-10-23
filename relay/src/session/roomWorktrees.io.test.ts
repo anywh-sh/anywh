@@ -141,14 +141,108 @@ test("unmerged work is retained with the reason, then discarded only when asked"
   assertNoTrace(h);
 });
 
-test("a squash merge leaves no ancestor: retained without a declaration (gh absent), removed with one", async () => {
+/** Squash-merges `branch` into the repo's main, after another commit landed
+ * there first (so the squash is not the base's only change). */
+function squashMerge(repo: string, branch: string): void {
+  commitIn(repo, `main-${++counter}.txt`);
+  git(repo, "merge", "--squash", branch);
+  git(repo, "commit", "-q", "-m", "squashed");
+}
+
+test("a squash merge leaves no ancestor, but its patch is on the base: removed without a declaration or gh", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  process.env.GH_MARK = mark;
+  try {
+    const h = harness(makeRepo(), fakeGh());
+    const wt = await created(h);
+    commitIn(wt.path);
+    commitIn(wt.path, "second.txt");
+    squashMerge(h.repo, wt.branch);
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "squash");
+    assert.equal(existsSync(mark), false, "an offline proof needs no gh");
+    assertNoTrace(h);
+  } finally {
+    delete process.env.GH_MARK;
+  }
+});
+
+test("a commit made on the branch after its squash merge is not covered by it: retained", async () => {
   const h = harness();
   const wt = await created(h);
   commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  commitIn(wt.path, "after-the-merge.txt");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.match(outcome?.reason ?? "", /not merged/);
+  assert.ok(existsSync(join(wt.path, "after-the-merge.txt")));
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a squash with different content (the merge edited the patch) is not the branch's work: retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  commitIn(h.repo, `main-${++counter}.txt`);
   git(h.repo, "merge", "--squash", wt.branch);
-  git(h.repo, "commit", "-q", "-m", "squashed");
-  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", "no evidence git can see, nothing is deleted");
-  assert.ok(existsSync(wt.path));
+  writeFileSync(join(h.repo, "new.txt"), "work, edited at merge time\n");
+  git(h.repo, "add", "-A");
+  git(h.repo, "commit", "-q", "-m", "squashed and edited");
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+});
+
+test("a rebase merge replays every commit of the branch on the base: removed; one commit missing, retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path, "one.txt");
+  commitIn(wt.path, "two.txt");
+  commitIn(h.repo, `main-${++counter}.txt`);
+  const commits = git(h.repo, "rev-list", "--reverse", `main..${wt.branch}`).split("\n");
+  // Only the first replayed: the second commit's work is not on the base.
+  git(h.repo, "cherry-pick", commits[0]);
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+  git(h.repo, "cherry-pick", commits[1]);
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "removed", outcome?.reason);
+  assert.equal(outcome?.reason, "squash");
+  assertNoTrace(h);
+});
+
+test("a branch whose commits cancel out has an empty patch, which proves nothing: retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path, "temp.txt");
+  git(wt.path, "rm", "-q", "temp.txt");
+  git(wt.path, "commit", "-q", "-m", "undo");
+  git(h.repo, "commit", "-q", "--allow-empty", "-m", "empty on main");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+});
+
+test("a squash-merged worktree with uncommitted changes is retained, and listed as integrated", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  writeFileSync(join(wt.path, "scratch.txt"), "uncommitted\n");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.match(outcome?.reason ?? "", /uncommitted/);
+  assert.equal(readFileSync(join(wt.path, "scratch.txt"), "utf8"), "uncommitted\n");
+  const [info] = await h.worktrees.list("room");
+  assert.equal(info?.integrated, true);
+});
+
+test("a declaration still removes what no patch can prove", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
   await h.worktrees.declareIntegratedFor("agent-1", "agent");
   assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
   assertNoTrace(h);
