@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { ArrowUp, Check, ChevronDown, FileText, Loader2, Mic, Plus, Video, X } from "lucide-react";
+import { ArrowUp, FileText, Loader2, Plus, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -20,19 +20,13 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Elapsed } from "@/components/chat/activity/Elapsed";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn, formatDuration } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useDict } from "@/i18n";
 import { useDraftSync } from "@/hooks/composer/useDraftSync";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
+import { VoiceButton } from "@/components/chat/VoiceButton";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
@@ -860,61 +854,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             </>
           )}
 
-          {isRecording && (
-            <Button type="button" variant="ghost" size="icon-sm" onClick={voice.cancel} aria-label={copy.cancelRecording}>
-              <X className="size-3.5" />
-            </Button>
-          )}
-
-          <div className="flex items-center">
-            {/* Recording turns the button itself into the state: a stop
-                square and the elapsed time, in place of the microphone.
-                The waveform that used to sit in the toolbar is gone —
-                it animated nothing real (a generic loop, never the
-                captured audio), and the timer next to a red button
-                already says "this is live". */}
-            <Button
-              type="button"
-              variant={isRecording ? "destructive" : "ghost"}
-              size={isRecording ? "sm" : "icon-sm"}
-              className={isRecording ? undefined : "size-[30px] text-text-faint"}
-              onClick={() => (isRecording ? void voice.stop() : void voice.start())}
-              disabled={isTranscribing || (!isRecording && voice.devices.length === 0)}
-              aria-label={isRecording ? copy.stopRecording : copy.record}
-            >
-              {isRecording ? (
-                <>
-                  <span className="size-2 bg-current" />
-                  {formatDuration(voice.elapsedSeconds)}
-                </>
-              ) : (
-                <Mic className="size-4" />
-              )}
-            </Button>
-
-            {voice.devices.length > 1 && !isRecording && !isTranscribing && (
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={copy.selectMicrophone}
-                    className="flex h-[30px] w-5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
-                  >
-                    <ChevronDown className="size-3 opacity-70" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[calc(240px*var(--chrome-scale))]">
-                  <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
-                  {voice.devices.map((name) => (
-                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)} className={cn(name === voice.selectedDevice && "text-foreground")}>
-                      <span className="min-w-0 flex-1 truncate text-left">{name}</span>
-                      <Check className={cn("size-3.5 shrink-0 text-foreground", name !== voice.selectedDevice && "opacity-0")} />
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
+          <VoiceButton voice={voice} />
           {turnInFlight ? (
             // Light like the send button it replaces, not red: stopping is
             // an ordinary action here, and the clock beside it is the turn's
