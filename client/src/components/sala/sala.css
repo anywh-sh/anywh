@@ -44,6 +44,8 @@
  *  `salaCss.test.ts` and `camera.test.ts` hold these.
  */
 .sala {
+  /* How dark the room goes behind a question (SalaConfirm). */
+  --sala-cfm-dim: rgb(0 0 0 / 0.22);
   --sala-tray: color-mix(in srgb, var(--bg-elevated) 50%, var(--background));
   /* Areas: the design's warm-white tint at 16% (frame) and 1.8% (fill), 30%
    * when hovered or selected. */
@@ -1030,13 +1032,32 @@
  * margins in a box that ends 24% above the bottom, so its middle sits at 38%
  * of the canvas), never by `translate(-50%)`: a fractional offset in a
  * transform left its text soft. */
-/* The backdrop only takes the clicks around the card (one cancels): it
- * does not dim the room, as the design does not. */
+/* The backdrop takes the clicks around the card (one cancels). */
 .sala-cfm-bd {
   position: absolute;
   inset: 0;
   z-index: 40;
+  /* A light dim, over the canvas only: a flat translucent fill (no filter,
+   * no backdrop-filter), so what is behind keeps its edges and only loses a
+   * little contrast. The window-wide 50% dim this replaced halved it. */
+  background: var(--sala-cfm-dim);
   cursor: default;
+}
+.sala-cfm-bd[data-state="open"] {
+  animation: sala-cfm-dim-in 0.18s ease backwards;
+}
+.sala-cfm-bd[data-state="closed"] {
+  animation: sala-cfm-dim-out 0.12s ease-in forwards;
+}
+@keyframes sala-cfm-dim-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes sala-cfm-dim-out {
+  to {
+    opacity: 0;
+  }
 }
 .sala-cfm {
   position: absolute;
@@ -1082,14 +1103,16 @@
 }
 .sala-cfm-t {
   margin: 0;
-  font: 600 17px/1.3 var(--font-display);
+  /* Whole-pixel line heights (the design's 1.3 and 1.55, rounded) keep the
+   * card's height whole, so it can sit on the pixel grid. */
+  font: 600 17px/22px var(--font-display);
   letter-spacing: -0.005em;
   color: var(--foreground);
 }
 .sala-cfm-d {
   margin: 0;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 20px;
   color: var(--text-faint);
 }
 .sala-cfm-l {

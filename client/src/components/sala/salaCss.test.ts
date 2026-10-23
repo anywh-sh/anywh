@@ -13,7 +13,7 @@ const rules = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}
 /** The question's entrance and exit fade it: it is drawn after the plane (a
  * layer over the plane does not make the plane one), the fade runs once and
  * fills nothing past its end, so at rest no layer is left. */
-const ONE_SHOT = new Set(["sala-cfm-in", "sala-cfm-out"]);
+const ONE_SHOT = new Set(["sala-cfm-in", "sala-cfm-out", "sala-cfm-dim-in", "sala-cfm-dim-out"]);
 
 describe("sala.css", () => {
   it("has no @keyframes that animate transform or opacity", () => {
@@ -74,7 +74,9 @@ describe("sala.css", () => {
       expect(users.length).toBe(1);
       expect(users[0].body).not.toMatch(/infinite/);
     }
-    const entrance = rules.find((r) => /\bsala-cfm-in\b/.test(r.body) && r.selector.startsWith(".sala-cfm"));
-    expect(entrance?.body).not.toMatch(/\b(forwards|both)\b/);
+    for (const name of ["sala-cfm-in", "sala-cfm-dim-in"]) {
+      const entrance = rules.find((r) => new RegExp(`\\b${name}\\b`).test(r.body) && r.selector.startsWith(".sala-cfm"));
+      expect(entrance?.body).not.toMatch(/\b(forwards|both)\b/);
+    }
   });
 });

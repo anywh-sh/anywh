@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { AlertDialog as Dialog } from "radix-ui";
 import { cn } from "@/lib/utils";
 
@@ -44,12 +44,30 @@ export function SalaConfirm({ view, container, cancelLabel, pendingLabel, onCanc
   const last = useRef<SalaConfirmView | null>(view);
   if (view) last.current = view;
   const shown = view ?? last.current;
+  // Auto margins centre the card on a half pixel whenever the room it
+  // centres in is odd: it is nudged onto the device's pixel grid, through
+  // `top` (half of which moves an auto-centred box), never a transform.
+  // Measured at rest: again once the entrance (which moves `top`) ends.
+  const card = useRef<HTMLDivElement>(null);
+  const open = view !== null;
+  const snap = (): void => {
+    const el = card.current;
+    if (!el || !open || el.getAnimations?.().some((a) => a.playState === "running")) return;
+    el.style.top = "";
+    const ratio = window.devicePixelRatio || 1;
+    const y = el.getBoundingClientRect().top;
+    const off = y - Math.round(y * ratio) / ratio;
+    if (Math.abs(off) > 0.01) el.style.top = `${(-2 * off).toFixed(3)}px`;
+  };
+  useLayoutEffect(snap, [open, view?.title, view?.body]);
   return (
     <Dialog.Root open={view !== null} onOpenChange={(open) => !open && onCancel()}>
       <Dialog.Portal container={container}>
         <Dialog.Overlay className="sala-cfm-bd" data-float data-confirm onClick={onCancel} />
         <Dialog.Content
+          ref={card}
           className="sala-cfm"
+          onAnimationEnd={snap}
           data-float
           data-confirm
           onKeyDown={(event) => {
