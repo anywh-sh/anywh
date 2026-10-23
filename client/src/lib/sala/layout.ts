@@ -65,6 +65,27 @@ export function edgePath(p: Rect, c: Rect): string {
   return `M${String(x1)} ${String(y1)}V${String(ya)}H${String(xm)}V${String(yb)}H${String(x2)}V${String(y2)}`;
 }
 
+/** The length of a path `edgePath` drew (a move, then vertical and horizontal
+ * runs): what a link's dashes are measured against when it draws itself or
+ * carries a pulse. */
+export function pathLength(d: string): number {
+  let x = 0;
+  let y = 0;
+  let len = 0;
+  for (const [, cmd, args] of d.matchAll(/([MVH])([^MVH]*)/g)) {
+    const v = args.trim().split(/[\s,]+/).map(Number);
+    if (cmd === "M") [x, y] = [v[0] ?? 0, v[1] ?? 0];
+    else if (cmd === "V") {
+      len += Math.abs((v[0] ?? y) - y);
+      y = v[0] ?? y;
+    } else {
+      len += Math.abs((v[0] ?? x) - x);
+      x = v[0] ?? x;
+    }
+  }
+  return Math.round(len * 10) / 10;
+}
+
 /** The frame an area draws: around its members' cards with the area's
  * padding, or the rectangle it was stored with when none of them is here. */
 export function areaRect(area: RoomCanvasArea, cards: ReadonlyMap<string, Rect>): Rect {

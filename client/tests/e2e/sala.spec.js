@@ -266,7 +266,12 @@ describe("anywh room canvas", () => {
     const waiting = await $('[data-agent-id][data-state="awaiting_user"]');
     await expect(await waiting.$(".sala-state")).toHaveAttribute("title", "Your turn");
     await expect(await waiting.$("button.sala-reply")).toBeExisting();
-    // Areas never run over each other.
+    // Areas never run over each other — once they have eased to where the
+    // layout put them (an area moves and resizes over 300ms).
+    await browser.waitUntil(() => browser.execute(() => [...document.querySelectorAll("[data-area-id]")].every((el) => el.getAnimations().length === 0)), {
+      timeout: 5000,
+      timeoutMsg: "the areas never settled",
+    });
     const overlap = await browser.execute(() => {
       const frames = [...document.querySelectorAll("[data-area-id]")].map((el) => el.getBoundingClientRect());
       const hits = [];

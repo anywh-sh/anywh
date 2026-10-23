@@ -156,7 +156,13 @@
      `background-color` and `border-color` only — never `width`/`height`/
      `top`/`left`/`margin` (layout on every frame) and never `box-shadow` or
      `filter` (full repaint, no compositor fast path). Panels open and close
-     instantly on purpose; that is the fastest possible animation. */
+     instantly on purpose; that is the fastest possible animation.
+     The one exception is the room canvas (components/sala/sala.css), whose
+     motion is part of its design: cards with shadows that rise when picked
+     up, links that pulse and draw themselves, windows that open, areas that
+     ease to a new size. Its own header says how that stays cheap — every
+     animation there repaints only what moves, and a moving camera moves one
+     composited layer instead of repainting the room. */
   --motion-fast: 120ms;
   --motion-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
 }

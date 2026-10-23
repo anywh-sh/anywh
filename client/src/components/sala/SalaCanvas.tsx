@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import "@/components/sala/sala.css";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,8 @@ import {
 } from "@/lib/sala/camera";
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
-import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { prefersReducedMotion, useArrivals, useNewAreas } from "@/components/sala/useArrivals";
 import { AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { SalaCard } from "@/components/sala/SalaCard";
 import { SalaToolbar, type SalaTool } from "@/components/sala/SalaToolbar";
@@ -105,6 +106,21 @@ function isBigText(texts: readonly RoomCanvasText[], id: string): boolean {
 const textLift = (big: boolean): number => (big ? 42 : 22);
 
 const translate = (x: number, y: number): string => `translate(${String(x)}px, ${String(y)}px)`;
+
+/** How long a dropped card takes to settle on the grid. */
+export const DROP_SETTLE_MS = 180;
+const easeOutQuart = (t: number): number => 1 - (1 - t) ** 4;
+
+/** Places an area's frame. By `left`/`top`, not a transform: see `.sala-frame`. */
+const placeFrame = (el: HTMLElement, rect: Rect): void => {
+  el.style.left = `${String(rect.x)}px`;
+  el.style.top = `${String(rect.y)}px`;
+  el.style.width = `${String(rect.w)}px`;
+  el.style.height = `${String(rect.h)}px`;
+};
+
+/** The states a link takes the color of (its child's); any other draws the neutral line. */
+const linkTone = (tone: string): string | false => (tone === "run" || tone === "start" || tone === "wait" || tone === "done" || tone === "stop") && tone;
 
 let nextId = 0;
 const newId = (prefix: string): string => `${prefix}-${Date.now().toString(36)}-${String((nextId += 1))}`;
@@ -188,6 +204,18 @@ export function SalaCanvas(props: SalaCanvasProps) {
         canvas.texts.map((t, i) => ({ x: t.x, y: t.y, text: t.text, big: i === TEXT_BIG_AT })),
       ),
     [rects, frames, canvas.texts],
+  );
+  // What the room held when it first showed is not arriving; what joins it
+  // while it is open is.
+  const shown = measured && rects.size > 0;
+  // Only what is drawn arrives: a card whose place is not known yet arrives
+  // when it shows up, not before.
+  const drawn = useMemo(() => agents.filter((a) => rects.has(a.agentId)), [agents, rects]);
+  const arrivals = useArrivals(drawn, shown);
+  const delegating = useMemo(() => new Set([...arrivals.keys()].flatMap((id) => byId.get(id)?.parentId ?? [])), [arrivals, byId]);
+  const newAreas = useNewAreas(
+    canvas.areas.map((a) => a.id),
+    shown,
   );
   const mm = useMemo(() => minimapMap(bounds), [bounds]);
   const mmRef = useRef<MinimapMap>(mm);
@@ -369,10 +397,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   const writeFrame = useCallback((id: string, rect: Rect): void => {
     const el = worldRef.current?.querySelector<HTMLElement>(`[data-area-id="${CSS.escape(id)}"]`);
-    if (!el) return;
-    el.style.transform = translate(rect.x, rect.y);
-    el.style.width = `${String(rect.w)}px`;
-    el.style.height = `${String(rect.h)}px`;
+    if (el) placeFrame(el, rect);
   }, []);
 
   const writeEdges = useCallback((rectsNow: ReadonlyMap<string, Rect>, agentId: string): void => {
@@ -384,7 +409,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const c = rectsNow.get(a.agentId);
       if (!p || !c) continue;
       const d = edgePath(p, c);
-      for (const path of world.querySelectorAll<SVGPathElement>(`[data-edge="${CSS.escape(a.agentId)}"]`)) path.setAttribute("d", d);
+      const len = `${String(pathLength(d))}px`;
+      for (const path of world.querySelectorAll<SVGPathElement>(`[data-edge="${CSS.escape(a.agentId)}"]`)) {
+        path.setAttribute("d", d);
+        path.style.setProperty("--len", len);
+      }
     }
   }, []);
 
@@ -413,9 +442,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       return;
     }
     el.style.display = "";
-    el.style.transform = translate(rect.x, rect.y);
-    el.style.width = `${String(rect.w)}px`;
-    el.style.height = `${String(rect.h)}px`;
+    placeFrame(el, rect);
   };
 
   /** Keeps the pointer's events coming here once it leaves the viewport. A
@@ -471,6 +498,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (target.closest("[data-nodrag]")) return;
     event.stopPropagation();
     if (dragRef.current) return;
+    stopSettle();
     vpRef.current?.focus({ preventScroll: true });
     if (handMode() || event.button === 1) {
       beginPan(event);
@@ -549,8 +577,12 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (!d.moved) {
       if (dx * dx + dy * dy < 10) return;
       d.moved = true;
-      if (d.kind === "pan") vpRef.current?.setAttribute("data-panning", "");
-      worldRef.current?.classList.add("moving");
+      // The world is a layer of its own only while the camera moves (see
+      // `.sala-world.moving`); a card or an area moved inside it is not that.
+      if (d.kind === "pan") {
+        vpRef.current?.setAttribute("data-panning", "");
+        worldRef.current?.classList.add("moving");
+      } else vpRef.current?.setAttribute("data-dragging", "");
       if (d.kind === "node") d.el?.setAttribute("data-drag", "");
     }
     if (d.kind === "pan") {
@@ -645,6 +677,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       // Already released (cancelled pointer).
     }
     vpRef.current?.removeAttribute("data-panning");
+    vpRef.current?.removeAttribute("data-dragging");
     const { canvas: cv, agents: list } = latest.current;
 
     if (cancelled) {
@@ -718,8 +751,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
         return;
       }
       const z = cam().cam.z;
-      const x = snap(d.ox + (event.clientX - d.sx) / z);
-      const y = snap(d.oy + (event.clientY - d.sy) / z);
+      const from = { x: d.ox + (event.clientX - d.sx) / z, y: d.oy + (event.clientY - d.sy) / z };
+      const x = snap(from.x);
+      const y = snap(from.y);
       const positions = { ...cv.positions, [d.id]: { x, y } };
       const cards = cardRects(list, positions);
       const { areas } = membershipAfterDrop(cv.areas, cards, d.id);
@@ -727,6 +761,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       writeEdges(cards, d.id);
       for (const area of areas) writeFrame(area.id, areaRect(area, cards));
       commit({ ...cv, positions, areas });
+      if (d.el) settleDrop(d.el, d.id, from.x - x, from.y - y);
       return;
     }
 
@@ -755,6 +790,44 @@ export function SalaCanvas(props: SalaCanvasProps) {
       writeEdges(cards, m.id);
     }
   };
+
+  /** A dropped card eases onto its grid spot instead of jumping there. Its
+   * place is saved at once; what eases is a `translate` over it (the property,
+   * so the `transform` the card is placed by stays the saved one), with its
+   * links and its area following. */
+  const settling = useRef<{ raf: number; el: HTMLElement } | null>(null);
+  const stopSettle = (): void => {
+    const s = settling.current;
+    if (!s) return;
+    settling.current = null;
+    cancelAnimationFrame(s.raf);
+    s.el.style.translate = "";
+    vpRef.current?.removeAttribute("data-dragging");
+  };
+  const settleDrop = (el: HTMLElement, id: string, dx: number, dy: number): void => {
+    stopSettle();
+    if ((dx === 0 && dy === 0) || prefersReducedMotion()) return;
+    // The area around it follows frame by frame, not on its own transition.
+    vpRef.current?.setAttribute("data-dragging", "");
+    const t0 = performance.now();
+    const step = (now: number): void => {
+      const k = Math.min(1, (now - t0) / DROP_SETTLE_MS);
+      const left = 1 - easeOutQuart(k);
+      const ox = dx * left;
+      const oy = dy * left;
+      el.style.translate = k < 1 ? `${String(ox)}px ${String(oy)}px` : "";
+      const { canvas: cv, agents: list } = latest.current;
+      const cards = cardRects(list, cv.positions);
+      const at = cards.get(id);
+      if (at) cards.set(id, { ...at, x: at.x + ox, y: at.y + oy });
+      writeEdges(cards, id);
+      for (const area of cv.areas) if (area.members?.includes(id)) writeFrame(area.id, areaRect(area, cards));
+      if (k < 1) settling.current = { raf: requestAnimationFrame(step), el };
+      else stopSettle();
+    };
+    step(t0);
+  };
+  useEffect(() => () => stopSettle(), []);
 
   // ─── actions ───
   const select = useCallback((id: string) => {
@@ -1028,16 +1101,23 @@ export function SalaCanvas(props: SalaCanvasProps) {
       <div ref={worldRef} className="sala-world">
         <div ref={planeRef} className="sala-plane">
           <svg className="sala-edges" aria-hidden="true">
-            {agents.map((a) => {
+            {agents.map((a, i) => {
               const p = a.parentId === undefined ? undefined : rects.get(a.parentId);
               const c = rects.get(a.agentId);
               if (!p || !c) return null;
               const d = edgePath(p, c);
+              const len = { "--len": `${String(pathLength(d))}px` } as CSSProperties;
               const tone = cardStatus(a, a.role === "principal" ? liveWorkers : 0).tone;
+              const arriving = arrivals.has(a.agentId);
               return (
                 <g key={a.agentId}>
-                  <path data-edge={a.agentId} className={cn("sala-edge", (tone === "done" || tone === "stop") && "done", selected === a.agentId && "sel")} d={d} />
-                  {(tone === "run" || tone === "wait") && <path data-edge={a.agentId} className={cn("sala-edge-flow", tone === "wait" && "wait")} d={d} />}
+                  <path data-edge={a.agentId} className={cn("sala-edge", linkTone(tone), (selected === a.agentId || selected === a.parentId) && "sel", arriving && "in")} d={d} style={len} />
+                  {/* Out of phase from link to link, so a busy room does not pulse in step. */}
+                  {tone === "run" &&
+                    (["sala-edge-pulse glow", "sala-edge-pulse"] as const).map((cls) => (
+                      <path key={cls} data-edge={a.agentId} className={cls} d={d} style={{ ...len, "--d": `${(-((i * 0.37) % 1.9)).toFixed(2)}s` } as CSSProperties} />
+                    ))}
+                  {arriving && <path data-edge={a.agentId} className="sala-edge-head" d={d} style={len} />}
                 </g>
               );
             })}
@@ -1047,8 +1127,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
             <div
               key={area.id}
               data-area-id={area.id}
-              className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel")}
-              style={{ transform: translate(rect.x, rect.y), width: rect.w, height: rect.h }}
+              className={cn("sala-frame", count === 0 && "empty", selectedArea === area.id && "sel", newAreas.has(area.id) && "born")}
+              style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
             >
               <div className="sala-frame-bar" onPointerDown={(event) => onItemDown("frame", area.id, event)}>
                 <input
@@ -1119,6 +1199,8 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 selected={selected === agent.agentId}
                 hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
                 hasKids={(kids.get(agent.agentId) ?? 0) > 0}
+                boot={arrivals.get(agent.agentId)}
+                delegating={delegating.has(agent.agentId)}
                 modelLabel={props.modelLabelOf(agent)}
                 answering={answering === agent.agentId}
                 workers={workers}
@@ -1149,7 +1231,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 </div>
               );
             })()}
-          <div ref={drawEl} className="sala-frame empty" aria-hidden="true" style={{ display: "none" }} />
+          <div ref={drawEl} className="sala-frame empty draw" aria-hidden="true" style={{ display: "none" }} />
         </div>
       </div>
 

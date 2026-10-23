@@ -1,4 +1,4 @@
-import { memo, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { AgentLogo } from "@/components/chat/AgentLogo";
@@ -7,6 +7,7 @@ import { cardActivity, cardClock, cardLines, cardStatus, formatClock, type CardC
 import type { RoomAgent } from "@/lib/relay/roomClient";
 import { CheckIcon, CloseIcon, ConversationGlyph, AreaIcon, QuestionIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
+import { prefersReducedMotion } from "@/components/sala/useArrivals";
 
 export interface SalaCardProps {
   agent: RoomAgent;
@@ -27,6 +28,11 @@ export interface SalaCardProps {
   liveWorkers: number;
   /** When this screen first saw the agent in its present state. */
   observedSince: number;
+  /** Where this card is in its arrival (`useArrivals`): unseen while its link
+   * draws, then opening. */
+  boot?: "edge" | "frame";
+  /** A card this one just delegated to is arriving: its bottom port lights up. */
+  delegating?: boolean;
   canGroup: boolean;
   canStop: boolean;
   canRemove: boolean;
@@ -49,6 +55,26 @@ export function Clock({ clock }: { clock: CardClock }) {
     return <>{dict[`${clock.kind}Took`].replace("{time}", formatClock(clock.took))}</>;
   }
   return <>{dict[clock.kind].replace("{time}", formatClock(now - clock.since))}</>;
+}
+
+/** How long the toolbar takes to fade out once its card is deselected. */
+export const BAR_CLOSE_MS = 120;
+
+/** Whether the toolbar is shown, and whether it is on its way out: it stays
+ * mounted for its fade after the card is deselected, inert meanwhile. */
+function useBarPresence(open: boolean): "open" | "closing" | null {
+  const [closing, setClosing] = useState(false);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    setClosing(!open && !prefersReducedMotion());
+  }
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(() => setClosing(false), BAR_CLOSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+  return open ? "open" : closing ? "closing" : null;
 }
 
 /** How far into its run a running agent is, counting up. */
@@ -76,7 +102,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const clock = cardClock(agent, observedSince, liveWorkers);
   const title = agent.title ?? dict.untitled;
   const main = agent.role === "principal";
-  const showBar = selected;
+  const bar = useBarPresence(selected);
   const lines = cardLines(agent, status);
 
   const activityText = ((): string => {
@@ -112,7 +138,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
     <div
       data-agent-id={agent.agentId}
       data-state={agent.state}
-      className={cn("sala-node", status.tone, main && "main", selected && "sel")}
+      className={cn("sala-node", status.tone, main && "main", selected && "sel", props.boot && `boot-${props.boot}`, props.delegating && "delegating")}
       style={{ transform: `translate(${String(x)}px, ${String(y)}px)`, width: w, height: h }}
       onPointerDown={(event) => props.onPointerDown(agent.agentId, event)}
     >
@@ -158,8 +184,8 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
       </div>
       {hasParent && <span className="sala-port top" aria-hidden="true" />}
       {hasKids && <span className="sala-port bot" aria-hidden="true" />}
-      {showBar && (
-        <div className="sala-bar" data-nodrag role="toolbar" aria-label={dict.actions.label}>
+      {bar && (
+        <div className={cn("sala-bar", bar === "closing" && "out")} data-nodrag role="toolbar" aria-label={dict.actions.label} inert={bar === "closing"}>
           <button type="button" onClick={() => props.onOpen(agent.agentId)}>
             <ConversationGlyph size={13} />
             <span>{dict.actions.open}</span>
