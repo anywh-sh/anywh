@@ -1390,6 +1390,9 @@
   flex-direction: column;
   border-top: 1px solid var(--border-soft);
 }
+.sala-side-chat.flush {
+  border-top: 0;
+}
 .sala-side-foot {
   flex: none;
   display: flex;
@@ -1619,31 +1622,44 @@
   color: var(--text-faint);
 }
 .sala-side-by {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
   padding: 9px 16px;
   font: 400 11.5px var(--font-mono);
   color: var(--text-faint);
   border-bottom: 1px solid var(--border-soft);
 }
-.sala-side-by.wait {
-  border-bottom-color: var(--primary);
+/* The worktree at the end of the "Delegated by" line: it gives way to the
+   line's own text first, and is cut short before it can push it out. */
+.sala-side-wt {
+  flex: 0 1 auto;
+  max-width: 55%;
+  min-width: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
 }
-.sala-side-q > div {
-  margin: 0;
-  border: 0;
+.sala-side-wt > svg {
+  flex: none;
+}
+/* What a worker's conversation does not say (connectors, subtasks), kept
+   short so the chat under it keeps the room. */
+.sala-side-extra {
+  flex: none;
+  max-height: 30%;
+  overflow-y: auto;
+  padding: 0 16px 12px;
   border-bottom: 1px solid var(--border-soft);
 }
-.sala-side-report {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--muted-foreground);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.sala-side-extra > .sala-side-sec:first-child {
+  margin-top: 12px;
 }
-.sala-side-files {
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
+.sala-side-by.wait {
+  border-bottom-color: var(--primary);
 }
 .sala-chips {
   display: flex;
@@ -1689,7 +1705,7 @@
 }
 .sala-side-compose {
   flex: none;
-  margin: 0 12px 10px;
+  margin: 0 0 10px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
 }
@@ -1717,33 +1733,6 @@
 .sala-side-err {
   font: 400 11.5px var(--font-mono);
   color: var(--destructive);
-}
-/* The agent's latest reply, directly above the message field it answers. */
-.sala-side-reply {
-  flex: none;
-  margin: 8px 16px 10px;
-}
-.sala-side-reply .sala-side-h {
-  margin-bottom: 6px;
-}
-.sala-side-working {
-  color: var(--text-faint);
-}
-.sala-side-reply-body {
-  max-height: 168px;
-  overflow-y: auto;
-}
-.sala-side-reply-body .prose-chat {
-  line-height: 1.5;
-}
-/* A code block's header bar only carries the copy button, which this compact
-   view leaves out. */
-.sala-side-reply-body .bg-card > .border-b {
-  display: none;
-}
-.sala-side-reply > .sala-side-err {
-  margin: 0;
-  overflow-wrap: anywhere;
 }
 .sala-send {
   width: 26px;

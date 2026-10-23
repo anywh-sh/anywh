@@ -1427,8 +1427,6 @@ export interface Dictionary {
         contextUsedNoWindow: string;
         /** `{title}`. */
         delegatedBy: string;
-        work: string;
-        noWork: string;
         /** `{count}` commits. */
         commits: string;
         commitsOne: string;
@@ -1436,22 +1434,20 @@ export interface Dictionary {
         notIntegrated: string;
         /** `{size}`. */
         worktreeSize: string;
+        /** The worktree beside "Delegated by", for assistive tech: `{branch}`. */
+        worktree: string;
         connectors: string;
         subtasks: string;
         subtaskStop: string;
         activity: string;
-        report: string;
         failedTitle: string;
         failedBody: string;
         stoppedTitle: string;
         removedWork: string;
         permission: string;
         messagePlaceholder: string;
-        reply: string;
-        working: string;
         send: string;
         sendFailed: string;
-        connecting: string;
         openInTab: string;
         delegate: string;
         stop: string;

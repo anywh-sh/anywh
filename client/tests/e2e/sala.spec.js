@@ -588,15 +588,16 @@ describe("anywh room canvas", () => {
     await shot("B-pergunta-no-card");
   });
 
-  it("opens the agent's summary: state, who delegated it, the question, work and the message box", async () => {
+  it("opens the agent's whole conversation: its state, who delegated it, its history, the question and the message box", async () => {
     await press(".sala-answer-foot button");
     const panel = await $('aside[data-panel="agent"]');
     await panel.waitForExist({ timeout: 15000 });
     await browser.waitUntil(async () => (await panel.getText()).includes("Approve"), { timeout: 15000, timeoutMsg: "the question never reached the panel" });
+    // The same chat a session tab shows: what the agent was given is in it.
+    await browser.waitUntil(async () => (await panel.getText()).includes("Investigate the user API"), { timeout: 30000, timeoutMsg: "the agent's history never showed in the panel" });
     const text = await panel.getText();
     expect(text).toContain("Your turn");
     expect(text).toContain("Delegated by");
-    expect(text).toContain("Work");
     await expect(await panel.$("textarea")).toBeExisting();
     for (const action of ["Open in tab", "Delegate", "Stop", "Remove"]) expect(text).toContain(action);
     await panelSettled();
@@ -790,10 +791,21 @@ describe("anywh room canvas", () => {
     await shot("B-sala-concluida-sobre");
     await press('aside[data-panel="about"] button[aria-label="Close panel"]');
 
-    // Removing the agent that made it asks first, and the one question says
-    // the work would be lost: no second dialog after the relay's answer.
     // The agent that made the worktree: its card does not carry the task (the title is generated).
     const spike = worktree.agentId;
+    // Its conversation names the worktree at the end of the "Delegated by" line.
+    await press(`[data-agent-id="${spike}"] .sala-node-hit`);
+    await pressBar("Open conversation");
+    const agentPanel = await $('aside[data-panel="agent"]');
+    await agentPanel.waitForExist({ timeout: 15000 });
+    const mark = await agentPanel.$(".sala-side-by .sala-side-wt");
+    await mark.waitForExist({ timeout: 15000, timeoutMsg: "the agent's worktree never showed beside who delegated it" });
+    expect(await mark.getText()).toContain(worktree.branch);
+    expect(await mark.getAttribute("title")).toContain("not integrated");
+    await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
+
+    // Removing the agent that made it asks first, and the one question says
+    // the work would be lost: no second dialog after the relay's answer.
     await press(`[data-agent-id="${spike}"] .sala-node-hit`);
     await pressBar("Remove");
     const dialog = await $('[role="alertdialog"]');
