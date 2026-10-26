@@ -249,17 +249,18 @@ interface PullRequestSummary {
 }
 
 /**
- * Whether a pull request into the worktree's base branch was merged with
- * `tip` as its head, asked of GitHub by commit (`gh api .../commits/<tip>/pulls`),
- * so one opened from another branch at the same commit counts too. Only a
- * merged one whose head is exactly `tip` and whose base is the branch the
- * worktree started from: one whose head went on past `tip`, or that went
- * into another branch, says nothing about this one. Anything else (no `gh`,
- * no remote, no login, no network, a commit GitHub does not know) is `false`.
+ * Whether a pull request was merged with `tip` as its head, asked of GitHub
+ * by commit (`gh api .../commits/<tip>/pulls`), so one opened from another
+ * branch at the same commit counts too. Only a merged one whose head is
+ * exactly `tip`: one whose head went on past `tip` says nothing about this
+ * one. When the worktree started on a branch, the pull request must have
+ * gone into it; one started from a detached HEAD has no branch to compare,
+ * and a pull request merged anywhere at this exact tip is taken, as `gh pr
+ * view <branch>` used to. Anything else (no `gh`, no remote, no login, no
+ * network, a commit GitHub does not know) is `false`.
  */
 export function pullRequestMerged(repoRoot: string, tip: string | undefined, base: WorktreeBase, gh = "gh"): Promise<boolean> {
-  const baseRef = base.ref;
-  if (!tip || !/^[0-9a-f]{40,64}$/.test(tip) || !baseRef) return Promise.resolve(false);
+  if (!tip || !/^[0-9a-f]{40,64}$/.test(tip)) return Promise.resolve(false);
   return new Promise((resolveRun) => {
     const args = ["api", "-H", "Accept: application/vnd.github+json", `repos/{owner}/{repo}/commits/${tip}/pulls?per_page=100`];
     execFile(gh, args, { cwd: repoRoot, env: { ...gitEnv(), GH_PROMPT_DISABLED: "1" }, timeout: 15_000, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
@@ -275,7 +276,7 @@ export function pullRequestMerged(repoRoot: string, tip: string | undefined, bas
         pulls.some((entry: unknown) => {
           if (typeof entry !== "object" || entry === null) return false;
           const pr = entry as PullRequestSummary;
-          return typeof pr.merged_at === "string" && pr.merged_at !== "" && pr.base?.ref === baseRef && pr.head?.sha === tip;
+          return typeof pr.merged_at === "string" && pr.merged_at !== "" && (base.ref === undefined || pr.base?.ref === base.ref) && pr.head?.sha === tip;
         }),
       );
     });

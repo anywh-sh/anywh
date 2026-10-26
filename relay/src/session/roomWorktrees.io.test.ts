@@ -515,18 +515,26 @@ test("a pull request whose head went past the tip, into another base, or not mer
   assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
 });
 
-test("a worktree started from a detached HEAD has no base branch for a pull request to go into: gh is not trusted", async () => {
+test("a worktree started from a detached HEAD has no base branch to compare: a pull request merged at its exact tip still proves it, one at another head does not", async () => {
   const repo = makeRepo();
   git(repo, "checkout", "-q", "--detach");
   const h = harness(repo, fakeGh());
   const wt = await created(h);
   commitIn(wt.path);
-  process.env.GH_ANSWER = pulls({});
   try {
+    process.env.GH_ANSWER = pulls({ head: git(repo, "rev-parse", "HEAD") });
     assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    process.env.GH_ANSWER = pulls({ merged: false });
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    process.env.GH_ANSWER = pulls({ base: "release" });
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
   } finally {
     delete process.env.GH_ANSWER;
   }
+  assert.ok(!existsSync(wt.path));
+  assert.ok(!branches(repo).includes(wt.branch));
 });
 
 test("a declaration covers the tip it was made of: commits made after it are kept", async () => {
