@@ -39,6 +39,8 @@ export const ptBr: Dictionary = {
       edit: "Editar mensagem",
       editUnavailable: "Editar mensagem (indisponível)",
       editWithAttachment: "Editar mensagem com anexo ainda não é suportado",
+      showAll: "Mostrar tudo",
+      showLess: "Mostrar menos",
     },
     toolCall: {
       attributionEstimatedHint: "Estimado — dividido proporcionalmente entre chamadas de ferramenta que rodaram em paralelo",

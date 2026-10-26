@@ -735,6 +735,39 @@ body {
   border-bottom: 0;
 }
 
+/* The same markdown inside the user's own bubble (`UserBubble`). Tighter, as
+ * befits a message rather than an answer, and it follows the bubble's
+ * selection rules instead of forcing `user-select: text` — on iOS the bubble
+ * turns selection off so its long-press menu can open. The bubble is
+ * `--bubble-user`, a shade above `--surface-hover`, so inline code takes the
+ * darker `--bg-elevated` to stay visible as a pill. */
+.prose-chat-user {
+  line-height: 1.5;
+  user-select: inherit;
+  -webkit-user-select: inherit;
+  -webkit-touch-callout: inherit;
+}
+.prose-chat-user > * + * {
+  margin-top: 0.6em;
+}
+/* Runs of spaces and a line's indentation are part of what was typed — a
+ * pasted log or stack trace is unreadable without them. Line breaks are
+ * already `<br>`s (`remarkUserMessage`), so no newline is left for this to
+ * double. */
+.prose-chat-user p {
+  white-space: pre-wrap;
+}
+.prose-chat-user code,
+.prose-chat-user .prose-chat-path-link {
+  background: var(--bg-elevated);
+}
+.prose-chat-user pre code {
+  background: none;
+}
+.prose-chat-user blockquote {
+  padding: 0.4em 0.8em;
+}
+
 /* Embedded terminal — xterm.js's own package CSS forces a solid black
  * viewport background (`.xterm-viewport { background-color: #000 }`,
  * commented there as "needed on OS X for the scrollbar to be opaque").

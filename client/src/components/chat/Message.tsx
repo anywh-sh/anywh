@@ -2,7 +2,6 @@ import { memo, useEffect, useReducer, useRef, useState } from "react";
 import { Check, Copy, Pencil, Video } from "lucide-react";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { useLongPress } from "@/hooks/useLongPress";
-import { renderTextWithLinks } from "@/lib/composer/composerLinks";
 import { isIOS } from "@/lib/platform/platform";
 import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
 import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
@@ -13,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
+import { CollapsibleText } from "@/components/chat/CollapsibleText";
 
 interface UserBubbleProps {
   id: string;
@@ -183,7 +183,17 @@ export const UserBubble = memo(function UserBubble({
                 ))}
               </div>
             )}
-            {text && <p className="whitespace-pre-wrap">{renderTextWithLinks(text)}</p>}
+            {text && (
+              <CollapsibleText
+                id={`user-expand:${id}`}
+                expandLabel={dict.chat.message.showAll}
+                collapseLabel={dict.chat.message.showLess}
+              >
+                <div className="prose-chat prose-chat-user min-w-0">
+                  <MarkdownContent text={text} userMessage />
+                </div>
+              </CollapsibleText>
+            )}
           </>
         )}
       </div>
