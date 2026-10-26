@@ -1,15 +1,4 @@
-import type { ReactNode } from "react";
 import type { JSONContent } from "@tiptap/core";
-import { handleExternalLinkClick } from "@/lib/platform/externalLink";
-
-/**
- * Wire format for links created via paste-to-link in the composer:
- * `[text](url)` syntax — not generic markdown, just what
- * `serializeEditorContent` emits. `renderTextWithLinks` only recognizes this
- * specific pattern, never interprets arbitrary markdown the user may have
- * typed (italic, heading, list etc. remain plain text).
- */
-const WIRE_LINK_REGEX = /\[([^\]]+)\]\(([a-zA-Z][a-zA-Z\d+.-]*:[^\s)]+)\)/g;
 
 /** Zero-width character that `Composer.tsx` (`hardBreakAnchorPlugin`)
  * injects as real text after consecutive `hardBreak`s, just to give the
@@ -45,7 +34,8 @@ function serializeBlock(node: JSONContent): string {
 
 /** Serializes the Tiptap doc (only paragraph(s) with text/hardBreak/link,
  * given the composer's restricted schema) into the plain text sent over the
- * wire. */
+ * wire. A link goes out as markdown, `[text](url)`, which the sent message's
+ * bubble renders back into a link (`MarkdownContent`). */
 export function serializeEditorContent(doc: JSONContent): string {
   return (doc.content ?? []).map(serializeBlock).join("\n\n");
 }
@@ -56,35 +46,4 @@ export function serializeEditorContent(doc: JSONContent): string {
  * of only whitespace still comes out empty. */
 export function trimComposerText(text: string): string {
   return text.replace(/^(?:[^\S\n]*\n)+/, "").trimEnd();
-}
-
-/** Rebuilds links from the received plain text, to display in the sent
- * message's bubble — same `composer-link` visual class as the editor,
- * without depending on a full markdown parser (avoids reinterpreting
- * markdown the user may have happened to type as normal text). */
-export function renderTextWithLinks(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const regex = new RegExp(WIRE_LINK_REGEX);
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-
-  while ((match = regex.exec(text))) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
-    const [full, label, href] = match;
-    nodes.push(
-      <a
-        key={`link-${key++}`}
-        href={href}
-        rel="noopener noreferrer"
-        className="composer-link"
-        onClick={(event) => handleExternalLinkClick(event, href)}
-      >
-        {label}
-      </a>,
-    );
-    lastIndex = match.index + full.length;
-  }
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes;
 }

@@ -4,6 +4,10 @@ import rehypeHighlight from "rehype-highlight";
 import { handleExternalLinkClick } from "@/lib/platform/externalLink";
 import { looksLikeExternalUrl, looksLikeFilePath } from "@/lib/composer/filePathLinks";
 import { MarkdownCodeBlock } from "@/components/chat/MarkdownCodeBlock";
+import { remarkUserMessage } from "@/lib/format/remarkUserMessage";
+
+const REMARK_PLUGINS = [remarkGfm];
+const USER_REMARK_PLUGINS = [remarkGfm, remarkUserMessage];
 
 /**
  * GFM + syntax-highlighted code blocks + external links opened via the
@@ -17,11 +21,22 @@ import { MarkdownCodeBlock } from "@/components/chat/MarkdownCodeBlock";
  * own `.md` viewer (`MarkdownFileView`) reuses this component without it,
  * so an inline path mentioned inside a previewed markdown file just renders
  * as plain code, unchanged.
+ *
+ * `userMessage` is for text a person typed rather than an agent wrote — see
+ * `remarkUserMessage` for what it changes.
  */
-export function MarkdownContent({ text, onOpenPath }: { text: string; onOpenPath?: (path: string) => void }) {
+export function MarkdownContent({
+  text,
+  onOpenPath,
+  userMessage = false,
+}: {
+  text: string;
+  onOpenPath?: (path: string) => void;
+  userMessage?: boolean;
+}) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={userMessage ? USER_REMARK_PLUGINS : REMARK_PLUGINS}
       rehypePlugins={[rehypeHighlight]}
       components={{
         // A real markdown link (`[foo](bar/baz.ts)`, as opposed to the `code`

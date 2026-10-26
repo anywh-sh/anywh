@@ -2,7 +2,6 @@ import { memo, useEffect, useReducer, useRef, useState } from "react";
 import { Check, Copy, Pencil, Video } from "lucide-react";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { useLongPress } from "@/hooks/useLongPress";
-import { renderTextWithLinks } from "@/lib/composer/composerLinks";
 import { isIOS } from "@/lib/platform/platform";
 import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
 import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
@@ -183,7 +182,11 @@ export const UserBubble = memo(function UserBubble({
                 ))}
               </div>
             )}
-            {text && <p className="whitespace-pre-wrap">{renderTextWithLinks(text)}</p>}
+            {text && (
+              <div className="prose-chat prose-chat-user min-w-0">
+                <MarkdownContent text={text} userMessage />
+              </div>
+            )}
           </>
         )}
       </div>
