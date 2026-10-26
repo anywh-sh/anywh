@@ -127,6 +127,14 @@ describe("UserBubble", () => {
       expect(screen.getByText("---")).toBeInTheDocument();
     });
 
+    it("leaves a Python dunder as typed rather than bold", () => {
+      renderBubble({ text: 'File "a.py", line 3, in __init__\n\n**bold** and __also bold__' });
+
+      expect(screen.getByText('File "a.py", line 3, in __init__')).toBeInTheDocument();
+      expect(screen.getByText("bold").tagName).toBe("STRONG");
+      expect(screen.getByText("also bold").tagName).toBe("STRONG");
+    });
+
     it("shows raw HTML as text instead of markup", () => {
       renderBubble({ text: "<b>x</b> inline\n\n<script>alert(1)</script>" });
 

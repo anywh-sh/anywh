@@ -45,6 +45,15 @@ function typedText(node: MdNode, source: string): string {
   return raw.replace(/\n[ \t]+/g, "\n") === value ? raw : value;
 }
 
+/** The source of a `strong` node that is really a Python dunder, if it is. */
+function dunderSource(node: MdNode, source: string): string | undefined {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (node.type !== "strong" || start === undefined || end === undefined) return undefined;
+  const raw = source.slice(start, end);
+  return /^__\w+__$/.test(raw) ? raw : undefined;
+}
+
 function transform(node: MdNode, source: string): void {
   if (!node.children) return;
   node.children = node.children.flatMap((child): MdNode[] => {
@@ -54,6 +63,11 @@ function transform(node: MdNode, source: string): void {
       const literal = start === undefined || end === undefined ? "" : source.slice(start, end);
       return [{ type: "paragraph", children: splitLines(literal) }];
     }
+    // `__init__`, `__name__`: a Python dunder, all over a pasted traceback,
+    // parses as `init` in bold. Strong emphasis around a single identifier
+    // with underscores rarely means bold; `**word**` still does.
+    const dunder = dunderSource(child, source);
+    if (dunder) return [{ type: "text", value: dunder }];
     // Raw HTML shows as the text the user typed, never as markup — wrapped
     // in a paragraph when it stood as a block of its own.
     if (child.type === "html") {
