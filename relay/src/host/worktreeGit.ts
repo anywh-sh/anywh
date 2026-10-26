@@ -1,7 +1,7 @@
 // The git behind agents' worktrees: real `git` calls, each answering with
 // what git said rather than throwing, so the caller decides what a refusal
 // means (a retained worktree, a rollback). Nothing here decides policy.
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type { WorktreeBase } from "./worktreePolicy.js";
@@ -207,62 +207,19 @@ export async function baseTip(repoRoot: string, base: WorktreeBase): Promise<str
   return r.ok ? r.stdout.trim() : undefined;
 }
 
-/** Flags every diff fed to `git patch-id` carries, so both sides of a
- * comparison are the same kind of patch: binary content included (or two
- * different binaries would compare equal), no renames, no external tools. */
-const PATCH_FLAGS = ["--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--binary"];
-
-/** `git <args> | git patch-id --stable`, streamed: the `<patch-id> <commit>`
- * pairs, or `undefined` when either side failed or ran out of time. */
-function patchIds(cwd: string, args: readonly string[], timeoutMs = 60_000): Promise<Array<{ id: string; commit: string }> | undefined> {
-  return new Promise((resolveRun) => {
-    const env = gitEnv();
-    const producer = spawn("git", args, { cwd, env, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
-    const consumer = spawn("git", ["patch-id", "--stable"], { cwd, env, stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
-    let out = "";
-    let pending = 2;
-    let failed = false;
-    const timer = setTimeout(() => {
-      failed = true;
-      producer.kill("SIGKILL");
-      consumer.kill("SIGKILL");
-    }, timeoutMs);
-    const settle = (code: number | null): void => {
-      if (code !== 0) failed = true;
-      if (--pending > 0) return;
-      clearTimeout(timer);
-      if (failed) return resolveRun(undefined);
-      const pairs = out
-        .split("\n")
-        .map((line) => line.trim().split(/\s+/))
-        .filter((parts): parts is [string, string] => parts.length === 2 && /^[0-9a-f]{40,64}$/.test(parts[0] ?? ""))
-        .map(([id, commit]) => ({ id, commit }));
-      resolveRun(pairs);
-    };
-    // `close` follows `error` when a spawn fails: each process settles once.
-    producer.once("close", settle);
-    consumer.once("close", settle);
-    producer.on("error", () => (failed = true));
-    consumer.on("error", () => (failed = true));
-    consumer.stdin.on("error", () => (failed = true));
-    producer.stdout.pipe(consumer.stdin);
-    consumer.stdout.setEncoding("utf8");
-    consumer.stdout.on("data", (chunk: string) => (out += chunk));
-  });
-}
-
-/** How far back on the base a squash or rebase of the branch is looked for. */
-const SQUASH_SEARCH_LIMIT = 500;
-
 /**
  * Whether the work between the branch's fork point and `tip` is on the base
- * as a squash merge (one first-parent commit of the base whose patch is the
- * branch's whole diff) or a rebase merge (every commit of the branch has an
- * equivalent on the base). Compared by `git patch-id`, which ignores line
- * numbers and whitespace but not content: a branch that holds anything the
- * base does not, a commit made after the merge included, has a different
- * patch. An empty diff proves nothing. Any failure or doubt is `false`: a
- * missed squash only keeps a worktree, a wrong one would lose work.
+ * now, however it got there: a squash merge, a rebase merge, a cherry-pick.
+ * Asked as "would merging `tip` into the base's current tip change nothing?"
+ * (`git merge-tree`, three-way from the fork point, written to no ref): a
+ * clean merge whose tree is the base's own means every change the branch
+ * made, byte for byte, with its file modes, binaries included, is in the
+ * base as it is today. A change made after the merge (whitespace only, a
+ * mode bit), a squash edited at merge time, or one reverted on the base
+ * since, all leave something to merge, or a conflict, and so no proof. An
+ * empty diff proves nothing. Needs git 2.40 (`--merge-base`): an older git
+ * refuses the options, which is no proof either. Any failure or doubt is
+ * `false`: a missed squash only keeps a worktree, a wrong one would lose work.
  */
 export async function squashedIntoBase(repoRoot: string, tip: string, base: WorktreeBase): Promise<boolean> {
   const target = await baseTarget(repoRoot, base);
@@ -271,25 +228,18 @@ export async function squashedIntoBase(repoRoot: string, tip: string, base: Work
   const fork = forkPoint.stdout.trim();
   // A tip that is the fork point is an ancestor of the base, not a squash.
   if (fork === "" || fork === tip) return false;
-  const own = await patchIds(repoRoot, ["diff", ...PATCH_FLAGS, fork, tip]);
-  // No patch at all (the branch's commits cancel out) is no evidence of anything.
-  const ownId = own?.length === 1 ? own[0]?.id : undefined;
-  if (!ownId) return false;
-
-  const onBase = await patchIds(repoRoot, ["log", "--first-parent", "-p", ...PATCH_FLAGS, `--max-count=${SQUASH_SEARCH_LIMIT}`, "--format=commit %H", `${fork}..${target}`]);
-  if (onBase?.some((pair) => pair.id === ownId)) return true;
-
-  // A rebase merge: each commit of the branch replayed on the base. A merge
-  // commit on the branch has no patch of its own to compare (it may hold a
-  // conflict resolution), so a branch with one is not judged this way.
-  const merges = await runGit(repoRoot, ["rev-list", "--count", "--merges", `${fork}..${tip}`], 30_000);
-  if (!merges.ok || merges.stdout.trim() !== "0") return false;
-  const baseSize = await runGit(repoRoot, ["rev-list", "--count", `${fork}..${target}`], 30_000);
-  if (!baseSize.ok || !(Number(baseSize.stdout.trim()) <= SQUASH_SEARCH_LIMIT)) return false;
-  const marked = await runGit(repoRoot, ["rev-list", "--cherry-mark", "--right-only", "--no-merges", `${target}...${tip}`], 60_000);
-  if (!marked.ok) return false;
-  const lines = marked.stdout.split("\n").filter((line) => line.trim() !== "");
-  return lines.length > 0 && lines.every((line) => line.startsWith("="));
+  // No change at all (the branch's commits cancel out) is no evidence of
+  // anything. Exit status 1 is "they differ"; anything but 0 or 1 is a failure.
+  const changed = await runGit(repoRoot, ["diff", "--quiet", "--no-ext-diff", "--no-textconv", fork, tip], 30_000);
+  if (changed.code !== 1) return false;
+  const baseTree = await runGit(repoRoot, ["rev-parse", "--verify", "-q", `${target}^{tree}`]);
+  if (!baseTree.ok) return false;
+  // Renormalization would let a line-ending change merge into nothing.
+  const merged = await runGit(repoRoot, ["-c", "merge.renormalize=false", "merge-tree", "--write-tree", "--no-messages", `--merge-base=${fork}`, target, tip], 60_000);
+  // Exit status 1 is a conflict: the branch and the base disagree somewhere.
+  if (!merged.ok) return false;
+  const tree = merged.stdout.split("\n")[0]?.trim() ?? "";
+  return /^[0-9a-f]{40,64}$/.test(tree) && tree === baseTree.stdout.trim();
 }
 
 interface PullRequestSummary {

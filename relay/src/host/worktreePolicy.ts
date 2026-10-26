@@ -103,7 +103,7 @@ export interface CleanupFacts {
   /** The worktree's HEAD holds commits no branch of ours has (detached, or on another branch). */
   strayCommits: boolean;
   /** The branch's work, at the tip it has now, is on its base as a squash or
-   * rebase merge, by patch (false when unknown). */
+   * rebase merge: the base's tip holds all of it (false when unknown). */
   squashed: boolean;
   /** A pull request into its base was merged with the branch's tip as its
    * head (best effort; false when unknown). */

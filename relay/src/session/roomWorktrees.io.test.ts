@@ -182,6 +182,58 @@ test("a commit made on the branch after its squash merge is not covered by it: r
   assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
 });
 
+test("a change made after a squash merge that only re-indents, flips a mode bit or rewrites a binary is not covered by it: retained", async () => {
+  const changes: Array<[string, (path: string) => void]> = [
+    // Indentation is content in Python, YAML or a Makefile.
+    ["re-indented", (path) => writeFileSync(join(path, "job.py"), "def run():\n\treturn 1\n")],
+    ["made executable", (path) => chmodSync(join(path, "job.py"), 0o755)],
+    ["binary rewritten", (path) => writeFileSync(join(path, "blob.bin"), Buffer.from([0, 1, 2, 3, 0, 9, 9, 9]))],
+  ];
+  for (const [label, change] of changes) {
+    const h = harness();
+    const wt = await created(h);
+    writeFileSync(join(wt.path, "job.py"), "def run():\n    return 1\n");
+    writeFileSync(join(wt.path, "blob.bin"), Buffer.from([0, 1, 2, 3, 0, 4, 5, 6]));
+    git(wt.path, "add", "-A");
+    git(wt.path, "commit", "-q", "-m", "work");
+    squashMerge(h.repo, wt.branch);
+    change(wt.path);
+    git(wt.path, "commit", "-q", "-am", label);
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "retained", label);
+    assert.ok(branches(h.repo).includes(wt.branch), label);
+    assert.equal((await h.worktrees.list("room"))[0]?.integrated, false, label);
+  }
+});
+
+test("a squash merge reverted on the base no longer holds the branch's work: retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  git(h.repo, "revert", "--no-edit", "HEAD");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a squash merge the base went on editing elsewhere in the same file still holds the branch's work: removed", async () => {
+  const h = harness();
+  writeFileSync(join(h.repo, "src", "a.txt"), "1\n2\n3\n4\n5\n6\n7\n8\n9\n");
+  git(h.repo, "commit", "-q", "-am", "longer");
+  const wt = await created(h);
+  writeFileSync(join(wt.path, "src", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\n9\n");
+  git(wt.path, "commit", "-q", "-am", "work");
+  squashMerge(h.repo, wt.branch);
+  writeFileSync(join(h.repo, "src", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\nnine\n");
+  git(h.repo, "commit", "-q", "-am", "later on main");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "removed", outcome?.reason);
+  assert.equal(outcome?.reason, "squash");
+  assertNoTrace(h);
+});
+
 test("a squash with different content (the merge edited the patch) is not the branch's work: retained", async () => {
   const h = harness();
   const wt = await created(h);

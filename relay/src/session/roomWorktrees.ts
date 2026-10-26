@@ -5,7 +5,7 @@
 //
 // A worktree and its branch are removed only when the branch is merged into
 // the base it started from, or someone said its work was integrated, or its
-// whole patch is on the base as a squash or rebase merge (which leave no
+// whole work is on the base's tip as a squash or rebase merge (which leave no
 // ancestor for git to see), or a pull request into the base was merged with
 // the branch's exact tip as its head, and its worktree is clean. Without such evidence it is retained, with the
 // reason. Only "discard anyway", asked for by a person, forces. Only records
@@ -238,8 +238,8 @@ export class RoomWorktrees {
     return outcomes;
   }
 
-  /** Whether the branch's work at `tip` is on the base by patch (a squash or
-   * rebase merge), remembered for that tip and the base's current tip. */
+  /** Whether the branch's work at `tip` is on the base by content (a squash
+   * or rebase merge), remembered for that tip and the base's current tip. */
   private async squashed(record: WorktreeRecord, repo: string, tip: string): Promise<boolean> {
     const onBase = await baseTip(repo, record.base);
     if (!onBase) return false;
@@ -285,7 +285,7 @@ export class RoomWorktrees {
     }
     const clean = worktreeExists ? await isClean(record.path) : true;
     const hasSubmodules = worktreeExists ? await hasInitializedSubmodules(record.path) : false;
-    // A squash or rebase merge, found by patch: git alone, no network.
+    // A squash or rebase merge, found by content: git alone, no network.
     const squashed = repo !== undefined && tip !== undefined && !ancestor && !declared && !mode.discard ? await this.squashed(record, repo, tip) : false;
     // Last, and only when the rest would allow a removal: it is the slow one.
     const askPullRequest = repo !== undefined && !ancestor && !declared && !squashed && !mode.discard && !strayCommits && clean && !hasSubmodules;
