@@ -248,39 +248,68 @@ interface PullRequestSummary {
   head?: { sha?: unknown };
 }
 
-/**
- * Whether a pull request was merged with `tip` as its head, asked of GitHub
- * by commit (`gh api .../commits/<tip>/pulls`), so one opened from another
- * branch at the same commit counts too. Only a merged one whose head is
- * exactly `tip`: one whose head went on past `tip` says nothing about this
- * one. When the worktree started on a branch, the pull request must have
- * gone into it; one started from a detached HEAD has no branch to compare,
- * and a pull request merged anywhere at this exact tip is taken, as `gh pr
- * view <branch>` used to. Anything else (no `gh`, no remote, no login, no
- * network, a commit GitHub does not know) is `false`.
- */
-export function pullRequestMerged(repoRoot: string, tip: string | undefined, base: WorktreeBase, gh = "gh"): Promise<boolean> {
-  if (!tip || !/^[0-9a-f]{40,64}$/.test(tip)) return Promise.resolve(false);
+/** `gh api <endpoint>`, parsed: `undefined` when gh failed (missing, no
+ * remote, no login, no network, an HTTP error) or answered something else
+ * than JSON. `{owner}/{repo}` are filled in by gh from the repo's remote. */
+function ghApi(repoRoot: string, gh: string, endpoint: string): Promise<unknown> {
   return new Promise((resolveRun) => {
-    const args = ["api", "-H", "Accept: application/vnd.github+json", `repos/{owner}/{repo}/commits/${tip}/pulls?per_page=100`];
+    const args = ["api", "-H", "Accept: application/vnd.github+json", endpoint];
     execFile(gh, args, { cwd: repoRoot, env: { ...gitEnv(), GH_PROMPT_DISABLED: "1" }, timeout: 15_000, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
-      if (error) return resolveRun(false);
-      let pulls: unknown;
+      if (error) return resolveRun(undefined);
       try {
-        pulls = JSON.parse(stdout);
+        resolveRun(JSON.parse(stdout) as unknown);
       } catch {
-        return resolveRun(false);
+        resolveRun(undefined);
       }
-      if (!Array.isArray(pulls)) return resolveRun(false);
-      resolveRun(
-        pulls.some((entry: unknown) => {
-          if (typeof entry !== "object" || entry === null) return false;
-          const pr = entry as PullRequestSummary;
-          return typeof pr.merged_at === "string" && pr.merged_at !== "" && (base.ref === undefined || pr.base?.ref === base.ref) && pr.head?.sha === tip;
-        }),
-      );
     });
   });
+}
+
+/** Pages of a commit's pull requests read before giving up on the list. */
+const PULL_PAGES = 5;
+/** Pull requests the search fallback checks one by one. */
+const SEARCHED_PULLS = 10;
+
+/**
+ * Whether a pull request was merged with `tip` as its head, asked of GitHub
+ * by commit, so one opened from another branch at the same commit counts
+ * too. Only a merged one whose head is exactly `tip`: one whose head went on
+ * past `tip` says nothing about this one. When the worktree started on a
+ * branch, the pull request must have gone into it; one started from a
+ * detached HEAD has no branch to compare, and a pull request merged anywhere
+ * at this exact tip is taken, as `gh pr view <branch>` used to.
+ *
+ * First `commits/<tip>/pulls`, a page at a time. GitHub documents it as
+ * listing only open pull requests for a commit that is not on the default
+ * branch, which a squash-merged head never is (it does list merged ones in
+ * practice, at least into the default branch): when it shows none that
+ * proves the tip, a search for merged pull requests mentioning the commit
+ * is asked, and each one found is read for its head and base. Anything else
+ * (no `gh`, no remote, no login, no network, a commit GitHub does not know)
+ * is `false`.
+ */
+export async function pullRequestMerged(repoRoot: string, tip: string | undefined, base: WorktreeBase, gh = "gh"): Promise<boolean> {
+  if (!tip || !/^[0-9a-f]{40,64}$/.test(tip)) return false;
+  const proves = (entry: unknown): boolean => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const pr = entry as PullRequestSummary;
+    return typeof pr.merged_at === "string" && pr.merged_at !== "" && (base.ref === undefined || pr.base?.ref === base.ref) && pr.head?.sha === tip;
+  };
+  for (let page = 1; page <= PULL_PAGES; page++) {
+    const pulls = await ghApi(repoRoot, gh, `repos/{owner}/{repo}/commits/${tip}/pulls?per_page=100&page=${page}`);
+    // A gh that cannot answer at all is not asked again, by search or otherwise.
+    if (!Array.isArray(pulls)) return false;
+    if (pulls.some(proves)) return true;
+    if (pulls.length < 100) break;
+  }
+  const found = await ghApi(repoRoot, gh, `search/issues?q=repo:{owner}/{repo}+is:pr+is:merged+${tip}&per_page=${SEARCHED_PULLS}`);
+  const items = typeof found === "object" && found !== null && Array.isArray((found as { items?: unknown }).items) ? (found as { items: unknown[] }).items : [];
+  for (const item of items.slice(0, SEARCHED_PULLS)) {
+    const number = typeof item === "object" && item !== null ? (item as { number?: unknown }).number : undefined;
+    if (typeof number !== "number" || !Number.isInteger(number)) continue;
+    if (proves(await ghApi(repoRoot, gh, `repos/{owner}/{repo}/pulls/${number}`))) return true;
+  }
+  return false;
 }
 
 /** Disk the directory takes, `du`-style, in bytes; `undefined` when it cannot be told. */

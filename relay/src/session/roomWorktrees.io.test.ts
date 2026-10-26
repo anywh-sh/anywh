@@ -439,9 +439,12 @@ test("a worktree with an initialized submodule is retained when integrated, and 
   assert.deepEqual(branches(repo), ["main"]);
 });
 
-/** A stand-in for `gh api repos/{owner}/{repo}/commits/<sha>/pulls`: answers
- * $GH_ANSWER (with the sha asked about for "@tip") after $GH_SLEEP seconds,
- * appending its arguments to $GH_MARK. Fails as gh does for anything else. */
+/** A stand-in for `gh api`: `repos/{owner}/{repo}/commits/<sha>/pulls`
+ * answers $GH_ANSWER for its first page and $GH_ANSWER_2 (else `[]`) for the
+ * second, with the sha asked about for "@tip"; `search/issues` answers
+ * $GH_SEARCH (else no result) and `repos/{owner}/{repo}/pulls/<n>` $GH_PULL.
+ * Waits $GH_SLEEP seconds and appends its arguments to $GH_MARK first. Fails
+ * as gh does for anything else, and for everything with $GH_FAIL. */
 function fakeGh(): string {
   const path = join(dir, `gh-${++counter}.sh`);
   writeFileSync(
@@ -451,10 +454,20 @@ function fakeGh(): string {
       '[ -n "$GH_MARK" ] && echo "$*" >> "$GH_MARK"',
       'sleep "${GH_SLEEP:-0}"',
       '[ "$1" = api ] || exit 1',
-      'tip=$(printf "%s" "$4" | sed -n "s#^repos/{owner}/{repo}/commits/\\([0-9a-f]*\\)/pulls.*#\\1#p")',
-      '[ -n "$tip" ] || exit 1',
       '[ -n "$GH_FAIL" ] && { echo "HTTP 422" >&2; exit 1; }',
-      'printf "%s\\n" "$GH_ANSWER" | sed "s/@tip/$tip/g"',
+      'case "$4" in',
+      '  "repos/{owner}/{repo}/commits/"*/pulls*)',
+      '    tip=$(printf "%s" "$4" | sed -n "s#^repos/{owner}/{repo}/commits/\\([0-9a-f]*\\)/pulls.*#\\1#p")',
+      '    page=$(printf "%s" "$4" | sed -n "s#.*[?&]page=\\([0-9]*\\).*#\\1#p")',
+      '    case "${page:-1}" in 1) answer="$GH_ANSWER" ;; 2) answer="${GH_ANSWER_2:-[]}" ;; *) answer="[]" ;; esac',
+      '    printf "%s\\n" "$answer" | sed "s/@tip/$tip/g" ;;',
+      '  search/issues*)',
+      '    if [ -n "$GH_SEARCH" ]; then printf "%s\\n" "$GH_SEARCH"; else echo \'{"total_count":0,"items":[]}\'; fi ;;',
+      '  "repos/{owner}/{repo}/pulls/"*)',
+      '    [ -n "$GH_PULL" ] || { echo "HTTP 404" >&2; exit 1; }',
+      '    printf "%s\\n" "$GH_PULL" ;;',
+      '  *) exit 1 ;;',
+      'esac',
       "",
     ].join("\n"),
   );
@@ -513,6 +526,78 @@ test("a pull request whose head went past the tip, into another base, or not mer
   assert.ok(existsSync(wt.path));
   assert.ok(branches(h.repo).includes(wt.branch));
   assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a commit whose pull requests fill a page is read on to the next page", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const open = JSON.parse(pulls({ merged: false })) as unknown[];
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = JSON.stringify(Array.from({ length: 100 }, () => open[0]));
+  process.env.GH_ANSWER_2 = pulls({});
+  try {
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+    assert.match(readFileSync(mark, "utf8"), /commits\/[0-9a-f]+\/pulls\?per_page=100&page=2/);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+    delete process.env.GH_ANSWER_2;
+  }
+  assertNoTrace(h);
+});
+
+test("a merged pull request the commit's list leaves out is found by search, and read for its exact head and base", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const tip = git(h.repo, "rev-parse", wt.branch);
+  const pull = (pr: { base?: string; head?: string; merged?: boolean }): string => JSON.stringify((JSON.parse(pulls({ head: tip, ...pr })) as unknown[])[0]);
+  process.env.GH_MARK = mark;
+  // GitHub lists only open pull requests for a commit off the default branch.
+  process.env.GH_ANSWER = "[]";
+  process.env.GH_SEARCH = JSON.stringify({ total_count: 1, items: [{ number: 184 }] });
+  try {
+    for (const wrong of [pull({ head: git(h.repo, "rev-parse", "main") }), pull({ base: "release" }), pull({ merged: false }), "not json"]) {
+      process.env.GH_PULL = wrong;
+      assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", wrong);
+    }
+    delete process.env.GH_PULL;
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", "a pull request gh cannot read");
+    process.env.GH_PULL = pull({});
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+    const asked = readFileSync(mark, "utf8");
+    assert.match(asked, new RegExp(`search/issues\\?q=repo:\\{owner\\}/\\{repo\\}\\+is:pr\\+is:merged\\+${tip}`));
+    assert.match(asked, /repos\/\{owner\}\/\{repo\}\/pulls\/184/);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+    delete process.env.GH_SEARCH;
+    delete process.env.GH_PULL;
+  }
+  assertNoTrace(h);
+});
+
+test("a gh that cannot answer for the commit is not asked to search", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_MARK = mark;
+  process.env.GH_FAIL = "1";
+  try {
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    assert.doesNotMatch(readFileSync(mark, "utf8"), /search/);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_FAIL;
+  }
 });
 
 test("a worktree started from a detached HEAD has no base branch to compare: a pull request merged at its exact tip still proves it, one at another head does not", async () => {
