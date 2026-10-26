@@ -121,6 +121,26 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledWith("look at this", []);
   });
 
+  it("pastes text with its spacing intact, even when the clipboard also offers HTML", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <LocaleProvider>
+        <Harness onSend={onSend} />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    const clipboard = new DataTransfer();
+    // The HTML a browser would offer for the same copy, whose parse collapses
+    // the indentation and turns each line into a paragraph.
+    clipboard.setData("text/html", "<div>if (x) {</div><div>&nbsp;&nbsp;run();</div><div></div><div>}</div>");
+    clipboard.setData("text/plain", "  if (x) {\r\n    run();\n\n\n}\n");
+    await user.paste(clipboard);
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledWith("  if (x) {\n    run();\n\n\n}", []);
+  });
+
   it("follows a language switch even though the editor is never recreated", async () => {
     const user = userEvent.setup();
     render(

@@ -17,6 +17,7 @@ import { Placeholder } from "@tiptap/extension-placeholder";
 import Suggestion from "@tiptap/suggestion";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Fragment, Slice, type Node as ProseMirrorNode, type Schema } from "@tiptap/pm/model";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Elapsed } from "@/components/chat/activity/Elapsed";
@@ -32,7 +33,7 @@ import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
-import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/composerLinks";
+import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
@@ -208,6 +209,23 @@ function buildComposerDoc(text: string): JSONContent {
     if (line) content.push({ type: "text", text: line });
   });
   return { type: "doc", content: [{ type: "paragraph", content }] };
+}
+
+/** Pasted plain text as an inline slice: one `hardBreak` per newline, the
+ * same shape `buildComposerDoc` restores a draft into, so blank lines and
+ * leading spaces survive verbatim (text nodes keep whitespace as-is; the
+ * editor renders with `white-space: pre-wrap`). */
+function pastedTextSlice(schema: Schema, text: string): Slice {
+  const nodes: ProseMirrorNode[] = [];
+  text
+    .replace(/\r\n?/g, "\n")
+    .replace(new RegExp(HARD_BREAK_ANCHOR, "g"), "")
+    .split("\n")
+    .forEach((line, index) => {
+      if (index > 0) nodes.push(schema.nodes.hardBreak.create());
+      if (line) nodes.push(schema.text(line));
+    });
+  return new Slice(Fragment.from(nodes), 0, 0);
 }
 
 /** Dynamic placeholder: shows the next-message suggestion while it exists,
@@ -558,7 +576,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onFocus: () => setFocused(true),
     onBlur: ({ editor: current }) => {
       setFocused(false);
-      flushDraftSync(serializeEditorContent(current.getJSON()).trim());
+      flushDraftSync(trimComposerText(serializeEditorContent(current.getJSON())));
     },
     onUpdate: ({ editor: current }) => {
       setIsEmpty(current.isEmpty);
@@ -566,7 +584,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       if (suppressDraftRef.current) {
         suppressDraftRef.current = false;
       } else {
-        scheduleDraftSync(serializeEditorContent(current.getJSON()).trim());
+        scheduleDraftSync(trimComposerText(serializeEditorContent(current.getJSON())));
       }
     },
     editorProps: {
@@ -622,13 +640,29 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       // or "Copy image" from a browser) — reuses the same upload pipeline
       // as the attach button and drag-and-drop instead of letting
       // ProseMirror try to paste it as inline content.
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter(
           (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
         );
-        if (files.length === 0) return false;
+        if (files.length > 0) {
+          event.preventDefault();
+          onAddFiles(files);
+          return true;
+        }
+        // Text goes in exactly as copied. Left to ProseMirror, the clipboard's
+        // `text/html` wins whenever the source offers it (browsers, Slack, the
+        // chat log itself) and its parse collapses runs of spaces and
+        // indentation; plain-text paste splits every line into its own
+        // paragraph, so blank lines vanish and single newlines double on
+        // serialize. Two cases still take the default path: a copy from this
+        // editor itself (`data-pm-slice` — same schema, keeps its link marks)
+        // and a single whitespace-free token, which has nothing to lose and
+        // is what lets Link's `linkOnPaste` turn a pasted URL into a link.
+        const plain = event.clipboardData?.getData("text/plain") ?? "";
+        const html = event.clipboardData?.getData("text/html") ?? "";
+        if (!plain || html.includes("data-pm-slice") || !/\s/.test(plain)) return false;
         event.preventDefault();
-        onAddFiles(files);
+        view.dispatch(view.state.tr.replaceSelection(pastedTextSlice(view.state.schema, plain)).scrollIntoView());
         return true;
       },
     },
@@ -680,7 +714,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   function submit(): void {
     if (!editor) return;
-    const text = serializeEditorContent(editor.getJSON()).trim();
+    const text = trimComposerText(serializeEditorContent(editor.getJSON()));
     const decision = decideSubmit({
       text,
       attachmentCount: pendingImages.length,

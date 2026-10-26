@@ -50,6 +50,14 @@ export function serializeEditorContent(doc: JSONContent): string {
   return (doc.content ?? []).map(serializeBlock).join("\n\n");
 }
 
+/** What `.trim()` would do to the composer's text, minus eating the first
+ * line's indentation: drops blank lines at the start and all trailing
+ * whitespace, so a pasted indented snippet arrives as it was copied. A text
+ * of only whitespace still comes out empty. */
+export function trimComposerText(text: string): string {
+  return text.replace(/^(?:[^\S\n]*\n)+/, "").trimEnd();
+}
+
 /** Rebuilds links from the received plain text, to display in the sent
  * message's bubble — same `composer-link` visual class as the editor,
  * without depending on a full markdown parser (avoids reinterpreting
