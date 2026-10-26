@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownContent } from "@/components/chat/MarkdownContent";
+import { CollapsibleText } from "@/components/chat/CollapsibleText";
 
 interface UserBubbleProps {
   id: string;
@@ -183,9 +184,15 @@ export const UserBubble = memo(function UserBubble({
               </div>
             )}
             {text && (
-              <div className="prose-chat prose-chat-user min-w-0">
-                <MarkdownContent text={text} userMessage />
-              </div>
+              <CollapsibleText
+                id={`user-expand:${id}`}
+                expandLabel={dict.chat.message.showAll}
+                collapseLabel={dict.chat.message.showLess}
+              >
+                <div className="prose-chat prose-chat-user min-w-0">
+                  <MarkdownContent text={text} userMessage />
+                </div>
+              </CollapsibleText>
             )}
           </>
         )}

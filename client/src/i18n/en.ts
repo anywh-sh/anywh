@@ -39,6 +39,8 @@ export const en: Dictionary = {
       edit: "Edit message",
       editUnavailable: "Edit message (unavailable)",
       editWithAttachment: "Editing a message with an attachment isn't supported yet",
+      showAll: "Show all",
+      showLess: "Show less",
     },
     toolCall: {
       attributionEstimatedHint: "Estimated — split proportionally across tool calls that ran in parallel",

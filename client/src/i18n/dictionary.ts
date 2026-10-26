@@ -429,6 +429,9 @@ export interface Dictionary {
       edit: string;
       editUnavailable: string;
       editWithAttachment: string;
+      /** Toggle under a long message clipped at a maximum height. */
+      showAll: string;
+      showLess: string;
     };
     toolCall: {
       /** Tooltip on the context-cost badge (`+13.5k`) when it was divided

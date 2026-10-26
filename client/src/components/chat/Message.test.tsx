@@ -4,8 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { UserBubble } from "./Message";
 import { en } from "@/i18n/en";
+import { OpenState, OpenStateContext } from "@/lib/format/openState";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 /**
  * The action strip under a sent message had no test of any kind, and it is
@@ -122,6 +126,55 @@ describe("UserBubble", () => {
       renderBubble({ text: "[click](javascript:alert(1))" });
 
       expect(screen.getByText("click").closest("a")?.getAttribute("href") ?? "").not.toContain("javascript");
+    });
+  });
+
+  describe("clips a long message", () => {
+    function renderInLog(openState: OpenState) {
+      return render(
+        <OpenStateContext.Provider value={openState}>
+          <TooltipProvider>
+            <UserBubble
+              id="m1"
+              text="a long message"
+              sentAt={Date.now()}
+              isEditing={false}
+              onStartEdit={vi.fn()}
+              onCancelEdit={vi.fn()}
+              onSaveEdit={vi.fn()}
+              onCopy={vi.fn()}
+            />
+          </TooltipProvider>
+        </OpenStateContext.Provider>,
+      );
+    }
+
+    it("offers no toggle for a message that fits", () => {
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(330);
+      renderInLog(new OpenState());
+
+      expect(screen.queryByRole("button", { name: en.chat.message.showAll })).not.toBeInTheDocument();
+    });
+
+    it("expands and folds a tall one, and remembers it across the row remounting", async () => {
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(900);
+      const user = userEvent.setup();
+      const openState = new OpenState();
+      const { unmount } = renderInLog(openState);
+
+      const expand = screen.getByRole("button", { name: en.chat.message.showAll });
+      expect(expand).toHaveAttribute("aria-expanded", "false");
+      expect(document.getElementById(expand.getAttribute("aria-controls")!)).toHaveStyle({ maxHeight: "320px" });
+
+      await user.click(expand);
+      const collapse = screen.getByRole("button", { name: en.chat.message.showLess });
+      expect(collapse).toHaveAttribute("aria-expanded", "true");
+      expect(document.getElementById(collapse.getAttribute("aria-controls")!)?.style.maxHeight).toBe("");
+
+      // The virtualized log unmounts a row scrolled out of view.
+      unmount();
+      renderInLog(openState);
+      expect(screen.getByRole("button", { name: en.chat.message.showLess })).toBeInTheDocument();
     });
   });
 });
