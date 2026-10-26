@@ -83,6 +83,12 @@ export class RoomWorktrees {
     this.rootDir = realpathSync(options.root);
   }
 
+  /** A record leaves the registry, and what was proved of it with it. */
+  private forget(id: string): void {
+    this.options.registry.delete(id);
+    this.proofs.delete(id);
+  }
+
   /** One git operation at a time, whatever the callers. */
   private serial<T>(task: () => Promise<T>): Promise<T> {
     const run = this.chain.then(task, task);
@@ -168,7 +174,7 @@ export class RoomWorktrees {
     if (!isOurs(record, this.rootDir) || !repo) {
       // Not ours to act on, or nowhere left to ask git: only the record goes
       // when it names nothing that exists.
-      if (!isOurs(record, this.rootDir) || (!existsSync(record.path))) this.options.registry.delete(record.id);
+      if (!isOurs(record, this.rootDir) || (!existsSync(record.path))) this.forget(record.id);
       else this.options.registry.put({ ...record, state: "retained", retained: { reason: "its creation did not finish and its repository is not where it was", at: this.now() } });
       return;
     }
@@ -183,7 +189,7 @@ export class RoomWorktrees {
     }
     // Only a branch still at its starting point: one with commits is work.
     if ((await branchTip(repo, record.branch)) === record.base.sha) await deleteBranch(repo, record.branch);
-    if (!(await branchExists(repo, record.branch)) && !existsSync(record.path)) this.options.registry.delete(record.id);
+    if (!(await branchExists(repo, record.branch)) && !existsSync(record.path)) this.forget(record.id);
     else this.options.registry.put({ ...this.fresh(record), state: "retained", retained: { reason: "its creation did not finish and it holds something", at: this.now() } });
   }
 
@@ -230,7 +236,7 @@ export class RoomWorktrees {
     for (const record of records) {
       if (record.state === "creating" || this.inFlight.has(record.id)) continue;
       if (!isOurs(record, this.rootDir)) {
-        this.options.registry.delete(record.id);
+        this.forget(record.id);
         continue;
       }
       outcomes.push(await this.cleanupOne(record, mode));
@@ -384,8 +390,7 @@ export class RoomWorktrees {
       const deleted = await deleteBranch(repo, record.branch);
       if (!deleted.ok) return refuse(deleted.stderr.trim() || "git refused to delete its branch");
     }
-    this.options.registry.delete(record.id);
-    this.proofs.delete(record.id);
+    this.forget(record.id);
     return { id: record.id, branch: record.branch, result: "removed", reason: record.removing?.reason };
   }
 
@@ -401,7 +406,7 @@ export class RoomWorktrees {
       for (const record of [...this.options.registry.all()]) {
         if (this.inFlight.has(record.id)) continue;
         if (!isOurs(record, this.rootDir)) {
-          this.options.registry.delete(record.id);
+          this.forget(record.id);
           continue;
         }
         if (record.state === "creating") {

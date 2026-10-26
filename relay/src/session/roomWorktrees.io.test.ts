@@ -234,6 +234,29 @@ test("a squash merge the base went on editing elsewhere in the same file still h
   assertNoTrace(h);
 });
 
+test("what was proved of a record goes with it, whichever way it leaves the registry", async () => {
+  const h = harness();
+  const proofs = (): Map<string, unknown> => (h.worktrees as unknown as { proofs: Map<string, unknown> }).proofs;
+  // A record that is not ours (outside the worktrees folder), dropped by the sweep.
+  const outside = join(dir, `precious-${++counter}`);
+  git(h.repo, "worktree", "add", "-q", "-b", "anywh/precious", outside);
+  commitIn(outside);
+  squashMerge(h.repo, "anywh/precious");
+  h.registry.put({ id: "forged", repoRoot: h.repo, path: outside, branch: "anywh/precious", base: { ref: "main", sha: git(h.repo, "rev-parse", "HEAD~2") }, roomId: "room", agentId: "agent-1", createdAt: 1, state: "created" });
+  // A creation that never finished and holds nothing anymore, undone by the sweep.
+  const wt = await created(h);
+  commitIn(wt.path, "ours.txt");
+  squashMerge(h.repo, wt.branch);
+  assert.deepEqual((await h.worktrees.list("room")).map((info) => info.integrated), [true, true]);
+  assert.equal(proofs().size, 2, "list remembered both squash proofs");
+  git(h.repo, "worktree", "remove", "--force", wt.path);
+  git(h.repo, "branch", "-D", wt.branch);
+  h.registry.put({ ...h.registry.all().find((r) => r.branch === wt.branch)!, state: "creating" });
+  await h.worktrees.sweep();
+  assert.deepEqual(h.registry.all(), []);
+  assert.equal(proofs().size, 0);
+});
+
 test("a squash with different content (the merge edited the patch) is not the branch's work: retained", async () => {
   const h = harness();
   const wt = await created(h);
