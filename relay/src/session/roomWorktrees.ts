@@ -285,10 +285,14 @@ export class RoomWorktrees {
     }
     const clean = worktreeExists ? await isClean(record.path) : true;
     const hasSubmodules = worktreeExists ? await hasInitializedSubmodules(record.path) : false;
+    // The proofs below are asked only when the rest would allow a removal:
+    // a worktree that is dirty, holds stray commits or a submodule is
+    // retained whatever they say.
+    const removable = repo !== undefined && !ancestor && !declared && !mode.discard && !strayCommits && clean && !hasSubmodules;
     // A squash or rebase merge, found by content: git alone, no network.
-    const squashed = repo !== undefined && tip !== undefined && !ancestor && !declared && !mode.discard ? await this.squashed(record, repo, tip) : false;
-    // Last, and only when the rest would allow a removal: it is the slow one.
-    const askPullRequest = repo !== undefined && !ancestor && !declared && !squashed && !mode.discard && !strayCommits && clean && !hasSubmodules;
+    const squashed = removable && tip !== undefined ? await this.squashed(record, repo, tip) : false;
+    // Last: it is the slow one.
+    const askPullRequest = removable && !squashed;
     return decideCleanup(
       {
         agentBusy: agent.busy,

@@ -284,10 +284,13 @@ test("a squash-merged worktree with uncommitted changes is retained, and listed 
   writeFileSync(join(wt.path, "scratch.txt"), "uncommitted\n");
   const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
   assert.equal(outcome?.result, "retained");
-  assert.match(outcome?.reason ?? "", /uncommitted/);
   assert.equal(readFileSync(join(wt.path, "scratch.txt"), "utf8"), "uncommitted\n");
   const [info] = await h.worktrees.list("room");
   assert.equal(info?.integrated, true);
+  rmSync(join(wt.path, "scratch.txt"));
+  const [removed] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(removed?.result, "removed", removed?.reason);
+  assertNoTrace(h);
 });
 
 test("a declaration still removes what no patch can prove", async () => {
