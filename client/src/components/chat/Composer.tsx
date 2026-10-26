@@ -662,7 +662,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         const html = event.clipboardData?.getData("text/html") ?? "";
         if (!plain || html.includes("data-pm-slice") || !/\s/.test(plain)) return false;
         event.preventDefault();
-        view.dispatch(view.state.tr.replaceSelection(pastedTextSlice(view.state.schema, plain)).scrollIntoView());
+        // Tagged like ProseMirror's own paste, so Link's paste rule still
+        // turns a URL inside the pasted text into a link.
+        view.dispatch(
+          view.state.tr
+            .replaceSelection(pastedTextSlice(view.state.schema, plain))
+            .scrollIntoView()
+            .setMeta("paste", true)
+            .setMeta("uiEvent", "paste"),
+        );
         return true;
       },
     },
