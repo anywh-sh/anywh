@@ -96,9 +96,23 @@ describe("UserBubble", () => {
 
       const paragraphs = document.querySelectorAll(".prose-chat p");
       expect(paragraphs).toHaveLength(2);
-      expect(paragraphs[0].querySelectorAll("br")).toHaveLength(1);
-      expect(paragraphs[0].textContent?.replace(/\s+/g, " ")).toBe("first second");
+      expect(paragraphs[0].innerHTML).toBe("first<br>second");
       expect(paragraphs[1].textContent).toBe("third");
+    });
+
+    it("keeps a pasted trace's indentation and runs of spaces", () => {
+      renderBubble({ text: "Traceback:\n  File \"a.py\", line 3\n    x  =  1\n> quoted\n>   deeper\n\nhard  \nbreak" });
+
+      const [trace, quote, hard] = document.querySelectorAll(".prose-chat p");
+      expect(trace.textContent).toBe('Traceback:  File "a.py", line 3    x  =  1');
+      expect(trace.querySelectorAll("br")).toHaveLength(2);
+      // No newline text is left next to a break for `pre-wrap` to double.
+      expect(trace.innerHTML).not.toContain("\n");
+      // A blockquote's continuation carries its `>` in the source; the
+      // parsed text is kept there rather than leaking the marker back in.
+      expect(quote.textContent).toBe("quoteddeeper");
+      // A markdown hard break (two trailing spaces) is a single `<br>` too.
+      expect(hard.innerHTML).toBe("hard<br>break");
     });
 
     // A pasted log is full of lines that are markdown headings or rules by

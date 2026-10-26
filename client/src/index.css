@@ -750,6 +750,13 @@ body {
 .prose-chat-user > * + * {
   margin-top: 0.6em;
 }
+/* Runs of spaces and a line's indentation are part of what was typed — a
+ * pasted log or stack trace is unreadable without them. Line breaks are
+ * already `<br>`s (`remarkUserMessage`), so no newline is left for this to
+ * double. */
+.prose-chat-user p {
+  white-space: pre-wrap;
+}
 .prose-chat-user code,
 .prose-chat-user .prose-chat-path-link {
   background: var(--bg-elevated);

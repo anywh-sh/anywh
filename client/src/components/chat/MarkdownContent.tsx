@@ -4,7 +4,7 @@ import rehypeHighlight from "rehype-highlight";
 import { handleExternalLinkClick } from "@/lib/platform/externalLink";
 import { looksLikeExternalUrl, looksLikeFilePath } from "@/lib/composer/filePathLinks";
 import { MarkdownCodeBlock } from "@/components/chat/MarkdownCodeBlock";
-import { remarkUserMessage } from "@/lib/format/remarkUserMessage";
+import { remarkUserMessage, USER_MESSAGE_REHYPE_OPTIONS } from "@/lib/format/remarkUserMessage";
 
 const REMARK_PLUGINS = [remarkGfm];
 const USER_REMARK_PLUGINS = [remarkGfm, remarkUserMessage];
@@ -37,6 +37,7 @@ export function MarkdownContent({
   return (
     <ReactMarkdown
       remarkPlugins={userMessage ? USER_REMARK_PLUGINS : REMARK_PLUGINS}
+      remarkRehypeOptions={userMessage ? USER_MESSAGE_REHYPE_OPTIONS : undefined}
       rehypePlugins={[rehypeHighlight]}
       components={{
         // A real markdown link (`[foo](bar/baz.ts)`, as opposed to the `code`
