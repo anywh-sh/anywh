@@ -5,7 +5,8 @@ import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
-import type { AgentEvent } from "../protocol/agent-event.js";
+import type { AgentEvent, RoomCard } from "../protocol/agent-event.js";
+import { withRoomCard } from "../protocol/roomCard.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
@@ -1460,17 +1461,17 @@ export class SharedSession implements SessionDriverHost {
    * that may end in silence (`NO_REPLY`): nothing of it is shown unless the
    * agent does or says something. `onDelivered` runs once the agent has the
    * message. */
-  submitRoomDigest(text: string, hooks?: TurnHooks): void {
+  submitRoomDigest(text: string, hooks?: TurnHooks, card?: RoomCard): void {
     this.clearSuggestion();
-    this.enqueue(() => this.runTurn(undefined, text, { kind: "room_digest", silenceOffered: true }, false, hooks));
+    this.enqueue(() => this.runTurn(undefined, text, { kind: "room_digest", silenceOffered: true }, false, hooks, undefined, undefined, card));
   }
 
   /** A turn asked by another agent of the room (a delegated task, a message
    * from the principal) rather than typed by a person on a device: no
    * device has its bubble yet, so everyone connected gets it. */
-  submitAgentTurn(text: string, hooks?: TurnHooks): void {
+  submitAgentTurn(text: string, hooks?: TurnHooks, card?: RoomCard): void {
     this.clearSuggestion();
-    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks));
+    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks, undefined, undefined, card));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1545,6 +1546,9 @@ export class SharedSession implements SessionDriverHost {
     grants?: readonly ToolGrant[],
     /** A note for the model alone, added to the prompt but not shown. */
     note?: string,
+    /** What the turn is shown as instead of a bubble (see `RoomCard`). Not a
+     * kind of synthetic turn: a delegated first task still locks the cwd. */
+    card?: RoomCard,
   ): Promise<void> {
     // The conversation so far is read from the agent's own storage before
     // anything of this turn enters the log: a turn that starts before any
@@ -1607,13 +1611,19 @@ export class SharedSession implements SessionDriverHost {
     // already committed the bubble locally optimistically (`ChatPanel`),
     // getting it back would duplicate it.
     let syntheticUserEvent: AgentEvent | undefined;
+    let shownApart = false;
     if (!follow) {
       const event: AgentEvent = synthetic
-        ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}) }
-        : { type: "user_message", text };
+        ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}), ...(card ? { room: card } : {}) }
+        : { type: "user_message", text, ...(card ? { room: card } : {}) };
       syntheticUserEvent = event;
       if (origin) {
         this.broadcastExcept({ type: "agent_event", event }, origin);
+      } else if (card?.kind === "reports") {
+        // The card IS the person's notice of the reports: only the model's
+        // answer to them may be silent, never the card.
+        shownApart = true;
+        this.broadcast({ type: "agent_event", event });
       } else {
         emit({ type: "agent_event", event });
       }
@@ -1658,7 +1668,7 @@ export class SharedSession implements SessionDriverHost {
     const roomNote = follow ? undefined : this.options.roomTurnNote?.();
     try {
       const effortId = this.effortForTurn();
-      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), text);
+      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(text, card) : text);
       const ctx: TurnContext = {
         cwd: this.cwd,
         prompt,
@@ -1747,7 +1757,7 @@ export class SharedSession implements SessionDriverHost {
         // Keep the minimal pair in `history` (marked, so the send path skips
         // it) — `findEditTarget`/`forkTruncatedTranscript` count one turn
         // per transcript `user` line.
-        if (syntheticUserEvent) this.history.push({ type: "agent_event", event: markSilent(syntheticUserEvent) });
+        if (syntheticUserEvent && !shownApart) this.history.push({ type: "agent_event", event: markSilent(syntheticUserEvent) });
         this.history.push({ type: "agent_event", event: markSilent(turnEnded) });
       } else {
         release();

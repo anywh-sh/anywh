@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
+import { RoomCard } from "@/components/chat/RoomCard";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { WorkBlock } from "@/components/chat/activity/WorkBlock";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
@@ -123,6 +124,7 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
   const entry = item.entry;
   switch (entry.kind) {
     case "user":
+      if (entry.room) return <RoomCard key={entry.id} room={entry.room} />;
       return (
         <UserBubble
           key={entry.id}

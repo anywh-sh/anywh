@@ -625,6 +625,25 @@ export interface Dictionary {
       stopped: string;
       backgroundJobDone: string;
       wakeupResumed: string;
+      /** A report or instruction from the room, drawn as a card. */
+      roomCard: {
+        done: string;
+        failed: string;
+        needsYou: string;
+        open: string;
+        reply: string;
+        /** `{status}`, `{time}`. */
+        label: string;
+        /** `{title}`. */
+        openAria: string;
+        /** `{title}`. */
+        replyAria: string;
+        /** `{title}`. */
+        instructionAria: string;
+        /** `{time}`: a compact span like "12m". */
+        ago: string;
+        untitledAgent: string;
+      };
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;

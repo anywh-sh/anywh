@@ -20,8 +20,31 @@
  * silence, same mechanism as theme.ts/protocolVersion.ts. That test compares
  * everything from the first `export` on, so this header is the only part
  * allowed to differ between the two copies (each names the other).
- *
- * `ToolKind` below is what a tool call actually does, independent of which
+ */
+/** How a room agent's report ended — the three states a report card shows:
+ * done (ready), failed (error), blocked (it needs the person). */
+export type RoomCardStatus = "done" | "failed" | "blocked";
+
+/** One report inside a digest card. `title` is the agent's title when the
+ * digest was built (a snapshot: a later rename does not rewrite history);
+ * `null` while it had none. `at` is when the report arrived (epoch ms). */
+export interface RoomReportCard {
+  agentId: string;
+  title: string | null;
+  status: RoomCardStatus;
+  at: number;
+}
+
+/** What a room turn showed as a card instead of a chat bubble — see the
+ * `user_message` variant. `reports`: the agents an agent started reported
+ * back (its digest); `instruction`: an agent above this one handed it work
+ * (a delegated task, or a message from the principal). */
+export type RoomCard =
+  | { kind: "reports"; reports: RoomReportCard[] }
+  | { kind: "instruction"; title: string | null };
+
+/**
+ * What a tool call actually does, independent of which
  * CLI or tool name produced it — this is what a UI groups/icons by, not the
  * raw tool name. `"other"` is not a failure case: a def maps a tool it
  * doesn't recognize (a new one the CLI shipped, an MCP tool with no special
@@ -123,9 +146,14 @@ export type AgentEvent =
    * the reports a room's agents handed to the agent that started them — none
    * is ever a real human message, all shown as a system note rather than a
    * chat bubble.
+   * `room` present means the turn is shown as a card, not a bubble: `kind:
+   * "reports"` always comes with `synthetic: "room_digest"`, `kind:
+   * "instruction"` without `synthetic`. `text` stays the prompt the model
+   * got; a card renderer does not show it. Absent, the message renders as
+   * it always did.
    * `timestamp` is the real on-disk time on replay, absent live (whoever
    * sent it already knows the click's own time). */
-  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup" | "approval" | "room_digest"; label?: string }
+  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup" | "approval" | "room_digest"; label?: string; room?: RoomCard }
   /** Live streaming preview of a growing text block — `index` correlates
    * multiple chunks (and, in principle, multiple concurrently-streaming
    * blocks) to the same block before it commits as `text`. A number for a

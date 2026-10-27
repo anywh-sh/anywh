@@ -19,7 +19,7 @@ import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { codexRuntimeDef } from "../src/runtimes/defs/codex.js";
 import { spawnRelay, type SpawnedServer } from "./helpers/spawnedServer.js";
 import { FAKE_AGENT_BIN } from "./helpers/testServer.js";
-import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
+import { collectUntil, connectSession, connectSessionAndCollectUntil, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 const FAKE_CODEX = resolve(import.meta.dirname, "fixtures/fake-codex-app-server.mjs");
 
@@ -128,6 +128,14 @@ test("a Codex principal delegates through its dynamic tools; the worker is born 
   const room = (await (await fetch(`${base}/rooms/${roomId}`)).json()) as { members: { id: string; agentId: string; room: { undeliveredReports?: string[] } }[] };
   assert.equal(room.members.find((member) => member.id === roomId)?.agentId, "codex");
   assert.deepEqual(room.members.find((member) => member.id === roomId)?.room.undeliveredReports, [agentId]);
+  // The worker, a Claude one under a Codex principal, got its task as an instruction card.
+  const { socket: workerSocket, messages: workerMessages } = await connectSessionAndCollectUntil(relay.port, agentId, (m) => m.type === "caught_up", 10_000);
+  workerSocket.close();
+  const workerPage = workerMessages.find((m) => m.type === "history_page") as { messages: { type: string; event: { type?: string; room?: { kind: string } } }[] } | undefined;
+  assert.deepEqual(
+    (workerPage?.messages ?? []).filter((m) => m.type === "agent_event" && m.event.type === "user_message").map((m) => m.event.room?.kind),
+    ["instruction"],
+  );
   const agents = ((await (await fetch(`${base}/agents/activity`)).json()) as { agents: AgentActivity[] }).agents;
   assert.equal(agents.find((agent) => agent.agentId === roomId)?.runtime, "codex");
   assert.equal(agents.find((agent) => agent.agentId === agentId)?.runtime, "claude");

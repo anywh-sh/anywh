@@ -374,7 +374,8 @@ describe("anywh room canvas", () => {
     await bar.waitForExist({ timeout: 5000, timeoutMsg: "the bar for several agents never showed" });
     await expect(bar).toHaveText(expect.stringContaining("3 agents"));
     expect(await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)).toBe(3);
-    expect(await $(".sala-bar").isExisting()).toBe(false);
+    // The single card's bar leaves with its own transition: wait it out rather than read it once.
+    await browser.waitUntil(async () => !(await $(".sala-bar").isExisting()), { timeout: 5000, timeoutMsg: "the single card's bar stayed with several selected" });
     await bar.$('button[aria-label="Clear the selection"]').click();
     await browser.waitUntil(async () => (await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)) === 0, { timeout: 5000, timeoutMsg: "the selection was never cleared" });
   });
@@ -820,5 +821,128 @@ describe("anywh room canvas", () => {
     await dialog.$('button[aria-busy="false"]').click();
     await browser.waitUntil(async () => (await cards()).length === 2, { timeout: 30000, timeoutMsg: "the agent was never removed" });
     await browser.waitUntil(async () => (await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json()).worktrees.length === 0, { timeout: 45000, timeoutMsg: "the worktree was never discarded after the undo window" });
+  });
+});
+
+// Reports reach the principal as a turn of its own only after a quiet window,
+// which the canvas stack above keeps long on purpose; this one has its own
+// relay with a short one.
+describe("anywh room cards", () => {
+  let stack;
+  let previous;
+
+  before(async () => {
+    stack = await startRoomRelay({ digestWindowMs: 300 });
+    previous = await browser.execute(() => Object.fromEntries(Object.entries(localStorage)));
+    await browser.setWindowSize(1440, 900);
+    await browser.execute(
+      (port) => {
+        localStorage.setItem("anywh:profiles", JSON.stringify([{ id: "e2e-room", label: "Room relay", host: "127.0.0.1", relayPort: port }]));
+        localStorage.removeItem("anywh:tabs");
+        localStorage.removeItem("anywh:tab-layout");
+        localStorage.removeItem("anywh:session-list-cache");
+        window.location.reload();
+      },
+      stack.port,
+    );
+    await $('[aria-label="New session"]').waitForExist({ timeout: 30000 });
+  });
+
+  after(async () => {
+    if (previous) {
+      await browser.execute((saved) => {
+        localStorage.clear();
+        for (const [key, value] of Object.entries(saved)) localStorage.setItem(key, value);
+        window.location.reload();
+      }, previous);
+      await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
+    }
+    await stack?.stop();
+  });
+
+  it("shows reports as cards in the principal's chat and the task as a card in a worker's, and Open / Reply go to that agent's chat", async () => {
+    const created = await fetch(`${stack.base}/rooms`, {
+      method: "POST",
+      body: JSON.stringify({ agentId: "claude", model: "haiku", permissionMode: "default", cwd: stack.dir, title: "Ship the release notes" }),
+    });
+    const cardRoom = (await created.json()).roomId;
+    await say(
+      stack.port,
+      cardRoom,
+      [
+        roomMarker("delegate", { task: `Write the changelog\n${roomMarker("report", { status: "done", summary: "changelog written", artifacts: [] })}`, runtime: "claude", model: "haiku" }),
+        roomMarker("delegate", { task: `Pick the version number\n${roomMarker("report", { status: "blocked", summary: "need a decision", artifacts: [] })}`, runtime: "claude", model: "haiku" }),
+      ].join(" "),
+    );
+    // The reports come back to the principal in a turn of its own.
+    await browser.waitUntil(
+      async () => {
+        const { members } = await (await fetch(`${stack.base}/rooms/${cardRoom}`)).json();
+        return members.filter((m) => m.room.role === "worker" && m.room.report).length === 2 && !members.some((m) => m.room.undeliveredReports?.length);
+      },
+      { timeout: 45000, timeoutMsg: "the reports never reached the principal" },
+    );
+    await openRoomTab(cardRoom, "Ship the release notes");
+    await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000 });
+    await press("[data-agent-id].main .sala-node-hit");
+    const principal = await $('aside[data-panel="principal"]');
+    await principal.waitForExist({ timeout: 15000 });
+    await principal.$(".composer-editor").waitForExist({ timeout: 30000 });
+    const reportCards = () => principal.$$(".room-card[data-status]");
+    await browser.waitUntil(async () => (await reportCards()).length === 2, { timeout: 30000, timeoutMsg: "the principal's chat never showed the two report cards" });
+    const done = await principal.$('.room-card[data-status="done"]');
+    const blocked = await principal.$('.room-card[data-status="blocked"]');
+    expect(await done.getText()).toContain("Ready");
+    expect(await blocked.getText()).toContain("Needs you");
+    expect(await done.$("button").getText()).toBe("Open");
+    expect(await blocked.$("button").getText()).toBe("Reply");
+    // The marker that carries the cards is not text in the chat (the fake
+    // agent's echo of the digest, below the cards, is the agent's reply).
+    expect(await principal.getText()).not.toContain("[anywh-card]");
+    await panelSettled();
+    await shot("room-cards-principal-dark");
+
+    // Reply: the blocked agent's chat, with the task it was handed as a card.
+    await blocked.$("button").click();
+    const agentPanel = await $('aside[data-panel="agent"]');
+    await agentPanel.waitForExist({ timeout: 15000 });
+    const instruction = await agentPanel.$('.room-card[role="group"]');
+    await instruction.waitForExist({ timeout: 30000, timeoutMsg: "the worker's chat never showed the task as a card" });
+    // What it was handed, as of when it was handed (the report's title is the agent's own, later).
+    expect(await instruction.getText()).toBe("Pick the version number");
+    expect(await agentPanel.getText()).not.toContain("[anywh-card]");
+    await shot("room-cards-instruction-dark");
+    await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
+
+    // Open, on the other card, goes to the other agent.
+    await press("[data-agent-id].main .sala-node-hit");
+    const again = await $('aside[data-panel="principal"]');
+    await again.waitForExist({ timeout: 15000 });
+    const doneButton = await again.$('.room-card[data-status="done"] button');
+    await doneButton.waitForExist({ timeout: 30000 });
+    await doneButton.click();
+    const other = await $('aside[data-panel="agent"]');
+    await other.waitForExist({ timeout: 15000 });
+    const otherCard = await other.$('.room-card[role="group"]');
+    await otherCard.waitForExist({ timeout: 30000 });
+    expect(await otherCard.getText()).toBe("Write the changelog");
+    await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
+
+    // The light theme paints the same cards.
+    await browser.execute(() => {
+      localStorage.setItem("anywh:theme", "papel");
+      window.location.reload();
+    });
+    await $('[data-testid="sala-canvas"]').waitForExist({ timeout: 30000 });
+    await press("[data-agent-id].main .sala-node-hit");
+    const light = await $('aside[data-panel="principal"]');
+    await light.$('.room-card[data-status="done"]').waitForExist({ timeout: 30000 });
+    await panelSettled();
+    await shot("room-cards-principal-light");
+    await browser.execute(() => {
+      localStorage.setItem("anywh:theme", "");
+      window.location.reload();
+    });
+    await $('[data-testid="sala-canvas"]').waitForExist({ timeout: 30000 });
   });
 });

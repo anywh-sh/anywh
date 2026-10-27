@@ -17,5 +17,9 @@
  * 2 -> 3: timing, `subject`/`outcome` on tool calls and the new
  * `thinking_started` variant — see the relay's copy for why a change an old
  * client survives still bumps.
+ *
+ * 3 -> 4: the `room` card on `user_message` (digests and agent
+ * instructions) — see the relay's copy for why an old client still needs
+ * the bump.
  */
-export const WS_PROTOCOL_VERSION = 3;
+export const WS_PROTOCOL_VERSION = 4;

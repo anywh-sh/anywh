@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
+import { withRoomCard } from "../../../protocol/roomCard.js";
+import type { RoomCard } from "../../../protocol/agent-event.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 
 function withFixture(sessionId: string, rawLines: string[], run: (home: string) => void): void {
@@ -330,4 +332,61 @@ test("a relay note added to a prompt for the model does not show up in the rebui
       assert.deepEqual(result[1], { type: "agent_event", event: { type: "user_message", text: "never mind" } });
     },
   );
+});
+
+const REPORTS_CARD: RoomCard = {
+  kind: "reports",
+  reports: [
+    { agentId: "a1", title: "Fix login", status: "done", at: 1000 },
+    { agentId: "a2", title: null, status: "blocked", at: 2000 },
+  ],
+};
+const CARD_DIGEST = "[anywh-room] Agents you started have reported.\n\nIf nothing needs doing, answer exactly NO_REPLY and nothing else.";
+
+test("a digest with a card replays with room + room_digest, the marker stripped", () => {
+  withFixture("rc1", [userLine(withRelayNote(withRoomCard(CARD_DIGEST, REPORTS_CARD), WITHDRAWN_APPROVAL_NOTE)), assistantText("Noted."), userLine("next")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "rc1").map((m) => m.event);
+    const user = events[1];
+    assert.ok(user.type === "user_message");
+    assert.equal(user.text, CARD_DIGEST);
+    assert.equal(user.synthetic, "room_digest");
+    assert.deepEqual(user.room, REPORTS_CARD);
+  });
+});
+
+test("a carded digest answered NO_REPLY keeps its user_message visible; only the turn end is silent", () => {
+  withFixture("rc2", [userLine(withRoomCard(CARD_DIGEST, REPORTS_CARD)), assistantText("NO_REPLY"), userLine("next"), assistantText("sure")], (home) => {
+    const events = readHistoryFromTranscript(home, home, "rc2").map((m) => m.event);
+    assert.deepEqual(events.map((e) => e.type), ["user_message", "turn_ended", "turn_started", "user_message", "text"]);
+    assert.equal(isSilentEvent(events[0]), false);
+    assert.ok(events[0].type === "user_message" && events[0].room?.kind === "reports");
+    assert.equal(isSilentEvent(events[1]), true);
+  });
+});
+
+test("an old digest (prefix only, no card) replays exactly as before, without room", () => {
+  withFixture("rc3", [userLine(CARD_DIGEST), assistantText("ok"), userLine("next")], (home) => {
+    const user = readHistoryFromTranscript(home, home, "rc3").map((m) => m.event)[1];
+    assert.ok(user.type === "user_message" && user.synthetic === "room_digest");
+    assert.equal(user.room, undefined);
+  });
+});
+
+test("an instruction card replays as room.instruction without synthetic", () => {
+  const card: RoomCard = { kind: "instruction", title: "Write the docs" };
+  withFixture("rc4", [userLine(withRelayNote(withRoomCard("Write the docs, thoroughly.", card), WITHDRAWN_APPROVAL_NOTE)), assistantText("ok")], (home) => {
+    const user = readHistoryFromTranscript(home, home, "rc4").map((m) => m.event)[1];
+    assert.ok(user.type === "user_message");
+    assert.equal(user.text, "Write the docs, thoroughly.");
+    assert.equal(user.synthetic, undefined);
+    assert.deepEqual(user.room, card);
+  });
+});
+
+test("a person's text that merely contains the card marker is left alone", () => {
+  withFixture("rc5", [userLine("see [anywh-card] {not json}\nmore"), assistantText("ok")], (home) => {
+    const user = readHistoryFromTranscript(home, home, "rc5").map((m) => m.event)[1];
+    assert.ok(user.type === "user_message" && user.room === undefined);
+    assert.equal(user.text, "see [anywh-card] {not json}\nmore");
+  });
 });
