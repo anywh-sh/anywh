@@ -166,6 +166,7 @@ export const ptBr: Dictionary = {
         open: "Abrir",
         reply: "Responder",
         label: "{status} · {time}",
+        ago: "há {time}",
         openAria: "Abrir {title}",
         replyAria: "Responder a {title}",
         instructionAria: "Tarefa do orquestrador: {title}",

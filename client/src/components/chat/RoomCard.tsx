@@ -25,6 +25,9 @@ function ReportCard({ report }: { report: RoomReportCard }) {
   const title = report.title ?? dict.sala.card.untitled;
   const status = report.status === "done" ? copy.done : report.status === "failed" ? copy.failed : copy.needsYou;
   const blocked = report.status === "blocked";
+  const compact = formatCompactTime(report.at, locale);
+  // Under a minute the compact time is already a word ("now"): no "ago" on it.
+  const time = Date.now() - report.at < 45_000 || !Number.isFinite(report.at) ? compact : copy.ago.replace("{time}", compact);
   const Icon = report.status === "done" ? CheckIcon : blocked ? QuestionIcon : CloseIcon;
 
   return (
@@ -33,7 +36,7 @@ function ReportCard({ report }: { report: RoomReportCard }) {
         <Icon size={report.status === "failed" ? 12 : 14} />
       </span>
       <div className="room-card-body">
-        <span className="room-card-label">{copy.label.replace("{status}", status).replace("{time}", formatCompactTime(report.at, locale))}</span>
+        <span className="room-card-label">{copy.label.replace("{status}", status).replace("{time}", time)}</span>
         <span className="room-card-title" title={title}>
           {title}
         </span>

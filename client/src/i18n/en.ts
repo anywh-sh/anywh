@@ -166,6 +166,7 @@ export const en: Dictionary = {
         open: "Open",
         reply: "Reply",
         label: "{status} · {time}",
+        ago: "{time} ago",
         openAria: "Open {title}",
         replyAria: "Reply to {title}",
         instructionAria: "Task from the orchestrator: {title}",

@@ -640,6 +640,7 @@ export interface Dictionary {
         replyAria: string;
         /** `{title}`. */
         instructionAria: string;
+        ago: string;
       };
       compacted: string;
       compactedAuto: string;

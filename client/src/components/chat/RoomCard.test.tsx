@@ -67,6 +67,17 @@ describe("RoomCard", () => {
     expect(screen.getByRole("button", { name: "Responder a " + ptBr.sala.card.untitled })).toBeInTheDocument();
   });
 
+  it("says how long ago a report came in, in the language of the app", () => {
+    const at = Date.now() - 12 * 60_000;
+    const old: RoomCardData = { kind: "reports", reports: [{ agentId: "a1", title: "Old", status: "done", at }] };
+    renderCard(old);
+    expect(screen.getByText(/^Ready · 12m ago$/)).toBeInTheDocument();
+    cleanup();
+    localStorage.setItem(LOCALE_STORAGE_KEY, "pt-BR");
+    renderCard(old);
+    expect(screen.getByText(/^Pronto · há 12 ?min$/)).toBeInTheDocument();
+  });
+
   it("draws an instruction as its title alone, with no button", () => {
     renderCard({ kind: "instruction", title: "Write the docs" }, vi.fn());
     expect(screen.getByRole("group", { name: "Task from the orchestrator: Write the docs" })).toHaveTextContent("Write the docs");
