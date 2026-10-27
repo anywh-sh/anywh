@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { CheckIcon } from "@/components/sala/SalaIcons";
 import { AboutRoomPanel } from "@/components/sala/AboutRoomPanel";
 import { AgentAnswer } from "@/components/sala/AgentAnswer";
@@ -60,6 +61,8 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   const layout = useRoomCanvas(profile, roomId, channel.agents, ready);
   const [contextCount, setContextCount] = useState(0);
   const [panel, setPanel] = useState<PanelState>(null);
+  // Stable so the chats under the provider don't re-render with the panel.
+  const cardActions = useMemo(() => ({ openAgent: (agentId: string) => setPanel({ kind: "agent", id: agentId }) }), []);
   const [launcher, setLauncher] = useState<{ open: boolean; parentId: string | undefined }>({ open: false, parentId: undefined });
   const canvasHandle = useRef<SalaCanvasHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -230,6 +233,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   };
 
   return (
+    <RoomCardActionsContext.Provider value={cardActions}>
     <div ref={rootRef} className="flex h-[calc(100%-1px)] min-w-0 bg-background" data-room-id={roomId}>
       <div className="relative h-full min-w-0 flex-1">
         <SalaCanvas
@@ -305,5 +309,6 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
         />
       )}
     </div>
+    </RoomCardActionsContext.Provider>
   );
 }
