@@ -49,12 +49,19 @@ interface Harness {
   agent: { exists: boolean; busy: boolean; done: boolean };
 }
 
-function harness(repo = makeRepo(), gh = "/nonexistent/gh"): Harness {
+/** A clock that moves past the "no pull request" memory on every reading, so
+ * each cleanup asks GitHub afresh unless a test passes a frozen one. */
+function advancing(): () => number {
+  let at = 0;
+  return () => (at += 10 * 60_000);
+}
+
+function harness(repo = makeRepo(), gh = "/nonexistent/gh", now: () => number = advancing()): Harness {
   const root = join(dir, `wt-root-${++counter}`);
   const registryFile = join(dir, `registry-${counter}.json`);
   const registry = new WorktreeRegistry(registryFile);
   const agent = { exists: true, busy: false, done: true };
-  const worktrees = new RoomWorktrees({ registry, root, gh, agents: { facts: () => ({ ...agent, title: "Fix the cart", cwd: repo, roomId: "room" }) } });
+  const worktrees = new RoomWorktrees({ registry, root, gh, now, agents: { facts: () => ({ ...agent, title: "Fix the cart", cwd: repo, roomId: "room" }) } });
   return { repo, root, registry, registryFile, worktrees, agent };
 }
 
@@ -141,14 +148,196 @@ test("unmerged work is retained with the reason, then discarded only when asked"
   assertNoTrace(h);
 });
 
-test("a squash merge leaves no ancestor: retained without a declaration (gh absent), removed with one", async () => {
+/** Squash-merges `branch` into the repo's main, after another commit landed
+ * there first (so the squash is not the base's only change). */
+function squashMerge(repo: string, branch: string): void {
+  commitIn(repo, `main-${++counter}.txt`);
+  git(repo, "merge", "--squash", branch);
+  git(repo, "commit", "-q", "-m", "squashed");
+}
+
+test("a squash merge leaves no ancestor, but its patch is on the base: removed without a declaration or gh", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  process.env.GH_MARK = mark;
+  try {
+    const h = harness(makeRepo(), fakeGh());
+    const wt = await created(h);
+    commitIn(wt.path);
+    commitIn(wt.path, "second.txt");
+    squashMerge(h.repo, wt.branch);
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "squash");
+    assert.equal(existsSync(mark), false, "an offline proof needs no gh");
+    assertNoTrace(h);
+  } finally {
+    delete process.env.GH_MARK;
+  }
+});
+
+test("a commit made on the branch after its squash merge is not covered by it: retained", async () => {
   const h = harness();
   const wt = await created(h);
   commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  commitIn(wt.path, "after-the-merge.txt");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.match(outcome?.reason ?? "", /not merged/);
+  assert.ok(existsSync(join(wt.path, "after-the-merge.txt")));
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a change made after a squash merge that only re-indents, flips a mode bit or rewrites a binary is not covered by it: retained", async () => {
+  const changes: Array<[string, (path: string) => void]> = [
+    // Indentation is content in Python, YAML or a Makefile.
+    ["re-indented", (path) => writeFileSync(join(path, "job.py"), "def run():\n\treturn 1\n")],
+    ["made executable", (path) => chmodSync(join(path, "job.py"), 0o755)],
+    ["binary rewritten", (path) => writeFileSync(join(path, "blob.bin"), Buffer.from([0, 1, 2, 3, 0, 9, 9, 9]))],
+  ];
+  for (const [label, change] of changes) {
+    const h = harness();
+    const wt = await created(h);
+    writeFileSync(join(wt.path, "job.py"), "def run():\n    return 1\n");
+    writeFileSync(join(wt.path, "blob.bin"), Buffer.from([0, 1, 2, 3, 0, 4, 5, 6]));
+    git(wt.path, "add", "-A");
+    git(wt.path, "commit", "-q", "-m", "work");
+    squashMerge(h.repo, wt.branch);
+    change(wt.path);
+    git(wt.path, "commit", "-q", "-am", label);
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "retained", label);
+    assert.ok(branches(h.repo).includes(wt.branch), label);
+    assert.equal((await h.worktrees.list("room"))[0]?.integrated, false, label);
+  }
+});
+
+test("a squash merge reverted on the base no longer holds the branch's work: retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  git(h.repo, "revert", "--no-edit", "HEAD");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a squash proof remembered by list is dropped when only the base moves: reverting the squash makes it unintegrated again", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, true);
+  git(h.repo, "revert", "--no-edit", "HEAD");
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false, "the branch tip is the same, the base is not");
+});
+
+test("a squash merge the base went on editing elsewhere in the same file still holds the branch's work: removed", async () => {
+  const h = harness();
+  writeFileSync(join(h.repo, "src", "a.txt"), "1\n2\n3\n4\n5\n6\n7\n8\n9\n");
+  git(h.repo, "commit", "-q", "-am", "longer");
+  const wt = await created(h);
+  writeFileSync(join(wt.path, "src", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\n9\n");
+  git(wt.path, "commit", "-q", "-am", "work");
+  squashMerge(h.repo, wt.branch);
+  writeFileSync(join(h.repo, "src", "a.txt"), "one\n2\n3\n4\n5\n6\n7\n8\nnine\n");
+  git(h.repo, "commit", "-q", "-am", "later on main");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "removed", outcome?.reason);
+  assert.equal(outcome?.reason, "squash");
+  assertNoTrace(h);
+});
+
+test("what was proved of a record goes with it, whichever way it leaves the registry", async () => {
+  const h = harness();
+  const proofs = (): Map<string, unknown> => (h.worktrees as unknown as { proofs: Map<string, unknown> }).proofs;
+  // A record that is not ours (outside the worktrees folder), dropped by the sweep.
+  const outside = join(dir, `precious-${++counter}`);
+  git(h.repo, "worktree", "add", "-q", "-b", "anywh/precious", outside);
+  commitIn(outside);
+  squashMerge(h.repo, "anywh/precious");
+  h.registry.put({ id: "forged", repoRoot: h.repo, path: outside, branch: "anywh/precious", base: { ref: "main", sha: git(h.repo, "rev-parse", "HEAD~2") }, roomId: "room", agentId: "agent-1", createdAt: 1, state: "created" });
+  // A creation that never finished and holds nothing anymore, undone by the sweep.
+  const wt = await created(h);
+  commitIn(wt.path, "ours.txt");
+  squashMerge(h.repo, wt.branch);
+  assert.deepEqual((await h.worktrees.list("room")).map((info) => info.integrated), [true, true]);
+  assert.equal(proofs().size, 2, "list remembered both squash proofs");
+  git(h.repo, "worktree", "remove", "--force", wt.path);
+  git(h.repo, "branch", "-D", wt.branch);
+  h.registry.put({ ...h.registry.all().find((r) => r.branch === wt.branch)!, state: "creating" });
+  await h.worktrees.sweep();
+  assert.deepEqual(h.registry.all(), []);
+  assert.equal(proofs().size, 0);
+});
+
+test("a squash with different content (the merge edited the patch) is not the branch's work: retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  commitIn(h.repo, `main-${++counter}.txt`);
   git(h.repo, "merge", "--squash", wt.branch);
-  git(h.repo, "commit", "-q", "-m", "squashed");
-  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", "no evidence git can see, nothing is deleted");
-  assert.ok(existsSync(wt.path));
+  writeFileSync(join(h.repo, "new.txt"), "work, edited at merge time\n");
+  git(h.repo, "add", "-A");
+  git(h.repo, "commit", "-q", "-m", "squashed and edited");
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+});
+
+test("a rebase merge replays every commit of the branch on the base: removed; one commit missing, retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path, "one.txt");
+  commitIn(wt.path, "two.txt");
+  commitIn(h.repo, `main-${++counter}.txt`);
+  const commits = git(h.repo, "rev-list", "--reverse", `main..${wt.branch}`).split("\n");
+  // Only the first replayed: the second commit's work is not on the base.
+  git(h.repo, "cherry-pick", commits[0]);
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+  git(h.repo, "cherry-pick", commits[1]);
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "removed", outcome?.reason);
+  assert.equal(outcome?.reason, "squash");
+  assertNoTrace(h);
+});
+
+test("a branch whose commits cancel out has an empty patch, which proves nothing: retained", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path, "temp.txt");
+  git(wt.path, "rm", "-q", "temp.txt");
+  git(wt.path, "commit", "-q", "-m", "undo");
+  git(h.repo, "commit", "-q", "--allow-empty", "-m", "empty on main");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.ok(branches(h.repo).includes(wt.branch));
+});
+
+test("a squash-merged worktree with uncommitted changes is retained, and listed as integrated", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  squashMerge(h.repo, wt.branch);
+  writeFileSync(join(wt.path, "scratch.txt"), "uncommitted\n");
+  const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(outcome?.result, "retained");
+  assert.equal(readFileSync(join(wt.path, "scratch.txt"), "utf8"), "uncommitted\n");
+  const [info] = await h.worktrees.list("room");
+  assert.equal(info?.integrated, true);
+  rmSync(join(wt.path, "scratch.txt"));
+  const [removed] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+  assert.equal(removed?.result, "removed", removed?.reason);
+  assertNoTrace(h);
+});
+
+test("a declaration still removes what no patch can prove", async () => {
+  const h = harness();
+  const wt = await created(h);
+  commitIn(wt.path);
+  assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
   await h.worktrees.declareIntegratedFor("agent-1", "agent");
   assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
   assertNoTrace(h);
@@ -267,14 +456,254 @@ test("a worktree with an initialized submodule is retained when integrated, and 
   assert.deepEqual(branches(repo), ["main"]);
 });
 
-/** A stand-in for `gh pr view <branch> --json ...`: answers $GH_ANSWER (with
- * the branch's current tip for "@tip") after $GH_SLEEP seconds. */
+/** A stand-in for `gh api`: `repos/{owner}/{repo}/commits/<sha>/pulls`
+ * answers $GH_ANSWER for its first page and $GH_ANSWER_2 (else `[]`) for the
+ * second, with the sha asked about for "@tip"; `search/issues` answers
+ * $GH_SEARCH (else no result) and `repos/{owner}/{repo}/pulls/<n>` $GH_PULL.
+ * Waits $GH_SLEEP seconds and appends its arguments to $GH_MARK first. Fails
+ * as gh does for anything else, and for everything with $GH_FAIL. */
 function fakeGh(): string {
   const path = join(dir, `gh-${++counter}.sh`);
-  writeFileSync(path, '#!/bin/sh\n[ -n "$GH_MARK" ] && echo called >> "$GH_MARK"\nsleep "${GH_SLEEP:-0}"\ntip=$(git rev-parse "refs/heads/$3")\necho "$GH_ANSWER" | sed "s/@tip/$tip/"\n');
+  writeFileSync(
+    path,
+    [
+      "#!/bin/sh",
+      '[ -n "$GH_MARK" ] && echo "$*" >> "$GH_MARK"',
+      'sleep "${GH_SLEEP:-0}"',
+      '[ "$1" = api ] || exit 1',
+      '[ -n "$GH_FAIL" ] && { echo "HTTP 422" >&2; exit 1; }',
+      'case "$4" in',
+      '  "repos/{owner}/{repo}/commits/"*/pulls*)',
+      '    tip=$(printf "%s" "$4" | sed -n "s#^repos/{owner}/{repo}/commits/\\([0-9a-f]*\\)/pulls.*#\\1#p")',
+      '    page=$(printf "%s" "$4" | sed -n "s#.*[?&]page=\\([0-9]*\\).*#\\1#p")',
+      '    case "${page:-1}" in 1) answer="$GH_ANSWER" ;; 2) answer="${GH_ANSWER_2:-[]}" ;; *) answer="[]" ;; esac',
+      '    printf "%s\\n" "$answer" | sed "s/@tip/$tip/g" ;;',
+      '  search/issues*)',
+      '    if [ -n "$GH_SEARCH" ]; then printf "%s\\n" "$GH_SEARCH"; else echo \'{"total_count":0,"items":[]}\'; fi ;;',
+      '  "repos/{owner}/{repo}/pulls/"*)',
+      '    [ -n "$GH_PULL" ] || { echo "HTTP 404" >&2; exit 1; }',
+      '    printf "%s\\n" "$GH_PULL" ;;',
+      '  *) exit 1 ;;',
+      'esac',
+      "",
+    ].join("\n"),
+  );
   chmodSync(path, 0o755);
   return path;
 }
+
+/** What GitHub answers for a commit's pull requests: one, with these fields. */
+function pulls(pr: { merged?: boolean; base?: string; head?: string }): string {
+  return JSON.stringify([{ number: 184, state: "closed", merged_at: pr.merged === false ? null : "2026-10-20T12:00:00Z", base: { ref: pr.base ?? "main" }, head: { ref: "feat/another-branch", sha: pr.head ?? "@tip" } }]);
+}
+
+test("a pull request merged from another branch at the same tip is found by commit, and proves the work integrated", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const tip = git(h.repo, "rev-parse", wt.branch);
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = pulls({});
+  try {
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+    assert.match(readFileSync(mark, "utf8"), new RegExp(`^api .*repos/\\{owner\\}/\\{repo\\}/commits/${tip}/pulls`, "m"));
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+  }
+  assertNoTrace(h);
+});
+
+test("a pull request whose head went past the tip, into another base, or not merged, proves nothing; nor does gh failing", async () => {
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const later = git(h.repo, "rev-parse", "main");
+  const retained = async (answer: string, fail = false): Promise<void> => {
+    process.env.GH_ANSWER = answer;
+    if (fail) process.env.GH_FAIL = "1";
+    try {
+      const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+      assert.equal(outcome?.result, "retained", answer);
+    } finally {
+      delete process.env.GH_ANSWER;
+      delete process.env.GH_FAIL;
+    }
+  };
+  // The PR's head carries commits made after this tip (it contains the tip, but is not it).
+  await retained(pulls({ head: later }));
+  await retained(pulls({ base: "release" }));
+  await retained(pulls({ merged: false }));
+  await retained("[]");
+  await retained("not json");
+  await retained(pulls({}), true);
+  assert.ok(existsSync(wt.path));
+  assert.ok(branches(h.repo).includes(wt.branch));
+  assert.equal((await h.worktrees.list("room"))[0]?.integrated, false);
+});
+
+test("a commit whose pull requests fill a page is read on to the next page", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const open = JSON.parse(pulls({ merged: false })) as unknown[];
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = JSON.stringify(Array.from({ length: 100 }, () => open[0]));
+  process.env.GH_ANSWER_2 = pulls({});
+  try {
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+    assert.match(readFileSync(mark, "utf8"), /commits\/[0-9a-f]+\/pulls\?per_page=100&page=2/);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+    delete process.env.GH_ANSWER_2;
+  }
+  assertNoTrace(h);
+});
+
+test("a merged pull request the commit's list leaves out is found by search, and read for its exact head and base", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  const tip = git(h.repo, "rev-parse", wt.branch);
+  const pull = (pr: { base?: string; head?: string; merged?: boolean }): string => JSON.stringify((JSON.parse(pulls({ head: tip, ...pr })) as unknown[])[0]);
+  process.env.GH_MARK = mark;
+  // GitHub lists only open pull requests for a commit off the default branch.
+  process.env.GH_ANSWER = "[]";
+  process.env.GH_SEARCH = JSON.stringify({ total_count: 1, items: [{ number: 184 }] });
+  try {
+    for (const wrong of [pull({ head: git(h.repo, "rev-parse", "main") }), pull({ base: "release" }), pull({ merged: false }), "not json"]) {
+      process.env.GH_PULL = wrong;
+      assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", wrong);
+    }
+    delete process.env.GH_PULL;
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained", "a pull request gh cannot read");
+    process.env.GH_PULL = pull({});
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+    const asked = readFileSync(mark, "utf8");
+    assert.match(asked, new RegExp(`search/issues\\?q=repo:\\{owner\\}/\\{repo\\}\\+is:pr\\+is:merged\\+${tip}`));
+    assert.match(asked, /repos\/\{owner\}\/\{repo\}\/pulls\/184/);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+    delete process.env.GH_SEARCH;
+    delete process.env.GH_PULL;
+  }
+  assertNoTrace(h);
+});
+
+test("a pull request found not merged is not asked about again until the memory expires, or the tip changes", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  let at = 1_000_000;
+  const h = harness(makeRepo(), fakeGh(), () => at);
+  const wt = await created(h);
+  commitIn(wt.path);
+  const asks = (): number => (existsSync(mark) ? readFileSync(mark, "utf8").split("\n").filter(Boolean).length : 0);
+  const cleanup = async (): Promise<string | undefined> => (await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result;
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = "[]";
+  try {
+    assert.equal(await cleanup(), "retained");
+    const first = asks();
+    assert.ok(first > 0);
+    at += 60_000;
+    assert.equal(await cleanup(), "retained");
+    assert.equal(asks(), first, "a minute later nothing is asked again");
+    // The pull request gets merged meanwhile; the memory runs out.
+    process.env.GH_ANSWER = pulls({});
+    at += 10 * 60_000;
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.ok(asks() > first);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+  }
+  assertNoTrace(h);
+});
+
+test("a new commit on the branch is asked about at once, whatever was remembered of its old tip", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh(), () => 1_000_000);
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = "[]";
+  try {
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    const first = readFileSync(mark, "utf8").split("\n").filter(Boolean).length;
+    commitIn(wt.path, "more.txt");
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    assert.ok(readFileSync(mark, "utf8").split("\n").filter(Boolean).length > first);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+  }
+});
+
+test("listing worktrees never asks gh, even for one whose pull request is unknown", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_MARK = mark;
+  process.env.GH_ANSWER = pulls({});
+  try {
+    const rows = await h.worktrees.list("room");
+    assert.equal(rows.length, 1);
+    assert.equal(existsSync(mark), false, "gh was called by list");
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_ANSWER;
+  }
+});
+
+test("a gh that cannot answer for the commit is not asked to search", async () => {
+  const mark = join(dir, `gh-mark-${++counter}`);
+  const h = harness(makeRepo(), fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  process.env.GH_MARK = mark;
+  process.env.GH_FAIL = "1";
+  try {
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    assert.doesNotMatch(readFileSync(mark, "utf8"), /search/);
+  } finally {
+    delete process.env.GH_MARK;
+    delete process.env.GH_FAIL;
+  }
+});
+
+test("a worktree started from a detached HEAD has no base branch to compare: a pull request merged at its exact tip still proves it, one at another head does not", async () => {
+  const repo = makeRepo();
+  git(repo, "checkout", "-q", "--detach");
+  const h = harness(repo, fakeGh());
+  const wt = await created(h);
+  commitIn(wt.path);
+  try {
+    process.env.GH_ANSWER = pulls({ head: git(repo, "rev-parse", "HEAD") });
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    process.env.GH_ANSWER = pulls({ merged: false });
+    assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
+    process.env.GH_ANSWER = pulls({ base: "release" });
+    const [outcome] = await h.worktrees.cleanupAgent("agent-1", { auto: true });
+    assert.equal(outcome?.result, "removed", outcome?.reason);
+    assert.equal(outcome?.reason, "pull_request");
+  } finally {
+    delete process.env.GH_ANSWER;
+  }
+  assert.ok(!existsSync(wt.path));
+  assert.ok(!branches(repo).includes(wt.branch));
+});
 
 test("a declaration covers the tip it was made of: commits made after it are kept", async () => {
   const h = harness();
@@ -291,10 +720,10 @@ test("a pull request merged at an older tip does not cover commits pushed after 
   const h = harness(makeRepo(), fakeGh());
   const wt = await created(h);
   commitIn(wt.path);
-  process.env.GH_ANSWER = "MERGED 0000000000000000000000000000000000000000";
+  process.env.GH_ANSWER = pulls({ head: "0000000000000000000000000000000000000000" });
   try {
     assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "retained");
-    process.env.GH_ANSWER = "MERGED @tip";
+    process.env.GH_ANSWER = pulls({});
     assert.equal((await h.worktrees.cleanupAgent("agent-1", { auto: true }))[0]?.result, "removed");
   } finally {
     delete process.env.GH_ANSWER;
@@ -319,7 +748,7 @@ test("an agent that starts a turn while the decision is being made keeps its wor
   const h = harness(makeRepo(), fakeGh());
   const wt = await created(h);
   commitIn(wt.path);
-  process.env.GH_ANSWER = "MERGED @tip";
+  process.env.GH_ANSWER = pulls({});
   process.env.GH_SLEEP = "1";
   try {
     setTimeout(() => (h.agent.busy = true), 300);
@@ -457,7 +886,7 @@ test("a removal decided before a crash is not carried out for commits made after
 test("gh is not asked about a worktree that cannot be removed anyway", async () => {
   const mark = join(dir, `gh-mark-${++counter}`);
   process.env.GH_MARK = mark;
-  process.env.GH_ANSWER = "MERGED @tip";
+  process.env.GH_ANSWER = pulls({});
   try {
     const h = harness(makeRepo(), fakeGh());
     const wt = await created(h);

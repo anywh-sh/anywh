@@ -4,9 +4,10 @@
 // host/worktreeGit.ts; this file orders them and keeps the record in step.
 //
 // A worktree and its branch are removed only when the branch is merged into
-// the base it started from, or someone said its work was integrated (a squash
-// merge leaves nothing for git to see), or its pull request was merged, and
-// its worktree is clean. Without such evidence it is retained, with the
+// the base it started from, or someone said its work was integrated, or its
+// whole work is on the base's tip as a squash or rebase merge (which leave no
+// ancestor for git to see), or a pull request into the base was merged with
+// the branch's exact tip as its head, and its worktree is clean. Without such evidence it is retained, with the
 // reason. Only "discard anyway", asked for by a person, forces. Only records
 // of this registry, under the worktrees folder and carrying the `anywh/`
 // branch prefix, are ever acted on: the person's own worktrees and branches
@@ -16,10 +17,13 @@
 // saying what was in progress; `sweep` finishes or undoes it at the next start.
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
-import { branchExists, branchTip, commitsAhead, deleteBranch, directorySize, forgetMissingWorktree, hasInitializedSubmodules, initSubmodules, isAncestorOfBase, isClean, isCommitInBase, listWorktrees, pullRequestMerged, readRepo, removeWorktree, addWorktree, worktreeHead } from "../host/worktreeGit.js";
+import { baseTip, branchExists, branchTip, commitsAhead, deleteBranch, directorySize, forgetMissingWorktree, hasInitializedSubmodules, initSubmodules, isAncestorOfBase, isClean, isCommitInBase, listWorktrees, pullRequestMerged, readRepo, removeWorktree, addWorktree, squashedIntoBase, worktreeHead } from "../host/worktreeGit.js";
 import type { WorktreeRegistry } from "../host/worktreeRegistry.js";
 import { branchFor, decideCleanup, isInside, isOurs, pathFor, worktreeName, type CleanupDecision, type WorktreeRecord } from "../host/worktreePolicy.js";
 import { join } from "node:path";
+
+/** How long "no merged pull request for this tip" is believed. */
+const NO_PULL_REQUEST_TTL_MS = 5 * 60_000;
 
 /** What the worktrees need to know about an agent. */
 export interface WorktreeAgents {
@@ -67,6 +71,11 @@ export class RoomWorktrees {
   /** Records being created or removed by this process right now. */
   private readonly inFlight = new Set<string>();
   private readonly now: () => number;
+  /** Proofs of integration already established, per record: a squash found
+   * for a branch tip against a base tip, and a merged pull request found for
+   * a branch tip. Either is only reused while those tips are unchanged, so
+   * `list` reports what cleanup would find without asking again. */
+  private readonly proofs = new Map<string, { squash?: { tip: string; baseTip: string; found: boolean }; pullRequestTip?: string; noPullRequest?: { tip: string; at: number } }>();
 
   /** The worktrees folder as git reports paths under it (symlinks resolved). */
   private readonly rootDir: string;
@@ -75,6 +84,12 @@ export class RoomWorktrees {
     this.now = options.now ?? Date.now;
     mkdirSync(options.root, { recursive: true });
     this.rootDir = realpathSync(options.root);
+  }
+
+  /** A record leaves the registry, and what was proved of it with it. */
+  private forget(id: string): void {
+    this.options.registry.delete(id);
+    this.proofs.delete(id);
   }
 
   /** One git operation at a time, whatever the callers. */
@@ -162,7 +177,7 @@ export class RoomWorktrees {
     if (!isOurs(record, this.rootDir) || !repo) {
       // Not ours to act on, or nowhere left to ask git: only the record goes
       // when it names nothing that exists.
-      if (!isOurs(record, this.rootDir) || (!existsSync(record.path))) this.options.registry.delete(record.id);
+      if (!isOurs(record, this.rootDir) || (!existsSync(record.path))) this.forget(record.id);
       else this.options.registry.put({ ...record, state: "retained", retained: { reason: "its creation did not finish and its repository is not where it was", at: this.now() } });
       return;
     }
@@ -177,7 +192,7 @@ export class RoomWorktrees {
     }
     // Only a branch still at its starting point: one with commits is work.
     if ((await branchTip(repo, record.branch)) === record.base.sha) await deleteBranch(repo, record.branch);
-    if (!(await branchExists(repo, record.branch)) && !existsSync(record.path)) this.options.registry.delete(record.id);
+    if (!(await branchExists(repo, record.branch)) && !existsSync(record.path)) this.forget(record.id);
     else this.options.registry.put({ ...this.fresh(record), state: "retained", retained: { reason: "its creation did not finish and it holds something", at: this.now() } });
   }
 
@@ -224,12 +239,35 @@ export class RoomWorktrees {
     for (const record of records) {
       if (record.state === "creating" || this.inFlight.has(record.id)) continue;
       if (!isOurs(record, this.rootDir)) {
-        this.options.registry.delete(record.id);
+        this.forget(record.id);
         continue;
       }
       outcomes.push(await this.cleanupOne(record, mode));
     }
     return outcomes;
+  }
+
+  /** Whether the branch's work at `tip` is on the base by content (a squash
+   * or rebase merge), remembered for that tip and the base's current tip. */
+  private async squashed(record: WorktreeRecord, repo: string, tip: string): Promise<boolean> {
+    const onBase = await baseTip(repo, record.base);
+    if (!onBase) return false;
+    const known = this.proofs.get(record.id)?.squash;
+    if (known && known.tip === tip && known.baseTip === onBase) return known.found;
+    const found = await squashedIntoBase(repo, tip, record.base, onBase);
+    this.proofs.set(record.id, { ...this.proofs.get(record.id), squash: { tip, baseTip: onBase, found } });
+    return found;
+  }
+
+  /** Whether the tip's pull request was merged. An answer of "no" is kept for
+   * `NO_PULL_REQUEST_TTL_MS` (for that tip), so a worktree waiting for its
+   * pull request does not cost GitHub calls on every cleanup. */
+  private async pullRequestMerged(record: WorktreeRecord, repo: string, tip: string | undefined): Promise<boolean> {
+    const none = this.proofs.get(record.id)?.noPullRequest;
+    if (tip && none && none.tip === tip && this.now() - none.at < NO_PULL_REQUEST_TTL_MS) return false;
+    const merged = await pullRequestMerged(repo, tip, record.base, this.options.gh);
+    if (tip) this.proofs.set(record.id, { ...this.proofs.get(record.id), ...(merged ? { pullRequestTip: tip, noPullRequest: undefined } : { noPullRequest: { tip, at: this.now() } }) });
+    return merged;
   }
 
   private async decide(record: WorktreeRecord, mode: { auto: boolean; discard: boolean }): Promise<CleanupDecision> {
@@ -261,8 +299,14 @@ export class RoomWorktrees {
     }
     const clean = worktreeExists ? await isClean(record.path) : true;
     const hasSubmodules = worktreeExists ? await hasInitializedSubmodules(record.path) : false;
-    // Last, and only when the rest would allow a removal: it is the slow one.
-    const askPullRequest = repo !== undefined && !ancestor && !declared && !mode.discard && !strayCommits && clean && !hasSubmodules;
+    // The proofs below are asked only when the rest would allow a removal:
+    // a worktree that is dirty, holds stray commits or a submodule is
+    // retained whatever they say.
+    const removable = repo !== undefined && !ancestor && !declared && !mode.discard && !strayCommits && clean && !hasSubmodules;
+    // A squash or rebase merge, found by content: git alone, no network.
+    const squashed = removable && tip !== undefined ? await this.squashed(record, repo, tip) : false;
+    // Last: it is the slow one.
+    const askPullRequest = removable && !squashed;
     return decideCleanup(
       {
         agentBusy: agent.busy,
@@ -271,7 +315,8 @@ export class RoomWorktrees {
         ancestor,
         declaredIntegrated: declared,
         strayCommits,
-        prMerged: askPullRequest ? await pullRequestMerged(repo, record.branch, tip, this.options.gh) : false,
+        squashed,
+        prMerged: askPullRequest ? await this.pullRequestMerged(record, repo, tip) : false,
         worktreeExists,
         clean,
         hasSubmodules,
@@ -353,7 +398,7 @@ export class RoomWorktrees {
       const deleted = await deleteBranch(repo, record.branch);
       if (!deleted.ok) return refuse(deleted.stderr.trim() || "git refused to delete its branch");
     }
-    this.options.registry.delete(record.id);
+    this.forget(record.id);
     return { id: record.id, branch: record.branch, result: "removed", reason: record.removing?.reason };
   }
 
@@ -369,7 +414,7 @@ export class RoomWorktrees {
       for (const record of [...this.options.registry.all()]) {
         if (this.inFlight.has(record.id)) continue;
         if (!isOurs(record, this.rootDir)) {
-          this.options.registry.delete(record.id);
+          this.forget(record.id);
           continue;
         }
         if (record.state === "creating") {
@@ -394,6 +439,8 @@ export class RoomWorktrees {
       const exists = existsSync(record.path);
       const repo = this.repoDirOf(record);
       const branchThere = repo !== undefined && (await branchExists(repo, record.branch));
+      const tip = branchThere ? await branchTip(repo, record.branch) : undefined;
+      const ahead = branchThere ? await commitsAhead(repo, record.branch, record.base) : undefined;
       infos.push({
         id: record.id,
         agentId: record.agentId,
@@ -402,13 +449,25 @@ export class RoomWorktrees {
         branch: record.branch,
         state: record.state,
         phase: this.options.agents.facts(record.agentId).busy ? "in_use" : "idle",
-        ...(branchThere ? { commitsAhead: await commitsAhead(repo, record.branch, record.base) } : {}),
+        ...(branchThere ? { commitsAhead: ahead } : {}),
         ...(exists ? { clean: await isClean(record.path) } : {}),
-        integrated: (record.declaredIntegrated !== undefined && record.declaredIntegrated.tip === (branchThere ? await branchTip(repo, record.branch) : undefined)) || (branchThere && (await isAncestorOfBase(repo, record.branch, record.base))),
+        integrated: await this.integrated(record, repo, branchThere, tip, ahead),
         ...(record.retained ? { retainedReason: record.retained.reason } : {}),
         ...(options.size && exists ? { sizeBytes: await directorySize(record.path) } : {}),
       });
     }
     return infos;
+  }
+
+  /** What `list` says of a worktree's branch: the evidence cleanup accepts,
+   * cheapest first. The squash search is remembered per tip, and a pull
+   * request is never asked about here, only reused from a cleanup that
+   * found it merged at this tip. */
+  private async integrated(record: WorktreeRecord, repo: string | undefined, branchThere: boolean, tip: string | undefined, ahead: number | undefined): Promise<boolean> {
+    if (record.declaredIntegrated !== undefined && record.declaredIntegrated.tip === tip) return true;
+    if (!branchThere || !repo || tip === undefined) return false;
+    if (await isAncestorOfBase(repo, record.branch, record.base)) return true;
+    if (this.proofs.get(record.id)?.pullRequestTip === tip) return true;
+    return ahead !== undefined && ahead > 0 && (await this.squashed(record, repo, tip));
   }
 }
