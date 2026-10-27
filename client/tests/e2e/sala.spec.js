@@ -374,7 +374,8 @@ describe("anywh room canvas", () => {
     await bar.waitForExist({ timeout: 5000, timeoutMsg: "the bar for several agents never showed" });
     await expect(bar).toHaveText(expect.stringContaining("3 agents"));
     expect(await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)).toBe(3);
-    expect(await $(".sala-bar").isExisting()).toBe(false);
+    // The single card's bar leaves with its own transition: wait it out rather than read it once.
+    await browser.waitUntil(async () => !(await $(".sala-bar").isExisting()), { timeout: 5000, timeoutMsg: "the single card's bar stayed with several selected" });
     await bar.$('button[aria-label="Clear the selection"]').click();
     await browser.waitUntil(async () => (await browser.execute(() => document.querySelectorAll(".sala-node.sel").length)) === 0, { timeout: 5000, timeoutMsg: "the selection was never cleared" });
   });
