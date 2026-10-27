@@ -469,11 +469,11 @@ export function ChatPanel({
       if (!caughtUpRef.current) return;
       const entries = [...logRef.current.entries].reverse();
       // A room card's text is the relay's prompt, not something the person said.
-      const lastUserEntry = entries.find((entry) => entry.kind === "user" && !entry.room);
+      const lastUserEntry = entries.find((entry) => entry.kind === "user");
       const lastTextEntry = entries.find((entry) => entry.kind === "text");
       onTurnComplete?.({
         stopped,
-        lastUserText: lastUserEntry?.kind === "user" ? lastUserEntry.text : null,
+        lastUserText: lastUserEntry?.kind === "user" && !lastUserEntry.room ? lastUserEntry.text : null,
         lastAssistantText: lastTextEntry?.kind === "text" ? lastTextEntry.text : null,
       });
     },
