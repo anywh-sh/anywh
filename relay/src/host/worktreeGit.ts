@@ -207,6 +207,13 @@ export async function baseTip(repoRoot: string, base: WorktreeBase): Promise<str
   return r.ok ? r.stdout.trim() : undefined;
 }
 
+let warnedMergeTree = false;
+function warnMergeTreeUnsupported(): void {
+  if (warnedMergeTree) return;
+  warnedMergeTree = true;
+  console.warn("[relay] git is older than 2.40 (no `merge-tree --write-tree --merge-base`): squash and rebase merges of agent worktrees cannot be recognised, so those worktrees are kept");
+}
+
 /**
  * Whether the work between the branch's fork point and `tip` is on the base
  * now, however it got there: a squash merge, a rebase merge, a cherry-pick.
@@ -218,11 +225,15 @@ export async function baseTip(repoRoot: string, base: WorktreeBase): Promise<str
  * mode bit), a squash edited at merge time, or one reverted on the base
  * since, all leave something to merge, or a conflict, and so no proof. An
  * empty diff proves nothing. Needs git 2.40 (`--merge-base`): an older git
- * refuses the options, which is no proof either. Any failure or doubt is
- * `false`: a missed squash only keeps a worktree, a wrong one would lose work.
+ * refuses the options, which is no proof either (said once in the log, since
+ * from then on no squash is ever found). Any failure or doubt is `false`: a
+ * missed squash only keeps a worktree, a wrong one would lose work.
+ *
+ * `baseSha` is the base's tip the caller already resolved: the answer is
+ * then about exactly that commit, even if the base moves meanwhile.
  */
-export async function squashedIntoBase(repoRoot: string, tip: string, base: WorktreeBase): Promise<boolean> {
-  const target = await baseTarget(repoRoot, base);
+export async function squashedIntoBase(repoRoot: string, tip: string, base: WorktreeBase, baseSha?: string): Promise<boolean> {
+  const target = baseSha ?? (await baseTarget(repoRoot, base));
   const forkPoint = await runGit(repoRoot, ["merge-base", tip, target], 30_000);
   if (!forkPoint.ok) return false;
   const fork = forkPoint.stdout.trim();
@@ -237,6 +248,8 @@ export async function squashedIntoBase(repoRoot: string, tip: string, base: Work
   // Renormalization would let a line-ending change merge into nothing.
   const merged = await runGit(repoRoot, ["-c", "merge.renormalize=false", "merge-tree", "--write-tree", "--no-messages", `--merge-base=${fork}`, target, tip], 60_000);
   // Exit status 1 is a conflict: the branch and the base disagree somewhere.
+  // 129 is git refusing the options: too old for `--write-tree --merge-base`.
+  if (merged.code === 129) warnMergeTreeUnsupported();
   if (!merged.ok) return false;
   const tree = merged.stdout.split("\n")[0]?.trim() ?? "";
   return /^[0-9a-f]{40,64}$/.test(tree) && tree === baseTree.stdout.trim();
@@ -269,6 +282,9 @@ function ghApi(repoRoot: string, gh: string, endpoint: string): Promise<unknown>
 const PULL_PAGES = 5;
 /** Pull requests the search fallback checks one by one. */
 const SEARCHED_PULLS = 10;
+/** Most time one question about a tip may spend on GitHub, in all its calls:
+ * cleanups run one at a time, so a slow gh must not hold up the rest. */
+const PULL_BUDGET_MS = 30_000;
 
 /**
  * Whether a pull request was merged with `tip` as its head, asked of GitHub
@@ -284,7 +300,8 @@ const SEARCHED_PULLS = 10;
  * branch, which a squash-merged head never is (it does list merged ones in
  * practice, at least into the default branch): when it shows none that
  * proves the tip, a search for merged pull requests mentioning the commit
- * is asked, and each one found is read for its head and base. Anything else
+ * is asked, and each one found is read for its head and base, all within
+ * `PULL_BUDGET_MS`; out of time is no proof. Anything else
  * (no `gh`, no remote, no login, no network, a commit GitHub does not know)
  * is `false`.
  */
@@ -295,18 +312,22 @@ export async function pullRequestMerged(repoRoot: string, tip: string | undefine
     const pr = entry as PullRequestSummary;
     return typeof pr.merged_at === "string" && pr.merged_at !== "" && (base.ref === undefined || pr.base?.ref === base.ref) && pr.head?.sha === tip;
   };
+  const deadline = Date.now() + PULL_BUDGET_MS;
   for (let page = 1; page <= PULL_PAGES; page++) {
+    if (Date.now() > deadline) return false;
     const pulls = await ghApi(repoRoot, gh, `repos/{owner}/{repo}/commits/${tip}/pulls?per_page=100&page=${page}`);
     // A gh that cannot answer at all is not asked again, by search or otherwise.
     if (!Array.isArray(pulls)) return false;
     if (pulls.some(proves)) return true;
     if (pulls.length < 100) break;
   }
+  if (Date.now() > deadline) return false;
   const found = await ghApi(repoRoot, gh, `search/issues?q=repo:{owner}/{repo}+is:pr+is:merged+${tip}&per_page=${SEARCHED_PULLS}`);
   const items = typeof found === "object" && found !== null && Array.isArray((found as { items?: unknown }).items) ? (found as { items: unknown[] }).items : [];
   for (const item of items.slice(0, SEARCHED_PULLS)) {
     const number = typeof item === "object" && item !== null ? (item as { number?: unknown }).number : undefined;
     if (typeof number !== "number" || !Number.isInteger(number)) continue;
+    if (Date.now() > deadline) return false;
     if (proves(await ghApi(repoRoot, gh, `repos/{owner}/{repo}/pulls/${number}`))) return true;
   }
   return false;

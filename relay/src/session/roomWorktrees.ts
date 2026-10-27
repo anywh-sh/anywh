@@ -22,6 +22,9 @@ import type { WorktreeRegistry } from "../host/worktreeRegistry.js";
 import { branchFor, decideCleanup, isInside, isOurs, pathFor, worktreeName, type CleanupDecision, type WorktreeRecord } from "../host/worktreePolicy.js";
 import { join } from "node:path";
 
+/** How long "no merged pull request for this tip" is believed. */
+const NO_PULL_REQUEST_TTL_MS = 5 * 60_000;
+
 /** What the worktrees need to know about an agent. */
 export interface WorktreeAgents {
   /** `exists` is false for a session that is gone. */
@@ -72,7 +75,7 @@ export class RoomWorktrees {
    * for a branch tip against a base tip, and a merged pull request found for
    * a branch tip. Either is only reused while those tips are unchanged, so
    * `list` reports what cleanup would find without asking again. */
-  private readonly proofs = new Map<string, { squash?: { tip: string; baseTip: string; found: boolean }; pullRequestTip?: string }>();
+  private readonly proofs = new Map<string, { squash?: { tip: string; baseTip: string; found: boolean }; pullRequestTip?: string; noPullRequest?: { tip: string; at: number } }>();
 
   /** The worktrees folder as git reports paths under it (symlinks resolved). */
   private readonly rootDir: string;
@@ -251,14 +254,19 @@ export class RoomWorktrees {
     if (!onBase) return false;
     const known = this.proofs.get(record.id)?.squash;
     if (known && known.tip === tip && known.baseTip === onBase) return known.found;
-    const found = await squashedIntoBase(repo, tip, record.base);
+    const found = await squashedIntoBase(repo, tip, record.base, onBase);
     this.proofs.set(record.id, { ...this.proofs.get(record.id), squash: { tip, baseTip: onBase, found } });
     return found;
   }
 
+  /** Whether the tip's pull request was merged. An answer of "no" is kept for
+   * `NO_PULL_REQUEST_TTL_MS` (for that tip), so a worktree waiting for its
+   * pull request does not cost GitHub calls on every cleanup. */
   private async pullRequestMerged(record: WorktreeRecord, repo: string, tip: string | undefined): Promise<boolean> {
+    const none = this.proofs.get(record.id)?.noPullRequest;
+    if (tip && none && none.tip === tip && this.now() - none.at < NO_PULL_REQUEST_TTL_MS) return false;
     const merged = await pullRequestMerged(repo, tip, record.base, this.options.gh);
-    if (merged && tip) this.proofs.set(record.id, { ...this.proofs.get(record.id), pullRequestTip: tip });
+    if (tip) this.proofs.set(record.id, { ...this.proofs.get(record.id), ...(merged ? { pullRequestTip: tip, noPullRequest: undefined } : { noPullRequest: { tip, at: this.now() } }) });
     return merged;
   }
 
