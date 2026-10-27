@@ -20,13 +20,6 @@
  * silence, same mechanism as theme.ts/protocolVersion.ts. That test compares
  * everything from the first `export` on, so this header is the only part
  * allowed to differ between the two copies (each names the other).
- *
- * `ToolKind` below is what a tool call actually does, independent of which
- * CLI or tool name produced it — this is what a UI groups/icons by, not the
- * raw tool name. `"other"` is not a failure case: a def maps a tool it
- * doesn't recognize (a new one the CLI shipped, an MCP tool with no special
- * meaning) to `"other"` and logs the unrecognized name once, rather than
- * throwing — the generic fallback rendering already handles it.
  */
 /** How a room agent's report ended — the three states a report card shows:
  * done (ready), failed (error), blocked (it needs the person). */
@@ -50,6 +43,14 @@ export type RoomCard =
   | { kind: "reports"; reports: RoomReportCard[] }
   | { kind: "instruction"; title: string | null };
 
+/**
+ * What a tool call actually does, independent of which
+ * CLI or tool name produced it — this is what a UI groups/icons by, not the
+ * raw tool name. `"other"` is not a failure case: a def maps a tool it
+ * doesn't recognize (a new one the CLI shipped, an MCP tool with no special
+ * meaning) to `"other"` and logs the unrecognized name once, rather than
+ * throwing — the generic fallback rendering already handles it.
+ */
 export type ToolKind = "shell" | "edit" | "write" | "read" | "search" | "task" | "mcp" | "web" | "other";
 
 /** One hunk of a diff, ready-made so nothing downstream needs to diff file
