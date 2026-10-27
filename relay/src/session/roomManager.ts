@@ -853,8 +853,9 @@ export class RoomManager implements RoomToolHost {
     if (this.parkBehindLeader(sessionId)) return;
     const sending = { text: next.text, at: next.at, delivered: false, reminder: next.reminder === true };
     this.sending.set(sessionId, sending);
-    // The title is read now, at delivery: the card is a snapshot.
-    const card: RoomCard | undefined = next.fromAgent ? { kind: "instruction", title: this.store.getTitle(sessionId) ?? null } : undefined;
+    // The card names what was said this time (the message's first line), so
+    // every instruction to the same worker reads differently.
+    const card: RoomCard | undefined = next.fromAgent ? { kind: "instruction", title: titleFromTask(next.text) } : undefined;
     const hooks: TurnHooks = {
       onDelivered: () => {
         sending.delivered = true;

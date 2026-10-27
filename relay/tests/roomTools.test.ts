@@ -149,21 +149,21 @@ test("what an agent hands a worker reaches it as an instruction card; what the p
   const socket = await connectSession(relay.port, roomId);
   try {
     const report = marker("report", { status: "done", summary: "ok", artifacts: [] });
-    const { last } = await principalTurn(socket, marker("delegate", { name: "Docs writer", task: `Write the docs ${report}`, runtime: "claude", model: "haiku" }));
+    const { last } = await principalTurn(socket, marker("delegate", { name: "Docs writer", task: `Write the docs\n${report}`, runtime: "claude", model: "haiku" }));
     const { agentId } = JSON.parse(last) as { agentId: string };
     await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report !== undefined, 20_000, "the worker's report");
-    assert.deepEqual(await instructionsOf(agentId), [{ kind: "instruction", title: "Docs writer" }]);
+    assert.deepEqual(await instructionsOf(agentId), [{ kind: "instruction", title: "Write the docs" }]);
 
     // The card is not a synthetic turn: the first delegated task still locks the worker's folder.
     const { socket: workerSocket, messages: workerMessages } = await connectSessionAndCollectUntil(relay.port, agentId, (m) => m.type === "caught_up", 10_000);
     workerSocket.close();
     assert.equal((workerMessages.find((m) => m.type === "cwd_state") as { locked?: boolean } | undefined)?.locked, true);
 
-    await principalTurn(socket, marker("message_agent", { agentId, text: `one more thing ${report}` }));
+    await principalTurn(socket, marker("message_agent", { agentId, text: `One more thing: add a changelog\n${report}` }));
     await waitFor(async () => (await instructionsOf(agentId)).length === 2, 20_000, "the second instruction");
     assert.deepEqual(await instructionsOf(agentId), [
-      { kind: "instruction", title: "Docs writer" },
-      { kind: "instruction", title: "Docs writer" },
+      { kind: "instruction", title: "Write the docs" },
+      { kind: "instruction", title: "One more thing: add a changelog" },
     ]);
   } finally {
     socket.close();
