@@ -9,6 +9,7 @@ test("isRoomMembership accepts the two shapes and rejects anything that would co
   assert.equal(isRoomMembership(worker), true);
   assert.equal(isRoomMembership(principal), true);
   assert.equal(isRoomMembership({ ...worker, queuedMessages: [{ text: "x", at: 1, reminder: true }] }), true);
+  assert.equal(isRoomMembership({ ...worker, queuedMessages: [{ text: "x", at: 1, fromAgent: true }] }), true);
   assert.equal(isRoomMembership({ ...worker, area: "Code", report: { status: "done", summary: "ok", artifacts: ["a.md"], at: 1 }, stopped: { reason: "user", at: 2 } }), true);
 
   const rejected: [string, unknown][] = [
@@ -30,6 +31,7 @@ test("isRoomMembership accepts the two shapes and rejects anything that would co
     ["negative timestamp", { ...worker, stopped: { reason: "user", at: -1 } }],
     ["area not a string", { ...worker, area: 1 }],
     ["queued reminder flag not true", { ...worker, queuedMessages: [{ text: "x", at: 1, reminder: "yes" }] }],
+    ["queued fromAgent flag not true", { ...worker, queuedMessages: [{ text: "x", at: 1, fromAgent: false }] }],
     ["purpose not a string", { ...worker, purpose: 1 }],
   ];
   for (const [what, value] of rejected) assert.equal(isRoomMembership(value), false, what);
