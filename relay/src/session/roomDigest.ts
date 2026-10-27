@@ -3,6 +3,7 @@
 // per report. Pure: it only builds the text and decides what counts as
 // urgent.
 import { NO_REPLY_OFFER_EN, ROOM_DIGEST_PREFIX } from "../protocol/silentEvents.js";
+import type { RoomCard } from "../protocol/agent-event.js";
 import type { RoomReportStatus } from "./room.js";
 
 export interface DigestEntry {
@@ -36,6 +37,12 @@ function entryLines(entry: DigestEntry, index: number): string[] {
   const lines = [`${index + 1}. "${title}": ${entry.status}${origin}`, `   ${entry.summary.replace(/\n/g, "\n   ")}`];
   if (entry.artifacts.length > 0) lines.push(`   Artifacts: ${entry.artifacts.join(", ")}`);
   return lines;
+}
+
+/** The card the person sees for a digest: who reported and how, none of the
+ * summaries (the agent's own chat has those). `at` is when each arrived. */
+export function reportCard(entries: ReadonlyArray<{ entry: DigestEntry; at: number }>): RoomCard {
+  return { kind: "reports", reports: entries.map(({ entry, at }) => ({ agentId: entry.agentId, title: entry.title, status: entry.status, at })) };
 }
 
 /**

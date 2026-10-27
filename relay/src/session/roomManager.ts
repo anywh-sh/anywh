@@ -36,7 +36,8 @@ import {
 } from "./room.js";
 import { roomPromptsDraft, type PushNotificationDraft, type RoomPromptEntry } from "../push/events.js";
 import { summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
-import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
+import { buildRoomDigest, isUrgent, reportCard, type DigestEntry } from "./roomDigest.js";
+import type { RoomCard } from "../protocol/agent-event.js";
 import {
   ROOM_MCP_SERVER_NAME,
   parseDelegateArgs,
@@ -55,6 +56,7 @@ import { buildNotice } from "./roomContextIndex.js";
 import type { RoomContextStore } from "./roomContextStore.js";
 import type { PersistedChoice, SessionStore } from "./sessionStore.js";
 import type { SharedSession, TurnOutcome } from "./sharedSession.js";
+import type { TurnHooks } from "../runtimes/sessionDriver.js";
 
 function defaultSchedule(fn: () => void, ms: number): () => void {
   const timer = setTimeout(fn, ms);
@@ -851,7 +853,9 @@ export class RoomManager implements RoomToolHost {
     if (this.parkBehindLeader(sessionId)) return;
     const sending = { text: next.text, at: next.at, delivered: false, reminder: next.reminder === true };
     this.sending.set(sessionId, sending);
-    session.submitAgentTurn(next.text, {
+    // The title is read now, at delivery: the card is a snapshot.
+    const card: RoomCard | undefined = next.fromAgent ? { kind: "instruction", title: this.store.getTitle(sessionId) ?? null } : undefined;
+    const hooks: TurnHooks = {
       onDelivered: () => {
         sending.delivered = true;
         this.removeQueued(sessionId, sending);
@@ -862,7 +866,8 @@ export class RoomManager implements RoomToolHost {
           warming.cancel = (this.options.schedule ?? defaultSchedule)(() => this.endWarmUp(sessionId), this.options.warmUpMs ?? ROOM_WARM_UP_MS);
         }
       },
-    });
+    };
+    session.submitAgentTurn(next.text, hooks, card);
   }
 
   /** Whether `sessionId`, about to start its very first turn on a Claude
@@ -1114,12 +1119,16 @@ export class RoomManager implements RoomToolHost {
     const taken = new Map(entries.map(({ entry, at }) => [entry.agentId, at]));
     const digest = { delivered: false };
     this.digests.set(recipientId, digest);
-    this.options.sessions.getOrCreate(recipientId).submitRoomDigest(text, {
-      onDelivered: () => {
-        digest.delivered = true;
-        this.clearFromOutbox(recipientId, taken);
+    this.options.sessions.getOrCreate(recipientId).submitRoomDigest(
+      text,
+      {
+        onDelivered: () => {
+          digest.delivered = true;
+          this.clearFromOutbox(recipientId, taken);
+        },
       },
-    });
+      reportCard(entries),
+    );
   }
 
   /** Takes reports out of an outbox once they were handed over — those that
@@ -1276,7 +1285,7 @@ export class RoomManager implements RoomToolHost {
       ...(args.area ? { area: args.area } : {}),
       ...(args.purpose ? { purpose: args.purpose } : {}),
       // Persisted until it is delivered: a relay restart loses no task.
-      queuedMessages: [{ text: args.task, at: this.now() }],
+      queuedMessages: [{ text: args.task, at: this.now(), ...(createdBy === "agent" ? { fromAgent: true as const } : {}) }],
     });
     if (args.name !== undefined) {
       // The name the principal gave is how it and the person refer to the
@@ -1326,7 +1335,7 @@ export class RoomManager implements RoomToolHost {
       return fail(`room_cap_reached: this room already has ${ROOM_MAX_LIVE_AGENTS} agents at work; agent "${name}" cannot take this message until one is done.`);
     }
     // Work for a stopped agent wakes it, as the person's own message does.
-    this.store.setRoom(agentId, { ...withoutStop(target), queuedMessages: [...queue, { text, at: this.now() }] });
+    this.store.setRoom(agentId, { ...withoutStop(target), queuedMessages: [...queue, { text, at: this.now(), fromAgent: true }] });
     this.pump(agentId);
     if (!this.options.hostConnected()) {
       return ok(`Message queued for ${name}; the agent host is not running, so it is delivered once it is back.`);
