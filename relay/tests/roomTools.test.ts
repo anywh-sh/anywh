@@ -136,6 +136,40 @@ test("the principal delegates, the worker is born in the host, works and reports
   }
 });
 
+/** The `room` card of every user message in a session's history. */
+async function instructionsOf(sessionId: string): Promise<({ kind: string; title: string | null } | null)[]> {
+  const { socket, messages } = await connectSessionAndCollectUntil(relay.port, sessionId, (m) => m.type === "caught_up", 10_000);
+  socket.close();
+  const page = messages.find((m) => m.type === "history_page") as { messages: { type: string; event: { type?: string; room?: { kind: string; title: string | null } } }[] } | undefined;
+  return (page?.messages ?? []).filter((m) => m.type === "agent_event" && m.event.type === "user_message").map((m) => m.event.room ?? null);
+}
+
+test("what an agent hands a worker reaches it as an instruction card; what the person starts it with stays a bubble, and the first task still locks the folder", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const report = marker("report", { status: "done", summary: "ok", artifacts: [] });
+    const { last } = await principalTurn(socket, marker("delegate", { name: "Docs writer", task: `Write the docs ${report}`, runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    await waitFor(async () => (await members(roomId)).find((member) => member.id === agentId)?.room.report !== undefined, 20_000, "the worker's report");
+    assert.deepEqual(await instructionsOf(agentId), [{ kind: "instruction", title: "Docs writer" }]);
+
+    // The card is not a synthetic turn: the first delegated task still locks the worker's folder.
+    const { socket: workerSocket, messages: workerMessages } = await connectSessionAndCollectUntil(relay.port, agentId, (m) => m.type === "caught_up", 10_000);
+    workerSocket.close();
+    assert.equal((workerMessages.find((m) => m.type === "cwd_state") as { locked?: boolean } | undefined)?.locked, true);
+
+    await principalTurn(socket, marker("message_agent", { agentId, text: `one more thing ${report}` }));
+    await waitFor(async () => (await instructionsOf(agentId)).length === 2, 20_000, "the second instruction");
+    assert.deepEqual(await instructionsOf(agentId), [
+      { kind: "instruction", title: "Docs writer" },
+      { kind: "instruction", title: "Docs writer" },
+    ]);
+  } finally {
+    socket.close();
+  }
+});
+
 test("a named agent is titled by its name, a second one with that name is refused, and it is messaged and parented by name", async () => {
   const roomId = await createRoom();
   const socket = await connectSession(relay.port, roomId);

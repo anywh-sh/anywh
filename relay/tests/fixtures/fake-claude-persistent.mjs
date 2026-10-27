@@ -65,6 +65,8 @@
 //                        on Claude Code 2.1.303
 //   FAKE_CLAUDE_CACHE_READ_TOKENS=<n> (env): the cache-read part of every
 //   response's usage, so the prefix (the context in use) is a realistic size.
+//   FAKE_CLAUDE_PROMPTS_FILE=<path> (env): every prompt received is
+//                        appended to it as one JSON string per line.
 //   FAKE_CLAUDE_DIGEST_REPLY=<text> (env, not a marker): a message that
 //                        starts with `[anywh-room]` (a room's digest) is
 //                        answered with exactly this text, as a principal
@@ -169,7 +171,12 @@ export async function runPersistent(args) {
     }
   }
 
-  async function runTurn(text) {
+  async function runTurn(prompt) {
+    // FAKE_CLAUDE_PROMPTS_FILE: every prompt received, as one JSON line.
+    if (process.env.FAKE_CLAUDE_PROMPTS_FILE) appendFileSync(process.env.FAKE_CLAUDE_PROMPTS_FILE, `${JSON.stringify(prompt)}\n`);
+    // The room card line repeats a title that may itself hold a marker; the
+    // markers to act on are the ones in the prompt's own text.
+    const text = prompt.replace(/\n\n\[anywh-card\] [^\n]*/, "");
     turns++;
     turn = { absorbed: [], interrupt: null };
     emit({ type: "system", subtype: "init", model, cwd: process.cwd(), tools: ["Bash"] });
