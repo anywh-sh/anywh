@@ -22,12 +22,14 @@ function ReportCard({ report }: { report: RoomReportCard }) {
   const actions = useRoomCardActions();
   useMinuteTick();
 
-  const title = report.title ?? dict.sala.card.untitled;
+  // An agent that has already reported is not "starting".
+  const title = report.title ?? copy.untitledAgent;
   const status = report.status === "done" ? copy.done : report.status === "failed" ? copy.failed : copy.needsYou;
   const blocked = report.status === "blocked";
   const compact = formatCompactTime(report.at, locale);
-  // Under a minute the compact time is already a word ("now"): no "ago" on it.
-  const time = Date.now() - report.at < 45_000 || !Number.isFinite(report.at) ? compact : copy.ago.replace("{time}", compact);
+  // "ago" only fits a span: not the word "now" (under a minute), nor the date a week or more gives.
+  const age = Date.now() - report.at;
+  const time = Number.isFinite(report.at) && age >= 45_000 && age < 7 * 86_400_000 ? copy.ago.replace("{time}", compact) : compact;
   const Icon = report.status === "done" ? CheckIcon : blocked ? QuestionIcon : CloseIcon;
 
   return (

@@ -167,6 +167,7 @@ export const ptBr: Dictionary = {
         reply: "Responder",
         label: "{status} · {time}",
         ago: "há {time}",
+        untitledAgent: "Agente",
         openAria: "Abrir {title}",
         replyAria: "Responder a {title}",
         instructionAria: "Tarefa do orquestrador: {title}",

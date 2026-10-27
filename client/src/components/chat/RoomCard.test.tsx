@@ -45,10 +45,10 @@ describe("RoomCard", () => {
     expect(screen.getByText(/^Failed · /)).toBeInTheDocument();
     expect(screen.getByText(/^Needs you · /)).toBeInTheDocument();
     expect(screen.getByText("Ship the login")).toBeInTheDocument();
-    expect(screen.getByText(en.sala.card.untitled)).toBeInTheDocument();
+    expect(screen.getByText(en.chat.log.roomCard.untitledAgent)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Open / })).toHaveLength(2);
 
-    await userEvent.click(screen.getByRole("button", { name: "Reply to " + en.sala.card.untitled }));
+    await userEvent.click(screen.getByRole("button", { name: "Reply to " + en.chat.log.roomCard.untitledAgent }));
     expect(openAgent).toHaveBeenCalledWith("a3");
     await userEvent.click(screen.getByRole("button", { name: "Open Ship the login" }));
     expect(openAgent).toHaveBeenCalledWith("a1");
@@ -64,7 +64,7 @@ describe("RoomCard", () => {
     renderCard(reports, vi.fn());
     expect(screen.getByText(/^Pronto · /)).toBeInTheDocument();
     expect(screen.getByText(/^Precisa de você · /)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Responder a " + ptBr.sala.card.untitled })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Responder a " + ptBr.chat.log.roomCard.untitledAgent })).toBeInTheDocument();
   });
 
   it("says how long ago a report came in, in the language of the app", () => {
@@ -76,6 +76,12 @@ describe("RoomCard", () => {
     localStorage.setItem(LOCALE_STORAGE_KEY, "pt-BR");
     renderCard(old);
     expect(screen.getByText(/^Pronto · há 12 ?min$/)).toBeInTheDocument();
+  });
+
+  it("gives a date, not 'ago', after a week", () => {
+    const week: RoomCardData = { kind: "reports", reports: [{ agentId: "a1", title: "Old", status: "done", at: Date.now() - 20 * 86_400_000 }] };
+    renderCard(week);
+    expect(screen.getByText(/^Ready · /).textContent).not.toMatch(/ago/);
   });
 
   it("draws an instruction as its title alone, with no button", () => {

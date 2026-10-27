@@ -640,7 +640,9 @@ export interface Dictionary {
         replyAria: string;
         /** `{title}`. */
         instructionAria: string;
+        /** `{time}`: a compact span like "12m". */
         ago: string;
+        untitledAgent: string;
       };
       compacted: string;
       compactedAuto: string;
