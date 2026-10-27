@@ -468,7 +468,8 @@ export function ChatPanel({
       setTurnStartedAt(null);
       if (!caughtUpRef.current) return;
       const entries = [...logRef.current.entries].reverse();
-      const lastUserEntry = entries.find((entry) => entry.kind === "user");
+      // A room card's text is the relay's prompt, not something the person said.
+      const lastUserEntry = entries.find((entry) => entry.kind === "user" && !entry.room);
       const lastTextEntry = entries.find((entry) => entry.kind === "text");
       onTurnComplete?.({
         stopped,

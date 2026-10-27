@@ -1,10 +1,10 @@
 import { useMemo, useReducer } from "react";
 import type { AgentEvent, HistoryMessage, HistoryPageMessage, PlanTodo, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/relay-types";
-import type { SubagentStatus } from "@/lib/relay/agent-event";
+import type { RoomCard, SubagentStatus } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 
 export type LogEntry =
-  | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number }
+  | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number; room?: RoomCard }
   | { kind: "text"; id: string; text: string; streaming: boolean; sentAt: number }
   | ToolCallEntry
   /** A reasoning block — running until the relay says it ended. `text` is
@@ -279,7 +279,9 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       // would only cover an unexpected event format, shouldn't happen in
       // practice.
       const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
-      return { ...state, entries: [...state.entries, { kind: "user", id: newId(), text: event.text, sentAt }] };
+      // `room` turns the entry into a card at render time; it stays a
+      // `kind: "user"` entry so turn counting and editing see no difference.
+      return { ...state, entries: [...state.entries, { kind: "user", id: newId(), text: event.text, sentAt, ...(event.room ? { room: event.room } : {}) }] };
     }
 
     case "text_delta": {

@@ -3,6 +3,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useMessageLog, type LogEntry } from "@/hooks/relay/useMessageLog";
 import type { AgentEvent, HistoryMessage } from "@/lib/relay/relay-types";
+import type { RoomCard } from "@/lib/relay/agent-event";
 
 afterEach(() => {
   cleanup();
@@ -32,6 +33,36 @@ describe("useMessageLog", () => {
     act(() => result.current.addUserMessage("oi", [{ id: "img-1" } as never]));
 
     expect(stripVolatile(result.current.entries)).toEqual([{ kind: "user", text: "oi", images: [{ id: "img-1" }] }]);
+  });
+
+  it("keeps the room card of a user_message on the user entry, and leaves a digest without one a plain entry", () => {
+    const room = { kind: "instruction", title: "Fix the build" } as const;
+    const { result } = renderHook(() => useMessageLog());
+    act(() => result.current.handleEvent({ type: "user_message", text: "do it", room }));
+    act(() => result.current.handleEvent({ type: "user_message", text: "old digest", synthetic: "room_digest" }));
+
+    expect(stripVolatile(result.current.entries)).toEqual([
+      { kind: "user", text: "do it", room },
+      { kind: "user", text: "old digest" },
+    ]);
+  });
+
+  it("groups a card the same whether user_message comes before turn_started (live) or after (replay)", () => {
+    const room: RoomCard = { kind: "reports", reports: [{ agentId: "a", title: "T", status: "done", at: 1 }] };
+    const user: AgentEvent = { type: "user_message", text: "digest", synthetic: "room_digest", room };
+    const started: AgentEvent = { type: "turn_started" };
+    const reply: AgentEvent = { type: "text", text: "ok" };
+    const live = renderHook(() => useMessageLog());
+    act(() => {
+      for (const event of [user, started, reply]) live.result.current.handleEvent(event);
+    });
+    const replay = renderHook(() => useMessageLog());
+    act(() => replay.result.current.handleEvent({ type: "turn_started" }));
+    act(() => {
+      for (const event of [user, reply]) replay.result.current.handleEvent(event);
+    });
+
+    expect(stripVolatile(live.result.current.entries)).toEqual(stripVolatile(replay.result.current.entries));
   });
 
   it("handleEvent(text) commits a text entry", () => {
