@@ -63,13 +63,13 @@ function waitForPort(port, children, output, timeoutMs = 60_000) {
 }
 
 /** Starts the stack. `stop()` ends exactly the processes started here. */
-export async function startRoomRelay() {
+export async function startRoomRelay(options = {}) {
   // The port is free when picked, not when the relay binds it: one that lost
   // it to another process exits on EADDRINUSE, and gets a new one.
   for (let attempt = 1; ; attempt++) {
     const started = [];
     try {
-      return await start(started);
+      return await start(started, options);
     } catch (error) {
       // A stack that never came up must not leave its processes behind: they
       // would keep the test run from ever exiting.
@@ -96,7 +96,7 @@ async function stopAll(started) {
   );
 }
 
-async function start(children) {
+async function start(children, { digestWindowMs = 600000 }) {
   if (!existsSync(SERVER) || !existsSync(HOST)) throw new Error("the relay is not built: run `npm run build` in relay/ first");
   const dir = mkdtempSync(join(tmpdir(), "anywh-e2e-room-"));
   const home = join(dir, "home");
@@ -128,8 +128,8 @@ async function start(children) {
     ANYWH_AGENT_HOST_SOCKET: socketPath,
     ANYWH_SESSIONS_ROOT: join(dir, "sessions-root"),
     // A room's digest and warm-up timers would only make a screenshot of
-    // the canvas depend on the clock.
-    RELAY_ROOM_DIGEST_WINDOW_MS: "600000",
+    // the canvas depend on the clock (a spec about the digest itself asks for a short one).
+    RELAY_ROOM_DIGEST_WINDOW_MS: String(digestWindowMs),
     RELAY_ROOM_WARMUP_MS: "0",
   });
   try {
