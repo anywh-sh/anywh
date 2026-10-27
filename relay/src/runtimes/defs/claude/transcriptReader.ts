@@ -6,6 +6,7 @@ import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { isNoReply, markSilent, promptOffersSilence, ROOM_DIGEST_PREFIX } from "../../../protocol/silentEvents.js";
 import { stripRelayNote } from "../../../protocol/relayNote.js";
+import { splitRoomCard } from "../../../protocol/roomCard.js";
 
 /** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
  * independently (rather than imported) so this file has no reason to reach
@@ -152,7 +153,9 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
   function collapseIfSilent(): boolean {
     if (!turnUserEvent || !turnOffered || turnUsedTool || turnInterrupted || !isNoReply(turnAssistantTexts.join("\n"))) return false;
     messages.length = turnStartIdx;
-    messages.push({ type: "agent_event", event: markSilent(turnUserEvent) });
+    // A card is the person's notification of the report, so it stays visible
+    // (live, `runTurn` broadcasts it outside the held turn).
+    messages.push({ type: "agent_event", event: turnUserEvent.room ? turnUserEvent : markSilent(turnUserEvent) });
     messages.push({ type: "agent_event", event: markSilent({ type: "turn_ended", stopped: false }) });
     return true;
   }
@@ -216,7 +219,11 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
 
     const rawHumanText = extractHumanText(line);
     // The relay's own note to the model is not part of what the person said.
-    const humanText = rawHumanText === undefined ? undefined : stripRelayNote(rawHumanText);
+    // Then the room card riding at the end of the prompt, shown as a card
+    // instead of text.
+    const split = rawHumanText === undefined ? undefined : splitRoomCard(stripRelayNote(rawHumanText));
+    const humanText = split?.text;
+    const card = split?.card;
     if (humanText !== undefined) {
       // Closes the previous turn (if one was open) before opening this one
       // — `stopped: false` because a turn that made it into the transcript
@@ -246,14 +253,17 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
         ...(typeof line.timestamp === "string" ? { timestamp: line.timestamp } : {}),
       });
       const synthetic = backgroundJobPrompt(humanText);
-      const digest = humanText.startsWith(ROOM_DIGEST_PREFIX);
+      const digest = card?.kind === "reports" || humanText.startsWith(ROOM_DIGEST_PREFIX);
       const pushed = messages.at(-1)?.event;
-      if ((synthetic || digest) && pushed?.type === "user_message") {
+      if (card && !digest && pushed?.type === "user_message") {
+        const event: AgentEvent = { ...pushed, room: card };
+        messages[messages.length - 1] = { type: "agent_event", event };
+      } else if ((synthetic || digest) && pushed?.type === "user_message") {
         // A job report or a room's digest is not something the user typed:
         // mark it the way the live relay does so the client renders a note,
         // not a user bubble.
         const event: AgentEvent = digest
-          ? { ...pushed, synthetic: "room_digest" }
+          ? { ...pushed, synthetic: "room_digest", ...(card ? { room: card } : {}) }
           : { ...pushed, synthetic: "background_job", ...(synthetic?.label !== undefined ? { label: synthetic.label } : {}) };
         messages[messages.length - 1] = { type: "agent_event", event };
         turnUserEvent = event;

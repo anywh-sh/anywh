@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { withRoomCard } from "../../protocol/roomCard.js";
+import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../protocol/relayNote.js";
 import { codexTurnsToEvents } from "./codexHistory.js";
 
 // A real turn from `thread/turns/list` (codex-cli 0.154.0, itemsView "full"),
@@ -80,4 +82,17 @@ test("an interrupted turn ends as stopped, and a turn with no timing degrades to
 test("a user message with no text (an image-only prompt) is skipped, and unknown items don't throw", () => {
   const events = codexTurnsToEvents([{ status: "completed", items: [{ type: "userMessage", content: [{ type: "image", url: "x" }] }, { type: "sleep", id: "s" }] }]);
   assert.deepEqual(events, [{ type: "turn_started" }, { type: "turn_ended", stopped: false }]);
+});
+
+test("a user message ending in a room card replays as a card, with the card line and relay note stripped", () => {
+  const card = { kind: "instruction" as const, title: "Do it" };
+  const text = withRelayNote(withRoomCard("Do the thing", card), WITHDRAWN_APPROVAL_NOTE);
+  const events = codexTurnsToEvents([{ status: "completed", items: [{ type: "userMessage", content: [{ type: "text", text }] }] }]);
+  assert.deepEqual(events[1], { type: "user_message", text: "Do the thing", room: card });
+});
+
+test("a reports card from Codex history is marked room_digest", () => {
+  const card = { kind: "reports" as const, reports: [{ agentId: "a", title: null, status: "failed" as const, at: 5 }] };
+  const events = codexTurnsToEvents([{ status: "completed", items: [{ type: "userMessage", content: [{ type: "text", text: withRoomCard("digest", card) }] }] }]);
+  assert.deepEqual(events[1], { type: "user_message", text: "digest", room: card, synthetic: "room_digest" });
 });
