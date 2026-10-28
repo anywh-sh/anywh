@@ -137,8 +137,9 @@ export function findHomeOverrideCollision(homeOverride: string | undefined, envD
   return undefined;
 }
 
-/** Called once at boot (server.ts) so a relay started the plain `npm start`
- * way — no `add-profile.sh`, no `<id>.env` at all, just `RELAY_PORT`/
+/** Called by server.ts once the relay has bound its port(s), never before: a
+ * relay that dies on EADDRINUSE must leave no `default.env` behind. It exists
+ * so a relay started the plain `npm start` way — no `add-profile.sh`, no `<id>.env` at all, just `RELAY_PORT`/
  * `RELAY_HOST` off the process env or their defaults — still shows up in its
  * own control API under id `"default"`, the same id the client always seeds
  * (client/src/lib/profiles/profiles.ts). Without this, `listEnvIds` never contains

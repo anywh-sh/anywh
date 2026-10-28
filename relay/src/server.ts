@@ -52,7 +52,6 @@ import { handleTerminalConnection } from "./ws/terminal.js";
 const PORT = Number(process.env.RELAY_PORT ?? 8765);
 const HOST = process.env.RELAY_HOST ?? "127.0.0.1";
 const HOME_OVERRIDE = process.env.RELAY_HOME_OVERRIDE;
-ensureSelfRegistered({ port: PORT, host: HOST, homeOverride: HOME_OVERRIDE });
 const DEFAULT_SESSION = "default";
 
 // Same pattern as RELAY_UPLOAD_DIR: the two systemd services (personal/
@@ -454,7 +453,20 @@ httpServer.requestTimeout = 0;
 
 export const wss = new WebSocketServer({ server: httpServer });
 
+// Self-registration waits for every listener this process needs to bind: a
+// relay that dies on EADDRINUSE must leave nothing behind. Registering at
+// module load let a stray test relay write a `default.env` into the
+// operator's real registry and then crash, leaving a phantom profile no
+// service backs. Runs before the "listening" log line, which the test
+// helpers wait on.
+let pendingBinds = HOST !== "127.0.0.1" ? 2 : 1;
+function onBound(): void {
+  pendingBinds -= 1;
+  if (pendingBinds === 0) ensureSelfRegistered({ port: PORT, host: HOST, homeOverride: HOME_OVERRIDE });
+}
+
 httpServer.listen(PORT, HOST, () => {
+  onBound();
   console.log(`[relay] listening on ws://${HOST}:${PORT}`, HOME_OVERRIDE ? `(HOME=${HOME_OVERRIDE})` : "");
 });
 
@@ -491,6 +503,7 @@ if (HOST !== "127.0.0.1") {
   // disabled here too.
   loopbackServer.requestTimeout = 0;
   loopbackServer.listen(PORT, "127.0.0.1", () => {
+    onBound();
     console.log(`[relay] mcp/permission bridge also listening on http://127.0.0.1:${PORT} (local-only, for own children)`);
   });
 }
