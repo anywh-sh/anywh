@@ -166,6 +166,13 @@ export async function findHomeOverrideCollision(homeOverride: string | undefined
   return undefined;
 }
 
+/** The only keys `ensureSelfRegistered` ever writes. `add-profile.sh` writes
+ * more (sessions file, upload dir, ...), so a `default.env` carrying any
+ * other key was provisioned on purpose, never by a stray relay. */
+const SELF_REGISTERED_KEYS = new Set(["RELAY_PORT", "RELAY_HOST", "RELAY_HOME_OVERRIDE"]);
+
+export type SelfRegistration = "written" | "replaced" | "skipped";
+
 /** Called by server.ts once the relay has bound its port(s), never before: a
  * relay that dies on EADDRINUSE must leave no `default.env` behind. It exists
  * so a relay started the plain `npm start` way — no `add-profile.sh`, no `<id>.env` at all, just `RELAY_PORT`/
@@ -175,26 +182,39 @@ export async function findHomeOverrideCollision(homeOverride: string | undefined
  * this instance and `PATCH /control/profiles/default` 404s on every
  * fresh single-profile install.
  *
- * Two guards keep this from ever touching an already-provisioned setup:
- * skip if this exact port is already claimed by some other `<id>.env`
- * (this instance already has a real identity — writing `default.env` too
- * would double-list the same host:port), and skip if `default.env` already
- * exists (never clobber a prior self-registration or a deliberately
- * `add-profile.sh`-created "default" profile). */
-export function ensureSelfRegistered(
+ * Never touches an already-provisioned setup: skipped if this exact port is
+ * already claimed by some `<id>.env` (this instance already has a real
+ * identity, and that includes a `default.env` that is its own), and skipped
+ * if `default.env` is registered in `profiles.json`, has keys only
+ * `add-profile.sh` writes, or still has something answering on its port.
+ * What is left is an orphan default (`isOrphanDefault`) from an earlier stray
+ * relay, which this relay replaces: otherwise the listing hides that file and
+ * never shows this relay.
+ *
+ * A fresh write happens synchronously, before the first `await`, so the file
+ * exists by the time the caller's `listen` callback returns; only a
+ * replacement waits on the port probe. */
+export async function ensureSelfRegistered(
   config: { port: number; host: string; homeOverride?: string },
   envDir: string = ENV_DIR,
-): void {
+): Promise<SelfRegistration> {
   const portClaimed = listEnvIds(envDir).some((id) => Number(readEnvFile(id, envDir)?.RELAY_PORT) === config.port);
-  if (portClaimed) return;
+  if (portClaimed) return "skipped";
 
-  const path = envFileFor(SELF_REGISTERED_ID, envDir);
-  if (existsSync(path)) return;
+  const existing = readEnvFile(SELF_REGISTERED_ID, envDir);
+  if (existing) {
+    if (!Object.keys(existing).every((key) => SELF_REGISTERED_KEYS.has(key))) return "skipped";
+    if (!(await isOrphanDefault(SELF_REGISTERED_ID, registeredProfileIds(envDir), () => isEnvRunning(existing)))) return "skipped";
+    // The probe takes up to 300 ms: someone may have claimed the file meanwhile.
+    const current = readEnvFile(SELF_REGISTERED_ID, envDir);
+    if (current?.RELAY_PORT !== existing.RELAY_PORT || registeredProfileIds(envDir).has(SELF_REGISTERED_ID)) return "skipped";
+  }
 
   mkdirSync(envDir, { recursive: true });
   const lines = [`RELAY_PORT=${config.port}`, `RELAY_HOST=${config.host}`];
   if (config.homeOverride) lines.push(`RELAY_HOME_OVERRIDE=${config.homeOverride}`);
-  writeFileSync(path, `${lines.join("\n")}\n`);
+  writeFileSync(envFileFor(SELF_REGISTERED_ID, envDir), `${lines.join("\n")}\n`);
+  return existing ? "replaced" : "written";
 }
 
 function isPortOpen(host: string, port: number): Promise<boolean> {
