@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { transcriptPath } from "../src/runtimes/defs/claude/transcriptReader.js";
 import { randomBytes } from "node:crypto";
+import { withRoomCard } from "../src/protocol/roomCard.js";
+import type { RoomCard } from "../src/protocol/agent-event.js";
 import { HostClient } from "../src/agentHost/hostClient.js";
 import { roomKeyPathFor, roomOwnerOf } from "../src/bridges/roomBridge.js";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
@@ -366,6 +368,44 @@ test("the relay removes only its own room agents, and never when its sessions fi
     control.close();
     for (const relay of relays) relay.cleanup();
     await host.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a relay restarted over a transcript with card prompts replays them as cards, markers stripped", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "anywh-room-cards-"));
+  const sessionsFile = join(dir, "profile.json");
+  const home = join(dir, "relay-home");
+  const cwd = join(dir, "work");
+  mkdirSync(cwd, { recursive: true });
+  const digest = "[anywh-room] Agents you started have reported.\n\nIf nothing needs doing, answer exactly NO_REPLY and nothing else.";
+  const reports: RoomCard = { kind: "reports", reports: [{ agentId: "w1", title: "Count lines", status: "done", at: 1700000000000 }] };
+  const instruction: RoomCard = { kind: "instruction", title: "Write the docs" };
+  const transcript = transcriptPath(home, cwd, "card-sid");
+  mkdirSync(dirname(transcript), { recursive: true });
+  writeFileSync(
+    transcript,
+    [
+      { type: "user", message: { content: withRoomCard(digest, reports) } },
+      { type: "assistant", message: { content: [{ type: "text", text: "Thanks." }] } },
+      { type: "user", message: { content: withRoomCard("Write the docs, thoroughly.", instruction) } },
+      { type: "assistant", message: { content: [{ type: "text", text: "On it." }] } },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n"),
+  );
+  writeFileSync(sessionsFile, JSON.stringify({ cards: { ...entry("Cards"), sessionId: { claude: "card-sid" }, cwd: { cwd, locked: true } } }));
+  const relay = await spawnRelay({ RELAY_SESSIONS_FILE: sessionsFile, RELAY_HOME_OVERRIDE: home });
+  try {
+    const { socket, messages } = await connectSessionAndCollectUntil(relay.port, "cards", (message) => message.type === "caught_up", 10_000);
+    socket.close();
+    const page = messages.find((message) => message.type === "history_page") as { messages: { event: { type: string; text?: string; synthetic?: string; room?: unknown } }[] } | undefined;
+    const users = (page?.messages ?? []).map((m) => m.event).filter((event) => event.type === "user_message");
+    assert.equal(users.length, 2, JSON.stringify(page?.messages));
+    assert.deepEqual([users[0].text, users[0].synthetic, users[0].room], [digest, "room_digest", reports]);
+    assert.deepEqual([users[1].text, users[1].synthetic, users[1].room], ["Write the docs, thoroughly.", undefined, instruction]);
+  } finally {
+    relay.cleanup();
     rmSync(dir, { recursive: true, force: true });
   }
 });

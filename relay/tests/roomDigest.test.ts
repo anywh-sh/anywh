@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type WebSocket from "ws";
 import { hostEnvDir, startHostProcess, type HostProcess } from "./helpers/agentHostProcess.js";
@@ -125,6 +126,15 @@ function digestsIn(messages: Record<string, unknown>[]): string[] {
     .map((event) => event.text ?? "");
 }
 
+/** The card of every digest turn a session announced to its clients. */
+function cardsIn(messages: Record<string, unknown>[]): { kind?: string; reports?: { agentId: string; title: string | null; status: string; at: number }[] }[] {
+  return messages
+    .filter((message) => message.type === "agent_event")
+    .map((message) => message.event as { type?: string; room?: { kind?: string } })
+    .filter((event) => event.type === "user_message" && event.room !== undefined)
+    .map((event) => event.room as { kind?: string; reports?: { agentId: string; title: string | null; status: string; at: number }[] });
+}
+
 /** Keeps every message a session sends from now on. */
 function record(socket: WebSocket): Record<string, unknown>[] {
   const seen: Record<string, unknown>[] = [];
@@ -135,7 +145,8 @@ function record(socket: WebSocket): Record<string, unknown>[] {
 const taskWith = (gate: string, report: unknown): string => `work [[gate:${gate}]] ${marker("report", report)}`;
 
 test("N reports make one turn of the principal, sent when the last agent under it is done", async () => {
-  const stack = await startStack();
+  const promptsFile = join(tmpdir(), `anywh-prompts-${process.pid}-${Date.now()}.jsonl`);
+  const stack = await startStack({ FAKE_CLAUDE_PROMPTS_FILE: promptsFile });
   try {
     const roomId = await createRoom(stack);
     const socket = await connectSession(stack.relay.port, roomId);
@@ -165,6 +176,14 @@ test("N reports make one turn of the principal, sent when the last agent under i
     assert.equal(digests.length, 1, `exactly one digest turn: ${JSON.stringify(digests)}`);
     for (const text of ["result 1", "result 2", "result 3", "out-2.md", ...ids.map(shown)]) assert.ok(digests[0].includes(text), `the digest has ${text}`);
     assert.ok(digests[0].startsWith("[anywh-room]"));
+    const [card] = cardsIn(seen);
+    assert.equal(cardsIn(seen).length, 1);
+    assert.equal(card.kind, "reports");
+    assert.deepEqual(card.reports?.map((r) => [r.agentId, r.title, r.status]).sort(), ids.map((id) => [id, names.get(id), "done"]).sort());
+    // What the model got: the digest text, then the card as the prompt's last line.
+    const prompts = readFileSync(promptsFile, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string);
+    const digestPrompt = prompts.find((prompt) => prompt.startsWith("[anywh-room]"))!;
+    assert.match(digestPrompt, /\n\n\[anywh-card\] \{"v":1,"kind":"reports","reports":\[[^\n]*\]\}$/);
     await waitFor(stack, async () => ((await members(stack, roomId)).find((m) => m.id === roomId)!.room.undeliveredReports ?? []).length === 0, 10_000, "the outbox emptied");
     socket.close();
 
@@ -174,6 +193,7 @@ test("N reports make one turn of the principal, sent when the last agent under i
     const page = messages.find((m) => m.type === "history_page") as { messages: Record<string, unknown>[] } | undefined;
     assert.equal(digestsIn(page?.messages ?? []).length, 1);
   } finally {
+    rmSync(promptsFile, { force: true });
     await stopStack(stack);
   }
 });
@@ -193,6 +213,7 @@ test("a failed or blocked report wakes the principal at once, without waiting fo
     await waitFor(stack, () => digestsIn(seen).length > 0, 20_000, "the digest for the failure");
     let digests = digestsIn(seen);
     assert.equal(digests.length, 1);
+    assert.deepEqual(cardsIn(seen).map((card) => card.reports?.map((r) => [r.agentId, r.status])), [[[failing, "failed"]]]);
     assert.ok(digests[0].includes("the build broke") && digests[0].includes(shown(failing)));
     assert.ok(!digests[0].includes("slow result"));
     assert.match(digests[0], /1 more agent is still working/);
@@ -254,26 +275,29 @@ test("a report goes to the closest live ancestor; when that agent is stopped, to
   }
 });
 
-test("a digest the principal answers with NO_REPLY leaves nothing in its chat, and counts as handed over", async () => {
+test("a digest the principal answers with NO_REPLY leaves only its card in the chat, and counts as handed over", async () => {
   const stack = await startStack({ FAKE_CLAUDE_DIGEST_REPLY: "NO_REPLY" });
   try {
     const roomId = await createRoom(stack);
     const socket = await connectSession(stack.relay.port, roomId);
     const seen = record(socket);
-    await delegateVia(socket, { task: `work ${marker("report", { status: "done", summary: "quiet result", artifacts: [] })}`, runtime: "claude", model: "haiku" });
+    const [quiet] = await delegateVia(socket, { task: `work ${marker("report", { status: "done", summary: "quiet result", artifacts: [] })}`, runtime: "claude", model: "haiku" });
     await waitFor(stack, async () => {
       const principal = (await members(stack, roomId)).find((m) => m.id === roomId)!;
       return (principal.room.undeliveredReports ?? []).length === 0 && (await members(stack, roomId)).some((m) => m.room.report !== undefined);
     }, 20_000, "the digest to be handed over");
     await sleep(WINDOW_MS * 4);
-    assert.deepEqual(digestsIn(seen), [], "no digest bubble");
+    const shownCard = cardsIn(seen);
+    assert.equal(shownCard.length, 1, "the card is shown although the model's side is silent");
+    assert.deepEqual(shownCard[0].reports?.map((r) => [r.agentId, r.status]), [[quiet, "done"]]);
     const afterDelegation = seen.filter((m) => isTurnEnded(m)).length;
-    assert.equal(afterDelegation, 1, "only the delegation turn is shown, not the digest's");
+    assert.equal(afterDelegation, 1, "only the delegation turn ends visibly, not the digest's");
     socket.close();
     const { socket: again, messages } = await connectSessionAndCollectUntil(stack.relay.port, roomId, (m) => m.type === "caught_up", 10_000);
     again.close();
     const page = messages.find((m) => m.type === "history_page") as { messages: Record<string, unknown>[] } | undefined;
-    assert.deepEqual(digestsIn(page?.messages ?? []), []);
+    assert.equal(cardsIn(page?.messages ?? []).length, 1, "the card stays in the history a later client reads");
+    assert.equal((page?.messages ?? []).filter((m) => isTurnEnded(m)).length, 1, "the digest's own turn end stays silent");
   } finally {
     await stopStack(stack);
   }

@@ -8,7 +8,7 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import { ArrowUp, Check, ChevronDown, FileText, Loader2, Mic, Plus, Video, X } from "lucide-react";
+import { ArrowUp, FileText, Loader2, Plus, Video, X } from "lucide-react";
 import { Extension, type JSONContent } from "@tiptap/core";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -17,28 +17,23 @@ import { Placeholder } from "@tiptap/extension-placeholder";
 import Suggestion from "@tiptap/suggestion";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Fragment, Slice, type Node as ProseMirrorNode, type Schema } from "@tiptap/pm/model";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Elapsed } from "@/components/chat/activity/Elapsed";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn, formatDuration } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useDict } from "@/i18n";
 import { useDraftSync } from "@/hooks/composer/useDraftSync";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { ComposerLinkHoverCard } from "@/components/chat/ComposerLinkHoverCard";
+import { VoiceButton } from "@/components/chat/VoiceButton";
 import { PermissionModeButton } from "@/components/chat/PermissionModeButton";
 import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton";
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
-import { HARD_BREAK_ANCHOR, serializeEditorContent } from "@/lib/composer/composerLinks";
+import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
@@ -214,6 +209,23 @@ function buildComposerDoc(text: string): JSONContent {
     if (line) content.push({ type: "text", text: line });
   });
   return { type: "doc", content: [{ type: "paragraph", content }] };
+}
+
+/** Pasted plain text as an inline slice: one `hardBreak` per newline, the
+ * same shape `buildComposerDoc` restores a draft into, so blank lines and
+ * leading spaces survive verbatim (text nodes keep whitespace as-is; the
+ * editor renders with `white-space: pre-wrap`). */
+function pastedTextSlice(schema: Schema, text: string): Slice {
+  const nodes: ProseMirrorNode[] = [];
+  text
+    .replace(/\r\n?/g, "\n")
+    .replace(new RegExp(HARD_BREAK_ANCHOR, "g"), "")
+    .split("\n")
+    .forEach((line, index) => {
+      if (index > 0) nodes.push(schema.nodes.hardBreak.create());
+      if (line) nodes.push(schema.text(line));
+    });
+  return new Slice(Fragment.from(nodes), 0, 0);
 }
 
 /** Dynamic placeholder: shows the next-message suggestion while it exists,
@@ -564,7 +576,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     onFocus: () => setFocused(true),
     onBlur: ({ editor: current }) => {
       setFocused(false);
-      flushDraftSync(serializeEditorContent(current.getJSON()).trim());
+      flushDraftSync(trimComposerText(serializeEditorContent(current.getJSON())));
     },
     onUpdate: ({ editor: current }) => {
       setIsEmpty(current.isEmpty);
@@ -572,7 +584,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       if (suppressDraftRef.current) {
         suppressDraftRef.current = false;
       } else {
-        scheduleDraftSync(serializeEditorContent(current.getJSON()).trim());
+        scheduleDraftSync(trimComposerText(serializeEditorContent(current.getJSON())));
       }
     },
     editorProps: {
@@ -628,13 +640,37 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       // or "Copy image" from a browser) — reuses the same upload pipeline
       // as the attach button and drag-and-drop instead of letting
       // ProseMirror try to paste it as inline content.
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter(
           (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
         );
-        if (files.length === 0) return false;
+        if (files.length > 0) {
+          event.preventDefault();
+          onAddFiles(files);
+          return true;
+        }
+        // Text goes in exactly as copied. Left to ProseMirror, the clipboard's
+        // `text/html` wins whenever the source offers it (browsers, Slack, the
+        // chat log itself) and its parse collapses runs of spaces and
+        // indentation; plain-text paste splits every line into its own
+        // paragraph, so blank lines vanish and single newlines double on
+        // serialize. Two cases still take the default path: a copy from this
+        // editor itself (`data-pm-slice` — same schema, keeps its link marks)
+        // and a single whitespace-free token, which has nothing to lose and
+        // is what lets Link's `linkOnPaste` turn a pasted URL into a link.
+        const plain = event.clipboardData?.getData("text/plain") ?? "";
+        const html = event.clipboardData?.getData("text/html") ?? "";
+        if (!plain || html.includes("data-pm-slice") || !/\s/.test(plain)) return false;
         event.preventDefault();
-        onAddFiles(files);
+        // Tagged like ProseMirror's own paste, so Link's paste rule still
+        // turns a URL inside the pasted text into a link.
+        view.dispatch(
+          view.state.tr
+            .replaceSelection(pastedTextSlice(view.state.schema, plain))
+            .scrollIntoView()
+            .setMeta("paste", true)
+            .setMeta("uiEvent", "paste"),
+        );
         return true;
       },
     },
@@ -686,7 +722,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 
   function submit(): void {
     if (!editor) return;
-    const text = serializeEditorContent(editor.getJSON()).trim();
+    const text = trimComposerText(serializeEditorContent(editor.getJSON()));
     const decision = decideSubmit({
       text,
       attachmentCount: pendingImages.length,
@@ -860,61 +896,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             </>
           )}
 
-          {isRecording && (
-            <Button type="button" variant="ghost" size="icon-sm" onClick={voice.cancel} aria-label={copy.cancelRecording}>
-              <X className="size-3.5" />
-            </Button>
-          )}
-
-          <div className="flex items-center">
-            {/* Recording turns the button itself into the state: a stop
-                square and the elapsed time, in place of the microphone.
-                The waveform that used to sit in the toolbar is gone —
-                it animated nothing real (a generic loop, never the
-                captured audio), and the timer next to a red button
-                already says "this is live". */}
-            <Button
-              type="button"
-              variant={isRecording ? "destructive" : "ghost"}
-              size={isRecording ? "sm" : "icon-sm"}
-              className={isRecording ? undefined : "size-[30px] text-text-faint"}
-              onClick={() => (isRecording ? void voice.stop() : void voice.start())}
-              disabled={isTranscribing || (!isRecording && voice.devices.length === 0)}
-              aria-label={isRecording ? copy.stopRecording : copy.record}
-            >
-              {isRecording ? (
-                <>
-                  <span className="size-2 bg-current" />
-                  {formatDuration(voice.elapsedSeconds)}
-                </>
-              ) : (
-                <Mic className="size-4" />
-              )}
-            </Button>
-
-            {voice.devices.length > 1 && !isRecording && !isTranscribing && (
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={copy.selectMicrophone}
-                    className="flex h-[30px] w-5 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground data-[state=open]:bg-surface-hover data-[state=open]:text-foreground"
-                  >
-                    <ChevronDown className="size-3 opacity-70" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[calc(240px*var(--chrome-scale))]">
-                  <DropdownMenuLabel>{copy.microphone}</DropdownMenuLabel>
-                  {voice.devices.map((name) => (
-                    <DropdownMenuItem key={name} onSelect={() => voice.setSelectedDevice(name)} className={cn(name === voice.selectedDevice && "text-foreground")}>
-                      <span className="min-w-0 flex-1 truncate text-left">{name}</span>
-                      <Check className={cn("size-3.5 shrink-0 text-foreground", name !== voice.selectedDevice && "opacity-0")} />
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
+          <VoiceButton voice={voice} />
           {turnInFlight ? (
             // Light like the send button it replaces, not red: stopping is
             // an ordinary action here, and the clock beside it is the turn's

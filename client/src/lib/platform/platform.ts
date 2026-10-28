@@ -12,6 +12,17 @@ export function isIOS(): boolean {
   return inTauri() && platform() === "ios";
 }
 
+/** The platform's command modifier as its keycap reads: "⌘" on macOS,
+ * "Ctrl" on Windows/Linux. */
+export function modifierKeyLabel(): string {
+  return isMacOS() ? "⌘" : "Ctrl";
+}
+
+/** Shift as the platform writes it: "⇧" on macOS, "Shift" on Windows/Linux. */
+export function shiftKeyLabel(): string {
+  return isMacOS() ? "⇧" : "Shift";
+}
+
 /** Shortcut label for the tooltip — "⌘K" on macOS, "Ctrl+K" on Windows/Linux. */
 export function shortcutLabel(key: string): string {
   return isMacOS() ? `⌘${key}` : `Ctrl+${key}`;
@@ -20,7 +31,7 @@ export function shortcutLabel(key: string): string {
 /** The same shortcut as separate keys — ["⌘", "K"] or ["Ctrl", "K"] — for
  * UI that draws each key as its own cap. */
 export function shortcutKeys(key: string): string[] {
-  return isMacOS() ? ["⌘", key] : ["Ctrl", key];
+  return [modifierKeyLabel(), key];
 }
 
 /** This device's OS, straight from `@tauri-apps/plugin-os` ("macos",

@@ -203,7 +203,7 @@ export function SessionList({
                       className="flex h-[26px] w-full cursor-pointer items-center gap-2 px-[9px] text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground"
                     >
                       <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
-                      <span className="opacity-80">{dict.shell.sidebar[row.id]}</span>
+                      <span className="dark:opacity-80">{dict.shell.sidebar[row.id]}</span>
                       <span aria-hidden="true" className="min-w-0 flex-1 border-t border-dashed border-border" />
                       <span className="min-w-[2ch] text-right">{row.count}</span>
                     </button>

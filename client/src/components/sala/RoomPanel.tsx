@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { CheckIcon } from "@/components/sala/SalaIcons";
 import { AboutRoomPanel } from "@/components/sala/AboutRoomPanel";
 import { AgentAnswer } from "@/components/sala/AgentAnswer";
@@ -14,6 +15,7 @@ import {
   addRoomContextFile,
   DiscardNeededError,
   fetchRoomContextCount,
+  fetchRoomWorktrees,
   launchRoomAgent,
   removeRoomAgent,
   restoreRoomAgent,
@@ -59,6 +61,8 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   const layout = useRoomCanvas(profile, roomId, channel.agents, ready);
   const [contextCount, setContextCount] = useState(0);
   const [panel, setPanel] = useState<PanelState>(null);
+  // Stable so the chats under the provider don't re-render with the panel.
+  const cardActions = useMemo(() => ({ openAgent: (agentId: string) => setPanel({ kind: "agent", id: agentId }) }), []);
   const [launcher, setLauncher] = useState<{ open: boolean; parentId: string | undefined }>({ open: false, parentId: undefined });
   const canvasHandle = useRef<SalaCanvasHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -144,6 +148,18 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       ),
     [profile, roomId],
   );
+  const onCheckWork = useCallback(
+    (agentIds: readonly string[]) =>
+      fetchRoomWorktrees(profile, roomId).then(
+        (data) => data.worktrees.filter((tree) => agentIds.includes(tree.agentId) && !tree.integrated),
+        (error: unknown) => {
+          // The question says so; the relay still refuses to drop such work unasked.
+          console.error("[anywh] failed to check the agents' work before removing them", error);
+          return null;
+        },
+      ),
+    [profile, roomId],
+  );
   const onResumeAgent = useCallback(
     (agentId: string) => {
       resumeRoomAgent(profile, roomId, agentId).catch((error: unknown) => console.error("[anywh] failed to resume a room agent", error));
@@ -217,6 +233,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   };
 
   return (
+    <RoomCardActionsContext.Provider value={cardActions}>
     <div ref={rootRef} className="flex h-[calc(100%-1px)] min-w-0 bg-background" data-room-id={roomId}>
       <div className="relative h-full min-w-0 flex-1">
         <SalaCanvas
@@ -232,6 +249,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           onStopAgent={onStopAgent}
           onRemoveAgent={onRemoveAgent}
           onRestoreAgent={onRestoreAgent}
+          onCheckWork={onCheckWork}
           onAttachFiles={onAttachFiles}
           onOpenAgent={(agentId) => setPanel({ kind: "agent", id: agentId })}
           onNewAgent={openLauncher}
@@ -253,6 +271,10 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           aboutVisible={panel === null}
           renderAnswer={(agent, close) => <AgentAnswer profile={profile} agent={agent} onClose={close} onOpenConversation={() => setPanel({ kind: "agent", id: agent.agentId })} />}
           onEscape={() => setPanel(null)}
+          onSelectMany={() => {
+            setPanel(null);
+            setLauncher({ open: false, parentId: undefined });
+          }}
         />
         {completed && (
           <div className="sala-float sala-done" data-float role="status">
@@ -287,5 +309,6 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
         />
       )}
     </div>
+    </RoomCardActionsContext.Provider>
   );
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { BUILTIN_THEMES } from "@/lib/theme/builtinThemes";
+import { BUILTIN_THEMES, DEFAULT_THEME } from "@/lib/theme/builtinThemes";
 import { readableInkOn } from "@/lib/theme/color";
 import type { Theme, ThemeColorKey } from "@/lib/theme/theme";
+import { resolveTheme } from "@/lib/theme/themeApply";
 
 /**
  * Contrast of the two built-in themes, measured instead of eyeballed.
@@ -81,7 +82,51 @@ function report(pairs: { name: string; ratio: number }[], minimum: number): stri
   return pairs.filter((pair) => pair.ratio < minimum).map((pair) => `${pair.name} = ${pair.ratio.toFixed(2)}`);
 }
 
-describe.each(BUILTIN_THEMES.map((theme) => [theme.name, theme] as const))("%s", (_name, theme) => {
+/**
+ * Two hand-written themes with only the six required colors, so every other
+ * token is whatever `themeApply.ts` derives — the theme nobody looks at
+ * before it ships. Hex only on purpose: `parseColor` resolves hex and plain
+ * `rgb()` without the engine, so the real derivation runs in this tier (any
+ * other notation would go through `getComputedStyle`, which happy-dom
+ * doesn't compute, and silently test the fallback instead). One of each
+ * direction, on palettes unlike either built-in's.
+ */
+const CUSTOM_THEMES: Theme[] = [
+  {
+    version: 1,
+    id: "slate-day",
+    name: "Slate day (custom, light)",
+    appearance: "light",
+    colors: {
+      background: "#f4f6fa",
+      foreground: "#1b2330",
+      "muted-foreground": "#5b6678",
+      primary: "#2563eb",
+      destructive: "#c0262d",
+      border: "#d5dbe5",
+    },
+  },
+  {
+    version: 1,
+    id: "pine-night",
+    name: "Pine night (custom, dark)",
+    appearance: "dark",
+    colors: {
+      background: "#0f1a17",
+      foreground: "#e3efe9",
+      "muted-foreground": "#93a89f",
+      primary: "#3fb98a",
+      destructive: "#ef6b6b",
+      border: "#2c3d37",
+    },
+  },
+];
+
+const resolved = (theme: Theme): Theme => ({ ...theme, colors: resolveTheme(theme).colors });
+
+const MEASURED = [...BUILTIN_THEMES, ...CUSTOM_THEMES.map(resolved)];
+
+describe.each(MEASURED.map((theme) => [theme.name, theme] as const))("%s", (_name, theme) => {
   it("keeps every ink readable on every surface", () => {
     const pairs = INKS.flatMap((ink) =>
       SURFACES.map((surface) => ({ name: `${ink} on ${surface}`, ratio: contrast(theme, ink, surface) })),
@@ -115,6 +160,37 @@ describe.each(BUILTIN_THEMES.map((theme) => [theme.name, theme] as const))("%s",
       { name: "destructive-foreground on destructive", ratio: contrast(theme, "destructive-foreground", "destructive") },
     ];
     expect(report(pairs, 4.5)).toEqual([]);
+  });
+
+  it("keeps the room's running tone readable", () => {
+    // `state-run` is printed as a word on an agent's card (its status label)
+    // and in the side panel's log, so it gets the text bar on every surface
+    // the room puts it on. The dark theme's cyan, inherited by every light
+    // theme before it was a token, measured 1.6:1 on the light built-in.
+    const pairs = (["background", "bg-sidebar", "bg-chrome", "bg-elevated", "card"] as const).map((surface) => ({
+      name: `state-run on ${surface}`,
+      ratio: contrast(theme, "state-run", surface),
+    }));
+    expect(report(pairs, 4.5)).toEqual([]);
+  });
+
+  it("keeps the room's grid at least as visible as the dark built-in's", () => {
+    // A grid is decoration, not content (WCAG 1.4.11 asks nothing of it), and
+    // at 3:1 it would fight the cards. The bar is the one look the design was
+    // drawn against: the dark theme's own grid. The light theme's grid was a
+    // warm white on a cream page — present in the DOM and invisible.
+    const grid = (subject: Theme, strength: number): number => {
+      const page = parse(subject.colors.background);
+      const [r, g, b, a] = parse(subject.colors["canvas-grid"] ?? "");
+      const mark = flatten([r, g, b, a * strength], page);
+      const x = luminance(mark);
+      const y = luminance(page);
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+    // Dots draw at the token's alpha, lines at 45% of it (lib/sala/camera.ts).
+    for (const strength of [1, 0.4533]) {
+      expect(grid(theme, strength)).toBeGreaterThanOrEqual(grid(DEFAULT_THEME, strength) - 0.005);
+    }
   });
 
   it("keeps syntax highlighting legible in a code block", () => {

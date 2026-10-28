@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promptOffersSilence, ROOM_DIGEST_PREFIX } from "../protocol/silentEvents.js";
-import { buildRoomDigest, isUrgent, type DigestEntry } from "./roomDigest.js";
+import { buildRoomDigest, isUrgent, reportCard, type DigestEntry } from "./roomDigest.js";
 
 const entry = (over: Partial<DigestEntry> = {}): DigestEntry => ({ agentId: "a1", title: "Count lines", status: "done", summary: "42 lines", artifacts: [], fromRelay: false, ...over });
 
@@ -32,4 +32,20 @@ test("titles are cut to one bounded line", () => {
   const text = buildRoomDigest([entry({ title: `a\nb ${"x".repeat(200)}` })], { stillWorking: 0 });
   const line = text.split("\n").find((l) => l.startsWith("1. "))!;
   assert.ok(line.includes('"a b xxx') && line.includes("…"));
+});
+
+test("the card of a digest keeps the order, the status and a missing title, and none of the summaries", () => {
+  const card = reportCard([
+    { entry: entry({ agentId: "a1", title: null, status: "failed", summary: "secret summary" }), at: 10 },
+    { entry: entry({ agentId: "a2", title: "Write docs", status: "done" }), at: 20 },
+    { entry: entry({ agentId: "a3", status: "blocked" }), at: 30 },
+  ]);
+  assert.deepEqual(card, {
+    kind: "reports",
+    reports: [
+      { agentId: "a1", title: null, status: "failed", at: 10 },
+      { agentId: "a2", title: "Write docs", status: "done", at: 20 },
+      { agentId: "a3", title: "Count lines", status: "blocked", at: 30 },
+    ],
+  });
 });

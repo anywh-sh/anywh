@@ -429,6 +429,9 @@ export interface Dictionary {
       edit: string;
       editUnavailable: string;
       editWithAttachment: string;
+      /** Toggle under a long message clipped at a maximum height. */
+      showAll: string;
+      showLess: string;
     };
     toolCall: {
       /** Tooltip on the context-cost badge (`+13.5k`) when it was divided
@@ -622,6 +625,25 @@ export interface Dictionary {
       stopped: string;
       backgroundJobDone: string;
       wakeupResumed: string;
+      /** A report or instruction from the room, drawn as a card. */
+      roomCard: {
+        done: string;
+        failed: string;
+        needsYou: string;
+        open: string;
+        reply: string;
+        /** `{status}`, `{time}`. */
+        label: string;
+        /** `{title}`. */
+        openAria: string;
+        /** `{title}`. */
+        replyAria: string;
+        /** `{title}`. */
+        instructionAria: string;
+        /** `{time}`: a compact span like "12m". */
+        ago: string;
+        untitledAgent: string;
+      };
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;
@@ -1279,6 +1301,8 @@ export interface Dictionary {
     };
     /** Accessible name of the room glyph in the session list and tab strip. */
     roomGlyph: string;
+    /** The room's principal agent, by a fixed name: its card, its panel and who delegated a worker. */
+    orchestrator: string;
     /** The room's tab and its canvas. */
     canvas: {
       label: string;
@@ -1288,7 +1312,6 @@ export interface Dictionary {
       empty: string;
     };
     card: {
-      main: string;
       /** `{title}`, `{status}`. */
       aria: string;
       untitled: string;
@@ -1382,6 +1405,8 @@ export interface Dictionary {
     /** The right-hand panel: about the room, one agent, the principal's chat. */
     panel: {
       close: string;
+      /** The handle on the panel's left edge that resizes it. */
+      resize: string;
       /** The "i" button over the canvas. */
       about: string;
       aboutRoom: {
@@ -1424,9 +1449,6 @@ export interface Dictionary {
         contextUsedNoWindow: string;
         /** `{title}`. */
         delegatedBy: string;
-        principal: string;
-        work: string;
-        noWork: string;
         /** `{count}` commits. */
         commits: string;
         commitsOne: string;
@@ -1434,31 +1456,25 @@ export interface Dictionary {
         notIntegrated: string;
         /** `{size}`. */
         worktreeSize: string;
+        /** The worktree beside "Delegated by", for assistive tech: `{branch}`. */
+        worktree: string;
         connectors: string;
         subtasks: string;
         subtaskStop: string;
         activity: string;
-        report: string;
         failedTitle: string;
         failedBody: string;
         stoppedTitle: string;
         removedWork: string;
         permission: string;
         messagePlaceholder: string;
-        reply: string;
-        working: string;
         send: string;
         sendFailed: string;
-        connecting: string;
         openInTab: string;
         delegate: string;
         stop: string;
         resume: string;
         remove: string;
-      };
-      principal: {
-        /** `{model}`. */
-        subtitle: string;
       };
     };
     /** The launcher over the toolbar. */
@@ -1490,18 +1506,63 @@ export interface Dictionary {
       keptOne: string;
       review: string;
     };
-    /** Removing an agent whose work was never integrated. */
-    discard: {
-      title: string;
-      /** `{title}`, `{work}`. */
-      body: string;
-      confirm: string;
+    /** The bar over the room while several agents are selected. */
+    multi: {
+      label: string;
+      /** `{count}`. */
+      count: string;
+      /** `{shift}` and `{mod}`: the platform's Shift and command keys (⇧ and ⌘ on macOS, Shift and Ctrl elsewhere). */
+      hint: string;
+      group: string;
+      stop: string;
+      remove: string;
+      clear: string;
+    };
+    /** What the room asks before an action that cannot simply be taken back. */
+    confirm: {
       cancel: string;
+      /** `{title}`. */
+      removeOneTitle: string;
+      /** `{count}`. */
+      removeManyTitle: string;
+      /** `{along}`: one of the `along*` below, or nothing. */
+      removeOneBody: string;
+      removeManyBody: string;
+      /** The agents the removed one delegated to, which leave with it. */
+      alongOne: string;
+      /** `{count}`. */
+      alongMany: string;
+      /** Same, when several agents are removed. */
+      alongOneOfMany: string;
+      /** `{count}`. */
+      alongManyOfMany: string;
+      remove: string;
+      /** Beside the buttons when some of the agents have work nobody integrated: `{branches}`. */
+      discardNote: string;
+      /** While the room checks for that work. */
+      checking: string;
+      /** Appended when that check failed. */
+      checkFailed: string;
+      groupTitle: string;
+      /** `{count}` agents; the areas' names follow. */
+      groupBodyOne: string;
+      groupBodyMany: string;
+      group: string;
     };
     minimap: string;
     toast: {
       backTo100: string;
       removed: string;
+      removedSub: string;
+      /** `{count}`. */
+      removedMany: string;
+      removedManySub: string;
+      stoppedOne: string;
+      /** `{count}`. */
+      stoppedMany: string;
+      stoppedManySub: string;
+      /** `{count}`. */
+      grouped: string;
       undo: string;
       stopFailed: string;
       removeFailed: string;

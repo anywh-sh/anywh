@@ -1,0 +1,109 @@
+/* Report and instruction cards in a room agent's chat. Every color derives
+ * from the theme variables, so a custom theme restyles them for free. */
+:root {
+  --room-card-bg: var(--background);
+  --room-card-line: var(--border-soft);
+  --room-card-ok: var(--diff-add);
+  --room-card-wait: var(--primary-ink);
+  --room-card-fail: var(--destructive);
+  --room-card-label: var(--text-faint);
+  --room-card-cta-bg: var(--foreground);
+  --room-card-cta-fg: var(--background);
+}
+
+/* On a pale page border-soft all but vanishes; the full border step is the
+ * hairline the design shows. */
+:root[data-appearance="light"] {
+  --room-card-line: var(--border);
+}
+
+.room-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 6px 8px 10px;
+  background: var(--room-card-bg);
+  border: 1px solid var(--room-card-line);
+}
+
+.room-card-icon {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  width: 14px;
+  color: var(--room-card-label);
+}
+
+.room-card[data-status="done"] .room-card-icon {
+  color: var(--room-card-ok);
+}
+
+.room-card[data-status="failed"] .room-card-icon,
+.room-card[data-status="failed"] .room-card-label {
+  color: var(--room-card-fail);
+}
+
+.room-card[data-status="blocked"] .room-card-icon,
+.room-card[data-status="blocked"] .room-card-label {
+  color: var(--room-card-wait);
+}
+
+.room-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.room-card-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--room-card-label);
+}
+
+.room-card-title {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-card-btn {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  color: var(--room-card-label);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 120ms;
+}
+
+.room-card-btn:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.room-card-btn:hover {
+  color: var(--foreground);
+}
+
+.room-card-btn.cta {
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--room-card-cta-fg);
+  background: var(--room-card-cta-bg);
+}
+
+.room-card-btn.cta:hover {
+  color: var(--room-card-cta-fg);
+  opacity: 0.88;
+}

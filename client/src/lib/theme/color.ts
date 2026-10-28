@@ -20,6 +20,36 @@ export interface Rgba {
 
 let probe: HTMLSpanElement | undefined;
 
+const HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const RGB = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[/,]\s*([\d.]+%?))?\s*\)$/i;
+
+/**
+ * Hex and plain `rgb()` — every built-in token, and what most hand-written
+ * themes use — resolved without the engine. Not just a shortcut: it is what
+ * lets the unit tier (happy-dom, whose `getComputedStyle` computes no
+ * `color`) run the real derivation in `themeApply.ts` for a theme written in
+ * these forms, instead of silently getting the built-in fallback for every
+ * derived token. Anything else still goes through the probe below.
+ */
+function parseLiteral(value: string): Rgba | undefined {
+  const text = value.trim();
+  const hex = HEX.exec(text);
+  if (hex) {
+    let digits = hex[1];
+    if (digits.length <= 4) digits = [...digits].map((d) => d + d).join("");
+    const n = (i: number): number => Number.parseInt(digits.slice(i, i + 2), 16);
+    return { r: n(0), g: n(2), b: n(4), a: digits.length === 8 ? n(6) / 255 : 1 };
+  }
+  const rgb = RGB.exec(text);
+  if (rgb) {
+    const alpha = rgb[4] === undefined ? 1 : rgb[4].endsWith("%") ? Number.parseFloat(rgb[4]) / 100 : Number(rgb[4]);
+    const parts = [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha];
+    if (parts.some(Number.isNaN)) return undefined;
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts[3] };
+  }
+  return undefined;
+}
+
 /**
  * Resolves any CSS color the theme validator accepts — including `hsl()`
  * and `oklch()`, which aren't worth hand-parsing — by handing it to the
@@ -28,6 +58,8 @@ let probe: HTMLSpanElement | undefined;
  * has no computed style in WebKit.
  */
 export function parseColor(value: string): Rgba | undefined {
+  const literal = parseLiteral(value);
+  if (literal) return literal;
   if (typeof document === "undefined") return undefined;
   if (!probe) {
     probe = document.createElement("span");
@@ -130,4 +162,27 @@ export function contrastRatio(a: Rgba, b: Rgba): number {
  */
 export function readableInkOn(fill: Rgba, background: Rgba, foreground: Rgba): Rgba {
   return contrastRatio(fill, background) >= contrastRatio(fill, foreground) ? background : foreground;
+}
+
+/** `top` composited over an opaque `bottom` — what a translucent token
+ * actually looks like once it is sitting on a surface. */
+export function over(top: Rgba, bottom: Rgba): Rgba {
+  return { ...mix(bottom, { ...top, a: 1 }, top.a), a: 1 };
+}
+
+/**
+ * `ink` as it was derived, or — when that misses `minimum` on any of
+ * `surfaces` — the first step from it toward `toward` that doesn't. A derived
+ * token is a guess made from someone else's palette, and the guess that
+ * reads fine on a dark page can sit at 3:1 on a pale one; this turns the
+ * guess into a floor instead of hoping. Stops at `toward` itself if nothing
+ * on the way gets there (the theme's own ink is then the best there is).
+ * Pure, like `readableInkOn`, so the unit tier can check it.
+ */
+export function legibleOn(ink: Rgba, surfaces: Rgba[], minimum: number, toward: Rgba): Rgba {
+  for (let step = 0; step <= 20; step++) {
+    const candidate = mix(ink, toward, step / 20);
+    if (surfaces.every((surface) => contrastRatio(over(candidate, surface), surface) >= minimum)) return candidate;
+  }
+  return toward;
 }

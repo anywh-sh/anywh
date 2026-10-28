@@ -1,5 +1,6 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
+import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { RoomPanel } from "@/components/sala/RoomPanel";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
@@ -85,7 +86,14 @@ const TabChat = memo(function TabChat({
   actions,
 }: TabChatProps) {
   const noPanes = isCompact || isIOS();
+  // Outside a room panel a card opens the agent as a tab. `actions` is stable
+  // (see the note on `TabPanelActions`), so this is too.
+  const cardActions = useMemo(
+    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null) }),
+    [actions, profile],
+  );
   return (
+    <RoomCardActionsContext.Provider value={cardActions}>
     <ChatPanel
       // On iOS (no TabGroupLayout/flat panel layer), the panel is a single
       // JSX slot whose `sessionId` just changes value — without a `key` tied
@@ -122,6 +130,7 @@ const TabChat = memo(function TabChat({
       onOpenPath={noPanes ? undefined : (path) => actions.onOpenPath(profile, tab.id, path)}
       isActiveTab={isVisible}
     />
+    </RoomCardActionsContext.Provider>
   );
 });
 

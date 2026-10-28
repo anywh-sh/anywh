@@ -192,7 +192,15 @@ describe("gridLayer", () => {
 
   it("fades the dots out when cells get too small to read", () => {
     const small = gridLayer({ x: 0, y: 0, z: 0.25 }, 0.25, vp).backgroundImage;
-    expect(small).toContain("rgba(255,240,225,0.000)");
+    expect(small).toContain("radial-gradient(circle, color-mix(in srgb, var(--canvas-grid) 0.000%, transparent)");
+  });
+
+  it("takes its color from the theme, never a literal", () => {
+    // A literal warm white here is what made the grid vanish on every light
+    // theme: the color has to come from `--canvas-grid`.
+    const image = gridLayer({ x: 0, y: 0, z: 1 }, 1, vp).backgroundImage;
+    expect(image).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+    expect(image.match(/var\(--canvas-grid\)/g)).toHaveLength(3);
   });
 });
 

@@ -1,5 +1,5 @@
-import { DEFAULT_THEME } from "@/lib/theme/builtinThemes";
-import { luminance, mix, parseColor, readableInkOn, shade, tint, toCss, type Rgba } from "@/lib/theme/color";
+import { DEFAULT_THEME, PAPER_THEME } from "@/lib/theme/builtinThemes";
+import { legibleOn, luminance, mix, over, parseColor, readableInkOn, shade, tint, toCss, type Rgba } from "@/lib/theme/color";
 import {
   OPTIONAL_COLOR_KEYS,
   TERMINAL_COLOR_KEYS,
@@ -42,12 +42,20 @@ function derivedColors(theme: Theme): ResolvedColors {
   const background = parseColor(declared.background);
   const mutedForeground = parseColor(declared["muted-foreground"]);
   const border = parseColor(declared.border);
+  const foreground = parseColor(declared.foreground);
   const dark = isDarkBackground(background);
 
   // Falls back to the built-in value whenever a required color couldn't be
   // parsed. The validator makes that nearly impossible, but "nearly" isn't
   // a reason to emit `undefined` into a CSS custom property.
-  const fallback = (key: ThemeColorKey): string => DEFAULT_THEME.colors[key] ?? "";
+  //
+  // The built-in of the same direction, not always the dark one: the tokens
+  // that keep a built-in value (the diff green, the warning tone, the
+  // running tone) are tuned to the page they sit on, and the dark theme's
+  // pale green on a light page measured 1.7:1 — every light theme that left
+  // them out had unreadable added lines and running labels.
+  const builtin = dark ? DEFAULT_THEME : PAPER_THEME;
+  const fallback = (key: ThemeColorKey): string => builtin.colors[key] ?? DEFAULT_THEME.colors[key] ?? "";
   const put = (key: ThemeColorKey, value: Rgba | string | undefined): void => {
     if (resolved[key] !== undefined) return;
     resolved[key] = typeof value === "string" ? value : value ? toCss(value) : fallback(key);
@@ -79,7 +87,22 @@ function derivedColors(theme: Theme): ResolvedColors {
   const elevated = parseColor(resolved["bg-elevated"]);
   put("surface-hover", elevated ? (dark ? tint(elevated, 8) : shade(elevated, 6)) : undefined);
 
-  put("text-faint", mutedForeground && background ? mix(mutedForeground, background, 0.45) : undefined);
+  // Every surface a line of text can land on, as painted — what a derived
+  // ink is measured against. A derived ink that misses 4.5:1 on any of them
+  // moves toward the theme's foreground until it doesn't (`legibleOn`): the
+  // fixed amounts below are a starting point tuned on the built-ins, and on a
+  // pale page with a mid-gray `muted-foreground` the faint tier alone landed
+  // under 3:1.
+  const surfaces = (
+    ["background", "bg-sidebar", "bg-chrome", "bg-elevated", "surface-hover", "card", "bubble-user"] as const
+  )
+    .map((key) => parseColor(resolved[key]))
+    .filter((color): color is Rgba => color !== undefined)
+    .map((color) => (background ? over(color, background) : color));
+  const readable = (ink: Rgba | undefined, on: Rgba[] = surfaces): Rgba | undefined =>
+    ink && foreground && on.length > 0 ? legibleOn(ink, on, 4.5, foreground) : ink;
+
+  put("text-faint", readable(mutedForeground && background ? mix(mutedForeground, background, 0.45) : undefined));
   put("border-soft", border && background ? mix(border, background, 0.55) : undefined);
 
   // Accent surface + the text tone that reads on it. The fill keeps alpha on
@@ -89,7 +112,14 @@ function derivedColors(theme: Theme): ResolvedColors {
   // small sizes in either direction.
   const primary = parseColor(declared.primary);
   put("primary-soft", primary ? toCss({ ...primary, a: dark ? 0.14 : 0.08 }) : undefined);
-  put("primary-ink", primary ? (dark ? tint(primary, 65) : shade(primary, 26)) : undefined);
+  const soft = parseColor(resolved["primary-soft"]);
+  put(
+    "primary-ink",
+    readable(
+      primary ? (dark ? tint(primary, 65) : shade(primary, 26)) : undefined,
+      soft ? surfaces.map((surface) => over(soft, surface)) : surfaces,
+    ),
+  );
 
   // The label printed *on* a filled button. This used to be `--foreground`
   // outright, which is wrong whenever the accent is mid-tone — and an accent
@@ -100,17 +130,23 @@ function derivedColors(theme: Theme): ResolvedColors {
   // directions — near-black on the dark theme's brighter orange, near-white
   // on the light theme's deeper one — which is exactly the point of choosing
   // by measurement instead of by which theme is which.
-  const foreground = parseColor(declared.foreground);
   const onFill = (fill: Rgba | undefined): string | undefined =>
     fill && foreground && background ? toCss(readableInkOn(fill, background, foreground)) : undefined;
   put("primary-foreground", onFill(primary));
   put("destructive-foreground", onFill(parseColor(declared.destructive)));
 
-  // No sane derivation from a UI palette: the warning tone and the "added
-  // line" green are their own hues by construction (see index.css), so an
-  // undeclared one keeps the built-in rather than getting invented.
-  put("context-ring-warn", fallback("context-ring-warn"));
-  put("diff-add", fallback("diff-add"));
+  // No sane derivation from a UI palette: the warning tone, the "added
+  // line" green and the room's "running" cyan are their own hues by
+  // construction (see index.css), so an undeclared one keeps the built-in
+  // rather than getting invented.
+  put("context-ring-warn", readable(parseColor(fallback("context-ring-warn"))));
+  put("diff-add", readable(parseColor(fallback("diff-add"))));
+  put("state-run", readable(parseColor(fallback("state-run"))));
+
+  // The canvas grid is a faint mark of the theme's own ink, so it follows
+  // the page's color; a pale page needs about twice the alpha of a dark one
+  // for the same hairline to show at all.
+  put("canvas-grid", foreground ? toCss({ ...foreground, a: dark ? 0.075 : 0.16 }) : undefined);
 
   put("overlay", dark ? "rgb(0 0 0 / 0.5)" : "rgb(0 0 0 / 0.35)");
   put("glass-tint", declared.foreground);
@@ -120,8 +156,8 @@ function derivedColors(theme: Theme): ResolvedColors {
 
   put("syntax-comment", resolved["text-faint"]);
   put("syntax-keyword", declared.primary);
-  put("syntax-string", dark ? fallback("syntax-string") : "#4f7a3a");
-  put("syntax-number", dark ? fallback("syntax-number") : "#3f6486");
+  put("syntax-string", fallback("syntax-string"));
+  put("syntax-number", fallback("syntax-number"));
   put("syntax-title", declared.foreground);
 
   // Profile dots are the app's own identity colors, not the theme's: they
@@ -146,8 +182,11 @@ function derivedColors(theme: Theme): ResolvedColors {
  */
 function derivedTerminal(colors: ResolvedColors, declared: Theme["terminal"]): Record<TerminalColorKey, string> {
   const primary = parseColor(colors.primary);
+  // The ANSI 16 of the built-in that runs the same direction: the dark
+  // theme's pale yellow and white are unreadable on a light terminal.
+  const base = isDarkBackground(parseColor(colors.background)) ? DEFAULT_THEME.terminal : PAPER_THEME.terminal;
   const result: Record<string, string> = {
-    ...DEFAULT_THEME.terminal,
+    ...base,
     background: colors["bg-sidebar"],
     foreground: colors.foreground,
     cursor: colors.primary,

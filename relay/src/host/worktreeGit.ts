@@ -141,21 +141,27 @@ export async function worktreeHead(path: string): Promise<{ branch?: string; sha
   return { ...(branch ? { branch } : {}), sha: sha.stdout.trim() };
 }
 
+/** What the base names now: its branch while that still exists, else the
+ * sha it started from. */
+async function baseTarget(repoRoot: string, base: WorktreeBase): Promise<string> {
+  return base.ref && (await branchExists(repoRoot, base.ref)) ? `refs/heads/${base.ref}` : base.sha;
+}
+
 /** Whether a commit is an ancestor of the base. */
 export async function isCommitInBase(repoRoot: string, sha: string, base: WorktreeBase): Promise<boolean> {
-  const target = base.ref && (await branchExists(repoRoot, base.ref)) ? `refs/heads/${base.ref}` : base.sha;
+  const target = await baseTarget(repoRoot, base);
   return (await runGit(repoRoot, ["merge-base", "--is-ancestor", sha, target])).ok;
 }
 
 /** Whether `branch`'s tip is an ancestor of `base` (its ref while that still
  * exists, else the sha it started from). */
 export async function isAncestorOfBase(repoRoot: string, branch: string, base: WorktreeBase): Promise<boolean> {
-  const target = base.ref && (await branchExists(repoRoot, base.ref)) ? `refs/heads/${base.ref}` : base.sha;
+  const target = await baseTarget(repoRoot, base);
   return (await runGit(repoRoot, ["merge-base", "--is-ancestor", `refs/heads/${branch}`, target])).ok;
 }
 
 export async function commitsAhead(repoRoot: string, branch: string, base: WorktreeBase): Promise<number | undefined> {
-  const target = base.ref && (await branchExists(repoRoot, base.ref)) ? `refs/heads/${base.ref}` : base.sha;
+  const target = await baseTarget(repoRoot, base);
   const r = await runGit(repoRoot, ["rev-list", "--count", `${target}..refs/heads/${branch}`]);
   return r.ok ? Number(r.stdout.trim()) : undefined;
 }
@@ -195,16 +201,136 @@ export function forgetMissingWorktree(commonDir: string, path: string): boolean 
   return false;
 }
 
-/** Whether the branch's pull request was merged *at this tip*, by `gh` when
- * it is installed and the repo has a remote: commits pushed after the merge
- * are not covered by it. Anything else (no `gh`, no network, no such PR) is `false`. */
-export function pullRequestMerged(repoRoot: string, branch: string, tip: string | undefined, gh = "gh"): Promise<boolean> {
-  if (!tip) return Promise.resolve(false);
+/** The sha the base resolves to now, `undefined` when git cannot say. */
+export async function baseTip(repoRoot: string, base: WorktreeBase): Promise<string | undefined> {
+  const r = await runGit(repoRoot, ["rev-parse", "--verify", "-q", `${await baseTarget(repoRoot, base)}^{commit}`]);
+  return r.ok ? r.stdout.trim() : undefined;
+}
+
+let warnedMergeTree = false;
+function warnMergeTreeUnsupported(): void {
+  if (warnedMergeTree) return;
+  warnedMergeTree = true;
+  console.warn("[relay] git is older than 2.40 (no `merge-tree --write-tree --merge-base`): squash and rebase merges of agent worktrees cannot be recognised, so those worktrees are kept");
+}
+
+/**
+ * Whether the work between the branch's fork point and `tip` is on the base
+ * now, however it got there: a squash merge, a rebase merge, a cherry-pick.
+ * Asked as "would merging `tip` into the base's current tip change nothing?"
+ * (`git merge-tree`, three-way from the fork point, written to no ref): a
+ * clean merge whose tree is the base's own means every change the branch
+ * made, byte for byte, with its file modes, binaries included, is in the
+ * base as it is today. A change made after the merge (whitespace only, a
+ * mode bit), a squash edited at merge time, or one reverted on the base
+ * since, all leave something to merge, or a conflict, and so no proof. An
+ * empty diff proves nothing. Needs git 2.40 (`--merge-base`): an older git
+ * refuses the options, which is no proof either (said once in the log, since
+ * from then on no squash is ever found). Any failure or doubt is `false`: a
+ * missed squash only keeps a worktree, a wrong one would lose work.
+ *
+ * `baseSha` is the base's tip the caller already resolved: the answer is
+ * then about exactly that commit, even if the base moves meanwhile.
+ */
+export async function squashedIntoBase(repoRoot: string, tip: string, base: WorktreeBase, baseSha?: string): Promise<boolean> {
+  const target = baseSha ?? (await baseTarget(repoRoot, base));
+  const forkPoint = await runGit(repoRoot, ["merge-base", tip, target], 30_000);
+  if (!forkPoint.ok) return false;
+  const fork = forkPoint.stdout.trim();
+  // A tip that is the fork point is an ancestor of the base, not a squash.
+  if (fork === "" || fork === tip) return false;
+  // No change at all (the branch's commits cancel out) is no evidence of
+  // anything. Exit status 1 is "they differ"; anything but 0 or 1 is a failure.
+  const changed = await runGit(repoRoot, ["diff", "--quiet", "--no-ext-diff", "--no-textconv", fork, tip], 30_000);
+  if (changed.code !== 1) return false;
+  const baseTree = await runGit(repoRoot, ["rev-parse", "--verify", "-q", `${target}^{tree}`]);
+  if (!baseTree.ok) return false;
+  // Renormalization would let a line-ending change merge into nothing.
+  const merged = await runGit(repoRoot, ["-c", "merge.renormalize=false", "merge-tree", "--write-tree", "--no-messages", `--merge-base=${fork}`, target, tip], 60_000);
+  // Exit status 1 is a conflict: the branch and the base disagree somewhere.
+  // 129 is git refusing the options: too old for `--write-tree --merge-base`.
+  if (merged.code === 129) warnMergeTreeUnsupported();
+  if (!merged.ok) return false;
+  const tree = merged.stdout.split("\n")[0]?.trim() ?? "";
+  return /^[0-9a-f]{40,64}$/.test(tree) && tree === baseTree.stdout.trim();
+}
+
+interface PullRequestSummary {
+  merged_at?: unknown;
+  base?: { ref?: unknown };
+  head?: { sha?: unknown };
+}
+
+/** `gh api <endpoint>`, parsed: `undefined` when gh failed (missing, no
+ * remote, no login, no network, an HTTP error) or answered something else
+ * than JSON. `{owner}/{repo}` are filled in by gh from the repo's remote. */
+function ghApi(repoRoot: string, gh: string, endpoint: string): Promise<unknown> {
   return new Promise((resolveRun) => {
-    execFile(gh, ["pr", "view", branch, "--json", "state,headRefOid", "--jq", '.state + " " + .headRefOid'], { cwd: repoRoot, env: gitEnv(), timeout: 15_000, encoding: "utf8" }, (error, stdout) => {
-      resolveRun(!error && stdout.trim() === `MERGED ${tip}`);
+    const args = ["api", "-H", "Accept: application/vnd.github+json", endpoint];
+    execFile(gh, args, { cwd: repoRoot, env: { ...gitEnv(), GH_PROMPT_DISABLED: "1" }, timeout: 15_000, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout) => {
+      if (error) return resolveRun(undefined);
+      try {
+        resolveRun(JSON.parse(stdout) as unknown);
+      } catch {
+        resolveRun(undefined);
+      }
     });
   });
+}
+
+/** Pages of a commit's pull requests read before giving up on the list. */
+const PULL_PAGES = 5;
+/** Pull requests the search fallback checks one by one. */
+const SEARCHED_PULLS = 10;
+/** Most time one question about a tip may spend on GitHub, in all its calls:
+ * cleanups run one at a time, so a slow gh must not hold up the rest. */
+const PULL_BUDGET_MS = 30_000;
+
+/**
+ * Whether a pull request was merged with `tip` as its head, asked of GitHub
+ * by commit, so one opened from another branch at the same commit counts
+ * too. Only a merged one whose head is exactly `tip`: one whose head went on
+ * past `tip` says nothing about this one. When the worktree started on a
+ * branch, the pull request must have gone into it; one started from a
+ * detached HEAD has no branch to compare, and a pull request merged anywhere
+ * at this exact tip is taken, as `gh pr view <branch>` used to.
+ *
+ * First `commits/<tip>/pulls`, a page at a time. GitHub documents it as
+ * listing only open pull requests for a commit that is not on the default
+ * branch, which a squash-merged head never is (it does list merged ones in
+ * practice, at least into the default branch): when it shows none that
+ * proves the tip, a search for merged pull requests mentioning the commit
+ * is asked, and each one found is read for its head and base, all within
+ * `PULL_BUDGET_MS`; out of time is no proof. Anything else
+ * (no `gh`, no remote, no login, no network, a commit GitHub does not know)
+ * is `false`.
+ */
+export async function pullRequestMerged(repoRoot: string, tip: string | undefined, base: WorktreeBase, gh = "gh"): Promise<boolean> {
+  if (!tip || !/^[0-9a-f]{40,64}$/.test(tip)) return false;
+  const proves = (entry: unknown): boolean => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const pr = entry as PullRequestSummary;
+    return typeof pr.merged_at === "string" && pr.merged_at !== "" && (base.ref === undefined || pr.base?.ref === base.ref) && pr.head?.sha === tip;
+  };
+  const deadline = Date.now() + PULL_BUDGET_MS;
+  for (let page = 1; page <= PULL_PAGES; page++) {
+    if (Date.now() > deadline) return false;
+    const pulls = await ghApi(repoRoot, gh, `repos/{owner}/{repo}/commits/${tip}/pulls?per_page=100&page=${page}`);
+    // A gh that cannot answer at all is not asked again, by search or otherwise.
+    if (!Array.isArray(pulls)) return false;
+    if (pulls.some(proves)) return true;
+    if (pulls.length < 100) break;
+  }
+  if (Date.now() > deadline) return false;
+  const found = await ghApi(repoRoot, gh, `search/issues?q=repo:{owner}/{repo}+is:pr+is:merged+${tip}&per_page=${SEARCHED_PULLS}`);
+  const items = typeof found === "object" && found !== null && Array.isArray((found as { items?: unknown }).items) ? (found as { items: unknown[] }).items : [];
+  for (const item of items.slice(0, SEARCHED_PULLS)) {
+    const number = typeof item === "object" && item !== null ? (item as { number?: unknown }).number : undefined;
+    if (typeof number !== "number" || !Number.isInteger(number)) continue;
+    if (Date.now() > deadline) return false;
+    if (proves(await ghApi(repoRoot, gh, `repos/{owner}/{repo}/pulls/${number}`))) return true;
+  }
+  return false;
 }
 
 /** Disk the directory takes, `du`-style, in bytes; `undefined` when it cannot be told. */

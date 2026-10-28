@@ -37,6 +37,9 @@ export interface QueuedMessage {
   /** Written by the relay, not sent by anyone: the agent ended a turn
    * without reporting and is asked for its report once. */
   reminder?: true;
+  /** Written by an agent above this one (`delegate` by an agent,
+   * `message_agent`): delivered as an instruction card, not a bubble. */
+  fromAgent?: true;
 }
 
 export interface RoomStop {
@@ -159,7 +162,7 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
     if (undeliveredReports !== undefined && !isStringList(undeliveredReports)) return false;
     if (
       queuedMessages !== undefined &&
-      !(Array.isArray(queuedMessages) && queuedMessages.length <= ROOM_QUEUE_PER_AGENT_MAX + 1 && queuedMessages.every((m) => isRecord(m) && typeof m.text === "string" && isTimestamp(m.at) && (m.reminder === undefined || m.reminder === true)))
+      !(Array.isArray(queuedMessages) && queuedMessages.length <= ROOM_QUEUE_PER_AGENT_MAX + 1 && queuedMessages.every((m) => isRecord(m) && typeof m.text === "string" && isTimestamp(m.at) && (m.reminder === undefined || m.reminder === true) && (m.fromAgent === undefined || m.fromAgent === true)))
     ) {
       return false;
     }

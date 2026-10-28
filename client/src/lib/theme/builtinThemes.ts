@@ -37,6 +37,8 @@ export const DEFAULT_THEME: Theme = {
     "destructive-foreground": "#11100e",
     "context-ring-warn": "#e9b860",
     "diff-add": "#85cf95",
+    "state-run": "#89cfd3",
+    "canvas-grid": "rgb(255 240 225 / 0.075)",
 
     border: "#3a3937",
     "border-soft": "#2a2927",
@@ -128,6 +130,13 @@ export const PAPER_THEME: Theme = {
     "destructive-foreground": "#fbfaf8",
     "context-ring-warn": "#a1701f",
     "diff-add": "#36784b",
+    // The dark theme's cyan sits at 1.6:1 on this page; deepened to a teal
+    // that holds 4.5:1 on the darkest surface it is printed on (`bg-sidebar`).
+    "state-run": "#1f6f77",
+    // Dark ink rather than the dark theme's warm white, and stronger: a
+    // hairline of ink on a pale page needs more alpha than one of light on a
+    // dark page to read as the same faint mark.
+    "canvas-grid": "rgb(20 18 15 / 0.16)",
 
     border: "#e0dbd2",
     "border-soft": "#eeebe4",

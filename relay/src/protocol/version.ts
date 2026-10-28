@@ -26,5 +26,12 @@
  * above), but it would silently render a turn without the parts it doesn't
  * know — a client that looks fine while missing what the relay sent is
  * exactly the skew this number exists to surface as "update the app".
+ *
+ * 3 -> 4: a room digest and an agent's instruction to another carry a
+ * structured `room` card on `user_message`. An older client would not
+ * crash, but it would show the digest as a bubble holding the English
+ * prompt and the instruction as a plain bubble — it looks fine while
+ * showing the wrong thing, exactly the skew this number exists to surface
+ * as "update the app".
  */
-export const WS_PROTOCOL_VERSION = 3;
+export const WS_PROTOCOL_VERSION = 4;
