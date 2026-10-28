@@ -241,7 +241,7 @@ test("ensureSelfRegistered: leaves a default.env registered in profiles.json alo
     updateProfileMeta("default", { label: "Default" }, envDir);
     const before = readFileSync(envFileFor("default", envDir), "utf8");
 
-    assert.equal(await ensureSelfRegistered({ port: 28765, host: "127.0.0.1" }, envDir), "skipped");
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
     assert.equal(readFileSync(envFileFor("default", envDir), "utf8"), before);
   });
 });
@@ -254,7 +254,7 @@ test("ensureSelfRegistered: leaves a default.env whose port still answers alone"
       const { port } = server.address() as { port: number };
       writeEnv(envDir, "default", { RELAY_PORT: String(port), RELAY_HOST: "127.0.0.1" });
 
-      assert.equal(await ensureSelfRegistered({ port: 28765, host: "127.0.0.1" }, envDir), "skipped");
+      assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
       assert.match(readFileSync(envFileFor("default", envDir), "utf8"), new RegExp(`RELAY_PORT=${port}`));
     } finally {
       await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
@@ -267,7 +267,7 @@ test("ensureSelfRegistered: never replaces a default.env add-profile.sh wrote, e
     writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1", RELAY_SESSIONS_FILE: "/x" });
     const before = readFileSync(envFileFor("default", envDir), "utf8");
 
-    assert.equal(await ensureSelfRegistered({ port: 28765, host: "127.0.0.1" }, envDir), "skipped");
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
     assert.equal(readFileSync(envFileFor("default", envDir), "utf8"), before);
   });
 });
@@ -276,18 +276,18 @@ test("ensureSelfRegistered: replaces an unregistered default.env nothing listens
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "192.168.0.48" });
 
-    assert.equal(await ensureSelfRegistered({ port: 28765, host: "127.0.0.1" }, envDir), "replaced");
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "replaced");
     const env = readFileSync(envFileFor("default", envDir), "utf8");
-    assert.match(env, /RELAY_PORT=28765/);
+    assert.match(env, /RELAY_PORT=18765/);
     assert.match(env, /RELAY_HOST=127\.0\.0\.1/);
   });
 });
 
 test("ensureSelfRegistered: never rewrites a default.env that already holds this process's port", async () => {
   await withTempDir(async (envDir) => {
-    writeEnv(envDir, "default", { RELAY_PORT: "28765", RELAY_HOST: "0.0.0.0" });
+    writeEnv(envDir, "default", { RELAY_PORT: "18765", RELAY_HOST: "0.0.0.0" });
 
-    assert.equal(await ensureSelfRegistered({ port: 28765, host: "127.0.0.1" }, envDir), "skipped");
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
     assert.match(readFileSync(envFileFor("default", envDir), "utf8"), /RELAY_HOST=0\.0\.0\.0/);
   });
 });
@@ -300,13 +300,23 @@ test("ensureSelfRegistered: makes updateProfileMeta('default', ...) succeed afte
   });
 });
 
-// A port nothing listens on: bound and released, so the probe in `listProfiles` reports it as not running.
+// A port nothing listens on, so the probe in `listProfiles` reports it as not
+// running. Picked outside the ephemeral range, like tests/helpers/ports.ts: a
+// port taken from the OS (`listen(0)`) and released can be handed to another
+// process's outbound connection, which would make the probe see it "open".
+// Copied rather than imported: tsconfig.json's rootDir is src/, so importing
+// from tests/ here breaks `tsc` and `npm run build`.
 async function closedPort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-  return port;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const port = 20_000 + Math.floor(Math.random() * 10_000);
+    const free = await new Promise<boolean>((resolveFree) => {
+      const probe = createServer();
+      probe.once("error", () => resolveFree(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolveFree(true)));
+    });
+    if (free) return port;
+  }
+  throw new Error("no closed port found in 20000-29999");
 }
 
 test("listProfiles: hides a default.env that profiles.json doesn't know and nothing listens on", async () => {
