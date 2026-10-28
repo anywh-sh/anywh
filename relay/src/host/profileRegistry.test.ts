@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +11,7 @@ import {
   envFileFor,
   findHomeOverrideCollision,
   isValidProfileId,
+  listProfileIds,
   listProfiles,
   slugify,
   updateProfileMeta,
@@ -239,5 +241,93 @@ test("ensureSelfRegistered: makes updateProfileMeta('default', ...) succeed afte
     ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
     const updated = updateProfileMeta("default", { label: "X" }, envDir);
     assert.equal(updated.label, "X");
+  });
+});
+
+// A port nothing listens on: bound and released, so the probe in `listProfiles` reports it as not running.
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const { port } = server.address() as { port: number };
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  return port;
+}
+
+test("listProfiles: hides a default.env that profiles.json doesn't know and nothing listens on", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    writeEnv(envDir, "pessoal", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+
+    assert.deepEqual((await listProfiles(envDir)).map((p) => p.id), ["pessoal"]);
+  });
+});
+
+test("listProfiles: lists that default once it is registered, even when not running", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    updateProfileMeta("default", { label: "Default" }, envDir);
+
+    const profiles = await listProfiles(envDir);
+    assert.deepEqual(profiles.map((p) => p.id), ["default"]);
+    assert.equal(profiles[0].running, false);
+  });
+});
+
+test("listProfiles: lists an unregistered default while it is running", async () => {
+  await withTempDir(async (envDir) => {
+    const server = createServer();
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const { port } = server.address() as { port: number };
+      writeEnv(envDir, "default", { RELAY_PORT: String(port), RELAY_HOST: "127.0.0.1" });
+
+      const profiles = await listProfiles(envDir);
+      assert.deepEqual(profiles.map((p) => p.id), ["default"]);
+      assert.equal(profiles[0].running, true);
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
+  });
+});
+
+test("listProfiles: hiding the orphan default never shifts another profile's fallback colorIndex", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    writeEnv(envDir, "pessoal", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+
+    const before = (await listProfiles(envDir)).find((p) => p.id === "pessoal");
+    // Registering the default makes it visible; the other profile must keep its slot.
+    updateProfileMeta("default", { label: "Default" }, envDir);
+    const after = (await listProfiles(envDir)).find((p) => p.id === "pessoal");
+
+    assert.ok(before && after);
+    assert.equal(after.colorIndex, before.colorIndex);
+  });
+});
+
+test("listProfileIds: includes the hidden orphan default, so a new profile never takes its id", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+
+    assert.deepEqual(listProfileIds(envDir), ["default"]);
+    assert.equal(slugify("Default", listProfileIds(envDir)), "default-2");
+  });
+});
+
+test("allocatePort: still skips the port of a hidden orphan default", async () => {
+  await withTempDir(async (envDir) => {
+    // What allocatePort would hand out with nothing on disk.
+    const first = await allocatePort(envDir);
+    writeEnv(envDir, "default", { RELAY_PORT: String(first), RELAY_HOST: "127.0.0.1" });
+
+    assert.notEqual(await allocatePort(envDir), first);
+  });
+});
+
+test("findHomeOverrideCollision: still reports a hidden orphan default", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+
+    assert.equal(findHomeOverrideCollision(undefined, envDir), "default");
   });
 });

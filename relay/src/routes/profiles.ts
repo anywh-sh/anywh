@@ -11,6 +11,7 @@ import {
   envFileFor,
   findHomeOverrideCollision,
   isValidProfileId,
+  listProfileIds,
   listProfiles,
   slugify,
   updateProfileMeta,
@@ -190,7 +191,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           return;
         }
 
-        const existingIds = (await listProfiles()).map((profile) => profile.id);
+        const existingIds = listProfileIds();
         const id = slugify(body.label, existingIds);
 
         const args = [id, "--label", body.label, "--mode", "prod"];
