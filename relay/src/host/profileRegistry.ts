@@ -15,6 +15,9 @@ export const ENV_DIR = process.env.ANYWH_ENV_DIR ?? join(homedir(), ".config/any
 
 const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
+/** The id `ensureSelfRegistered` writes and the client seeds. */
+const SELF_REGISTERED_ID = "default";
+
 export interface HostProfile {
   id: string;
   label: string;
@@ -159,7 +162,7 @@ export function ensureSelfRegistered(
   const portClaimed = listEnvIds(envDir).some((id) => Number(readEnvFile(id, envDir)?.RELAY_PORT) === config.port);
   if (portClaimed) return;
 
-  const path = envFileFor("default", envDir);
+  const path = envFileFor(SELF_REGISTERED_ID, envDir);
   if (existsSync(path)) return;
 
   mkdirSync(envDir, { recursive: true });
@@ -184,12 +187,21 @@ function isPortOpen(host: string, port: number): Promise<boolean> {
 /** `GET /control/profiles` — a profile that exists as a `.env` file but
  * isn't in `profiles.json` yet (true of every profile until the first
  * create/edit through this registry) is still valid: label falls back to
- * `id`, `colorIndex` to position in the list. */
+ * `id`, `colorIndex` to position in the list.
+ *
+ * One exception: a `default.env` that `profiles.json` doesn't know and
+ * nothing is listening for is omitted. That is what a stray relay run leaves
+ * behind (see `ensureSelfRegistered`), not a profile anyone created, and
+ * handing it out made every client sync re-add a profile pointing at a dead
+ * address. Once edited (a PATCH writes it into `profiles.json`) or running,
+ * it is listed like any other. The filter runs after the mapping, so every
+ * other profile's fallback `colorIndex` keeps its position in the full
+ * listing. */
 export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfile[]> {
   const ids = listEnvIds(envDir);
   const metaById = new Map(readProfilesJson(envDir).profiles.map((meta) => [meta.id, meta]));
 
-  return Promise.all(
+  const profiles = await Promise.all(
     ids.flatMap((id, index) => {
       const env = readEnvFile(id, envDir);
       if (!env?.RELAY_PORT) return [];
@@ -209,6 +221,14 @@ export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfil
       }));
     }),
   );
+  return profiles.filter((profile) => !(profile.id === SELF_REGISTERED_ID && !metaById.has(profile.id) && !profile.running));
+}
+
+/** Every profile id on disk, including the orphan default `listProfiles`
+ * hides — what a new profile's id must not collide with, since
+ * `add-profile.sh` refuses an id whose `.env` already exists. */
+export function listProfileIds(envDir: string = ENV_DIR): string[] {
+  return listEnvIds(envDir);
 }
 
 const PORT_RANGE_START = 8765;
