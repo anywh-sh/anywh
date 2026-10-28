@@ -111,15 +111,15 @@ test("listProfiles: ignores a .env file without RELAY_PORT", async () => {
 test("findHomeOverrideCollision: matches a differently-written path to the same real directory", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "trabalho", { RELAY_PORT: "9002", RELAY_HOME_OVERRIDE: "/tmp/fake-home" });
-    assert.equal(findHomeOverrideCollision("/tmp/fake-home/", envDir), "trabalho");
-    assert.equal(findHomeOverrideCollision("/tmp/other-home", envDir), undefined);
+    assert.equal(await findHomeOverrideCollision("/tmp/fake-home/", envDir), "trabalho");
+    assert.equal(await findHomeOverrideCollision("/tmp/other-home", envDir), undefined);
   });
 });
 
 test("findHomeOverrideCollision: absence of RELAY_HOME_OVERRIDE means the real $HOME, a comparable value", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
-    assert.equal(findHomeOverrideCollision(undefined, envDir), "pessoal");
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "pessoal");
   });
 });
 
@@ -211,46 +211,112 @@ test("deleteProfileFiles: a profile that was never in profiles.json is still a n
 });
 
 test("ensureSelfRegistered: fresh envDir writes default.env with the given port/host", async () => {
-  await withTempDir((envDir) => {
-    ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
+  await withTempDir(async (envDir) => {
+    assert.equal(await ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir), "written");
     const env = readFileSync(envFileFor("default", envDir), "utf8");
     assert.match(env, /RELAY_PORT=8765/);
     assert.match(env, /RELAY_HOST=127\.0\.0\.1/);
   });
 });
 
+test("ensureSelfRegistered: a fresh write lands before the returned promise settles", async () => {
+  await withTempDir(async (envDir) => {
+    const pending = ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
+    assert.ok(existsSync(envFileFor("default", envDir)));
+    assert.equal(await pending, "written");
+  });
+});
+
 test("ensureSelfRegistered: no-op when an existing profile already claims this port", async () => {
-  await withTempDir((envDir) => {
+  await withTempDir(async (envDir) => {
     writeEnv(envDir, "pessoal", { RELAY_PORT: "8765" });
-    ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
+    assert.equal(await ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir), "skipped");
     assert.equal(existsSync(envFileFor("default", envDir)), false);
   });
 });
 
-test("ensureSelfRegistered: no-op when default.env already exists", async () => {
-  await withTempDir((envDir) => {
-    writeEnv(envDir, "default", { RELAY_PORT: "9999", RELAY_HOST: "0.0.0.0" });
-    ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
+test("ensureSelfRegistered: leaves a default.env registered in profiles.json alone", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "0.0.0.0" });
+    updateProfileMeta("default", { label: "Default" }, envDir);
+    const before = readFileSync(envFileFor("default", envDir), "utf8");
+
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
+    assert.equal(readFileSync(envFileFor("default", envDir), "utf8"), before);
+  });
+});
+
+test("ensureSelfRegistered: leaves a default.env whose port still answers alone", async () => {
+  await withTempDir(async (envDir) => {
+    const server = createServer();
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const { port } = server.address() as { port: number };
+      writeEnv(envDir, "default", { RELAY_PORT: String(port), RELAY_HOST: "127.0.0.1" });
+
+      assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
+      assert.match(readFileSync(envFileFor("default", envDir), "utf8"), new RegExp(`RELAY_PORT=${port}`));
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
+  });
+});
+
+test("ensureSelfRegistered: never replaces a default.env add-profile.sh wrote, even unregistered", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1", RELAY_SESSIONS_FILE: "/x" });
+    const before = readFileSync(envFileFor("default", envDir), "utf8");
+
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
+    assert.equal(readFileSync(envFileFor("default", envDir), "utf8"), before);
+  });
+});
+
+test("ensureSelfRegistered: replaces an unregistered default.env nothing listens on", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "192.168.0.48" });
+
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "replaced");
     const env = readFileSync(envFileFor("default", envDir), "utf8");
-    assert.match(env, /RELAY_PORT=9999/);
+    assert.match(env, /RELAY_PORT=18765/);
+    assert.match(env, /RELAY_HOST=127\.0\.0\.1/);
+  });
+});
+
+test("ensureSelfRegistered: never rewrites a default.env that already holds this process's port", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: "18765", RELAY_HOST: "0.0.0.0" });
+
+    assert.equal(await ensureSelfRegistered({ port: 18765, host: "127.0.0.1" }, envDir), "skipped");
+    assert.match(readFileSync(envFileFor("default", envDir), "utf8"), /RELAY_HOST=0\.0\.0\.0/);
   });
 });
 
 test("ensureSelfRegistered: makes updateProfileMeta('default', ...) succeed afterward", async () => {
-  await withTempDir((envDir) => {
-    ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
+  await withTempDir(async (envDir) => {
+    await ensureSelfRegistered({ port: 8765, host: "127.0.0.1" }, envDir);
     const updated = updateProfileMeta("default", { label: "X" }, envDir);
     assert.equal(updated.label, "X");
   });
 });
 
-// A port nothing listens on: bound and released, so the probe in `listProfiles` reports it as not running.
+// A port nothing listens on, so the probe in `listProfiles` reports it as not
+// running. Picked outside the ephemeral range, like tests/helpers/ports.ts: a
+// port taken from the OS (`listen(0)`) and released can be handed to another
+// process's outbound connection, which would make the probe see it "open".
+// Copied rather than imported: tsconfig.json's rootDir is src/, so importing
+// from tests/ here breaks `tsc` and `npm run build`.
 async function closedPort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
-  return port;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const port = 20_000 + Math.floor(Math.random() * 10_000);
+    const free = await new Promise<boolean>((resolveFree) => {
+      const probe = createServer();
+      probe.once("error", () => resolveFree(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolveFree(true)));
+    });
+    if (free) return port;
+  }
+  throw new Error("no closed port found in 20000-29999");
 }
 
 test("listProfiles: hides a default.env that profiles.json doesn't know and nothing listens on", async () => {
@@ -324,10 +390,43 @@ test("allocatePort: still skips the port of a hidden orphan default", async () =
   });
 });
 
-test("findHomeOverrideCollision: still reports a hidden orphan default", async () => {
+test("findHomeOverrideCollision: ignores a hidden orphan default", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
 
-    assert.equal(findHomeOverrideCollision(undefined, envDir), "default");
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), undefined);
+  });
+});
+
+test("findHomeOverrideCollision: still reports an unregistered default while it is running", async () => {
+  await withTempDir(async (envDir) => {
+    const server = createServer();
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const { port } = server.address() as { port: number };
+      writeEnv(envDir, "default", { RELAY_PORT: String(port), RELAY_HOST: "127.0.0.1" });
+
+      assert.equal(await findHomeOverrideCollision(undefined, envDir), "default");
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
+  });
+});
+
+test("findHomeOverrideCollision: still reports a registered default that is stopped", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    updateProfileMeta("default", { label: "Default" }, envDir);
+
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "default");
+  });
+});
+
+test("findHomeOverrideCollision: an orphan default never hides another profile with the same home", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    writeEnv(envDir, "pessoal", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "pessoal");
   });
 });

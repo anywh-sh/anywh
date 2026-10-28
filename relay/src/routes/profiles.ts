@@ -184,7 +184,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           res.end(JSON.stringify({ error: "not logged in" }));
           return;
         }
-        const collidesWith = findHomeOverrideCollision(homeOverride);
+        const collidesWith = await findHomeOverrideCollision(homeOverride);
         if (collidesWith) {
           res.writeHead(409);
           res.end(JSON.stringify({ error: "home already registered", collidesWith }));
@@ -270,7 +270,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         res.end(JSON.stringify({ error: `failed to check ${runtime.def.identity.id} auth status` }));
         return;
       }
-      const collidesWith = findHomeOverrideCollision(homeOverride);
+      const collidesWith = await findHomeOverrideCollision(homeOverride);
       res.end(JSON.stringify(collidesWith ? { ...status, collidesWith } : status));
     });
     return true;

@@ -130,15 +130,48 @@ function normalizeHomeOverride(homeOverride: string | undefined): string {
   return resolve(expanded);
 }
 
-export function findHomeOverrideCollision(homeOverride: string | undefined, envDir: string = ENV_DIR): string | undefined {
+/** The one definition of an orphan default: id `default`, absent from
+ * `profiles.json`, nothing answering on its port — what a stray relay run
+ * leaves behind (see `ensureSelfRegistered`). Listing, the `$HOME` collision
+ * check and self-registration all ask this. Id and port allocation
+ * deliberately don't: the file is still on disk, `add-profile.sh` refuses an
+ * id whose `.env` exists, and it counts every `.env`'s port. */
+async function isOrphanDefault(id: string, registeredIds: ReadonlySet<string>, isRunning: () => Promise<boolean>): Promise<boolean> {
+  if (id !== SELF_REGISTERED_ID || registeredIds.has(id)) return false;
+  return !(await isRunning());
+}
+
+function registeredProfileIds(envDir: string): Set<string> {
+  return new Set(readProfilesJson(envDir).profiles.map((meta) => meta.id));
+}
+
+function isEnvRunning(env: Record<string, string>): Promise<boolean> {
+  const port = Number(env.RELAY_PORT);
+  if (!env.RELAY_PORT || !Number.isFinite(port)) return Promise.resolve(false);
+  return isPortOpen(env.RELAY_HOST ?? "127.0.0.1", port);
+}
+
+/** Which profile already uses this `$HOME`. An orphan default is skipped: it
+ * is hidden from `GET /control/profiles`, so naming it would block a new
+ * profile on one the user can neither see nor delete. */
+export async function findHomeOverrideCollision(homeOverride: string | undefined, envDir: string = ENV_DIR): Promise<string | undefined> {
   const target = normalizeHomeOverride(homeOverride);
+  const registeredIds = registeredProfileIds(envDir);
   for (const id of listEnvIds(envDir)) {
     const env = readEnvFile(id, envDir);
-    if (!env) continue;
-    if (normalizeHomeOverride(env.RELAY_HOME_OVERRIDE) === target) return id;
+    if (!env || normalizeHomeOverride(env.RELAY_HOME_OVERRIDE) !== target) continue;
+    if (await isOrphanDefault(id, registeredIds, () => isEnvRunning(env))) continue;
+    return id;
   }
   return undefined;
 }
+
+/** The only keys `ensureSelfRegistered` ever writes. `add-profile.sh` writes
+ * more (sessions file, upload dir, ...), so a `default.env` carrying any
+ * other key was provisioned on purpose, never by a stray relay. */
+const SELF_REGISTERED_KEYS = new Set(["RELAY_PORT", "RELAY_HOST", "RELAY_HOME_OVERRIDE"]);
+
+export type SelfRegistration = "written" | "replaced" | "skipped";
 
 /** Called by server.ts once the relay has bound its port(s), never before: a
  * relay that dies on EADDRINUSE must leave no `default.env` behind. It exists
@@ -149,26 +182,39 @@ export function findHomeOverrideCollision(homeOverride: string | undefined, envD
  * this instance and `PATCH /control/profiles/default` 404s on every
  * fresh single-profile install.
  *
- * Two guards keep this from ever touching an already-provisioned setup:
- * skip if this exact port is already claimed by some other `<id>.env`
- * (this instance already has a real identity — writing `default.env` too
- * would double-list the same host:port), and skip if `default.env` already
- * exists (never clobber a prior self-registration or a deliberately
- * `add-profile.sh`-created "default" profile). */
-export function ensureSelfRegistered(
+ * Never touches an already-provisioned setup: skipped if this exact port is
+ * already claimed by some `<id>.env` (this instance already has a real
+ * identity, and that includes a `default.env` that is its own), and skipped
+ * if `default.env` is registered in `profiles.json`, has keys only
+ * `add-profile.sh` writes, or still has something answering on its port.
+ * What is left is an orphan default (`isOrphanDefault`) from an earlier stray
+ * relay, which this relay replaces: otherwise the listing hides that file and
+ * never shows this relay.
+ *
+ * A fresh write happens synchronously, before the first `await`, so the file
+ * exists by the time the caller's `listen` callback returns; only a
+ * replacement waits on the port probe. */
+export async function ensureSelfRegistered(
   config: { port: number; host: string; homeOverride?: string },
   envDir: string = ENV_DIR,
-): void {
+): Promise<SelfRegistration> {
   const portClaimed = listEnvIds(envDir).some((id) => Number(readEnvFile(id, envDir)?.RELAY_PORT) === config.port);
-  if (portClaimed) return;
+  if (portClaimed) return "skipped";
 
-  const path = envFileFor(SELF_REGISTERED_ID, envDir);
-  if (existsSync(path)) return;
+  const existing = readEnvFile(SELF_REGISTERED_ID, envDir);
+  if (existing) {
+    if (!Object.keys(existing).every((key) => SELF_REGISTERED_KEYS.has(key))) return "skipped";
+    if (!(await isOrphanDefault(SELF_REGISTERED_ID, registeredProfileIds(envDir), () => isEnvRunning(existing)))) return "skipped";
+    // The probe takes up to 300 ms: someone may have claimed the file meanwhile.
+    const current = readEnvFile(SELF_REGISTERED_ID, envDir);
+    if (current?.RELAY_PORT !== existing.RELAY_PORT || registeredProfileIds(envDir).has(SELF_REGISTERED_ID)) return "skipped";
+  }
 
   mkdirSync(envDir, { recursive: true });
   const lines = [`RELAY_PORT=${config.port}`, `RELAY_HOST=${config.host}`];
   if (config.homeOverride) lines.push(`RELAY_HOME_OVERRIDE=${config.homeOverride}`);
-  writeFileSync(path, `${lines.join("\n")}\n`);
+  writeFileSync(envFileFor(SELF_REGISTERED_ID, envDir), `${lines.join("\n")}\n`);
+  return existing ? "replaced" : "written";
 }
 
 function isPortOpen(host: string, port: number): Promise<boolean> {
@@ -189,14 +235,12 @@ function isPortOpen(host: string, port: number): Promise<boolean> {
  * create/edit through this registry) is still valid: label falls back to
  * `id`, `colorIndex` to position in the list.
  *
- * One exception: a `default.env` that `profiles.json` doesn't know and
- * nothing is listening for is omitted. That is what a stray relay run leaves
- * behind (see `ensureSelfRegistered`), not a profile anyone created, and
- * handing it out made every client sync re-add a profile pointing at a dead
- * address. Once edited (a PATCH writes it into `profiles.json`) or running,
- * it is listed like any other. The filter runs after the mapping, so every
- * other profile's fallback `colorIndex` keeps its position in the full
- * listing. */
+ * One exception: an orphan default (`isOrphanDefault`) is omitted. It is not
+ * a profile anyone created, and handing it out made every client sync re-add
+ * a profile pointing at a dead address. Once edited (a PATCH writes it into
+ * `profiles.json`) or running, it is listed like any other. The filter runs
+ * after the mapping, so every other profile's fallback `colorIndex` keeps its
+ * position in the full listing. */
 export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfile[]> {
   const ids = listEnvIds(envDir);
   const metaById = new Map(readProfilesJson(envDir).profiles.map((meta) => [meta.id, meta]));
@@ -221,12 +265,15 @@ export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfil
       }));
     }),
   );
-  return profiles.filter((profile) => !(profile.id === SELF_REGISTERED_ID && !metaById.has(profile.id) && !profile.running));
+  const registeredIds = new Set(metaById.keys());
+  const hidden = await Promise.all(profiles.map((profile) => isOrphanDefault(profile.id, registeredIds, () => Promise.resolve(profile.running))));
+  return profiles.filter((_, index) => !hidden[index]);
 }
 
 /** Every profile id on disk, including the orphan default `listProfiles`
  * hides — what a new profile's id must not collide with, since
- * `add-profile.sh` refuses an id whose `.env` already exists. */
+ * `add-profile.sh` refuses an id whose `.env` already exists. Counting it is
+ * deliberate; see `isOrphanDefault`. */
 export function listProfileIds(envDir: string = ENV_DIR): string[] {
   return listEnvIds(envDir);
 }
@@ -245,7 +292,9 @@ function canBind(port: number): Promise<boolean> {
 /** Scans existing `.env` files *and* test-binds the candidate — scanning
  * alone would keep handing out the port of a profile that's just stopped
  * right now; binding alone would re-hand-out the port of a profile that's
- * merely stopped at the moment). */
+ * merely stopped at the moment). An orphan default's port counts too, on
+ * purpose: it costs at most one port, and the port a new profile really gets
+ * is picked by `add-profile.sh`, which counts every `.env`. */
 export async function allocatePort(envDir: string = ENV_DIR): Promise<number> {
   const claimed = new Set(
     listEnvIds(envDir)

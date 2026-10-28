@@ -453,16 +453,26 @@ httpServer.requestTimeout = 0;
 
 export const wss = new WebSocketServer({ server: httpServer });
 
-// Self-registration waits for every listener this process needs to bind: a
-// relay that dies on EADDRINUSE must leave nothing behind. Registering at
-// module load let a stray test relay write a `default.env` into the
-// operator's real registry and then crash, leaving a phantom profile no
-// service backs. Runs before the "listening" log line, which the test
-// helpers wait on.
+// Self-registration waits until every listener this process needs has bound
+// (the loopback bridge below too, when HOST is not 127.0.0.1): a relay that
+// dies on EADDRINUSE must leave no `default.env` behind. It runs from
+// whichever listen callback fires last; with two listeners that order is not
+// fixed, so the "listening on" line may be logged before it. The test helpers
+// rely on less than that: both run with RELAY_HOST=127.0.0.1, so there is one
+// listener and `onBound` runs before that line in the same callback
+// (spawnedServer.ts waits for the line; testServer.ts's own 'listening'
+// listener is added after this callback). What is done by then is the
+// synchronous part of `ensureSelfRegistered`, a fresh write or a skip;
+// replacing a stale `default.env` waits on a port probe and lands after.
 let pendingBinds = HOST !== "127.0.0.1" ? 2 : 1;
 function onBound(): void {
   pendingBinds -= 1;
-  if (pendingBinds === 0) ensureSelfRegistered({ port: PORT, host: HOST, homeOverride: HOME_OVERRIDE });
+  if (pendingBinds !== 0) return;
+  ensureSelfRegistered({ port: PORT, host: HOST, homeOverride: HOME_OVERRIDE })
+    .then((result) => {
+      if (result === "replaced") console.log(`[relay] replaced a stale default.env with this relay (port ${PORT})`);
+    })
+    .catch((error: unknown) => console.error("[relay] self-registration failed:", error));
 }
 
 httpServer.listen(PORT, HOST, () => {
