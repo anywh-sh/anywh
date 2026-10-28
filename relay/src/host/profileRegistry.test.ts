@@ -111,15 +111,15 @@ test("listProfiles: ignores a .env file without RELAY_PORT", async () => {
 test("findHomeOverrideCollision: matches a differently-written path to the same real directory", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "trabalho", { RELAY_PORT: "9002", RELAY_HOME_OVERRIDE: "/tmp/fake-home" });
-    assert.equal(findHomeOverrideCollision("/tmp/fake-home/", envDir), "trabalho");
-    assert.equal(findHomeOverrideCollision("/tmp/other-home", envDir), undefined);
+    assert.equal(await findHomeOverrideCollision("/tmp/fake-home/", envDir), "trabalho");
+    assert.equal(await findHomeOverrideCollision("/tmp/other-home", envDir), undefined);
   });
 });
 
 test("findHomeOverrideCollision: absence of RELAY_HOME_OVERRIDE means the real $HOME, a comparable value", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
-    assert.equal(findHomeOverrideCollision(undefined, envDir), "pessoal");
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "pessoal");
   });
 });
 
@@ -324,10 +324,43 @@ test("allocatePort: still skips the port of a hidden orphan default", async () =
   });
 });
 
-test("findHomeOverrideCollision: still reports a hidden orphan default", async () => {
+test("findHomeOverrideCollision: ignores a hidden orphan default", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
 
-    assert.equal(findHomeOverrideCollision(undefined, envDir), "default");
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), undefined);
+  });
+});
+
+test("findHomeOverrideCollision: still reports an unregistered default while it is running", async () => {
+  await withTempDir(async (envDir) => {
+    const server = createServer();
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    try {
+      const { port } = server.address() as { port: number };
+      writeEnv(envDir, "default", { RELAY_PORT: String(port), RELAY_HOST: "127.0.0.1" });
+
+      assert.equal(await findHomeOverrideCollision(undefined, envDir), "default");
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
+  });
+});
+
+test("findHomeOverrideCollision: still reports a registered default that is stopped", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    updateProfileMeta("default", { label: "Default" }, envDir);
+
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "default");
+  });
+});
+
+test("findHomeOverrideCollision: an orphan default never hides another profile with the same home", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "default", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+    writeEnv(envDir, "pessoal", { RELAY_PORT: String(await closedPort()), RELAY_HOST: "127.0.0.1" });
+
+    assert.equal(await findHomeOverrideCollision(undefined, envDir), "pessoal");
   });
 });

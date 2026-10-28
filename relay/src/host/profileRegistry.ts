@@ -130,12 +130,38 @@ function normalizeHomeOverride(homeOverride: string | undefined): string {
   return resolve(expanded);
 }
 
-export function findHomeOverrideCollision(homeOverride: string | undefined, envDir: string = ENV_DIR): string | undefined {
+/** The one definition of an orphan default: id `default`, absent from
+ * `profiles.json`, nothing answering on its port — what a stray relay run
+ * leaves behind (see `ensureSelfRegistered`). Listing, the `$HOME` collision
+ * check and self-registration all ask this. Id and port allocation
+ * deliberately don't: the file is still on disk, `add-profile.sh` refuses an
+ * id whose `.env` exists, and it counts every `.env`'s port. */
+async function isOrphanDefault(id: string, registeredIds: ReadonlySet<string>, isRunning: () => Promise<boolean>): Promise<boolean> {
+  if (id !== SELF_REGISTERED_ID || registeredIds.has(id)) return false;
+  return !(await isRunning());
+}
+
+function registeredProfileIds(envDir: string): Set<string> {
+  return new Set(readProfilesJson(envDir).profiles.map((meta) => meta.id));
+}
+
+function isEnvRunning(env: Record<string, string>): Promise<boolean> {
+  const port = Number(env.RELAY_PORT);
+  if (!env.RELAY_PORT || !Number.isFinite(port)) return Promise.resolve(false);
+  return isPortOpen(env.RELAY_HOST ?? "127.0.0.1", port);
+}
+
+/** Which profile already uses this `$HOME`. An orphan default is skipped: it
+ * is hidden from `GET /control/profiles`, so naming it would block a new
+ * profile on one the user can neither see nor delete. */
+export async function findHomeOverrideCollision(homeOverride: string | undefined, envDir: string = ENV_DIR): Promise<string | undefined> {
   const target = normalizeHomeOverride(homeOverride);
+  const registeredIds = registeredProfileIds(envDir);
   for (const id of listEnvIds(envDir)) {
     const env = readEnvFile(id, envDir);
-    if (!env) continue;
-    if (normalizeHomeOverride(env.RELAY_HOME_OVERRIDE) === target) return id;
+    if (!env || normalizeHomeOverride(env.RELAY_HOME_OVERRIDE) !== target) continue;
+    if (await isOrphanDefault(id, registeredIds, () => isEnvRunning(env))) continue;
+    return id;
   }
   return undefined;
 }
@@ -189,14 +215,12 @@ function isPortOpen(host: string, port: number): Promise<boolean> {
  * create/edit through this registry) is still valid: label falls back to
  * `id`, `colorIndex` to position in the list.
  *
- * One exception: a `default.env` that `profiles.json` doesn't know and
- * nothing is listening for is omitted. That is what a stray relay run leaves
- * behind (see `ensureSelfRegistered`), not a profile anyone created, and
- * handing it out made every client sync re-add a profile pointing at a dead
- * address. Once edited (a PATCH writes it into `profiles.json`) or running,
- * it is listed like any other. The filter runs after the mapping, so every
- * other profile's fallback `colorIndex` keeps its position in the full
- * listing. */
+ * One exception: an orphan default (`isOrphanDefault`) is omitted. It is not
+ * a profile anyone created, and handing it out made every client sync re-add
+ * a profile pointing at a dead address. Once edited (a PATCH writes it into
+ * `profiles.json`) or running, it is listed like any other. The filter runs
+ * after the mapping, so every other profile's fallback `colorIndex` keeps its
+ * position in the full listing. */
 export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfile[]> {
   const ids = listEnvIds(envDir);
   const metaById = new Map(readProfilesJson(envDir).profiles.map((meta) => [meta.id, meta]));
@@ -221,12 +245,15 @@ export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfil
       }));
     }),
   );
-  return profiles.filter((profile) => !(profile.id === SELF_REGISTERED_ID && !metaById.has(profile.id) && !profile.running));
+  const registeredIds = new Set(metaById.keys());
+  const hidden = await Promise.all(profiles.map((profile) => isOrphanDefault(profile.id, registeredIds, () => Promise.resolve(profile.running))));
+  return profiles.filter((_, index) => !hidden[index]);
 }
 
 /** Every profile id on disk, including the orphan default `listProfiles`
  * hides — what a new profile's id must not collide with, since
- * `add-profile.sh` refuses an id whose `.env` already exists. */
+ * `add-profile.sh` refuses an id whose `.env` already exists. Counting it is
+ * deliberate; see `isOrphanDefault`. */
 export function listProfileIds(envDir: string = ENV_DIR): string[] {
   return listEnvIds(envDir);
 }
@@ -245,7 +272,9 @@ function canBind(port: number): Promise<boolean> {
 /** Scans existing `.env` files *and* test-binds the candidate — scanning
  * alone would keep handing out the port of a profile that's just stopped
  * right now; binding alone would re-hand-out the port of a profile that's
- * merely stopped at the moment). */
+ * merely stopped at the moment). An orphan default's port counts too, on
+ * purpose: it costs at most one port, and the port a new profile really gets
+ * is picked by `add-profile.sh`, which counts every `.env`. */
 export async function allocatePort(envDir: string = ENV_DIR): Promise<number> {
   const claimed = new Set(
     listEnvIds(envDir)
