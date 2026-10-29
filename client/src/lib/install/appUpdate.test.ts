@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import type { Update } from "@/lib/install/updaterPlugin";
 
+// Git keeps APP_VERSION at the unreleased placeholder, which never checks for
+// updates; everything here but the tests about that placeholder is about a
+// released app, so this is the app as a release build sees itself.
+vi.mock("@/lib/install/appVersion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/install/appVersion")>();
+  return { ...actual, APP_VERSION: "0.2.0" };
+});
+
 /** Same reasoning as sessionListCache.test.ts/settings.test.ts: the update
  * store keeps `current` at module scope, so a test about what a previous
  * check left behind needs a genuinely fresh evaluation. */
@@ -74,6 +82,33 @@ describe("performUpdateCheck", () => {
   const fakeOrigin = (updatable: boolean) => () =>
     Promise.resolve({ channel: "appimage", updatable, execPath: "/x", marker: null });
   const noDownload = () => Promise.resolve(null);
+
+  it("never asks GitHub from a build no release stamped", async () => {
+    const appUpdate = await freshModule();
+    const settings = await freshSettings();
+    const now = Date.now();
+    const checkLatestRelease = vi.fn();
+    const downloadUpdate = vi.fn();
+    settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "auto-download" } });
+
+    await appUpdate.forceUpdateCheck({ getInstallOrigin: fakeOrigin(true), checkLatestRelease, downloadUpdate, appVersion: "0.0.0" });
+
+    expect(checkLatestRelease).not.toHaveBeenCalled();
+    expect(downloadUpdate).not.toHaveBeenCalled();
+    expect(appUpdate.getAvailableUpdate()).toBeNull();
+    expect(settings.readSettings().app?.lastCheckedAt).toBeGreaterThanOrEqual(now);
+  });
+
+  it("still checks from the e2e build's forced origin, which stands in for an installed release", async () => {
+    const appUpdate = await freshModule();
+    await appUpdate.forceUpdateCheck({
+      getInstallOrigin: () => Promise.resolve({ channel: "e2e", updatable: true, execPath: "/x", marker: null }),
+      checkLatestRelease: () => Promise.resolve({ kind: "available", tagName: "v99.0.0", htmlUrl: "https://example.test/r", etag: null }),
+      downloadUpdate: noDownload,
+      appVersion: "0.0.0",
+    });
+    expect(appUpdate.getAvailableUpdate()).toEqual({ version: "99.0.0", htmlUrl: "https://example.test/r" });
+  });
 
   it("does nothing when not due", async () => {
     const appUpdate = await freshModule();

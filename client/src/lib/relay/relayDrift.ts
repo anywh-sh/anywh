@@ -1,3 +1,4 @@
+import { isUnreleasedVersion } from "@/lib/install/appVersion";
 import { compareVersions } from "@/lib/install/semver";
 
 /**
@@ -31,7 +32,9 @@ const NO_DRIFT: RelayDrift = { severity: "none", action: null };
  * `relayVersion` is `null` for the large population of relays that predate
  * `GET /host-info`'s `version` field (Fase A4) — silently "none", the same
  * as an unreachable or malformed one, since there is nothing to compare
- * against yet. `platform` is the app's own OS (`currentPlatform()`), not
+ * against yet. A relay run from a checkout reports `UNRELEASED_VERSION`,
+ * which is just as unknown — not "older than this app", which would offer
+ * to replace someone's source checkout with a release. `platform` is the app's own OS (`currentPlatform()`), not
  * the relay's — a local relay only ever runs on the same machine as the app
  * that's asking.
  */
@@ -41,7 +44,7 @@ export function evaluateRelayDrift(
   minRelayVersion: string,
   platform: string | null,
 ): RelayDrift {
-  if (relayVersion === null) return NO_DRIFT;
+  if (relayVersion === null || isUnreleasedVersion(relayVersion)) return NO_DRIFT;
 
   const vsApp = compareVersions(relayVersion, appVersion);
   if (vsApp === null || vsApp >= 0) return NO_DRIFT;

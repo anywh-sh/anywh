@@ -118,6 +118,11 @@ would make an *older* client misinterpret a message rather than just not
 know about it yet — a new discriminated variant that reuses an existing
 `type` differently, not one that simply adds a new one.
 
+A bump is always a breaking change for the release it lands in: the PR
+title carries `!`, which makes that merge a new MINOR, and the
+`breaking-change guard` check (`scripts/version.mjs`) fails the PR if the
+title doesn't (`.anywh/skills/release/SKILL.md`).
+
 ## Enforced: the wire speaks `AgentEvent`, never a CLI's own format
 
 **Enforced** — `agentEventParity.test.ts` (client) fails the build if

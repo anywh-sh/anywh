@@ -412,7 +412,24 @@ else
   # as an asset instead of this script carrying a copy, so a fork's release
   # installs under its own identifier. It becomes a file name below, so
   # anything that isn't a plain reverse-DNS string is refused outright.
-  download_verified "anywh-app-id.txt" "$staging/app-id.txt"
+  #
+  # The official releases up to v0.1.8 predate the asset, so `--version`
+  # pinned to one of them would fail here; those were all built as
+  # sh.anywh.client, which is what such a pin gets. Only those: a fork's
+  # release (another REPO or RELEASE_BASE_URL) or any later one without the
+  # asset is refused, never installed under the official identifier. The
+  # release's version comes from its relay tarball's name in its own
+  # SHA256SUMS, already fetched by the AppImage download above.
+  if grep -q ' anywh-app-id\.txt$' "$tmp/SHA256SUMS"; then
+    download_verified "anywh-app-id.txt" "$staging/app-id.txt"
+  else
+    release_version="$(sed -n 's/^[0-9a-f]* *anywh-relay-\([0-9][0-9.]*\)-linux-[a-z0-9]*\.tar\.gz$/\1/p' "$tmp/SHA256SUMS" | head -n 1)"
+    if [ "$REPO" = "anywh-sh/anywh" ] && [ -z "${RELEASE_BASE_URL:-}" ] && printf '%s' "$release_version" | grep -Eq '^0\.1\.[0-8]$'; then
+      printf '%s\n' "sh.anywh.client" > "$staging/app-id.txt"
+    else
+      err "this release ships no anywh-app-id.txt, so there is no app identifier to install it under"
+    fi
+  fi
   app_id="$(head -n 1 "$staging/app-id.txt" | tr -d '\r\n ')"
   printf '%s' "$app_id" | grep -Eq '^[A-Za-z0-9]+([.-][A-Za-z0-9]+)+$' ||
     err "the release's anywh-app-id.txt doesn't hold a valid app identifier"

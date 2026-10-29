@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { APP_VERSION } from "@/lib/install/appVersion";
+import { APP_VERSION, isUnreleasedVersion } from "@/lib/install/appVersion";
 import { isNewerVersion } from "@/lib/install/semver";
 import { type AppSettings, type UpdateMode, readSettings, writeSettings } from "@/lib/settings";
 import { inTauri } from "@/lib/platform/tauri";
@@ -154,6 +154,8 @@ interface CheckDeps {
   getInstallOrigin: () => Promise<InstallOrigin>;
   checkLatestRelease: (etag: string | undefined) => Promise<LatestReleaseCheck>;
   downloadUpdate: () => Promise<Update | null>;
+  /** The running app's version — `APP_VERSION` unless a test says otherwise. */
+  appVersion?: string;
 }
 
 const REAL_DEPS: CheckDeps = { getInstallOrigin, checkLatestRelease, downloadUpdate: downloadRealUpdate };
@@ -163,6 +165,19 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   const app = settings.app;
 
   const origin = await deps.getInstallOrigin();
+  const appVersion = deps.appVersion ?? APP_VERSION;
+
+  // A build no release stamped (a dev or source build, `0.0.0`) has no
+  // place in the release order: every release would look newer, and
+  // auto-download would replace a source build with the official one. So it
+  // never asks. The e2e build is the exception on purpose: its forced
+  // "e2e" origin (updater.rs) stands in for an installed release, which is
+  // what the updater specs exercise.
+  if (isUnreleasedVersion(appVersion) && origin.channel !== "e2e") {
+    writeSettings({ ...settings, app: { ...app, lastCheckedAt: now } });
+    return;
+  }
+
   const result = await deps.checkLatestRelease(app?.etag);
 
   const nextApp: AppSettings = { ...app, lastCheckedAt: now };
@@ -184,7 +199,7 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   if (result.etag) nextApp.etag = result.etag;
   writeSettings({ ...settings, app: nextApp });
 
-  if (isNewerVersion(version, APP_VERSION)) {
+  if (isNewerVersion(version, appVersion)) {
     markUpdateAvailable({ version, htmlUrl: result.htmlUrl });
 
     // Real download only in auto-download mode, and only once per version —

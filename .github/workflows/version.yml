@@ -1,0 +1,67 @@
+name: Version
+
+# Every merge to main is a version: this tags each merge commit `vX.Y.Z`,
+# computed by scripts/version.mjs from that commit's message — `!` after the
+# type or a `BREAKING CHANGE:` footer bumps MINOR, anything else bumps PATCH.
+# MAJOR is never inferred: only this workflow's manual run bumps it (a
+# milestone like 1.0.0 is the owner's call, not a commit's).
+#
+# A tag is not a release. Nothing is built or published here, and a tag
+# pushed with GITHUB_TOKEN triggers no other workflow; publishing a tag is
+# the manual `Release` workflow (.anywh/skills/release/SKILL.md).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Manual bumps only: MAJOR, on the current tip of main"
+        type: choice
+        options: [major]
+        required: true
+
+permissions:
+  contents: write
+
+# One at a time. GitHub keeps a single pending run per group, so with three
+# quick merges the second one's queued run is cancelled by the third's —
+# which is why a run never tags just the commit that triggered it: it tags
+# every untagged merge between the last version tag and the tip of main, one
+# tag each, so whichever run survives covers the ones that didn't.
+concurrency:
+  group: version
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+
+      - name: Tag every untagged merge
+        run: |
+          node scripts/version.mjs plan ${{ github.event_name == 'workflow_dispatch' && '--major' || '' }} > plan.txt
+          if [ ! -s plan.txt ]; then
+            echo "Every merge up to $(git rev-parse --short HEAD) already has a version tag."
+            exit 0
+          fi
+          git config user.name "anywh-release-bot"
+          git config user.email "actions@github.com"
+          refs=""
+          while read -r sha tag; do
+            git tag -a "$tag" -m "$tag" -m "$(git log -1 --format=%s "$sha")" "$sha"
+            refs="$refs refs/tags/$tag"
+            echo "Tagged $(git rev-parse --short "$sha") as $tag" >> "$GITHUB_STEP_SUMMARY"
+          done < plan.txt
+          # One push for all of them: either every tag of this run lands or
+          # none does, and the next run plans the same set again.
+          git push --atomic origin $refs

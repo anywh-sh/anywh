@@ -107,6 +107,31 @@ test/e2e-redesign
 `main` is protected: no force pushes, no deletions, linear history, and changes
 land through PRs.
 
+## Versions and releases
+
+The full rule is in `.anywh/skills/release/SKILL.md`. What a contributor
+needs:
+
+- **Don't touch version numbers.** Every manifest stays at `0.0.0`; every
+  merge to `main` is tagged `vX.Y.Z` automatically, and the release build
+  stamps the tag into the manifests. There is no changelog file to edit —
+  release notes come from the PR titles.
+- **Mark breaking changes with `!`** in the PR title (`feat(relay)!: ...`) and
+  explain the impact in the body. That bumps MINOR; everything else bumps
+  PATCH. Breaking means an older client/relay/agent host would misread or
+  refuse the new one (a protocol or format version), an on-disk migration
+  can't be read back by the previous release, an existing install needs
+  operator action (systemd unit, env var, installer flag, release asset), or
+  the embedding surface (`run_with`, host bridge, native-chrome plugin)
+  changes incompatibly. A redesign or a new feature alone is not breaking.
+- The **breaking-change guard** check fails when your diff touches one of
+  those surfaces without `!` in the title. If you checked and it isn't
+  breaking, add the `not-breaking` label instead.
+- MAJOR is never inferred — it is a milestone the maintainer sets by hand.
+  (So a breaking change bumps the second number, before and after 1.0: a
+  deliberate departure from SemVer.)
+- Publishing a tag as a release is a manual maintainer step.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the

@@ -70,23 +70,13 @@ Tudo que não for texto de UI precisa estar em inglês, mesmo quando a conversa 
 
 ## Release
 
-- **Tag é imutável neste repo, e isso muda como se conserta uma release
-  quebrada.** Um ruleset do GitHub bloqueia deleção de tag: `git push
-  origin :refs/tags/vX.Y.Z` volta com `push declined due to repository rule
-  violations`, e o `--cleanup-tag` do `gh release delete` falha
-  silenciosamente pelo mesmo motivo (apaga a release, deixa a tag). Então
-  **uma release que falhou no meio se conserta com bump de versão, nunca
-  com retag** — corrige o defeito, mergeia, e corta a tag seguinte. A regra
-  está certa: uma tag que existiu deve continuar apontando pro que apontava.
-  Aconteceu de verdade em 2026-09-16 com a `v0.1.6`, que ficou na lista sem
-  release atrás dela; a correção saiu como `v0.1.7`.
-- **Uma leg da matriz que falha não produz release parcial.** A job
-  `checksums` do `release.yml` depende da matriz inteira, e é ela que
-  publica os aliases sem versão, escreve o `SHA256SUMS` e tira a release de
-  draft. Com qualquer leg vermelha nada disso roda: a release fica em draft,
-  com assets pela metade, e nada chega a usuário nenhum — inclusive o
-  `anywh.sh/install`, que resolve por `releases/latest/download/` e continua
-  servindo a release anterior.
+Regra completa em `.anywh/skills/release/SKILL.md` (symlinkada em `.claude/skills/release`). O essencial pra um agente:
+
+- **PR nunca mexe em número de versão.** Os três manifests (`client/package.json`, `client/src-tauri/tauri.conf.json`, `relay/package.json`) ficam em `0.0.0` no git; `appVersion.test.ts` falha se um mudar. Cada merge na `main` vira uma tag `vX.Y.Z` sozinho (workflow `Version`), e o build de release carimba a versão da tag nos manifests (`node scripts/version.mjs stamp`). Não há CHANGELOG pra editar: as notas saem dos títulos dos PRs.
+- **Mudança breaking leva `!` no título do PR** (`feat(relay)!: ...`) e o impacto no corpo — isso sobe o MINOR; todo o resto sobe PATCH. MAJOR só por dispatch manual do dono. O check `breaking-change guard` falha se o diff mexer em versão de protocolo/formato, migração em disco, installers/units systemd ou superfície de embedding (`run_with`, host bridge, plugin native-chrome) sem `!`; se de fato não for breaking, label `not-breaking`.
+- **Publicar release é passo manual do dono** (`release.yml` por `workflow_dispatch`, canal `stable` ou `prerelease`). Agente não publica nem promove.
+- **Tag é imutável neste repo.** Um ruleset do GitHub bloqueia deleção de tag: `git push origin :refs/tags/vX.Y.Z` volta com `push declined due to repository rule violations`, e o `--cleanup-tag` do `gh release delete` falha silenciosamente pelo mesmo motivo (apaga a release, deixa a tag). Uma tag que existiu continua apontando pro que apontava; um defeito se conserta no próximo merge, que já vira a tag seguinte. Aconteceu de verdade em 2026-09-16 com a `v0.1.6`, que ficou na lista sem release atrás dela; a correção saiu como `v0.1.7`.
+- **Uma leg da matriz que falha não produz release parcial.** A job `checksums` do `release.yml` depende da matriz inteira, e é ela que publica os aliases sem versão, escreve o `SHA256SUMS` e tira a release de draft. Com qualquer leg vermelha nada disso roda: a release fica em draft, com assets pela metade, e nada chega a usuário nenhum — inclusive o `anywh.sh/install`, que resolve por `releases/latest/download/` e continua servindo a release anterior. Rodar o workflow de novo pra mesma tag descarta o draft e reconstrói.
 
 ## Testes
 
