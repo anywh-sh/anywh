@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import ts from "typescript";
 
 // Assertions about the codebase's shape that `import-x/no-restricted-paths`
 // (relay/eslint.config.js) can't express, because they aren't about one
@@ -48,6 +49,41 @@ test("no file outside runtimes/ constructs or branches on an ExecPlan's `kind`",
     for (const literal of EXEC_PLAN_KIND_LITERALS) {
       if (content.includes(`"${literal}"`)) offenders.push(`${relPath} references "${literal}"`);
     }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+// True only for `import.meta.url` passed as the first argument of a direct
+// `resolveShipped(...)` call (src/host/paths.ts), whose SEA branch never
+// reads it.
+function isResolveShippedUrlArgument(meta: ts.MetaProperty): boolean {
+  const access = meta.parent;
+  if (!ts.isPropertyAccessExpression(access) || access.name.text !== "url") return false;
+  const call = access.parent;
+  return ts.isCallExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "resolveShipped" && call.arguments[0] === access;
+}
+
+test("import.meta is only read as resolveShipped's first argument", () => {
+  // The macOS build bundles the relay into one CommonJS file for a Node SEA
+  // binary (sea-build/build.mjs), where `import.meta` is an empty object: a
+  // module that resolves a path from `import.meta.url` (or reads
+  // `import.meta.dirname`/`filename`) at load time throws before the relay
+  // binds its port — how 0.2.0 shipped a macOS relay that never started.
+  // `resolveShipped` checks `isSea()` before it touches the URL. Parsed, not
+  // grepped, so comments that mention it (host/paths.ts) don't count.
+  const offenders: string[] = [];
+  for (const file of collectTsFiles(SRC_DIR)) {
+    if (file.endsWith(".test.ts")) continue;
+    const relPath = relative(SRC_DIR, file);
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if (ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword && !isResolveShippedUrlArgument(node)) {
+        const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+        offenders.push(`${relPath}:${line + 1} ${node.parent.getText(source)}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
   }
   assert.deepEqual(offenders, []);
 });

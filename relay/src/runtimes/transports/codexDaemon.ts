@@ -15,17 +15,18 @@
 // (`AgentRuntimeDef.exec`), not part of standing up the process itself.
 import { readFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
 import { buildChildEnv } from "../../host/childEnv.js";
+import { resolveShipped } from "../../host/paths.js";
 import { resolveAgentBin } from "../executables.js";
 import { createJsonRpcConnection } from "./jsonRpcStdio.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, TurnHost } from "../types.js";
 
 // Same pattern as routes/host.ts's RELAY_VERSION — this file sits two
 // directories deeper (runtimes/transports/, not routes/), hence the extra
-// "../".
-const PACKAGE_JSON_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../../package.json");
+// "../". Through resolveShipped, never `fileURLToPath(import.meta.url)`: the
+// macOS SEA build is a CommonJS bundle where `import.meta` is empty, and that
+// call threw while the relay was still loading (architecture.test.ts).
+const PACKAGE_JSON_PATH = resolveShipped(import.meta.url, "../../../package.json", "package.json");
 const RELAY_VERSION = (JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as { version: string }).version;
 
 // A daemon that never hears from its session again (tab closed without a
