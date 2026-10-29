@@ -37,6 +37,11 @@ export interface RuntimeIdentity {
     readonly strip: readonly string[];
     readonly set?: Readonly<Record<string, string>>;
   };
+  /** Where a person who doesn't have this CLI yet learns how to install
+   * it — the vendor's own setup page, linked from the UI rather than
+   * restated in it, since install commands change per platform and per
+   * release. `docsUrl` is a second, fuller reference when the first one is
+   * a landing page. Both `https://`, which `assertCoherent` checks. */
   readonly install?: { readonly url: string; readonly docsUrl?: string };
   /** `CLAUDE.md`, `AGENTS.md` — whichever file this CLI reads for
    * project-level instructions, so the UI can point a user at the right
@@ -156,10 +161,18 @@ export interface AuthProbeOutput {
   readonly exitCode: number | null;
 }
 
-export type AuthSource =
+export type AuthSource = (
   | { readonly kind: "cli-probe"; readonly args: readonly string[]; readonly parse: (output: AuthProbeOutput) => AuthStatus }
   | { readonly kind: "session-rpc" }
-  | { readonly kind: "none" };
+  | { readonly kind: "none" }
+) & {
+  /** The args (after `identity.bin`) a person runs in a terminal to log
+   * this CLI in — shown to them, never spawned by the relay, since every
+   * CLI measured so far drives a browser or a TTY prompt the relay can't
+   * answer. Absent when the CLI has no such subcommand; meaningless (and
+   * rejected by `assertCoherent`) on `kind: "none"`. */
+  readonly loginCommand?: readonly string[];
+};
 
 // ---------------------------------------------------------------------------
 // Permissions — a function of platform, not a flat list. `TSettings` is

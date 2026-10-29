@@ -89,6 +89,7 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     // override (and, in a test process, the fake-claude.mjs fixture).
     bin: AGENT_BIN,
     env: { strip: BILLED_CREDENTIAL_VARS, set: CLAUDE_AGENT_ENV_OVERRIDES },
+    install: { url: "https://code.claude.com/docs/en/setup" },
     projectInstructionsFile: "CLAUDE.md",
   },
   capabilities: {
@@ -141,6 +142,10 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     // own `loggedIn`, and the payload is the richer source, so nothing here
     // reads `exitCode`).
     args: ["auth", "status", "--json"],
+    // Not the bare `claude login` older docs show: Claude Code 2.1.303's
+    // `claude auth --help` lists `login` under `auth`, beside the `status`
+    // probed above.
+    loginCommand: ["auth", "login"],
     parse: ({ stdout }) => {
       const status = parseClaudeAuthStatus(stdout);
       return { loggedIn: status.loggedIn, account: status.email, plan: status.subscriptionType };
