@@ -524,6 +524,43 @@ jobs:
         run: node sea-build/build.mjs --target ${{ matrix.target }}
         working-directory: relay
 
+      # Boots the binary just built before anything ships it. The SEA bundle
+      # is CommonJS, where `import.meta` is empty: a module that resolves a
+      # path from `import.meta.url` at load time, instead of through
+      # resolveShipped (src/host/paths.ts), kills the relay before it binds
+      # its port — how 0.2.0 reached the Homebrew tap broken while every
+      # Linux check was green. Clean environment (no profile, so no agent
+      # host; no RELAY_ENV_FILE), throwaway HOME, env dir and working
+      # directory (the relay writes its state files under the cwd), a free
+      # loopback port. Stopped by its own PID, never by name.
+      - name: Smoke-boot the SEA binary (macOS)
+        if: matrix.target == 'darwin-arm64'
+        env:
+          EXPECTED_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          bin="$PWD/relay/sea-build/dist/${{ matrix.target }}/anywh-relay"
+          work="$(mktemp -d)"
+          mkdir -p "$work/home" "$work/env"
+          port="$(node -e 'const s = require("node:net").createServer().listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close(); })')"
+          (cd "$work" && exec env -i PATH="$PATH" HOME="$work/home" ANYWH_ENV_DIR="$work/env" \
+            RELAY_HOST=127.0.0.1 RELAY_PORT="$port" RELAY_PUSH_DISABLED=1 "$bin" > "$work/relay.log" 2>&1) &
+          pid=$!
+          found=""
+          for _ in $(seq 1 15); do
+            kill -0 "$pid" 2> /dev/null || break
+            found="$(curl -fsS --max-time 2 "http://127.0.0.1:$port/host-info" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' 2> /dev/null)" && break
+            sleep 1
+          done
+          kill "$pid" 2> /dev/null || true
+          for _ in $(seq 1 10); do kill -0 "$pid" 2> /dev/null || break; sleep 1; done
+          kill -0 "$pid" 2> /dev/null && kill -9 "$pid"
+          if [ "$found" != "$EXPECTED_VERSION" ]; then
+            echo "::error::the SEA binary did not answer GET /host-info with version $EXPECTED_VERSION within 15s (got '${found:-nothing}')"
+            cat "$work/relay.log"
+            exit 1
+          fi
+          echo "the SEA binary booted and reports version $found"
+
       # Already the flat, self-contained tree build.mjs assembles (binary +
       # scripts/ + infra/ + node_modules/node-pty) — nothing left to stage.
       - name: Stage the relay + infra tree (macOS)
