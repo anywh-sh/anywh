@@ -11,6 +11,7 @@ import {
   envFileFor,
   findHomeOverrideCollision,
   isValidProfileId,
+  listProfileIds,
   listProfiles,
   slugify,
   updateProfileMeta,
@@ -183,14 +184,14 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
           res.end(JSON.stringify({ error: "not logged in" }));
           return;
         }
-        const collidesWith = findHomeOverrideCollision(homeOverride);
+        const collidesWith = await findHomeOverrideCollision(homeOverride);
         if (collidesWith) {
           res.writeHead(409);
           res.end(JSON.stringify({ error: "home already registered", collidesWith }));
           return;
         }
 
-        const existingIds = (await listProfiles()).map((profile) => profile.id);
+        const existingIds = listProfileIds();
         const id = slugify(body.label, existingIds);
 
         const args = [id, "--label", body.label, "--mode", "prod"];
@@ -269,7 +270,7 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         res.end(JSON.stringify({ error: `failed to check ${runtime.def.identity.id} auth status` }));
         return;
       }
-      const collidesWith = findHomeOverrideCollision(homeOverride);
+      const collidesWith = await findHomeOverrideCollision(homeOverride);
       res.end(JSON.stringify(collidesWith ? { ...status, collidesWith } : status));
     });
     return true;

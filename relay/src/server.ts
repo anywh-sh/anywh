@@ -52,7 +52,6 @@ import { handleTerminalConnection } from "./ws/terminal.js";
 const PORT = Number(process.env.RELAY_PORT ?? 8765);
 const HOST = process.env.RELAY_HOST ?? "127.0.0.1";
 const HOME_OVERRIDE = process.env.RELAY_HOME_OVERRIDE;
-ensureSelfRegistered({ port: PORT, host: HOST, homeOverride: HOME_OVERRIDE });
 const DEFAULT_SESSION = "default";
 
 // Same pattern as RELAY_UPLOAD_DIR: the two systemd services (personal/
@@ -454,7 +453,30 @@ httpServer.requestTimeout = 0;
 
 export const wss = new WebSocketServer({ server: httpServer });
 
+// Self-registration waits until every listener this process needs has bound
+// (the loopback bridge below too, when HOST is not 127.0.0.1): a relay that
+// dies on EADDRINUSE must leave no `default.env` behind. It runs from
+// whichever listen callback fires last; with two listeners that order is not
+// fixed, so the "listening on" line may be logged before it. The test helpers
+// rely on less than that: both run with RELAY_HOST=127.0.0.1, so there is one
+// listener and `onBound` runs before that line in the same callback
+// (spawnedServer.ts waits for the line; testServer.ts's own 'listening'
+// listener is added after this callback). What is done by then is the
+// synchronous part of `ensureSelfRegistered`, a fresh write or a skip;
+// replacing a stale `default.env` waits on a port probe and lands after.
+let pendingBinds = HOST !== "127.0.0.1" ? 2 : 1;
+function onBound(): void {
+  pendingBinds -= 1;
+  if (pendingBinds !== 0) return;
+  ensureSelfRegistered({ port: PORT, host: HOST, homeOverride: HOME_OVERRIDE })
+    .then((result) => {
+      if (result === "replaced") console.log(`[relay] replaced a stale default.env with this relay (port ${PORT})`);
+    })
+    .catch((error: unknown) => console.error("[relay] self-registration failed:", error));
+}
+
 httpServer.listen(PORT, HOST, () => {
+  onBound();
   console.log(`[relay] listening on ws://${HOST}:${PORT}`, HOME_OVERRIDE ? `(HOME=${HOME_OVERRIDE})` : "");
 });
 
@@ -491,6 +513,7 @@ if (HOST !== "127.0.0.1") {
   // disabled here too.
   loopbackServer.requestTimeout = 0;
   loopbackServer.listen(PORT, "127.0.0.1", () => {
+    onBound();
     console.log(`[relay] mcp/permission bridge also listening on http://127.0.0.1:${PORT} (local-only, for own children)`);
   });
 }

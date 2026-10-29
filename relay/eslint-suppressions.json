@@ -14,11 +14,6 @@
       "count": 1
     }
   },
-  "src/host/profileRegistry.test.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 2
-    }
-  },
   "src/session/sessionStore.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
