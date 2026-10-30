@@ -36,6 +36,7 @@ import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { ATTACHMENT_ACCEPT } from "@/lib/composer/attachmentTypes";
+import { isLargePaste } from "@/lib/composer/largePaste";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
 import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
@@ -663,6 +664,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         const html = event.clipboardData?.getData("text/html") ?? "";
         if (!plain || html.includes("data-pm-slice") || !/\s/.test(plain)) return false;
         event.preventDefault();
+        // Too big to read comfortably in the field: it goes to the agent as
+        // a file instead, through the same upload pipeline.
+        if (isLargePaste(plain)) {
+          onAddFiles([new File([plain], slashCopyRef.current.pastedTextFileName, { type: "text/plain" })]);
+          return true;
+        }
         // Tagged like ProseMirror's own paste, so Link's paste rule still
         // turns a URL inside the pasted text into a link.
         view.dispatch(

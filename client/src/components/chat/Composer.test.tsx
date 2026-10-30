@@ -8,6 +8,7 @@ import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getHostInfo } from "@/lib/relay/filesClient";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
+import { LARGE_PASTE_MIN_CHARS, LARGE_PASTE_MIN_LINES } from "@/lib/composer/largePaste";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { ContextUsage, ModelCatalog } from "@/lib/relay/relay-types";
 
@@ -40,12 +41,14 @@ function Harness({
   modelCatalog = CLAUDE_CATALOG,
   contextUsage = null,
   onSend = vi.fn(),
+  onAddFiles = vi.fn(),
   uploadingImage = false,
 }: {
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
   contextUsage?: ContextUsage | null;
   onSend?: (text: string, images: PendingAttachment[]) => void;
+  onAddFiles?: (files: FileList | File[]) => void;
   uploadingImage?: boolean;
 }) {
   const { setLocale } = useLocale();
@@ -62,7 +65,7 @@ function Harness({
         onStop={vi.fn()}
         pendingImages={[]}
         uploadingImage={uploadingImage}
-        onAddFiles={vi.fn()}
+        onAddFiles={onAddFiles}
         onRemoveImage={vi.fn()}
         agentId={agentId}
         onChangeAgent={vi.fn()}
@@ -139,6 +142,52 @@ describe("Composer", () => {
     await user.paste(clipboard);
     await user.keyboard("{Enter}");
     expect(onSend).toHaveBeenCalledWith("  if (x) {\n    run();\n\n\n}", []);
+  });
+
+  it("turns a large paste into a \"pasted text.txt\" attachment instead of inline text", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const onAddFiles = vi.fn();
+    render(
+      <LocaleProvider>
+        <Harness onSend={onSend} onAddFiles={onAddFiles} />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    const big = Array.from({ length: LARGE_PASTE_MIN_LINES }, (_, i) => `- step ${String(i + 1)}`).join("\n");
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", big);
+    await user.paste(clipboard);
+
+    expect(onAddFiles).toHaveBeenCalledOnce();
+    const [files] = onAddFiles.mock.calls[0] as [File[]];
+    expect(files.map((file) => file.name)).toEqual([en.chat.composer.pastedTextFileName]);
+    expect(await files[0].text()).toBe(big);
+    // Nothing landed in the field: sending now is an empty message.
+    await user.keyboard("{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("keeps a paste just under the bounds inline", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const onAddFiles = vi.fn();
+    render(
+      <LocaleProvider>
+        <Harness onSend={onSend} onAddFiles={onAddFiles} />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    const small = "a b ".repeat(Math.floor((LARGE_PASTE_MIN_CHARS - 1) / 4));
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", small);
+    await user.paste(clipboard);
+    await user.keyboard("{Enter}");
+
+    expect(onAddFiles).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledWith(small.trim(), []);
   });
 
   it("still links a URL inside pasted text", async () => {
