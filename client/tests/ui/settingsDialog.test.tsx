@@ -10,9 +10,9 @@ import { en } from "@/i18n/en";
 // all under this tier (see the comment there) — App renders ChatPanel
 // behind the Settings dialog regardless of which dialog is open.
 vi.mock("@tauri-apps/api/webview", () => ({
-  getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
+  getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
 }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: async () => [] }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: () => Promise.resolve([]) }));
 
 let relay: FakeRelay;
 let patchCalls: { url: string; body: unknown }[];
@@ -38,25 +38,35 @@ beforeEach(() => {
       if (url.endsWith("/host-info")) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ hostname: "h", platform: "linux", editor: null, agents: [{ id: "claude", capabilities: {} }, { id: "codex", capabilities: {} }] }),
+          json: () =>
+            Promise.resolve({
+              hostname: "h",
+              platform: "linux",
+              editor: null,
+              agents: [
+                { id: "claude", capabilities: {} },
+                { id: "codex", capabilities: {} },
+              ],
+            }),
         } as Response);
       }
       if (init?.method === "PATCH" && url.includes("/control/profiles/default")) {
         const body = JSON.parse(String(init.body)) as { label?: string; colorIndex?: number; agentPreference?: unknown };
         patchCalls.push({ url, body });
         if (legacyRelay && body.agentPreference !== undefined) {
-          return Promise.resolve({ ok: false, status: 400, json: async () => ({ error: "label or colorIndex is required" }) } as Response);
+          return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: "label or colorIndex is required" }) } as Response);
         }
         return Promise.resolve({
           ok: true,
-          json: async () => ({
-            id: "default",
-            label: body.label ?? "Default",
-            colorIndex: body.colorIndex ?? 0,
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-            ...(body.agentPreference !== undefined ? { agentPreference: body.agentPreference } : {}),
-          }),
+          json: () =>
+            Promise.resolve({
+              id: "default",
+              label: body.label ?? "Default",
+              colorIndex: body.colorIndex ?? 0,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              ...(body.agentPreference !== undefined ? { agentPreference: body.agentPreference } : {}),
+            }),
         } as Response);
       }
       return Promise.reject(new Error("settingsDialog test: HTTP not scripted for this URL"));

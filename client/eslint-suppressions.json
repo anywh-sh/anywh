@@ -175,9 +175,6 @@
   "tests/ui/settingsDialog.test.tsx": {
     "@typescript-eslint/no-base-to-string": {
       "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 5
     }
   },
   "tests/ui/sidebarRenderCost.test.tsx": {
