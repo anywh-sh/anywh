@@ -148,13 +148,17 @@ export function AdvancedOptions({
   // is `default` whatever the label says.
   const profileId = renamed && platform !== "macos" ? slugOf(name) : "default";
 
+  // Left alone, `add-profile.sh` takes the first free port, which need not
+  // be the one "already ran it, connect" dials afterwards: the port shown
+  // here is always handed to it.
+  const portFlag = ` --port ${validPort ? String(port) : DEFAULT_PORT}`;
   const steps =
     platform === "macos"
       ? [
           { label: copy.terminal.stepInstall, command: "brew install anywh-sh/tap/anywh-relay" },
           {
             label: copy.terminal.stepProfile,
-            command: `"$(brew --prefix anywh-relay)/libexec/infra/systemd/add-profile.sh" ${profileId} --mode dev --relay-host ${host || LOOPBACK}`,
+            command: `"$(brew --prefix anywh-relay)/libexec/infra/systemd/add-profile.sh" ${profileId} --mode dev --relay-host ${host || LOOPBACK}${portFlag}`,
           },
           { label: copy.terminal.stepStart, command: "brew services start anywh-relay" },
         ]
@@ -162,7 +166,7 @@ export function AdvancedOptions({
           { label: copy.terminal.stepInstall, command: "curl -fsSL https://anywh.sh/install | sh" },
           {
             label: copy.terminal.stepProfile,
-            command: `~/.local/share/anywh/infra/systemd/add-profile.sh ${profileId} --relay-host ${host || LOOPBACK}`,
+            command: `~/.local/share/anywh/infra/systemd/add-profile.sh ${profileId} --relay-host ${host || LOOPBACK}${portFlag}`,
           },
         ];
 

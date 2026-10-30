@@ -87,7 +87,7 @@ describe("AdvancedOptions", () => {
 
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getByText("curl -fsSL https://anywh.sh/install | sh")).toBeInTheDocument();
-    expect(within(panel).getByText(/add-profile\.sh default --relay-host 127\.0\.0\.1/)).toBeInTheDocument();
+    expect(within(panel).getByText(/add-profile\.sh default --relay-host 127\.0\.0\.1 --port 8765$/)).toBeInTheDocument();
     expect(within(panel).queryByText(copy.terminal.wsl)).not.toBeInTheDocument();
 
     const port = screen.getByLabelText(copy.port);
@@ -95,6 +95,8 @@ describe("AdvancedOptions", () => {
     await user.clear(port);
     await user.type(port, "9000");
     expect(screen.getByText(copy.terminal.connectAfter.replace("{host}", "127.0.0.1").replace("{port}", "9000"))).toBeInTheDocument();
+    // The port the connect will dial is the one the profile is created on.
+    expect(within(panel).getByText(/add-profile\.sh default --relay-host 127\.0\.0\.1 --port 9000$/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: copy.terminal.done }));
     expect(onConnect).toHaveBeenCalledWith({ host: "127.0.0.1", port: 9000 });
   });
@@ -113,6 +115,7 @@ describe("AdvancedOptions", () => {
     native.platform = "macos";
     render(<AdvancedOptions initialInstall="terminal" onInstall={() => {}} onConnect={() => {}} />);
     expect(screen.getByText("brew install anywh-sh/tap/anywh-relay")).toBeInTheDocument();
+    expect(screen.getByText(/add-profile\.sh" default --mode dev --relay-host 127\.0\.0\.1 --port 8765$/)).toBeInTheDocument();
     expect(screen.getByLabelText(copy.profileName)).toBeDisabled();
   });
 });
