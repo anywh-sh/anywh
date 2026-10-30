@@ -80,7 +80,7 @@ describe("failureActions", () => {
   it("a missing runtime is checked again, a stopped install is tried again", () => {
     expect(failureActions("node_missing")).toEqual(["recheck", "terminal"]);
     expect(failureActions("node_old")).toEqual(["recheck", "terminal"]);
-    expect(failureActions("brew_missing")).toEqual(["retry", "terminal"]);
+    expect(failureActions("brew_missing")).toEqual(["recheck", "terminal"]);
     for (const code of ["download_failed", "brew_install_failed", "service_failed", "profile_failed", "start_failed", "unexpected"] as const) {
       expect(failureActions(code), code).toEqual(["retry", "terminal"]);
     }

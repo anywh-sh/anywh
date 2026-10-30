@@ -174,8 +174,8 @@ export function failureActions(code: PreparingFailureCode): LocalFailureAction[]
   switch (code) {
     case "node_missing":
     case "node_old":
-      return ["recheck", "terminal"];
     case "brew_missing":
+      return ["recheck", "terminal"];
     case "brew_install_failed":
     case "download_failed":
     case "checksum_missing":

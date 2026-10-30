@@ -854,7 +854,7 @@ export const en: Dictionary = {
         codes: {
           node_missing: { body: "anywh needs Node.js 20.12 or newer on this machine. Install it, then check again.", line: "Node.js not found", link: { label: "How to install Node.js", href: "https://nodejs.org/en/download" } },
           node_old: { body: "anywh needs Node.js 20.12 or newer on this machine. Update it, then check again.", line: "Node.js is too old", link: { label: "How to install Node.js", href: "https://nodejs.org/en/download" } },
-          brew_missing: { body: "anywh uses Homebrew to install itself on macOS. Install it with the command below, then try again.", line: "Homebrew not found", command: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"", link: { label: "brew.sh", href: "https://brew.sh" } },
+          brew_missing: { body: "anywh uses Homebrew to install itself on macOS. Install it with the command below, then check again.", line: "Homebrew not found", command: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"", link: { label: "brew.sh", href: "https://brew.sh" } },
           no_user_systemd: { body: "This session has no user service manager (systemd --user), so anywh can't be set up to start on its own. Continue in the terminal.", line: "systemd --user not reachable" },
           containerized: { body: "The app is running in a sandbox that can't reach this machine's service manager. Continue in the terminal.", line: "running in a sandbox" },
           relay_running: { body: "anywh is already running on this machine, under a service this app doesn't manage. Continue in the terminal to connect to it.", line: "already running" },

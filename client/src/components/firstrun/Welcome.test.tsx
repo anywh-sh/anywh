@@ -71,7 +71,7 @@ describe("Welcome", () => {
 });
 
 describe("PreparingFailure", () => {
-  it("brew_missing offers the install command, brew.sh, and try again before the terminal", async () => {
+  it("brew_missing offers the install command, brew.sh, and check again before the terminal", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
     render(<PreparingFailure code="brew_missing" onAction={onAction} />);
@@ -82,9 +82,9 @@ describe("PreparingFailure", () => {
     const buttons = within(screen.getByRole("alert"))
       .getAllByRole("button")
       .filter((b) => b.textContent !== en.firstRun.copy.copy);
-    expect(buttons.map((b) => b.textContent)).toEqual([en.firstRun.preparing.fail.actions.retry, en.firstRun.preparing.fail.actions.terminal]);
+    expect(buttons.map((b) => b.textContent)).toEqual([en.firstRun.preparing.fail.actions.recheck, en.firstRun.preparing.fail.actions.terminal]);
     await user.click(buttons[0]);
-    expect(onAction).toHaveBeenCalledWith("retry");
+    expect(onAction).toHaveBeenCalledWith("recheck");
   });
 
   it("every code has copy in both languages, and none of it says relay", () => {
