@@ -22,6 +22,9 @@ export interface AgentCatalogEntry {
   /** The full command line a person runs to log in, for display only. */
   readonly loginCommand: string | null;
   readonly installUrl: string | null;
+  /** A fuller reference beside `installUrl`, for a CLI whose setup page
+   * leaves out commands a person may need (`identity.install.docsUrl`). */
+  readonly docsUrl: string | null;
 }
 
 /** What the auth probe said for one installed agent. */
@@ -40,6 +43,7 @@ export function catalogEntry(def: AgentRuntimeDef, detection: AgentDetection, au
     loggedIn,
     loginCommand: def.auth.loginCommand ? [bin, ...def.auth.loginCommand].join(" ") : null,
     installUrl: def.identity.install?.url ?? null,
+    docsUrl: def.identity.install?.docsUrl ?? null,
   };
 }
 

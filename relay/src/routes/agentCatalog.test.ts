@@ -19,6 +19,7 @@ test("catalogEntry: an installed, logged-in agent carries its parsed version, lo
     loggedIn: true,
     loginCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
+    docsUrl: "https://github.com/openai/codex",
   });
 });
 
@@ -50,4 +51,5 @@ test("catalogEntry: a version line with nothing version-shaped is null, and a de
   assert.equal(entry.version, null);
   assert.equal(entry.loginCommand, null);
   assert.equal(entry.installUrl, null);
+  assert.equal(entry.docsUrl, null);
 });

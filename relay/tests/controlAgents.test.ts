@@ -22,6 +22,7 @@ interface AgentEntry {
   loggedIn: boolean | null;
   loginCommand: string | null;
   installUrl: string | null;
+  docsUrl: string | null;
 }
 
 let relay: SpawnedServer | undefined;
@@ -122,6 +123,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     loggedIn: true,
     loginCommand: "fake-claude.mjs auth login",
     installUrl: "https://code.claude.com/docs/en/setup",
+    docsUrl: null,
   });
   assert.deepEqual(byId(agents, "codex"), {
     id: "codex",
@@ -131,6 +133,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     loggedIn: null,
     loginCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
+    docsUrl: "https://github.com/openai/codex",
   });
 });
 
