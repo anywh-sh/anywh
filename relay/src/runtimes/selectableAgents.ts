@@ -39,9 +39,18 @@ export interface SelectableAgentsTargets {
  * the background (a slow CLI never holds back a fast one, and never holds
  * back the returned promise either). Resolves with every detection, the
  * ones not installed included.
+ *
+ * `previous` is what the last refresh found. A CLI that was installed then
+ * and only timed out now keeps its earlier detection: a `--version` slow
+ * under load must not take a working agent out of the new-session picker
+ * and the rooms. Only a definite failure (not found, non-zero exit)
+ * removes it.
  */
-export async function refreshSelectableAgents(targets: SelectableAgentsTargets): Promise<readonly AgentDetection[]> {
-  const detections = await detectRuntimes(targets.defs, targets.homeOverride);
+export async function refreshSelectableAgents(targets: SelectableAgentsTargets, previous?: ReadonlyMap<string, AgentDetection>): Promise<readonly AgentDetection[]> {
+  const detections = (await detectRuntimes(targets.defs, targets.homeOverride)).map((detection) => {
+    const earlier = previous?.get(detection.id);
+    return detection.timedOut && earlier?.installed ? earlier : detection;
+  });
   const selectable = detections.filter((detection) => detection.installed && targets.selectableIds.includes(detection.id));
   targets.publishSelectable(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities, version: parseCliVersion(detection.version) })));
   targets.publishRoomRuntimes(selectable.map((detection) => detection.id).filter((id) => targets.roomRuntimeIds.includes(id)));
@@ -58,4 +67,18 @@ export async function refreshSelectableAgents(targets: SelectableAgentsTargets):
       });
   }
   return detections;
+}
+
+/**
+ * `refreshSelectableAgents` with memory: each call hands it what the last
+ * one found, so a timeout keeps an agent instead of dropping it. One per
+ * relay, owned by the composition root.
+ */
+export function createAgentRefresher(targets: SelectableAgentsTargets): () => Promise<readonly AgentDetection[]> {
+  let last = new Map<string, AgentDetection>();
+  return async () => {
+    const detections = await refreshSelectableAgents(targets, last);
+    last = new Map(detections.map((detection) => [detection.id, detection]));
+    return detections;
+  };
 }

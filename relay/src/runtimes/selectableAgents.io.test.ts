@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { refreshSelectableAgents, type SelectableAgent, type SelectableAgentsTargets } from "./selectableAgents.js";
+import { createAgentRefresher, refreshSelectableAgents, type SelectableAgent, type SelectableAgentsTargets } from "./selectableAgents.js";
 import type { AgentRuntimeDef, Capabilities, ModelCatalog } from "./types.js";
 
 const ALL_NONE: Capabilities = {
@@ -151,5 +151,54 @@ test("refreshSelectableAgents: an agent whose catalog is already known is not pr
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.deepEqual(Object.keys(published.catalogs), ["fresh"]);
+  });
+});
+
+/** Answers `--version` until `hangFlag` exists, then never answers — a CLI
+ * too slow for detection's 3 s timeout. */
+function writeHangingScript(dir: string, name: string, hangFlag: string): string {
+  const path = join(dir, name);
+  writeFileSync(
+    path,
+    `#!/usr/bin/env node\nif (require("node:fs").existsSync(${JSON.stringify(hangFlag)})) setTimeout(() => {}, 10_000);\nelse process.stdout.write("1.0.0\\n");\n`,
+  );
+  chmodSync(path, 0o755);
+  return path;
+}
+
+test("createAgentRefresher: an installed agent whose --version times out keeps its place; one that is gone is dropped", async () => {
+  await withTmpDir(async (dir) => {
+    const hangFlag = join(dir, "hang");
+    const bin = writeHangingScript(dir, "slow-cli.cjs", hangFlag);
+    const slow = fixtureDef("slow", bin, CATALOG);
+    const { targets, published } = recordingTargets([slow], dir);
+    const refresh = createAgentRefresher(targets);
+
+    assert.equal((await refresh())[0].installed, true);
+
+    writeFileSync(hangFlag, "");
+    const [kept] = await refresh();
+    assert.equal(kept.installed, true, "a timeout is not proof the CLI is gone");
+    assert.equal(kept.version, "1.0.0");
+    assert.deepEqual(published.selectable?.map((agent) => agent.id), ["slow"]);
+    assert.deepEqual(published.roomRuntimes, ["slow"]);
+
+    rmSync(bin);
+    assert.equal((await refresh())[0].installed, false);
+    assert.deepEqual(published.selectable, []);
+  });
+});
+
+test("refreshSelectableAgents: a CLI that times out with no earlier detection is not installed", async () => {
+  await withTmpDir(async (dir) => {
+    const hangFlag = join(dir, "hang");
+    writeFileSync(hangFlag, "");
+    const slow = fixtureDef("slow", writeHangingScript(dir, "slow-cli.cjs", hangFlag), CATALOG);
+    const { targets, published } = recordingTargets([slow], dir);
+
+    const [detection] = await refreshSelectableAgents(targets);
+    assert.equal(detection.installed, false);
+    assert.equal(detection.timedOut, true);
+    assert.deepEqual(published.selectable, []);
   });
 });
