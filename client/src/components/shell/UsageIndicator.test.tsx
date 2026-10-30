@@ -45,7 +45,7 @@ function renderIndicator(byProfile: Record<string, ProfilePlanUsage>, props: { e
     <LocaleProvider>
       <UsageIndicator
         profileId="pessoal"
-        profiles={PROFILES}
+       
         byProfile={byProfile}
         now={NOW}
         expanded={props.expanded ?? false}
@@ -180,7 +180,7 @@ describe("UsageIndicator", () => {
       <LocaleProvider>
         <UsageIndicator
           profileId="pessoal"
-          profiles={PROFILES}
+         
           byProfile={{ pessoal: live([{ ...claude(58), reading: true }], { connection: "offline" }) }}
           now={NOW}
           expanded={false}
@@ -199,21 +199,11 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; Codex 37% 30d");
   });
 
-  it("flags another profile near or at its limit after a separator", () => {
-    const { rerender } = renderIndicator({ pessoal: live([claude(10)]), trabalho: live([claude(85)]) });
-    const alert = document.querySelector('[data-usage-alert="trabalho"]');
-    expect(alert).toHaveAttribute("data-level", "warn");
-    expect(alert?.querySelector(".bg-warn")).not.toBeNull();
-    expect(alert?.previousElementSibling?.className).toContain("w-px");
-    expect(button()).toHaveAccessibleName("Usage: Claude Code 10% 5h; Trabalho near the limit");
-
-    rerender(
-      <LocaleProvider>
-        <UsageIndicator profileId="pessoal" profiles={PROFILES} byProfile={{ pessoal: live([claude(10)]), trabalho: live([claude(100)]) }} now={NOW} expanded={false} />
-      </LocaleProvider>,
-    );
-    expect(document.querySelector('[data-usage-alert="trabalho"]')).toHaveAttribute("data-level", "limited");
-    expect(button()).toHaveAccessibleName("Usage: Claude Code 10% 5h; Trabalho limit reached");
+  it("shows only the active profile, even with another one at its limit", () => {
+    renderIndicator({ pessoal: live([claude(10)]), trabalho: live([claude(100)]) });
+    expect(button().querySelectorAll("[data-usage-agent]")).toHaveLength(1);
+    expect(button().querySelector(".bg-err, .bg-warn")).toBeNull();
+    expect(button()).toHaveAccessibleName("Usage: Claude Code 10% 5h");
   });
 
   it("keeps an unreachable machine's last numbers, quieter, and says how old they are", () => {
@@ -226,13 +216,13 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; offline, last read 12m ago");
   });
 
-  it("renders nothing without agents or alerts to show", () => {
-    const { container, rerender } = renderIndicator({ pessoal: live([]) });
+  it("renders nothing without agents to show, whatever other profiles say", () => {
+    const { container, rerender } = renderIndicator({ pessoal: live([]), trabalho: live([claude(100)]) });
     expect(container).toBeEmptyDOMElement();
     for (const entry of [{ connection: "connecting", runtimes: null }] as const) {
       rerender(
         <LocaleProvider>
-          <UsageIndicator profileId="pessoal" profiles={PROFILES} byProfile={{ pessoal: { ...live([]), ...entry } }} now={NOW} expanded={false} />
+          <UsageIndicator profileId="pessoal" byProfile={{ pessoal: { ...live([]), ...entry } }} now={NOW} expanded={false} />
         </LocaleProvider>,
       );
       expect(container).toBeEmptyDOMElement();
@@ -249,7 +239,7 @@ describe("UsageIndicator", () => {
   it("speaks Portuguese", () => {
     localStorage.setItem(LOCALE_STORAGE_KEY, "pt-BR");
     renderIndicator({ pessoal: live([claude(100)]), trabalho: live([claude(90)]) });
-    expect(button()).toHaveAccessibleName("Uso: Claude Code esgotado, volta em 58m; Trabalho perto do limite");
+    expect(button()).toHaveAccessibleName("Uso: Claude Code esgotado, volta em 58m");
     expect(agent("claude")).toHaveTextContent("volta em 58m");
   });
 

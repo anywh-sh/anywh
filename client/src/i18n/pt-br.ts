@@ -628,8 +628,6 @@ export const ptBr: Dictionary = {
       apiKey: "API key",
       noData: "ainda sem leitura",
       readError: "erro ao ler",
-      alertWarn: "{profile} perto do limite",
-      alertLimited: "{profile} esgotado",
       stale: "offline, última leitura {ago}",
       meterLabel: "{window}: {percent}% usado",
       meterValueWithPace: "{percent}% usado, esperado {expected}%",

@@ -4,7 +4,7 @@ import { startPlanUsageMachine } from "./fixtures/planUsageRelay.mjs";
 
 // Plan usage in the real Tauri window, against two real relays (one per
 // profile) with the fake `claude`: the status bar's indicator, its card, the
-// refresh that forces a probe, the alert for the inactive profile, the
+// refresh that forces a probe, the other profile shown only in the card, the
 // compact form and an agent with no login. The numbers come from the fake's
 // `rate_limit_event`, read by the relay's own probe — nothing in the app is
 // stubbed.
@@ -126,9 +126,9 @@ describe("plan usage", () => {
     });
 
     // The probes' readings arrive by push: 58% here, 91% on the other profile.
-    await browser.waitUntil(async () => /^Usage: Claude Code 58% 5h; Codex not signed in; Trabalho near the limit$/.test(await label(indicator())), {
+    await browser.waitUntil(async () => /^Usage: Claude Code 58% 5h; Codex not signed in$/.test(await label(indicator())), {
       timeout: 20000,
-      timeoutMsg: "the indicator never showed the probed reading and the alert",
+      timeoutMsg: "the indicator never showed the probed reading",
     });
     // Read in one pass inside the webview: the card's meters, its profile
     // order and the login commands it offers.
@@ -171,11 +171,6 @@ describe("plan usage", () => {
     assertLayout(layout, "1440px");
     const status = layout.items.find((item) => item.status);
     if (!status || status.right < layout.clientWidth / 2) throw new Error("the relay status left the right side of the bar");
-  });
-
-  it("alerts on the inactive profile near its limit", async () => {
-    const alert = await $('[data-usage-alert="e2e-trabalho"]');
-    if ((await alert.getAttribute("data-level")) !== "warn") throw new Error("expected a warn alert for Trabalho");
   });
 
   it("closes on Escape and gives focus back to the indicator", async () => {

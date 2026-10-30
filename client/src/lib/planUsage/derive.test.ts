@@ -11,9 +11,7 @@ import {
   countAccounts,
   groupByProfile,
   headlineWindow,
-  otherProfileAlerts,
   profileDataState,
-  runtimeLevel,
   runtimeWindows,
   windowView,
   type ProfilePlanUsage,
@@ -63,35 +61,15 @@ describe("windowView", () => {
   });
 });
 
-describe("runtimeWindows / runtimeLevel", () => {
+describe("runtimeWindows", () => {
   it("has no windows for states that show something else", () => {
     for (const status of ["signed_out", "no_subscription", "unknown"] as const) {
       expect(runtimeWindows(runtime({ runtime: "claude", status }), NOW)).toEqual([]);
-      expect(runtimeLevel(runtime({ runtime: "claude", status }), NOW)).toBe("neutral");
     }
   });
 
   it("keeps the last good windows of an errored read", () => {
     expect(runtimeWindows(runtime({ runtime: "claude", status: "error" }), NOW)).toHaveLength(2);
-  });
-
-  it("is the worst window, raised by the warning status", () => {
-    expect(runtimeLevel(runtime({ runtime: "claude" }), NOW)).toBe("neutral");
-    expect(runtimeLevel(runtime({ runtime: "claude", status: "warning" }), NOW)).toBe("warn");
-    const hot = runtime({
-      runtime: "claude",
-      windows: [
-        { durationMins: 300, usedPercent: 20, resetsAt: NOW + MIN },
-        { durationMins: 10080, usedPercent: 85, resetsAt: NOW + 60 * MIN },
-      ],
-    });
-    expect(runtimeLevel(hot, NOW)).toBe("warn");
-  });
-
-  it("reads limited from the relay until the window it was about resets", () => {
-    const rejected = runtime({ runtime: "claude", status: "limited", windows: [{ durationMins: 300, usedPercent: 90, resetsAt: NOW + MIN }] });
-    expect(runtimeLevel(rejected, NOW)).toBe("limited");
-    expect(runtimeLevel(rejected, NOW + 2 * MIN)).toBe("neutral");
   });
 });
 
@@ -199,49 +177,6 @@ describe("groupByProfile", () => {
       "a",
     );
     expect(countAccounts(groups)).toBe(1);
-  });
-});
-
-describe("otherProfileAlerts", () => {
-  const at = (percent: number): RuntimePlanUsage[] => [
-    runtime({ runtime: "claude", windows: [{ durationMins: 300, usedPercent: percent, resetsAt: NOW + 30 * MIN }] }),
-  ];
-
-  it("flags inactive profiles at 80% or more, and spent ones as limited", () => {
-    const groups = groupByProfile(
-      ["active", "warm", "hot", "spent", "cool"],
-      { active: live(at(100)), warm: live(at(79)), hot: live(at(80)), spent: live(at(100)), cool: live(at(10)) },
-      "active",
-    );
-    expect(otherProfileAlerts(groups, NOW)).toEqual([
-      { profileId: "hot", level: "warn" },
-      { profileId: "spent", level: "limited" },
-    ]);
-  });
-
-  it("takes the worst account of the profile", () => {
-    const groups = groupByProfile(
-      ["active", "other"],
-      {
-        active: live([]),
-        other: live([
-          runtime({ runtime: "claude", windows: [{ durationMins: 300, usedPercent: 85, resetsAt: NOW + MIN }] }),
-          runtime({ runtime: "codex", windows: [{ durationMins: 300, usedPercent: 100, resetsAt: NOW + MIN }] }),
-        ]),
-      },
-      "active",
-    );
-    expect(otherProfileAlerts(groups, NOW)).toEqual([{ profileId: "other", level: "limited" }]);
-  });
-
-  it("skips a repeat of an account shown elsewhere, and lets a reset clear the alert", () => {
-    const shared = [runtime({ runtime: "claude", accountKey: "k", windows: [{ durationMins: 300, usedPercent: 100, resetsAt: NOW + MIN }] })];
-    const groups = groupByProfile(["active", "other"], { active: live(shared), other: live(shared) }, "active");
-    expect(otherProfileAlerts(groups, NOW)).toEqual([]);
-
-    const alone = groupByProfile(["active", "other"], { active: live([]), other: { ...live(shared), connection: "offline" } }, "active");
-    expect(otherProfileAlerts(alone, NOW)).toEqual([{ profileId: "other", level: "limited" }]);
-    expect(otherProfileAlerts(alone, NOW + 2 * MIN)).toEqual([]);
   });
 });
 

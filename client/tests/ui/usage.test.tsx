@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("plan usage in the status bar", () => {
-  it("shows the active profile's agents, alerts on the other one, and re-reads on open", async () => {
+  it("shows the active profile's agents, the other one only in the card, and re-reads on open", async () => {
     const user = userEvent.setup();
     renderApp();
 
@@ -57,14 +57,15 @@ describe("plan usage in the status bar", () => {
       "ws://127.0.0.1:8001/plan-usage/watch",
       "ws://127.0.0.1:8002/plan-usage/watch",
     ]);
-    expect(indicator).toHaveAccessibleName("Usage: Claude Code 58% 5h; Trabalho near the limit");
+    // The other profile's 91% is not in the status bar (no alert there, the
+    // owner's call); the card below shows it.
+    expect(indicator).toHaveAccessibleName("Usage: Claude Code 58% 5h");
     // The bar's first item, on the left (a deliberate change from the
     // design's right-hand placement); the relay status stays on the right.
     expect(statusBar.firstElementChild?.contains(indicator)).toBe(true);
     const relayStatus = within(statusBar).getByRole("status");
     expect(indicator.compareDocumentPosition(relayStatus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(indicator).getByRole("meter")).toHaveAttribute("aria-valuenow", "58");
-    expect(document.querySelector('[data-usage-alert="trabalho"]')).toHaveAttribute("data-level", "warn");
 
     await user.click(indicator);
     expect(screen.getByRole("button", { name: /^Usage: / })).toHaveAttribute("aria-expanded", "true");

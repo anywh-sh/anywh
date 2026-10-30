@@ -8,15 +8,12 @@ import { useIsCompactStatusBar } from "@/hooks/platform/useMediaQuery";
 import { useDict, useLocale, type Dictionary, type Locale } from "@/i18n";
 import {
   accountWindows,
-  groupByProfile,
   isReading,
   strongestWindow,
-  otherProfileAlerts,
   profileDataState,
   runtimeNote,
   runtimeWindows,
   spentUntil,
-  type ProfileAlert,
   type ProfilePlanUsage,
   type WindowView,
 } from "@/lib/planUsage/derive";
@@ -30,8 +27,6 @@ type UsageStrings = Dictionary["shell"]["usage"];
 export interface UsageIndicatorProps extends Omit<ComponentPropsWithoutRef<"button">, "children"> {
   /** The active tab's profile: its agents are the ones shown. */
   profileId: string;
-  /** Every profile, in the list's order (for the other-profile alerts). */
-  profiles: readonly { id: string; label: string }[];
   byProfile: Readonly<Record<string, ProfilePlanUsage>>;
   /** The view's clock (`usePlanUsage().now`). */
   now: number;
@@ -41,9 +36,9 @@ export interface UsageIndicatorProps extends Omit<ComponentPropsWithoutRef<"butt
 
 /**
  * The status bar's plan usage: the active tab's profile, then one block per
- * agent installed on its machine (the relay only reports installed ones),
- * then a dot for every other profile near or at its limit. One button — the
- * details card opens from it (`expanded`/`onClick` are the caller's).
+ * agent installed on its machine (the relay only reports installed ones).
+ * One button — the details card opens from it (`expanded`/`onClick` are the
+ * caller's). Other profiles appear only in the card.
  *
  * Under 1024px it keeps only each agent's mark and 5h percentage. Nothing in
  * it moves on its own: the numbers change in place when a reading arrives.
@@ -53,7 +48,7 @@ export interface UsageIndicatorProps extends Omit<ComponentPropsWithoutRef<"butt
  * installed, or no answer yet.
  */
 export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>(function UsageIndicator(
-  { profileId, profiles, byProfile, now, expanded, className, ...buttonProps },
+  { profileId, byProfile, now, expanded, className, ...buttonProps },
   ref,
 ) {
   const dict = useDict();
@@ -64,19 +59,12 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
   const entry = byProfile[profileId];
   const data = profileDataState(entry);
   const runtimes = data === "live" || data === "stale" ? (entry?.runtimes ?? []) : [];
-  const groups = groupByProfile(
-    profiles.map((profile) => profile.id),
-    byProfile,
-    profileId,
-  );
-  const alerts = otherProfileAlerts(groups, now);
   // A relay too old for plan usage still gets a mark: hiding the indicator
   // would read exactly like a profile with no agent installed, and leave
   // nothing to tell that the relay is what needs updating.
   const outdated = data === "unsupported";
-  if (runtimes.length === 0 && alerts.length === 0 && !outdated) return null;
+  if (runtimes.length === 0 && !outdated) return null;
 
-  const labelOf = (id: string): string => profiles.find((profile) => profile.id === id)?.label ?? id;
   const names = dict.chat.composer.agentNames;
   const stale = data === "stale";
   // A stale profile's last state can't be mid-read: its relay is gone.
@@ -84,7 +72,6 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
   const summary = [
     ...(outdated ? [strings.outdatedSummary] : []),
     ...runtimes.map((usage) => summarize(usage, agentName(names, usage.runtime), now, readingOf(usage), locale, strings)),
-    ...alerts.map((alert) => (alert.level === "limited" ? strings.alertLimited : strings.alertWarn).replace("{profile}", labelOf(alert.profileId))),
   ];
   if (stale && entry?.receivedAt != null) {
     summary.push(strings.stale.replace("{ago}", formatUpdatedAgo(strings, entry.receivedAt, now)));
@@ -133,26 +120,12 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
           strings={strings}
         />
       ))}
-      {alerts.length > 0 && (
-        <>
-          <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
-          {alerts.map((alert) => (
-            <AlertDot key={alert.profileId} alert={alert} />
-          ))}
-        </>
-      )}
+      {/* The design also put a dot here for any other profile near or at its
+          limit, after a separator. Removed at the owner's request: other
+          profiles show only in the card. */}
     </button>
   );
 });
-
-function AlertDot({ alert }: { alert: ProfileAlert }) {
-  return (
-    <span data-usage-alert={alert.profileId} data-level={alert.level} aria-hidden="true" className="flex shrink-0 items-center gap-1">
-      <span className={cn("size-1.5", profileColorClass(alert.profileId))} />
-      <span className={cn("size-1.5 rounded-full", alert.level === "limited" ? "bg-err" : "bg-warn")} />
-    </span>
-  );
-}
 
 /** The window the compact form and the summary lead with: 5h when there is
  * one, else the shortest of the account's windows. */

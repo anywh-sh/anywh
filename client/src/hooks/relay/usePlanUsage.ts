@@ -45,9 +45,8 @@ interface Entry {
 }
 
 /**
- * Plan usage of every profile at once, not only the active tab's: the status
- * bar alerts on another profile nearing its limit, and the card lists them
- * all. One `/plan-usage/watch` socket per profile, for as long as the hook is
+ * Plan usage of every profile at once, not only the active tab's: the card
+ * lists them all, whichever tab is active. One `/plan-usage/watch` socket per profile, for as long as the hook is
  * mounted.
  *
  * Only the active tab's profile may wake a sleeping machine — on mount, and

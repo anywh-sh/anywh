@@ -1374,10 +1374,6 @@ export interface Dictionary {
       noData: string;
       /** The last read failed and there is no earlier one to show. */
       readError: string;
-      /** Another profile with an account at 80–99%: "Trabalho near the limit". */
-      alertWarn: string;
-      /** Another profile with a spent account: "Trabalho limit reached". */
-      alertLimited: string;
       /** The active profile's relay is unreachable and these are its last
        * numbers: "offline, last read 12m ago". `{ago}` is `updatedAgo`. */
       stale: string;

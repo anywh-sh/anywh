@@ -807,7 +807,6 @@ function AppShell() {
               <PopoverPrimitive.Trigger asChild>
                 <UsageIndicator
                   profileId={usageProfileId}
-                  profiles={profiles}
                   byProfile={planUsage.byProfile}
                   now={planUsage.now}
                   expanded={usageCardOpen}

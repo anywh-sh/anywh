@@ -106,23 +106,6 @@ export function runtimeWindows(usage: RuntimePlanUsage, nowMs: number): WindowVi
   return usage.windows.map((window) => windowView(window, nowMs, { warning: usage.status === "warning" }));
 }
 
-const LEVEL_RANK: Record<UsageLevel, number> = { neutral: 0, warn: 1, limited: 2 };
-
-export function worseLevel(a: UsageLevel, b: UsageLevel): UsageLevel {
-  return LEVEL_RANK[b] > LEVEL_RANK[a] ? b : a;
-}
-
-/** The runtime's state as one color: its worst window, raised to warn by the
- * agent's own warning flag. `limited` from the relay without a spent window
- * to show (a rejection that named none) still reads as limited — until the
- * window it was about has reset, which the windows themselves say. */
-export function runtimeLevel(usage: RuntimePlanUsage, nowMs: number): UsageLevel {
-  const windows = runtimeWindows(usage, nowMs);
-  let level = windows.reduce<UsageLevel>((worst, view) => worseLevel(worst, view.level), "neutral");
-  if (usage.status === "limited" && windows.every((view) => !view.expired)) level = "limited";
-  return level;
-}
-
 /**
  * The window the status bar's small bar stands for: the most used one —
  * "the larger of 5h and 7d" on a paid plan, the only one on Codex's free
@@ -213,31 +196,6 @@ export function countAccounts(groups: readonly ProfileGroup[]): number {
       group.accounts.filter((entry) => !entry.sameAccountAs && entry.usage.status !== "signed_out" && entry.usage.status !== "unknown").length,
     0,
   );
-}
-
-export interface ProfileAlert {
-  profileId: string;
-  level: Exclude<UsageLevel, "neutral">;
-}
-
-/**
- * Inactive profiles the status bar should flag: any of their accounts at 80%
- * or more (warn) or spent (limited), the worst one deciding. A repeated
- * account is skipped — its quota is already accounted for where it is shown
- * in full. Cached numbers of an unreachable profile count: an asleep
- * machine's agents spend nothing, and the windows' own reset times still
- * bring a spent one back to 0.
- */
-export function otherProfileAlerts(groups: readonly ProfileGroup[], nowMs: number): ProfileAlert[] {
-  const alerts: ProfileAlert[] = [];
-  for (const group of groups) {
-    if (group.active) continue;
-    const level = group.accounts
-      .filter((entry) => !entry.sameAccountAs)
-      .reduce<UsageLevel>((worst, entry) => worseLevel(worst, runtimeLevel(entry.usage, nowMs)), "neutral");
-    if (level !== "neutral") alerts.push({ profileId: group.profileId, level });
-  }
-  return alerts;
 }
 
 /** The windows that measure the account itself, for the status bar's text:

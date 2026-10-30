@@ -628,8 +628,6 @@ export const en: Dictionary = {
       apiKey: "API key",
       noData: "not read yet",
       readError: "read failed",
-      alertWarn: "{profile} near the limit",
-      alertLimited: "{profile} limit reached",
       stale: "offline, last read {ago}",
       meterLabel: "{window}: {percent}% used",
       meterValueWithPace: "{percent}% used, {expected}% expected",
