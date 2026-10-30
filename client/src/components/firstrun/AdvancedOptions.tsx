@@ -12,6 +12,7 @@ import { localInstallPossible, suggestAddresses } from "@/lib/install/localRelay
 import { currentPlatform } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 import { isValidHost } from "@/lib/profiles/hostAddress";
+import { handleRovingKeyDown } from "@/components/firstrun/rovingKeys";
 
 export type InstallVia = "app" | "terminal";
 
@@ -48,6 +49,7 @@ function AddressOption({
       type="button"
       role="radio"
       aria-checked={selected}
+      tabIndex={selected ? 0 : -1}
       onClick={onSelect}
       className={cn(
         "flex min-h-[42px] w-full cursor-pointer items-center gap-2.5 border px-3 py-2 text-left outline-hidden transition-colors focus-visible:border-text-faint",
@@ -199,7 +201,12 @@ export function AdvancedOptions({
         <span id="first-run-address-label" className="text-[12px] font-medium text-text-faint">
           {copy.address.label}
         </span>
-        <div className="flex flex-col gap-1.5" role="radiogroup" aria-labelledby="first-run-address-label">
+        <div
+          className="flex flex-col gap-1.5"
+          role="radiogroup"
+          aria-labelledby="first-run-address-label"
+          onKeyDown={(event) => handleRovingKeyDown(event, "radio")}
+        >
           {rows.map((row) => (
             <AddressOption
               key={row.choice}

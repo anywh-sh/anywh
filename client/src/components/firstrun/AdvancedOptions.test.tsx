@@ -105,6 +105,20 @@ describe("AdvancedOptions", () => {
     expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ profileId: undefined, label: ptBr.firstRun.profile.defaultLabel }));
   });
 
+  it("moves through the addresses with the arrow keys, one Tab stop for the group", async () => {
+    const user = userEvent.setup();
+    render(<AdvancedOptions onInstall={() => {}} onConnect={() => {}} />);
+    const loopback = screen.getByRole("radio", { name: new RegExp(copy.address.loopback) });
+    loopback.focus();
+    await user.keyboard("{End}");
+    const custom = screen.getByRole("radio", { name: new RegExp(copy.address.custom) });
+    expect(custom).toHaveFocus();
+    expect(custom).toHaveAttribute("aria-checked", "true");
+    expect(loopback).toHaveAttribute("tabindex", "-1");
+    await user.keyboard("{ArrowDown}");
+    expect(loopback).toHaveAttribute("aria-checked", "true");
+  });
+
   it("refuses an address a shell would read as more than one, and says why", async () => {
     const user = userEvent.setup();
     render(<AdvancedOptions initialInstall="terminal" onInstall={() => {}} onConnect={() => {}} />);

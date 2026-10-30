@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -48,6 +49,34 @@ describe("Segmented", () => {
     expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true");
     await userEvent.setup().click(screen.getByRole("tab", { name: "Address" }));
     expect(onChange).toHaveBeenCalledWith("address");
+  });
+
+  it("is one Tab stop, and the arrow keys move the selection", async () => {
+    const user = userEvent.setup();
+    function Controlled() {
+      const [value, setValue] = useState<"code" | "address">("code");
+      return (
+        <Segmented
+          id="mode"
+          label="How"
+          value={value}
+          options={[
+            { value: "code", label: "Code" },
+            { value: "address", label: "Address" },
+          ]}
+          onChange={setValue}
+        />
+      );
+    }
+    render(<Controlled />);
+    expect(screen.getByRole("tab", { name: "Address" })).toHaveAttribute("tabindex", "-1");
+    await user.tab();
+    expect(screen.getByRole("tab", { name: "Code" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Address" })).toHaveFocus();
+    expect(screen.getByRole("tab", { name: "Address" })).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "Code" })).toHaveAttribute("aria-selected", "true");
   });
 });
 

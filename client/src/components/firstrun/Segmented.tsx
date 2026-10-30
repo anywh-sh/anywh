@@ -1,3 +1,4 @@
+import { handleRovingKeyDown } from "@/components/firstrun/rovingKeys";
 import { cn } from "@/lib/utils";
 
 export interface SegmentedOption<T extends string> {
@@ -26,7 +27,7 @@ export function Segmented<T extends string>({
   label: string;
 }) {
   return (
-    <div role="tablist" aria-label={label} className="inline-flex self-start border border-border p-0.5">
+    <div role="tablist" aria-label={label} onKeyDown={(event) => handleRovingKeyDown(event, "tab")} className="inline-flex self-start border border-border p-0.5">
       {options.map((option) => {
         const selected = option.value === value;
         return (
@@ -36,6 +37,7 @@ export function Segmented<T extends string>({
             type="button"
             role="tab"
             aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
               "h-6 cursor-pointer px-3 text-[12px] outline-hidden transition-colors focus-visible:underline",
