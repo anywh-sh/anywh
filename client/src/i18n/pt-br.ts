@@ -835,7 +835,6 @@ export const ptBr: Dictionary = {
       },
       details: "Detalhes",
       cancel: "Cancelar",
-      done: "pronto",
       resuming: "retomando de onde parou",
       reattached: "ainda rodando de antes — retomando",
       failed: "falhou",

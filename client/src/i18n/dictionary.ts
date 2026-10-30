@@ -352,7 +352,6 @@ export interface Dictionary {
       };
       details: string;
       cancel: string;
-      done: string;
       resuming: string;
       reattached: string;
       failed: string;

@@ -835,7 +835,6 @@ export const en: Dictionary = {
       },
       details: "Details",
       cancel: "Cancel",
-      done: "done",
       resuming: "resuming where it left off",
       reattached: "still running from before — picking it up",
       failed: "failed",
