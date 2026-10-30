@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 export function CommandLine({ command, className }: { command: string; className?: string }) {
   const copy = useDict().firstRun.copy;
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  // Several "Copy" buttons can share a screen; each says which command.
+  const codeId = useId();
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -30,10 +32,11 @@ export function CommandLine({ command, className }: { command: string; className
       <span className="shrink-0 font-mono text-[12px] text-primary" aria-hidden="true">
         $
       </span>
-      <code className="selectable-content min-w-0 flex-1 font-mono text-[12.5px] leading-[1.6] break-all text-foreground">{command}</code>
+      <code id={codeId} className="selectable-content min-w-0 flex-1 font-mono text-[12.5px] leading-[1.6] break-all text-foreground">{command}</code>
       <button
         type="button"
         onClick={() => void handleCopy()}
+        aria-describedby={codeId}
         className="h-7 shrink-0 cursor-pointer border border-border px-2.5 font-mono text-[11px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
       >
         <span aria-live="polite">{state === "idle" ? copy.copy : state === "copied" ? copy.copied : copy.failed}</span>

@@ -81,6 +81,11 @@ describe("Segmented", () => {
 });
 
 describe("CommandLine", () => {
+  it("says which command its Copy button copies", () => {
+    render(<CommandLine command="codex login" />);
+    expect(screen.getByRole("button", { name: en.firstRun.copy.copy })).toHaveAccessibleDescription("codex login");
+  });
+
   it("copies the command, says so, and goes back to Copy after 1.5 s", async () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
