@@ -68,6 +68,22 @@ The probe runs `claude -p` with `--no-session-persistence`, no tools, no MCP
 servers, no slash commands, one turn, on Haiku, from an empty directory of its
 own. It leaves no session in the history.
 
+### How often the relay calls out
+
+Clients can't make the relay call out faster than this, whatever they do
+(open the card repeatedly, press the button, reconnect, several devices):
+
+- opening the usage card never probes Claude, and reads Codex only when its
+  data is more than 30 s old;
+- the refresh button reads Codex at most every 15 s and probes Claude at
+  most every 60 s; in between it is answered from the cache, and each entry's
+  `refreshableAt` says when it will read again;
+- a new connection reads Codex only past the same 30 s, and never shortens
+  Claude's 4-minute cadence;
+- simultaneous requests share one read.
+
+The three values are configurable ([Configuration](./configuration.md)).
+
 ### Kill switch
 
 `ANYWH_PLAN_USAGE_PROBE=0` in the profile's `.env` turns every probe off,

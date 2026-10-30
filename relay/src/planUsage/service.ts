@@ -56,6 +56,52 @@ export function isPlanUsageProbeEnabled(env: NodeJS.ProcessEnv = process.env): b
   return env[PLAN_USAGE_PROBE_ENV] !== "0";
 }
 
+/**
+ * How often a client may make the relay actually call out. Every read of
+ * Codex (`account/rateLimits/read`) reaches OpenAI's backend; every Claude
+ * probe is a turn that spends tokens. Whatever the clients do — open the
+ * card repeatedly, press the button, reconnect, several devices at once —
+ * the relay calls out at most this often, and otherwise answers from the
+ * state it has.
+ */
+export interface PlanUsageLimits {
+  /** Codex data younger than this is served as is to the card opening and
+   * to a new connection. */
+  codexFreshMs: number;
+  /** Minimum time between Codex reads made for the refresh button or a
+   * finished turn. */
+  codexForceFloorMs: number;
+  /** Minimum time between Claude probes made for the refresh button. */
+  claudeForceFloorMs: number;
+}
+
+/** Measured (2026-10-30): a Codex read takes ~1 s and a Claude probe ~5.5 s,
+ * so these floors bound each to a small fraction of the time while still
+ * answering a deliberate press. The automatic cadences (Codex 1 min, Claude
+ * 4 min) are unchanged. */
+export const DEFAULT_PLAN_USAGE_LIMITS: PlanUsageLimits = {
+  codexFreshMs: 30_000,
+  codexForceFloorMs: 15_000,
+  claudeForceFloorMs: 60_000,
+};
+
+const LIMIT_ENV: Record<keyof PlanUsageLimits, string> = {
+  codexFreshMs: "ANYWH_PLAN_USAGE_CODEX_FRESH_MS",
+  codexForceFloorMs: "ANYWH_PLAN_USAGE_CODEX_FORCE_FLOOR_MS",
+  claudeForceFloorMs: "ANYWH_PLAN_USAGE_CLAUDE_FORCE_FLOOR_MS",
+};
+
+/** The limits, each overridable by its env var (a non-negative integer of
+ * ms; anything else keeps the default). */
+export function planUsageLimitsFromEnv(env: NodeJS.ProcessEnv = process.env): PlanUsageLimits {
+  const limits = { ...DEFAULT_PLAN_USAGE_LIMITS };
+  for (const key of Object.keys(LIMIT_ENV) as (keyof PlanUsageLimits)[]) {
+    const raw = env[LIMIT_ENV[key]];
+    if (raw !== undefined && /^\d+$/.test(raw.trim())) limits[key] = Number(raw.trim());
+  }
+  return limits;
+}
+
 export interface PlanUsageSnapshotStore {
   load(): RuntimePlanUsage[] | undefined;
   save(runtimes: RuntimePlanUsage[]): void;
@@ -85,6 +131,8 @@ export interface PlanUsageServiceDeps {
   loadSalt: () => Promise<Uint8Array | undefined>;
   store?: PlanUsageSnapshotStore;
   log?: (line: string) => void;
+  /** `DEFAULT_PLAN_USAGE_LIMITS` when absent. */
+  limits?: PlanUsageLimits;
 }
 
 export type PlanUsageListener = (message: PlanUsageStateMessage) => void;
@@ -104,6 +152,8 @@ interface RuntimeSlot {
   /** When the read in flight started; cleared just before its result is
    * applied, so the state pushed with the result already says it ended. */
   readingSince?: number;
+  /** When the last real read (probe or pull) started, epoch ms. */
+  lastCallAt?: number;
   failures: number;
   backoffUntil: number | null;
 }
@@ -178,6 +228,8 @@ export class PlanUsageService {
         shown.reading = true;
         shown.readingSince = slot.readingSince;
       }
+      const refreshableAt = this.refreshableAt(runtime);
+      if (refreshableAt !== null && refreshableAt > now) shown.refreshableAt = refreshableAt;
       const base = { now, clients: this.clients, lastReadingAt: slot.usage.observedAt, backoffUntil: slot.backoffUntil };
       shown.nextAutoRefreshAt =
         runtime === "claude"
@@ -219,15 +271,54 @@ export class PlanUsageService {
   /** On-demand read. Resolves when the reads it started (or joined) end. */
   async refresh(options: PlanUsageRefreshOptions): Promise<void> {
     const targets = RUNTIMES.filter((runtime) => this.installed.has(runtime) && (!options.runtime || options.runtime === runtime));
-    await Promise.all(
-      targets.map((runtime) => {
-        if (runtime === "codex") return this.readCodex();
-        return options.force ? this.forcedClaude() : Promise.resolve();
-      }),
-    );
+    await Promise.all(targets.map((runtime) => this.refreshOne(runtime, options.force)));
+  }
+
+  /**
+   * One runtime's on-demand read, or the reason it is answered from the
+   * cache: a read already in flight is joined (several clients, several
+   * presses: one call); the card opening (`force: false`) reads Codex only
+   * when its data is older than `codexFreshMs` and never probes Claude; the
+   * button reads only past its floor since the last real read.
+   */
+  private refreshOne(runtime: PlanUsageRuntime, force: boolean): Promise<void> {
+    const slot = this.slots[runtime];
+    if (slot.inFlight) return slot.inFlight;
+    const now = this.deps.now();
+    if (runtime === "claude" && !force) return Promise.resolve();
+    const floor = force ? this.refreshableAt(runtime) : this.freshAt(runtime) + this.limits.codexFreshMs;
+    if (floor !== null && floor > now) {
+      this.deps.log?.(`[plan-usage] ${runtime} refresh served from cache (force ${String(force)}, ${Math.ceil((floor - now) / 1000)}s to go)`);
+      return Promise.resolve();
+    }
+    return runtime === "codex" ? this.readCodex() : this.forcedClaude();
+  }
+
+  /** The newest of the last reading and the last real read started (a
+   * failed read counts: its retry waits like any other). */
+  private freshAt(runtime: PlanUsageRuntime): number {
+    const slot = this.slots[runtime];
+    return Math.max(slot.usage.observedAt ?? Number.NEGATIVE_INFINITY, slot.lastCallAt ?? Number.NEGATIVE_INFINITY);
+  }
+
+  /** Until when a forced refresh of `runtime` is answered from the cache;
+   * null when nothing has been read yet. */
+  private refreshableAt(runtime: PlanUsageRuntime): number | null {
+    const fresh = this.freshAt(runtime);
+    if (!Number.isFinite(fresh)) return null;
+    return fresh + (runtime === "codex" ? this.limits.codexForceFloorMs : this.limits.claudeForceFloorMs);
+  }
+
+  private get limits(): PlanUsageLimits {
+    return this.deps.limits ?? DEFAULT_PLAN_USAGE_LIMITS;
   }
 
   // --- automatic reads -------------------------------------------------
+
+  private lastReadingOrCall(runtime: PlanUsageRuntime): number | null {
+    const fresh = this.freshAt(runtime);
+    return Number.isFinite(fresh) ? fresh : null;
+  }
 
   private async evaluate(onConnect: boolean): Promise<void> {
     if (this.clients <= 0) return;
@@ -241,9 +332,10 @@ export class PlanUsageService {
         clients: this.clients,
         inFlight: slot.inFlight !== undefined,
         turnActive: this.deps.capture.isTurnActive("codex"),
-        lastReadingAt: slot.usage.observedAt,
+        lastReadingAt: this.lastReadingOrCall("codex"),
         backoffUntil: slot.backoffUntil,
         onConnect,
+        connectFloorMs: this.limits.codexFreshMs,
       });
       if (decision === "read") work.push(this.readCodex());
     }
@@ -331,6 +423,7 @@ export class PlanUsageService {
     const slot = this.slots[runtime];
     slot.inFlight ??= (async () => {
       slot.readingSince = this.deps.now();
+      slot.lastCallAt = slot.readingSince;
       if (this.installed.has(runtime)) this.notify();
       let apply: (() => Promise<void>) | undefined;
       try {
@@ -469,8 +562,9 @@ export class PlanUsageService {
       }
       case "turn_activity":
         // A finished Codex turn may have moved the limits: pull, if anyone
-        // is watching.
-        if (event.runtime === "codex" && !event.active && this.clients > 0 && this.installed.has("codex")) void this.readCodex();
+        // is watching — under the button's floor, so a run of short turns
+        // doesn't become a run of reads.
+        if (event.runtime === "codex" && !event.active && this.clients > 0 && this.installed.has("codex")) void this.refreshOne("codex", true);
         return;
     }
   }
@@ -640,6 +734,7 @@ export function createPlanUsageService(options: CreatePlanUsageServiceOptions): 
     clearInterval: (handle) => clearInterval(handle as NodeJS.Timeout),
     capture: options.capture,
     probeEnabled: isPlanUsageProbeEnabled(env),
+    limits: planUsageLimitsFromEnv(env),
     probeClaude: () => probeClaudeUsage(options.homeOverride, probeDeps),
     readClaudeAuth: () => probeDeps.readAuthStatus(options.homeOverride),
     readClaudeAccountFile: () => readAccountFile(home, { env }),

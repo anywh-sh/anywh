@@ -28,6 +28,9 @@ process.env.FAKE_CLAUDE_RATE_LIMIT_FILE = rateLimitFile;
 process.env.FAKE_CLAUDE_RATE_LIMIT_REJECTED_FILE = rejectedFile;
 process.env.PATH = [binDir, ...(process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !existsSync(join(entry, "codex")))].join(delimiter);
 process.env.EXTRA_PATH_DIRS = "";
+// The button's 60 s floor between probes would answer the forced refreshes
+// below from the cache (the floors are covered in service.test.ts).
+process.env.ANYWH_PLAN_USAGE_CLAUDE_FORCE_FLOOR_MS = "0";
 // A billed credential in the relay's own env: the probe must not carry it.
 process.env["ANTHROPIC_API_KEY"] = "sk-ant-test-not-a-real-key";
 

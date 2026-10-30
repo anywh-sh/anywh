@@ -73,9 +73,12 @@ test("claude: no client, kill switch, turn running, read in flight or backoff al
   assert.equal(decideClaudeAuto(ctx({ backoffUntil: NOW })), "probe");
 });
 
-test("claude: a new connection reads only past the 60 s floor", () => {
-  assert.equal(decideClaudeAuto(ctx({ onConnect: true, lastReadingAt: NOW - 30_000 })), "skip");
-  assert.equal(decideClaudeAuto(ctx({ onConnect: true, lastReadingAt: NOW - MIN })), "probe");
+test("claude: a new connection never shortens the 4-min cadence; Codex's connect floor is configurable", () => {
+  assert.equal(decideClaudeAuto(ctx({ onConnect: true, lastReadingAt: NOW - MIN })), "skip");
+  assert.equal(decideClaudeAuto(ctx({ onConnect: true, lastReadingAt: NOW - CLAUDE_PROBE_INTERVAL_MS })), "probe");
+  const codex = { now: NOW, clients: 1, inFlight: false, turnActive: false, backoffUntil: null, onConnect: true };
+  assert.equal(decideCodexAuto({ ...codex, lastReadingAt: NOW - 20_000, connectFloorMs: 30_000 }), "skip");
+  assert.equal(decideCodexAuto({ ...codex, lastReadingAt: NOW - 30_000, connectFloorMs: 30_000 }), "read");
 });
 
 test("claude: with the window expired, local activity (a window already open) probes", () => {

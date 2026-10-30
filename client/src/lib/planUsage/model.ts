@@ -89,6 +89,12 @@ export interface RuntimePlanUsage {
    * an agent this profile never used. Always sent by a relay that knows
    * the field; absent = a relay that predates it: treat as `true`. */
   everSignedIn?: boolean;
+  /** Until when (epoch ms, relay clock) a forced refresh of this runtime is
+   * answered from the cache instead of reading: the minimum spacing between
+   * real reads (a Codex read reaches OpenAI's backend, a Claude probe spends
+   * tokens). Absent = a forced refresh reads now. A client may disable its
+   * refresh button until then. */
+  refreshableAt?: number;
   /** When the relay last got a reading, epoch ms; null = never. */
   observedAt: number | null;
   source?: PlanUsageSource;

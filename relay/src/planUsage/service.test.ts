@@ -7,7 +7,7 @@ import type { PlanUsageReading } from "./ingest.js";
 import type { ClaudeUsageAuth, ClaudeUsageProbeResult } from "./probes/claudeUsageProbe.js";
 import type { CodexRateLimitsResult } from "./probes/codexRateLimits.js";
 import { CLAUDE_PROBE_INTERVAL_MS, SCHEDULER_TICK_MS } from "./scheduler.js";
-import { PlanUsageService, type PlanUsageServiceDeps, type PlanUsageSnapshotStore } from "./service.js";
+import { DEFAULT_PLAN_USAGE_LIMITS, PlanUsageService, planUsageLimitsFromEnv, type PlanUsageServiceDeps, type PlanUsageSnapshotStore } from "./service.js";
 import type { TranscriptLimit } from "./transcriptLimits.js";
 import type { PlanUsageStateMessage, PlanWindow, RuntimePlanUsage } from "./types.js";
 
@@ -364,6 +364,8 @@ test("codex: read on connect and every minute, pushes merge by limit, a finished
   t.h.codexUpdate?.({ status: "ok", windows: [{ durationMins: 300, usedPercent: 27, resetsAt: t.h.now + 60 * MIN, limitId: "codex" }], observedAt: t.h.now, source: "app_server_push" });
   assert.equal(t.codex()?.windows[0]?.usedPercent, 27);
 
+  // Past the button's floor since the last read, a finished turn pulls.
+  await t.advance(15_000);
   const end = t.capture.turnStarted("codex");
   end();
   await settle();
@@ -444,6 +446,7 @@ test("a read whose result changes nothing still pushes that it ended", async () 
       reading: { status: "ok", windows: [{ durationMins: 300, usedPercent: 1, resetsAt: t.h.now + 60 * MIN, limitId: "codex" }], observedAt: t.h.now - 10 * MIN, source: "app_server_read" },
       identity: null,
     });
+  await t.advance(30_000);
   const before = t.messages.length;
   await t.service.refresh({ force: false });
   const pushed = t.messages.slice(before).map((message) => message.runtimes[0]?.reading);
@@ -539,12 +542,15 @@ test("a transcript limit older than what the relay already read is ignored", asy
 test("each probe's outcome is logged as a kind; Codex only when its outcome changes", async () => {
   const t = harness({ installed: ["claude", "codex"] });
   await t.service.refresh({ force: true });
+  await t.advance(MIN);
   t.h.probe = () => Promise.resolve({ kind: "error", error: "network", probed: true });
   await t.service.refresh({ force: true, runtime: "claude" });
+  await t.advance(MIN);
   t.h.probe = () => Promise.resolve({ kind: "auth", status: "signed_out", probed: true });
   await t.service.refresh({ force: true, runtime: "claude" });
   await t.service.refresh({ force: false, runtime: "codex" });
   t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await t.advance(30_000);
   await t.service.refresh({ force: false, runtime: "codex" });
   const lines = t.h.logs.filter((line) => line.includes("probe:") || line.includes("codex read:"));
   assert.deepEqual(lines, [
@@ -582,8 +588,10 @@ test("everSignedIn: set by a reading and never lost — not by signing out, not 
   await t.service.refresh({ force: false });
   assert.equal(t.codex()?.everSignedIn, true);
   t.h.codex = () => Promise.resolve({ kind: "error", error: "network" });
+  await t.advance(30_000);
   await t.service.refresh({ force: false });
   t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await t.advance(30_000);
   await t.service.refresh({ force: false });
   assert.equal(t.codex()?.status, "signed_out");
   assert.equal(t.codex()?.everSignedIn, true);
@@ -614,4 +622,97 @@ test("everSignedIn: a snapshot stored before the field still proves a login by i
   const stored: RuntimePlanUsage = { runtime: "codex", status: "signed_out", windows: [], accountKey: "0123456789abcdef", observedAt: NOW - MIN };
   const t = harness({ installed: ["codex"], store: { load: () => [stored], save: () => {} } });
   assert.equal(t.codex()?.everSignedIn, true);
+});
+
+// Spam protection: whatever the clients do, the relay calls out at most at
+// the floors' pace, and a refresh it doesn't act on never says "reading".
+test("throttle: opening the card serves Codex from the cache while its data is under 30 s old, without a reading flag", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  await t.service.refresh({ force: false });
+  assert.equal(t.calls.codexRead, 1);
+  const before = t.messages.length;
+  for (let i = 0; i < 7; i++) {
+    await t.service.refresh({ force: false });
+    await t.advance(2_000);
+  }
+  assert.equal(t.calls.codexRead, 1);
+  assert.equal(t.calls.probe, 0);
+  assert.ok(t.messages.slice(before).every((message) => message.runtimes.every((usage) => usage.reading === undefined)));
+  assert.ok(t.h.logs.some((line) => line.includes("codex refresh served from cache (force false")));
+  await t.advance(16_000);
+  await t.service.refresh({ force: false });
+  assert.equal(t.calls.codexRead, 2);
+});
+
+test("throttle: the button reads Codex at most every 15 s and probes Claude at most every 60 s, telling when it can again", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  await t.service.refresh({ force: true });
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [1, 1]);
+  assert.equal(t.codex()?.refreshableAt, NOW + 15_000);
+  assert.equal(t.claude()?.refreshableAt, NOW + 60_000);
+
+  for (let i = 0; i < 5; i++) await t.service.refresh({ force: true });
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [1, 1]);
+
+  await t.advance(15_000);
+  await t.service.refresh({ force: true });
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [2, 1]);
+  assert.equal(t.codex()?.refreshableAt, NOW + 30_000);
+
+  await t.advance(45_000);
+  await t.service.refresh({ force: true, runtime: "claude" });
+  assert.equal(t.calls.probe, 2);
+  // Past the floor, the field is gone: the button reads now.
+  await t.advance(60_000);
+  assert.equal(t.claude()?.refreshableAt, undefined);
+});
+
+test("throttle: a recent turn's reading counts as fresh for the button", async () => {
+  const t = harness();
+  t.capture.claudeEvent({
+    type: "rate_limit_event",
+    rate_limit_info: { status: "allowed", unifiedWindows: { five_hour: { utilization: 0.3, resetsAt: Math.round((NOW + 60 * MIN) / 1000) } } },
+  });
+  await t.service.refresh({ force: true });
+  assert.equal(t.calls.probe, 0);
+  assert.equal(t.claude()?.refreshableAt, NOW + 60_000);
+});
+
+test("throttle: simultaneous refreshes from several clients make one call", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  const codex = deferred<CodexRateLimitsResult>();
+  const probe = deferred<ClaudeUsageProbeResult>();
+  t.h.codex = () => codex.promise;
+  t.h.probe = () => probe.promise;
+  const all = Promise.all([t.service.refresh({ force: true }), t.service.refresh({ force: false }), t.service.refresh({ force: true, runtime: "claude" }), t.service.refresh({ force: true })]);
+  codex.resolve({ kind: "auth", status: "signed_out" });
+  probe.resolve({ kind: "error", error: "network", probed: true });
+  await all;
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [1, 1]);
+});
+
+test("throttle: reconnecting doesn't read Codex while its data is fresh, nor probe Claude inside its cadence", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  await t.service.refresh({ force: true });
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [1, 1]);
+  for (let i = 0; i < 5; i++) {
+    const release = t.service.connectClient();
+    await settle();
+    release();
+    await t.advance(5_000);
+  }
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [1, 1]);
+  // Past 30 s a new connection reads Codex; Claude still waits for its 4 min.
+  await t.advance(10_000);
+  t.service.connectClient();
+  await settle();
+  assert.deepEqual([t.calls.codexRead, t.calls.probe], [2, 1]);
+});
+
+test("limits come from the env when valid", () => {
+  assert.deepEqual(planUsageLimitsFromEnv({}), DEFAULT_PLAN_USAGE_LIMITS);
+  assert.deepEqual(
+    planUsageLimitsFromEnv({ ANYWH_PLAN_USAGE_CODEX_FRESH_MS: "45000", ANYWH_PLAN_USAGE_CODEX_FORCE_FLOOR_MS: "-1", ANYWH_PLAN_USAGE_CLAUDE_FORCE_FLOOR_MS: "0" }),
+    { codexFreshMs: 45_000, codexForceFloorMs: DEFAULT_PLAN_USAGE_LIMITS.codexForceFloorMs, claudeForceFloorMs: 0 },
+  );
 });

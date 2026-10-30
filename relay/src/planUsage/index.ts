@@ -92,14 +92,17 @@ export { claudeProjectsDir, hasClaudeActivitySince } from "./transcriptActivity.
 
 export type {
   CreatePlanUsageServiceOptions,
+  PlanUsageLimits,
   PlanUsageListener,
   PlanUsageRefreshOptions,
   PlanUsageServiceDeps,
   PlanUsageSnapshotStore,
 } from "./service.js";
 export {
+  DEFAULT_PLAN_USAGE_LIMITS,
   PLAN_USAGE_PROBE_ENV,
   PlanUsageService,
+  planUsageLimitsFromEnv,
   createFilePlanUsageStore,
   createPlanUsageService,
   isPlanUsageProbeEnabled,

@@ -40,8 +40,11 @@ export interface AutoReadContext {
   lastReadingAt: number | null;
   /** No automatic read before this, after a failure. */
   backoffUntil: number | null;
-  /** A new connection asked; the floor applies instead of the interval. */
+  /** A new connection asked; `connectFloorMs` applies instead of the
+   * interval (Codex only: a connection never shortens Claude's cadence). */
   onConnect?: boolean;
+  /** The floor for `onConnect`; `CONNECT_FLOOR_MS` by default. */
+  connectFloorMs?: number;
 }
 
 export interface ClaudeAutoContext extends AutoReadContext {
@@ -59,7 +62,7 @@ function commonBlock(ctx: AutoReadContext): boolean {
 
 function due(ctx: AutoReadContext, intervalMs: number): boolean {
   if (ctx.lastReadingAt === null) return true;
-  return ctx.now - ctx.lastReadingAt >= (ctx.onConnect ? CONNECT_FLOOR_MS : intervalMs);
+  return ctx.now - ctx.lastReadingAt >= (ctx.onConnect ? (ctx.connectFloorMs ?? CONNECT_FLOOR_MS) : intervalMs);
 }
 
 /** Whether the 5h window is known and active, with the edge margin. */
@@ -91,7 +94,9 @@ export type ClaudeAutoDecision = "probe" | "skip";
 
 export function decideClaudeAuto(ctx: ClaudeAutoContext): ClaudeAutoDecision {
   if (!ctx.probeEnabled || ctx.turnActive || commonBlock(ctx)) return "skip";
-  if (shouldAutoProbe(ctx.usage, ctx.now)) return due(ctx, CLAUDE_PROBE_INTERVAL_MS) ? "probe" : "skip";
+  // A connection (a client reconnecting, a second device) never shortens the
+  // 4-min cadence: each probe is a paid turn.
+  if (shouldAutoProbe(ctx.usage, ctx.now)) return due({ ...ctx, onConnect: false }, CLAUDE_PROBE_INTERVAL_MS) ? "probe" : "skip";
   // Expired window: only new local use, which has opened one already. A
   // limited account inside its window, or a login without a plan, is left
   // alone either way.
