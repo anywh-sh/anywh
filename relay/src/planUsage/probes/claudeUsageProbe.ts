@@ -206,6 +206,8 @@ export interface ClaudeUsageSpawnOptions {
   /** Empty directory the probe runs in; created (0700) when missing. */
   cwd?: string;
   probeTimeoutMs?: number;
+  /** After the timeout's SIGTERM, how long before SIGKILL. */
+  killGraceMs?: number;
 }
 
 /** The probe's working directory: empty, the relay's own, never a project. */
@@ -213,23 +215,44 @@ export function defaultClaudeUsageProbeCwd(env: NodeJS.ProcessEnv = process.env)
   return join(sessionsRoot(env), "usage-probe");
 }
 
-function spawnCollect(bin: string, args: readonly string[], homeOverride: string | undefined, cwd: string | undefined, timeoutMs: number): Promise<ProcessOutput> {
+/** A probe answers in a few KB; anything past this is not read. */
+export const PROBE_STDOUT_MAX_BYTES = 1024 * 1024;
+const DEFAULT_KILL_GRACE_MS = 5_000;
+
+function spawnCollect(
+  bin: string,
+  args: readonly string[],
+  homeOverride: string | undefined,
+  cwd: string | undefined,
+  timeoutMs: number,
+  killGraceMs = DEFAULT_KILL_GRACE_MS,
+): Promise<ProcessOutput> {
   const binDir = bin.includes(sep) ? dirname(bin) : undefined;
   const pathDirs = binDir ? [...EXTRA_PATH_DIRS, binDir] : EXTRA_PATH_DIRS;
   const env = buildChildEnv(homeOverride, pathDirs, stripBilledCredentials, claudeRuntimeDef.identity.env.set);
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { env, cwd, stdio: ["ignore", "pipe", "ignore"] });
     let stdout = "";
+    let exited = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    // SIGTERM first; a process that ignores it gets SIGKILL after the grace.
     const timeout = setTimeout(() => {
-      child.kill();
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => {
+        if (!exited) child.kill("SIGKILL");
+      }, killGraceMs);
       reject(new ProbeTimeoutError());
     }, timeoutMs);
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+      if (stdout.length < PROBE_STDOUT_MAX_BYTES) stdout += chunk.toString("utf8").slice(0, PROBE_STDOUT_MAX_BYTES - stdout.length);
     });
     child.on("error", (error) => {
       clearTimeout(timeout);
       reject(error);
+    });
+    child.on("exit", () => {
+      exited = true;
+      if (killTimer) clearTimeout(killTimer);
     });
     child.on("close", (exitCode) => {
       clearTimeout(timeout);
@@ -250,7 +273,7 @@ export function defaultClaudeUsageProbeDeps(options: ClaudeUsageSpawnOptions = {
     },
     runProbe: (homeOverride, args) => {
       mkdirSync(cwd, { recursive: true, mode: 0o700 });
-      return spawnCollect(bin, args, homeOverride, cwd, options.probeTimeoutMs ?? CLAUDE_USAGE_PROBE_TIMEOUT_MS);
+      return spawnCollect(bin, args, homeOverride, cwd, options.probeTimeoutMs ?? CLAUDE_USAGE_PROBE_TIMEOUT_MS, options.killGraceMs);
     },
     now: () => Date.now(),
   };

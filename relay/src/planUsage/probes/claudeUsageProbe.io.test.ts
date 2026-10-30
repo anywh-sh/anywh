@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CLAUDE_USAGE_PROBE_ARGS, defaultClaudeUsageProbeDeps, probeClaudeUsage } from "./claudeUsageProbe.js";
+import { CLAUDE_USAGE_PROBE_ARGS, PROBE_STDOUT_MAX_BYTES, defaultClaudeUsageProbeDeps, probeClaudeUsage } from "./claudeUsageProbe.js";
 
 const FAKE_CLAUDE = resolve(fileURLToPath(import.meta.url), "../../../../tests/fixtures/fake-claude.mjs");
 
@@ -105,4 +105,34 @@ test("an account at its limit reads as limited", async () => {
 test("a CLI that can't be spawned is an error", async () => {
   const result = await probeClaudeUsage(home, defaultClaudeUsageProbeDeps({ bin: join(root, "missing-claude"), cwd }));
   assert.deepEqual(result, { kind: "error", error: "unknown", probed: false });
+});
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("a probe that ignores SIGTERM past its timeout is killed after the grace", async () => {
+  const dir = mkdtempSync(join(root, "stubborn-"));
+  const bin = join(dir, "claude");
+  const pidFile = join(dir, "pid");
+  writeFileSync(bin, `#!/bin/sh\necho $$ > ${pidFile}\ntrap '' TERM\nwhile true; do sleep 0.05; done\n`, { mode: 0o755 });
+  const deps = defaultClaudeUsageProbeDeps({ bin, cwd: dir, probeTimeoutMs: 300, killGraceMs: 200 });
+  await assert.rejects(deps.runProbe(undefined, CLAUDE_USAGE_PROBE_ARGS), { name: "ProbeTimeoutError" });
+  const pid = Number(readFileSync(pidFile, "utf8").trim());
+  const deadline = Date.now() + 3000;
+  while (alive(pid) && Date.now() < deadline) await new Promise((done) => setTimeout(done, 25));
+  assert.equal(alive(pid), false);
+});
+
+test("a probe's output is read up to 1 MB", async () => {
+  const dir = mkdtempSync(join(root, "chatty-"));
+  const bin = join(dir, "claude");
+  writeFileSync(bin, `#!/bin/sh\nhead -c 3000000 /dev/zero | tr '\\\\0' 'x'\n`, { mode: 0o755 });
+  const output = await defaultClaudeUsageProbeDeps({ bin, cwd: dir }).runProbe(undefined, CLAUDE_USAGE_PROBE_ARGS);
+  assert.equal(output.stdout.length, PROBE_STDOUT_MAX_BYTES);
 });
