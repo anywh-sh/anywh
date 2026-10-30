@@ -58,6 +58,11 @@ describe("plan usage in the status bar", () => {
       "ws://127.0.0.1:8002/plan-usage/watch",
     ]);
     expect(indicator).toHaveAccessibleName("Usage: Claude Code 58% 5h; Trabalho near the limit");
+    // The bar's first item, on the left (a deliberate change from the
+    // design's right-hand placement); the relay status stays on the right.
+    expect(statusBar.firstElementChild?.contains(indicator)).toBe(true);
+    const relayStatus = within(statusBar).getByRole("status");
+    expect(indicator.compareDocumentPosition(relayStatus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(indicator).getByRole("meter")).toHaveAttribute("aria-valuenow", "58");
     expect(document.querySelector('[data-usage-alert="trabalho"]')).toHaveAttribute("data-level", "warn");
 

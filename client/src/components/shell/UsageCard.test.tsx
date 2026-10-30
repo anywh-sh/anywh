@@ -85,12 +85,16 @@ afterEach(() => {
 });
 
 describe("UsageCard", () => {
-  it("is a labelled dialog with its own edges: top and left border, no shadow, a short rise", () => {
+  it("is a labelled dialog on the left edge: top and right border, no shadow, a short rise", () => {
     const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41)]) } });
     expect(card).toHaveAccessibleName("Usage");
     expect(card.className).toContain("w-[420px]");
     const classes = card.className.split(/\s+/);
-    expect(classes).toEqual(expect.arrayContaining(["border-t", "border-l"]));
+    expect(classes).toEqual(expect.arrayContaining(["border-t", "border-r"]));
+    expect(classes).not.toContain("border-l");
+    // Above the bar, aligned to its start: the window's left edge.
+    expect(card).toHaveAttribute("data-side", "top");
+    expect(card).toHaveAttribute("data-align", "start");
     expect(classes.filter((name) => name === "border" || name.startsWith("shadow"))).toEqual([]);
     expect(card.className).toContain("animate-usage-card-in");
   });

@@ -36,10 +36,12 @@ function useSecondClock(): number {
  * accounts, the active tab's first, each window with its bar, percentage and
  * renewal. A popover anchored to the status bar (the caller's `Popover.Root`
  * and `Popover.Anchor`), so it sits on the bar's top edge, flush with the
- * window's right edge.
+ * window's left edge, above the indicator. The original design had it on
+ * the right (mirroring an indicator on the right); both moved left on
+ * purpose, at the owner's request.
  *
  * Its own look rather than the dropdown's: a border on the two sides that
- * face the app only (top and left — the other two are the window's edge and
+ * face the app only (top and right — the other two are the window's edge and
  * the status bar), no shadow, and a 140ms rise out of the bar.
  */
 export function UsageCard({ groups, profileLabel, refreshing, onRefresh }: UsageCardProps) {
@@ -48,12 +50,12 @@ export function UsageCard({ groups, profileLabel, refreshing, onRefresh }: Usage
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
         side="top"
-        align="end"
+        align="start"
         sideOffset={0}
         collisionPadding={0}
         aria-label={strings.card.title}
         data-usage-card
-        className="animate-usage-card-in z-50 flex max-h-(--radix-popover-content-available-height) w-[420px] flex-col border-t border-l border-border bg-background font-sans text-foreground outline-hidden"
+        className="animate-usage-card-in z-50 flex max-h-(--radix-popover-content-available-height) w-[420px] flex-col border-t border-r border-border bg-background font-sans text-foreground outline-hidden"
       >
         <UsageCardBody groups={groups} profileLabel={profileLabel} refreshing={refreshing} onRefresh={onRefresh} strings={strings} />
       </PopoverPrimitive.Content>

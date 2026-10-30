@@ -19,6 +19,30 @@ async function shot(name) {
 }
 
 const indicator = () => $("[data-usage-indicator]");
+
+/** The status bar's items, left to right, as boxes — to prove the indicator
+ * comes first and that nothing overlaps at the current width. */
+function statusBarLayout() {
+  return browser.execute(() => {
+    const bar = document.querySelector("[data-status-bar]");
+    const box = (element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, width: rect.width };
+    };
+    const items = Array.from(bar?.children ?? [])
+      .map((element) => ({ ...box(element), usage: element.hasAttribute("data-usage-slot"), status: element.getAttribute("role") === "status" }))
+      .filter((item) => item.width > 0);
+    return { items, scrollWidth: bar?.scrollWidth ?? 0, clientWidth: bar?.clientWidth ?? 0 };
+  });
+}
+
+function assertLayout(layout, where) {
+  if (!layout.items[0]?.usage) throw new Error(`${where}: the usage indicator is not the status bar's first item`);
+  for (let i = 1; i < layout.items.length; i++) {
+    if (layout.items[i].left < layout.items[i - 1].right - 0.5) throw new Error(`${where}: status bar items overlap at ${String(i)}: ${JSON.stringify(layout.items)}`);
+  }
+  if (layout.scrollWidth > layout.clientWidth + 1) throw new Error(`${where}: the status bar overflows (${String(layout.scrollWidth)} > ${String(layout.clientWidth)})`);
+}
 const card = () => $("[data-usage-card]");
 const label = (element) => element.getAttribute("aria-label");
 
@@ -120,8 +144,33 @@ describe("plan usage", () => {
     if (seen.meters !== "58,41,91,64") throw new Error(`card meters: expected 58,41,91,64, got ${seen.meters}`);
     if (seen.order !== "e2e-pessoal,e2e-trabalho") throw new Error(`profiles out of order: ${seen.order}`);
     if (seen.commands !== "codex login,codex login") throw new Error(`login commands: ${seen.commands}`);
-    await browser.pause(300);
+    // On the left: flush with the window's left edge, above the indicator,
+    // its border on the top and right only. Measured once the popover has
+    // re-placed itself for the content that just arrived (and the 140ms
+    // rise is over).
+    await browser.pause(500);
+    const placement = await browser.execute(() => {
+      const card = document.querySelector("[data-usage-card]");
+      const style = card ? getComputedStyle(card) : null;
+      return {
+        left: card?.getBoundingClientRect().left,
+        bottom: card?.getBoundingClientRect().bottom,
+        barTop: document.querySelector("[data-status-bar]")?.getBoundingClientRect().top,
+        borderLeft: style?.borderLeftWidth,
+        borderRight: style?.borderRightWidth,
+      };
+    });
+    if (placement.left !== 0) throw new Error(`the card should touch the window's left edge, left = ${String(placement.left)}`);
+    if (Math.abs(placement.bottom - placement.barTop) > 1) throw new Error(`the card should sit on the status bar: ${JSON.stringify(placement)}`);
+    if (placement.borderLeft !== "0px" || placement.borderRight === "0px") throw new Error(`the card's borders should be top and right: ${JSON.stringify(placement)}`);
     await shot("eng-39-e2e-card");
+  });
+
+  it("puts the indicator first on the left, with the relay status still on the right", async () => {
+    const layout = await statusBarLayout();
+    assertLayout(layout, "1440px");
+    const status = layout.items.find((item) => item.status);
+    if (!status || status.right < layout.clientWidth / 2) throw new Error("the relay status left the right side of the bar");
   });
 
   it("alerts on the inactive profile near its limit", async () => {
@@ -147,7 +196,13 @@ describe("plan usage", () => {
     if (!text.includes("58%")) throw new Error(`compact indicator lost the 5h percentage: "${text}"`);
     const meters = await browser.execute(() => document.querySelectorAll('[data-usage-indicator] [role="meter"]').length);
     if (meters !== 0) throw new Error("the compact indicator should draw no meter");
+    assertLayout(await statusBarLayout(), "980px");
     await shot("eng-39-e2e-statusbar-compact");
+    // The narrowest the window goes: still first, still no overlap.
+    await browser.setWindowSize(720, 700);
+    await browser.pause(300);
+    assertLayout(await statusBarLayout(), "720px");
+    await shot("eng-39-e2e-statusbar-narrow");
     await browser.setWindowSize(1440, 900);
   });
 });

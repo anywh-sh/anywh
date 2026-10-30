@@ -780,7 +780,7 @@ function AppShell() {
       <RoomStatusProbes sessions={sessions} />
       {/* The usage card is anchored to the whole status bar, not to its
        * trigger: it opens on the bar's top edge, flush with the window's
-       * right edge, whatever sits between the indicator and that edge.
+       * left edge, right above the indicator (the bar's first item).
        * Opening it asks every relay for a cheap re-read (Codex pulled,
        * Claude answered from the relay's cache). */}
       <PopoverPrimitive.Root
