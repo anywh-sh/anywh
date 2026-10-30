@@ -7,7 +7,7 @@
 // itself and hands anything else to the fake app-server.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnRelay, type SpawnedServer } from "./helpers/spawnedServer.js";
@@ -55,7 +55,11 @@ before(async () => {
   claudeLoggedOutFile = join(dir, "claude-logged-out");
   codexLoggedInFile = join(dir, "codex-logged-in");
   // A real `codex` anywhere on the inherited PATH would answer for the
-  // missing one, so every directory holding one is dropped.
+  // missing one, so every directory holding one is dropped. That can drop
+  // `node` along with it (nvm installs both in one directory), and the fake
+  // claude runs through `#!/usr/bin/env node`: this test's own node goes
+  // first on the PATH instead.
+  symlinkSync(process.execPath, join(binDir, "node"));
   const inheritedPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !isExecutable(join(entry, "codex")));
   relay = await spawnRelay({
     HOME: home,
