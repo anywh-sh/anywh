@@ -50,11 +50,18 @@ export function formatWeekdayTime(epochMs: number, locale: Locale, timeZone?: st
   return `${weekday} ${time}`;
 }
 
+/** Day and month in the interface's language: "10/11" in Portuguese,
+ * "11/10" in English. */
+export function formatShortDate(epochMs: number, locale: Locale, timeZone?: string): string {
+  return new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", timeZone }).format(new Date(epochMs));
+}
+
 /**
  * When a window resets, as the short value of a renewal column: a span while
- * it is less than a day away ("58m"), the weekday and time after that ("sex
- * 14:00") — counting down days in hours stops meaning anything. `null` once
- * the reset time has passed or isn't known.
+ * it is less than a day away ("58m"), the weekday and time within the week
+ * ("sex 14:00") — counting down days in hours stops meaning anything — and
+ * the date beyond it ("10/11"), where a weekday would name the wrong week.
+ * `null` once the reset time has passed or isn't known.
  */
 export function formatResetTime(
   resetsAtMs: number,
@@ -64,9 +71,9 @@ export function formatResetTime(
 ): { kind: "in" | "on"; text: string } | null {
   if (!Number.isFinite(resetsAtMs) || resetsAtMs <= nowMs) return null;
   const remaining = resetsAtMs - nowMs;
-  return remaining < DAY
-    ? { kind: "in", text: formatSpan(remaining) }
-    : { kind: "on", text: formatWeekdayTime(resetsAtMs, locale, timeZone) };
+  if (remaining < DAY) return { kind: "in", text: formatSpan(remaining) };
+  if (remaining < 6 * DAY) return { kind: "on", text: formatWeekdayTime(resetsAtMs, locale, timeZone) };
+  return { kind: "on", text: formatShortDate(resetsAtMs, locale, timeZone) };
 }
 
 /** The same reset as a phrase: "back in 58m" / "volta sex 14:00". */

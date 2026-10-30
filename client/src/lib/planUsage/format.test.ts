@@ -56,6 +56,13 @@ describe("formatResetTime", () => {
     expect(formatResetTime(FRIDAY_2PM, NOW, "pt-BR", TZ)).toEqual({ kind: "on", text: "sex 14:00" });
   });
 
+  it("gives the date when the reset is a week or more away", () => {
+    const later = Date.UTC(2026, 10, 10, 17, 0, 0);
+    expect(formatResetTime(later, NOW, "pt-BR", TZ)).toEqual({ kind: "on", text: "10/11" });
+    expect(formatResetTime(later, NOW, "en", TZ)).toEqual({ kind: "on", text: "11/10" });
+    expect(formatResetTime(NOW + 6 * D - 1, NOW, "pt-BR", TZ)?.text).toMatch(/^[a-zà-ú]{3} \d{2}:\d{2}$/);
+  });
+
   it("has nothing to say once the reset is behind or unknown", () => {
     expect(formatResetTime(NOW, NOW, "en", TZ)).toBeNull();
     expect(formatResetTime(NOW - M, NOW, "en", TZ)).toBeNull();
