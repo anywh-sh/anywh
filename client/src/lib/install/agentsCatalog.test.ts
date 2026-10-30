@@ -154,6 +154,28 @@ describe("fetchAgentsCatalog", () => {
     },
   );
 
+  it("falls back to /host-info when the route's answer can't be read (an older relay's 426 has no CORS header)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/control/agents")) return Promise.reject(new TypeError("Load failed"));
+        return Promise.resolve(respond(200, { hostname: "box", platform: "linux", editor: null, agents: [{ id: "codex", capabilities: {} }] }));
+      }),
+    );
+    const catalog = await fetchAgentsCatalog(profile);
+    expect(catalog.full).toBe(false);
+    expect(catalog.agents.map((a) => a.id)).toEqual(["codex"]);
+  });
+
+  it("keeps the original error when /host-info can't be read either", async () => {
+    const original = new TypeError("Load failed");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => (url.endsWith("/control/agents") ? Promise.reject(original) : Promise.reject(new TypeError("other")))),
+    );
+    await expect(fetchAgentsCatalog(profile)).rejects.toBe(original);
+  });
+
   it("rejects on any other failure", async () => {
     vi.stubGlobal(
       "fetch",

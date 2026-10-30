@@ -106,7 +106,8 @@ export interface FakeAgent {
  * `FakeRelay.control`, so a test can install an agent between two checks. */
 export interface FakeControl {
   /** What `GET /control/agents` lists, or "legacy" for a relay without the
-   * route: it answers 426 and the app falls back to `/host-info`. */
+   * route: its 426 carries no CORS header, so the app's fetch rejects and it
+   * falls back to `/host-info`. */
   agents: FakeAgent[] | "legacy";
   /** The agents a legacy relay's `/host-info` reports. */
   hostInfoAgents?: string[];
@@ -192,8 +193,7 @@ export function installFakeRelay(
   ): Response | null {
     if (url.pathname === "/control/agents") {
       agentChecks++;
-      if (scripted.agents === "legacy")
-        return reply(426, { error: "upgrade required" });
+
       return reply(200, {
         agents: scripted.agents.map((a) => ({
           id: a.id,
@@ -246,8 +246,14 @@ export function installFakeRelay(
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string | URL, init?: { method?: string; body?: string }) => {
-      const scripted =
-        control && handleControl(new URL(String(input)), init, control);
+      const url = new URL(String(input));
+      // A relay without the route answers 426 with no CORS header, which
+      // the webview (another origin) can't read: the fetch itself rejects.
+      if (control?.agents === "legacy" && url.pathname === "/control/agents") {
+        agentChecks++;
+        return Promise.reject(new TypeError("Load failed"));
+      }
+      const scripted = control && handleControl(url, init, control);
       return scripted
         ? Promise.resolve(scripted)
         : Promise.reject(

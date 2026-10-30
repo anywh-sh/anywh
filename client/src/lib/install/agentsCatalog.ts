@@ -77,23 +77,30 @@ function normalize(raw: AgentInfo): AgentInfo {
   };
 }
 
-/** Asks `profile`'s relay which agents it has. An older relay (no such
- * route: it answers 426 or 404) falls back to `/host-info`, which lists the
- * installed agents only. Any other failure rejects. */
-export async function fetchAgentsCatalog(
-  profile: Profile,
-): Promise<AgentsCatalog> {
+/** Asks `profile`'s relay which agents it has. An older relay has no such
+ * route and falls back to `/host-info`, which lists the installed agents
+ * only. That older relay answers the unknown route with a 426 that carries
+ * no CORS header, so from the app's webview (a different origin) the fetch
+ * itself rejects rather than resolving with that status: a rejection is
+ * tried against `/host-info` too, and only if that fails as well does the
+ * original error stand. A 404 or 426 that does reach us (same origin, or a
+ * relay that sets the header) takes the same path. */
+export async function fetchAgentsCatalog(profile: Profile): Promise<AgentsCatalog> {
   const { host, port, token } = await resolveConnection(profile);
-  const response = await fetch(
-    `http://${host}:${String(port)}/control/agents`,
-    { headers: authHeaders(token) },
-  );
-  if (response.status === 404 || response.status === 426)
-    return fromHostInfo(profile);
+  let response: Response;
+  try {
+    response = await fetch(`http://${host}:${String(port)}/control/agents`, { headers: authHeaders(token) });
+  } catch (err) {
+    try {
+      return await fromHostInfo(profile);
+    } catch {
+      throw err;
+    }
+  }
+  if (response.status === 404 || response.status === 426) return fromHostInfo(profile);
   if (!response.ok) throw new Error(`HTTP ${String(response.status)}`);
   const body = (await response.json()) as { agents?: unknown };
-  if (!Array.isArray(body.agents))
-    throw new Error("malformed /control/agents response");
+  if (!Array.isArray(body.agents)) throw new Error("malformed /control/agents response");
   return { agents: body.agents.filter(isAgentInfo).map(normalize), full: true };
 }
 
