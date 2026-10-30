@@ -31,6 +31,7 @@ import { ClaudeSubtaskTracker } from "./streams/claudeSubtasks.js";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
 import type { AgentSessionDriver, DriverTurnResult, SubtaskInfo, TurnHooks } from "./sessionDriver.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, RoomAgentSetup, TurnContext } from "./types.js";
+import { planUsageCapture, planUsageRuntimeOf, type PlanUsageCapture } from "../planUsage/index.js";
 
 export interface HostAgentBinding {
   /** `undefined` when this relay has no agent host to talk to. */
@@ -59,6 +60,9 @@ export interface HostSessionDriverOptions {
   readonly binding: HostAgentBinding;
   /** How long a turn waits for a disconnected host before failing. */
   readonly connectTimeoutMs?: number;
+  /** Where the turn's rate limit readings and its start/end go; the relay's
+   * shared capture unless a test passes its own. */
+  readonly planUsage?: PlanUsageCapture;
 }
 
 interface ResultUsage {
@@ -132,6 +136,17 @@ export class HostSessionDriver implements AgentSessionDriver {
   ) {
     this.sessionId = options.initialSessionId;
     this.daemonPlan = def.exec.kind === "jsonRpcDaemon" ? def.exec : undefined;
+  }
+
+  private get planUsage(): PlanUsageCapture {
+    return this.options.planUsage ?? planUsageCapture;
+  }
+
+  /** Marks a turn of this agent's runtime as running, for the plan usage
+   * scheduler; the returned function ends it. */
+  private markTurnActive(): () => void {
+    const runtime = planUsageRuntimeOf(this.def.identity.id);
+    return runtime ? this.planUsage.turnStarted(runtime) : () => {};
   }
 
   private get agentId(): string {
@@ -242,6 +257,7 @@ export class HostSessionDriver implements AgentSessionDriver {
     };
     // Current from here on, so a Stop during the waits below is seen.
     this.turn = turn;
+    const endTurn = this.markTurnActive();
     const onState = (agent: AgentActivity): void => this.onAgentState(turn, agent);
     client.on("agent_state", onState);
     try {
@@ -266,6 +282,7 @@ export class HostSessionDriver implements AgentSessionDriver {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(this.describeFailure(message, setup), { cause: error });
     } finally {
+      endTurn();
       client.off("agent_state", onState);
       if (this.turn === turn) this.turn = undefined;
     }
@@ -313,12 +330,14 @@ export class HostSessionDriver implements AgentSessionDriver {
       }
     };
     client.on("agent_state", onState);
+    let endTurn: (() => void) | undefined;
     try {
       const { agents } = await client.request<{ agents: AgentActivity[] }>("activity");
       const agent = agents.find((candidate) => candidate.agentId === this.agentId);
       if (!agent || (agent.state !== "working" && agent.state !== "starting")) return { stopped: false };
       if (agent.sessionId && this.daemonPlan) this.sessionId = agent.sessionId;
       this.turn = turn;
+      endTurn = this.markTurnActive();
       // Where to read from:
       // - the session just read the turn so far from Claude's transcript:
       //   from the log's end, so nothing is shown twice;
@@ -334,6 +353,7 @@ export class HostSessionDriver implements AgentSessionDriver {
       this.subscribe(client, from);
       return await done;
     } finally {
+      endTurn?.();
       client.off("agent_state", onState);
       if (this.turn === turn) this.turn = undefined;
     }
@@ -500,6 +520,8 @@ export class HostSessionDriver implements AgentSessionDriver {
 
   private onClaudeEvent(turn: ActiveTurn, event: ClaudeEvent): void {
     if (event.type === "control_response" || event.type === "host_unparsed") return;
+    // Read on the side: the event still goes to the mapper, which drops it.
+    if (event.type === "rate_limit_event") this.planUsage.claudeEvent(event);
     // Same filter as a direct turn: `user` lines that are not tool results are
     // the CLI's own synthetic noise (skill bodies, reminders).
     if (event.type === "user" && !isToolResultOnly((event.message as { content?: unknown } | undefined)?.content)) return;
@@ -532,6 +554,9 @@ export class HostSessionDriver implements AgentSessionDriver {
     if (event.type !== "codex_notification" || typeof event.method !== "string") return;
     const method = event.method;
     const params = event.params;
+    // Account-wide limits the host appended to this agent's log: for the
+    // plan usage capture only, never for the chat mapper.
+    if (this.planUsage.codexNotification(method, params)) return;
     if (method === "turn/started") return;
     if (method === "turn/completed") {
       const info = isRecord(params) && isRecord(params.turn) ? params.turn : {};

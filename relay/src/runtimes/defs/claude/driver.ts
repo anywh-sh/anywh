@@ -17,6 +17,7 @@ import { buildGrantRules } from "./grantRules.js";
 import { buildMcpSpawnConfig } from "./mcpSpawnConfig.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import type { ToolCallMemo } from "../../streams/claudeToolMapping.js";
+import { planUsageCapture, type PlanUsageCapture } from "../../../planUsage/index.js";
 
 /** Bridge wiring shared by every `SharedSession` in the process (mirrors
  * what `SharedSessionOptions` already carried) — `undefined` fields mean
@@ -37,6 +38,9 @@ export interface ClaudeSessionDriverOptions {
   readonly mcp?: ClaudeMcpWiring;
   /** See `ClaudeSessionOptions.agentWorker`. */
   readonly agentWorker?: boolean;
+  /** Where the turn's `rate_limit_event` and its start/end go; the relay's
+   * shared capture unless a test passes its own. */
+  readonly planUsage?: PlanUsageCapture;
 }
 
 export class ClaudeSessionDriver implements AgentSessionDriver {
@@ -44,12 +48,14 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
   private readonly homeOverride: string | undefined;
   private readonly host: SessionDriverHost;
   private readonly mcp: ClaudeMcpWiring | undefined;
+  private readonly planUsage: PlanUsageCapture;
 
   constructor(options: ClaudeSessionDriverOptions) {
     this.claudeSession = new ClaudeSession({ homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, agentWorker: options.agentWorker });
     this.homeOverride = options.homeOverride;
     this.host = options.host;
     this.mcp = options.mcp;
+    this.planUsage = options.planUsage ?? planUsageCapture;
   }
 
   getSessionId(): string | undefined {
@@ -122,6 +128,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
 
     // Per turn: a tool result is interpreted with the input of the call it answers.
     const memos = new Map<string, ToolCallMemo>();
+    const endTurn = this.planUsage.turnStarted("claude");
     try {
       const { stopped, contextUsage, lastAssistantText } = await this.claudeSession.sendTurn(
         ctx.prompt,
@@ -129,6 +136,9 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
         permissionMode,
         ctx.modelId,
         (event) => {
+          // Read on the side: the event still goes to the mapper, which
+          // drops it as before.
+          if (event.type === "rate_limit_event") this.planUsage.claudeEvent(event);
           for (const agentEvent of mapClaudeEvent(event, memos)) onEvent(agentEvent);
         },
         mcpConfig,
@@ -136,6 +146,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
       );
       return { stopped, contextUsage, lastAssistantText };
     } finally {
+      endTurn();
       choiceRegistration?.unregister();
       permissionRegistration?.unregister();
     }

@@ -119,6 +119,20 @@ export function isSetDraftMessage(value: unknown): value is { type: "set_draft";
   );
 }
 
+/** `/plan-usage/watch`'s one command (planUsage/types.ts
+ * `PlanUsageRefreshMessage`): `force` must be a boolean and `runtime`, when
+ * present, one of the runtimes with a plan to read. */
+export function isPlanUsageRefreshMessage(value: unknown): value is { type: "plan_usage_refresh"; runtime?: "claude" | "codex"; force: boolean } {
+  if (typeof value !== "object" || value === null) return false;
+  const { type, runtime, force } = value as { type?: unknown; runtime?: unknown; force?: unknown };
+  return type === "plan_usage_refresh" && typeof force === "boolean" && (runtime === undefined || runtime === "claude" || runtime === "codex");
+}
+
+/** The client's liveness probe on a watch socket, answered with `pong`. */
+export function isPingMessage(value: unknown): value is { type: "ping" } {
+  return typeof value === "object" && value !== null && (value as { type?: unknown }).type === "ping";
+}
+
 /** No payload — the client sends this once, when the popover first opens,
  * to ask the relay to compute (or hand back a cached) context breakdown for
  * the session's own def. See SharedSession.requestContextBreakdown. */

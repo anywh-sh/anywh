@@ -69,6 +69,14 @@
      own. There is no "yellow" in the palette (only primary/destructive), so
      this is the one new tone that feature introduced. */
   --context-ring-warn: #e9b860;
+  /* Plan usage nearing its limit (80–99% of a window): the usage meter's
+     fill, its percentage, the status bar's alert dot. A flat state color,
+     unlike `--context-ring-warn`, which is the midpoint of a gradient. Its
+     "limit reached" partner is `--destructive` (the `err` alias below).
+     Not a theme key yet: the theme contract is mirrored by the relay's
+     validator, so a custom theme can't declare it. Until it is one, it
+     follows the theme's appearance (the light value is further down). */
+  --warn: #e6c35c;
   /* Only for an added line in a diff or code preview (CodeLines) — not a UI
      color, and for the same reason as hljs-string/number below: `--primary`
      is orange/terracotta, too close to `--destructive` in hue to work as the
@@ -172,6 +180,14 @@
   --motion-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 
+/* `--warn` on a light page. No light variant was drawn for it: the dark
+   value measures under 2:1 on Papel, and Papel's `--context-ring-warn` amber
+   only 3.8:1 on its `card`, so this is that same amber taken down until it
+   holds 4.5:1 on every light surface it is printed on (themeContrast.test). */
+:root[data-appearance="light"] {
+  --warn: #8f6319;
+}
+
 /* Without this, `dark:` in Tailwind v4 falls back to the default
  * `prefers-color-scheme` — meaning the `dark:` overrides that shipped with
  * the shadcn components (button, badge, select, tabs, dropdown-menu)
@@ -236,6 +252,12 @@
   --color-destructive-hover: color-mix(in srgb, var(--destructive) 86%, var(--foreground));
   --color-diff-add: var(--diff-add);
   --color-context-ring-warn: var(--context-ring-warn);
+  /* State colors of the plan usage view: `warn` is 80–99% of a window,
+     `err` a window at 100%. `err` is an alias rather than a token of its
+     own: a spent window is the same "stop" as every other destructive tone,
+     and the design's value for it is `--destructive`'s. */
+  --color-warn: var(--warn);
+  --color-err: var(--destructive);
 
   --color-overlay: var(--overlay);
   --color-glass-tint: var(--glass-tint);
@@ -471,6 +493,19 @@ body {
 }
 .animate-step-in {
   animation: step-in 240ms var(--motion-ease) both;
+}
+
+/* The usage card rising out of the status bar it is anchored to — the
+ * opposite direction of `step-in`, and shorter: it is a peek, opened and
+ * closed often. Reduced motion is covered by the blanket rule above. */
+@keyframes usage-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.animate-usage-card-in {
+  animation: usage-card-in 140ms var(--motion-ease) both;
 }
 
 /* Radix's `ScrollArea` injects an inner wrapper with `display:table;

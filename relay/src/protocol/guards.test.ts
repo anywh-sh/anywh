@@ -27,6 +27,8 @@ import {
   isTerminalResizeMessage,
   isWatchMessage,
   isTerminalScrollMessage,
+  isPlanUsageRefreshMessage,
+  isPingMessage,
 } from "./guards.js";
 
 // Every guard here is the validation surface for a WS message or an HTTP
@@ -259,4 +261,21 @@ test("isTerminalScrollMessage", () => {
   assert.equal(isTerminalScrollMessage({ type: "scroll" }), false, "missing lines");
   assert.equal(isTerminalScrollMessage({ type: "scroll", lines: "3" }), false, "wrong type for lines");
   for (const v of NON_OBJECTS) assert.equal(isTerminalScrollMessage(v), false);
+});
+
+test("isPlanUsageRefreshMessage: force is required, runtime optional and known", () => {
+  assert.ok(isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: true }));
+  assert.ok(isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: false, runtime: "codex" }));
+  assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh" }));
+  assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: "true" }));
+  assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: true, runtime: "gemini" }));
+  assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: true, runtime: null }));
+  assert.ok(!isPlanUsageRefreshMessage(null));
+  assert.ok(!isPlanUsageRefreshMessage("plan_usage_refresh"));
+});
+
+test("isPingMessage", () => {
+  assert.ok(isPingMessage({ type: "ping" }));
+  assert.ok(!isPingMessage({ type: "pong" }));
+  assert.ok(!isPingMessage(null));
 });

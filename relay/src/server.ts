@@ -42,6 +42,9 @@ import { ActivityTrail } from "./session/roomActivity.js";
 import { ContextTally } from "./session/roomContextUsage.js";
 import { SessionManager } from "./session/sessionManager.js";
 import { SessionStore } from "./session/sessionStore.js";
+import { createPlanUsageService } from "./planUsage/service.js";
+import { planUsageCapture } from "./planUsage/capture.js";
+import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes } from "./routes/planUsage.js";
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
 import { handleMcpLoginConnection } from "./ws/mcpLogin.js";
@@ -88,6 +91,16 @@ const roomContext = new RoomContextStore({
 });
 // Per room agent: what it read from the model's cache and what it wrote.
 const agentContext = new ContextTally();
+// How much of each installed agent's plan is spent (planUsage/service.ts):
+// fed by every session's stream through the shared capture, read on its own
+// while a `/plan-usage/watch` client is connected.
+const planUsage = createPlanUsageService({
+  capture: planUsageCapture,
+  homeOverride: HOME_OVERRIDE,
+  sessionsFile: SESSIONS_FILE,
+  log: (line) => console.log(line),
+});
+planUsage.start();
 const roomActivity = new ActivityTrail();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
@@ -309,6 +322,7 @@ const routeContext: RouteContext = {
   roomManager,
   roomContext,
   agentContext,
+  planUsage,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -324,6 +338,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleAgentRoutes,
   handleAgentCatalogRoutes,
   handleRoomRoutes,
+  handlePlanUsageRoutes,
 ];
 
 /**
@@ -395,7 +410,10 @@ const refreshAgents = createAgentRefresher({
   roomRuntimeIds: HOST_RUNTIMES,
   homeOverride: HOME_OVERRIDE,
   cwd: defaultCwd(HOME_OVERRIDE),
-  publishSelectable: setSelectableAgents,
+  publishSelectable: (agents) => {
+    setSelectableAgents(agents);
+    planUsage.setInstalledRuntimes(agents.map((agent) => agent.id));
+  },
   publishRoomRuntimes: (ids) => {
     roomRuntimes = ids;
   },
@@ -570,6 +588,11 @@ wss.on("connection", (socket: WebSocket, request) => {
     return;
   }
 
+  if (url.pathname === PLAN_USAGE_WATCH_PATH) {
+    handlePlanUsageConnection(socket, planUsage);
+    return;
+  }
+
   if (url.pathname === "/sessions/watch") {
     sessionListWatchers.add(socket);
     // The whole list, first thing on every connection: a watcher that was
@@ -635,5 +658,11 @@ wss.on("connection", (socket: WebSocket, request) => {
   });
 });
 
-process.on("SIGTERM", () => void gracefulShutdown("SIGTERM", { httpServer, sessionManager }));
-process.on("SIGINT", () => void gracefulShutdown("SIGINT", { httpServer, sessionManager }));
+process.on("SIGTERM", () => {
+  planUsage.stop();
+  void gracefulShutdown("SIGTERM", { httpServer, sessionManager });
+});
+process.on("SIGINT", () => {
+  planUsage.stop();
+  void gracefulShutdown("SIGINT", { httpServer, sessionManager });
+});

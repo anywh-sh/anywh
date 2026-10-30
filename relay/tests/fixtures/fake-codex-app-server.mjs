@@ -27,12 +27,26 @@
 // `dynamicTools` the way a Codex without the experimental API would; a cwd
 // containing "thread-start-fails" makes it refuse any thread (not logged in),
 // one containing "slow-thread" answers `thread/start` 400 ms late.
-import { appendFileSync, writeFileSync } from "node:fs";
+// Plan usage (`account/read`, `account/rateLimits/read` and the
+// `account/rateLimits/updated` push) answers with the samples recorded in
+// codex-app-server-0.154.0-rate-limits.json, for the account picked by
+// FAKE_CODEX_ACCOUNT: `free` (default; measured), `plus` (a paid plan, NOT
+// measured), `api_key` or `signed_out`. FAKE_CODEX_PUSH_AFTER_READ=1 pushes
+// that account's `account/rateLimits/updated` right after each read (the
+// empty `premium` bucket for `free`); FAKE_CODEX_RATE_LIMITS_HANG=1 never
+// answers `account/rateLimits/read`. A turn whose text has [[rate-limits]]
+// pushes the same update before it completes, like a real turn does.
+// FAKE_CODEX_INIT_HANG=1 never answers `initialize` (the handshake that hung
+// in a CODEX_HOME without a login); FAKE_CODEX_PID_FILE gets this process's
+// pid, so a test can check it was stopped.
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 if (process.argv[2] === "--version") {
   process.stdout.write("codex-cli 0.154.0\n");
   process.exit(0);
 }
+if (process.env.FAKE_CODEX_PID_FILE) appendFileSync(process.env.FAKE_CODEX_PID_FILE, `${process.pid}\n`);
 if (process.argv[2] !== "app-server") {
   process.stderr.write(`fake codex: unsupported invocation ${process.argv.slice(2).join(" ")}\n`);
   process.exit(2);
@@ -40,6 +54,21 @@ if (process.argv[2] !== "app-server") {
 if (process.env.FAKE_CODEX_ENV_FILE) writeFileSync(process.env.FAKE_CODEX_ENV_FILE, JSON.stringify(process.env));
 
 const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+const { samples } = JSON.parse(readFileSync(join(import.meta.dirname, "codex-app-server-0.154.0-rate-limits.json"), "utf8"));
+const account = process.env.FAKE_CODEX_ACCOUNT || "free";
+const PLAN_USAGE = {
+  free: { account: samples.accountReadChatgptFree, limits: samples.rateLimitsReadFree, update: samples.rateLimitsUpdatedEmpty },
+  plus: { account: samples.accountReadChatgptPlus, limits: samples.rateLimitsReadPaid, update: samples.rateLimitsUpdatedPaid },
+  api_key: { account: samples.accountReadApiKey, limits: samples.rateLimitsReadApiKeyError },
+  signed_out: { account: samples.accountReadSignedOut, limits: samples.rateLimitsReadSignedOutError },
+}[account];
+if (!PLAN_USAGE) {
+  process.stderr.write(`fake codex: unknown FAKE_CODEX_ACCOUNT ${account}\n`);
+  process.exit(2);
+}
+const pushRateLimits = () => {
+  if (PLAN_USAGE.update) send({ method: "account/rateLimits/updated", params: PLAN_USAGE.update.params });
+};
 let threads = 0;
 let turns = 0;
 const hanging = new Map(); // turnId -> threadId
@@ -110,6 +139,7 @@ process.stdin.on("data", (chunk) => {
     }
     switch (message.method) {
       case "initialize":
+        if (process.env.FAKE_CODEX_INIT_HANG === "1") break;
         send({ id: message.id, result: { userAgent: "fake-codex/0.154.0" } });
         break;
       case "thread/start": {
@@ -154,6 +184,7 @@ process.stdin.on("data", (chunk) => {
         }
         send({ id: message.id, result: { turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
         send({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress", error: null, items: [] } } });
+        if (text.includes("[[rate-limits]]")) pushRateLimits();
         if (text.includes("[[die]]")) {
           // After what was already written reaches the pipe.
           process.stdout.write("", () => process.exit(1));
@@ -170,6 +201,15 @@ process.stdin.on("data", (chunk) => {
         }
         break;
       }
+      case "account/read":
+        send({ id: message.id, result: PLAN_USAGE.account.result });
+        break;
+      case "account/rateLimits/read":
+        if (process.env.FAKE_CODEX_RATE_LIMITS_HANG === "1") break;
+        if (PLAN_USAGE.limits.error) send({ id: message.id, error: PLAN_USAGE.limits.error });
+        else send({ id: message.id, result: PLAN_USAGE.limits.result });
+        if (process.env.FAKE_CODEX_PUSH_AFTER_READ === "1") pushRateLimits();
+        break;
       case "turn/interrupt": {
         const { threadId, turnId } = message.params;
         send({ id: message.id, result: {} });

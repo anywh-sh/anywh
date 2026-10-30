@@ -101,6 +101,12 @@ export interface SpawnCodexDaemonOptions {
     readonly clear: (timer: NodeJS.Timeout) => void;
   };
   readonly killGraceMs?: number;
+  /** Aborting it before `initialize` answers stops the process (SIGTERM,
+   * then SIGKILL) and rejects the returned promise. The handshake is the
+   * one stretch where the caller holds no `CodexDaemon` to `kill()`, so
+   * without this a handshake that never answers leaves the process running
+   * for good. No effect once the daemon is handed out. */
+  readonly initSignal?: AbortSignal;
 }
 
 function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { exec: JsonRpcDaemonPlan } {
@@ -279,6 +285,15 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       }
     }
 
+    // The caller gave up on the handshake (a timeout, a reader closed).
+    const onInitAbort = () => {
+      if (daemon || exited) return;
+      sendKillSignal();
+      finish("killed");
+    };
+    if (options.initSignal?.aborted) onInitAbort();
+    else options.initSignal?.addEventListener("abort", onInitAbort, { once: true });
+
     child.on("exit", () => {
       processExited = true;
       if (killTimer) clearTimeout(killTimer); // the process is confirmed gone; the SIGKILL escalation (if any) has nothing left to do
@@ -346,6 +361,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
     connection.request("initialize", { clientInfo, capabilities: { experimentalApi: true, requestAttestation: false } }).then(
       () => {
         if (exited) return; // already settled via the exit/error listeners above
+        options.initSignal?.removeEventListener("abort", onInitAbort);
         touchIdle = scheduleIdleCheck; // only after the handshake: no reaper before then
         scheduleIdleCheck();
         daemon = {

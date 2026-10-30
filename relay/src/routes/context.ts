@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { HostClient } from "../agentHost/hostClient.js";
+import type { PlanUsageService } from "../planUsage/service.js";
 import type { PushStore } from "../push/pushStore.js";
 import type { AgentDetection } from "../runtimes/detection.js";
 import type { Registry } from "../runtimes/registry.js";
@@ -45,6 +46,8 @@ export interface RouteContext {
   readonly roomContext: RoomContextStore;
   /** How full each room agent's context window is. */
   readonly agentContext: ContextTally;
+  /** How much of each installed agent's plan is spent (`/plan-usage`). */
+  readonly planUsage: PlanUsageService;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

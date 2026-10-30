@@ -1302,6 +1302,106 @@ export interface Dictionary {
       placeholder: string;
       noResults: string;
     };
+    /** Plan usage (Claude Code / Codex subscription windows): the status
+     * bar's indicator and its details card. `{window}` is a window's label
+     * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
+     * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
+    usage: {
+      /** A read is in progress for this agent (the relay's `reading`). */
+      reading: string;
+      /** The last read failed, by cause. `readError` is the one with no
+       * known cause. */
+      errorNetwork: string;
+      errorAuth: string;
+      errorParse: string;
+      /** The active profile's relay predates plan usage: the indicator
+       * says so instead of disappearing, so an old relay reads as one. */
+      outdated: string;
+      /** Its phrase in the indicator's accessible name. */
+      outdatedSummary: string;
+      /** The details card (`UsageCard`). */
+      card: {
+        /** Accessible name of a Copy button: "Copy codex login". */
+        copyCommand: string;
+        /** When the refresh button can read again: "again in 48s". Shown
+         * next to the reading's age while every relay would answer from its
+         * cache. */
+        againIn: string;
+        /** An agent installed but never logged in on this profile (relay's
+         * `everSignedIn: false`). Provisional copy: no design sign-off yet. */
+        notUsed: string;
+        title: string;
+        /** `{count}` profiles in the card's header, plural and singular. */
+        profiles: string;
+        profilesOne: string;
+        /** `{count}` accounts shown in full. */
+        accounts: string;
+        accountsOne: string;
+        refresh: string;
+        /** Tag on the group of the active tab's profile. */
+        activeTab: string;
+        connecting: string;
+        /** A profile whose relay is unreachable, nothing cached. */
+        offline: string;
+        /** Same, with its last numbers shown: "offline · 12m ago". `{ago}`
+         * is `updatedAgo`. */
+        staleSince: string;
+        unsupported: string;
+        noAgents: string;
+        /** Repeated account: "same account as {profile}" — `{profile}` is
+         * drawn as the profile's square and name. */
+        sameAccount: string;
+        signedOut: string;
+        /** The last read failed; the rows are the reading before it. */
+        readErrorKept: string;
+        /** Card line of an agent never read: the refresh button reads it. */
+        notReadHint: string;
+        /** Spoken renewal of a window: "renews in 1h 12m". */
+        renewsIn: string;
+        /** "renews Fri 14:00". */
+        renewsOn: string;
+        /** Legend of the 1px mark on every bar. */
+        paceLegend: string;
+      };
+      /** The status bar indicator's accessible name: "Usage: {items}". The
+       * items are the phrases below, joined with "; ". */
+      summary: string;
+      /** One agent's reading in that summary: "Claude Code 58% 5h". */
+      summaryWindow: string;
+      /** One spent agent: "Claude Code limit reached, back in 58m". `{reset}`
+       * is `resetsIn`/`resetsOn`, or empty when the reset time is unknown. */
+      summaryLimited: string;
+      /** `{agent}` + one of the state words below: "Codex not signed in". */
+      summaryState: string;
+      /** A window at 100%, with no reset time to say instead. */
+      limited: string;
+      /** The CLI is installed but has no login. */
+      signedOut: string;
+      /** Logged in with an API key or another non-plan login: no windows. */
+      apiKey: string;
+      /** Nothing read yet, and no read in progress. */
+      noData: string;
+      /** The last read failed and there is no earlier one to show. */
+      readError: string;
+      /** The active profile's relay is unreachable and these are its last
+       * numbers: "offline, last read 12m ago". `{ago}` is `updatedAgo`. */
+      stale: string;
+      /** Accessible name of a usage meter: "5h: 58% used". */
+      meterLabel: string;
+      /** Spoken value of a meter whose window has an expected pace — the
+       * pace mark itself is hidden from assistive tech, this carries it. */
+      meterValueWithPace: string;
+      /** Spoken value of a meter with no pace (spent window, unknown reset). */
+      meterValue: string;
+      /** A spent window coming back within a day: "back in 58m". */
+      resetsIn: string;
+      /** A spent window coming back later than a day from now: "back Fri 14:00". */
+      resetsOn: string;
+      /** When the numbers were read: "12s ago". */
+      updatedAgo: string;
+      /** Same, within the last second (the refresh button's "now"). */
+      updatedNow: string;
+    };
   };
   /** The room: an agent orchestration canvas, a session type chosen on the new
    * session screen. */

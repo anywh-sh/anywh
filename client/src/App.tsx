@@ -12,6 +12,12 @@ import { TabPanel } from "@/components/shell/TabPanel";
 import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { UsageCard } from "@/components/shell/UsageCard";
+import { UsageIndicator } from "@/components/shell/UsageIndicator";
+import { groupByProfile } from "@/lib/planUsage/derive";
+import { Popover as PopoverPrimitive } from "radix-ui";
+import { usePlanUsage } from "@/hooks/relay/usePlanUsage";
+import type { Profile } from "@/lib/profiles/profiles";
 import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
@@ -118,6 +124,8 @@ export default function App() {
   if (profiles.length === 0 || firstRun.active || (soleUnverified && !firstRun.shellChosen) || pendingAgents || adopting) return <FirstRun />;
   return <AppShell />;
 }
+
+const NO_PROFILES: readonly Profile[] = [];
 
 /** Everything the app is once a profile exists. Never mounted without one —
  * see `App` above. */
@@ -472,6 +480,13 @@ function AppShell() {
 
   const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
 
+  // Plan usage of every profile, for the status bar. The active tab's
+  // profile is the one allowed to wake its machine; with no tab open, the
+  // active profile. iOS has no status bar, so it opens no sockets at all.
+  const usageProfileId = activeTab?.profileId ?? activeProfile.id;
+  const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
+  const [usageCardOpen, setUsageCardOpen] = useState(false);
+
   const sidebarProps = {
     activeProfile,
     profiles,
@@ -763,19 +778,53 @@ function AppShell() {
        * (decision 1 of the plan). Reads the focused tab straight from `App`'s
        * own state — see StatusBar.tsx for why this one needs no portal. */}
       <RoomStatusProbes sessions={sessions} />
-      <StatusBar
-        profile={activeTab ? (findProfile(activeTab.profileId) ?? null) : null}
-        sessionId={activeTab?.id ?? null}
-        isRunning={activeTab?.isRunning ?? false}
-        windowFocused={windowFocused}
-        connected={activeConnected}
-        onOpenUpdateModal={() => setUpdateModalOpen(true)}
-        backgroundActivity={backgroundActivity}
-        onOpenBackgroundActivityItem={openBackgroundActivityItem}
-        onStopBackgroundActivityItem={stopBackgroundActivityItem}
-        onDismissBackgroundActivityItem={dismissBackgroundActivityItem}
-        onStopAllBackgroundActivity={stopAllBackgroundActivity}
-      />
+      {/* The usage card is anchored to the whole status bar, not to its
+       * trigger: it opens on the bar's top edge, flush with the window's
+       * left edge, right above the indicator (the bar's first item).
+       * Opening it asks every relay for a cheap re-read (Codex pulled,
+       * Claude answered from the relay's cache). */}
+      <PopoverPrimitive.Root
+        open={usageCardOpen}
+        onOpenChange={(next) => {
+          if (next) planUsage.refresh(undefined, false);
+          setUsageCardOpen(next);
+        }}
+      >
+        <PopoverPrimitive.Anchor className="shrink-0">
+          <StatusBar
+            profile={activeTab ? (findProfile(activeTab.profileId) ?? null) : null}
+            sessionId={activeTab?.id ?? null}
+            isRunning={activeTab?.isRunning ?? false}
+            windowFocused={windowFocused}
+            connected={activeConnected}
+            onOpenUpdateModal={() => setUpdateModalOpen(true)}
+            backgroundActivity={backgroundActivity}
+            onOpenBackgroundActivityItem={openBackgroundActivityItem}
+            onStopBackgroundActivityItem={stopBackgroundActivityItem}
+            onDismissBackgroundActivityItem={dismissBackgroundActivityItem}
+            onStopAllBackgroundActivity={stopAllBackgroundActivity}
+            usageIndicator={
+              <PopoverPrimitive.Trigger asChild>
+                <UsageIndicator
+                  profileId={usageProfileId}
+                  byProfile={planUsage.byProfile}
+                  now={planUsage.now}
+                  expanded={usageCardOpen}
+                />
+              </PopoverPrimitive.Trigger>
+            }
+          />
+        </PopoverPrimitive.Anchor>
+        <UsageCard
+          groups={groupByProfile(
+            profiles.map((profile) => profile.id),
+            planUsage.byProfile,
+            usageProfileId,
+          )}
+          profileLabel={(id) => findProfile(id)?.label ?? id}
+          onRefresh={() => planUsage.refresh(undefined, true)}
+        />
+      </PopoverPrimitive.Root>
     </div>
   );
 }

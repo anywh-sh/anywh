@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpCircle } from "lucide-react";
 
 import {
@@ -47,6 +47,9 @@ interface StatusBarProps {
   onDismissBackgroundActivityItem: (item: BackgroundActivityItem) => void;
   /** Footer "parar tudo". */
   onStopAllBackgroundActivity: () => void;
+  /** Plan usage (`UsageIndicator`), the bar's first item on the left. A
+   * slot, so this bar stays unaware of the usage sockets. */
+  usageIndicator?: ReactNode;
 }
 
 /** The status bar's room figures: every room's agents folded into the same
@@ -217,6 +220,7 @@ export function StatusBar({
   onStopBackgroundActivityItem,
   onDismissBackgroundActivityItem,
   onStopAllBackgroundActivity,
+  usageIndicator,
 }: StatusBarProps) {
   const dict = useDict();
   const update = useAppUpdate();
@@ -280,6 +284,13 @@ export function StatusBar({
 
   return (
     <div data-status-bar className="flex h-7 shrink-0 items-center gap-3.5 border-t border-border-soft bg-bg-chrome pr-2 pl-2.5 font-mono text-[11.5px] text-text-faint">
+      {/* Plan usage comes first, on the left. A deliberate departure from the
+          original design, which put it on the right before the relay status:
+          the owner wants it read first. The wrapper draws the separator after
+          it and collapses (`empty:`) when the indicator renders nothing. */}
+      <span data-usage-slot className="flex shrink-0 items-center gap-3.5 empty:hidden after:h-3 after:w-px after:bg-border after:content-['']">
+        {usageIndicator}
+      </span>
       <DropdownMenu
         modal={false}
         open={activityOpen}
@@ -366,8 +377,10 @@ export function StatusBar({
           {repo.branch} · {changes}
         </span>
       )}
+      {/* Pushes the relay status and the version to the right edge. */}
+      <span aria-hidden="true" className="min-w-0 flex-1" />
       {connected !== undefined && (
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 px-1.5" role="status">
+        <span className="flex shrink-0 items-center gap-1.5 px-1.5" role="status">
           <span
             aria-hidden="true"
             className={cn("size-1.5 rounded-full", connected ? "bg-diff-add" : "animate-pulse bg-destructive")}
