@@ -114,6 +114,34 @@ describe("UsageCard", () => {
     expect(refresh.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
   });
 
+  it("stays busy while a read is really running, not only until the relay answers", () => {
+    const { card } = openCard({ byProfile: { trabalho: live([{ ...claude(58, 41), reading: true, readingSince: NOW }]) } });
+    const refresh = within(card).getByRole("button", { name: "Refresh usage" });
+    expect(refresh).toHaveAttribute("aria-busy", "true");
+    expect(refresh.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+    const account = within(card).getByRole("region", { name: "Claude Code" });
+    expect(account.querySelector("[data-usage-account-reading]")).toHaveTextContent("updating…");
+    // The flag is dropped once it has gone unanswered too long.
+    act(() => vi.advanceTimersByTime(46_000));
+    expect(refresh).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("says why an account has no numbers", () => {
+    const unknown: RuntimePlanUsage = { runtime: "claude", status: "unknown", windows: [], observedAt: null };
+    const { card } = openCard({
+      byProfile: {
+        trabalho: live([unknown, { runtime: "codex", status: "error", windows: [], observedAt: null, error: { kind: "auth" } }]),
+        pessoal: live([{ ...unknown, accountKey: "zz", reading: true }]),
+      },
+    });
+    const notes = Array.from(card.querySelectorAll<HTMLElement>("[data-usage-note]")).map((note) => [note.dataset.usageNote, note.textContent]);
+    expect(notes).toEqual([
+      ["notRead", "not read yet · refresh to read"],
+      ["errorAuth", "login rejected"],
+      ["reading", "updating…"],
+    ]);
+  });
+
   it("lists the active tab's profile first, marked, then the others", () => {
     const { card } = openCard({ byProfile: { pessoal: live([claude(10, 10, { accountKey: "bbbb" })]), trabalho: live([claude(58, 41)]) } });
     const sections = Array.from(card.querySelectorAll<HTMLElement>("[data-usage-profile]"));

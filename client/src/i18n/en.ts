@@ -592,6 +592,10 @@ export const en: Dictionary = {
       noResults: "No sessions found.",
     },
     usage: {
+      reading: "updating…",
+      errorNetwork: "network error",
+      errorAuth: "login rejected",
+      errorParse: "unreadable reply",
       outdated: "update relay",
       outdatedSummary: "this profile's relay is too old to report usage",
       card: {
@@ -610,6 +614,7 @@ export const en: Dictionary = {
         sameAccount: "same account as {profile}",
         signedOut: "Not signed in",
         readErrorKept: "read failed · last reading",
+        notReadHint: "not read yet · refresh to read",
         renewsIn: "renews in {duration}",
         renewsOn: "renews {when}",
         paceLegend: "expected pace for now",
@@ -622,7 +627,7 @@ export const en: Dictionary = {
       limited: "limit reached",
       signedOut: "not signed in",
       apiKey: "API key",
-      noData: "no data",
+      noData: "not read yet",
       readError: "read failed",
       alertWarn: "{profile} near the limit",
       alertLimited: "{profile} limit reached",

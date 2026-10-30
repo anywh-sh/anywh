@@ -4,7 +4,7 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { UsageAccountBlock } from "@/components/shell/UsageAccountBlock";
 import { useDict, type Dictionary } from "@/i18n";
-import { countAccounts, type ProfileGroup } from "@/lib/planUsage/derive";
+import { countAccounts, isReading, profileReading, type ProfileGroup } from "@/lib/planUsage/derive";
 import { formatUpdatedAgo } from "@/lib/planUsage/format";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
@@ -72,6 +72,11 @@ export function UsageCardBody({
   const now = useSecondClock();
   const card = strings.card;
   const accounts = countAccounts(groups);
+  // Busy while a read is really running on some relay, not only until the
+  // relay acknowledged the refresh (that answer comes at once). `refreshing`
+  // still covers the moment between the click and the relay's first push.
+  const reading = groups.some((group) => profileReading(group.usage, now));
+  const busy = refreshing || reading;
   const received = groups
     .filter((group) => group.data === "live")
     .map((group) => group.usage.receivedAt)
@@ -97,11 +102,11 @@ export function UsageCardBody({
           onClick={onRefresh}
           aria-label={card.refresh}
           title={card.refresh}
-          aria-busy={refreshing}
-          disabled={refreshing}
+          aria-busy={busy}
+          disabled={busy}
           className="flex size-6 cursor-pointer items-center justify-center text-text-faint outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:bg-surface-hover disabled:cursor-default"
         >
-          <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} strokeWidth={1.5} aria-hidden="true" />
+          <RotateCw className={cn("size-3.5", busy && "animate-spin")} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </header>
 
@@ -154,7 +159,13 @@ function ProfileSection({
       </div>
       <div className={cn(group.data === "stale" && "opacity-60")}>
         {group.accounts.map((entry) => (
-          <UsageAccountBlock key={entry.runtime} entry={entry} now={now} profileLabel={profileLabel} />
+          <UsageAccountBlock
+            key={entry.runtime}
+            entry={entry}
+            now={now}
+            reading={group.data === "live" && isReading(entry.usage, usage.receivedAt, now)}
+            profileLabel={profileLabel}
+          />
         ))}
         {group.data === "live" && group.accounts.length === 0 && (
           <p className="px-4 py-2 font-mono text-[11px] text-text-faint">{card.noAgents}</p>

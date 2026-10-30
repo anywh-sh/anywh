@@ -1307,6 +1307,13 @@ export interface Dictionary {
      * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
      * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
     usage: {
+      /** A read is in progress for this agent (the relay's `reading`). */
+      reading: string;
+      /** The last read failed, by cause. `readError` is the one with no
+       * known cause. */
+      errorNetwork: string;
+      errorAuth: string;
+      errorParse: string;
       /** The active profile's relay predates plan usage: the indicator
        * says so instead of disappearing, so an old relay reads as one. */
       outdated: string;
@@ -1338,6 +1345,8 @@ export interface Dictionary {
         signedOut: string;
         /** The last read failed; the rows are the reading before it. */
         readErrorKept: string;
+        /** Card line of an agent never read: the refresh button reads it. */
+        notReadHint: string;
         /** Spoken renewal of a window: "renews in 1h 12m". */
         renewsIn: string;
         /** "renews Fri 14:00". */
@@ -1363,7 +1372,7 @@ export interface Dictionary {
       signedOut: string;
       /** Logged in with an API key or another non-plan login: no windows. */
       apiKey: string;
-      /** Nothing read yet. */
+      /** Nothing read yet, and no read in progress. */
       noData: string;
       /** The last read failed and there is no earlier one to show. */
       readError: string;

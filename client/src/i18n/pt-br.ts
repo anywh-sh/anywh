@@ -592,6 +592,10 @@ export const ptBr: Dictionary = {
       noResults: "Nenhuma sessão encontrada.",
     },
     usage: {
+      reading: "atualizando…",
+      errorNetwork: "erro de rede",
+      errorAuth: "login recusado",
+      errorParse: "resposta ilegível",
       outdated: "atualize o relay",
       outdatedSummary: "o relay deste perfil é antigo demais para informar o uso",
       card: {
@@ -610,6 +614,7 @@ export const ptBr: Dictionary = {
         sameAccount: "mesma conta de {profile}",
         signedOut: "Sem login",
         readErrorKept: "erro ao ler · última leitura",
+        notReadHint: "ainda sem leitura · atualize para ler",
         renewsIn: "renova em {duration}",
         renewsOn: "renova {when}",
         paceLegend: "ritmo esperado para agora",
@@ -622,7 +627,7 @@ export const ptBr: Dictionary = {
       limited: "esgotado",
       signedOut: "sem login",
       apiKey: "API key",
-      noData: "sem dado",
+      noData: "ainda sem leitura",
       readError: "erro ao ler",
       alertWarn: "{profile} perto do limite",
       alertLimited: "{profile} esgotado",

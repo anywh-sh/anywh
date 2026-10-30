@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { AgentMark } from "@/components/shell/AgentMark";
 import { UsageMeter } from "@/components/shell/UsageMeter";
+import { ReadingMark, noteText } from "@/components/shell/usageNote";
 import { useDict, useLocale, type Dictionary, type Locale } from "@/i18n";
-import { accountWindows, runtimeWindows, spentUntil, type AccountEntry, type WindowView } from "@/lib/planUsage/derive";
+import { accountWindows, runtimeNote, runtimeWindows, spentUntil, type AccountEntry, type RuntimeNote, type WindowView } from "@/lib/planUsage/derive";
 import { formatResetPhrase, formatResetTime } from "@/lib/planUsage/format";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
@@ -39,10 +40,13 @@ function scopeOf(view: WindowView): string | null {
 export function UsageAccountBlock({
   entry,
   now,
+  reading,
   profileLabel,
 }: {
   entry: AccountEntry;
   now: number;
+  /** A read of this account is in progress on the relay. */
+  reading: boolean;
   /** Name of a profile by id, for "same account as". */
   profileLabel: (profileId: string) => string;
 }) {
@@ -86,6 +90,12 @@ export function UsageAccountBlock({
         <span className="text-[13px] text-foreground">{name}</span>
         {usage.plan && <span className="font-mono text-[11px] text-text-faint">{usage.plan.label}</span>}
         <span className="flex-1" />
+        {reading && views.length > 0 && (
+          <span data-usage-account-reading className="flex items-center gap-1.5 font-mono text-[11px] text-text-faint">
+            <ReadingMark />
+            {strings.reading}
+          </span>
+        )}
         {spent && <span className="font-mono text-[11px] font-medium text-err">{strings.limited}</span>}
         {usage.status === "error" && views.length > 0 && (
           <span className="font-mono text-[11px] text-text-faint">{strings.card.readErrorKept}</span>
@@ -97,20 +107,29 @@ export function UsageAccountBlock({
             <WindowRow key={`${String(view.durationMins)}:${view.limitId ?? ""}`} view={view} views={views} now={now} locale={locale} strings={strings} />
           ))}
         </div>
-      ) : usage.status === "signed_out" ? (
+      ) : usage.status === "signed_out" && !reading ? (
         <SignedOutStrip runtime={entry.runtime} strings={strings.card} />
       ) : (
-        <p className="mt-1.5 font-mono text-[11px] text-text-faint">
-          {usage.status === "no_subscription" ? (
-            <span className="border border-border px-1 text-muted-foreground">{strings.apiKey}</span>
-          ) : usage.status === "error" ? (
-            strings.readError
-          ) : (
-            strings.noData
-          )}
-        </p>
+        <NoteLine note={runtimeNote(usage, now, reading) ?? "notRead"} strings={strings} />
       )}
     </section>
+  );
+}
+
+/** What an account with no windows says instead: a read in progress, an API
+ * key login, why a read failed, or that it was never read. */
+function NoteLine({ note, strings }: { note: RuntimeNote; strings: Dictionary["shell"]["usage"] }) {
+  return (
+    <p data-usage-note={note} className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px] text-text-faint">
+      {note === "reading" && <ReadingMark />}
+      {note === "apiKey" ? (
+        <span className="border border-border px-1 text-muted-foreground">{strings.apiKey}</span>
+      ) : note === "notRead" ? (
+        strings.card.notReadHint
+      ) : (
+        noteText(note, strings)
+      )}
+    </p>
   );
 }
 

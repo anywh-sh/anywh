@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_PROFILE_USAGE,
+  READING_TIMEOUT_MS,
+  isReading,
+  profileReading,
+  runtimeNote,
   accountWindows,
   spentUntil,
   countAccounts,
@@ -257,5 +261,36 @@ describe("accountWindows / spentUntil", () => {
     expect(spentUntil([view(300, 100, NOW + 10 * MIN), view(10080, 50, NOW + 90 * MIN)])).toBe(NOW + 10 * MIN);
     expect(spentUntil([view(300, 99, NOW + 10 * MIN)])).toBeNull();
     expect(spentUntil([view(300, 100, null)])).toBeNull();
+  });
+});
+
+describe("reading / runtimeNote", () => {
+  const unknown: RuntimePlanUsage = { runtime: "claude", status: "unknown", windows: [], observedAt: null };
+
+  it("believes the relay's reading flag only for a while after the state that carried it", () => {
+    const usage = { ...unknown, reading: true };
+    expect(isReading(usage, NOW, NOW)).toBe(true);
+    expect(isReading(usage, NOW - READING_TIMEOUT_MS, NOW)).toBe(false);
+    expect(isReading(usage, null, NOW)).toBe(false);
+    expect(isReading(unknown, NOW, NOW)).toBe(false);
+  });
+
+  it("only reads on a live profile", () => {
+    expect(profileReading(live([{ ...unknown, reading: true }]), NOW)).toBe(true);
+    expect(profileReading({ ...live([{ ...unknown, reading: true }]), connection: "offline" }, NOW)).toBe(false);
+    expect(profileReading(live([unknown]), NOW)).toBe(false);
+    expect(profileReading(undefined, NOW)).toBe(false);
+  });
+
+  it("names why there is nothing, a read in progress first", () => {
+    expect(runtimeNote(unknown, NOW, true)).toBe("reading");
+    expect(runtimeNote(unknown, NOW, false)).toBe("notRead");
+    expect(runtimeNote({ ...unknown, status: "signed_out" }, NOW, false)).toBe("signedOut");
+    expect(runtimeNote({ ...unknown, status: "no_subscription" }, NOW, false)).toBe("apiKey");
+    expect(runtimeNote({ ...unknown, status: "error", error: { kind: "network" } }, NOW, false)).toBe("errorNetwork");
+    expect(runtimeNote({ ...unknown, status: "error", error: { kind: "auth" } }, NOW, false)).toBe("errorAuth");
+    expect(runtimeNote({ ...unknown, status: "error", error: { kind: "parse" } }, NOW, false)).toBe("errorParse");
+    expect(runtimeNote({ ...unknown, status: "error" }, NOW, false)).toBe("error");
+    expect(runtimeNote(runtime({ runtime: "claude" }), NOW, true)).toBeNull();
   });
 });

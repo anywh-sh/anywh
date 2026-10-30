@@ -148,7 +148,17 @@ export interface FakeControl {
  * again in answer to every `plan_usage_refresh`), `"legacy"` for a relay
  * that predates the route, `"unreachable"` for a machine that can't be
  * reached. */
-export type FakePlanUsage = { runtimes: RuntimePlanUsage[]; observedAt?: number } | "legacy" | "unreachable";
+export type FakePlanUsage =
+  | {
+      runtimes: RuntimePlanUsage[];
+      observedAt?: number;
+      /** Answer a refresh like a real read: a state with every runtime
+       * `reading` at once, then the plain state this many ms later. Absent =
+       * the plain state right away. */
+      readMs?: number;
+    }
+  | "legacy"
+  | "unreachable";
 
 export interface FakeRelayOptions {
   /** `/plan-usage/watch` per relay, keyed `host:port`. Absent = the route is
@@ -199,8 +209,21 @@ export function installFakeRelay(
     sent.push({ url: socket.url, message });
     if (message.type === "plan_usage_refresh" && planUsage) {
       const script = planUsage[hostPort(socket.url)];
-      if (typeof script === "object")
-        queueMicrotask(() => socket.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: Date.now() }));
+      if (typeof script !== "object") return;
+      const answer = () => socket.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: Date.now() });
+      if (script.readMs === undefined) {
+        queueMicrotask(answer);
+        return;
+      }
+      const startedAt = Date.now();
+      queueMicrotask(() =>
+        socket.emitMessage({
+          type: "plan_usage_state",
+          runtimes: script.runtimes.map((usage) => ({ ...usage, reading: true, readingSince: startedAt })),
+          observedAt: startedAt,
+        }),
+      );
+      setTimeout(answer, script.readMs);
       return;
     }
     if (message.type !== "user_message") return; // this tier only scripts the send flow so far

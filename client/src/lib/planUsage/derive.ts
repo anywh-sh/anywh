@@ -261,3 +261,55 @@ export function spentUntil(views: readonly WindowView[]): number | null {
   }
   return until;
 }
+
+/** How long a `reading` flag is believed without a newer state. A Claude
+ * probe gives up at 30 s on the relay; past this the flag is a state whose
+ * "ended" push was lost (the socket dropped, the relay died mid-read), and a
+ * spinner that never stops says nothing. */
+export const READING_TIMEOUT_MS = 45_000;
+
+/** A read of this runtime is in progress on the relay (a probe, an
+ * app-server read), as of the state received at `receivedAt`. */
+export function isReading(usage: RuntimePlanUsage, receivedAt: number | null, nowMs: number): boolean {
+  return usage.reading === true && receivedAt !== null && nowMs - receivedAt < READING_TIMEOUT_MS;
+}
+
+/** Whether any runtime of a live profile is being read. A profile whose
+ * relay is unreachable reads nothing, whatever its last state said. */
+export function profileReading(entry: ProfilePlanUsage | undefined, nowMs: number): boolean {
+  if (!entry || entry.connection !== "live") return false;
+  return (entry.runtimes ?? []).some((usage) => isReading(usage, entry.receivedAt, nowMs));
+}
+
+/**
+ * What an agent with no windows to draw says instead, most specific first:
+ * a read in progress, then why there is nothing (no login, an API key, the
+ * cause of a failed read), and only then "not read yet". `null` when the
+ * agent has windows — its numbers speak for it.
+ */
+export type RuntimeNote = "reading" | "signedOut" | "apiKey" | "errorNetwork" | "errorAuth" | "errorParse" | "error" | "notRead";
+
+export function runtimeNote(usage: RuntimePlanUsage, nowMs: number, reading: boolean): RuntimeNote | null {
+  if (runtimeWindows(usage, nowMs).length > 0) return null;
+  if (reading) return "reading";
+  switch (usage.status) {
+    case "signed_out":
+      return "signedOut";
+    case "no_subscription":
+      return "apiKey";
+    case "error":
+      return usage.error?.kind === "network"
+        ? "errorNetwork"
+        : usage.error?.kind === "auth"
+          ? "errorAuth"
+          : usage.error?.kind === "parse"
+            ? "errorParse"
+            : "error";
+    case "ok":
+    case "warning":
+    case "limited":
+    case "unknown":
+      // No windows to show (a reading without any, or none yet).
+      return "notRead";
+  }
+}

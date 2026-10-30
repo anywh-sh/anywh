@@ -125,15 +125,53 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAccessibleName("Usage: Claude Code API key; Codex not signed in");
   });
 
-  it("says when nothing was read, or the read failed", () => {
+  it("says why there is nothing: never read, or the cause of a failed read", () => {
     renderIndicator({
       pessoal: live([
         { runtime: "claude", status: "unknown", windows: [], observedAt: null },
         { runtime: "codex", status: "error", windows: [], observedAt: null, error: { kind: "network" } },
       ]),
     });
-    expect(agent("claude")).toHaveTextContent("no data");
-    expect(agent("codex")).toHaveTextContent("read failed");
+    expect(agent("claude")).toHaveTextContent("not read yet");
+    expect(agent("codex")).toHaveTextContent("network error");
+    expect(button()).toHaveAccessibleName("Usage: Claude Code not read yet; Codex network error");
+  });
+
+  it("shows a read in progress instead of 'not read yet', without pulsing", () => {
+    renderIndicator({ pessoal: live([{ runtime: "claude", status: "unknown", windows: [], observedAt: null, reading: true, readingSince: NOW }]) });
+    expect(agent("claude")).toHaveTextContent("updating…");
+    expect(agent("claude")).not.toHaveTextContent("not read yet");
+    const mark = agent("claude").querySelector("[data-usage-reading]")!;
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    expect(mark.className).toContain("animate-spin");
+    expect(mark.className).not.toContain("animate-pulse");
+    expect(button()).toHaveAccessibleName("Usage: Claude Code updating…");
+  });
+
+  it("keeps the numbers while they are being refreshed, and says so", () => {
+    renderIndicator({ pessoal: live([{ ...claude(58), reading: true, readingSince: NOW }]) });
+    expect(agent("claude")).toHaveTextContent("58% 5h");
+    expect(agent("claude").querySelector("[data-usage-reading]")).not.toBeNull();
+    expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h, updating…");
+  });
+
+  it("stops believing a read whose end never arrived, and never reads on an unreachable relay", () => {
+    const { rerender } = renderIndicator({
+      pessoal: live([{ runtime: "claude", status: "unknown", windows: [], observedAt: null, reading: true }], { receivedAt: NOW - 46_000 }),
+    });
+    expect(agent("claude")).toHaveTextContent("not read yet");
+    rerender(
+      <LocaleProvider>
+        <UsageIndicator
+          profileId="pessoal"
+          profiles={PROFILES}
+          byProfile={{ pessoal: live([{ ...claude(58), reading: true }], { connection: "offline" }) }}
+          now={NOW}
+          expanded={false}
+        />
+      </LocaleProvider>,
+    );
+    expect(agent("claude").querySelector("[data-usage-reading]")).toBeNull();
   });
 
   it("keeps only each mark and the 5h percentage under 1024px", () => {

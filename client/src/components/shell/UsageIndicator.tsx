@@ -2,15 +2,18 @@ import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react
 
 import { AgentMark } from "@/components/shell/AgentMark";
 import { UsageMeter } from "@/components/shell/UsageMeter";
+import { ReadingMark, noteText } from "@/components/shell/usageNote";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { useIsCompactStatusBar } from "@/hooks/platform/useMediaQuery";
 import { useDict, useLocale, type Dictionary, type Locale } from "@/i18n";
 import {
   accountWindows,
   groupByProfile,
+  isReading,
   strongestWindow,
   otherProfileAlerts,
   profileDataState,
+  runtimeNote,
   runtimeWindows,
   spentUntil,
   type ProfileAlert,
@@ -76,9 +79,11 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
   const labelOf = (id: string): string => profiles.find((profile) => profile.id === id)?.label ?? id;
   const names = dict.chat.composer.agentNames;
   const stale = data === "stale";
+  // A stale profile's last state can't be mid-read: its relay is gone.
+  const readingOf = (usage: RuntimePlanUsage) => data === "live" && isReading(usage, entry?.receivedAt ?? null, now);
   const summary = [
     ...(outdated ? [strings.outdatedSummary] : []),
-    ...runtimes.map((usage) => summarize(usage, agentName(names, usage.runtime), now, locale, strings)),
+    ...runtimes.map((usage) => summarize(usage, agentName(names, usage.runtime), now, readingOf(usage), locale, strings)),
     ...alerts.map((alert) => (alert.level === "limited" ? strings.alertLimited : strings.alertWarn).replace("{profile}", labelOf(alert.profileId))),
   ];
   if (stale && entry?.receivedAt != null) {
@@ -108,7 +113,16 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
         </span>
       )}
       {runtimes.map((usage) => (
-        <AgentBlock key={usage.runtime} usage={usage} now={now} compact={compact} stale={stale} locale={locale} strings={strings} />
+        <AgentBlock
+          key={usage.runtime}
+          usage={usage}
+          now={now}
+          reading={readingOf(usage)}
+          compact={compact}
+          stale={stale}
+          locale={locale}
+          strings={strings}
+        />
       ))}
       {alerts.length > 0 && (
         <>
@@ -140,6 +154,7 @@ function leadWindow(views: readonly WindowView[]): WindowView | undefined {
 function AgentBlock({
   usage,
   now,
+  reading,
   compact,
   stale,
   locale,
@@ -147,6 +162,7 @@ function AgentBlock({
 }: {
   usage: RuntimePlanUsage;
   now: number;
+  reading: boolean;
   compact: boolean;
   stale: boolean;
   locale: Locale;
@@ -165,7 +181,16 @@ function AgentBlock({
   );
 
   if (views.length === 0 || !headline) {
-    if (usage.status === "signed_out") {
+    const note = runtimeNote(usage, now, reading) ?? "notRead";
+    if (note === "reading") {
+      return block(
+        <>
+          <ReadingMark />
+          {!compact && <span>{strings.reading}</span>}
+        </>,
+      );
+    }
+    if (note === "signedOut") {
       return block(
         <>
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
@@ -173,10 +198,10 @@ function AgentBlock({
         </>,
       );
     }
-    if (usage.status === "no_subscription") {
+    if (note === "apiKey") {
       return block(<span className="border border-border px-1 leading-[14px] text-muted-foreground">{strings.apiKey}</span>);
     }
-    return block(!compact && <span>{usage.status === "error" ? strings.readError : strings.noData}</span>);
+    return block(!compact && <span>{noteText(note, strings)}</span>);
   }
 
   const lead = leadWindow(views) ?? headline;
@@ -186,7 +211,12 @@ function AgentBlock({
     view.level === "limited" ? "font-medium text-err" : view.level === "warn" ? "font-medium text-warn" : "text-muted-foreground";
 
   if (compact) {
-    return block(<span className={tone(lead)}>{lead.percent}%</span>);
+    return block(
+      <>
+        <span className={tone(lead)}>{lead.percent}%</span>
+        {reading && <ReadingMark />}
+      </>,
+    );
   }
 
   const resetPhrase = spent && reset !== null ? formatResetPhrase(strings, reset, now, locale) : null;
@@ -211,25 +241,24 @@ function AgentBlock({
             ))}
         </span>
       )}
+      {reading && <ReadingMark />}
     </>,
   );
 }
 
 /** One agent's phrase in the button's accessible name. */
-function summarize(usage: RuntimePlanUsage, agent: string, now: number, locale: Locale, strings: UsageStrings): string {
+function summarize(usage: RuntimePlanUsage, agent: string, now: number, reading: boolean, locale: Locale, strings: UsageStrings): string {
   const views = accountWindows(runtimeWindows(usage, now));
   const headline = strongestWindow(views);
   const state = (word: string) => strings.summaryState.replace("{agent}", agent).replace("{state}", word);
-  if (views.length === 0 || !headline) {
-    if (usage.status === "signed_out") return state(strings.signedOut);
-    if (usage.status === "no_subscription") return state(strings.apiKey);
-    return state(usage.status === "error" ? strings.readError : strings.noData);
-  }
+  if (views.length === 0 || !headline) return state(noteText(runtimeNote(usage, now, reading) ?? "notRead", strings));
+  // Numbers being refreshed: still the numbers, and a word that more are coming.
+  const updating = (phrase: string) => (reading ? `${phrase}, ${strings.reading}` : phrase);
   if (headline.level === "limited") {
     const reset = spentUntil(views);
     const phrase = reset === null ? null : formatResetPhrase(strings, reset, now, locale);
-    return phrase ? strings.summaryLimited.replace("{agent}", agent).replace("{reset}", phrase) : state(strings.limited);
+    return updating(phrase ? strings.summaryLimited.replace("{agent}", agent).replace("{reset}", phrase) : state(strings.limited));
   }
   const lead = leadWindow(views) ?? headline;
-  return strings.summaryWindow.replace("{agent}", agent).replace("{percent}", String(lead.percent)).replace("{window}", lead.label);
+  return updating(strings.summaryWindow.replace("{agent}", agent).replace("{percent}", String(lead.percent)).replace("{window}", lead.label));
 }

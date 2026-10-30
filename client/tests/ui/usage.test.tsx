@@ -34,7 +34,7 @@ beforeEach(() => {
   ]);
   relay = installFakeRelay("fake reply", {
     planUsage: {
-      "127.0.0.1:8001": { runtimes: [claude(58, "aaaa")] },
+      "127.0.0.1:8001": { runtimes: [claude(58, "aaaa")], readMs: 400 },
       "127.0.0.1:8002": { runtimes: [claude(91, "bbbb")] },
     },
   });
@@ -81,13 +81,20 @@ describe("plan usage in the status bar", () => {
     ]);
 
     // The refresh button forces a read on every relay, and spins until both answer.
+    // Opening the card started a read of its own; the button waits it out.
+    await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "false"));
     relay.sent.length = 0;
     await user.click(within(card).getByRole("button", { name: "Refresh usage" }));
     expect(relay.sent.map((entry) => [entry.url, entry.message]).sort()).toEqual([
       ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
       ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
     ]);
-    await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).not.toHaveAttribute("aria-busy", "true"));
+    // Busy for as long as the relay says the read runs, with the status bar
+    // saying so too — not only until the relay acknowledged the click.
+    await vi.waitFor(() => expect(document.querySelector('[data-usage-agent="claude"] [data-usage-reading]')).not.toBeNull());
+    expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "true");
+    await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "false"));
+    expect(document.querySelector('[data-usage-agent="claude"] [data-usage-reading]')).toBeNull();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
