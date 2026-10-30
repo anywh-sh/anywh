@@ -323,6 +323,18 @@ export interface RemoteProfile {
    * from the host registry rather than local settings so the choice follows
    * the profile to every device (relay/src/profileRegistry.ts). */
   themeId?: string;
+  /** Default agent for a new session; absent = "lastUsed". */
+  agentPreference?: AgentPreference;
+  /** Agent of this profile's most recent titled session, derived by the relay. */
+  lastUsedAgentId?: string;
+}
+
+/** Which agent a new session of a profile starts on. "fixed" always uses
+ * `fixedAgentId` (when still selectable); "lastUsed" follows the most recent
+ * session. */
+export interface AgentPreference {
+  mode: "fixed" | "lastUsed";
+  fixedAgentId?: string;
 }
 
 /** Response of `POST /control/profiles/validate` — the chosen runtime's own
@@ -414,4 +426,5 @@ export interface ProfileMetaUpdate {
   colorIndex: number;
   createdAt: string;
   updatedAt: string;
+  agentPreference?: AgentPreference;
 }

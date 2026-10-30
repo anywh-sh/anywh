@@ -164,7 +164,6 @@ pub fn run_with(
             relay_setup::relay_setup_start,
             relay_setup::relay_setup_cancel,
             relay_setup::relay_setup_status,
-            relay_setup::relay_setup_confirm_close,
             updater::app_install_source,
             updater::app_check_latest_release
         ]);
@@ -199,26 +198,12 @@ pub fn run_with(
                 let _ = app.deep_link().register_all();
             }
 
-            // Closing the window with a relay install in flight: the child
-            // is meant to survive us (see relay_setup.rs), but the person
-            // should get to say so. The close is held and the UI shows its
-            // own three-way dialog — `window.confirm` isn't reliable across
-            // Tauri's webviews — which answers through
-            // `relay_setup_confirm_close`. Deliberately *not* mirrored by a
-            // `kill_all` on `RunEvent::Exit`: a sidecar without an app is
-            // garbage, an install without an app is an install.
-            #[cfg(not(target_os = "ios"))]
-            if let Some(window) = tauri::Manager::get_webview_window(app, "main") {
-                let handle = app.handle().clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        if relay_setup::hold_close(&handle) {
-                            api.prevent_close();
-                            relay_setup::emit_close_requested(&handle);
-                        }
-                    }
-                });
-            }
+            // Closing the window never waits on a relay install: the
+            // installer runs in its own process group (see relay_setup.rs),
+            // carries on without a window, and the next launch re-attaches
+            // to it. Deliberately *not* mirrored by a `kill_all` on
+            // `RunEvent::Exit`: a sidecar without an app is garbage, an
+            // install without an app is an install.
 
             #[cfg(windows)]
             if let Some(window) = tauri::Manager::get_webview_window(app, "main") {

@@ -22,6 +22,24 @@ beforeEach(() => {
 });
 
 describe("syncProfilesForHost", () => {
+  it("mirrors the agent preference and last used agent, and picks up a change", () => {
+    setProfiles([{ id: "pessoal", label: "pessoal", host: "100.64.0.1", relayPort: 8765 }]);
+
+    syncProfilesForHost("100.64.0.1", [
+      remote({ id: "pessoal", host: "100.64.0.1", agentPreference: { mode: "fixed", fixedAgentId: "codex" }, lastUsedAgentId: "claude" }),
+    ]);
+    expect(getProfiles()[0]).toMatchObject({ agentPreference: { mode: "fixed", fixedAgentId: "codex" }, lastUsedAgentId: "claude" });
+
+    syncProfilesForHost("100.64.0.1", [remote({ id: "pessoal", host: "100.64.0.1", agentPreference: { mode: "lastUsed" }, lastUsedAgentId: "claude" })]);
+    expect(getProfiles()[0]?.agentPreference).toEqual({ mode: "lastUsed" });
+  });
+
+  it("keeps this device's agent choice when the relay doesn't report one (an older relay)", () => {
+    setProfiles([{ id: "pessoal", label: "Pessoal", host: "100.64.0.1", relayPort: 8765, agentPreference: { mode: "fixed", fixedAgentId: "codex" } }]);
+    syncProfilesForHost("100.64.0.1", [remote({ id: "pessoal", host: "100.64.0.1" })]);
+    expect(getProfiles()[0]?.agentPreference).toEqual({ mode: "fixed", fixedAgentId: "codex" });
+  });
+
   it("regression: a loopback-registered ghost is dropped once a sync against a real host succeeds, even if the ghost's id isn't in that host's response", () => {
     // Reproduces the bug fixed 2026-09-07 (commit 2eff9a7): a stray
     // `npm run dev` self-registers as "default" on 127.0.0.1

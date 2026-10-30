@@ -34,8 +34,7 @@ export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypass
  * dictionary" rule. */
 export type KnownAgentId = "claude" | "codex";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
-import type { FirstRunScreen } from "@/lib/profiles/firstRun";
-import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/install/localInstall";
+import type { PreparingFailureCode } from "@/lib/install/localInstall";
 
 /** Two tenses of one kind of call — see `Dictionary["chat"]["activity"]`. */
 export interface ActivityVerb {
@@ -167,6 +166,13 @@ export interface Dictionary {
         lastUsed: string;
         fixed: string;
       };
+      agent: {
+        title: string;
+        description: string;
+        lastUsed: string;
+        fixed: string;
+        unsupported: string;
+      };
       name: {
         title: string;
         description: string;
@@ -229,165 +235,174 @@ export interface Dictionary {
     /** Drawn in the window's own title bar, which the shell's `TitleBar`
      * isn't there to provide yet. */
     windowTitle: string;
-    back: string;
-    /** Eyebrow beside the mark, naming where in the flow the reader is.
-     * Keyed on the screen union so a new screen is a compile error until
-     * it has a crumb. */
-    crumbs: Record<FirstRunScreen, string>;
-    home: {
+    /** Connecting to a machine that is already running somewhere: a pairing
+     * code or an address, with the outcome shown inline. */
+    other: {
       title: string;
       body: string;
-      /** Path 01: the app installs the relay itself, on Linux (systemd) and
-       * macOS (Homebrew) alike. */
-      localTitle: string;
-      localHint: string;
-      /** `{container}` — the card is shown but disabled inside a Flatpak or
-       * Snap, which can't reach the host's `systemd --user`. */
-      localUnavailable: string;
-      connectTitle: string;
-      connectHint: string;
-      codeTitle: string;
-      codeHint: string;
-      /** The line under the paths, for whoever has no relay anywhere yet. */
-      terminalPrompt: string;
-      terminalLink: string;
-    };
-    connect: {
-      title: string;
-      body: string;
-      hostLabel: string;
-      hostPlaceholder: string;
-      portLabel: string;
-      nameLabel: string;
-      namePlaceholder: string;
-      submit: string;
-      /** The queue refused it — the same address is already mid-flight. */
+      modes: { label: string; code: string; address: string };
+      code: {
+        label: string;
+        placeholder: string;
+        empty: string;
+        invalid: string;
+        /** `{host}` — the machine the code names. */
+        valid: string;
+      };
+      address: { host: string; hostPlaceholder: string; port: string; hint: string; invalid: string };
+      connect: string;
+      connecting: string;
+      steps: { claiming: string; connecting: string; verifying: string };
+      failed: { claim: string; connect: string; verify: string };
       alreadyQueued: string;
+      retry: string;
+      advanced: string;
     };
-    code: {
+    /** Where the relay runs and how it gets installed. The one screen that
+     * says "relay" on purpose. */
+    advanced: {
       title: string;
       body: string;
-      nameLabel: string;
-      namePlaceholder: string;
-      codeLabel: string;
-      submit: string;
-      alreadyQueued: string;
-    };
-    /** The terminal alternative. One body per platform because the
-     * commands differ: Homebrew on macOS, WSL2 on Windows. */
-    manual: {
-      title: string;
-      body: string;
-      bodyMac: string;
-      bodyWindows: string;
-      install: string;
-      profile: string;
-      start: string;
-      /** Stands in for the one value the reader has to fill in themselves,
-       * printed inside angle brackets in the command. */
-      relayHostPlaceholder: string;
-      done: string;
+      address: {
+        label: string;
+        loopback: string;
+        lan: string;
+        tailnet: string;
+        custom: string;
+        customPlaceholder: string;
+        /** Under a typed address that isn't one. */
+        invalid: string;
+        default: string;
+        hints: { loopback: string; lan: string; tailnet: string; custom: string };
+      };
+      profileName: string;
+      port: string;
+      /** Under the port when the app does the install: the installer picks it. */
+      portHint: string;
+      install: { label: string; app: string; terminal: string };
+      app: { cta: string; hint: string };
+      terminal: {
+        /** Windows: where these commands go. */
+        wsl: string;
+        /** `{host}`, `{port}` */
+        connectAfter: string;
+        done: string;
+        stepInstall: string;
+        stepProfile: string;
+        stepStart: string;
+      };
+      devMode: { label: string; hint: string };
     };
     copy: {
       copy: string;
       copied: string;
       failed: string;
     };
-    footer: {
-      nothingInstalled: string;
+    /** The onboarding window's own chrome: Help, Back and the stepper. */
+    frame: {
+      help: string;
+      back: string;
+      steps: {
+        label: string;
+        thisMachine: string;
+        otherMachine: string;
+        agents: string;
+      };
     };
-    /** The recognition step: a look at this machine before asking anything. */
-    detect: {
+    profile: {
+      /** Label of the profile the onboarding creates on this machine. */
+      defaultLabel: string;
+    };
+    /** The first screen on a desktop: what anywh is, and one way in. */
+    welcome: {
       title: string;
       body: string;
+      cta: string;
+      ctaHint: string;
+      otherMachine: string;
+      /** The CTA is off inside a sandbox — `{container}` (flatpak, snap). */
+      container: string;
+      containerTerminal: string;
+      /** Windows has no in-app install: anywh and the agents live in WSL2,
+       * so the screen says so and lists what to have, without detecting. */
+      windows: {
+        notice: string;
+        steps: {
+          wsl: { title: string; link: string };
+          agent: { title: string; link: string };
+        };
+        cta: string;
+      };
     };
-    /** A relay with profiles was found on this machine: adopt them. */
-    adopt: {
+    /** The install (or the adoption of an existing one), as three steps. */
+    preparing: {
       title: string;
-      /** `{count}` — registered profiles found. */
       body: string;
-      /** Meta line of a profile row — `{host}`, `{port}`. */
-      rowMeta: string;
-      /** The `default.env` a stray relay run leaves behind. */
-      orphanNote: string;
-      /** `{count}` */
-      adopt: string;
-      adoptOne: string;
-      createAnother: string;
-      /** Replaces `createAnother` on macOS, where the in-app installer can
-       * only ever provision one relay ("default") — points at the
-       * already-connected profile switcher's "add profile" instead. */
-      macNote: string;
-    };
-    /** Path 01: the in-app install, four steps. */
-    local: {
-      title: string;
-      /** `{n}` of 4. */
-      stepOf: string;
-      notes: Record<Exclude<LocalNote, "none">, string>;
-      steps: Record<LocalStep, string>;
-      prereqs: {
-        node: string;
-        agent: string;
-        systemd: string;
-        /** macOS's equivalent of `node` — checked instead of it, never
-         * alongside. */
+      adoptTitle: string;
+      adoptBody: string;
+      steps: Record<"check" | "install" | "start" | "read" | "connect", string>;
+      /** The quiet line under a running step. */
+      sub: {
+        /** `{address}` */
+        waitingAt: string;
         brew: string;
-        checking: string;
-        /** `{version}` */
-        nodeMeta: string;
-        loggedIn: string;
-        devMode: string;
-        /** The agent row's right-hand detail when the check found no CLI,
-         * or one that isn't logged in — neither of which stops the
-         * install. */
-        agentMeta: { missing: string; loggedOut: string };
+        download: string;
+        /** `{names}` — one profile found. */
+        profilesOne: string;
+        /** `{count}`, `{names}` */
+        profilesMany: string;
       };
-      address: {
-        nameLabel: string;
-        namePlaceholder: string;
-        nameHint: string;
-        body: string;
-        recommended: string;
-        hints: Record<"tailnet" | "lan" | "public" | "loopback", string>;
-        customLabel: string;
-        customPlaceholder: string;
-        loopbackWarning: string;
-        submit: string;
+      details: string;
+      cancel: string;
+      resuming: string;
+      reattached: string;
+      failed: string;
+      /** Under the card: `{profile}` is drawn between the two halves. */
+      profileSummary: { before: string; after: string };
+      profilesHere: string;
+      fail: {
+        /** Something the machine lacks, which the reader can add. */
+        titleMissing: string;
+        /** The install itself stopped. */
+        titleStopped: string;
+        keepsProgress: string;
+        actions: Record<"recheck" | "retry" | "terminal" | "back" | "otherMachine", string>;
+        /** One entry per code, so none reaches the screen without copy:
+         * the sentence, the short red line under the failed step, and for
+         * the ones fixed by hand a command to copy or a page to read. */
+        codes: Record<PreparingFailureCode, { body: string; line?: string; command?: string; link?: { label: string; href: string } }>;
       };
-      install: {
-        rows: Record<InstallRowKey, string>;
-        running: string;
-        failed: string;
-        showRaw: string;
-        hideRaw: string;
-        terminal: string;
-        cancel: string;
-        pendingLink: string;
-        /** `{count}` */
-        pendingLinks: string;
-        discard: string;
-      };
-      verify: {
-        body: string;
-      };
-      /** One sentence per way the wizard can stop — keyed on the code so a
-       * new one is a compile error until it has copy, never a raw enum on
-       * screen. The installer's own detail line is shown under it. */
-      /** Shown for the whole wizard, not just the step that found it: the
-       * install completes without an agent CLI, and the first conversation
-       * is what runs into its absence. */
-      agentNotice: { missing: string; loggedOut: string };
-      failures: Record<LocalFailureCode, string>;
-      actions: Record<LocalFailureAction, string>;
-      /** The window is being closed with an install running. */
-      close: {
-        title: string;
-        body: string;
-        background: string;
-        cancel: string;
-        keep: string;
-      };
+    };
+    /** "Your agents": what the relay found on the machine, one card each, and
+     * the choice of which opens by default. `{where}` is `here` or `at`,
+     * `{agent}` a product name, `{host}` the other machine's address. */
+    agents: {
+      searching: string;
+      searchingBody: string;
+      title: string;
+      none: string;
+      /** `{count}` (two or more), `{where}` */
+      bodyMany: string;
+      bodyOne: string;
+      bodyNone: string;
+      /** The relay couldn't be asked at all. */
+      failed: string;
+      here: string;
+      at: string;
+      /** The small label above the cards: the same place, capitalised. */
+      scopeHere: string;
+      scopeAt: string;
+      recheck: string;
+      state: { ready: string; noLogin: string; missing: string; checking: string };
+      meta: { notOnPath: string; searching: string };
+      noLoginHint: string;
+      howToInstall: string;
+      /** Beside `howToInstall`, when the CLI has a fuller install reference. */
+      installDocs: string;
+      start: string;
+      startWith: string;
+      switchNote: string;
+      otherMachine: string;
     };
   };
   /**

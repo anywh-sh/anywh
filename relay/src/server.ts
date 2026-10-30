@@ -10,13 +10,13 @@ import { extractPdfText } from "./host/pdfText.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
-import { detectRuntimes, parseCliVersion } from "./runtimes/detection.js";
 import { buildRegistry } from "./runtimes/registry.js";
-import { probeModelCatalog } from "./runtimes/probes/modelCatalog.js";
+import { createAgentRefresher } from "./runtimes/selectableAgents.js";
 import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
 import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
+import { handleAgentCatalogRoutes } from "./routes/agentCatalog.js";
 import { handleAgentRoutes } from "./routes/agents.js";
 import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
@@ -299,6 +299,8 @@ const routeContext: RouteContext = {
   sessionManager,
   registry,
   homeOverride: HOME_OVERRIDE,
+  // Declared further down, beside the agent ids it detects; read lazily.
+  refreshAgents: () => refreshAgents(),
   port: PORT,
   defaultSession: DEFAULT_SESSION,
   pushStore,
@@ -320,6 +322,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleHostRoutes,
   handlePushRoutes,
   handleAgentRoutes,
+  handleAgentCatalogRoutes,
   handleRoomRoutes,
 ];
 
@@ -386,38 +389,56 @@ function sendModelCatalogs(client: WebSocket): void {
 // `runtimes/executables.ts`, which also grows per agent.
 const SELECTABLE_AGENT_IDS = ["claude", "codex"];
 
-detectRuntimes([claudeRuntimeDef, codexRuntimeDef], HOME_OVERRIDE)
-  .then((detections) => {
-    const selectable = detections.filter((detection) => detection.installed && SELECTABLE_AGENT_IDS.includes(detection.id));
-    setSelectableAgents(selectable.map((detection) => ({ id: detection.id, capabilities: detection.capabilities, version: parseCliVersion(detection.version) })));
-    roomRuntimes = selectable.map((detection) => detection.id).filter((id) => HOST_RUNTIMES.includes(id));
-    for (const def of [claudeRuntimeDef, codexRuntimeDef]) {
-      if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
-      probeModelCatalog(def, HOME_OVERRIDE, defaultCwd(HOME_OVERRIDE))
-        .then((catalog) => {
-          if (!catalog) return;
-          modelCatalogs[def.identity.id] = catalog;
-          for (const client of modelCatalogClients) sendModelCatalogs(client);
-        })
-        .catch((error: unknown) => {
-          console.error(`[relay] failed to probe ${def.identity.id} model catalog:`, error);
-        });
-    }
-  })
-  .catch((error: unknown) => {
-    // detectRuntimes itself never rejects (detection.ts's own contract) —
-    // this only exists so a mistake in that contract fails loudly instead
-    // of leaving /host-info's `agents` silently empty forever.
-    console.error("[relay] failed to detect agent runtimes:", error);
-  });
+const refreshAgents = createAgentRefresher({
+  defs: [claudeRuntimeDef, codexRuntimeDef],
+  selectableIds: SELECTABLE_AGENT_IDS,
+  roomRuntimeIds: HOST_RUNTIMES,
+  homeOverride: HOME_OVERRIDE,
+  cwd: defaultCwd(HOME_OVERRIDE),
+  publishSelectable: setSelectableAgents,
+  publishRoomRuntimes: (ids) => {
+    roomRuntimes = ids;
+  },
+  publishModelCatalog: (agentId, catalog) => {
+    modelCatalogs[agentId] = catalog;
+    for (const client of modelCatalogClients) sendModelCatalogs(client);
+  },
+  hasModelCatalog: (agentId) => agentId in modelCatalogs,
+});
+
+refreshAgents().catch((error: unknown) => {
+  // detectRuntimes itself never rejects (detection.ts's own contract) —
+  // this only exists so a mistake in that contract fails loudly instead
+  // of leaving /host-info's `agents` silently empty forever.
+  console.error("[relay] failed to detect agent runtimes:", error);
+});
 
 // Exported so integration tests (relay/tests/) can close both servers in
 // teardown — this module runs its listen/connection wiring as a side effect
 // of being imported, so a test that imports it needs a handle to shut it
 // down again without killing the whole process.
 async function dispatchRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  for (const handler of routeHandlers) {
-    if (await handler(req, res, routeContext)) return;
+  // Every route answers CORS `*`, and so must the answers no route wrote:
+  // the client's webview reads this relay cross-origin, and a response
+  // without the header reaches it as a network error, not as the status.
+  // A client probing for a route an older relay lacks can only fall back
+  // if it can read the 426.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  try {
+    for (const handler of routeHandlers) {
+      if (await handler(req, res, routeContext)) return;
+    }
+  } catch (error) {
+    // Without this a handler that throws leaves an unhandled rejection,
+    // which takes the whole relay down, not just the request.
+    console.error(`[relay] ${req.method} ${req.url} failed:`, error);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "internal error" }));
+    } else {
+      res.end();
+    }
+    return;
   }
   res.writeHead(426);
   res.end();

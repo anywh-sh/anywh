@@ -24,6 +24,7 @@ import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
   addProfile,
+  findProfile,
   isTailnetProfile,
   PROFILE_COLOR_COUNT,
   profileColorClass,
@@ -33,6 +34,8 @@ import {
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { evaluateRelayDrift } from "@/lib/relay/relayDrift";
 import { updateProfileMeta } from "@/lib/relay/relayClient";
+import { getHostInfo } from "@/lib/relay/filesClient";
+import type { AgentPreference } from "@/lib/relay/relay-types";
 import { cn } from "@/lib/utils";
 
 /** Small square button, the shape every choice in this page uses: the
@@ -43,11 +46,13 @@ function ChoiceButton({
   selected,
   onClick,
   title,
+  disabled,
   children,
 }: {
   selected?: boolean;
   onClick: () => void;
   title?: string;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -55,8 +60,10 @@ function ChoiceButton({
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
+      aria-pressed={selected}
       className={cn(
-        "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors",
+        "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         selected
           ? "border-primary bg-primary-soft text-primary-ink"
           : "border-border text-muted-foreground hover:border-text-faint hover:bg-surface-hover hover:text-foreground",
@@ -173,6 +180,92 @@ function ModelControl({
   );
 }
 
+/** The profile's default agent, stored on its relay (so it follows the
+ * profile to other devices): "last used", or "always" one of the agents the
+ * host can run. Picking "always" pins the first agent right away, since a
+ * fixed mode without an agent means nothing. A relay that predates the field
+ * answers the PATCH with a 400: the control then turns off with a hint. */
+function AgentControl({ profile }: { profile: Profile }) {
+  const dict = useDict();
+  const agentDict = dict.settings.profile.agent;
+  const [agents, setAgents] = useState<string[]>([]);
+  const [unsupported, setUnsupported] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const preference: AgentPreference = profile.agentPreference ?? { mode: "lastUsed" };
+
+  useEffect(() => {
+    let cancelled = false;
+    getHostInfo(profile)
+      .then((info) => {
+        if (!cancelled) setAgents((info.agents ?? []).map((agent) => agent.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
+
+  async function change(next: AgentPreference): Promise<void> {
+    setError(null);
+    try {
+      const { host, port, token } = await resolveConnection(profile);
+      const updated = await updateProfileMeta(host, port, profile.id, { agentPreference: next }, token);
+      // The store's copy, not the one this render captured: a rename or a
+      // color change that landed meanwhile must not be undone by this.
+      addProfile({ ...(findProfile(profile.id) ?? profile), agentPreference: updated.agentPreference ?? next });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // What a relay that predates the preference answers; a current one
+      // says "invalid profile patch" for a malformed one instead, which is
+      // an error to show, not a missing feature.
+      if (message.includes("label or colorIndex is required")) setUnsupported(true);
+      else setError(message);
+    }
+  }
+
+  const selectFixed = (fixedAgentId: string) => void change({ mode: "fixed", fixedAgentId });
+  const firstAgent = agents[0];
+
+  return (
+    <>
+      <div role="group" aria-label={agentDict.title} className="flex gap-1.5">
+        <ChoiceButton
+          selected={preference.mode === "lastUsed"}
+          onClick={() => preference.mode !== "lastUsed" && void change({ mode: "lastUsed" })}
+          title={unsupported ? agentDict.unsupported : undefined}
+          disabled={unsupported}
+        >
+          {agentDict.lastUsed}
+        </ChoiceButton>
+        <ChoiceButton
+          selected={preference.mode === "fixed"}
+          onClick={() => firstAgent !== undefined && preference.mode !== "fixed" && selectFixed(firstAgent)}
+          title={unsupported ? agentDict.unsupported : undefined}
+          disabled={unsupported || firstAgent === undefined}
+        >
+          {agentDict.fixed}
+        </ChoiceButton>
+      </div>
+      {preference.mode === "fixed" && (
+        <div role="group" aria-label={agentDict.fixed} className="flex flex-wrap justify-end gap-1.5">
+          {agents.map((agentId) => (
+            <ChoiceButton
+              key={agentId}
+              selected={preference.fixedAgentId === agentId}
+              onClick={() => selectFixed(agentId)}
+              disabled={unsupported}
+            >
+              {agentName(dict.chat.composer.agentNames, agentId)}
+            </ChoiceButton>
+          ))}
+        </div>
+      )}
+      {unsupported && <p className="max-w-[24rem] text-right text-[11px] text-muted-foreground">{agentDict.unsupported}</p>}
+      {error && <p className="max-w-[24rem] text-right text-[11px] text-destructive">{error}</p>}
+    </>
+  );
+}
+
 /** Name and colour, both of which propagate to this profile's other
  * devices through a `PATCH`, and both failing the same way — hence one
  * component with one error line under them. The name saves on a button
@@ -194,7 +287,7 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
     try {
       const { host, port, token } = await resolveConnection(profile);
       const updated = await updateProfileMeta(host, port, profile.id, patch, token);
-      addProfile({ ...profile, label: updated.label, colorIndex: updated.colorIndex });
+      addProfile({ ...(findProfile(profile.id) ?? profile), label: updated.label, colorIndex: updated.colorIndex });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -376,6 +469,10 @@ export function ProfileSettings({
           preference={preferences[profile.id] ?? DEFAULT_MODEL_PREFERENCE}
           onChange={(preference) => setPreference(profile.id, preference)}
         />
+      </SettingsRow>
+
+      <SettingsRow title={dict.settings.profile.agent.title} description={dict.settings.profile.agent.description}>
+        <AgentControl profile={profile} />
       </SettingsRow>
 
       <RelayDriftRow profile={profile} />

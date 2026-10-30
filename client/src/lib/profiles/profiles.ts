@@ -1,4 +1,4 @@
-import type { RemoteProfile } from "@/lib/relay/relay-types";
+import type { AgentPreference, RemoteProfile } from "@/lib/relay/relay-types";
 import { getCachedSessions } from "@/lib/format/sessionListCache";
 
 export interface Profile {
@@ -22,6 +22,11 @@ export interface Profile {
    * from the host's sync, and exactly once more locally, to adopt whatever
    * was chosen before the upgrade. */
   themeId?: string;
+  /** Default agent for new sessions of this profile, mirrored from the host
+   * (`GET /control/profiles`) like `themeId`. Absent = last used. */
+  agentPreference?: AgentPreference;
+  /** Agent of the profile's most recent session, derived by the host. */
+  lastUsedAgentId?: string;
   /** Opaque bearer value sent as a `token` query param on the relay
    * WebSocket URL (see `RelayClient.connect`) — for a host sitting behind a
    * reverse proxy that gates access on a static credential the browser
@@ -272,6 +277,9 @@ function profileFieldsEqual(a: Profile, b: Profile): boolean {
     a.relayPort === b.relayPort &&
     a.colorIndex === b.colorIndex &&
     a.themeId === b.themeId &&
+    a.agentPreference?.mode === b.agentPreference?.mode &&
+    a.agentPreference?.fixedAgentId === b.agentPreference?.fixedAgentId &&
+    a.lastUsedAgentId === b.lastUsedAgentId &&
     a.connectToken === b.connectToken &&
     a.tailnetAuthKey === b.tailnetAuthKey &&
     a.tailnetControlUrl === b.tailnetControlUrl &&
@@ -346,6 +354,11 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
         relayPort: entry.port,
         colorIndex: entry.colorIndex,
         themeId: entry.themeId,
+        // A relay that predates the field never reports it, and a choice
+        // it refused to store (400) lives only here: keep it rather than
+        // let the first sync erase it.
+        agentPreference: entry.agentPreference ?? existing?.agentPreference,
+        lastUsedAgentId: entry.lastUsedAgentId,
         connectToken: existing?.connectToken,
         tailnetAuthKey: existing?.tailnetAuthKey,
         tailnetControlUrl: existing?.tailnetControlUrl,

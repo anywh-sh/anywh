@@ -144,6 +144,25 @@ test("assertCoherent: env.strip must not be empty", () => {
   assert.match(issues[0].message, /env\.strip is empty/);
 });
 
+test("assertCoherent: install links must be https", () => {
+  const def = baseDef();
+  assert.deepEqual(assertCoherent({ ...def, identity: { ...def.identity, install: { url: "https://example.com/setup", docsUrl: "https://example.com/repo" } } }), []);
+  const issues = assertCoherent({ ...def, identity: { ...def.identity, install: { url: "http://example.com/setup", docsUrl: "/docs" } } });
+  assert.deepEqual(
+    issues.map((issue) => issue.message),
+    ['identity.install.url ("http://example.com/setup") is not an https:// URL', 'identity.install.docsUrl ("/docs") is not an https:// URL'],
+  );
+});
+
+test("assertCoherent: a login command needs a login to run and at least one real arg", () => {
+  const def = baseDef();
+  const probe = { kind: "cli-probe" as const, args: ["auth", "status"], parse: () => ({ loggedIn: true }) };
+  assert.deepEqual(assertCoherent({ ...def, auth: { ...probe, loginCommand: ["auth", "login"] } }), []);
+  assert.match(assertCoherent({ ...def, auth: { kind: "none", loginCommand: ["login"] } })[0].message, /auth\.kind is "none"/);
+  assert.match(assertCoherent({ ...def, auth: { ...probe, loginCommand: [] } })[0].message, /loginCommand is empty/);
+  assert.match(assertCoherent({ ...def, auth: { ...probe, loginCommand: ["login", " "] } })[0].message, /blank arg/);
+});
+
 // ---------------------------------------------------------------------
 
 test("buildRegistry keeps a coherent def and exposes it by id", () => {

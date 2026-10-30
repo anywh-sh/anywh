@@ -163,6 +163,12 @@ test("isPatchProfileBody", () => {
   assert.equal(isPatchProfileBody({ label: 5 }), false, "wrong type for label");
   assert.equal(isPatchProfileBody({ colorIndex: "2" }), false, "wrong type for colorIndex");
   assert.equal(isPatchProfileBody({ themeId: 5 }), false, "wrong type for themeId");
+  assert.equal(isPatchProfileBody({ agentPreference: { mode: "fixed", fixedAgentId: "codex" } }), true, "agentPreference alone");
+  assert.equal(isPatchProfileBody({ agentPreference: { mode: "lastUsed" } }), true, "last used needs no agent");
+  assert.equal(isPatchProfileBody({ agentPreference: null }), true, "null agentPreference clears it, a meaningful value");
+  assert.equal(isPatchProfileBody({ agentPreference: { mode: "sometimes" } }), false, "unknown mode");
+  assert.equal(isPatchProfileBody({ agentPreference: { mode: "fixed" } }), false, "fixed with no agent");
+  assert.equal(isPatchProfileBody({ agentPreference: "codex" }), false, "wrong type for agentPreference");
   for (const v of NON_OBJECTS) assert.equal(isPatchProfileBody(v), false);
 });
 

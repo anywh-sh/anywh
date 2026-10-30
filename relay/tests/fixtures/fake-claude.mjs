@@ -106,6 +106,11 @@
 //                        ms before exiting — lets a test hold one probe's
 //                        result back long enough to race a second, faster
 //                        one deterministically.
+//   FAKE_CLAUDE_LOGGED_OUT_FILE - if set and that file exists, `auth status
+//                        --json` answers the real binary's logged-out shape
+//                        (`{"loggedIn":false}`, exit 1, Claude Code 2.1.274)
+//                        — a file rather than a flag so a test can log the
+//                        fake out and back in under one running relay.
 
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -269,6 +274,11 @@ if (args[0] === "--version") {
     process.exit(0);
   });
 } else if (args[0] === "auth" && args[1] === "status") {
+  const loggedOutFile = process.env.FAKE_CLAUDE_LOGGED_OUT_FILE;
+  if (loggedOutFile && existsSync(loggedOutFile)) {
+    emit({ loggedIn: false });
+    process.exit(1);
+  }
   emit({ loggedIn: true, email: "fake@anywh.test", subscriptionType: "pro" });
   process.exit(0);
 } else if (args[0] === "-p" && flagValue("--input-format") === "stream-json" && !args.includes("--no-session-persistence")) {

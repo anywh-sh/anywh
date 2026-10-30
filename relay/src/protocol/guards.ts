@@ -1,4 +1,5 @@
 import type { ModelChoice, PermissionMode } from "../session/sessionStore.js";
+import { isAgentPreference, type AgentPreference } from "../host/profileRegistry.js";
 import type { ChoiceAnswer } from "../bridges/mcpBridge.js";
 
 interface UserMessage {
@@ -188,14 +189,19 @@ export function isCreateProfileBody(value: unknown): value is { label: string; h
 }
 
 /** `themeId: null` is a meaningful value here (clear the selection, back to
- * the built-in theme), so it can't be folded into "field absent". */
-export function isPatchProfileBody(value: unknown): value is { label?: string; colorIndex?: number; themeId?: string | null } {
+ * the built-in theme), so it can't be folded into "field absent" — and the
+ * same goes for `agentPreference: null` (back to "last used"). Whether a
+ * fixed agent is one this relay knows is the route's check, not this one. */
+export function isPatchProfileBody(
+  value: unknown,
+): value is { label?: string; colorIndex?: number; themeId?: string | null; agentPreference?: AgentPreference | null } {
   if (typeof value !== "object" || value === null) return false;
-  const candidate = value as { label?: unknown; colorIndex?: unknown; themeId?: unknown };
+  const candidate = value as { label?: unknown; colorIndex?: unknown; themeId?: unknown; agentPreference?: unknown };
   if (candidate.label !== undefined && typeof candidate.label !== "string") return false;
   if (candidate.colorIndex !== undefined && typeof candidate.colorIndex !== "number") return false;
   if (candidate.themeId !== undefined && candidate.themeId !== null && typeof candidate.themeId !== "string") return false;
-  return candidate.label !== undefined || candidate.colorIndex !== undefined || candidate.themeId !== undefined;
+  if (candidate.agentPreference !== undefined && candidate.agentPreference !== null && !isAgentPreference(candidate.agentPreference)) return false;
+  return candidate.label !== undefined || candidate.colorIndex !== undefined || candidate.themeId !== undefined || candidate.agentPreference !== undefined;
 }
 
 export function isFilesCreateBody(value: unknown): value is { session?: string; dir?: string | null; name: string } {

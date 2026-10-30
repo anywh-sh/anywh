@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, s
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { SessionStore } from "./sessionStore.js";
+import { lastUsedAgentId, lastUsedAgentIdInFile, SessionStore } from "./sessionStore.js";
 
 const DEFAULT_CWD = "/home/user";
 
@@ -743,5 +743,50 @@ test("persist keeps the file's permissions and cleans its temp file when the wri
     mkdirSync(filePath);
     assert.throws(() => store.recordId("b"));
     assert.deepEqual(readdirSync(dirname(filePath)), ["sessions.json"], "temp file removed");
+  });
+});
+
+function entry(agentId: string | undefined, title: string | null, lastActiveAt: number, extra: object = {}): object {
+  return { ...(agentId ? { agentId } : {}), sessionId: {}, title, cwd: { cwd: DEFAULT_CWD, locked: false }, lastActiveAt, ...extra };
+}
+
+test("lastUsedAgentId: the agent of the most recently active titled conversation", () => {
+  assert.equal(lastUsedAgentId({ a: entry("claude", "Old", 100), b: entry("codex", "New", 200), c: entry("claude", "Middle", 150) }), "codex");
+});
+
+test("lastUsedAgentId: an untitled conversation (no turn yet) and a room's worker don't count", () => {
+  const records = {
+    used: entry("claude", "Used", 100),
+    fresh: entry("codex", null, 300),
+    worker: entry("codex", "Worker", 400, { room: { roomId: "used", role: "worker" } }),
+  };
+  assert.equal(lastUsedAgentId(records), "claude");
+  assert.equal(lastUsedAgentId({ principal: entry("codex", "Room", 100, { room: { roomId: "principal", role: "principal" } }) }), "codex", "a room's principal was picked by the person");
+});
+
+test("lastUsedAgentId: no conversation, nothing shaped like one, or no records at all answer undefined", () => {
+  assert.equal(lastUsedAgentId({}), undefined);
+  assert.equal(lastUsedAgentId({ junk: 5, partial: { title: "x" } }), undefined);
+  assert.equal(lastUsedAgentId(null), undefined);
+  assert.equal(lastUsedAgentId([]), undefined);
+});
+
+test("lastUsedAgentId: a record from before agents were selectable is the default agent's", () => {
+  assert.equal(lastUsedAgentId({ legacy: entry(undefined, "Legacy", 100) }), "claude");
+});
+
+test("SessionStore.lastUsedAgentId and lastUsedAgentIdInFile agree on the same records, and a bad file answers undefined", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("one");
+    store.setAgentId("one", "codex");
+    assert.equal(store.lastUsedAgentId(), undefined, "no turn, no title yet");
+    store.setTitle("one", "First");
+    assert.equal(store.lastUsedAgentId(), "codex");
+    assert.equal(lastUsedAgentIdInFile(filePath), "codex");
+
+    writeFileSync(filePath, "{ not json");
+    assert.equal(lastUsedAgentIdInFile(filePath), undefined);
+    assert.equal(lastUsedAgentIdInFile(join(dirname(filePath), "missing.json")), undefined);
   });
 });

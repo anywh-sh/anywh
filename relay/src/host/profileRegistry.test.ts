@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   allocatePort,
   deleteProfileFiles,
@@ -12,7 +12,9 @@ import {
   findHomeOverrideCollision,
   isValidProfileId,
   listProfileIds,
+  isAgentPreference,
   listProfiles,
+  profileSessionsFile,
   slugify,
   updateProfileMeta,
 } from "./profileRegistry.js";
@@ -168,6 +170,101 @@ test("listProfiles: reports the profile's themeId, absent when never set", async
     const profiles = await listProfiles(envDir);
     assert.equal(profiles.find((p) => p.id === "trabalho")?.themeId, "nord-ish");
     assert.equal(profiles.find((p) => p.id === "pessoal")?.themeId, undefined);
+  });
+});
+
+test("updateProfileMeta: agentPreference round-trips, survives other patches, and null clears it back to last used", async () => {
+  await withTempDir((envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+
+    assert.deepEqual(updateProfileMeta("pessoal", { agentPreference: { mode: "fixed", fixedAgentId: "codex" } }, envDir).agentPreference, { mode: "fixed", fixedAgentId: "codex" });
+    assert.deepEqual(updateProfileMeta("pessoal", { themeId: "nord-ish" }, envDir).agentPreference, { mode: "fixed", fixedAgentId: "codex" });
+    assert.equal(updateProfileMeta("pessoal", { agentPreference: null }, envDir).agentPreference, undefined);
+    assert.equal(updateProfileMeta("pessoal", { label: "Pessoal" }, envDir).themeId, "nord-ish", "clearing one field leaves the other");
+  });
+});
+
+test("updateProfileMeta: a last-used preference never keeps a fixed agent around", async () => {
+  await withTempDir((envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    assert.deepEqual(updateProfileMeta("pessoal", { agentPreference: { mode: "lastUsed", fixedAgentId: "codex" } }, envDir).agentPreference, { mode: "lastUsed" });
+  });
+});
+
+test("listProfiles: reports a stored agentPreference, and drops one profiles.json holds in a shape it can't use", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    writeEnv(envDir, "trabalho", { RELAY_PORT: "9002" });
+    writeEnv(envDir, "lab", { RELAY_PORT: "9003" });
+    const meta = (id: string, extra: object) => ({ id, label: id, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...extra });
+    writeFileSync(
+      join(dirname(envDir), "profiles.json"),
+      JSON.stringify({
+        version: 1,
+        profiles: [meta("pessoal", { agentPreference: { mode: "fixed", fixedAgentId: "codex" } }), meta("trabalho", { agentPreference: { mode: "fixed" } }), meta("lab", {})],
+      }),
+    );
+
+    const profiles = await listProfiles(envDir);
+    assert.deepEqual(profiles.find((p) => p.id === "pessoal")?.agentPreference, { mode: "fixed", fixedAgentId: "codex" });
+    assert.equal(profiles.find((p) => p.id === "trabalho")?.agentPreference, undefined, "fixed with no agent");
+    assert.equal(profiles.find((p) => p.id === "lab")?.agentPreference, undefined, "never set");
+  });
+});
+
+// A relay older than a field must still read and edit a profiles.json a
+// newer one wrote: the field is ignored on read and carried over by a
+// PATCH. The registry from before agentPreference existed only had the
+// first half: it read such a file without error, but its PATCH rebuilt
+// the entry from the fields it knew and dropped agentPreference. This pins
+// both halves for whatever field comes next, on today's code.
+test("updateProfileMeta/listProfiles: a meta field this version doesn't know is read past and kept on write", async () => {
+  await withTempDir(async (envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    const path = join(dirname(envDir), "profiles.json");
+    writeFileSync(path, JSON.stringify({ version: 1, profiles: [{ id: "pessoal", label: "Pessoal", fromTheFuture: { keep: true }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }));
+
+    assert.equal((await listProfiles(envDir))[0].label, "Pessoal");
+    updateProfileMeta("pessoal", { label: "Renamed" }, envDir);
+    const stored = (JSON.parse(readFileSync(path, "utf8")) as { profiles: Record<string, unknown>[] }).profiles[0];
+    assert.equal(stored.label, "Renamed");
+    assert.deepEqual(stored.fromTheFuture, { keep: true });
+  });
+});
+
+test("updateProfileMeta: a stored agentPreference a patch doesn't touch is kept verbatim, even in a shape this version can't use", async () => {
+  await withTempDir((envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    const path = join(dirname(envDir), "profiles.json");
+    const future = { mode: "perProject", fixedAgentId: "codex", projects: { "/src/a": "claude" } };
+    writeFileSync(path, JSON.stringify({ version: 1, profiles: [{ id: "pessoal", label: "Pessoal", agentPreference: future, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }));
+
+    updateProfileMeta("pessoal", { label: "Renamed" }, envDir);
+    const stored = (JSON.parse(readFileSync(path, "utf8")) as { profiles: Record<string, unknown>[] }).profiles[0];
+    assert.deepEqual(stored.agentPreference, future);
+  });
+});
+
+test("isAgentPreference: a fixed preference names a non-empty agent, a last-used one may or may not", () => {
+  assert.equal(isAgentPreference({ mode: "lastUsed" }), true);
+  assert.equal(isAgentPreference({ mode: "lastUsed", fixedAgentId: "codex" }), true);
+  assert.equal(isAgentPreference({ mode: "fixed", fixedAgentId: "codex" }), true);
+  assert.equal(isAgentPreference({ mode: "fixed" }), false);
+  assert.equal(isAgentPreference({ mode: "fixed", fixedAgentId: "" }), false);
+  assert.equal(isAgentPreference({ mode: "fixed", fixedAgentId: 5 }), false);
+  assert.equal(isAgentPreference({ mode: "always" }), false);
+  assert.equal(isAgentPreference({}), false);
+  assert.equal(isAgentPreference(null), false);
+  assert.equal(isAgentPreference("lastUsed"), false);
+});
+
+test("profileSessionsFile: the sessions file a profile's .env names, absent when it names none", async () => {
+  await withTempDir((envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001", RELAY_SESSIONS_FILE: "/home/someone/.anywh-sessions/pessoal.json" });
+    writeEnv(envDir, "default", { RELAY_PORT: "9002" });
+    assert.equal(profileSessionsFile("pessoal", envDir), "/home/someone/.anywh-sessions/pessoal.json");
+    assert.equal(profileSessionsFile("default", envDir), undefined);
+    assert.equal(profileSessionsFile("missing", envDir), undefined);
   });
 });
 

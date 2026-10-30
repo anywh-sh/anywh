@@ -92,6 +92,22 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
     }
   }
 
+  // The UI links these as-is, so a plain-http or relative URL would be a
+  // link that downgrades or goes nowhere.
+  for (const [field, url] of [["url", identity.install?.url], ["docsUrl", identity.install?.docsUrl]] as const) {
+    if (url !== undefined && !/^https:\/\/[^/\s]+/.test(url)) {
+      issues.push({ message: `identity.install.${field} ("${url}") is not an https:// URL` });
+    }
+  }
+
+  if (auth.loginCommand !== undefined) {
+    if (auth.kind === "none") {
+      issues.push({ message: 'auth.loginCommand is declared but auth.kind is "none" — a CLI with no login has nothing to run' });
+    } else if (auth.loginCommand.length === 0 || auth.loginCommand.some((arg) => arg.trim() === "")) {
+      issues.push({ message: "auth.loginCommand is empty or has a blank arg — the bare binary is not a login command" });
+    }
+  }
+
   if (identity.env.strip.length === 0) {
     issues.push({ message: "identity.env.strip is empty — every runtime bills some credential if it leaks into a spawned child" });
   }

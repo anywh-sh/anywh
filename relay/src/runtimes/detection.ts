@@ -16,6 +16,10 @@ export interface AgentDetection {
    * from the binary — a def states what it supports, detection only says
    * whether that def's binary is actually present and runs. */
   readonly capabilities: Capabilities;
+  /** Set when `--version` didn't answer within the timeout — not proof
+   * the CLI is gone (a slow start under load looks the same), unlike a
+   * spawn error or a non-zero exit. */
+  readonly timedOut?: true;
 }
 
 /**
@@ -59,7 +63,7 @@ export function detectRuntime(def: AgentRuntimeDef, homeOverride?: string): Prom
     };
     const timeout = setTimeout(() => {
       child.kill();
-      finish(notInstalled());
+      finish({ ...notInstalled(), timedOut: true });
     }, DETECTION_TIMEOUT_MS);
 
     let stdout = "";

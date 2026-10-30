@@ -1,6 +1,15 @@
-import { rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+
+function newestMtime(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestMtime(path) : statSync(path).mtimeMs);
+  }
+  return newest;
+}
 
 // Real end-to-end tier (.anywh/skills/tests/SKILL.md) — drives the actual
 // Tauri app (real window, real webview) via @wdio/tauri-service's embedded
@@ -29,6 +38,31 @@ export const updateE2EFixtures = {
   openedUrlsLog: resolve(tmpdir(), "anywh-e2e-opened-urls.log"),
 };
 const fakeOpenerBinDir = resolve(import.meta.dirname, "tests/e2e/fixtures/bin");
+
+// A throwaway HOME (and XDG dirs) for the app under test — required, not a
+// nicety. The first run probes this machine's disk (~/.config/anywh,
+// ~/.local/share/anywh) and would otherwise find, and adopt, the profiles of
+// whatever relays the developer's machine really runs; the webview's own
+// storage lives under it too, so every run starts from no profile. The
+// in-app install runs `fake-install.sh` instead of the real installer, and
+// whatever it writes (including the relay it starts) stays under
+// `installDir`.
+// Made once by the launcher and inherited through the environment by the
+// worker that runs the specs, which loads this file again: both have to
+// name the same directory.
+const e2eHome = (process.env.ANYWH_E2E_HOME ??= mkdtempSync(join(tmpdir(), "anywh-e2e-home-")));
+// The seeded profile's port: one nothing listens on. 8765 is the relay's
+// default, which is exactly where a developer's own relay answers — no spec
+// needs a live relay there, and none may reach a real one.
+export const e2eSeedPort = 47866;
+export const firstRunE2EFixtures = {
+  home: e2eHome,
+  installDir: join(e2eHome, "install"),
+  /** Where firstRunAdopt.spec.js keeps the relay it starts beforehand. */
+  adoptDir: join(e2eHome, "adopt-relay"),
+  installScript: resolve(import.meta.dirname, "tests/e2e/fixtures/fake-install.sh"),
+};
+mkdirSync(firstRunE2EFixtures.installDir, { recursive: true });
 
 // updateDownload.spec.js's fixtures — the real tauri-plugin-updater
 // download+signature-verify path, not just the GitHub check above. Unlike
@@ -75,6 +109,14 @@ export const config = {
           // update modes UpdateModal offers, never which one is selected.
           ANYWH_E2E_FORCE_UPDATABLE: "1",
           PATH: `${fakeOpenerBinDir}:${process.env.PATH}`,
+          HOME: e2eHome,
+          XDG_CONFIG_HOME: join(e2eHome, ".config"),
+          XDG_DATA_HOME: join(e2eHome, ".local/share"),
+          XDG_CACHE_HOME: join(e2eHome, ".cache"),
+          XDG_STATE_HOME: join(e2eHome, ".local/state"),
+          ANYWH_ENV_DIR: join(e2eHome, ".config/anywh/env"),
+          ANYWH_INSTALL_SCRIPT: firstRunE2EFixtures.installScript,
+          ANYWH_E2E_INSTALL_DIR: firstRunE2EFixtures.installDir,
         },
       },
     },
@@ -99,10 +141,37 @@ export const config = {
   // id is deliberately not the retired `default` seed's, so the one-shot
   // ghost migration in profiles.ts never mistakes it for the ghost. A dir
   // that already holds profiles is left exactly as it is.
+  // The relay the first run's fake installer may have left running (the
+  // spec stops it; this is the backstop for a run that died first) — by its
+  // exact PID, never by a pattern that would also match real relays.
+  // The relays the first-run specs start run this checkout's relay/dist,
+  // which `build:e2e` doesn't build: an out-of-date one would test old code
+  // while looking green.
+  onPrepare: () => {
+    const relayDir = resolve(import.meta.dirname, "../relay");
+    const built = join(relayDir, "dist/server.js");
+    if (!existsSync(built)) throw new Error("relay/dist is missing — run `npm run build` in relay/ first");
+    const newest = newestMtime(join(relayDir, "src"));
+    if (newest > statSync(built).mtimeMs) throw new Error("relay/dist is older than relay/src — run `npm run build` in relay/ first");
+  },
+
+  onComplete: () => {
+    for (const pidFile of [join(firstRunE2EFixtures.installDir, "relay.pid"), join(firstRunE2EFixtures.adoptDir, "relay.pid")]) {
+      try {
+        process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGTERM");
+      } catch {
+        // No relay, or already gone.
+      }
+    }
+    // Only ever a directory this file made: under the temp dir, with our
+    // prefix — the path comes through the environment.
+    if (dirname(e2eHome) === tmpdir() && basename(e2eHome).startsWith("anywh-e2e-home-")) rmSync(e2eHome, { recursive: true, force: true });
+  },
+
   before: async () => {
     rmSync(updateE2EFixtures.openedUrlsLog, { force: true });
 
-    const seeded = await browser.execute(() => {
+    const seeded = await browser.execute((port) => {
       const raw = localStorage.getItem("anywh:profiles");
       try {
         if (raw && JSON.parse(raw).length > 0) return false;
@@ -111,13 +180,13 @@ export const config = {
       }
       localStorage.setItem(
         "anywh:profiles",
-        JSON.stringify([{ id: "e2e", label: "Default", host: "127.0.0.1", relayPort: 8765 }]),
+        JSON.stringify([{ id: "e2e", label: "Default", host: "127.0.0.1", relayPort: port }]),
       );
       return true;
-    });
+    }, e2eSeedPort);
     if (seeded) {
       await browser.execute(() => window.location.reload());
-      await $('[aria-label="New conversation"]').waitForExist({ timeout: 15000 });
+      await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
     }
   },
 };

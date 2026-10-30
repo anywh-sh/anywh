@@ -556,6 +556,10 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
     id: "codex",
     bin: "codex",
     env: { strip: ["OPENAI_API_KEY"] },
+    // The CLI page answers with a redirect to a newer page that no longer
+    // lists the npm/brew/Windows commands; the repository README still has
+    // all of them, hence the second link.
+    install: { url: "https://developers.openai.com/codex/cli", docsUrl: "https://github.com/openai/codex" },
     projectInstructionsFile: "AGENTS.md",
   },
   capabilities: {
@@ -611,6 +615,9 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   auth: {
     kind: "cli-probe",
     args: ["login", "status"],
+    // `codex login --help` (0.154.0): `login` itself signs in, `status`
+    // is its one subcommand.
+    loginCommand: ["login"],
     parse: ({ stderr, exitCode }) => {
       if (exitCode !== 0) return { loggedIn: false };
       const method = /Logged in using (.+)/.exec(stderr)?.[1].trim();

@@ -43,10 +43,6 @@ export interface Prerequisites {
    * `depends_on "node"`, so `nodePath`/`nodeOk` answer a question that
    * platform doesn't ask. */
   brewPath: string | null;
-  agentBin: string;
-  agentPath: string | null;
-  agentLoggedIn: boolean | null;
-  agentError: string | null;
   systemdUser: boolean;
   xdgRuntimeDir: boolean;
   activeUnits: string[];
@@ -135,8 +131,6 @@ export interface InstallRunInfo {
   started: boolean;
 }
 
-export type CloseAction = "background" | "cancel" | "keep";
-
 /** The in-app install exists on Linux (systemd) and macOS (Homebrew); the
  * probe says whether *this* machine can (not a Flatpak/Snap sandbox on
  * Linux). Outside Tauri, or on Windows, there is no in-app path at all —
@@ -178,11 +172,6 @@ export function getLocalInstallStatus(): Promise<InstallRunStatus | null> {
   return invoke<InstallRunStatus | null>("relay_setup_status");
 }
 
-export function confirmCloseDuringInstall(action: CloseAction): Promise<void> {
-  if (!inTauri()) return Promise.resolve();
-  return invoke<void>("relay_setup_confirm_close", { action });
-}
-
 /** Subscribes to the installer's log lines. Fire-and-forget on the Rust
  * side — a line emitted with no listener is gone, which is why the caller
  * hydrates from `getLocalInstallStatus()` first and watches `seq` for gaps. */
@@ -194,11 +183,4 @@ export function onInstallLog(handler: (event: InstallLogEvent) => void): Promise
 export function onInstallDone(handler: (event: InstallDoneEvent) => void): Promise<UnlistenFn> {
   if (!inTauri()) return Promise.resolve(() => {});
   return listen<InstallDoneEvent>("relay-setup-done", (event) => handler(event.payload));
-}
-
-/** Rust held a window close because an install is alive; the UI owes it a
- * decision through `confirmCloseDuringInstall`. */
-export function onCloseRequestedDuringInstall(handler: () => void): Promise<UnlistenFn> {
-  if (!inTauri()) return Promise.resolve(() => {});
-  return listen("relay-setup-close-requested", () => handler());
 }

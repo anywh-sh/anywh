@@ -4,6 +4,7 @@ import { createServer as createNetServer, type Server } from "node:net";
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./helpers/testServer.js";
+import { collectUntil, connectSession, isTurnEnded, sendUserMessage } from "./helpers/wsClient.js";
 
 // Real integration test (.anywh/skills/tests/SKILL.md): exercises the
 // `/control/profiles` HTTP surface (client/src/hooks/relay/useProfileSync.ts polls
@@ -171,4 +172,82 @@ test("POST /control/profiles refuses to provision against a runtime no def answe
   assert.match(((await response.json()) as { error: string }).error, /unknown runtime/);
   const listed = (await (await fetch(httpUrl("/control/profiles"))).json()) as { profiles: { id: string }[] };
   assert.ok(!listed.profiles.some((profile) => profile.id === "ghost"), "a rejected body must not have reached add-profile.sh");
+});
+
+interface ListedProfile {
+  id: string;
+  port: number;
+  agentPreference?: { mode: string; fixedAgentId?: string };
+  lastUsedAgentId?: string;
+}
+
+async function listProfilesOverHttp(): Promise<ListedProfile[]> {
+  return ((await (await fetch(httpUrl("/control/profiles"))).json()) as { profiles: ListedProfile[] }).profiles;
+}
+
+function patchProfile(id: string, body: unknown): Promise<Response> {
+  return fetch(httpUrl(`/control/profiles/${id}`), { method: "PATCH", body: JSON.stringify(body) });
+}
+
+test("PATCH /control/profiles/:id stores a default agent preference that GET reports, refuses an agent no def answers to, and null clears it", async () => {
+  writeFileSync(join(server.envDir, "lab.env"), "RELAY_PORT=1\nRELAY_HOST=127.0.0.1\n");
+
+  const fixed = await patchProfile("lab", { agentPreference: { mode: "fixed", fixedAgentId: "codex" } });
+  assert.equal(fixed.status, 200);
+  assert.deepEqual(((await fixed.json()) as ListedProfile).agentPreference, { mode: "fixed", fixedAgentId: "codex" });
+  assert.deepEqual((await listProfilesOverHttp()).find((profile) => profile.id === "lab")?.agentPreference, { mode: "fixed", fixedAgentId: "codex" });
+
+  const unknownAgent = await patchProfile("lab", { agentPreference: { mode: "fixed", fixedAgentId: "nonexistent-cli" } });
+  assert.equal(unknownAgent.status, 400);
+  assert.match(((await unknownAgent.json()) as { error: string }).error, /unknown agent/);
+  const unknownMode = await patchProfile("lab", { agentPreference: { mode: "always" } });
+  assert.equal(unknownMode.status, 400, "unknown mode");
+  assert.deepEqual(await unknownMode.json(), { error: "invalid profile patch" }, "not the string an older relay answers to a field it doesn't know");
+  assert.deepEqual((await listProfilesOverHttp()).find((profile) => profile.id === "lab")?.agentPreference, { mode: "fixed", fixedAgentId: "codex" }, "a refused PATCH writes nothing");
+
+  const lastUsed = await patchProfile("lab", { agentPreference: { mode: "lastUsed", fixedAgentId: "nonexistent-cli" } });
+  assert.equal(lastUsed.status, 200, "a last-used preference stores no agent, so its agent isn't checked");
+  assert.deepEqual(((await lastUsed.json()) as ListedProfile).agentPreference, { mode: "lastUsed" });
+
+  assert.equal((await patchProfile("lab", { agentPreference: null })).status, 200);
+  assert.equal((await listProfilesOverHttp()).find((profile) => profile.id === "lab")?.agentPreference, undefined);
+});
+
+test("GET /control/profiles derives lastUsedAgentId from real conversations: this relay's own live, another profile's from its sessions file", async () => {
+  // Another profile's relay keeps its conversations where its .env says
+  // (add-profile.sh always writes RELAY_SESSIONS_FILE); its newest titled
+  // conversation is a Codex one.
+  const otherSessions = join(server.envDir, "..", "other-sessions.json");
+  writeFileSync(
+    otherSessions,
+    JSON.stringify({
+      older: { agentId: "claude", sessionId: {}, title: "Older", cwd: { cwd: server.homeDir, locked: true }, lastActiveAt: 100 },
+      newer: { agentId: "codex", sessionId: {}, title: "Newer", cwd: { cwd: server.homeDir, locked: true }, lastActiveAt: 200 },
+    }),
+  );
+  writeFileSync(join(server.envDir, "outro.env"), `RELAY_PORT=2\nRELAY_HOST=127.0.0.1\nRELAY_SESSIONS_FILE=${otherSessions}\n`);
+
+  const before = await listProfilesOverHttp();
+  assert.equal(before.find((profile) => profile.id === "outro")?.lastUsedAgentId, "codex");
+  const own = before.find((profile) => profile.port === server.port);
+  assert.ok(own, `this relay lists its own profile: ${JSON.stringify(before)}`);
+  assert.equal(own.lastUsedAgentId, undefined, "no conversation has had a turn yet");
+
+  // A real turn against the fake claude, over the real WebSocket.
+  const socket = await connectSession(server.port, "last-used-agent");
+  try {
+    const ended = collectUntil(socket, isTurnEnded, 15_000);
+    sendUserMessage(socket, "hello");
+    await ended;
+  } finally {
+    socket.close();
+  }
+  const deadline = Date.now() + 10_000;
+  let ownAfter: ListedProfile | undefined;
+  while (Date.now() < deadline) {
+    ownAfter = (await listProfilesOverHttp()).find((profile) => profile.port === server.port);
+    if (ownAfter?.lastUsedAgentId) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(ownAfter?.lastUsedAgentId, "claude");
 });
