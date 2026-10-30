@@ -60,7 +60,7 @@ function AddressOption({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-2">
           <span className={cn("text-[13.5px]", selected ? "text-foreground" : "text-muted-foreground")}>{title}</span>
-          {tag && <span className="font-mono text-[10px] tracking-[0.1em] text-text-faint uppercase">{tag}</span>}
+          {tag && <span className="font-mono text-[11px] text-text-faint">{tag}</span>}
         </span>
         <span className="text-xs leading-[1.5] text-text-faint">{hint}</span>
       </span>
@@ -187,7 +187,7 @@ export function AdvancedOptions({
       <FirstRunHeading title={copy.title} body={copy.body} />
 
       <div className="flex flex-col gap-2">
-        <span id="first-run-address-label" className="font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
+        <span id="first-run-address-label" className="text-[12px] font-medium text-text-faint">
           {copy.address.label}
         </span>
         <div className="flex flex-col gap-1.5" role="radiogroup" aria-labelledby="first-run-address-label">
@@ -284,7 +284,7 @@ export function AdvancedOptions({
             <ol className="flex flex-col gap-3">
               {steps.map((step, index) => (
                 <li key={step.label} className="flex flex-col gap-1.5">
-                  <span className="font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint uppercase">
+                  <span className="text-[12px] font-medium text-text-faint">
                     {index + 1}. {step.label}
                   </span>
                   <CommandLine command={step.command} />

@@ -169,3 +169,12 @@ describe("color and type", () => {
     expect(hits(FILES, /\b(Inter|JetBrains Mono)\b/)).toEqual([]);
   });
 });
+
+describe("onboarding", () => {
+  it("writes labels in sentence case, never shouted", () => {
+    // The onboarding's labels keep only the first letter capitalized — an
+    // `uppercase` class turns "Pairing code" into a heading it isn't.
+    const firstrun = COMPONENTS.filter((file) => file.path.startsWith("components/firstrun/"));
+    expect(hits(firstrun, /\buppercase\b/)).toEqual([]);
+  });
+});
