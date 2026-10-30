@@ -86,6 +86,15 @@ export interface RuntimePlanUsage {
    * account limited, or no client connected). */
   nextAutoRefreshAt?: number | null;
   error?: { kind: PlanUsageErrorKind };
+  /** A read of this runtime (Claude probe, Codex pull) is in flight. Sent
+   * with a state pushed when it starts and cleared by the one pushed when it
+   * ends; absent = nothing in flight. A relay without this field never sets
+   * it, so a client reads its absence as "not reading". */
+  reading?: boolean;
+  /** When the read in flight started, epoch ms (relay clock); set only with
+   * `reading: true`. A Claude probe takes a few seconds, up to its 30 s
+   * timeout. */
+  readingSince?: number;
 }
 
 /** Relay → client: the full state of every installed runtime, sent on

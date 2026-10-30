@@ -110,7 +110,10 @@ nothing).
 A dedicated WebSocket per profile, `/plan-usage/watch`:
 
 - relay → client: `{type: "plan_usage_state", runtimes, observedAt}` on
-  connect and on every change; `{type: "pong"}`;
+  connect and on every change; `{type: "pong"}`. While a read of a runtime is
+  in flight (a Claude probe takes about 5 s, a Codex read about 1 s), its
+  entry carries `reading: true` and `readingSince`; the state pushed when the
+  read starts says so, and the one pushed with its result no longer does;
 - client → relay: `{type: "plan_usage_refresh", runtime?, force}`, answered
   with a fresh `plan_usage_state` once the reads end; `{type: "ping"}`.
 

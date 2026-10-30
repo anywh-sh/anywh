@@ -92,6 +92,9 @@ interface RuntimeSlot {
   usage: RuntimePlanUsage;
   /** The lock: the read (probe or pull) in flight, if any. */
   inFlight?: Promise<void>;
+  /** When the read in flight started; cleared just before its result is
+   * applied, so the state pushed with the result already says it ended. */
+  readingSince?: number;
   failures: number;
   backoffUntil: number | null;
 }
@@ -151,6 +154,10 @@ export class PlanUsageService {
     const runtimes = RUNTIMES.filter((runtime) => this.installed.has(runtime)).map((runtime) => {
       const slot = this.slots[runtime];
       const shown = { ...presentPlanUsage(slot.usage, now) };
+      if (slot.readingSince !== undefined) {
+        shown.reading = true;
+        shown.readingSince = slot.readingSince;
+      }
       const base = { now, clients: this.clients, lastReadingAt: slot.usage.observedAt, backoffUntil: slot.backoffUntil };
       shown.nextAutoRefreshAt =
         runtime === "claude"
@@ -269,11 +276,35 @@ export class PlanUsageService {
   }
 
   private probeClaude(): Promise<void> {
-    const slot = this.slots.claude;
-    slot.inFlight ??= (async () => {
+    return this.read("claude", async () => {
       const result = await this.deps.probeClaude().catch((): ClaudeUsageProbeResult => ({ kind: "error", error: "unknown", probed: false }));
-      await this.applyClaudeResult(result);
+      return () => this.applyClaudeResult(result);
+    });
+  }
+
+  /**
+   * Runs one read of `runtime` under its lock (a read already in flight is
+   * joined), and tells subscribers when it starts and when it ends: `fetch`
+   * does the slow part and returns how to apply its result, which runs once
+   * `reading` is cleared, so the state it pushes already says the read is
+   * over. A result that changes nothing still gets its "ended" push.
+   */
+  private read(runtime: PlanUsageRuntime, fetch: () => Promise<() => Promise<void>>): Promise<void> {
+    const slot = this.slots[runtime];
+    slot.inFlight ??= (async () => {
+      slot.readingSince = this.deps.now();
+      if (this.installed.has(runtime)) this.notify();
+      let apply: (() => Promise<void>) | undefined;
+      try {
+        apply = await fetch();
+      } finally {
+        slot.readingSince = undefined;
+      }
+      const before = slot.usage;
+      await apply();
+      if (slot.usage === before && this.installed.has(runtime)) this.notify();
     })().finally(() => {
+      slot.readingSince = undefined;
       slot.inFlight = undefined;
     });
     return slot.inFlight;
@@ -348,16 +379,12 @@ export class PlanUsageService {
   }
 
   private readCodex(): Promise<void> {
-    const slot = this.slots.codex;
-    slot.inFlight ??= (async () => {
+    return this.read("codex", async () => {
       const result = await this.reader()
         .read()
         .catch((): CodexRateLimitsResult => ({ kind: "error", error: "unknown" }));
-      await this.applyCodexResult(result);
-    })().finally(() => {
-      slot.inFlight = undefined;
+      return () => this.applyCodexResult(result);
     });
-    return slot.inFlight;
   }
 
   private async applyCodexResult(result: CodexRateLimitsResult): Promise<void> {

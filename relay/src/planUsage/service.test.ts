@@ -386,3 +386,55 @@ test("a stored snapshot is the starting state, and every change is saved", async
   assert.ok(saved.length > 0);
   assert.equal(saved.at(-1)?.find((usage) => usage.runtime === "claude")?.windows[0]?.usedPercent, 40);
 });
+
+test("a read in flight is announced: reading/readingSince pushed when it starts, cleared by the push with its result", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  const pending = deferred<ClaudeUsageProbeResult>();
+  t.h.probe = () => pending.promise;
+  const started = t.h.now;
+  const refresh = t.service.refresh({ force: true, runtime: "claude" });
+  const during = t.messages.at(-1)?.runtimes.find((usage) => usage.runtime === "claude");
+  assert.equal(during?.reading, true);
+  assert.equal(during?.readingSince, started);
+  assert.equal(t.claude()?.reading, true);
+  // Only the runtime being read says so.
+  assert.equal(t.codex()?.reading, undefined);
+
+  pending.resolve({ kind: "reading", reading: { status: "ok", windows: claudeWindows(12, t.h.now + 60 * MIN), observedAt: t.h.now, source: "probe" }, claudeStatus: "allowed", auth: AUTH });
+  await refresh;
+  const after = t.messages.at(-1)?.runtimes.find((usage) => usage.runtime === "claude");
+  assert.equal(after?.reading, undefined);
+  assert.equal(after?.readingSince, undefined);
+  assert.equal(after?.windows[0]?.usedPercent, 12);
+  // The result's own push already said the read had ended.
+  assert.ok(t.messages.every((message) => !(message.runtimes.find((usage) => usage.runtime === "claude")?.windows[0]?.usedPercent === 12 && message.runtimes.find((usage) => usage.runtime === "claude")?.reading)));
+});
+
+test("a read whose result changes nothing still pushes that it ended", async () => {
+  const t = harness({ installed: ["codex"] });
+  t.service.connectClient();
+  await settle();
+  // An answer older than what is held is ignored by the ingest.
+  t.h.codex = () =>
+    Promise.resolve({
+      kind: "reading",
+      reading: { status: "ok", windows: [{ durationMins: 300, usedPercent: 1, resetsAt: t.h.now + 60 * MIN, limitId: "codex" }], observedAt: t.h.now - 10 * MIN, source: "app_server_read" },
+      identity: null,
+    });
+  const before = t.messages.length;
+  await t.service.refresh({ force: false });
+  const pushed = t.messages.slice(before).map((message) => message.runtimes[0]?.reading);
+  assert.deepEqual(pushed, [true, undefined]);
+});
+
+test("reading is never persisted", async () => {
+  const saved: RuntimePlanUsage[][] = [];
+  const t = harness({ store: { load: () => undefined, save: (runtimes) => saved.push(runtimes) } });
+  const pending = deferred<ClaudeUsageProbeResult>();
+  t.h.probe = () => pending.promise;
+  const refresh = t.service.refresh({ force: true });
+  pending.resolve({ kind: "error", error: "network", probed: true });
+  await refresh;
+  assert.ok(saved.length > 0);
+  assert.ok(!JSON.stringify(saved).includes("reading"));
+});
