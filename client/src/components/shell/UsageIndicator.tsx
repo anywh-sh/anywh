@@ -2,7 +2,7 @@ import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react
 
 import { AgentMark } from "@/components/shell/AgentMark";
 import { UsageMeter } from "@/components/shell/UsageMeter";
-import { ReadingMark, noteText } from "@/components/shell/usageNote";
+import { ReadingMark, noteDetail, noteSpoken, noteText } from "@/components/shell/usageNote";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { useIsCompactStatusBar } from "@/hooks/platform/useMediaQuery";
 import { useDict, useLocale, type Dictionary, type Locale } from "@/i18n";
@@ -107,6 +107,15 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
       {...buttonProps}
     >
       <span aria-hidden="true" className={cn("size-1.5 shrink-0", profileColorClass(profileId))} />
+      {stale && (
+        <span
+          data-usage-offline
+          title={entry?.receivedAt != null ? strings.stale.replace("{ago}", formatUpdatedAgo(strings, entry.receivedAt, now)) : undefined}
+          className="whitespace-nowrap text-text-faint"
+        >
+          {strings.card.offline}
+        </span>
+      )}
       {outdated && (
         <span data-usage-outdated className="whitespace-nowrap text-text-faint">
           {strings.outdated}
@@ -201,7 +210,7 @@ function AgentBlock({
     if (note === "apiKey") {
       return block(<span className="border border-border px-1 leading-[14px] text-muted-foreground">{strings.apiKey}</span>);
     }
-    return block(!compact && <span>{noteText(note, strings)}</span>);
+    return block(!compact && <span title={noteDetail(note, strings)}>{noteText(note, strings)}</span>);
   }
 
   const lead = leadWindow(views) ?? headline;
@@ -251,7 +260,7 @@ function summarize(usage: RuntimePlanUsage, agent: string, now: number, reading:
   const views = accountWindows(runtimeWindows(usage, now));
   const headline = strongestWindow(views);
   const state = (word: string) => strings.summaryState.replace("{agent}", agent).replace("{state}", word);
-  if (views.length === 0 || !headline) return state(noteText(runtimeNote(usage, now, reading) ?? "notRead", strings));
+  if (views.length === 0 || !headline) return state(noteSpoken(runtimeNote(usage, now, reading) ?? "notRead", strings));
   // Numbers being refreshed: still the numbers, and a word that more are coming.
   const updating = (phrase: string) => (reading ? `${phrase}, ${strings.reading}` : phrase);
   if (headline.level === "limited") {

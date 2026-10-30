@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 
 type UsageStrings = Dictionary["shell"]["usage"];
 
-/** The words for an agent with no windows to draw (`runtimeNote`). */
+/** The words for an agent with no windows to draw (`runtimeNote`). A failed
+ * read is one short phrase whatever its cause; the cause is `noteDetail`. */
 export function noteText(note: RuntimeNote, strings: UsageStrings): string {
   switch (note) {
     case "reading":
@@ -14,16 +15,29 @@ export function noteText(note: RuntimeNote, strings: UsageStrings): string {
     case "apiKey":
       return strings.apiKey;
     case "errorNetwork":
-      return strings.errorNetwork;
     case "errorAuth":
-      return strings.errorAuth;
     case "errorParse":
-      return strings.errorParse;
     case "error":
       return strings.readError;
     case "notRead":
       return strings.noData;
   }
+}
+
+/** The cause of a failed read, for a tooltip and the accessible name;
+ * `undefined` for every other note, and for a failure of unknown cause. */
+export function noteDetail(note: RuntimeNote, strings: UsageStrings): string | undefined {
+  if (note === "errorNetwork") return strings.errorNetwork;
+  if (note === "errorAuth") return strings.errorAuth;
+  if (note === "errorParse") return strings.errorParse;
+  return undefined;
+}
+
+/** `noteText`, with its cause in parentheses when there is one — for text
+ * read aloud, where a tooltip doesn't reach. */
+export function noteSpoken(note: RuntimeNote, strings: UsageStrings): string {
+  const detail = noteDetail(note, strings);
+  return detail ? `${noteText(note, strings)} (${detail})` : noteText(note, strings);
 }
 
 /**

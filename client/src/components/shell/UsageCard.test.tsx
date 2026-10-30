@@ -134,11 +134,11 @@ describe("UsageCard", () => {
         pessoal: live([{ ...unknown, accountKey: "zz", reading: true }]),
       },
     });
-    const notes = Array.from(card.querySelectorAll<HTMLElement>("[data-usage-note]")).map((note) => [note.dataset.usageNote, note.textContent]);
+    const notes = Array.from(card.querySelectorAll<HTMLElement>("[data-usage-note]")).map((note) => [note.dataset.usageNote, note.textContent, note.title]);
     expect(notes).toEqual([
-      ["notRead", "not read yet · refresh to read"],
-      ["errorAuth", "login rejected"],
-      ["reading", "updating…"],
+      ["notRead", "not read yet · refresh to read", ""],
+      ["errorAuth", "read failed", "login rejected"],
+      ["reading", "updating…", ""],
     ]);
   });
 

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { AgentMark } from "@/components/shell/AgentMark";
 import { UsageMeter } from "@/components/shell/UsageMeter";
-import { ReadingMark, noteText } from "@/components/shell/usageNote";
+import { ReadingMark, noteDetail, noteText } from "@/components/shell/usageNote";
 import { useDict, useLocale, type Dictionary, type Locale } from "@/i18n";
 import { accountWindows, runtimeNote, runtimeWindows, spentUntil, type AccountEntry, type RuntimeNote, type WindowView } from "@/lib/planUsage/derive";
 import { formatResetPhrase, formatResetTime } from "@/lib/planUsage/format";
@@ -120,7 +120,7 @@ export function UsageAccountBlock({
  * key login, why a read failed, or that it was never read. */
 function NoteLine({ note, strings }: { note: RuntimeNote; strings: Dictionary["shell"]["usage"] }) {
   return (
-    <p data-usage-note={note} className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px] text-text-faint">
+    <p data-usage-note={note} title={noteDetail(note, strings)} className="mt-1.5 flex items-center gap-1.5 font-mono text-[11px] text-text-faint">
       {note === "reading" && <ReadingMark />}
       {note === "apiKey" ? (
         <span className="border border-border px-1 text-muted-foreground">{strings.apiKey}</span>

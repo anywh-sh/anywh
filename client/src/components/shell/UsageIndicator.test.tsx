@@ -146,8 +146,11 @@ describe("UsageIndicator", () => {
       ]),
     });
     expect(agent("claude")).toHaveTextContent("not read yet");
-    expect(agent("codex")).toHaveTextContent("network error");
-    expect(button()).toHaveAccessibleName("Usage: Claude Code not read yet; Codex network error");
+    // One short phrase for a failed read; its cause in the tooltip and in
+    // what is read aloud.
+    expect(agent("codex")).toHaveTextContent(/^read failed$/);
+    expect(within(agent("codex")).getByText("read failed")).toHaveAttribute("title", "network error");
+    expect(button()).toHaveAccessibleName("Usage: Claude Code not read yet; Codex read failed (network error)");
   });
 
   it("shows a read in progress instead of 'not read yet', without pulsing", () => {
@@ -216,6 +219,9 @@ describe("UsageIndicator", () => {
   it("keeps an unreachable machine's last numbers, quieter, and says how old they are", () => {
     renderIndicator({ pessoal: live([claude(58)], { connection: "offline", receivedAt: NOW - 12 * MIN }) });
     expect(button()).toHaveAttribute("data-stale", "true");
+    const offline = button().querySelector("[data-usage-offline]")!;
+    expect(offline).toHaveTextContent("offline");
+    expect(offline).toHaveAttribute("title", "offline, last read 12m ago");
     expect(agent("claude").className).toContain("opacity-60");
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; offline, last read 12m ago");
   });
