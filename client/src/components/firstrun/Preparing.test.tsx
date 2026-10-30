@@ -101,6 +101,12 @@ describe("Preparing — adopting what's already here", () => {
     await vi.waitFor(() => expect(handlers.onDone).toHaveBeenCalledTimes(1));
   });
 
+  it("says one profile, not one profiles", () => {
+    adoptLocalProfiles({ ...PROBE, profiles: [PROBE.profiles[0]] });
+    renderAdopt();
+    expect(screen.getByText("1 profile: pessoal")).toBeInTheDocument();
+  });
+
   it("a relay that doesn't answer stops with try again, which keeps the profiles", async () => {
     answering = false;
     adoptLocalProfiles(PROBE);

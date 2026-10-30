@@ -175,7 +175,7 @@ export function AgentsScreen({
       : installed.length === 0
         ? copy.bodyNone
         : choosing
-          ? copy.bodyTwo
+          ? copy.bodyMany
           : copy.bodyOne;
 
   // The one "Check again" on the screen: beside the list's label when there
@@ -215,7 +215,7 @@ export function AgentsScreen({
           aria-live="polite"
           className="max-w-[60ch] text-[15px] leading-[1.7] text-pretty text-muted-foreground"
         >
-          {body.replace("{where}", where)}
+          {body.replace("{where}", where).replace("{count}", String(installed.length))}
         </p>
       </section>
 

@@ -135,7 +135,7 @@ describe("Your agents", () => {
       screen.getByRole("heading", { name: copy.title }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(copy.bodyTwo.replace("{where}", copy.here)),
+      screen.getByText(copy.bodyMany.replace("{where}", copy.here).replace("{count}", "2")),
     ).toBeInTheDocument();
     expect(screen.getByText(copy.switchNote)).toBeInTheDocument();
     expect(

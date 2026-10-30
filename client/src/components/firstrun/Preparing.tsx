@@ -108,7 +108,7 @@ export function Preparing({
           status === "failed"
             ? ((failure && dict.firstRun.preparing.fail.codes[failure.code].line) ?? null)
             : key === "read" && adopt.profiles.length > 0
-              ? copy.sub.profiles.replace("{count}", String(adopt.profiles.length)).replace("{names}", adopt.profiles.map((p) => p.label).join(", "))
+              ? (adopt.profiles.length === 1 ? copy.sub.profilesOne : copy.sub.profilesMany).replace("{count}", String(adopt.profiles.length)).replace("{names}", adopt.profiles.map((p) => p.label).join(", "))
               : key === "connect" && status === "running" && active
                 ? copy.sub.waitingAt.replace("{address}", `${active.host}:${String(active.relayPort)}`)
                 : null,

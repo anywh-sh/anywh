@@ -345,8 +345,10 @@ export interface Dictionary {
         waitingAt: string;
         brew: string;
         download: string;
+        /** `{names}` — one profile found. */
+        profilesOne: string;
         /** `{count}`, `{names}` */
-        profiles: string;
+        profilesMany: string;
       };
       details: string;
       cancel: string;
@@ -378,7 +380,8 @@ export interface Dictionary {
       searchingBody: string;
       title: string;
       none: string;
-      bodyTwo: string;
+      /** `{count}` (two or more), `{where}` */
+      bodyMany: string;
       bodyOne: string;
       bodyNone: string;
       /** The relay couldn't be asked at all. */
