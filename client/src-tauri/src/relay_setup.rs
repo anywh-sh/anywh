@@ -321,12 +321,6 @@ pub struct Prerequisites {
     /// `depends_on "node"`, so `node_path`/`node_ok` above answer a
     /// question that platform doesn't ask.
     pub brew_path: Option<String>,
-    pub agent_bin: String,
-    pub agent_path: Option<String>,
-    /// `None` when the CLI couldn't be asked at all (missing, timed out,
-    /// unparseable) — distinct from a clear "no".
-    pub agent_logged_in: Option<bool>,
-    pub agent_error: Option<String>,
     /// `systemctl --user` answers in this session.
     pub systemd_user: bool,
     pub xdg_runtime_dir: bool,
@@ -345,7 +339,7 @@ pub fn node_version_ok(version: &str) -> bool {
 
 /// Runs `command` through `bash -lc`: a GUI app doesn't inherit the PATH an
 /// interactive shell builds (nvm, asdf, Homebrew on macOS all live in
-/// profile files), so `node` and the agent CLI are routinely invisible
+/// profile files), so `node` and `brew` are routinely invisible
 /// to a plain `Command`. Returns the last non-empty stdout line — a profile
 /// that prints a banner must not turn into "the path to node".
 async fn login_shell_line(command: &str, timeout: Duration) -> Option<String> {
@@ -364,37 +358,6 @@ async fn login_shell_line(command: &str, timeout: Duration) -> Option<String> {
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().map(str::trim).filter(|l| !l.is_empty()).last().map(str::to_string)
-}
-
-#[derive(Deserialize)]
-struct AuthStatus {
-    #[serde(rename = "loggedIn")]
-    logged_in: bool,
-}
-
-/// The same command the relay itself runs before creating a profile
-/// (`claude auth status --json`), with the same two variables stripped: with
-/// an API key in the environment the CLI answers `loggedIn: true` through
-/// the key — the exact false positive the check exists to catch, since
-/// billing would then land on the key and not the subscription. Only the
-/// boolean is kept; the raw JSON carries the account e-mail and is never
-/// logged or returned.
-async fn agent_logged_in(agent_path: &str) -> Result<bool, String> {
-    let output = tokio::time::timeout(
-        Duration::from_secs(20),
-        tokio::process::Command::new("bash")
-            .args(["-lc", "exec \"$0\" auth status --json", agent_path])
-            .env_remove("ANTHROPIC_API_KEY")
-            .env_remove("ANTHROPIC_AUTH_TOKEN")
-            .stdin(std::process::Stdio::null())
-            .output(),
-    )
-    .await
-    .map_err(|_| "auth status timed out".to_string())?
-    .map_err(|e| e.to_string())?;
-    let status: AuthStatus =
-        serde_json::from_slice(&output.stdout).map_err(|_| "auth status printed no JSON".to_string())?;
-    Ok(status.logged_in)
 }
 
 async fn systemctl_user_ok() -> bool {
@@ -444,36 +407,15 @@ pub async fn relay_setup_prerequisites() -> Prerequisites {
     let node_ok = node_version.as_deref().is_some_and(node_version_ok);
     let brew_path = login_shell_line("command -v brew", short).await;
 
-    // Same resolution order as relay/src/runtimes/executables.ts and install-relay.sh.
-    let agent_bin = std::env::var("AGENT_BIN")
-        .or_else(|_| std::env::var("CLAUDE_BIN"))
-        .unwrap_or_else(|_| "claude".to_string());
-    let agent_path = login_shell_line(&format!("command -v {}", shell_quote(&agent_bin)), short).await;
-    let (agent_logged_in, agent_error) = match &agent_path {
-        Some(path) => match agent_logged_in(path).await {
-            Ok(logged_in) => (Some(logged_in), None),
-            Err(err) => (None, Some(err)),
-        },
-        None => (None, Some("not found on the login shell's PATH".to_string())),
-    };
-
     Prerequisites {
         node_path,
         node_version,
         node_ok,
         brew_path,
-        agent_bin,
-        agent_path,
-        agent_logged_in,
-        agent_error,
         systemd_user: systemctl_user_ok().await,
         xdg_runtime_dir: std::env::var_os("XDG_RUNTIME_DIR").is_some(),
         active_units: active_relay_units().await,
     }
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 // ---------------------------------------------------------------------------

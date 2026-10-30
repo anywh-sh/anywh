@@ -16,10 +16,6 @@ const healthy: Prerequisites = {
   nodeVersion: "22.4.0",
   nodeOk: true,
   brewPath: null,
-  agentBin: "claude",
-  agentPath: "/home/x/.local/bin/claude",
-  agentLoggedIn: true,
-  agentError: null,
   systemdUser: true,
   xdgRuntimeDir: true,
   activeUnits: [],
@@ -31,20 +27,8 @@ describe("evaluatePrerequisites", () => {
   });
 
   it("names the first thing to fix, in the order a person would fix them", () => {
-    expect(evaluatePrerequisites({ ...healthy, nodePath: null, nodeOk: false, agentPath: null }, "prod", "linux")?.code).toBe("node_missing");
+    expect(evaluatePrerequisites({ ...healthy, nodePath: null, nodeOk: false }, "prod", "linux")?.code).toBe("node_missing");
     expect(evaluatePrerequisites({ ...healthy, nodeOk: false, nodeVersion: "18.20.4" }, "prod", "linux")).toEqual({ code: "node_old", detail: "18.20.4" });
-  });
-
-  it("never blocks on the agent CLI, on either platform", () => {
-    // The relay installs, starts and serves without one, and resolves the
-    // binary when a turn spawns it — so an agent installed after this
-    // point works with nothing to re-run. Blocking here would strand the
-    // user on an error telling them to go elsewhere first.
-    const macHealthy: Prerequisites = { ...healthy, nodePath: null, nodeOk: false, brewPath: "/opt/homebrew/bin/brew" };
-    for (const missing of [{ agentPath: null }, { agentLoggedIn: false }, { agentLoggedIn: null }] as const) {
-      expect(evaluatePrerequisites({ ...healthy, ...missing }, "prod", "linux")).toBeNull();
-      expect(evaluatePrerequisites({ ...macHealthy, ...missing }, "prod", "macos")).toBeNull();
-    }
   });
 
   it("refuses to install under a running relay", () => {

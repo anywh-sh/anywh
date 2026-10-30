@@ -96,10 +96,6 @@ const HEALTHY: Prerequisites = {
   nodePath: "/usr/bin/node",
   nodeVersion: "22.4.0",
   nodeOk: true,
-  agentBin: "claude",
-  agentPath: "/usr/bin/claude",
-  agentLoggedIn: true,
-  agentError: null,
   systemdUser: true,
   xdgRuntimeDir: true,
   activeUnits: [],
@@ -310,14 +306,6 @@ describe("set up on this machine", () => {
     expect(getProfiles()[0]).toMatchObject({ id: "default", label: en.firstRun.profile.defaultLabel, host: LOCAL.host, relayPort: LOCAL.port, localRelay: true });
     expect(getProfiles()[0].unverified).toBeUndefined();
     expect(localStorage.getItem("anywh:last-profile")).toBe("default");
-  });
-
-  it("never asks about the agent CLI — a logged-out or missing one still installs", async () => {
-    native.prerequisites.mockResolvedValue({ ...HEALTHY, agentPath: null, agentLoggedIn: null });
-    const user = userEvent.setup();
-    renderApp();
-    await startEasyInstall(user);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("stops at the check for a runtime the machine lacks, and checking again goes on", async () => {

@@ -43,10 +43,6 @@ export interface Prerequisites {
    * `depends_on "node"`, so `nodePath`/`nodeOk` answer a question that
    * platform doesn't ask. */
   brewPath: string | null;
-  agentBin: string;
-  agentPath: string | null;
-  agentLoggedIn: boolean | null;
-  agentError: string | null;
   systemdUser: boolean;
   xdgRuntimeDir: boolean;
   activeUnits: string[];
