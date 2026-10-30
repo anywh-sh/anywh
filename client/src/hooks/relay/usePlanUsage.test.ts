@@ -1,0 +1,234 @@
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { PLAN_USAGE_CLOCK_MS, usePlanUsage } from "@/hooks/relay/usePlanUsage";
+import type { RuntimePlanUsage } from "@/lib/planUsage/model";
+import { REFRESH_TIMEOUT_MS } from "@/lib/planUsage/watch";
+import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import type { Profile } from "@/lib/profiles/profiles";
+import { BrokerAsleepError, BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
+import { installFakeRelay, type FakeRelay } from "../../../tests/ui/helpers/fakeRelay";
+
+// The real resolver, recorded: a direct profile resolves from its own fields,
+// so the only thing the spy adds is a view of the `wake` each dial asked for
+// — the one part of a brokered connection this hook decides.
+vi.mock("@/lib/profiles/connectionResolver", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/profiles/connectionResolver")>();
+  return { ...actual, resolveConnection: vi.fn(actual.resolveConnection) };
+});
+const resolveSpy = vi.mocked(resolveConnection);
+
+const PESSOAL: Profile = { id: "pessoal", label: "Pessoal", host: "127.0.0.1", relayPort: 8001 };
+const TRABALHO: Profile = { id: "trabalho", label: "Trabalho", host: "127.0.0.1", relayPort: 8002 };
+
+const NOW = Date.UTC(2026, 9, 30, 12, 0, 0);
+
+function claude(usedPercent: number): RuntimePlanUsage {
+  return {
+    runtime: "claude",
+    status: "ok",
+    windows: [{ durationMins: 300, usedPercent, resetsAt: NOW + 3_600_000 }],
+    observedAt: NOW,
+    accountKey: "0123456789abcdef",
+  };
+}
+
+let relay: FakeRelay;
+
+/** Lets every pending dial, socket open and message land. */
+async function settle(ms = 0): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+const wakesFor = (profileId: string): (boolean | undefined)[] =>
+  resolveSpy.mock.calls.filter(([profile]) => profile.id === profileId).map(([, options]) => options?.wake);
+
+const planSockets = () => relay.sockets.filter((socket) => socket.url.includes("/plan-usage/watch"));
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+  vi.setSystemTime(NOW);
+  // Back to the recorded real resolver (a test may have scripted it).
+  resolveSpy.mockReset();
+});
+
+afterEach(() => {
+  relay.uninstall();
+  vi.useRealTimers();
+});
+
+describe("usePlanUsage", () => {
+  it("opens one socket per profile and keeps each relay's state", async () => {
+    relay = installFakeRelay(undefined, {
+      planUsage: { "127.0.0.1:8001": { runtimes: [claude(58)], observedAt: NOW - 5_000 }, "127.0.0.1:8002": { runtimes: [claude(82)] } },
+    });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL, TRABALHO], "pessoal"));
+    expect(result.current.byProfile.pessoal.connection).toBe("connecting");
+    await settle();
+
+    expect(planSockets().map((socket) => socket.url)).toEqual([
+      "ws://127.0.0.1:8001/plan-usage/watch",
+      "ws://127.0.0.1:8002/plan-usage/watch",
+    ]);
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live", observedAt: NOW - 5_000, receivedAt: NOW });
+    expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(58);
+    expect(result.current.byProfile.trabalho.runtimes?.[0].windows[0].usedPercent).toBe(82);
+  });
+
+  it("follows pushes from the relay", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    act(() => relay.emitPlanUsage("127.0.0.1:8001", [claude(64)]));
+    expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(64);
+  });
+
+  it("lets only the active profile wake its machine", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [] }, "127.0.0.1:8002": { runtimes: [] } } });
+    renderHook(() => usePlanUsage([PESSOAL, TRABALHO], "trabalho"));
+    await settle();
+    expect(wakesFor("trabalho")).toEqual([true]);
+    expect(wakesFor("pessoal")).toEqual([false]);
+  });
+
+  it("reconnects a dropped socket without waking, keeping the last numbers as stale", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(40)] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+
+    relay.planUsage!["127.0.0.1:8001"] = "unreachable";
+    act(() => planSockets()[0].close());
+    expect(result.current.byProfile.pessoal.connection).toBe("offline");
+    expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(40);
+
+    await settle(2_000);
+    expect(wakesFor("pessoal")).toEqual([true, false]);
+    // Backs off while the machine stays unreachable: next try 4s later.
+    await settle(3_999);
+    expect(planSockets()).toHaveLength(2);
+    await settle(1);
+    expect(planSockets()).toHaveLength(3);
+
+    relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(45)] };
+    await settle(8_000);
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
+    expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(45);
+  });
+
+  it("gives up on a relay that predates the route, without a reconnect loop", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": "legacy" } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "unsupported", runtimes: null });
+    expect(planSockets()[0].readyState).toBe(3);
+
+    await settle(10 * 60_000);
+    expect(planSockets()).toHaveLength(1);
+    // Not even when the window comes back to the foreground.
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await settle();
+    expect(planSockets()).toHaveLength(1);
+  });
+
+  it("stops for good on a revoked device", async () => {
+    relay = installFakeRelay(undefined, { planUsage: {} });
+    resolveSpy.mockRejectedValueOnce(new BrokerRevokedError());
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle(10 * 60_000);
+    expect(result.current.byProfile.pessoal.connection).toBe("revoked");
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits a full minute on a sleeping machine, then wakes it when its tab becomes active", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [] }, "127.0.0.1:8002": { runtimes: [claude(5)] } } });
+    resolveSpy.mockImplementation((profile, options) =>
+      profile.id === "trabalho" && options?.wake === false
+        ? Promise.reject(new BrokerAsleepError())
+        : Promise.resolve({ host: profile.host, port: profile.relayPort }),
+    );
+    const { result, rerender } = renderHook(({ active }) => usePlanUsage([PESSOAL, TRABALHO], active), {
+      initialProps: { active: "pessoal" },
+    });
+    await settle();
+    expect(result.current.byProfile.trabalho.connection).toBe("offline");
+
+    await settle(59_999);
+    expect(wakesFor("trabalho")).toEqual([false]);
+    await settle(1);
+    expect(wakesFor("trabalho")).toEqual([false, false]);
+
+    rerender({ active: "trabalho" });
+    await settle();
+    expect(wakesFor("trabalho")).toEqual([false, false, true]);
+    expect(result.current.byProfile.trabalho.connection).toBe("live");
+  });
+
+  it("sends a refresh to one profile or to all, and spins until the answer", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [] }, "127.0.0.1:8002": { runtimes: [] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL, TRABALHO], "pessoal"));
+    await settle();
+
+    act(() => result.current.refresh("trabalho", true));
+    expect(result.current.refreshing).toBe(true);
+    expect(result.current.byProfile.trabalho.refreshing).toBe(true);
+    expect(relay.sent).toEqual([{ url: "ws://127.0.0.1:8002/plan-usage/watch", message: { type: "plan_usage_refresh", force: true } }]);
+    await settle();
+    expect(result.current.refreshing).toBe(false);
+
+    act(() => result.current.refresh());
+    expect(relay.sent.slice(1).map((entry) => [entry.url, entry.message])).toEqual([
+      ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: false }],
+      ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: false }],
+    ]);
+  });
+
+  it("stops spinning when a refresh goes unanswered", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    // An answer that never comes: the fake only answers what is scripted.
+    relay.planUsage!["127.0.0.1:8001"] = "legacy";
+    act(() => result.current.refresh("pessoal", true));
+    expect(result.current.refreshing).toBe(true);
+    await settle(REFRESH_TIMEOUT_MS);
+    expect(result.current.refreshing).toBe(false);
+  });
+
+  it("moves its clock every minute", async () => {
+    relay = installFakeRelay(undefined, { planUsage: {} });
+    const { result } = renderHook(() => usePlanUsage([], null));
+    expect(result.current.now).toBe(NOW);
+    await settle(PLAN_USAGE_CLOCK_MS);
+    expect(result.current.now).toBe(NOW + PLAN_USAGE_CLOCK_MS);
+  });
+
+  it("closes the socket of a removed profile and redials one whose address changed", async () => {
+    relay = installFakeRelay(undefined, {
+      planUsage: { "127.0.0.1:8001": { runtimes: [] }, "127.0.0.1:8002": { runtimes: [] }, "127.0.0.1:8003": { runtimes: [] } },
+    });
+    const { result, rerender, unmount } = renderHook(({ list }) => usePlanUsage(list, "pessoal"), {
+      initialProps: { list: [PESSOAL, TRABALHO] },
+    });
+    await settle();
+    const [pessoal, trabalho] = planSockets();
+
+    rerender({ list: [{ ...PESSOAL }] });
+    await settle();
+    expect(trabalho.readyState).toBe(3);
+    expect(pessoal.readyState).toBe(1);
+    expect(Object.keys(result.current.byProfile)).toEqual(["pessoal"]);
+
+    rerender({ list: [{ ...PESSOAL, relayPort: 8003 }] });
+    await settle();
+    expect(pessoal.readyState).toBe(3);
+    expect(planSockets()[planSockets().length - 1].url).toBe("ws://127.0.0.1:8003/plan-usage/watch");
+    expect(result.current.byProfile.pessoal.connection).toBe("live");
+
+    unmount();
+    expect(planSockets().every((socket) => socket.readyState === 3)).toBe(true);
+  });
+});

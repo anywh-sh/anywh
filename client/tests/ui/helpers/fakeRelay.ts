@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { RuntimePlanUsage } from "@/lib/planUsage/model";
 
 /**
  * Stands in for the relay over the network edge — the client-side
@@ -32,7 +33,13 @@ class FakeRelaySocket {
     readonly url: string,
     private readonly onSend: (socket: FakeRelaySocket, data: string) => void,
     options: FakeRelayOptions = {},
+    planUsage?: () => FakePlanUsage | undefined,
   ) {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/plan-usage/watch" && planUsage) {
+      queueMicrotask(() => this.openPlanUsage(planUsage()));
+      return;
+    }
     queueMicrotask(() => {
       this.readyState = FakeRelaySocket.OPEN;
       this.dispatch("open", {});
@@ -53,6 +60,27 @@ class FakeRelaySocket {
       }
       this.emitMessage({ type: "caught_up" });
     });
+  }
+
+  /** `/plan-usage/watch`, answered the way each kind of relay does. */
+  private openPlanUsage(script: FakePlanUsage | undefined): void {
+    if (this.readyState === FakeRelaySocket.CLOSED) return;
+    if (script === undefined || script === "unreachable") {
+      // A socket that never opens: the browser fires `close` alone (after an
+      // `error` nobody here listens to).
+      this.readyState = FakeRelaySocket.CLOSED;
+      this.dispatch("close", {});
+      return;
+    }
+    this.readyState = FakeRelaySocket.OPEN;
+    this.dispatch("open", {});
+    if (script === "legacy") {
+      // A relay without the route treats the path as a chat socket.
+      this.emitMessage({ type: "protocol_version", version: 1 });
+      this.emitMessage({ type: "caught_up" });
+      return;
+    }
+    this.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: script.observedAt ?? Date.now() });
   }
 
   addEventListener(type: string, handler: Listener): void {
@@ -116,7 +144,17 @@ export interface FakeControl {
   patchStatus?: number;
 }
 
+/** How a relay answers `/plan-usage/watch`: its state (sent on connect, and
+ * again in answer to every `plan_usage_refresh`), `"legacy"` for a relay
+ * that predates the route, `"unreachable"` for a machine that can't be
+ * reached. */
+export type FakePlanUsage = { runtimes: RuntimePlanUsage[]; observedAt?: number } | "legacy" | "unreachable";
+
 export interface FakeRelayOptions {
+  /** `/plan-usage/watch` per relay, keyed `host:port`. Absent = the route is
+   * not scripted and the socket behaves like any other. Mutable through
+   * `FakeRelay.planUsage`, read on every connection. */
+  planUsage?: Record<string, FakePlanUsage>;
   control?: FakeControl;
   /** Sent right after `open`, with `agent_state` for `agentId` and the
    * connection-burst `model_state`/`effort_state` (both `null`): what a real
@@ -127,6 +165,10 @@ export interface FakeRelayOptions {
 
 export interface FakeRelay {
   sockets: FakeRelaySocket[];
+  /** The scripted `/plan-usage/watch` answers (a copy of `options.planUsage`). */
+  planUsage: Record<string, FakePlanUsage> | null;
+  /** Pushes a `plan_usage_state` to the open plan usage sockets of one relay. */
+  emitPlanUsage: (hostPort: string, runtimes: RuntimePlanUsage[], observedAt?: number) => void;
   /** Everything the app has sent, in order, whether or not the fake answers it. */
   sent: SentMessage[];
   /** Pushes a relay message to every open socket (only the mounted tab reacts). */
@@ -148,9 +190,19 @@ export function installFakeRelay(
   const sockets: FakeRelaySocket[] = [];
   const sent: SentMessage[] = [];
 
+  const planUsage: Record<string, FakePlanUsage> | null = options.planUsage ? { ...options.planUsage } : null;
+  const hostPort = (url: string): string => new URL(url).host;
+  const isPlanUsageSocket = (socket: FakeRelaySocket): boolean => new URL(socket.url).pathname === "/plan-usage/watch";
+
   function onSend(socket: FakeRelaySocket, raw: string): void {
     const message = JSON.parse(raw) as { type?: string; text?: string };
     sent.push({ url: socket.url, message });
+    if (message.type === "plan_usage_refresh" && planUsage) {
+      const script = planUsage[hostPort(socket.url)];
+      if (typeof script === "object")
+        queueMicrotask(() => socket.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: Date.now() }));
+      return;
+    }
     if (message.type !== "user_message") return; // this tier only scripts the send flow so far
     queueMicrotask(() => {
       socket.emitMessage({
@@ -168,7 +220,7 @@ export function installFakeRelay(
     "WebSocket",
     class extends FakeRelaySocket {
       constructor(url: string) {
-        super(url, onSend, options);
+        super(url, onSend, options, planUsage ? () => planUsage[hostPort(url)] : undefined);
         sockets.push(this);
       }
     },
@@ -266,6 +318,13 @@ export function installFakeRelay(
 
   return {
     sockets,
+    planUsage,
+    emitPlanUsage: (target, runtimes, observedAt) => {
+      for (const socket of sockets) {
+        if (socket.readyState !== FakeRelaySocket.OPEN || !isPlanUsageSocket(socket) || hostPort(socket.url) !== target) continue;
+        socket.emitMessage({ type: "plan_usage_state", runtimes, observedAt: observedAt ?? Date.now() });
+      }
+    },
     control,
     patches,
     agentChecks: () => agentChecks,
