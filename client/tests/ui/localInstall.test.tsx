@@ -516,6 +516,17 @@ describe("set up on this machine", () => {
     expect(native.start).not.toHaveBeenCalled();
   });
 
+  it("a run that ended while the app was starting is read from disk, not waited on", async () => {
+    native.probe.mockResolvedValue({ ...EMPTY_PROBE, previousRun: statusWith(["ANYWH step download"], { alive: true }) });
+    // By the time the listeners are attached it is over: its done event
+    // went out with nobody listening.
+    native.status.mockResolvedValue(
+      statusWith(["ANYWH done ok service=systemd"], { alive: false, exitCode: 0, ok: true, profile: { id: "default", port: LOCAL.port, host: LOCAL.host, mode: "prod" } }),
+    );
+    renderApp();
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+  });
+
   it("an install interrupted by a dead app resumes on its own, with the same parameters", async () => {
     native.probe.mockResolvedValue({
       ...EMPTY_PROBE,

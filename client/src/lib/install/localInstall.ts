@@ -615,6 +615,13 @@ export async function attachPreviousRun(status: InstallRunStatus): Promise<void>
   if (status.alive) {
     releaseHoldFn = holdProfileSetup();
     await ensureListeners();
+    // The run may have ended between the probe and the listeners being
+    // attached; its done event is gone, so the status on disk says so.
+    const now = await getLocalInstallStatus();
+    if (now && now.runId === status.runId && !now.alive) {
+      publish({ ...state, install: { ...state.install, lines: now.lines } });
+      settle(now.ok, now.profile, now.failure);
+    }
     return;
   }
   if (status.ok && status.profile) {
