@@ -36,6 +36,9 @@
 // empty `premium` bucket for `free`); FAKE_CODEX_RATE_LIMITS_HANG=1 never
 // answers `account/rateLimits/read`. A turn whose text has [[rate-limits]]
 // pushes the same update before it completes, like a real turn does.
+// FAKE_CODEX_INIT_HANG=1 never answers `initialize` (the handshake that hung
+// in a CODEX_HOME without a login); FAKE_CODEX_PID_FILE gets this process's
+// pid, so a test can check it was stopped.
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -43,6 +46,7 @@ if (process.argv[2] === "--version") {
   process.stdout.write("codex-cli 0.154.0\n");
   process.exit(0);
 }
+if (process.env.FAKE_CODEX_PID_FILE) appendFileSync(process.env.FAKE_CODEX_PID_FILE, `${process.pid}\n`);
 if (process.argv[2] !== "app-server") {
   process.stderr.write(`fake codex: unsupported invocation ${process.argv.slice(2).join(" ")}\n`);
   process.exit(2);
@@ -135,6 +139,7 @@ process.stdin.on("data", (chunk) => {
     }
     switch (message.method) {
       case "initialize":
+        if (process.env.FAKE_CODEX_INIT_HANG === "1") break;
         send({ id: message.id, result: { userAgent: "fake-codex/0.154.0" } });
         break;
       case "thread/start": {

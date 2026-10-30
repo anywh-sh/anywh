@@ -229,6 +229,45 @@ test("an app-server whose handshake never answers: network error after the init 
   assert.deepEqual(await codex.read(), { kind: "error", error: "network" });
 });
 
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function pids(file: string): number[] {
+  try {
+    return readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(Number);
+  } catch {
+    return [];
+  }
+}
+
+// A real process whose `initialize` never answers: the timeout must stop it,
+// or every retry (the backoff goes on for hours) leaves one more running.
+test("a real app-server stuck in its handshake is stopped at the init timeout, and each retry too", async (t) => {
+  const { home } = setup(t);
+  const pidFile = join(home, "pids");
+  const codex = reader(t, home, { FAKE_CODEX_INIT_HANG: "1", FAKE_CODEX_PID_FILE: pidFile }, { initTimeoutMs: 300 });
+  assert.deepEqual(await codex.read(), { kind: "error", error: "network" });
+  assert.deepEqual(await codex.read(), { kind: "error", error: "network" });
+  await waitFor(() => pids(pidFile).length === 2 && pids(pidFile).every((pid) => !alive(pid)));
+});
+
+test("closing the reader while its app-server is still in the handshake stops the process", async (t) => {
+  const { home } = setup(t);
+  const pidFile = join(home, "pids");
+  const codex = reader(t, home, { FAKE_CODEX_INIT_HANG: "1", FAKE_CODEX_PID_FILE: pidFile }, { initTimeoutMs: 30_000 });
+  const read = codex.read();
+  await waitFor(() => pids(pidFile).length === 1);
+  codex.close();
+  assert.equal((await read).kind, "error");
+  await waitFor(() => !alive(pids(pidFile)[0] ?? 0));
+});
+
 // The race behind the flaky "push after a read": the read's reply and the
 // push right behind it handled in one chunk, so the push lands before the
 // awaiting read has stored its state. Forced here by a daemon that resolves

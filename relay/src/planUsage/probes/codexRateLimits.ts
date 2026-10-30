@@ -158,6 +158,7 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
   let planType: string | null = null;
   // Bumped by `close()`: a spawn that resolves after it is killed at once.
   let generation = 0;
+  let startAbort: AbortController | undefined;
   // Pushes that arrive while `account/rateLimits/read` is in flight. The
   // reply and a push right behind it can come in the same chunk, and then
   // the push is handled before the awaiting read stores `limits`: held here
@@ -188,6 +189,10 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
     if (daemon && !daemon.exited) return Promise.resolve(daemon);
     if (starting) return starting;
     const mine = generation;
+    // Aborted when the handshake times out or the reader is closed while it
+    // runs: the spawn kills a process that hasn't answered `initialize` yet.
+    const abortInit = new AbortController();
+    startAbort = abortInit;
     const spawned = spawnDaemon({
       def: options.def ?? codexRuntimeDef,
       cwd: options.cwd ?? tmpdir(),
@@ -198,12 +203,11 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
         daemon = undefined;
       },
       ...(options.idleTimeoutMs !== undefined ? { idleTimeoutMs: options.idleTimeoutMs } : {}),
+      initSignal: abortInit.signal,
     });
     // A handshake that answers after the timeout (or after `close()`) leaves
     // a process nobody holds: stop it as soon as it shows up. One that never
-    // answers at all can't be stopped from here (`spawnCodexDaemon` hands
-    // out no process before `initialize`); the auth.json check in `read` is
-    // what keeps the reader off the CODEX_HOME where that was seen.
+    // answers is stopped through `initSignal`.
     let abandoned = false;
     void spawned.then(
       (started) => {
@@ -221,6 +225,7 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
       (error: unknown) => {
         abandoned = true;
         starting = undefined;
+        abortInit.abort();
         throw error;
       },
     );
@@ -230,6 +235,8 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
   function stop(): void {
     generation++;
     starting = undefined;
+    startAbort?.abort();
+    startAbort = undefined;
     daemon?.kill();
     daemon = undefined;
   }
