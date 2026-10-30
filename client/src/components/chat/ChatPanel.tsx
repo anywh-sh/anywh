@@ -6,6 +6,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { guessMimeFromExtension } from "@/lib/mimeTypes";
 import { useRelayClient } from "@/hooks/relay/useRelayClient";
 import { getDefaultPath } from "@/hooks/useDefaultPaths";
+import { resolveDefaultAgent } from "@/hooks/relay/useAgentPreference";
+import { getHostInfo } from "@/lib/relay/filesClient";
 import { getPreferredModel, setLastModel } from "@/hooks/relay/useModelPreference";
 import { getLastEffort, setLastEffort } from "@/hooks/relay/useEffortPreference";
 import { useNativeBottomInset } from "@/hooks/platform/useNativeBottomInset";
@@ -558,9 +560,43 @@ export function ChatPanel({
   // preference that catalog actually lists: a preference is a model id of
   // ONE agent ("opus" means nothing to Codex), so it can't be applied
   // blindly to whichever agent this session runs.
+  // The profile's default agent goes first, on a new conversation only: the
+  // model preference below is one agent's model id, so it must be judged
+  // against the agent the conversation ends up on. `agentSettled` flips once
+  // the session reports the resolved agent (or the lookup/switch gives up).
+  const [agentSettled, setAgentSettled] = useState(false);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const appliedAgentPreferenceRef = useRef(false);
+  useEffect(() => {
+    if (!isNewConversation || appliedAgentPreferenceRef.current || !ready || !agentId) return;
+    appliedAgentPreferenceRef.current = true;
+    getHostInfo(profile)
+      .then((info) => {
+        const selectable = (info.agents ?? []).map((agent) => agent.id);
+        const target = resolveDefaultAgent(profile.agentPreference, profile.lastUsedAgentId, selectable);
+        if (target === agentId || !selectable.includes(target)) {
+          setAgentSettled(true);
+          return;
+        }
+        setAgent(target);
+        setSwitchingTo(target);
+      })
+      .catch(() => setAgentSettled(true));
+  }, [isNewConversation, ready, agentId, profile, setAgent]);
+  useEffect(() => {
+    if (switchingTo === null) return;
+    if (agentId === switchingTo) {
+      setAgentSettled(true);
+      return;
+    }
+    const giveUp = setTimeout(() => setAgentSettled(true), 3000);
+    return () => clearTimeout(giveUp);
+  }, [switchingTo, agentId]);
+  const agentPreferenceDone = !isNewConversation || agentSettled;
+
   const appliedModelPreferenceRef = useRef(false);
   useEffect(() => {
-    if (!isNewConversation || appliedModelPreferenceRef.current || !ready || !agentId || !modelCatalog) return;
+    if (!isNewConversation || appliedModelPreferenceRef.current || !ready || !agentId || !modelCatalog || !agentPreferenceDone) return;
     appliedModelPreferenceRef.current = true;
     const preferredModel = getPreferredModel(profile.id, agentId);
     const applyModel = preferredModel !== null && preferredModel !== model && catalogHasModel(modelCatalog, preferredModel);
@@ -571,7 +607,7 @@ export function ChatPanel({
     const lastEffort = getLastEffort(profile.id, agentId);
     const targetModel = applyModel ? preferredModel : model;
     if (lastEffort !== null && lastEffort !== effort && modelAcceptsEffort(modelCatalog, targetModel, lastEffort)) setEffort(lastEffort);
-  }, [isNewConversation, ready, agentId, modelCatalog, model, effort, profile.id, setModel, setEffort]);
+  }, [isNewConversation, ready, agentId, modelCatalog, agentPreferenceDone, model, effort, profile.id, setModel, setEffort]);
 
   // Records the model in use as the profile's "last used" whenever
   // it changes to a concrete value — covers manual switching (`ModelButton`,

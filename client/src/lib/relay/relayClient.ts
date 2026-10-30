@@ -15,6 +15,7 @@ import type {
   PermissionMode,
   PermissionModeOption,
   ProfileMetaUpdate,
+  AgentPreference,
   McpAuthStatus,
   PortabilityApplyResult,
   PortabilityBundle,
@@ -259,7 +260,7 @@ export async function updateProfileMeta(
   host: string,
   port: number,
   id: string,
-  patch: { label?: string; colorIndex?: number; themeId?: string | null },
+  patch: { label?: string; colorIndex?: number; themeId?: string | null; agentPreference?: AgentPreference | null },
   token?: string,
 ): Promise<ProfileMetaUpdate> {
   const response = await fetch(`http://${host}:${port}/control/profiles/${encodeURIComponent(id)}`, {
