@@ -1,6 +1,6 @@
 import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { useDict } from "@/i18n";
-import type { FirstRunScreen } from "@/lib/profiles/firstRun";
+import type { LegacyFirstRunScreen as FirstRunScreen } from "@/lib/profiles/firstRun";
 import { cn } from "@/lib/utils";
 
 function PathCard({

@@ -73,16 +73,71 @@ export function finishFirstRun(profileId: string): void {
   localStorage.setItem(LAST_PROFILE_STORAGE_KEY, profileId);
   active = false;
   shellChosen = true;
+  views = [];
   publish();
 }
 
-/** Which of the first-run screens is showing. Lives here rather than in the
- * component so the dictionary can key its eyebrow copy on it — a screen
- * added without a crumb is then a compile error, not a blank label. */
-export type FirstRunScreen = "detect" | "home" | "adopt" | "local" | "connect" | "code" | "manual";
+/** The screens of the v1 first run, kept only until those screens go. */
+export type LegacyFirstRunScreen = "detect" | "home" | "adopt" | "local" | "connect" | "code" | "manual";
+
+export type FirstRunScreen = "welcome" | "preparing" | "agents" | "other" | "advanced";
+
+/** A screen and what it was opened with. The first run is a stack of these:
+ * "Back" pops one, and moving forward past a point of no return (a profile
+ * that is now set up) replaces the stack. */
+export type FirstRunView =
+  | { screen: "welcome" }
+  | { screen: "preparing"; mode: "install" | "adopt" }
+  | { screen: "agents"; profileId: string; remoteHost?: string }
+  | { screen: "other"; mode?: "code" | "address"; host?: string; port?: number }
+  | { screen: "advanced"; install?: "app" | "terminal" };
+
+/**
+ * Module-level for the same reason as `active`: a remount (StrictMode, a
+ * language switch) must not drop the reader back on the first screen in the
+ * middle of an install. Empty until the first-run root decides where to
+ * start; cleared by `finishFirstRun`.
+ */
+let views: FirstRunView[] = [];
+const viewListeners = new Set<() => void>();
+
+function publishViews(next: FirstRunView[]): void {
+  views = next;
+  for (const listener of viewListeners) listener();
+}
+
+export function getFirstRunViews(): FirstRunView[] {
+  return views;
+}
+
+export function subscribeFirstRunViews(listener: () => void): () => void {
+  viewListeners.add(listener);
+  return () => viewListeners.delete(listener);
+}
+
+/** Seeds the stack on the first-run root's first render, before anything
+ * subscribes — so it never notifies in the middle of a render. A no-op when
+ * a screen is already showing (a remount). */
+export function ensureFirstRunViews(initial: () => FirstRunView[]): void {
+  if (views.length === 0) views = initial();
+}
+
+export function pushFirstRunView(view: FirstRunView): void {
+  publishViews([...views, view]);
+}
+
+/** "Back": a no-op on the first screen, which has nowhere to go back to. */
+export function popFirstRunView(): void {
+  if (views.length > 1) publishViews(views.slice(0, -1));
+}
+
+export function resetFirstRunViews(next: FirstRunView[]): void {
+  publishViews(next);
+}
 
 export function __resetFirstRunForTests(): void {
   active = false;
   shellChosen = false;
   snapshot = { active, shellChosen };
+  views = [];
 }

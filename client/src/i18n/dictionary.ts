@@ -34,7 +34,7 @@ export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypass
  * dictionary" rule. */
 export type KnownAgentId = "claude" | "codex";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
-import type { FirstRunScreen } from "@/lib/profiles/firstRun";
+import type { LegacyFirstRunScreen } from "@/lib/profiles/firstRun";
 import type { LocalFailureAction, LocalNote, LocalStep, PreparingFailureCode } from "@/lib/install/localInstall";
 
 /** Two tenses of one kind of call — see `Dictionary["chat"]["activity"]`. */
@@ -240,7 +240,7 @@ export interface Dictionary {
     /** Eyebrow beside the mark, naming where in the flow the reader is.
      * Keyed on the screen union so a new screen is a compile error until
      * it has a crumb. */
-    crumbs: Record<FirstRunScreen, string>;
+    crumbs: Record<LegacyFirstRunScreen, string>;
     home: {
       title: string;
       body: string;

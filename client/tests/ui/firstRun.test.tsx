@@ -5,19 +5,23 @@ import { getProfiles, setProfiles, type Profile } from "@/lib/profiles/profiles"
 import { clearProfileRevoked, markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
 import { __resetFirstRunForTests } from "@/lib/profiles/firstRun";
-import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
+import { enqueueProfileSetup } from "@/lib/profiles/profileSetup";
+import { PENDING_AGENTS_STORAGE_KEY } from "@/lib/install/pendingAgents";
+import { installFakeRelay, type FakeAgent, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 
 /**
  * Drives the real `App` from "this device has no profile" to the shell, by
- * click and keystroke, through each path the first-run screen offers. Same
- * tier and same seams as profileSetup.test.tsx: the tailnet layers are
- * mocked at their edge, pairing discovery and the relay's own HTTP run
- * through the fake fetch router below, everything in between is real —
- * the gate in App.tsx, `firstRun.ts`, the setup queue, the dialog, and the
- * hand-over into a shell that has exactly one profile.
+ * click and keystroke, through the paths a device with no in-app install
+ * (this tier runs outside Tauri, like the browser and iOS) is offered:
+ * another machine, by code or by address, then its agents. Same seams as
+ * profileSetup.test.tsx: the tailnet layers are mocked at their edge,
+ * pairing discovery and the relay's own HTTP run through the fake fetch
+ * router below, everything in between is real — the gate in App.tsx,
+ * `firstRun.ts`, the setup queue, the inline progress, the agents step and
+ * the hand-over into a shell that has exactly one profile.
  */
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: () => ({ onDragDropEvent: async () => () => {} }),
@@ -61,12 +65,26 @@ function fakeJsonResponse(body: unknown, status = 200): Response {
 
 let relay: FakeRelay;
 
+const other = en.firstRun.other;
+const agents = en.firstRun.agents;
+const CLAUDE: FakeAgent = {
+  id: "claude",
+  installed: true,
+  version: "2.1.3",
+  loggedIn: true,
+  loginCommand: "claude auth login",
+  installUrl: "https://claude.example/setup",
+};
+
 beforeEach(() => {
   localStorage.clear();
   setProfiles([]);
   __resetProfileSetupForTests();
   __resetFirstRunForTests();
-  relay = installFakeRelay();
+  relay = installFakeRelay("fake relay reply", { control: { agents: [CLAUDE] } });
+  // The fake relay answers the control routes (agents, the profile PATCH);
+  // the router below adds pairing discovery and `/sessions` per machine.
+  const relayFetch = globalThis.fetch;
 
   claimTailnetBundleMock.mockReset().mockResolvedValue({
     nodeId: "node-1",
@@ -82,14 +100,11 @@ beforeEach(() => {
 
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.endsWith("/.well-known/anywh-pairing")) return fakeJsonResponse({ claimUrl: "https://broker.test/claim" });
-      if (url.includes(`${SIDECAR_ENDPOINT.host}:${String(SIDECAR_ENDPOINT.port)}/sessions`)) return fakeJsonResponse({ sessions: [] });
-      if (url.includes(`${MACHINE.host}:${String(MACHINE.port)}/sessions`)) {
-        return fakeJsonResponse({ sessions: [{ id: "s1", title: "Hello", lastActiveAt: null }] });
-      }
-      return fakeJsonResponse({}, 404);
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.endsWith("/.well-known/anywh-pairing")) return Promise.resolve(fakeJsonResponse({ claimUrl: "https://broker.test/claim" }));
+      if (url.endsWith("/sessions")) return Promise.resolve(fakeJsonResponse({ sessions: [{ id: "s1", title: "Hello", lastActiveAt: null }] }));
+      return relayFetch(input, init);
     }),
   );
 });
@@ -102,176 +117,94 @@ afterEach(() => {
 
 async function expectShellWithOneProfile(label: string): Promise<void> {
   await vi.waitFor(() => expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent(label));
-  expect(screen.queryByText(en.firstRun.home.title)).not.toBeInTheDocument();
+  expect(screen.queryByText(other.title)).not.toBeInTheDocument();
   expect(getProfiles()).toHaveLength(1);
   // The hand-over wrote the active-profile key before the shell mounted —
   // otherwise the shell's initial read would have landed on `profiles[0]`
   // only by coincidence.
   expect(localStorage.getItem("anywh:last-profile")).toBe(getProfiles()[0].id);
+  expect(localStorage.getItem(PENDING_AGENTS_STORAGE_KEY)).toBeNull();
+}
+
+async function connectByAddress(user: ReturnType<typeof userEvent.setup>, host: string, port?: number): Promise<void> {
+  await user.click(await screen.findByRole("tab", { name: other.modes.address }));
+  await user.type(screen.getByRole("textbox", { name: other.address.host }), host);
+  if (port !== undefined) {
+    const field = screen.getByRole("textbox", { name: other.address.port });
+    await user.clear(field);
+    await user.type(field, String(port));
+  }
+  await user.click(screen.getByRole("button", { name: other.connect }));
+}
+
+/** The agents step: the relay found Claude; starting with it saves it as
+ * the profile's default and hands over to the shell. */
+async function startWithClaude(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  const start = await screen.findByRole("button", { name: agents.startWith.replace("{agent}", en.chat.composer.agentNames.claude) });
+  await user.click(start);
 }
 
 describe("first run", () => {
-  it("takes over the window when this device has no profile", async () => {
+  it("takes over the window, on another machine with nowhere to go back to, where nothing can be installed", async () => {
     renderApp();
 
-    await screen.findByRole("heading", { name: en.firstRun.home.title });
+    await screen.findByRole("heading", { name: other.title });
+    expect(screen.queryByRole("button", { name: en.firstRun.frame.back })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: en.shell.sidebar.newConversation })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
   });
 
-  it("connects to an existing machine by address and hands over to a shell with exactly that one profile", async () => {
+  it("connects by address, shows that machine's agents, and starts with the one picked", async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), MACHINE.host);
-    const port = screen.getByLabelText(en.firstRun.connect.portLabel);
-    await user.clear(port);
-    await user.type(port, String(MACHINE.port));
-    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
-
-    await screen.findByText(en.shell.profiles.setup.connectedTitle);
-    // The profile is already saved by now — and the first run is still the
-    // screen underneath the dialog, not the shell. Plain text, not getByRole:
-    // the open dialog marks the rest of the page aria-hidden.
+    await connectByAddress(user, MACHINE.host, MACHINE.port);
+    // Inline, then the agents of that machine — never a dialog on top.
+    await screen.findByRole("heading", { name: agents.title });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText(agents.scopeAt.replace("{host}", MACHINE.host))).toBeInTheDocument();
     expect(getProfiles()).toHaveLength(1);
-    expect(screen.getByText(en.firstRun.connect.title)).toBeInTheDocument();
-    expect(screen.getByText(en.shell.profiles.setup.ready.replace("{count}", "1"))).toBeInTheDocument();
+    expect(localStorage.getItem(PENDING_AGENTS_STORAGE_KEY)).toBe(getProfiles()[0].id);
 
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
-
+    await startWithClaude(user);
     await expectShellWithOneProfile(MACHINE.host);
+    expect(relay.patches).toEqual([{ id: getProfiles()[0].id, body: { agentPreference: { mode: "fixed", fixedAgentId: "claude" } } }]);
   });
 
-  it("pairs by code from the first run and lands in the shell on the new profile", async () => {
+  it("pairs by code and lands in the shell on the new profile", async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
-    await user.type(screen.getByLabelText(en.firstRun.code.nameLabel), "New machine");
-    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
+    await user.type(await screen.findByLabelText(other.code.label), "ABCDEF-GHJKMNPQ@example.test");
+    await user.click(screen.getByRole("button", { name: other.connect }));
 
-    await screen.findByText(en.shell.profiles.setup.connectedTitle);
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
-
-    await expectShellWithOneProfile("New machine");
+    await startWithClaude(user);
+    await expectShellWithOneProfile(getProfiles()[0].label);
     expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
   });
 
-  it("dismissing the ready screen still hands over — there is no 'later' before the shell exists", async () => {
+  it("a machine that doesn't answer stays on the first run, unverified, with try again", async () => {
     const user = userEvent.setup();
+    let answering = false;
+    const routed = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!answering && url.includes("10.0.0.99")) return Promise.reject(new Error("connection refused"));
+      return routed!(input, init);
+    });
     renderApp();
 
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), MACHINE.host);
-    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
-    await screen.findByText(en.shell.profiles.setup.connectedTitle);
-
-    // Nothing left for it to do that "Continue" doesn't already do — the
-    // button that would suggest otherwise isn't shown at all here.
-    expect(screen.queryByRole("button", { name: en.shell.profiles.setup.later })).not.toBeInTheDocument();
-
-    await user.keyboard("{Escape}");
-
-    await expectShellWithOneProfile(MACHINE.host);
-  });
-
-  it("won't let Escape close the dialog while a request is still connecting", async () => {
-    const user = userEvent.setup();
-    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
-    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
-    renderApp();
-
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
-    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
-
-    await screen.findByText(en.shell.profiles.setup.connectingTitle);
-    await user.keyboard("{Escape}");
-    // Still up — a stray Escape can't lose the reader's place mid-flight.
-    expect(screen.getByText(en.shell.profiles.setup.connectingTitle)).toBeInTheDocument();
-
-    resolveAcquire(SIDECAR_ENDPOINT);
-    await screen.findByText(en.shell.profiles.setup.connectedTitle);
-  });
-
-  it("'Leave it for later' while connecting doesn't reopen the dialog once the connection settles", async () => {
-    const user = userEvent.setup();
-    let resolveAcquire!: (endpoint: typeof SIDECAR_ENDPOINT) => void;
-    acquireTailnetSidecarMock.mockImplementationOnce(() => new Promise((resolve) => (resolveAcquire = resolve)));
-    renderApp();
-
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
-    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
-
-    await screen.findByText(en.shell.profiles.setup.connectingTitle);
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
-
-    await screen.findByText(en.firstRun.code.title);
+    await connectByAddress(user, "10.0.0.99");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(other.failed.verify);
     expect(getProfiles()).toHaveLength(1);
     expect(getProfiles()[0].unverified).toBe(true);
-
-    // The connect step the reader walked away from finishes on its own —
-    // the dialog must not pop back open to announce it.
-    resolveAcquire(SIDECAR_ENDPOINT);
-    await vi.waitFor(() => expect(getProfiles()[0].unverified).toBeUndefined());
-    expect(screen.queryByText(en.shell.profiles.setup.connectedTitle)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
-  });
 
-  it("retrying the same address after dismissing mid-verify works once the orphaned attempt actually finishes", async () => {
-    const user = userEvent.setup();
-    let resolveFetch!: (response: Response) => void;
-    vi.mocked(fetch).mockImplementationOnce(() => new Promise((resolve) => (resolveFetch = resolve)));
-    renderApp();
-
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), "127.0.0.1");
-    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
-
-    await screen.findByText(en.shell.profiles.setup.verifying);
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
-    await screen.findByText(en.firstRun.connect.title);
-
-    // The orphaned verify is still running — the same address is still
-    // reserved, same as before this fix, and that part is correct: it's
-    // one in-flight attempt, not two racing each other.
-    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
-    await screen.findByText(en.firstRun.connect.alreadyQueued);
-
-    resolveFetch(fakeJsonResponse({ sessions: [] }));
-    await vi.waitFor(() => expect(getProfiles()[0]?.unverified).toBeUndefined());
-
-    // Now that it has actually finished, the address is free again — this
-    // used to stay stuck on "already being set up" forever, because
-    // nothing ever released the reservation for a dismissed-mid-flight
-    // request once it settled.
-    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
-    await screen.findByText(en.shell.profiles.setup.connectedTitle);
-  });
-
-  it("dismissing a failed verify leaves the profile unverified on the wizard, instead of handing over a broken shell", async () => {
-    const user = userEvent.setup();
-    renderApp();
-
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.connectTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.connect.hostLabel), "10.0.0.99");
-    vi.mocked(fetch).mockImplementationOnce(() => Promise.reject(new Error("connection refused")));
-    await user.click(screen.getByRole("button", { name: en.firstRun.connect.submit }));
-
-    await screen.findByText(en.shell.profiles.setup.verifyFailedTitle);
-    expect(getProfiles()).toHaveLength(1);
-    expect(getProfiles()[0].unverified).toBe(true);
-
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
-
-    await screen.findByText(en.firstRun.connect.title);
-    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
-    expect(getProfiles()).toHaveLength(1);
-    expect(getProfiles()[0].unverified).toBe(true);
-    expect(localStorage.getItem("anywh:last-profile")).toBeNull();
+    answering = true;
+    await user.click(within(alert).getByRole("button", { name: other.retry }));
+    await screen.findByRole("heading", { name: agents.title });
+    expect(getProfiles()[0].unverified).toBeUndefined();
   });
 
   it("stays on the first run when a claim never lands, with nothing saved", async () => {
@@ -279,16 +212,35 @@ describe("first run", () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.codeTitle) }));
-    await user.type(await screen.findByLabelText(en.firstRun.code.codeLabel), "ABCDEF-GHJKMNPQ@example.test");
-    await user.click(screen.getByRole("button", { name: en.firstRun.code.submit }));
+    await user.type(await screen.findByLabelText(other.code.label), "ABCDEF-GHJKMNPQ@example.test");
+    await user.click(screen.getByRole("button", { name: other.connect }));
 
-    await screen.findByText(en.shell.profiles.setup.claimFailedTitle);
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
-
-    await screen.findByText(en.firstRun.code.title);
+    expect(await screen.findByRole("alert")).toHaveTextContent(other.failed.claim);
     expect(getProfiles()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+  });
+
+  it("a link arriving on the first run shows its progress where the reader is", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await screen.findByRole("heading", { name: other.title });
+
+    enqueueProfileSetup({ source: "params", params: { label: "Linked", host: MACHINE.host, port: String(MACHINE.port) } });
+    await screen.findByRole("heading", { name: agents.title });
+    await startWithClaude(user);
+    await expectShellWithOneProfile("Linked");
+  });
+
+  it("a relaunch on the agents step comes back to it, not to the shell", async () => {
+    setProfiles([{ id: "home", label: "Home", host: MACHINE.host, relayPort: MACHINE.port }]);
+    localStorage.setItem(PENDING_AGENTS_STORAGE_KEY, "home");
+    const user = userEvent.setup();
+    renderApp();
+
+    await screen.findByRole("heading", { name: agents.title });
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+    await startWithClaude(user);
+    await expectShellWithOneProfile("Home");
   });
 
   it("removing the last profile is allowed, and puts the first run back on the window", async () => {
@@ -306,12 +258,12 @@ describe("first run", () => {
     await within(document.body).findByText(en.shell.revoked.lastProfile);
     await user.click(within(document.body).getByRole("button", { name: en.common.remove }));
 
-    await screen.findByRole("heading", { name: en.firstRun.home.title });
+    await screen.findByRole("heading", { name: other.title });
     expect(getProfiles()).toHaveLength(0);
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
   });
 
-  it("a sole unverified profile resumes its verification on launch and hands over once it passes", async () => {
+  it("a sole unverified profile resumes its verification on launch and goes on to its agents", async () => {
     // The run after one that died between the claim and the verification:
     // the profile is saved, the list isn't empty, and the shell would open
     // on a machine that was never reached.
@@ -319,11 +271,9 @@ describe("first run", () => {
     const user = userEvent.setup();
     renderApp();
 
-    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+    await screen.findByRole("heading", { name: agents.title });
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
-
+    await startWithClaude(user);
     await expectShellWithOneProfile("Left over");
     expect(getProfiles()[0].unverified).toBeUndefined();
   });
@@ -355,26 +305,30 @@ describe("first run", () => {
   it("switches language from inside the first run", async () => {
     const user = userEvent.setup();
     renderApp();
-    await screen.findByText(en.firstRun.home.title);
+    await screen.findByText(other.title);
 
     await user.click(screen.getByRole("button", { name: "en" }));
     await user.click(await within(document.body).findByRole("menuitemradio", { name: "Português (Brasil)" }));
 
-    await screen.findByText(ptBr.firstRun.home.title);
-    expect(screen.queryByText(en.firstRun.home.title)).not.toBeInTheDocument();
+    await screen.findByText(ptBr.firstRun.other.title);
+    expect(screen.queryByText(other.title)).not.toBeInTheDocument();
   });
 
-  it("the terminal path ends by pointing path 01 at this machine", async () => {
+  it("the advanced options' terminal path ends by pointing the address form at 127.0.0.1:8765, and Back returns", async () => {
     const user = userEvent.setup();
     renderApp();
 
-    await user.click(await screen.findByRole("button", { name: en.firstRun.home.terminalLink }));
-    await screen.findByText(en.firstRun.manual.title);
+    await user.click(await screen.findByRole("button", { name: other.advanced }));
+    await screen.findByRole("heading", { name: en.firstRun.advanced.title });
     // The commands are the documented ones, not something generated here.
     expect(screen.getByText("curl -fsSL https://anywh.sh/install | sh")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: en.firstRun.manual.done }));
+    await user.click(screen.getByRole("button", { name: en.firstRun.frame.back }));
+    await screen.findByRole("heading", { name: other.title });
+    await user.click(screen.getByRole("button", { name: other.advanced }));
 
-    expect(await screen.findByLabelText(en.firstRun.connect.hostLabel)).toHaveValue("127.0.0.1");
+    await user.click(await screen.findByRole("button", { name: en.firstRun.advanced.terminal.done }));
+    expect(await screen.findByRole("textbox", { name: other.address.host })).toHaveValue("127.0.0.1");
+    expect(screen.getByRole("textbox", { name: other.address.port })).toHaveValue("8765");
   });
 });

@@ -462,12 +462,15 @@ function handleDoneEvent(event: InstallDoneEvent): void {
 }
 
 function settle(ok: boolean, profile: InstallProfileResult | null, failure: InstallFailure | null): void {
-  releaseHold();
   if (ok && profile) {
     publish({ ...state, install: { ...state.install, status: "ok", profile, failure: null, failedStep: null } });
+    // Verification takes the setup queue before the hold lifts: a link that
+    // waited on the install runs after this profile, not instead of it.
     verifyInstalledProfile(profile);
+    releaseHold();
     return;
   }
+  releaseHold();
   const code: LocalFailureCode = failure ? toFailureCode(failure.code) : state.install.lines.length > 0 ? "cancelled" : "unexpected";
   publish({
     ...state,

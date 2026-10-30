@@ -195,7 +195,9 @@ export function Preparing({
   const body = failure ? copy.fail.keepsProgress : adopting ? copy.adoptBody : copy.body;
   const note = !adopting && !failure && (install.note === "resuming" || install.note === "reattached") ? copy[install.note] : null;
   const rawLines = install.install.lines.map((line) => line.line);
-  const running = outcome === "running";
+  // Cancel stays while something is still to be decided — running, or
+  // stopped: it is also how the reader gives up and goes back.
+  const cancellable = outcome === "running" || outcome === "failed";
   const steps = [
     { id: "machine", label: dict.firstRun.frame.steps.thisMachine },
     { id: "agents", label: dict.firstRun.frame.steps.agents },
@@ -267,7 +269,7 @@ export function Preparing({
               {copy.details}
             </button>
             <div className="flex-1" />
-            {running && (
+            {cancellable && (
               <button
                 type="button"
                 onClick={handleCancel}
