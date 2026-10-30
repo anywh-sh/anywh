@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { BUILTIN_THEMES, DEFAULT_THEME } from "@/lib/theme/builtinThemes";
+import { BUILTIN_THEMES, DEFAULT_THEME, PAPER_THEME } from "@/lib/theme/builtinThemes";
 import { readableInkOn } from "@/lib/theme/color";
 import type { Theme, ThemeColorKey } from "@/lib/theme/theme";
 import { resolveTheme } from "@/lib/theme/themeApply";
@@ -246,5 +249,32 @@ describe("the ink chosen for a hand-written theme's filled buttons", () => {
     // background. A pale accent inverts it.
     const ink = readableInkOn(rgb("#fff3c4"), rgb("#fafafa"), rgb("#111111"));
     expect(hex(ink)).toBe("#111111");
+  });
+});
+
+describe("the plan usage warning tone", () => {
+  // `--warn` isn't a theme key (index.css explains why), so it can't ride the
+  // per-theme loops above: it is one value per appearance, read straight from
+  // the stylesheet and measured against that appearance's built-in surfaces.
+  // It is printed as text — the percentage of a window at 80–99%.
+  const css = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
+  const declared = (selector: string): string => {
+    const block = css.slice(css.indexOf(`${selector} {`));
+    const value = /--warn:\s*([^;]+);/.exec(block.slice(0, block.indexOf("}")))?.[1];
+    if (!value) throw new Error(`index.css: no --warn under ${selector}`);
+    return value;
+  };
+
+  it.each([
+    ["dark", ":root", DEFAULT_THEME],
+    ["light", ':root[data-appearance="light"]', PAPER_THEME],
+  ] as const)("reads on every %s surface", (_appearance, selector, theme) => {
+    const ink = parse(declared(selector));
+    const pairs = (["background", "bg-chrome", "bg-elevated", "card", "surface-hover"] as const).map((surface) => {
+      const under = parse(theme.colors[surface] ?? "");
+      const [a, b] = [luminance(ink), luminance(under)];
+      return { name: `warn on ${surface}`, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+    });
+    expect(report(pairs, 4.5)).toEqual([]);
   });
 });
