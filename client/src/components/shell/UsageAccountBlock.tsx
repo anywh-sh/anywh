@@ -183,11 +183,11 @@ function WindowRow({
   );
 }
 
-/** No login: the accent dot, the command that fixes it, and Copy. */
 /** Copy a command to the clipboard; "Copied" (or the failure word) for
  * 1.5s, announced by a status region. */
 function useCopy(command: string) {
-  const copy = useDict().firstRun.copy;
+  const dict = useDict();
+  const copy = dict.firstRun.copy;
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -207,6 +207,8 @@ function useCopy(command: string) {
     <button
       type="button"
       onClick={() => void handleCopy()}
+      // Several of these can share the card; each names its command.
+      aria-label={dict.shell.usage.card.copyCommand.replace("{command}", command)}
       className="h-6 shrink-0 cursor-pointer border border-border px-2 font-mono text-[11px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground"
     >
       {state === "idle" ? copy.copy : state === "copied" ? copy.copied : copy.failed}

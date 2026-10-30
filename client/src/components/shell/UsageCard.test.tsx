@@ -239,7 +239,7 @@ describe("UsageCard", () => {
     expect(strips[0].querySelector(".bg-primary")).not.toBeNull();
 
     await act(async () => {
-      fireEvent.click(within(strips[1]).getByRole("button", { name: "Copy" }));
+      fireEvent.click(within(strips[1]).getByRole("button", { name: "Copy codex login" }));
       await Promise.resolve();
     });
     expect(writeText).toHaveBeenCalledWith("codex login");
@@ -258,7 +258,7 @@ describe("UsageCard", () => {
     expect(line).toHaveTextContent("Codex·not used on this profile·codex loginCopy");
     expect(line.querySelector(".bg-primary")).toBeNull();
     await act(async () => {
-      fireEvent.click(within(line).getByRole("button", { name: "Copy" }));
+      fireEvent.click(within(line).getByRole("button", { name: "Copy codex login" }));
       await Promise.resolve();
     });
     expect(writeText).toHaveBeenCalledWith("codex login");

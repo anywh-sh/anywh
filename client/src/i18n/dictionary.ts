@@ -1321,6 +1321,8 @@ export interface Dictionary {
       outdatedSummary: string;
       /** The details card (`UsageCard`). */
       card: {
+        /** Accessible name of a Copy button: "Copy codex login". */
+        copyCommand: string;
         /** When the refresh button can read again: "again in 48s". Shown
          * next to the reading's age while every relay would answer from its
          * cache. */

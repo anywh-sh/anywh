@@ -599,6 +599,7 @@ export const ptBr: Dictionary = {
       outdated: "atualize o relay",
       outdatedSummary: "o relay deste perfil é antigo demais para informar o uso",
       card: {
+        copyCommand: "Copiar {command}",
         againIn: "de novo em {duration}",
         notUsed: "não usado neste perfil",
         title: "Uso",
