@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen, within } from "@testing-library/react";
+import { act, cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getProfiles, setProfiles, type Profile } from "@/lib/profiles/profiles";
 import { clearProfileRevoked, markProfileRevoked } from "@/lib/profiles/profileRevocation";
@@ -258,6 +258,18 @@ describe("first run", () => {
     expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
     await startWithClaude(user);
     await expectShellWithOneProfile("Home");
+  });
+
+  it("an agents step whose profile goes away starts over instead of drawing nothing", async () => {
+    setProfiles([{ id: "home", label: "Home", host: MACHINE.host, relayPort: MACHINE.port }]);
+    localStorage.setItem(PENDING_AGENTS_STORAGE_KEY, "home");
+    renderApp();
+    await screen.findByRole("heading", { name: agents.title });
+
+    act(() => {
+      setProfiles([]);
+    });
+    await screen.findByRole("heading", { name: other.title });
   });
 
   it("removing the last profile is allowed, and puts the first run back on the window", async () => {

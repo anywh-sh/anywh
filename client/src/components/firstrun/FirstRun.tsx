@@ -190,6 +190,12 @@ export function FirstRun() {
 
   const back = views.length > 1 ? popFirstRunView : undefined;
   const agentsProfile = view.screen === "agents" ? profiles.find((p) => p.id === view.profileId) : undefined;
+  // The agents step of a profile that has since gone (removed elsewhere):
+  // nothing to show, so start over rather than draw an empty window.
+  const agentsGone = view.screen === "agents" && !agentsProfile;
+  useEffect(() => {
+    if (agentsGone) resetFirstRunViews(initialViews());
+  }, [agentsGone]);
 
   return (
     <>
