@@ -19,10 +19,7 @@ export interface AgentCardModel {
   docsUrl: string | null;
 }
 
-export function cardModelFromInfo(
-  info: AgentInfo,
-  state: AgentCardState,
-): AgentCardModel {
+export function cardModelFromInfo(info: AgentInfo, state: AgentCardState): AgentCardModel {
   return {
     id: info.id,
     bin: info.bin,
@@ -44,17 +41,10 @@ export function cardModelFromInfo(
  * card is just a row. The radio is a real input hidden behind the card, so
  * the group has native keyboard handling and the card carries the focus ring.
  */
-export function AgentCard({
-  agent,
-  choice,
-}: {
-  agent: AgentCardModel;
-  choice?: { name: string; checked: boolean; onSelect: () => void };
-}) {
+export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: { name: string; checked: boolean; onSelect: () => void } }) {
   const dict = useDict();
   const copy = dict.firstRun.agents;
-  const agentName =
-    dict.chat.composer.agentNames[agent.id as KnownAgentId] ?? agent.id;
+  const agentName = dict.chat.composer.agentNames[agent.id as KnownAgentId] ?? agent.id;
   const missing = agent.state === "missing";
 
   const meta =
@@ -68,26 +58,12 @@ export function AgentCard({
 
   const head = (
     <div className="flex items-center gap-4">
-      <span
-        className={cn(
-          "flex size-8 shrink-0 items-center justify-center text-foreground",
-          missing && "opacity-50",
-        )}
-      >
+      <span className={cn("flex size-8 shrink-0 items-center justify-center text-foreground", missing && "opacity-50")}>
         <AgentLogo agentId={agent.id} className="size-6" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span
-          className={cn(
-            "text-[15px] font-medium",
-            missing ? "text-muted-foreground" : "text-foreground",
-          )}
-        >
-          {agentName}
-        </span>
-        <span className="truncate font-mono text-[11.5px] text-text-faint">
-          {meta}
-        </span>
+        <span className={cn("text-[15px] font-medium", missing ? "text-muted-foreground" : "text-foreground")}>{agentName}</span>
+        <span className="truncate font-mono text-[11.5px] text-text-faint">{meta}</span>
       </div>
       <StateLabel state={agent.state} />
     </div>
@@ -98,9 +74,7 @@ export function AgentCard({
       data-state={agent.state}
       className={cn(
         "flex flex-col gap-3 border p-4 has-focus-visible:ring-2 has-focus-visible:ring-ring/50",
-        missing
-          ? "border-border-soft bg-transparent"
-          : "border-border-soft bg-bg-chrome",
+        missing ? "border-border-soft bg-transparent" : "border-border-soft bg-bg-chrome",
         choice?.checked && "border-foreground/40 bg-card",
       )}
     >
@@ -126,9 +100,7 @@ export function AgentCard({
 
       {agent.state === "noLogin" && (
         <div className="flex flex-col gap-2.5 sm:pl-12">
-          <p className="max-w-[60ch] text-[13px] leading-[1.6] text-pretty text-muted-foreground">
-            {copy.noLoginHint}
-          </p>
+          <p className="max-w-[60ch] text-[13px] leading-[1.6] text-pretty text-muted-foreground">{copy.noLoginHint}</p>
           {agent.loginCommand && <CommandLine command={agent.loginCommand} />}
         </div>
       )}
@@ -156,27 +128,11 @@ function StateLabel({ state }: { state: AgentCardState }) {
   const label = useDict().firstRun.agents.state[state];
   return (
     <span className="flex shrink-0 items-center gap-2 font-mono text-[12px]">
-      {state === "ready" && (
-        <Check className="size-3.5 text-diff-add" aria-hidden="true" />
-      )}
-      {state === "noLogin" && (
-        <span aria-hidden="true" className="size-2 rounded-full bg-primary" />
-      )}
-      {state === "missing" && (
-        <span aria-hidden="true" className="size-2 border border-text-faint" />
-      )}
+      {state === "ready" && <Check className="size-3.5 text-diff-add" aria-hidden="true" />}
+      {state === "noLogin" && <span aria-hidden="true" className="size-2 rounded-full bg-primary" />}
+      {state === "missing" && <span aria-hidden="true" className="size-2 border border-text-faint" />}
       {state === "checking" && <Spinner />}
-      <span
-        className={cn(
-          state === "ready"
-            ? "text-diff-add"
-            : state === "noLogin"
-              ? "text-foreground"
-              : "text-text-faint",
-        )}
-      >
-        {label}
-      </span>
+      <span className={cn(state === "ready" ? "text-diff-add" : state === "noLogin" ? "text-foreground" : "text-text-faint")}>{label}</span>
     </span>
   );
 }

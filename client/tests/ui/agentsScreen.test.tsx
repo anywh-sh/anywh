@@ -7,21 +7,9 @@ import { LocaleProvider } from "@/i18n";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getPendingAgentsProfileId } from "@/lib/install/pendingAgents";
-import {
-  __resetFirstRunForTests,
-  beginFirstRun,
-  getFirstRunSnapshot,
-} from "@/lib/profiles/firstRun";
-import {
-  findProfile,
-  setProfiles,
-  type Profile,
-} from "@/lib/profiles/profiles";
-import {
-  installFakeRelay,
-  type FakeAgent,
-  type FakeRelay,
-} from "./helpers/fakeRelay";
+import { __resetFirstRunForTests, beginFirstRun, getFirstRunSnapshot } from "@/lib/profiles/firstRun";
+import { findProfile, setProfiles, type Profile } from "@/lib/profiles/profiles";
+import { installFakeRelay, type FakeAgent, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
 
 /**
@@ -80,27 +68,18 @@ const CLAUDE_MISSING: FakeAgent = {
 
 let relay: FakeRelay;
 
-function setup(
-  agents: FakeAgent[] | "legacy",
-  extra: { hostInfoAgents?: string[]; patchStatus?: number } = {},
-): void {
+function setup(agents: FakeAgent[] | "legacy", extra: { hostInfoAgents?: string[]; patchStatus?: number } = {}): void {
   relay = installFakeRelay("ok", {
     agentId: "claude",
     control: { agents, ...extra },
   });
 }
 
-function mount(
-  props: { remoteHost?: string; onOtherMachine?: () => void } = {},
-) {
+function mount(props: { remoteHost?: string; onOtherMachine?: () => void } = {}) {
   return render(
     <LocaleProvider>
       <TooltipProvider>
-        <AgentsScreen
-          profile={profile}
-          onOtherMachine={props.onOtherMachine ?? (() => {})}
-          remoteHost={props.remoteHost}
-        />
+        <AgentsScreen profile={profile} onOtherMachine={props.onOtherMachine ?? (() => {})} remoteHost={props.remoteHost} />
       </TooltipProvider>
     </LocaleProvider>,
   );
@@ -122,7 +101,10 @@ describe("Your agents", () => {
   it("keeps the way to another machine while a machine is slow to answer, and gives up after a while", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setup([CLAUDE]);
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
     const onOtherMachine = vi.fn();
     mount({ onOtherMachine });
     expect(screen.getByRole("heading", { name: copy.searching })).toBeInTheDocument();
@@ -137,21 +119,15 @@ describe("Your agents", () => {
   it("shows both agents with the first ready one marked, and starts with it", async () => {
     setup([CLAUDE, CODEX_NO_LOGIN]);
     mount();
-    expect(
-      screen.getByRole("heading", { name: copy.searching }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: copy.searching })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: copy.start })).toBeDisabled();
 
     const claude = await screen.findByRole("radio", { name: "Claude Code" });
     expect(claude).toBeChecked();
     expect(screen.getByRole("radio", { name: "Codex" })).not.toBeChecked();
     expect(screen.getByText("claude · v2.1.3")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: copy.title }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(copy.bodyMany.replace("{where}", copy.here).replace("{count}", "2")),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: copy.title })).toBeInTheDocument();
+    expect(screen.getByText(copy.bodyMany.replace("{where}", copy.here).replace("{count}", "2"))).toBeInTheDocument();
     expect(screen.getByText(copy.switchNote)).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
@@ -166,8 +142,7 @@ describe("Your agents", () => {
     await screen.findByRole("radio", { name: "Claude Code" });
     const cards = document.querySelectorAll("li[data-state]");
     expect(cards).toHaveLength(2);
-    for (const card of cards)
-      expect(card.querySelector("svg path")).not.toBeNull();
+    for (const card of cards) expect(card.querySelector("svg path")).not.toBeNull();
     expect(screen.queryByText("CC")).not.toBeInTheDocument();
     expect(screen.queryByText("CX")).not.toBeInTheDocument();
   });
@@ -190,9 +165,7 @@ describe("Your agents", () => {
   it("marks the first installed agent when none is signed in", async () => {
     setup([{ ...CLAUDE, loggedIn: false }, CODEX_NO_LOGIN]);
     mount();
-    expect(
-      await screen.findByRole("radio", { name: "Claude Code" }),
-    ).toBeChecked();
+    expect(await screen.findByRole("radio", { name: "Claude Code" })).toBeChecked();
   });
 
   it("with one agent there is no radio, and Start names it", async () => {
@@ -204,12 +177,8 @@ describe("Your agents", () => {
     expect(start).toBeEnabled();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(screen.queryByText(copy.switchNote)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(copy.bodyOne.replace("{where}", copy.here)),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("codex · " + copy.meta.notOnPath),
-    ).toBeInTheDocument();
+    expect(screen.getByText(copy.bodyOne.replace("{where}", copy.here))).toBeInTheDocument();
+    expect(screen.getByText("codex · " + copy.meta.notOnPath)).toBeInTheDocument();
     const how = screen.getByRole("link", {
       name: copy.howToInstall.replace("{agent}", "Codex"),
     });
@@ -220,18 +189,10 @@ describe("Your agents", () => {
     setup([CLAUDE_MISSING, CODEX_MISSING]);
     const onOtherMachine = vi.fn();
     mount({ onOtherMachine });
-    expect(
-      await screen.findByRole("heading", { name: copy.none }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: new RegExp(`^${copy.start}`) }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: copy.recheck })).toHaveLength(
-      1,
-    );
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: copy.otherMachine }));
+    expect(await screen.findByRole("heading", { name: copy.none })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: new RegExp(`^${copy.start}`) })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: copy.recheck })).toHaveLength(1);
+    await userEvent.setup().click(screen.getByRole("button", { name: copy.otherMachine }));
     expect(onOtherMachine).toHaveBeenCalledOnce();
   });
 
@@ -242,18 +203,14 @@ describe("Your agents", () => {
     expect(relay.agentChecks()).toBe(1);
 
     relay.control!.agents = [{ ...CLAUDE }, CODEX_MISSING];
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: copy.recheck }));
+    await userEvent.setup().click(screen.getByRole("button", { name: copy.recheck }));
     expect(
       await screen.findByRole("button", {
         name: copy.startWith.replace("{agent}", "Claude Code"),
       }),
     ).toBeEnabled();
     expect(relay.agentChecks()).toBe(2);
-    expect(screen.getAllByRole("button", { name: copy.recheck })).toHaveLength(
-      1,
-    );
+    expect(screen.getAllByRole("button", { name: copy.recheck })).toHaveLength(1);
   });
 
   it("falls back to /host-info on a relay without the route: installed agents only", async () => {
@@ -271,13 +228,9 @@ describe("Your agents", () => {
   it("names another machine instead of this one", async () => {
     setup([CLAUDE, CODEX_MISSING]);
     mount({ remoteHost: "box.lan" });
-    expect(
-      await screen.findByText(copy.bodyOne.replace("{where}", "on box.lan")),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(copy.bodyOne.replace("{where}", "on box.lan"))).toBeInTheDocument();
     expect(screen.getByText("On box.lan")).toBeInTheDocument();
-    expect(
-      screen.getByText(en.firstRun.frame.steps.otherMachine),
-    ).toBeInTheDocument();
+    expect(screen.getByText(en.firstRun.frame.steps.otherMachine)).toBeInTheDocument();
   });
 
   it("remembers that the screen is pending until Start", async () => {
