@@ -354,7 +354,10 @@ export function syncProfilesForHost(host: string, remote: RemoteProfile[]): void
         relayPort: entry.port,
         colorIndex: entry.colorIndex,
         themeId: entry.themeId,
-        agentPreference: entry.agentPreference,
+        // A relay that predates the field never reports it, and a choice
+        // it refused to store (400) lives only here: keep it rather than
+        // let the first sync erase it.
+        agentPreference: entry.agentPreference ?? existing?.agentPreference,
         lastUsedAgentId: entry.lastUsedAgentId,
         connectToken: existing?.connectToken,
         tailnetAuthKey: existing?.tailnetAuthKey,
