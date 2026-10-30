@@ -532,3 +532,24 @@ test("a transcript limit older than what the relay already read is ignored", asy
   assert.equal(t.claude()?.source, "probe");
   assert.notEqual(t.claude()?.status, "limited");
 });
+
+test("each probe's outcome is logged as a kind; Codex only when its outcome changes", async () => {
+  const t = harness({ installed: ["claude", "codex"] });
+  await t.service.refresh({ force: true });
+  t.h.probe = () => Promise.resolve({ kind: "error", error: "network", probed: true });
+  await t.service.refresh({ force: true, runtime: "claude" });
+  t.h.probe = () => Promise.resolve({ kind: "auth", status: "signed_out", probed: true });
+  await t.service.refresh({ force: true, runtime: "claude" });
+  await t.service.refresh({ force: false, runtime: "codex" });
+  t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await t.service.refresh({ force: false, runtime: "codex" });
+  const lines = t.h.logs.filter((line) => line.includes("probe:") || line.includes("codex read:"));
+  assert.deepEqual(lines, [
+    "[plan-usage] claude probe: reading",
+    "[plan-usage] codex read: reading",
+    "[plan-usage] claude probe: error:network",
+    "[plan-usage] claude probe: auth:signed_out",
+    "[plan-usage] codex read: auth:signed_out",
+  ]);
+  assert.ok(!t.h.logs.join("\n").includes("example.invalid"));
+});

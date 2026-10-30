@@ -20,6 +20,10 @@ import type { RouteHandler } from "./context.js";
 
 export const PLAN_USAGE_WATCH_PATH = "/plan-usage/watch";
 
+// Diagnostic lines: which profile, what was asked, how many watchers. No
+// address, no account data.
+const PROFILE = process.env.ANYWH_PROFILE || "default";
+
 export const handlePlanUsageRoutes: RouteHandler = (req, res, ctx) => {
   if (req.method !== "GET" || req.url?.split("?")[0] !== "/plan-usage") return Promise.resolve(false);
   res.setHeader("Content-Type", "application/json");
@@ -35,6 +39,7 @@ export function handlePlanUsageConnection(socket: WebSocket, service: PlanUsageS
   const unsubscribe = service.subscribe(send);
   send(service.getSnapshot());
   const release = service.connectClient();
+  console.log(`[plan-usage] watch opened (profile ${PROFILE}, clients ${service.connectedClients})`);
 
   socket.on("message", (raw: Buffer) => {
     let parsed: unknown;
@@ -48,6 +53,9 @@ export function handlePlanUsageConnection(socket: WebSocket, service: PlanUsageS
       return;
     }
     if (isPlanUsageRefreshMessage(parsed)) {
+      console.log(
+        `[plan-usage] refresh (profile ${PROFILE}, runtime ${parsed.runtime ?? "all"}, force ${String(parsed.force)}, clients ${service.connectedClients})`,
+      );
       // Answered with a snapshot when the reads end, even if nothing
       // changed: the client's spinner waits for one.
       service
@@ -61,5 +69,6 @@ export function handlePlanUsageConnection(socket: WebSocket, service: PlanUsageS
   socket.on("close", () => {
     unsubscribe();
     release();
+    console.log(`[plan-usage] watch closed (profile ${PROFILE}, clients ${service.connectedClients})`);
   });
 }

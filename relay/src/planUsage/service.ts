@@ -116,6 +116,7 @@ export class PlanUsageService {
   private claudeAuthInFlight?: Promise<void>;
   private lastClaudeAuthCheckAt: number | null = null;
   private lastTranscriptLimitCheckAt: number | null = null;
+  private lastCodexOutcome?: string;
   private salt?: Promise<Uint8Array | undefined>;
 
   constructor(private readonly deps: PlanUsageServiceDeps) {
@@ -333,6 +334,7 @@ export class PlanUsageService {
 
   private async applyClaudeResult(result: ClaudeUsageProbeResult): Promise<void> {
     const slot = this.slots.claude;
+    this.deps.log?.(`[plan-usage] claude probe: ${outcomeKind(result)}`);
     switch (result.kind) {
       case "reading": {
         const identity = await this.claudeIdentity(result.auth);
@@ -410,6 +412,10 @@ export class PlanUsageService {
 
   private async applyCodexResult(result: CodexRateLimitsResult): Promise<void> {
     const slot = this.slots.codex;
+    // Read every minute: logged only when the outcome changes.
+    const kind = outcomeKind(result);
+    if (kind !== this.lastCodexOutcome) this.deps.log?.(`[plan-usage] codex read: ${kind}`);
+    this.lastCodexOutcome = kind;
     switch (result.kind) {
       case "reading": {
         const salt = result.identity ? await this.getSalt() : undefined;
@@ -502,6 +508,19 @@ export class PlanUsageService {
   private stopTimer(): void {
     if (this.timer !== undefined) this.deps.clearInterval(this.timer);
     this.timer = undefined;
+  }
+}
+
+/** A read's outcome for a log line: `reading`, `auth:<status>` or
+ * `error:<kind>` — never its content. */
+export function outcomeKind(result: ClaudeUsageProbeResult | CodexRateLimitsResult): string {
+  switch (result.kind) {
+    case "reading":
+      return "reading";
+    case "auth":
+      return `auth:${result.status}`;
+    case "error":
+      return `error:${result.error}`;
   }
 }
 
