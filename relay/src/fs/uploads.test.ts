@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage } from "node:http";
-import { frameTimestamp, MAX_UPLOAD_BYTES, readRawBody, sanitizeExtension } from "./uploads.js";
+import { frameTimestamp, MAX_UPLOAD_BYTES, readRawBody, sanitizeExtension, sanitizeUploadName, uploadExtension } from "./uploads.js";
 
 // Same fake-EventEmitter pattern mcpBridge.test.ts already uses for
 // `IncomingMessage` — `readRawBody` only touches `data`/`end`/`error` and
@@ -86,4 +86,29 @@ test("frameTimestamp: midpoint of each equal slice, never landing on t=0 or t=du
 
 test("frameTimestamp: a single frame lands exactly at the midpoint of the whole duration", () => {
   assert.equal(frameTimestamp(10, 0, 1), 5);
+});
+
+test("sanitizeUploadName keeps a plain filename as-is", () => {
+  assert.equal(sanitizeUploadName("notes.md"), "notes.md");
+  assert.equal(sanitizeUploadName("pasted text.txt"), "pasted text.txt");
+});
+
+test("sanitizeUploadName keeps only the last path segment and drops control characters", () => {
+  assert.equal(sanitizeUploadName("../../etc/passwd"), "passwd");
+  assert.equal(sanitizeUploadName("C:\\Users\\me\\a.md"), "a.md");
+  assert.equal(sanitizeUploadName("a\nb\u0000.md"), "ab.md");
+});
+
+test("sanitizeUploadName: absent, empty or nothing-left is undefined", () => {
+  assert.equal(sanitizeUploadName(null), undefined);
+  assert.equal(sanitizeUploadName(""), undefined);
+  assert.equal(sanitizeUploadName("dir/"), undefined);
+});
+
+test("uploadExtension prefers the explicit ext, then the name's, else empty (sanitized to 'bin' later)", () => {
+  assert.equal(uploadExtension("png", "a.md"), "png");
+  assert.equal(uploadExtension(null, "notes.md"), "md");
+  assert.equal(uploadExtension(null, "Makefile"), "");
+  assert.equal(uploadExtension(null, ".gitignore"), "");
+  assert.equal(uploadExtension(null, undefined), "");
 });
