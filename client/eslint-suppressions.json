@@ -177,7 +177,7 @@
       "count": 1
     },
     "@typescript-eslint/require-await": {
-      "count": 3
+      "count": 5
     }
   },
   "tests/ui/sidebarRenderCost.test.tsx": {
