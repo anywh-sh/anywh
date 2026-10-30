@@ -71,20 +71,25 @@ export function OnboardingFrame({
            * auto margins collapse to zero instead of clipping the top of the
            * content once it's taller than the window. */}
           <div className="my-auto flex w-full max-w-[560px] flex-col gap-10 px-6 py-10">
-            <header className="flex min-h-7 items-center gap-4">
+            {/* The mark keeps its place on every screen; "Back", where there
+             * is somewhere to go back to, sits under it, so the stepper on
+             * the right never shares a row with it. */}
+            <header className="flex flex-col items-start gap-5">
+              <div className="flex min-h-7 w-full items-center gap-4">
+                <Lockup large={large} />
+                <div className="flex-1" />
+                {steps && current && <Stepper steps={steps} current={current} />}
+              </div>
               {onBack && (
                 <button
                   type="button"
                   onClick={onBack}
-                  className="inline-flex h-7 cursor-pointer items-center gap-1 text-[13px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
+                  className="-ml-1 inline-flex h-7 cursor-pointer items-center gap-1 text-[13px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
                 >
                   <ChevronLeft className="size-3.5" aria-hidden="true" />
                   {copy.frame.back}
                 </button>
               )}
-              <Lockup large={large} />
-              <div className="flex-1" />
-              {steps && current && <Stepper steps={steps} current={current} />}
             </header>
             <main className={cn("flex flex-col gap-8", className)}>{children}</main>
           </div>

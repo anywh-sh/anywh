@@ -100,7 +100,14 @@ describe("OnboardingFrame", () => {
     );
     await userEvent.setup().click(screen.getByRole("button", { name: en.firstRun.frame.back }));
     expect(onBack).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("list", { name: en.firstRun.frame.steps.label })).toBeInTheDocument();
+    const stepper = screen.getByRole("list", { name: en.firstRun.frame.steps.label });
+    const back = screen.getByRole("button", { name: en.firstRun.frame.back });
+    const mark = screen.getByText("anywh.sh");
+    // Back sits under the mark, never in the row the stepper shares with it.
+    expect(mark.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    let row: HTMLElement = stepper;
+    while (!row.contains(mark) && row.parentElement) row = row.parentElement;
+    expect(row.contains(back)).toBe(false);
   });
 });
 
