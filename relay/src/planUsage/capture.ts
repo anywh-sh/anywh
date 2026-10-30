@@ -58,6 +58,15 @@ export class PlanUsageCapture {
   /** Any raw Claude stream-json event; returns whether it was a
    * `rate_limit_event` that produced a reading. */
   claudeEvent(event: unknown): boolean {
+    // Runs inline in a turn's stream: whatever happens here must not reach it.
+    try {
+      return this.readClaudeEvent(event);
+    } catch {
+      return false;
+    }
+  }
+
+  private readClaudeEvent(event: unknown): boolean {
     const parsed = parseClaudeRateLimitEvent(event);
     if (!parsed) return false;
     const status = claudeReadingStatus(parsed);
@@ -80,7 +89,13 @@ export class PlanUsageCapture {
    * keep it away from the chat mapper. */
   codexNotification(method: string, params: unknown): boolean {
     if (method !== CODEX_RATE_LIMITS_UPDATED_METHOD) return false;
-    const bucket = parseCodexRateLimitsUpdated(params);
+    let bucket;
+    try {
+      bucket = parseCodexRateLimitsUpdated(params);
+    } catch {
+      // Claimed all the same: the push is ours, not the chat mapper's.
+      return true;
+    }
     if (bucket)
       this.emit({
         kind: "codex_push",

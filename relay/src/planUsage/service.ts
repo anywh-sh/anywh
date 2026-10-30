@@ -186,7 +186,7 @@ export class PlanUsageService {
   /** Starts listening to the agent streams. */
   start(): void {
     this.unsubscribeCapture ??= this.deps.capture.subscribe((event) => this.onCapture(event));
-    void this.bootstrapCodexSignIn();
+    this.background(this.bootstrapCodexSignIn());
   }
 
   /** A profile whose Codex the relay never saw logged in may still have
@@ -213,7 +213,7 @@ export class PlanUsageService {
     if (!next.has("codex")) this.codexReader?.close();
     if (!changed) return;
     this.notify();
-    if (this.clients > 0) void this.evaluate(true);
+    if (this.clients > 0) this.background(this.evaluate(true));
   }
 
   /** The state as it may be shown now: installed runtimes only, expired
@@ -251,8 +251,8 @@ export class PlanUsageService {
    * is; the returned function releases it (safe to call twice). */
   connectClient(): () => void {
     this.clients += 1;
-    if (this.clients === 1) this.timer = this.deps.setInterval(() => void this.evaluate(false), SCHEDULER_TICK_MS);
-    void this.evaluate(true);
+    if (this.clients === 1) this.timer = this.deps.setInterval(() => this.background(this.evaluate(false)), SCHEDULER_TICK_MS);
+    this.background(this.evaluate(true));
     let released = false;
     return () => {
       if (released) return;
@@ -567,7 +567,7 @@ export class PlanUsageService {
         // A finished Codex turn may have moved the limits: pull, if anyone
         // is watching — under the button's floor, so a run of short turns
         // doesn't become a run of reads.
-        if (event.runtime === "codex" && !event.active && this.clients > 0 && this.installed.has("codex")) void this.refreshOne("codex", true);
+        if (event.runtime === "codex" && !event.active && this.clients > 0 && this.installed.has("codex")) this.background(this.refreshOne("codex", true));
         return;
     }
   }
@@ -621,6 +621,13 @@ export class PlanUsageService {
       return undefined;
     });
     return this.salt;
+  }
+
+  /** Work nobody awaits (a timer tick, a connection, a stream event): a
+   * failure is logged, never left as an unhandled rejection, which would
+   * take the relay down. */
+  private background(work: Promise<void>): void {
+    work.catch((error: unknown) => this.deps.log?.(`[plan-usage] background read failed: ${(error as Error).message}`));
   }
 
   private stopTimer(): void {

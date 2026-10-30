@@ -731,3 +731,18 @@ test("transcript limits are checked at most once a minute, however many clients 
   await settle();
   assert.equal(t.calls.transcript, 2);
 });
+
+test("a failure in background work is logged, not left unhandled", async () => {
+  const t = harness({ installed: ["codex"] });
+  t.h.codex = () => {
+    throw new Error("boom");
+  };
+  t.service.connectClient();
+  await settle();
+  assert.ok(t.h.logs.some((line) => line.includes("background read failed: boom")));
+  // The lock was released: the next read goes ahead.
+  t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await t.advance(30_000);
+  await t.service.refresh({ force: false });
+  assert.equal(t.codex()?.status, "signed_out");
+});

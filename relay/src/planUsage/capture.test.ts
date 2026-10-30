@@ -125,3 +125,18 @@ test("only claude and codex have a plan to read", () => {
   assert.equal(planUsageRuntimeOf("codex"), "codex");
   assert.equal(planUsageRuntimeOf("gemini"), undefined);
 });
+
+test("a listener or parser failure never reaches the stream", () => {
+  const capture = new PlanUsageCapture(() => 1);
+  capture.subscribe(() => {
+    throw new Error("listener");
+  });
+  const hostile = {
+    type: "rate_limit_event",
+    get rate_limit_info(): unknown {
+      throw new Error("getter");
+    },
+  };
+  assert.equal(capture.claudeEvent(hostile), false);
+  assert.equal(capture.codexNotification("account/rateLimits/updated", { get rateLimits(): unknown { throw new Error("getter"); } }), true);
+});
