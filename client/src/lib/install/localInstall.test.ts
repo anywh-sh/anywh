@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { evaluateAgentReadiness, evaluatePrerequisites, failureActions, toFailureCode, type LocalFailureCode } from "./localInstall";
-import type { Prerequisites } from "./localRelay";
+import {
+  evaluatePrerequisites,
+  failureActions,
+  preparingFailure,
+  preparingOutcome,
+  preparingSteps,
+  toFailureCode,
+  type LocalInstallState,
+  type PreparingFailureCode,
+} from "./localInstall";
+import type { InstallLogLine, Prerequisites } from "./localRelay";
 
 const healthy: Prerequisites = {
   nodePath: "/usr/bin/node",
@@ -64,54 +73,125 @@ describe("evaluatePrerequisites", () => {
   });
 });
 
-describe("evaluateAgentReadiness", () => {
-  it("says nothing about a CLI that is there and logged in", () => {
-    expect(evaluateAgentReadiness(healthy)).toBeNull();
-  });
-
-  it("reports a missing CLI as a remark, naming the binary it looked for", () => {
-    expect(evaluateAgentReadiness({ ...healthy, agentPath: null })).toEqual({ code: "agent_missing", detail: "claude" });
-  });
-
-  it("a logged-out agent comes with the command to copy, built from the configured binary", () => {
-    const warning = evaluateAgentReadiness({ ...healthy, agentBin: "/opt/agent/bin/claude", agentLoggedIn: false });
-    expect(warning?.code).toBe("agent_not_logged_in");
-    expect(warning?.command).toBe("/opt/agent/bin/claude login");
-  });
-
-  it("treats 'couldn't be asked' as not logged in, not as a yes", () => {
-    expect(evaluateAgentReadiness({ ...healthy, agentLoggedIn: null, agentError: "timed out" })).toMatchObject({
-      code: "agent_not_logged_in",
-      detail: "timed out",
-    });
-  });
-});
-
 describe("failureActions", () => {
+  const ALL: PreparingFailureCode[] = [
+    "node_missing", "node_old", "no_user_systemd", "containerized", "relay_running", "relay_host_undetectable",
+    "download_failed", "checksum_missing", "checksum_mismatch", "extract_failed", "tarball_incomplete",
+    "service_failed", "profile_failed", "cancelled", "interrupted", "start_failed", "unexpected",
+    "brew_missing", "brew_install_failed", "unsupported_arch", "unresponsive",
+  ];
+
   it("never offers a blind retry for a checksum mismatch", () => {
-    expect(failureActions("checksum_mismatch")).not.toContain("retry");
-    expect(failureActions("tarball_incomplete")).not.toContain("retry");
+    expect(failureActions("checksum_mismatch")).toEqual(["terminal", "back"]);
+    expect(failureActions("tarball_incomplete")).toEqual(["terminal", "back"]);
   });
 
-  it("offers dev mode only for the missing service manager", () => {
-    const withDevMode = (["node_missing", "node_old", "agent_missing", "agent_not_logged_in", "no_user_systemd", "download_failed"] as LocalFailureCode[]).filter((code) =>
-      failureActions(code).includes("useDevMode"),
-    );
-    expect(withDevMode).toEqual(["no_user_systemd"]);
+  it("never offers dev mode from a failure — it lives in the advanced options", () => {
+    // A machine without systemd --user is pointed at the terminal, where
+    // choosing to run without a service is deliberate.
+    expect(failureActions("no_user_systemd")).toEqual(["terminal"]);
+    expect(failureActions("containerized")).toEqual(["terminal"]);
+  });
+
+  it("a missing runtime is checked again, a stopped install is tried again", () => {
+    expect(failureActions("node_missing")).toEqual(["recheck", "terminal"]);
+    expect(failureActions("node_old")).toEqual(["recheck", "terminal"]);
+    expect(failureActions("brew_missing")).toEqual(["retry", "terminal"]);
+    for (const code of ["download_failed", "brew_install_failed", "service_failed", "profile_failed", "start_failed", "unexpected"] as const) {
+      expect(failureActions(code), code).toEqual(["retry", "terminal"]);
+    }
+  });
+
+  it("a relay that is installed but doesn't answer is tried again, not reinstalled from scratch", () => {
+    expect(failureActions("unresponsive")).toEqual(["retry", "terminal"]);
+  });
+
+  it("an Intel Mac is pointed at another machine, never at a retry", () => {
+    expect(failureActions("unsupported_arch")).toEqual(["otherMachine", "back"]);
   });
 
   it("every code has at least one way out", () => {
-    const codes: LocalFailureCode[] = [
-      "node_missing", "node_old", "agent_missing", "agent_not_logged_in", "no_user_systemd", "containerized", "relay_running",
-      "relay_host_undetectable", "download_failed", "checksum_missing", "checksum_mismatch", "extract_failed", "tarball_incomplete",
-      "service_failed", "profile_failed", "cancelled", "interrupted", "start_failed", "unexpected",
-      "brew_missing", "brew_install_failed", "unsupported_arch",
-    ];
-    for (const code of codes) expect(failureActions(code).length, code).toBeGreaterThan(0);
+    for (const code of ALL) expect(failureActions(code).length, code).toBeGreaterThan(0);
+  });
+});
+
+function line(seq: number, text: string): InstallLogLine {
+  const [, verb, step] = text.split(" ");
+  const event: InstallLogLine["event"] =
+    verb === "step" ? { kind: "step", step } : verb === "done" ? { kind: "done", step, fields: {} } : verb === "fail" ? { kind: "fail", step, code: "x", message: "" } : null;
+  return { seq, line: text, event };
+}
+
+function lines(...texts: string[]): InstallLogLine[] {
+  return texts.map((text, index) => line(index + 1, text));
+}
+
+function stateWith(patch: {
+  prereqs?: Partial<LocalInstallState["prereqs"]>;
+  install?: Partial<LocalInstallState["install"]>;
+  verify?: Partial<LocalInstallState["verify"]>;
+}): LocalInstallState {
+  return {
+    note: "none",
+    mode: "prod",
+    params: { label: "Personal", host: "127.0.0.1", profileId: "default" },
+    prereqs: { status: "ok", result: healthy, failure: null, ...patch.prereqs },
+    install: { runId: "r", lines: [], status: "idle", failure: null, failedStep: null, profile: null, ...patch.install },
+    verify: { status: "idle", profileId: null, failure: null, ...patch.verify },
+  };
+}
+
+const statuses = (state: LocalInstallState) => preparingSteps(state).map((step) => step.status);
+
+describe("preparingSteps", () => {
+  it("the client's own check is the first step", () => {
+    expect(statuses(stateWith({ prereqs: { status: "running" } }))).toEqual(["running", "pending", "pending"]);
+    expect(statuses(stateWith({ prereqs: { status: "failed", failure: { code: "node_missing", detail: "" } } }))).toEqual(["failed", "pending", "pending"]);
   });
 
-  it("never offers a retry for the Apple Silicon-only formula", () => {
-    expect(failureActions("unsupported_arch")).not.toContain("retry");
+  it("groups the Linux installer's steps into check, install and start", () => {
+    const running = (texts: string[]) => statuses(stateWith({ install: { status: "running", lines: lines(...texts) } }));
+    expect(running([])).toEqual(["running", "pending", "pending"]);
+    expect(running(["ANYWH step flags", "ANYWH done flags", "ANYWH step target", "ANYWH step prereqs"])).toEqual(["running", "pending", "pending"]);
+    expect(running(["ANYWH done prereqs", "ANYWH step relay_host"])).toEqual(["done", "running", "pending"]);
+    expect(running(["ANYWH step download", "ANYWH done download", "ANYWH step install"])).toEqual(["done", "running", "pending"]);
+    expect(running(["ANYWH step install", "ANYWH done install", "ANYWH step service"])).toEqual(["done", "done", "running"]);
+  });
+
+  it("groups the macOS installer's order (profile before service) the same way", () => {
+    const running = (texts: string[]) => statuses(stateWith({ install: { status: "running", lines: lines(...texts) } }));
+    expect(running(["ANYWH done prereqs", "ANYWH step install"])).toEqual(["done", "running", "pending"]);
+    expect(running(["ANYWH done install", "ANYWH step profile"])).toEqual(["done", "done", "running"]);
+    expect(running(["ANYWH done profile", "ANYWH step service"])).toEqual(["done", "done", "running"]);
+  });
+
+  it("the step the installer failed on is the one marked, and the earlier ones stay done", () => {
+    const failed = stateWith({
+      install: { status: "failed", lines: lines("ANYWH done prereqs", "ANYWH step download", "ANYWH fail download"), failedStep: "download", failure: { code: "checksum_mismatch", detail: "" } },
+    });
+    expect(statuses(failed)).toEqual(["done", "failed", "pending"]);
+    expect(preparingFailure(failed)?.code).toBe("checksum_mismatch");
+  });
+
+  it("a run that died with no step to blame marks the furthest step it reached", () => {
+    const died = stateWith({ install: { status: "failed", lines: lines("ANYWH step service"), failure: { code: "unexpected", detail: "" } } });
+    expect(statuses(died)).toEqual(["done", "done", "failed"]);
+  });
+
+  it("start is done only once the new profile answers", () => {
+    const installed = { status: "ok" as const, profile: { id: "default", port: 8765, host: "127.0.0.1", mode: "prod" } };
+    expect(statuses(stateWith({ install: installed, verify: { status: "running", profileId: "default" } }))).toEqual(["done", "done", "running"]);
+    const silent = stateWith({ install: installed, verify: { status: "failed", profileId: "default", failure: { code: "unresponsive", detail: "" } } });
+    expect(statuses(silent)).toEqual(["done", "done", "failed"]);
+    expect(preparingOutcome(silent)).toBe("failed");
+    const ready = stateWith({ install: installed, verify: { status: "ok", profileId: "default" } });
+    expect(statuses(ready)).toEqual(["done", "done", "done"]);
+    expect(preparingOutcome(ready)).toBe("ready");
+  });
+
+  it("shows the installer's last line under the running step only", () => {
+    const steps = preparingSteps(stateWith({ install: { status: "running", lines: lines("ANYWH done prereqs", "ANYWH step download", "fetching anywh-relay-linux-x64.tar.gz") } }));
+    expect(steps.map((step) => step.liveLine)).toEqual([null, "fetching anywh-relay-linux-x64.tar.gz", null]);
   });
 });
 

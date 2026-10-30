@@ -113,6 +113,9 @@ const CANDIDATES = [
 ];
 
 const RELAY = { host: "100.99.146.5", port: 8766 };
+/** Where the easy path's relay lives: loopback, on the port the installer
+ * picked. */
+const LOCAL = { host: "127.0.0.1", port: 8767 };
 const RUN_ID = "run-1";
 
 function statusWith(lines: string[], extra: Partial<InstallRunStatus> = {}): InstallRunStatus {
@@ -192,6 +195,7 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes(`${RELAY.host}:${String(RELAY.port)}/sessions`)) return fakeJsonResponse({ sessions: [] });
+      if (url.includes(`${LOCAL.host}:${String(LOCAL.port)}/sessions`)) return fakeJsonResponse({ sessions: [] });
       if (url.includes("127.0.0.1:9999/sessions")) return fakeJsonResponse({ sessions: [] });
       return fakeJsonResponse({}, 404);
     }),
@@ -205,15 +209,19 @@ afterEach(() => {
 
 const local = en.firstRun.local;
 
-async function reachAddressStep(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+/** The easy path: one click on the card and the install starts — no
+ * field, no address, no second question. */
+async function startEasyInstall(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.localTitle) }));
-  await screen.findByLabelText(local.address.nameLabel);
+  await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
 }
 
-async function startInstallFromAddressStep(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-  await user.type(screen.getByLabelText(local.address.nameLabel), "Studio");
-  await user.click(screen.getByRole("button", { name: local.address.submit }));
-  await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
+function finishRun(profile: { id: string; port: number; host: string }): Promise<void> {
+  const finalStatus = statusWith([], { alive: false, exitCode: 0, ok: true, profile: { ...profile, mode: "prod" } });
+  native.status.mockResolvedValue(finalStatus);
+  return act(async () => {
+    for (const handler of native.doneHandlers) handler({ runId: RUN_ID, exitCode: 0, ok: true, profile: finalStatus.profile, failure: null });
+  });
 }
 
 describe("path 01 — install on this machine", () => {
@@ -261,22 +269,20 @@ describe("path 01 — install on this machine", () => {
     expect(getProfiles()[0].unverified).toBeUndefined();
   });
 
-  it("walks the four steps to a shell whose one profile is the installer's, id and port included", async () => {
+  it("installs in three steps from one click, to a shell whose one profile is the installer's", async () => {
     const user = userEvent.setup();
     renderApp();
-    await reachAddressStep(user);
+    await startEasyInstall(user);
+    // The easy path asks nothing: `default`, labelled in the reader's
+    // language, on loopback.
+    expect(native.start).toHaveBeenCalledWith({ profileLabel: local.defaultLabel, profileId: "default", relayHost: "127.0.0.1", mode: "prod" });
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
-    // Prerequisites collapsed with what they learned; the tailnet address
-    // is preselected as recommended.
-    expect(screen.getByText("22.4.0")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /100\.99\.146\.5/ })).toHaveAttribute("aria-checked", "true");
-
-    await startInstallFromAddressStep(user);
-    expect(native.start).toHaveBeenCalledWith({ profileLabel: "Studio", profileId: undefined, relayHost: RELAY.host, mode: "prod" });
-
-    let seq = emitLines(["ANYWH step prereqs", "ANYWH done prereqs node=22.4.0 agent=claude", "ANYWH step download"], 0);
-    await screen.findByText(local.install.rows.download);
-    expect(screen.getByText(local.install.running)).toBeInTheDocument();
+    let seq = emitLines(["ANYWH step prereqs", "ANYWH done prereqs node=22.4.0", "ANYWH step download", "fetching anywh-relay-linux-x64.tar.gz"], 0);
+    await screen.findByText("fetching anywh-relay-linux-x64.tar.gz");
+    expect(screen.getByText(local.steps.check)).toBeInTheDocument();
+    expect(screen.getByText(local.steps.install)).toBeInTheDocument();
+    expect(screen.getByText(local.steps.start)).toBeInTheDocument();
 
     seq = emitLines(
       [
@@ -286,58 +292,39 @@ describe("path 01 — install on this machine", () => {
         "ANYWH step service",
         "ANYWH done service manager=systemd",
         "ANYWH step profile",
-        `ANYWH profile id=studio port=${RELAY.port} host=${RELAY.host} mode=prod env=/e/studio.env`,
-        "ANYWH done profile id=studio",
+        `ANYWH profile id=default port=${LOCAL.port} host=${LOCAL.host} mode=prod env=/e/default.env`,
+        "ANYWH done profile id=default",
         "ANYWH done ok service=systemd",
       ],
       seq,
     );
-    const finalStatus = statusWith([], { alive: false, exitCode: 0, ok: true, profile: { id: "studio", port: RELAY.port, host: RELAY.host, mode: "prod" } });
-    native.status.mockResolvedValue(finalStatus);
-    await act(async () => {
-      for (const handler of native.doneHandlers) handler({ runId: RUN_ID, exitCode: 0, ok: true, profile: finalStatus.profile, failure: null });
-    });
+    await finishRun({ id: "default", port: LOCAL.port, host: LOCAL.host });
 
-    // Verification runs through the same dialog every other path uses.
+    // Verification runs through the same pipeline every other path uses.
     await screen.findByText(en.shell.profiles.setup.connectedTitle);
     await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.continueToProfile }));
 
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent("Studio"));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.shell.profiles.activeProfile })).toHaveTextContent(local.defaultLabel));
     expect(getProfiles()).toHaveLength(1);
-    // The id is the installer's slug of the label, never one made here.
-    expect(getProfiles()[0]).toMatchObject({ id: "studio", label: "Studio", host: RELAY.host, relayPort: RELAY.port, localRelay: true });
+    // The port is the installer's, never one made here.
+    expect(getProfiles()[0]).toMatchObject({ id: "default", label: local.defaultLabel, host: LOCAL.host, relayPort: LOCAL.port, localRelay: true });
     expect(getProfiles()[0].unverified).toBeUndefined();
-    expect(localStorage.getItem("anywh:last-profile")).toBe("studio");
+    expect(localStorage.getItem("anywh:last-profile")).toBe("default");
   });
 
-  it("carries on past step 01 with a logged-out agent, and says so for the rest of the wizard", async () => {
-    native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, agentLoggedIn: false });
+  it("never asks about the agent CLI — a logged-out or missing one still installs", async () => {
+    // A relay installs, starts and serves with no usable agent CLI and
+    // resolves the binary when a turn spawns it; which agents are here is
+    // the relay's to say, after the install.
+    native.prerequisites.mockResolvedValue({ ...HEALTHY, agentPath: null, agentLoggedIn: null });
     const user = userEvent.setup();
     renderApp();
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.localTitle) }));
-
-    // Reaching step 02 is the point: a relay installs, starts and serves
-    // with no usable agent CLI, and resolves the binary when a turn
-    // spawns it — so one logged into later needs nothing re-run here.
-    await screen.findByLabelText(local.address.nameLabel);
+    await startEasyInstall(user);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    // Step 01 has collapsed by now; the notice outlives it, because what
-    // runs into this is the first conversation, not the install.
-    expect(screen.getByText(local.agentNotice.loggedOut)).toBeInTheDocument();
-    expect(screen.getByText("claude login")).toBeInTheDocument();
+    expect(screen.queryByText(/claude login/)).not.toBeInTheDocument();
   });
 
-  it("carries on past step 01 with no agent CLI on the machine at all", async () => {
-    native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, agentPath: null, agentLoggedIn: null });
-    const user = userEvent.setup();
-    renderApp();
-    await user.click(await screen.findByRole("button", { name: new RegExp(en.firstRun.home.localTitle) }));
-
-    await screen.findByLabelText(local.address.nameLabel);
-    expect(screen.getByText(local.agentNotice.missing)).toBeInTheDocument();
-  });
-
-  it("still stops at step 01 for a prerequisite the relay genuinely can't run without", async () => {
+  it("still stops at the check for a prerequisite the relay genuinely can't run without", async () => {
     native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, nodePath: null, nodeOk: false });
     const user = userEvent.setup();
     renderApp();
@@ -345,14 +332,19 @@ describe("path 01 — install on this machine", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(local.failures.node_missing);
-    expect(screen.queryByLabelText(local.address.nameLabel)).not.toBeInTheDocument();
+    expect(within(alert).getByRole("button", { name: local.actions.recheck })).toBeInTheDocument();
+    expect(native.start).not.toHaveBeenCalled();
+
+    // Fixed outside the app; checking again goes straight on to the install.
+    native.prerequisites.mockResolvedValue(HEALTHY);
+    await user.click(within(alert).getByRole("button", { name: local.actions.recheck }));
+    await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
   });
 
-  it("a checksum mismatch fails step 03 without a blind retry, and the earlier steps stay done", async () => {
+  it("a checksum mismatch stops the install without a blind retry", async () => {
     const user = userEvent.setup();
     renderApp();
-    await reachAddressStep(user);
-    await startInstallFromAddressStep(user);
+    await startEasyInstall(user);
 
     emitLines(["ANYWH step prereqs", "ANYWH done prereqs node=22.4.0", "ANYWH step download", "ANYWH fail download checksum_mismatch checksum mismatch for x (expected a, got b)"], 0);
     native.status.mockResolvedValue(statusWith([], { alive: false, exitCode: 1, failure: { step: "download", code: "checksum_mismatch", message: "checksum mismatch for x (expected a, got b)" } }));
@@ -367,17 +359,45 @@ describe("path 01 — install on this machine", () => {
     expect(alert).toHaveTextContent("expected a, got b");
     expect(within(alert).queryByRole("button", { name: local.actions.retry })).not.toBeInTheDocument();
     expect(within(alert).getByRole("button", { name: local.actions.terminal })).toBeInTheDocument();
-    // Steps 01 and 02 kept their collapsed "done" meta — nothing reset.
-    expect(screen.getByText("22.4.0")).toBeInTheDocument();
-    expect(screen.getByText(`Studio · ${RELAY.host}`)).toBeInTheDocument();
+    expect(screen.getByText(local.install.failed)).toBeInTheDocument();
     expect(getProfiles()).toHaveLength(0);
+  });
+
+  it("a relay that installs but doesn't answer is dialled again on retry, nothing reinstalled", async () => {
+    let answering = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes(`${LOCAL.host}:${String(LOCAL.port)}/`)) return fakeJsonResponse({}, 404);
+        // Nothing listening yet: the request never gets a response.
+        if (!answering) throw new TypeError("Failed to fetch");
+        return fakeJsonResponse({ sessions: [] });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp();
+    await startEasyInstall(user);
+    await finishRun({ id: "default", port: LOCAL.port, host: LOCAL.host });
+
+    const sentence = await screen.findByText(local.failures.unresponsive);
+    const box = sentence.closest("[role=alert]") as HTMLElement;
+    expect(getProfiles()).toEqual([expect.objectContaining({ id: "default", unverified: true })]);
+
+    // The verification's own notice is left for later; the install's
+    // failure stays, with its own way forward.
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+    answering = true;
+    await user.click(within(box).getByRole("button", { name: local.actions.retry }));
+    await screen.findByText(en.shell.profiles.setup.connectedTitle);
+    expect(native.start).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(local.failures.unresponsive)).not.toBeInTheDocument();
   });
 
   it("a link arriving mid-install waits, visibly, and runs only once the install is over", async () => {
     const user = userEvent.setup();
     renderApp();
-    await reachAddressStep(user);
-    await startInstallFromAddressStep(user);
+    await startEasyInstall(user);
 
     // Stands in for a deep link arriving now.
     const link = { source: "params" as const, params: { label: "Remote", claimUrl: "https://broker.test/claim", joinCode: "MID-INSTALL" } };
@@ -393,11 +413,7 @@ describe("path 01 — install on this machine", () => {
     await screen.findByText(local.install.pendingLink);
 
     // The install ends; the hold lifts and the waiting link runs.
-    const finalStatus = statusWith([], { alive: false, exitCode: 0, ok: true, profile: { id: "studio", port: RELAY.port, host: RELAY.host, mode: "prod" } });
-    native.status.mockResolvedValue(finalStatus);
-    await act(async () => {
-      for (const handler of native.doneHandlers) handler({ runId: RUN_ID, exitCode: 0, ok: true, profile: finalStatus.profile, failure: null });
-    });
+    await finishRun({ id: "default", port: LOCAL.port, host: LOCAL.host });
     await vi.waitFor(() => expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1));
   });
 
@@ -409,11 +425,11 @@ describe("path 01 — install on this machine", () => {
     renderApp();
 
     await screen.findByText(local.notes.reattached);
-    expect(screen.getByText(local.install.rows.download)).toBeInTheDocument();
+    expect(screen.getByText(local.steps.install)).toBeInTheDocument();
     expect(native.start).not.toHaveBeenCalled();
   });
 
-  it("an install interrupted by a dead app offers resume and start over", async () => {
+  it("an install interrupted by a dead app resumes on its own, with the same parameters", async () => {
     native.probe.mockResolvedValue({
       ...EMPTY_PROBE,
       installed: true,
@@ -421,9 +437,9 @@ describe("path 01 — install on this machine", () => {
     });
     renderApp();
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(local.failures.interrupted);
-    expect(within(alert).getByRole("button", { name: local.actions.resume })).toBeInTheDocument();
-    expect(within(alert).getByRole("button", { name: local.actions.reinstall })).toBeInTheDocument();
+    await screen.findByText(local.notes.resuming);
+    await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
+    expect(native.start).toHaveBeenCalledWith({ profileLabel: "Studio", profileId: undefined, relayHost: RELAY.host, mode: "prod" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

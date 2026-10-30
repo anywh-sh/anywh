@@ -78,7 +78,7 @@ export function FirstRun() {
           return;
         }
         if (result.installed && result.supported) {
-          beginLocalInstall("alreadyInstalled");
+          beginLocalInstall({ label: copy.local.defaultLabel, note: "alreadyInstalled" });
           setScreen("local");
           return;
         }
@@ -118,7 +118,7 @@ export function FirstRun() {
 
   function pick(next: FirstRunScreen): void {
     setConnectHost("");
-    if (next === "local") beginLocalInstall(localNote());
+    if (next === "local") beginLocalInstall({ label: copy.local.defaultLabel, note: localNote() });
     setScreen(next);
   }
 
