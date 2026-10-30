@@ -1302,6 +1302,20 @@ export interface Dictionary {
       placeholder: string;
       noResults: string;
     };
+    /** Plan usage (Claude Code / Codex subscription windows): the status
+     * bar's indicator and its details card. `{window}` is a window's label
+     * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
+     * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
+    usage: {
+      /** A spent window coming back within a day: "back in 58m". */
+      resetsIn: string;
+      /** A spent window coming back later than a day from now: "back Fri 14:00". */
+      resetsOn: string;
+      /** When the numbers were read: "12s ago". */
+      updatedAgo: string;
+      /** Same, within the last second (the refresh button's "now"). */
+      updatedNow: string;
+    };
   };
   /** The room: an agent orchestration canvas, a session type chosen on the new
    * session screen. */

@@ -591,6 +591,12 @@ export const ptBr: Dictionary = {
       placeholder: "Buscar sessão…",
       noResults: "Nenhuma sessão encontrada.",
     },
+    usage: {
+      resetsIn: "volta em {duration}",
+      resetsOn: "volta {when}",
+      updatedAgo: "há {duration}",
+      updatedNow: "agora",
+    },
   },
   settings: {
     title: "Configurações",

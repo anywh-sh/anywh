@@ -591,6 +591,12 @@ export const en: Dictionary = {
       placeholder: "Search sessions…",
       noResults: "No sessions found.",
     },
+    usage: {
+      resetsIn: "back in {duration}",
+      resetsOn: "back {when}",
+      updatedAgo: "{duration} ago",
+      updatedNow: "now",
+    },
   },
   settings: {
     title: "Settings",
