@@ -119,6 +119,21 @@ afterEach(() => {
 });
 
 describe("Your agents", () => {
+  it("keeps the way to another machine while a machine is slow to answer, and gives up after a while", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setup([CLAUDE]);
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    const onOtherMachine = vi.fn();
+    mount({ onOtherMachine });
+    expect(screen.getByRole("heading", { name: copy.searching })).toBeInTheDocument();
+    screen.getByRole("button", { name: copy.otherMachine }).click();
+    expect(onOtherMachine).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(await screen.findByText(copy.failed)).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
   it("shows both agents with the first ready one marked, and starts with it", async () => {
     setup([CLAUDE, CODEX_NO_LOGIN]);
     mount();

@@ -81,6 +81,29 @@ function normalize(raw: AgentInfo): AgentInfo {
   };
 }
 
+/** How long the agents step waits on a relay before saying it couldn't
+ * get an answer. Detection itself is bounded on the relay (a few seconds
+ * per CLI); past this the machine is unreachable, not slow. */
+export const AGENTS_TIMEOUT_MS = 15_000;
+
+/** `promise`, or a rejection once `ms` have passed — for the calls that have
+ * no signal of their own to abort. */
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${String(ms)} ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
 /** Asks `profile`'s relay which agents it has. An older relay has no such
  * route and falls back to `/host-info`, which lists the installed agents
  * only. That older relay answers the unknown route with a 426 that carries
@@ -93,7 +116,10 @@ export async function fetchAgentsCatalog(profile: Profile): Promise<AgentsCatalo
   const { host, port, token } = await resolveConnection(profile);
   let response: Response;
   try {
-    response = await fetch(`http://${host}:${String(port)}/control/agents`, { headers: authHeaders(token) });
+    response = await fetch(`http://${host}:${String(port)}/control/agents`, {
+      headers: authHeaders(token),
+      signal: AbortSignal.timeout(AGENTS_TIMEOUT_MS),
+    });
   } catch (err) {
     try {
       return await fromHostInfo(profile);

@@ -11,10 +11,12 @@ import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 import type { KnownAgentId } from "@/i18n/dictionary";
 import {
+  AGENTS_TIMEOUT_MS,
   agentCardState,
   fetchAgentsCatalog,
   isSelectable,
   preselectedAgent,
+  withTimeout,
   type AgentInfo,
 } from "@/lib/install/agentsCatalog";
 import {
@@ -83,7 +85,7 @@ export function AgentsScreen({
   const check = useCallback(() => {
     const mine = ++request.current;
     setLoad({ phase: "checking" });
-    fetchAgentsCatalog(profileRef.current).then(
+    withTimeout(fetchAgentsCatalog(profileRef.current), AGENTS_TIMEOUT_MS).then(
       (catalog) => {
         if (mine !== request.current) return;
         setLoad({
@@ -140,13 +142,11 @@ export function AgentsScreen({
     setStarting(true);
     const preference = { mode: "fixed", fixedAgentId: chosen.id } as const;
     try {
-      const { host, port, token } = await resolveConnection(profile);
-      await updateProfileMeta(
-        host,
-        port,
-        profile.id,
-        { agentPreference: preference },
-        token,
+      // Bounded: an unreachable machine must not hold "Start" for the
+      // OS connect timeout when the choice is kept here regardless.
+      await withTimeout(
+        resolveConnection(profile).then(({ host, port, token }) => updateProfileMeta(host, port, profile.id, { agentPreference: preference }, token)),
+        AGENTS_TIMEOUT_MS,
       );
     } catch {
       // An older relay answers 400 and an unreachable one throws: neither
@@ -278,6 +278,9 @@ export function AgentsScreen({
               {copy.switchNote}
             </p>
           )}
+          {/* While the answer is on its way the way out stays: a machine
+           * that never answers must not hold the reader here. */}
+          {checking && <QuietLink onClick={onOtherMachine}>{copy.otherMachine}</QuietLink>}
         </section>
       )}
     </OnboardingFrame>
