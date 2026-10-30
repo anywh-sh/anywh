@@ -231,9 +231,6 @@ export type StepStatus = "pending" | "running" | "done" | "failed";
 export interface PreparingStep {
   key: LocalStep;
   status: StepStatus;
-  /** The installer's last line while this step is the one running — the
-   * live line under it. */
-  liveLine: string | null;
 }
 
 /** The furthest of the three steps the porcelain has reached, or null
@@ -247,16 +244,6 @@ function reachedStep(lines: InstallLogLine[]): LocalStep | null {
     if (step && (reached === null || LOCAL_STEPS.indexOf(step) > LOCAL_STEPS.indexOf(reached))) reached = step;
   }
   return reached;
-}
-
-/** The last human line of the run — what "live" shows. Porcelain lines
- * are for this module, not for the reader; blanks say nothing. */
-function lastLine(lines: InstallLogLine[]): string | null {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const text = lines[i].line.trim();
-    if (text && !lines[i].event) return text;
-  }
-  return null;
 }
 
 /** Where the run stands: the step it is in, and whether that step failed. */
@@ -281,12 +268,11 @@ export function preparingSteps(state: LocalInstallState): PreparingStep[] {
   const done = state.verify.status === "ok";
   const active = activeStep(state);
   const activeIndex = active ? LOCAL_STEPS.indexOf(active.step) : -1;
-  const live = state.install.status === "running" ? lastLine(state.install.lines) : null;
   return LOCAL_STEPS.map((key, index) => {
     let status: StepStatus = "pending";
     if (done || index < activeIndex) status = "done";
     else if (index === activeIndex) status = active?.failed ? "failed" : "running";
-    return { key, status, liveLine: status === "running" ? live : null };
+    return { key, status };
   });
 }
 

@@ -173,10 +173,6 @@ describe("preparingSteps", () => {
     expect(preparingOutcome(ready)).toBe("ready");
   });
 
-  it("shows the installer's last line under the running step only", () => {
-    const steps = preparingSteps(stateWith({ install: { status: "running", lines: lines("ANYWH done prereqs", "ANYWH step download", "fetching anywh-relay-linux-x64.tar.gz") } }));
-    expect(steps.map((step) => step.liveLine)).toEqual([null, "fetching anywh-relay-linux-x64.tar.gz", null]);
-  });
 });
 
 describe("toFailureCode", () => {

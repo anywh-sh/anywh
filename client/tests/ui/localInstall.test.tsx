@@ -279,7 +279,13 @@ describe("set up on this machine", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     let seq = emitLines(["ANYWH step prereqs", "ANYWH done prereqs node=22.4.0", "ANYWH step download", "fetching anywh-relay-linux-x64.tar.gz"], 0);
-    await screen.findByText("fetching anywh-relay-linux-x64.tar.gz");
+    // The step says what it is doing in the reader's words; the
+    // installer's own lines are in Details.
+    await screen.findByText(preparing.sub.download);
+    expect(screen.queryByText("fetching anywh-relay-linux-x64.tar.gz")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: preparing.details }));
+    expect(screen.getByText(/fetching anywh-relay-linux-x64\.tar\.gz/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: preparing.details }));
     for (const step of [preparing.steps.check, preparing.steps.install, preparing.steps.start]) expect(screen.getByText(step)).toBeInTheDocument();
 
     seq = emitLines(
@@ -323,6 +329,19 @@ describe("set up on this machine", () => {
     native.prerequisites.mockResolvedValue(HEALTHY);
     await user.click(within(alert).getByRole("button", { name: fail.actions.recheck }));
     await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
+  });
+
+  it("a relay already running is said in the reader's words, its units only in Details", async () => {
+    native.prerequisites.mockResolvedValueOnce({ ...HEALTHY, activeUnits: ["anywh-relay@pessoal.service"] });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: welcome.cta }));
+
+    await screen.findByRole("alert");
+    expect(screen.getByText(fail.codes.relay_running.line ?? "")).toBeInTheDocument();
+    expect(screen.queryByText(/anywh-relay@pessoal/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: preparing.details }));
+    expect(screen.getByText(/anywh-relay@pessoal\.service/)).toBeInTheDocument();
   });
 
   it("a checksum mismatch stops without a blind retry, and Back returns to the welcome", async () => {

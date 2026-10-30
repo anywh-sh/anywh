@@ -113,16 +113,17 @@ export function Preparing({
                 ? copy.sub.waitingAt.replace("{address}", `${active.host}:${String(active.relayPort)}`)
                 : null,
       }))
-    : preparingSteps(install).map(({ key, status, liveLine }) => {
+    : preparingSteps(install).map(({ key, status }) => {
         let sub: string | null = null;
-        if (status === "failed" && failure) sub = failure.detail || dict.firstRun.preparing.fail.codes[failure.code].line || null;
-        else if (status === "running" && key === "install") sub = liveLine ?? (currentPlatform() === "macos" ? copy.sub.brew : copy.sub.download);
+        // Our own words outside Details: the installer's lines (and a failure's
+        // raw detail, when the code has a sentence of its own) stay in it.
+        if (status === "failed" && failure) sub = dict.firstRun.preparing.fail.codes[failure.code].line ?? (failure.detail || null);
+        else if (status === "running" && key === "install") sub = currentPlatform() === "macos" ? copy.sub.brew : copy.sub.download;
         else if (status === "running" && key === "start" && install.install.profile)
           sub = copy.sub.waitingAt.replace(
             "{address}",
             `${install.install.profile.host ?? "127.0.0.1"}:${String(install.install.profile.port ?? 8765)}`,
           );
-        else if (status === "running") sub = liveLine;
         return { key, status, sub };
       });
   const times = useStepTimes(rows);
@@ -190,6 +191,9 @@ export function Preparing({
   const body = failure ? copy.fail.keepsProgress : adopting ? copy.adoptBody : copy.body;
   const note = !adopting && !failure && (install.note === "resuming" || install.note === "reattached") ? copy[install.note] : null;
   const rawLines = install.install.lines.map((line) => line.line);
+  // A failure found before the installer ran (the client-side check) has no
+  // line of output to show it in; its detail joins Details instead.
+  const failureDetail = failure?.detail && !rawLines.some((line) => line.includes(failure.detail)) ? failure.detail : null;
   // Cancel stays while something is still to be decided — running, or
   // stopped: it is also how the reader gives up and goes back.
   const cancellable = outcome === "running" || outcome === "failed";
@@ -276,7 +280,7 @@ export function Preparing({
           </div>
           {details && (
             <pre className="scrollbar-thin selectable-content max-h-40 overflow-auto border-t border-border-soft px-4 py-3 font-mono text-[11.5px] leading-[1.75] break-all whitespace-pre-wrap text-text-faint">
-              {adopting ? adopt.profiles.map((p) => `${p.id}  ${p.host}:${String(p.relayPort)}`).join("\n") : rawLines.join("\n")}
+              {adopting ? adopt.profiles.map((p) => `${p.id}  ${p.host}:${String(p.relayPort)}`).join("\n") : [...rawLines, ...(failureDetail ? [failureDetail] : [])].join("\n")}
             </pre>
           )}
         </div>
