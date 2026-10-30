@@ -286,7 +286,9 @@ describe("set up on this machine", () => {
     await user.click(screen.getByRole("button", { name: preparing.details }));
     expect(screen.getByText(/fetching anywh-relay-linux-x64\.tar\.gz/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: preparing.details }));
-    for (const step of [preparing.steps.check, preparing.steps.install, preparing.steps.start]) expect(screen.getByText(step)).toBeInTheDocument();
+    for (const step of [preparing.steps.check, preparing.steps.install, preparing.steps.start]) expect(screen.getAllByText(step).length).toBeGreaterThan(0);
+    // A screen reader hears the step that changed, once — not the timer.
+    expect(screen.getAllByRole("status").some((region) => region.textContent === preparing.steps.install)).toBe(true);
 
     seq = emitLines(
       [

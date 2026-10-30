@@ -127,6 +127,8 @@ export function Preparing({
         return { key, status, sub };
       });
   const times = useStepTimes(rows);
+  const current = rows.find((row) => row.status === "running" || row.status === "failed");
+  const announcement = current ? `${copy.steps[current.key]}${current.status === "failed" ? ` — ${copy.failed}` : ""}` : "";
 
   const finished = rows.filter((row) => row.status === "done").length + rows.filter((row) => row.status === "running").length * 0.5;
   const progress = Math.min(1, finished / rows.length);
@@ -225,7 +227,13 @@ export function Preparing({
               style={{ transform: `scaleX(${String(progress)})` }}
             />
           </div>
-          <ol className="flex flex-col gap-1 px-4 py-3" aria-live="polite">
+          {/* What a screen reader hears: one sentence per change of step or
+           * outcome. The list itself isn't live — its timers tick every
+           * second. */}
+          <p role="status" className="sr-only">
+            {announcement}
+          </p>
+          <ol className="flex flex-col gap-1 px-4 py-3">
             {rows.map((row) => (
               <li key={row.key} className="flex flex-col gap-1 py-1.5">
                 <div className="flex items-center gap-3">
@@ -242,7 +250,7 @@ export function Preparing({
                     <span className="shrink-0 font-mono text-[11.5px] text-destructive">{copy.failed}</span>
                   ) : (
                     times[row.key] !== undefined && (
-                      <span className="shrink-0 font-mono text-[11.5px] text-text-faint">{`${String(times[row.key])}s`}</span>
+                      <span aria-hidden="true" className="shrink-0 font-mono text-[11.5px] text-text-faint">{`${String(times[row.key])}s`}</span>
                     )
                   )}
                 </div>
