@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { CommandLine } from "@/components/firstrun/CommandLine";
 import { QuietLink } from "@/components/firstrun/QuietLink";
@@ -39,6 +40,13 @@ export function PreparingFailure({
 }) {
   const copy = useDict().firstRun.preparing.fail;
   const entry = copy.codes[code];
+  const actionsRef = useRef<HTMLDivElement>(null);
+
+  // The failure replaces what the reader was watching; the way forward
+  // takes the focus, so Enter is the next thing they can do.
+  useEffect(() => {
+    actionsRef.current?.querySelector("button")?.focus({ preventScroll: true });
+  }, [code]);
 
   return (
     <div role="alert" className="flex flex-col gap-3.5 border-t border-border-soft px-4 py-4">
@@ -50,7 +58,7 @@ export function PreparingFailure({
           <ArrowUpRight className="size-3.5" aria-hidden="true" />
         </QuietLink>
       )}
-      <div className="flex flex-wrap gap-2">
+      <div ref={actionsRef} className="flex flex-wrap gap-2">
         {actions.map((action, index) => (
           <Button key={action} type="button" variant={index === 0 ? "default" : "outline"} onClick={() => onAction(action)}>
             {copy.actions[action]}

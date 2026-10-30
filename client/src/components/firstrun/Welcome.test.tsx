@@ -83,6 +83,8 @@ describe("PreparingFailure", () => {
       .getAllByRole("button")
       .filter((b) => b.textContent !== en.firstRun.copy.copy);
     expect(buttons.map((b) => b.textContent)).toEqual([en.firstRun.preparing.fail.actions.recheck, en.firstRun.preparing.fail.actions.terminal]);
+    // The way forward has the focus.
+    expect(buttons[0]).toHaveFocus();
     await user.click(buttons[0]);
     expect(onAction).toHaveBeenCalledWith("recheck");
   });

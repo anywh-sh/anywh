@@ -119,3 +119,14 @@ describe("onboarding copy", () => {
     expect(ptBr.firstRun.frame.steps).not.toEqual(en.firstRun.frame.steps);
   });
 });
+
+describe("focus", () => {
+  it("each screen hands the focus to its heading", () => {
+    render(
+      <OnboardingFrame>
+        <h1>A screen</h1>
+      </OnboardingFrame>,
+    );
+    expect(screen.getByRole("heading", { name: "A screen" })).toHaveFocus();
+  });
+});

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronLeft } from "lucide-react";
 import { Lockup } from "@/components/firstrun/Lockup";
 import { QuietLink } from "@/components/firstrun/QuietLink";
@@ -49,6 +49,20 @@ export function OnboardingFrame({
 }) {
   const dict = useDict();
   const copy = dict.firstRun;
+  const mainRef = useRef<HTMLElement>(null);
+
+  // Each screen draws its own frame, so this runs once per screen: the
+  // button that led here is gone, and focus would otherwise fall to the
+  // page. The heading takes it (without a visible ring — it isn't a
+  // control), so the new screen is read from its title and Tab continues
+  // from there.
+  useEffect(() => {
+    const heading = mainRef.current?.querySelector("h1");
+    if (!heading) return;
+    heading.tabIndex = -1;
+    heading.style.outline = "none";
+    heading.focus({ preventScroll: true });
+  }, []);
 
   return (
     <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
@@ -91,7 +105,9 @@ export function OnboardingFrame({
                 </button>
               )}
             </header>
-            <main className={cn("flex flex-col gap-8", className)}>{children}</main>
+            <main ref={mainRef} className={cn("flex flex-col gap-8", className)}>
+              {children}
+            </main>
           </div>
         </div>
       </div>
