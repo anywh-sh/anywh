@@ -61,8 +61,9 @@ function ChoiceButton({
       onClick={onClick}
       title={title}
       disabled={disabled}
+      aria-pressed={selected}
       className={cn(
-        "cursor-pointer border disabled:cursor-not-allowed disabled:opacity-50 px-2.5 py-1 font-mono text-[11.5px] transition-colors",
+        "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         selected
           ? "border-primary bg-primary-soft text-primary-ink"
           : "border-border text-muted-foreground hover:border-text-faint hover:bg-surface-hover hover:text-foreground",
@@ -227,7 +228,7 @@ function AgentControl({ profile }: { profile: Profile }) {
 
   return (
     <>
-      <div className="flex gap-1.5">
+      <div role="group" aria-label={agentDict.title} className="flex gap-1.5">
         <ChoiceButton
           selected={preference.mode === "lastUsed"}
           onClick={() => preference.mode !== "lastUsed" && void change({ mode: "lastUsed" })}
@@ -246,7 +247,7 @@ function AgentControl({ profile }: { profile: Profile }) {
         </ChoiceButton>
       </div>
       {preference.mode === "fixed" && (
-        <div className="flex flex-wrap justify-end gap-1.5">
+        <div role="group" aria-label={agentDict.fixed} className="flex flex-wrap justify-end gap-1.5">
           {agents.map((agentId) => (
             <ChoiceButton
               key={agentId}

@@ -127,6 +127,10 @@ describe("Settings dialog", () => {
     await user.click(await within(agentRow).findByRole("button", { name: "Codex" }));
     await vi.waitFor(() => expect(patchCalls).toHaveLength(2));
     expect(patchCalls[1].body).toEqual({ agentPreference: { mode: "fixed", fixedAgentId: "codex" } });
+    // The choice is announced as pressed, not only drawn as such.
+    await vi.waitFor(() => expect(within(agentRow).getByRole("button", { name: "Codex" })).toHaveAttribute("aria-pressed", "true"));
+    expect(within(agentRow).getByRole("button", { name: en.settings.profile.agent.fixed })).toHaveAttribute("aria-pressed", "true");
+    expect(within(agentRow).getByRole("button", { name: en.settings.profile.agent.lastUsed })).toHaveAttribute("aria-pressed", "false");
 
     await user.click(within(agentRow).getByRole("button", { name: en.settings.profile.agent.lastUsed }));
     await vi.waitFor(() => expect(patchCalls).toHaveLength(3));
