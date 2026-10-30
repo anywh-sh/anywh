@@ -114,11 +114,6 @@ export function runtimeWindows(usage: RuntimePlanUsage, nowMs: number): WindowVi
  * "the larger of 5h and 7d" on a paid plan, the only one on Codex's free
  * 30-day plan. A tie goes to the shorter window, the one that resets first.
  */
-export function headlineWindow(usage: RuntimePlanUsage, nowMs: number): WindowView | null {
-  return strongestWindow(runtimeWindows(usage, nowMs));
-}
-
-/** The most used of `views`; a tie goes to the shorter window. */
 export function strongestWindow(views: readonly WindowView[]): WindowView | null {
   let best: WindowView | null = null;
   for (const view of views) {

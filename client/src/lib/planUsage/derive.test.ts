@@ -15,7 +15,7 @@ import {
   spentUntil,
   countAccounts,
   groupByProfile,
-  headlineWindow,
+  strongestWindow,
   profileDataState,
   runtimeWindows,
   windowView,
@@ -78,9 +78,9 @@ describe("runtimeWindows", () => {
   });
 });
 
-describe("headlineWindow", () => {
+describe("strongestWindow", () => {
   it("is the larger of the windows", () => {
-    expect(headlineWindow(runtime({ runtime: "claude" }), NOW)?.label).toBe("5h");
+    expect(strongestWindow(runtimeWindows(runtime({ runtime: "claude" }), NOW))?.label).toBe("5h");
     const weekly = runtime({
       runtime: "claude",
       windows: [
@@ -88,7 +88,7 @@ describe("headlineWindow", () => {
         { durationMins: 10080, usedPercent: 70, resetsAt: NOW + 60 * MIN },
       ],
     });
-    expect(headlineWindow(weekly, NOW)?.label).toBe("7d");
+    expect(strongestWindow(runtimeWindows(weekly, NOW))?.label).toBe("7d");
   });
 
   it("prefers the shorter window on a tie, and takes a lone 30-day window", () => {
@@ -99,13 +99,13 @@ describe("headlineWindow", () => {
         { durationMins: 10080, usedPercent: 40, resetsAt: NOW + 60 * MIN },
       ],
     });
-    expect(headlineWindow(tie, NOW)?.label).toBe("5h");
+    expect(strongestWindow(runtimeWindows(tie, NOW))?.label).toBe("5h");
     const free = runtime({ runtime: "codex", windows: [{ durationMins: 43200, usedPercent: 37, resetsAt: NOW + 60 * MIN, limitId: "codex" }] });
-    expect(headlineWindow(free, NOW)).toMatchObject({ label: "30d", percent: 37 });
+    expect(strongestWindow(runtimeWindows(free, NOW))).toMatchObject({ label: "30d", percent: 37 });
   });
 
   it("has none without windows", () => {
-    expect(headlineWindow(runtime({ runtime: "codex", status: "signed_out", windows: [] }), NOW)).toBeNull();
+    expect(strongestWindow(runtimeWindows(runtime({ runtime: "codex", status: "signed_out", windows: [] }), NOW))).toBeNull();
   });
 });
 

@@ -260,7 +260,7 @@ export class PlanUsageWatch {
     }, HANDSHAKE_TIMEOUT_MS);
     ws.addEventListener("message", (event: MessageEvent) => {
       if (this.socket !== ws) return;
-      const message = parseStateMessage(event.data);
+      const message = parseStateMessage(event.data, this.now);
       if (!message && messageType(event.data) === "pong") {
         window.clearTimeout(this.pongTimer);
         this.pongTimer = undefined;
@@ -364,7 +364,7 @@ function isRuntimeUsage(value: unknown): value is RuntimePlanUsage {
 
 /** A `plan_usage_state`, defensively: a runtime entry or window that doesn't
  * have the shape is dropped rather than rendered half-read. */
-export function parseStateMessage(raw: unknown): { runtimes: RuntimePlanUsage[]; observedAt: number } | null {
+export function parseStateMessage(raw: unknown, now: () => number = Date.now): { runtimes: RuntimePlanUsage[]; observedAt: number } | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(String(raw));
@@ -380,6 +380,6 @@ export function parseStateMessage(raw: unknown): { runtimes: RuntimePlanUsage[];
       windows: (entry.windows as unknown[]).filter(isWindow),
       observedAt: typeof entry.observedAt === "number" ? entry.observedAt : null,
     })),
-    observedAt: typeof observedAt === "number" ? observedAt : Date.now(),
+    observedAt: typeof observedAt === "number" ? observedAt : now(),
   };
 }
