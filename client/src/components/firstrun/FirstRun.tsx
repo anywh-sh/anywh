@@ -5,6 +5,7 @@ import { OnboardingFrame } from "@/components/firstrun/OnboardingFrame";
 import { OtherMachine } from "@/components/firstrun/OtherMachine";
 import { Preparing } from "@/components/firstrun/Preparing";
 import { Welcome } from "@/components/firstrun/Welcome";
+import { useOnboardingMinSize } from "@/hooks/platform/useOnboardingMinSize";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useDict } from "@/i18n";
@@ -80,6 +81,9 @@ export function FirstRun() {
   const adoptionDeclined = useRef(false);
 
   const view = views[views.length - 1] ?? { screen: "welcome" };
+
+  // The one place the onboarding's minimum window size is held.
+  useOnboardingMinSize();
 
   // Every render, not once: `beginFirstRun` is idempotent, and re-asserting
   // it is what keeps the gate closed while this screen is on the window.

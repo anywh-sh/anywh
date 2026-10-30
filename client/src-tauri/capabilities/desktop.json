@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Window controls (minimize/maximize/close/drag) and maximize state — custom window chrome, which only exists on platforms with a truly resizable window. macOS uses a native overlay (it does not draw the 3 buttons) but still depends on allow-is-maximized (onResized) and allow-start-dragging (drag region) — allow-is-focused stays in default.json because it is used outside the TitleBar (useWindowFocus, App.tsx). updater:default and process:allow-restart also live here (not in default.json) for the same reason: neither has a mobile target.",
+  "description": "Window controls (minimize/maximize/close/drag) and maximize state — custom window chrome, which only exists on platforms with a truly resizable window. macOS uses a native overlay (it does not draw the 3 buttons) but still depends on allow-is-maximized (onResized) and allow-start-dragging (drag region) — allow-is-focused stays in default.json because it is used outside the TitleBar (useWindowFocus, App.tsx). updater:default and process:allow-restart also live here (not in default.json) for the same reason: neither has a mobile target. allow-set-min-size is the onboarding's minimum window size, set and lifted at runtime.",
   "windows": ["*"],
   "platforms": ["windows", "linux", "macOS"],
   "permissions": [
@@ -10,6 +10,7 @@
     "core:window:allow-is-maximized",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-min-size",
     "deep-link:default",
     "updater:default",
     "process:allow-restart"
