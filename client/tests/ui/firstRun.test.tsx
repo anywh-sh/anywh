@@ -171,6 +171,23 @@ describe("first run", () => {
     expect(relay.patches).toEqual([{ id: getProfiles()[0].id, body: { agentPreference: { mode: "fixed", fixedAgentId: "claude" } } }]);
   });
 
+  it("from a machine with no agent, 'another machine' opens the form and stays there", async () => {
+    relay.control!.agents = [{ ...CLAUDE, installed: false, loggedIn: null, version: null }];
+    const user = userEvent.setup();
+    renderApp();
+
+    await connectByAddress(user, MACHINE.host, MACHINE.port);
+    await screen.findByRole("heading", { name: agents.none });
+    await user.click(screen.getByRole("button", { name: agents.otherMachine }));
+
+    await screen.findByRole("heading", { name: other.title });
+    // Not bounced back to the agents of the machine just set up.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole("heading", { name: other.title })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: agents.none })).not.toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: other.modes.code })).toBeInTheDocument();
+  });
+
   it("pairs by code and lands in the shell on the new profile", async () => {
     const user = userEvent.setup();
     renderApp();

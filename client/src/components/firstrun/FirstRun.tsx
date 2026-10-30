@@ -159,6 +159,15 @@ export function FirstRun() {
     resetFirstRunViews([{ screen: "welcome" }, { screen: "preparing", mode: "install" }]);
   }
 
+  /** "Another machine", from wherever. A profile this run already set up
+   * (its setup left `ready` while its agents were shown) is completed first,
+   * so the other machine's screen starts clean and the queue moves on. */
+  function toOtherMachine(reset?: FirstRunView[]): void {
+    if (getProfileSetupState().state?.status === "ready") completeProfileSetup();
+    if (reset) resetFirstRunViews(reset);
+    else pushFirstRunView({ screen: "other" });
+  }
+
   function preparedProfileId(mode: "install" | "adopt"): string | null {
     return mode === "adopt" ? getAdoptState().activeId : getLocalInstallState().verify.profileId;
   }
@@ -174,7 +183,7 @@ export function FirstRun() {
           container={probe?.containerized ?? null}
           onSetUp={() => void setUpHere()}
           onTerminal={() => pushFirstRunView({ screen: "advanced", install: "terminal" })}
-          onOtherMachine={() => pushFirstRunView({ screen: "other" })}
+          onOtherMachine={() => toOtherMachine()}
         />
       )}
       {view.screen === "preparing" && (
@@ -189,11 +198,11 @@ export function FirstRun() {
             resetFirstRunViews([{ screen: "welcome" }]);
           }}
           onTerminal={() => resetFirstRunViews([{ screen: "welcome" }, { screen: "advanced", install: "terminal" }])}
-          onOtherMachine={() => resetFirstRunViews([{ screen: "welcome" }, { screen: "other" }])}
+          onOtherMachine={() => toOtherMachine([{ screen: "welcome" }, { screen: "other" }])}
         />
       )}
       {view.screen === "agents" && agentsProfile && (
-        <AgentsScreen profile={agentsProfile} remoteHost={view.remoteHost} onOtherMachine={() => pushFirstRunView({ screen: "other" })} />
+        <AgentsScreen profile={agentsProfile} remoteHost={view.remoteHost} onOtherMachine={() => toOtherMachine()} />
       )}
       {view.screen === "other" && (
         <OnboardingFrame onBack={back}>

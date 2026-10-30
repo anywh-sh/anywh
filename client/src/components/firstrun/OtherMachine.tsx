@@ -83,6 +83,11 @@ export function OtherMachine({
   // the screen mounts (a deep link) is shown too, but only a submission
   // here decides which rows to draw.
   const [submitted, setSubmitted] = useState<OtherMachineMode | null>(null);
+  // A setup already `ready` when this screen mounts belongs to a profile set
+  // up earlier (the agents step left for another machine): it is neither
+  // this screen's progress nor its to announce — announcing it would bounce
+  // straight back to that profile's agents.
+  const [staleReady] = useState(() => setup.state?.status === "ready");
 
   const parsed = code.trim() ? parsePairingCode(code) : null;
   const trimmedHost = host.trim();
@@ -91,10 +96,10 @@ export function OtherMachine({
   const canSubmit = mode === "code" ? parsed !== null : trimmedHost.length > 0 && !/\s/.test(trimmedHost) && validPort;
 
   const state = setup.state;
-  const showingProgress = state !== null && (submitted !== null || state.status !== "failed");
+  const showingProgress = state !== null && (submitted !== null || (state.status !== "failed" && !(staleReady && state.status === "ready")));
   const progressMode = submitted ?? (state?.mode === "tailnet" ? "code" : "address");
 
-  const announced = useRef(false);
+  const announced = useRef(staleReady);
   useEffect(() => {
     if (state?.status === "ready" && !announced.current) {
       announced.current = true;
