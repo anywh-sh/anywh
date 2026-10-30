@@ -592,6 +592,8 @@ export const en: Dictionary = {
       noResults: "No sessions found.",
     },
     usage: {
+      outdated: "update relay",
+      outdatedSummary: "this profile's relay is too old to report usage",
       card: {
         title: "Usage",
         profiles: "{count} profiles",

@@ -172,10 +172,7 @@ describe("UsageIndicator", () => {
   it("renders nothing without agents or alerts to show", () => {
     const { container, rerender } = renderIndicator({ pessoal: live([]) });
     expect(container).toBeEmptyDOMElement();
-    for (const entry of [
-      { connection: "connecting", runtimes: null },
-      { connection: "unsupported", runtimes: null },
-    ] as const) {
+    for (const entry of [{ connection: "connecting", runtimes: null }] as const) {
       rerender(
         <LocaleProvider>
           <UsageIndicator profileId="pessoal" profiles={PROFILES} byProfile={{ pessoal: { ...live([]), ...entry } }} now={NOW} expanded={false} />
@@ -183,6 +180,13 @@ describe("UsageIndicator", () => {
       );
       expect(container).toBeEmptyDOMElement();
     }
+  });
+
+  it("says the relay needs updating instead of vanishing on a relay too old for usage", () => {
+    renderIndicator({ pessoal: { ...live([]), connection: "unsupported", runtimes: null } });
+    expect(button()).toHaveTextContent("update relay");
+    expect(button()).toHaveAccessibleName("Usage: this profile's relay is too old to report usage");
+    expect(button()).toHaveAttribute("aria-haspopup", "dialog");
   });
 
   it("speaks Portuguese", () => {

@@ -592,6 +592,8 @@ export const ptBr: Dictionary = {
       noResults: "Nenhuma sessão encontrada.",
     },
     usage: {
+      outdated: "atualize o relay",
+      outdatedSummary: "o relay deste perfil é antigo demais para informar o uso",
       card: {
         title: "Uso",
         profiles: "{count} perfis",

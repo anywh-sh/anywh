@@ -1307,6 +1307,11 @@ export interface Dictionary {
      * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
      * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
     usage: {
+      /** The active profile's relay predates plan usage: the indicator
+       * says so instead of disappearing, so an old relay reads as one. */
+      outdated: string;
+      /** Its phrase in the indicator's accessible name. */
+      outdatedSummary: string;
       /** The details card (`UsageCard`). */
       card: {
         title: string;
