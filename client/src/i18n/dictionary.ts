@@ -249,7 +249,7 @@ export interface Dictionary {
         /** `{host}` — the machine the code names. */
         valid: string;
       };
-      address: { host: string; hostPlaceholder: string; port: string; hint: string };
+      address: { host: string; hostPlaceholder: string; port: string; hint: string; invalid: string };
       connect: string;
       connecting: string;
       steps: { claiming: string; connecting: string; verifying: string };
@@ -270,6 +270,8 @@ export interface Dictionary {
         tailnet: string;
         custom: string;
         customPlaceholder: string;
+        /** Under a typed address that isn't one. */
+        invalid: string;
         default: string;
         hints: { loopback: string; lan: string; tailnet: string; custom: string };
       };

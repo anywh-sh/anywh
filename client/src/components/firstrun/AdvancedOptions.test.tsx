@@ -80,6 +80,15 @@ describe("AdvancedOptions", () => {
     expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ host: "relay.casa.example" }));
   });
 
+  it("refuses an address a shell would read as more than one, and says why", async () => {
+    const user = userEvent.setup();
+    render(<AdvancedOptions initialInstall="terminal" onInstall={() => {}} onConnect={() => {}} />);
+    await user.click(screen.getByRole("radio", { name: new RegExp(copy.address.custom) }));
+    await user.type(screen.getByLabelText(copy.address.custom, { selector: "input" }), "x;id");
+    expect(screen.getByText(copy.address.invalid)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: copy.terminal.done })).toBeDisabled();
+  });
+
   it("spells the install out as commands for the chosen address and connects on the chosen port", async () => {
     const user = userEvent.setup();
     const onConnect = vi.fn();

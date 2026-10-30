@@ -733,6 +733,7 @@ export const en: Dictionary = {
         hostPlaceholder: "home.example.com or 192.168.1.24",
         port: "Port",
         hint: "The name or IP of the machine, and the port anywh listens on.",
+        invalid: "Use a host name or an IP address: letters, digits, dots, hyphens and colons only.",
       },
       connect: "Connect",
       connecting: "Connecting to the other machine",
@@ -756,6 +757,7 @@ export const en: Dictionary = {
         tailnet: "Tailnet",
         custom: "Another address",
         customPlaceholder: "relay.example.com",
+        invalid: "Use a host name or an IP address: letters, digits, dots, hyphens and colons only.",
         default: "Default",
         hints: {
           loopback: "No other device can reach it.",

@@ -733,6 +733,7 @@ export const ptBr: Dictionary = {
         hostPlaceholder: "casa.exemplo.com ou 192.168.1.24",
         port: "Porta",
         hint: "O nome ou IP da máquina e a porta em que o anywh escuta.",
+        invalid: "Use um nome de máquina ou um endereço IP: só letras, números, pontos, hifens e dois-pontos.",
       },
       connect: "Conectar",
       connecting: "Conectando à outra máquina",
@@ -756,6 +757,7 @@ export const ptBr: Dictionary = {
         tailnet: "Tailnet",
         custom: "Outro endereço",
         customPlaceholder: "relay.casa.exemplo",
+        invalid: "Use um nome de máquina ou um endereço IP: só letras, números, pontos, hifens e dois-pontos.",
         default: "Padrão",
         hints: {
           loopback: "Nenhum outro dispositivo alcança.",

@@ -98,6 +98,12 @@ describe("OtherMachine", () => {
     expect(screen.getByLabelText(en.firstRun.other.address.port)).toHaveValue("9000");
   });
 
+  it("refuses an address that isn't one, and says why", () => {
+    render(<OtherMachine initialMode="address" initialHost="box;id" onAdvanced={() => {}} onReady={() => {}} />);
+    expect(screen.getByText(en.firstRun.other.address.invalid)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.firstRun.other.connect })).toBeDisabled();
+  });
+
   it("leads to the advanced options", async () => {
     const user = userEvent.setup();
     const onAdvanced = vi.fn();

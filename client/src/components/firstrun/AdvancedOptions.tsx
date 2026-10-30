@@ -11,6 +11,7 @@ import type { BeginLocalInstallOptions } from "@/lib/install/localInstall";
 import { localInstallPossible, suggestAddresses } from "@/lib/install/localRelay";
 import { currentPlatform } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
+import { isValidHost } from "@/lib/profiles/hostAddress";
 
 export type InstallVia = "app" | "terminal";
 
@@ -140,7 +141,8 @@ export function AdvancedOptions({
   }, []);
 
   const host = choice === CUSTOM ? custom.trim() : (rows.find((row) => row.choice === choice)?.value ?? LOOPBACK);
-  const validHost = host.length > 0 && !/\s/.test(host);
+  const validHost = isValidHost(host);
+  const showInvalid = choice === CUSTOM && custom.trim().length > 0 && !validHost;
   const port = Number(portText);
   const validPort = Number.isInteger(port) && port > 0 && port <= MAX_PORT;
   const renamed = name.trim() !== dict.firstRun.profile.defaultLabel && name.trim().length > 0;
@@ -222,8 +224,15 @@ export function AdvancedOptions({
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
+            aria-invalid={showInvalid}
+            aria-describedby={showInvalid ? "first-run-address-invalid" : undefined}
             className="px-3 py-2.5 text-[13px]"
           />
+        )}
+        {showInvalid && (
+          <p id="first-run-address-invalid" className="text-xs text-destructive">
+            {copy.address.invalid}
+          </p>
         )}
       </div>
 

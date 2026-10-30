@@ -12,6 +12,7 @@ import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useDict } from "@/i18n";
 import { parsePairingCode } from "@/lib/profiles/pairingCode";
 import { dismissProfileSetup, enqueueProfileSetup, retryProfileSetup, type SetupState } from "@/lib/profiles/profileSetup";
+import { isValidHost } from "@/lib/profiles/hostAddress";
 
 export type OtherMachineMode = "code" | "address";
 export type ReadySetup = Extract<SetupState, { status: "ready" }>;
@@ -93,7 +94,8 @@ export function OtherMachine({
   const trimmedHost = host.trim();
   const port = Number(portText);
   const validPort = Number.isInteger(port) && port > 0 && port <= MAX_PORT;
-  const canSubmit = mode === "code" ? parsed !== null : trimmedHost.length > 0 && !/\s/.test(trimmedHost) && validPort;
+  const hostInvalid = trimmedHost.length > 0 && !isValidHost(trimmedHost);
+  const canSubmit = mode === "code" ? parsed !== null : isValidHost(trimmedHost) && validPort;
 
   const state = setup.state;
   const showingProgress = state !== null && (submitted !== null || (state.status !== "failed" && !(staleReady && state.status === "ready")));
@@ -205,6 +207,8 @@ export function OtherMachine({
                       autoCapitalize="off"
                       autoCorrect="off"
                       spellCheck={false}
+                      aria-invalid={hostInvalid}
+                      aria-describedby={hostInvalid ? "first-run-host-invalid" : undefined}
                       className="px-3 py-2.5 text-[13px]"
                     />
                   </Field>
@@ -218,7 +222,13 @@ export function OtherMachine({
                     />
                   </Field>
                 </div>
-                <p className="text-xs text-text-faint">{copy.address.hint}</p>
+                {hostInvalid ? (
+                  <p id="first-run-host-invalid" className="text-xs text-destructive">
+                    {copy.address.invalid}
+                  </p>
+                ) : (
+                  <p className="text-xs text-text-faint">{copy.address.hint}</p>
+                )}
               </>
             )}
           </div>
