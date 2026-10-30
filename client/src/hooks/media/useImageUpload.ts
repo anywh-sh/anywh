@@ -3,13 +3,20 @@ import { uploadAttachment } from "@/lib/relay/imageUpload";
 import { captureVideoFrame } from "@/lib/videoPreview";
 import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles/profiles";
+import { attachmentKindFor, type AttachmentKind } from "@/lib/composer/attachmentTypes";
 
 export interface PendingAttachment {
-  kind: "image" | "video";
+  /** `file`: anything else the agent reads as is (text, code, PDF) — no
+   * preview, shown as a named chip. */
+  kind: AttachmentKind;
   /** Image: path of the image itself. Video: path of the original video —
    * stays referenced in the message alongside the frames, in case Claude
-   * needs to run ffmpeg/ffprobe on it via Bash for something more specific. */
+   * needs to run ffmpeg/ffprobe on it via Bash for something more specific.
+   * File: the file itself. */
   path: string;
+  /** The name the file had on the user's side — the relay saves it under a
+   * fresh id, so this is what the chip and the message show. */
+  name?: string;
   /** Absent only when the preview fails (e.g. video with a codec the
    * browser's `<video>` can't decode) — UI falls back to a generic icon. */
   previewUrl?: string;
@@ -50,22 +57,26 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
 
   const addFiles = useCallback(
     async (files: FileList | File[]) => {
-      const attachable = Array.from(files).filter(
-        (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
-      );
+      const attachable: { file: File; kind: AttachmentKind }[] = [];
+      const refused: string[] = [];
+      for (const file of Array.from(files)) {
+        const kind = attachmentKindFor(file);
+        if (kind) attachable.push({ file, kind });
+        else refused.push(file.name || dict.chat.composer.unnamedAttachment);
+      }
+      if (refused.length > 0) onError(dict.chat.composer.unsupportedAttachment.replace("{names}", refused.join(", ")));
       if (attachable.length === 0) return;
 
       // Every file gets its entry up front, so `uploading` stays true until
       // the last one of every batch lands — two overlapping calls (a paste
       // while a drop is still uploading) can no longer re-enable send early.
-      const batch = attachable.map((file) => ({ file, id: `attachment-${String(++nextEntryId)}` }));
+      const batch = attachable.map(({ file, kind }) => ({ file, kind, id: `attachment-${String(++nextEntryId)}` }));
       setEntries((prev) => [...prev, ...batch.map(({ file, id }) => ({ id, status: "uploading" as const, name: file.name }))]);
 
-      for (const { file, id } of batch) {
-        const isVideo = file.type.startsWith("video/");
+      for (const { file, kind, id } of batch) {
         try {
           let previewUrl: string | undefined;
-          if (isVideo) {
+          if (kind === "video") {
             // Best-effort: if the browser can't decode the codec, the
             // preview fails but the upload/frame extraction on the relay
             // (which uses ffmpeg, with much broader support) proceeds normally.
@@ -74,20 +85,26 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
             } catch {
               previewUrl = undefined;
             }
-          } else {
+          } else if (kind === "image") {
             previewUrl = URL.createObjectURL(file);
           }
 
           const result = await uploadAttachment(profile, file);
-          const attachment: PendingAttachment = isVideo
-            ? { kind: "video", path: result.path, previewUrl, frames: result.frames ?? [] }
-            : { kind: "image", path: result.path, previewUrl };
+          const name = file.name || undefined;
+          const attachment: PendingAttachment =
+            kind === "video"
+              ? { kind, path: result.path, name, previewUrl, frames: result.frames ?? [] }
+              : { kind, path: result.path, name, previewUrl };
           setEntries((prev) =>
             prev.map((entry) => (entry.id === id ? { id, status: "ready", name: entry.name, attachment } : entry)),
           );
         } catch (error) {
           setEntries((prev) => prev.filter((entry) => entry.id !== id));
-          const template = isVideo ? dict.chat.composer.uploadFailedVideo : dict.chat.composer.uploadFailedImage;
+          const template = {
+            image: dict.chat.composer.uploadFailedImage,
+            video: dict.chat.composer.uploadFailedVideo,
+            file: dict.chat.composer.uploadFailedFile,
+          }[kind];
           onError(template.replace("{reason}", error instanceof Error ? error.message : String(error)));
         }
       }
