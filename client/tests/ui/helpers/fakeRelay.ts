@@ -65,6 +65,7 @@ class FakeRelaySocket {
   /** `/plan-usage/watch`, answered the way each kind of relay does. */
   private openPlanUsage(script: FakePlanUsage | undefined): void {
     if (this.readyState === FakeRelaySocket.CLOSED) return;
+    if (script === "hang") return;
     if (script === undefined || script === "unreachable") {
       // A socket that never opens: the browser fires `close` alone (after an
       // `error` nobody here listens to).
@@ -74,6 +75,7 @@ class FakeRelaySocket {
     }
     this.readyState = FakeRelaySocket.OPEN;
     this.dispatch("open", {});
+    if (script === "mute") return;
     if (script === "legacy") {
       // A relay without the route treats the path as a chat socket.
       this.emitMessage({ type: "protocol_version", version: 1 });
@@ -162,7 +164,11 @@ export type FakePlanUsage =
       cooldownMs?: number;
     }
   | "legacy"
-  | "unreachable";
+  | "unreachable"
+  /** Opens and then says nothing at all (a relay stuck mid-handshake). */
+  | "mute"
+  /** Never even opens: the socket stays CONNECTING. */
+  | "hang";
 
 export interface FakeRelayOptions {
   /** `/plan-usage/watch` per relay, keyed `host:port`. Absent = the route is

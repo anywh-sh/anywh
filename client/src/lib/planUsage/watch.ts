@@ -28,6 +28,12 @@ export const PONG_TIMEOUT_MS = 5_000;
  * may be pinged on a timer (see `periodicPing`). */
 export const PING_INTERVAL_MS = 30_000;
 
+/** How long a new socket may take to deliver its first state — to open,
+ * and then to send `plan_usage_state` (or, from an older relay, its
+ * protocol version). A socket stuck before that is outside the ping's
+ * reach, and would otherwise wait for the TCP timeout. */
+export const HANDSHAKE_TIMEOUT_MS = 10_000;
+
 /** A refresh lost to a dead socket is sent again on the next connection,
  * this many times at most. */
 const REFRESH_RESENDS = 2;
@@ -76,6 +82,7 @@ export class PlanUsageWatch {
   private retryTimer: number | undefined;
   private refreshTimer: number | undefined;
   private pongTimer: number | undefined;
+  private handshakeTimer: number | undefined;
   private pingTimer: number | undefined;
   /** The refresh not answered yet, kept to be sent again if its socket dies.
    * `sent`: it already reached a socket once. */
@@ -175,6 +182,8 @@ export class PlanUsageWatch {
   }
 
   private clearLiveness(): void {
+    window.clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = undefined;
     window.clearTimeout(this.pongTimer);
     this.pongTimer = undefined;
     window.clearInterval(this.pingTimer);
@@ -237,6 +246,18 @@ export class PlanUsageWatch {
   private open(ws: WebSocket, wake: boolean): void {
     this.socket = ws;
     let answered = false;
+    window.clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = window.setTimeout(() => {
+      this.handshakeTimer = undefined;
+      if (this.socket !== ws || answered) return;
+      // Never got going: drop it and dial again, like a failed attempt
+      // (same backoff, same intent to wake).
+      this.socket = undefined;
+      this.clearLiveness();
+      ws.close();
+      this.update({ connection: "offline" });
+      this.scheduleRetry(wake);
+    }, HANDSHAKE_TIMEOUT_MS);
     ws.addEventListener("message", (event: MessageEvent) => {
       if (this.socket !== ws) return;
       const message = parseStateMessage(event.data);
@@ -250,6 +271,8 @@ export class PlanUsageWatch {
         // protocol version (see the class comment). Anything else unknown is
         // ignored, so a later relay can add messages to this socket.
         if (!answered && messageType(event.data) === "protocol_version") {
+          window.clearTimeout(this.handshakeTimer);
+          this.handshakeTimer = undefined;
           this.socket = undefined;
           ws.close();
           this.finish("unsupported");
@@ -258,6 +281,8 @@ export class PlanUsageWatch {
       }
       const first = !answered;
       answered = true;
+      window.clearTimeout(this.handshakeTimer);
+      this.handshakeTimer = undefined;
       this.failures = 0;
       // Any message is as good as a pong.
       window.clearTimeout(this.pongTimer);

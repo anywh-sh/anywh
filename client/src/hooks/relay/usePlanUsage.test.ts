@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PLAN_USAGE_CLOCK_MS, usePlanUsage } from "@/hooks/relay/usePlanUsage";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
-import { PING_INTERVAL_MS, PONG_TIMEOUT_MS, REFRESH_TIMEOUT_MS } from "@/lib/planUsage/watch";
+import { HANDSHAKE_TIMEOUT_MS, PING_INTERVAL_MS, PONG_TIMEOUT_MS, REFRESH_TIMEOUT_MS } from "@/lib/planUsage/watch";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
@@ -310,6 +310,55 @@ describe("usePlanUsage", () => {
     const before = pings().length;
     await settle(PING_INTERVAL_MS * 3);
     expect(pings().length).toBe(before);
+  });
+
+  it("gives up on a socket that opens and never says anything, and dials again", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": "mute" } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle(HANDSHAKE_TIMEOUT_MS - 1);
+    expect(planSockets()[0].readyState).toBe(1);
+    relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(12)] };
+    await settle(1);
+    expect(planSockets()[0].readyState).toBe(3);
+    expect(result.current.byProfile.pessoal.connection).toBe("offline");
+    await settle(2_000);
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
+  });
+
+  it("gives up on a socket stuck before opening", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": "hang" } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle(HANDSHAKE_TIMEOUT_MS);
+    expect(planSockets()[0].readyState).toBe(3);
+    expect(result.current.byProfile.pessoal.connection).toBe("offline");
+    relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(12)] };
+    await settle(2_000);
+    expect(planSockets()).toHaveLength(2);
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
+  });
+
+  it("forgets what the old connection said when a profile's address changes", async () => {
+    relay = installFakeRelay(undefined, {
+      planUsage: { "127.0.0.1:8001": { runtimes: [claude(58)] }, "127.0.0.1:8003": "unreachable", "127.0.0.1:8004": "legacy" },
+    });
+    const { result, rerender } = renderHook(({ list }) => usePlanUsage(list, "pessoal"), { initialProps: { list: [PESSOAL] } });
+    await settle();
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
+
+    // Another machine now: none of the old numbers carry over.
+    rerender({ list: [{ ...PESSOAL, relayPort: 8003 }] });
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "connecting", runtimes: null, observedAt: null });
+    await settle();
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "offline", runtimes: null });
+
+    // Nor does a final state: an old relay at one address says nothing about the next.
+    rerender({ list: [{ ...PESSOAL, relayPort: 8004 }] });
+    await settle();
+    expect(result.current.byProfile.pessoal.connection).toBe("unsupported");
+    rerender({ list: [{ ...PESSOAL, relayPort: 8001 }] });
+    expect(result.current.byProfile.pessoal.connection).toBe("connecting");
+    await settle();
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
   });
 
   it("moves its clock every minute", async () => {

@@ -71,6 +71,11 @@ export function usePlanUsage(profiles: readonly Profile[], activeProfileId: stri
       entry.watch.stop();
       watches.delete(id);
     }
+    // Watches started now, for a new profile or one whose address or
+    // credentials changed: whatever was shown for that profile came from the
+    // old connection — another machine, perhaps — and must not stand in for
+    // the new one, as live numbers or as a final state.
+    const fresh = new Set<string>();
     for (const profile of profiles) {
       const key = connectionKey(profile);
       const existing = watches.get(profile.id);
@@ -87,11 +92,12 @@ export function usePlanUsage(profiles: readonly Profile[], activeProfileId: stri
         },
       });
       watches.set(profile.id, { key, watch });
+      fresh.add(profile.id);
       watch.start();
     }
     setByProfile((prev) => {
       const next: Record<string, ProfilePlanUsage> = {};
-      for (const [id, entry] of watches) next[id] = prev[id] ?? entry.watch.current;
+      for (const [id, entry] of watches) next[id] = fresh.has(id) ? entry.watch.current : (prev[id] ?? entry.watch.current);
       return next;
     });
     // `profiles` is read through `profilesKey`, which covers every field used.
