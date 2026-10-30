@@ -271,3 +271,20 @@ export function runtimeNote(usage: RuntimePlanUsage, nowMs: number, reading: boo
       return "notRead";
   }
 }
+
+/**
+ * An agent installed on the profile's machine but never logged in there —
+ * as opposed to a login that was lost. The relay says which with
+ * `everSignedIn`; one that predates the field never sends it, and then every
+ * `signed_out` counts as a lost login, as before.
+ */
+export function neverSignedIn(usage: RuntimePlanUsage): boolean {
+  return usage.status === "signed_out" && usage.everSignedIn === false;
+}
+
+/** The runtimes the status bar shows: all but the ones never signed in on
+ * this profile — an agent nobody uses here is not something to flag. The
+ * card still lists them, with the way to log in. */
+export function statusBarRuntimes(runtimes: readonly RuntimePlanUsage[]): RuntimePlanUsage[] {
+  return runtimes.filter((usage) => !neverSignedIn(usage));
+}

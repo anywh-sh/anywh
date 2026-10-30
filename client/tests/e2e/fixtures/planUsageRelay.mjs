@@ -54,7 +54,8 @@ function waitForListen(port, child, output, timeoutMs = 60_000) {
 
 /**
  * Starts one relay per entry of `profiles` (`{ id, label, fiveHour,
- * sevenDay }`, the fractions its Claude account sits at once probed), on one
+ * sevenDay, codexUsedBefore? }`: the fractions its Claude account sits at
+ * once probed, and whether Codex was ever logged in there), on one
  * shared registry. Each gets its own home, so its own account key. Returns
  * the relays by id plus `stop()`, which ends exactly these processes.
  */
@@ -96,13 +97,19 @@ export async function startPlanUsageMachine(profiles) {
   };
 }
 
-async function startRelay(dir, envDir, port, { id, fiveHour, sevenDay }) {
+async function startRelay(dir, envDir, port, { id, fiveHour, sevenDay, codexUsedBefore = false }) {
   const home = join(dir, "home");
   const bin = join(dir, "bin");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin);
   // The account ids the relay hashes into the account key; never sent.
   writeFileSync(join(home, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: `acc-${id}`, organizationUuid: `org-${id}` } }));
+  // Codex was once logged in on this profile when its home holds a session
+  // rollout (the relay's `everSignedIn` bootstrap); its login is gone either
+  // way, there is no auth.json.
+  if (codexUsedBefore) {
+    mkdirSync(join(home, ".codex", "sessions", "2026"), { recursive: true });
+  }
   writeFileSync(join(bin, "codex"), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 0.154.0"; exit 0; fi\nexit 1\n');
   chmodSync(join(bin, "codex"), 0o755);
   const rateLimitFile = join(dir, "rate-limit.json");

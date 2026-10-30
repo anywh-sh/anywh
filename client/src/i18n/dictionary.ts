@@ -1321,6 +1321,9 @@ export interface Dictionary {
       outdatedSummary: string;
       /** The details card (`UsageCard`). */
       card: {
+        /** An agent installed but never logged in on this profile (relay's
+         * `everSignedIn: false`). Provisional copy: no design sign-off yet. */
+        notUsed: string;
         title: string;
         /** `{count}` profiles in the card's header, plural and singular. */
         profiles: string;

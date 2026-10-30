@@ -54,7 +54,9 @@ describe("plan usage", () => {
 
   before(async () => {
     machine = await startPlanUsageMachine([
-      { id: "e2e-pessoal", label: "Pessoal", fiveHour: 0.58, sevenDay: 0.41 },
+      // Codex: a login lost on Pessoal (it was used there once), never made
+      // on Trabalho.
+      { id: "e2e-pessoal", label: "Pessoal", fiveHour: 0.58, sevenDay: 0.41, codexUsedBefore: true },
       { id: "e2e-trabalho", label: "Trabalho", fiveHour: 0.91, sevenDay: 0.64 },
     ]);
     ({ "e2e-pessoal": pessoal, "e2e-trabalho": trabalho } = machine.relays);
@@ -98,7 +100,7 @@ describe("plan usage", () => {
   it("shows the active profile's agents in the status bar, Codex with no login", async () => {
     await indicator().waitForExist({ timeout: 30000 });
     // Nothing probed Claude yet (the relay never probes on its own without a
-    // known active window); Codex is installed with no login.
+    // known active window); Codex is installed with its login lost.
     await browser.waitUntil(async () => /Codex not signed in/.test(await label(indicator())), {
       timeout: 20000,
       timeoutMsg: "the indicator never said Codex has no login",
@@ -138,12 +140,16 @@ describe("plan usage", () => {
       return {
         meters: all('[role="meter"]', (meter) => meter.getAttribute("aria-valuenow")).join(","),
         order: all("[data-usage-profile]", (section) => section.getAttribute("data-usage-profile")).join(","),
-        commands: all("[data-usage-signed-out] code", (code) => code.textContent).join(","),
+        lost: all("[data-usage-profile] [data-usage-signed-out] code", (code) => code.closest("[data-usage-profile]").getAttribute("data-usage-profile") + ":" + code.textContent).join(","),
+        notUsed: all("[data-usage-not-used] code", (code) => code.closest("[data-usage-profile]").getAttribute("data-usage-profile") + ":" + code.textContent).join(","),
       };
     });
     if (seen.meters !== "58,41,91,64") throw new Error(`card meters: expected 58,41,91,64, got ${seen.meters}`);
     if (seen.order !== "e2e-pessoal,e2e-trabalho") throw new Error(`profiles out of order: ${seen.order}`);
-    if (seen.commands !== "codex login,codex login") throw new Error(`login commands: ${seen.commands}`);
+    // A lost login gets the orange strip; an agent never used on the
+    // profile, one quiet line — both with the command.
+    if (seen.lost !== "e2e-pessoal:codex login") throw new Error(`lost-login strips: ${seen.lost}`);
+    if (seen.notUsed !== "e2e-trabalho:codex login") throw new Error(`never-used lines: ${seen.notUsed}`);
     // On the left: flush with the window's left edge, above the indicator,
     // its border on the top and right only. Measured once the popover has
     // re-placed itself for the content that just arrived (and the 140ms

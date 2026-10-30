@@ -14,6 +14,7 @@ import {
   runtimeNote,
   runtimeWindows,
   spentUntil,
+  statusBarRuntimes,
   type ProfilePlanUsage,
   type WindowView,
 } from "@/lib/planUsage/derive";
@@ -58,7 +59,7 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
 
   const entry = byProfile[profileId];
   const data = profileDataState(entry);
-  const runtimes = data === "live" || data === "stale" ? (entry?.runtimes ?? []) : [];
+  const runtimes = data === "live" || data === "stale" ? statusBarRuntimes(entry?.runtimes ?? []) : [];
   // A relay too old for plan usage still gets a mark: hiding the indicator
   // would read exactly like a profile with no agent installed, and leave
   // nothing to tell that the relay is what needs updating.

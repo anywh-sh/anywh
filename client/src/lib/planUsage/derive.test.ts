@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_PROFILE_USAGE,
+  neverSignedIn,
+  statusBarRuntimes,
   READING_TIMEOUT_MS,
   isReading,
   profileReading,
@@ -227,5 +229,28 @@ describe("reading / runtimeNote", () => {
     expect(runtimeNote({ ...unknown, status: "error", error: { kind: "parse" } }, NOW, false)).toBe("errorParse");
     expect(runtimeNote({ ...unknown, status: "error" }, NOW, false)).toBe("error");
     expect(runtimeNote(runtime({ runtime: "claude" }), NOW, true)).toBeNull();
+  });
+});
+
+describe("neverSignedIn / statusBarRuntimes", () => {
+  const out = (everSignedIn?: boolean): RuntimePlanUsage => ({ runtime: "codex", status: "signed_out", windows: [], observedAt: null, ...(everSignedIn === undefined ? {} : { everSignedIn }) });
+
+  it("tells a login never made on this profile from one that was lost", () => {
+    expect(neverSignedIn(out(false))).toBe(true);
+    expect(neverSignedIn(out(true))).toBe(false);
+    // A relay that predates the field: every signed_out is a lost login.
+    expect(neverSignedIn(out())).toBe(false);
+    expect(neverSignedIn({ ...runtime({ runtime: "claude" }), everSignedIn: false })).toBe(false);
+  });
+
+  it("keeps a never-used agent out of the status bar only", () => {
+    const claude = runtime({ runtime: "claude" });
+    expect(statusBarRuntimes([claude, out(false)])).toEqual([claude]);
+    expect(statusBarRuntimes([claude, out(true)])).toHaveLength(2);
+    expect(statusBarRuntimes([claude, out()])).toHaveLength(2);
+    // The card's groups and the account count don't change.
+    const groups = groupByProfile(["a"], { a: live([claude, out(false)]) }, "a");
+    expect(groups[0].accounts.map((entry) => entry.runtime)).toEqual(["claude", "codex"]);
+    expect(countAccounts(groups)).toBe(1);
   });
 });
