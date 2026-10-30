@@ -13,12 +13,15 @@ import {
   isValidProfileId,
   listProfileIds,
   listProfiles,
+  profileSessionsFile,
   slugify,
   updateProfileMeta,
+  type HostProfile,
 } from "../host/profileRegistry.js";
 import { probeRuntimeAuth } from "../runtimes/probes/runtimeAuth.js";
 import type { AgentRuntimeDef, AuthStatus } from "../runtimes/types.js";
 import type { Registry } from "../runtimes/registry.js";
+import { lastUsedAgentIdInFile, type SessionStore } from "../session/sessionStore.js";
 import type { RouteHandler } from "./context.js";
 
 // Resolved relative to this file (not hardcoded), same reasoning as
@@ -133,12 +136,27 @@ async function removeAgentHost(id: string, dir: string): Promise<void> {
   }
 }
 
+/** Adds the agent of the profile's most recent conversation. This relay's
+ * own profile (the one listening on its port) reads its live store; any
+ * other reads the sessions file its `.env` names, so the answer is the
+ * same whichever of the machine's relays a device asks. */
+function withLastUsedAgent(profile: HostProfile, ownPort: number, ownStore: SessionStore): HostProfile & { lastUsedAgentId?: string } {
+  let lastUsed: string | undefined;
+  if (profile.port === ownPort) {
+    lastUsed = ownStore.lastUsedAgentId();
+  } else {
+    const sessionsFile = profileSessionsFile(profile.id);
+    lastUsed = sessionsFile ? lastUsedAgentIdInFile(sessionsFile) : undefined;
+  }
+  return lastUsed ? { ...profile, lastUsedAgentId: lastUsed } : profile;
+}
+
 export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method === "GET" && req.url?.startsWith("/control/profiles")) {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Access-Control-Allow-Origin", "*");
     await listProfiles()
-      .then((profiles) => res.end(JSON.stringify({ profiles })))
+      .then((profiles) => res.end(JSON.stringify({ profiles: profiles.map((profile) => withLastUsedAgent(profile, ctx.port, ctx.sessionStore)) })))
       .catch((error: unknown) => {
         console.error("[relay] failed to list profiles:", error);
         res.writeHead(500);
@@ -285,6 +303,12 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
         if (!isPatchProfileBody(body)) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: "label or colorIndex is required" }));
+          return;
+        }
+        const fixedAgentId = body.agentPreference?.fixedAgentId;
+        if (fixedAgentId !== undefined && !ctx.registry.get(fixedAgentId)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: `unknown agent "${fixedAgentId}"` }));
           return;
         }
         try {

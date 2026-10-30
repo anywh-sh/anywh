@@ -18,6 +18,28 @@ const PROFILE_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 /** The id `ensureSelfRegistered` writes and the client seeds. */
 const SELF_REGISTERED_ID = "default";
 
+/** Which agent a new conversation on this profile starts with. `lastUsed`
+ * (also what an absent preference means) follows the agent of the
+ * profile's most recent conversation; `fixed` always starts with
+ * `fixedAgentId`. Either way it only preselects: a conversation can still
+ * switch agents. Stored per profile, beside `themeId`, so it follows the
+ * profile across devices. */
+export interface AgentPreference {
+  mode: "fixed" | "lastUsed";
+  fixedAgentId?: string;
+}
+
+/** Shape check for a preference read back from `profiles.json` or a PATCH
+ * body — the agent id itself is the caller's to check against the
+ * registry, which this folder can't import. */
+export function isAgentPreference(value: unknown): value is AgentPreference {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { mode?: unknown; fixedAgentId?: unknown };
+  if (candidate.fixedAgentId !== undefined && (typeof candidate.fixedAgentId !== "string" || candidate.fixedAgentId.length === 0)) return false;
+  if (candidate.mode === "lastUsed") return true;
+  return candidate.mode === "fixed" && candidate.fixedAgentId !== undefined;
+}
+
 export interface HostProfile {
   id: string;
   label: string;
@@ -30,6 +52,8 @@ export interface HostProfile {
    * rather than in the client's local settings, because the theme has to
    * follow the profile across devices the same way its label does. */
   themeId?: string;
+  /** Absent means `{ mode: "lastUsed" }`. */
+  agentPreference?: AgentPreference;
 }
 
 export interface ProfileMeta {
@@ -37,6 +61,7 @@ export interface ProfileMeta {
   label: string;
   colorIndex?: number;
   themeId?: string;
+  agentPreference?: AgentPreference;
   createdAt: string;
   updatedAt: string;
 }
@@ -262,6 +287,9 @@ export async function listProfiles(envDir: string = ENV_DIR): Promise<HostProfil
         hasHomeOverride: Boolean(env.RELAY_HOME_OVERRIDE),
         running,
         ...(meta?.themeId ? { themeId: meta.themeId } : {}),
+        // Checked on the way out rather than trusted: profiles.json is a
+        // file a person (or another version of this relay) may have edited.
+        ...(isAgentPreference(meta?.agentPreference) ? { agentPreference: meta.agentPreference } : {}),
       }));
     }),
   );
@@ -314,6 +342,20 @@ function writeProfilesJson(envDir: string, data: ProfilesJson): void {
   writeFileSync(path, JSON.stringify(data, null, 2));
 }
 
+/** Only the fields the mode uses are stored: a `lastUsed` preference
+ * carries no agent, so switching back to it can't leave a stale one. */
+function normalizeAgentPreference(preference: AgentPreference): AgentPreference {
+  return preference.mode === "fixed" && preference.fixedAgentId ? { mode: "fixed", fixedAgentId: preference.fixedAgentId } : { mode: "lastUsed" };
+}
+
+/** `RELAY_SESSIONS_FILE` from a profile's `.env` — where that profile's
+ * relay keeps its conversations (`add-profile.sh` always writes it), so
+ * another profile's relay can read them without asking it. Absent for a
+ * self-registered profile, whose relay never wrote one. */
+export function profileSessionsFile(id: string, envDir: string = ENV_DIR): string | undefined {
+  return readEnvFile(id, envDir)?.RELAY_SESSIONS_FILE || undefined;
+}
+
 /** `PATCH /control/profiles/:id` — `id` is immutable (see `Profile.id` on
  * the client), only `label`/`colorIndex`/`themeId` move. Works even for a
  * profile that predates `profiles.json` (fills in the other fields from
@@ -323,10 +365,15 @@ function writeProfilesJson(envDir: string, data: ProfilesJson): void {
  *
  * `themeId: null` clears the selection back to the built-in theme —
  * distinct from omitting the field, which leaves whatever is stored alone,
- * the same way the other two behave. */
+ * the same way the other two behave. `agentPreference: null` likewise
+ * clears it back to `lastUsed`.
+ *
+ * A field of the stored entry this version doesn't know is carried over
+ * untouched, so a PATCH from this relay never erases what a newer one
+ * wrote beside it. */
 export function updateProfileMeta(
   id: string,
-  patch: { label?: string; colorIndex?: number; themeId?: string | null },
+  patch: { label?: string; colorIndex?: number; themeId?: string | null; agentPreference?: AgentPreference | null },
   envDir: string = ENV_DIR,
 ): ProfileMeta {
   const ids = listEnvIds(envDir);
@@ -339,11 +386,15 @@ export function updateProfileMeta(
   const existing = current.profiles.find((meta) => meta.id === id);
   const now = new Date().toISOString();
   const themeId = patch.themeId === null ? undefined : (patch.themeId ?? existing?.themeId);
+  const agentPreference = patch.agentPreference === null ? undefined : (patch.agentPreference ?? existing?.agentPreference);
+  const { themeId: _themeId, agentPreference: _agentPreference, ...kept } = existing ?? ({} as Partial<ProfileMeta>);
   const merged: ProfileMeta = {
+    ...kept,
     id,
     label: patch.label ?? existing?.label ?? id,
     colorIndex: patch.colorIndex ?? existing?.colorIndex ?? position,
     ...(themeId ? { themeId } : {}),
+    ...(agentPreference ? { agentPreference: normalizeAgentPreference(agentPreference) } : {}),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

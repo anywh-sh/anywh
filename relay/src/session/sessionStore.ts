@@ -357,6 +357,42 @@ function hasFlatContextUsage(value: object): value is PreContextUsageAgentRecord
   });
 }
 
+/**
+ * The agent of a profile's most recent conversation — what a "last used"
+ * agent preference starts the next one with. Only conversations that had a
+ * turn count (a titled one: a new conversation is untitled until its first
+ * prompt), and never a room's worker, which the person never picked. Takes
+ * the raw parsed file, not a `SessionRecord`, because it also reads other
+ * profiles' files, whatever version of the relay wrote them: anything not
+ * shaped like an entry is skipped rather than trusted.
+ */
+export function lastUsedAgentId(records: unknown): AgentId | undefined {
+  if (typeof records !== "object" || records === null) return undefined;
+  let latest: { agentId: AgentId; lastActiveAt: number } | undefined;
+  for (const entry of Object.values(records as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { agentId, title, lastActiveAt, room } = entry as { agentId?: unknown; title?: unknown; lastActiveAt?: unknown; room?: { role?: unknown } };
+    if (typeof title !== "string" || typeof lastActiveAt !== "number") continue;
+    if (room?.role === "worker") continue;
+    // Records from before agents were selectable carry no `agentId` and are
+    // `DEFAULT_AGENT_ID`'s, the same reading `load()`'s migration gives them.
+    const id = typeof agentId === "string" && agentId.length > 0 ? agentId : DEFAULT_AGENT_ID;
+    if (!latest || lastActiveAt > latest.lastActiveAt) latest = { agentId: id, lastActiveAt };
+  }
+  return latest?.agentId;
+}
+
+/** `lastUsedAgentId` of another relay's sessions file. A file that is
+ * missing or unreadable answers `undefined` — no last-used agent — never
+ * an error: it only ever feeds a preselection. */
+export function lastUsedAgentIdInFile(filePath: string): AgentId | undefined {
+  try {
+    return lastUsedAgentId(JSON.parse(readFileSync(filePath, "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
 export class SessionStore {
   private records: SessionRecord;
   private migrated = false;
@@ -604,6 +640,12 @@ export class SessionStore {
         ...(entry.room?.role === "principal" ? { room: true as const } : {}),
         ...(this.titlePending.has(id) ? { titlePending: true as const } : {}),
       }));
+  }
+
+  /** See `lastUsedAgentId` — read from memory, so it is current even
+   * between a change and its write to disk. */
+  lastUsedAgentId(): AgentId | undefined {
+    return lastUsedAgentId(this.records);
   }
 
   /** Last-turn timestamp of a single session, for the callers that report a
