@@ -200,8 +200,14 @@ test("PATCH /control/profiles/:id stores a default agent preference that GET rep
   const unknownAgent = await patchProfile("lab", { agentPreference: { mode: "fixed", fixedAgentId: "nonexistent-cli" } });
   assert.equal(unknownAgent.status, 400);
   assert.match(((await unknownAgent.json()) as { error: string }).error, /unknown agent/);
-  assert.equal((await patchProfile("lab", { agentPreference: { mode: "always" } })).status, 400, "unknown mode");
+  const unknownMode = await patchProfile("lab", { agentPreference: { mode: "always" } });
+  assert.equal(unknownMode.status, 400, "unknown mode");
+  assert.deepEqual(await unknownMode.json(), { error: "invalid profile patch" }, "not the string an older relay answers to a field it doesn't know");
   assert.deepEqual((await listProfilesOverHttp()).find((profile) => profile.id === "lab")?.agentPreference, { mode: "fixed", fixedAgentId: "codex" }, "a refused PATCH writes nothing");
+
+  const lastUsed = await patchProfile("lab", { agentPreference: { mode: "lastUsed", fixedAgentId: "nonexistent-cli" } });
+  assert.equal(lastUsed.status, 200, "a last-used preference stores no agent, so its agent isn't checked");
+  assert.deepEqual(((await lastUsed.json()) as ListedProfile).agentPreference, { mode: "lastUsed" });
 
   assert.equal((await patchProfile("lab", { agentPreference: null })).status, 200);
   assert.equal((await listProfilesOverHttp()).find((profile) => profile.id === "lab")?.agentPreference, undefined);

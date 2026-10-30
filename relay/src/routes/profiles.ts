@@ -302,10 +302,16 @@ export const handleProfileRoutes: RouteHandler = async (req, res, ctx) => {
       .then((body) => {
         if (!isPatchProfileBody(body)) {
           res.writeHead(400);
-          res.end(JSON.stringify({ error: "label or colorIndex is required" }));
+          // Not the old "label or colorIndex is required": a relay from
+          // before agentPreference existed answers that string to a body
+          // carrying only agentPreference, and the client reads it as "this
+          // relay can't store one". A malformed body here must not look the same.
+          res.end(JSON.stringify({ error: "invalid profile patch" }));
           return;
         }
-        const fixedAgentId = body.agentPreference?.fixedAgentId;
+        // Only a fixed preference uses its agent; a lastUsed one drops it
+        // when stored, so there is nothing to refuse there.
+        const fixedAgentId = body.agentPreference?.mode === "fixed" ? body.agentPreference.fixedAgentId : undefined;
         if (fixedAgentId !== undefined && !ctx.registry.get(fixedAgentId)) {
           res.writeHead(400);
           res.end(JSON.stringify({ error: `unknown agent "${fixedAgentId}"` }));
