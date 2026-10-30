@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAgentRefresher, refreshSelectableAgents, type SelectableAgent, type SelectableAgentsTargets } from "./selectableAgents.js";
@@ -200,5 +200,68 @@ test("refreshSelectableAgents: a CLI that times out with no earlier detection is
     assert.equal(detection.installed, false);
     assert.equal(detection.timedOut, true);
     assert.deepEqual(published.selectable, []);
+  });
+});
+
+/** Logs every invocation's first arg to `log`, then answers `--version`
+ * after `delayMs`, and a `models` probe with one model after `delayMs`. */
+function writeCountingScript(dir: string, name: string, log: string, delayMs: number): string {
+  const path = join(dir, name);
+  writeFileSync(
+    path,
+    [
+      "#!/usr/bin/env node",
+      `require("node:fs").appendFileSync(${JSON.stringify(log)}, process.argv[2] + "\\n");`,
+      `setTimeout(() => process.stdout.write(process.argv[2] === "--version" ? "1.0.0\\n" : "MODELS\\n"), ${delayMs});`,
+    ].join("\n"),
+  );
+  chmodSync(path, 0o755);
+  return path;
+}
+
+function calls(log: string, arg: string): number {
+  try {
+    return readFileSync(log, "utf8").split("\n").filter((line) => line === arg).length;
+  } catch {
+    return 0;
+  }
+}
+
+test("createAgentRefresher: calls made during a refresh share one follow-up instead of each detecting again", async () => {
+  await withTmpDir(async (dir) => {
+    const log = join(dir, "calls.log");
+    const def = fixtureDef("counted", writeCountingScript(dir, "counted-cli.cjs", log, 300), CATALOG);
+    const { targets } = recordingTargets([def], dir);
+    const refresh = createAgentRefresher(targets);
+
+    const first = refresh();
+    const second = refresh();
+    const third = refresh();
+    assert.equal(second, third, "every call made while one runs waits for the same follow-up");
+    const results = await Promise.all([first, second, third]);
+
+    assert.ok(results.every((detections) => detections[0].installed));
+    assert.equal(calls(log, "--version"), 2, "the running refresh plus one follow-up");
+  });
+});
+
+test("createAgentRefresher: a catalog probe still running is not started again by the next refresh", async () => {
+  await withTmpDir(async (dir) => {
+    const log = join(dir, "calls.log");
+    const bin = writeCountingScript(dir, "probed-cli.cjs", log, 1000);
+    const def: AgentRuntimeDef = {
+      ...fixtureDef("probed", bin, CATALOG),
+      models: { kind: "cli-probe", args: ["models"], parse: (stdout) => (stdout.includes("MODELS") ? CATALOG : undefined) },
+    };
+    const { targets, published } = recordingTargets([def], dir);
+    const refresh = createAgentRefresher(targets);
+
+    await refresh();
+    await refresh();
+    const deadline = Date.now() + 10_000;
+    while (!published.catalogs.probed && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.deepEqual(published.catalogs.probed, CATALOG);
+    assert.equal(calls(log, "models"), 1);
   });
 });

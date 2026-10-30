@@ -46,7 +46,14 @@ export interface SelectableAgentsTargets {
  * and the rooms. Only a definite failure (not found, non-zero exit)
  * removes it.
  */
-export async function refreshSelectableAgents(targets: SelectableAgentsTargets, previous?: ReadonlyMap<string, AgentDetection>): Promise<readonly AgentDetection[]> {
+export async function refreshSelectableAgents(
+  targets: SelectableAgentsTargets,
+  previous?: ReadonlyMap<string, AgentDetection>,
+  /** Agents whose catalog probe is still running, shared across calls: a
+   * probe takes seconds and spawns the CLI, so a second refresh in that
+   * window must not start another one. */
+  probing: Set<string> = new Set(),
+): Promise<readonly AgentDetection[]> {
   const detections = (await detectRuntimes(targets.defs, targets.homeOverride)).map((detection) => {
     const earlier = previous?.get(detection.id);
     return detection.timedOut && earlier?.installed ? earlier : detection;
@@ -56,15 +63,18 @@ export async function refreshSelectableAgents(targets: SelectableAgentsTargets, 
   targets.publishRoomRuntimes(selectable.map((detection) => detection.id).filter((id) => targets.roomRuntimeIds.includes(id)));
   for (const def of targets.defs) {
     if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
-    if (targets.hasModelCatalog?.(def.identity.id)) continue;
+    const id = def.identity.id;
+    if (targets.hasModelCatalog?.(id) || probing.has(id)) continue;
+    probing.add(id);
     probeModelCatalog(def, targets.homeOverride, targets.cwd)
       .then((catalog) => {
         if (!catalog) return;
-        targets.publishModelCatalog(def.identity.id, catalog);
+        targets.publishModelCatalog(id, catalog);
       })
       .catch((error: unknown) => {
-        console.error(`[relay] failed to probe ${def.identity.id} model catalog:`, error);
-      });
+        console.error(`[relay] failed to probe ${id} model catalog:`, error);
+      })
+      .finally(() => probing.delete(id));
   }
   return detections;
 }
@@ -73,12 +83,38 @@ export async function refreshSelectableAgents(targets: SelectableAgentsTargets, 
  * `refreshSelectableAgents` with memory: each call hands it what the last
  * one found, so a timeout keeps an agent instead of dropping it. One per
  * relay, owned by the composition root.
+ *
+ * Calls never overlap. One made while a refresh runs waits for a single
+ * follow-up refresh, shared by every call made in the meantime: it starts
+ * after the running one, so it still sees a CLI installed a moment ago,
+ * and two refreshes can't finish out of order and publish a stale answer.
  */
 export function createAgentRefresher(targets: SelectableAgentsTargets): () => Promise<readonly AgentDetection[]> {
   let last = new Map<string, AgentDetection>();
-  return async () => {
-    const detections = await refreshSelectableAgents(targets, last);
-    last = new Map(detections.map((detection) => [detection.id, detection]));
-    return detections;
+  const probing = new Set<string>();
+  let running: Promise<readonly AgentDetection[]> | undefined;
+  let queued: Promise<readonly AgentDetection[]> | undefined;
+
+  const run = (): Promise<readonly AgentDetection[]> => {
+    running = refreshSelectableAgents(targets, last, probing)
+      .then((detections) => {
+        last = new Map(detections.map((detection) => [detection.id, detection]));
+        return detections;
+      })
+      .finally(() => {
+        running = undefined;
+      });
+    return running;
+  };
+
+  return () => {
+    if (!running) return run();
+    queued ??= running
+      .catch(() => undefined)
+      .then(() => {
+        queued = undefined;
+        return run();
+      });
+    return queued;
   };
 }
