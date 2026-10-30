@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ACTIVITY_RECENCY_MS,
   BACKOFF_MAX_MS,
   CLAUDE_PROBE_INTERVAL_MS,
   activityThreshold,
@@ -85,12 +86,21 @@ test("claude: with the window expired, local activity (a window already open) pr
   assert.equal(decideClaudeAuto(ctx({ usage: { ...expired, status: "no_subscription" }, localActivity: true })), "skip");
 });
 
-test("activity threshold: after the last reset (else the start), and inside the last 5h", () => {
-  const usage = claude(NOW - 10 * MIN);
-  assert.equal(activityThreshold(usage, NOW, NOW - 99 * 60 * MIN), NOW - 10 * MIN);
-  assert.equal(activityThreshold(undefined, NOW, NOW - 2 * MIN), NOW - 2 * MIN);
-  // A reset long gone: only writes recent enough that their window is still open.
-  assert.equal(activityThreshold(claude(NOW - 9 * 60 * MIN), NOW, NOW - 99 * 60 * MIN), NOW - 300 * MIN + MIN);
+test("activity threshold: after the last known reset and within the last 10 min; none without a known reset", () => {
+  assert.equal(activityThreshold(claude(NOW - 2 * MIN), NOW), NOW - 2 * MIN);
+  assert.equal(activityThreshold(claude(NOW - 60 * MIN), NOW), NOW - ACTIVITY_RECENCY_MS);
+  assert.equal(activityThreshold(undefined, NOW), null);
+  assert.equal(activityThreshold({ runtime: "claude", status: "unknown", windows: [], observedAt: null }, NOW), null);
+  assert.equal(activityThreshold(claude(null), NOW), null);
+});
+
+// D1b: local activity is never a reason to probe a profile nothing has been
+// read for — the write says a window was open then, not that it still is.
+test("claude: with no known reset, local activity never probes", () => {
+  for (const usage of [undefined, { runtime: "claude", status: "unknown", windows: [], observedAt: null } satisfies RuntimePlanUsage, claude(null)]) {
+    assert.equal(decideClaudeAuto(ctx({ usage, localActivity: true, lastReadingAt: null })), "skip", JSON.stringify(usage));
+    assert.equal(decideClaudeAuto(ctx({ usage, localActivity: true, lastReadingAt: null, onConnect: true })), "skip");
+  }
 });
 
 test("codex: reads every minute with a client, never without", () => {

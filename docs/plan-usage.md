@@ -50,8 +50,11 @@ With the window expired or never seen, the relay doesn't probe on its own. The
 window shows 0 % until one of these happens:
 
 - a turn runs through anywh;
-- a Claude transcript of the profile is written after the last reset (use in a
-  terminal or an editor), which means a window is already open;
+- a Claude transcript of the profile was written in the last 10 minutes and
+  after the last known reset (use in a terminal or an editor), which means a
+  window was open a moment ago. Without a known reset (a profile never read)
+  this doesn't apply: a write says a window was open then, not that it still
+  is;
 - the person presses the refresh button. **The button always probes**, and
   with an expired window that opens a new one. That is intended: it is an
   explicit request.

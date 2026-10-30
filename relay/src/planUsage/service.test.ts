@@ -195,6 +195,19 @@ test("expired window with new local activity: one probe, since a window is alrea
   assert.equal(t.claude()?.windows[0]?.usedPercent, 3);
 });
 
+test("never read (D): local activity doesn't probe; only the button does", async () => {
+  const t = harness();
+  t.h.activity = true;
+  t.service.connectClient();
+  await t.advance(30 * MIN);
+  assert.equal(t.calls.probe, 0);
+  assert.equal(t.calls.activity, 0);
+  assert.equal(t.claude()?.status, "unknown");
+  assert.equal(t.claude()?.windows.length, 0);
+  await t.service.refresh({ force: true });
+  assert.equal(t.calls.probe, 1);
+});
+
 test("no client: nothing is read automatically, and the last release stops the timer", async () => {
   const t = harness({ installed: ["claude", "codex"] });
   await t.service.refresh({ force: true });

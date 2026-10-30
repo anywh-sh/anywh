@@ -6,7 +6,8 @@
 //   (`shouldAutoProbe`: not unknown, not limited, not within 60 s of its
 //   reset) and 4 min since the last reading — or, with the window expired,
 //   local activity (a transcript written after the last reset), which means
-//   a window is already open.
+//   a window is already open. Only a write in the last 10 min counts, and
+//   never without a known reset (see `activityThreshold`).
 // - Codex: reading costs no quota and opens nothing. Every minute with ≥1
 //   client.
 // - A new connection reads what is due now, but never within 60 s of the
@@ -17,7 +18,7 @@
 //
 // Pure: the clock is a parameter.
 import { PROBE_EDGE_MARGIN_MS, fiveHourWindow, shouldAutoProbe } from "./ingest.js";
-import { PLAN_WINDOW_MINS, type RuntimePlanUsage } from "./types.js";
+import type { RuntimePlanUsage } from "./types.js";
 
 export const CLAUDE_PROBE_INTERVAL_MS = 4 * 60_000;
 export const CODEX_READ_INTERVAL_MS = 60_000;
@@ -67,16 +68,23 @@ export function claudeWindowActive(usage: RuntimePlanUsage | undefined, now: num
   return window?.resetsAt != null && window.resetsAt - PROBE_EDGE_MARGIN_MS > now;
 }
 
+/** How recent a transcript write must be to count as local activity. A
+ * write only says a window was open *at that moment*: the window may have
+ * started almost 5 h earlier and ended since. Keeping this short bounds that
+ * case to "the window ended within the last few minutes with no use since". */
+export const ACTIVITY_RECENCY_MS = 10 * 60_000;
+
 /**
- * The instant after which a Claude transcript write means a 5h window is
- * open that the relay hasn't seen: after the last known reset (or, with
- * none known, since the service started), and recent enough that the window
- * it opened hasn't itself expired (with the edge margin).
+ * The instant after which a Claude transcript write counts as local use the
+ * relay hasn't seen: after the last known 5h reset, and within the last
+ * `ACTIVITY_RECENCY_MS`. Null when no reset is known (nothing read yet, or a
+ * reading without a 5h window): then local activity never probes — only a
+ * turn or the button reads.
  */
-export function activityThreshold(usage: RuntimePlanUsage | undefined, now: number, startedAt: number): number {
-  const window = usage ? fiveHourWindow(usage) : undefined;
-  const lastReset = window?.resetsAt ?? startedAt;
-  return Math.max(lastReset, now - PLAN_WINDOW_MINS.fiveHour * 60_000 + PROBE_EDGE_MARGIN_MS);
+export function activityThreshold(usage: RuntimePlanUsage | undefined, now: number): number | null {
+  const lastReset = usage ? fiveHourWindow(usage)?.resetsAt : undefined;
+  if (lastReset == null) return null;
+  return Math.max(lastReset, now - ACTIVITY_RECENCY_MS);
 }
 
 export type ClaudeAutoDecision = "probe" | "skip";
@@ -89,6 +97,7 @@ export function decideClaudeAuto(ctx: ClaudeAutoContext): ClaudeAutoDecision {
   // alone either way.
   if (claudeWindowActive(ctx.usage, ctx.now)) return "skip";
   if (ctx.usage?.status === "no_subscription" || ctx.usage?.status === "signed_out") return "skip";
+  if (activityThreshold(ctx.usage, ctx.now) === null) return "skip";
   return ctx.localActivity && due(ctx, CONNECT_FLOOR_MS) ? "probe" : "skip";
 }
 

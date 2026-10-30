@@ -112,10 +112,8 @@ export class PlanUsageService {
   private claudeAuthInFlight?: Promise<void>;
   private lastClaudeAuthCheckAt: number | null = null;
   private salt?: Promise<Uint8Array | undefined>;
-  private readonly startedAt: number;
 
   constructor(private readonly deps: PlanUsageServiceDeps) {
-    this.startedAt = deps.now();
     const stored = new Map((deps.store?.load() ?? []).map((usage) => [usage.runtime, usage]));
     this.slots = {
       claude: { usage: stored.get("claude") ?? emptyPlanUsage("claude"), failures: 0, backoffUntil: null },
@@ -255,7 +253,8 @@ export class PlanUsageService {
     });
     let decision = decideClaudeAuto(ctx(false));
     if (decision === "skip" && decideClaudeAuto(ctx(true)) === "probe" && !claudeWindowActive(slot.usage, now)) {
-      const active = await this.deps.hasClaudeActivitySince(activityThreshold(slot.usage, now, this.startedAt)).catch(() => false);
+      const since = activityThreshold(slot.usage, now);
+      const active = since !== null && (await this.deps.hasClaudeActivitySince(since).catch(() => false));
       // Re-decided after the await: a turn or another read may have started.
       decision = active ? decideClaudeAuto({ ...ctx(true), now: this.deps.now() }) : "skip";
     }
