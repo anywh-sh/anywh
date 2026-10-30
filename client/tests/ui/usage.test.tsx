@@ -63,6 +63,13 @@ describe("plan usage in the status bar", () => {
 
     await user.click(indicator);
     expect(screen.getByRole("button", { name: /^Usage: / })).toHaveAttribute("aria-expanded", "true");
+    const card = await screen.findByRole("dialog", { name: "Usage" });
+    // The active tab's profile first; the other one's 91% is right there too.
+    expect(Array.from(card.querySelectorAll<HTMLElement>("[data-usage-profile]")).map((section) => section.dataset.usageProfile)).toEqual([
+      "pessoal",
+      "trabalho",
+    ]);
+    expect(within(card.querySelector<HTMLElement>('[data-usage-profile="trabalho"]')!).getByRole("meter")).toHaveAttribute("aria-valuenow", "91");
     expect(
       relay.sent
         .filter((entry) => entry.message.type === "plan_usage_refresh")
@@ -72,5 +79,18 @@ describe("plan usage in the status bar", () => {
       ["ws://127.0.0.1:8001/plan-usage/watch", false],
       ["ws://127.0.0.1:8002/plan-usage/watch", false],
     ]);
+
+    // The refresh button forces a read on every relay, and spins until both answer.
+    relay.sent.length = 0;
+    await user.click(within(card).getByRole("button", { name: "Refresh usage" }));
+    expect(relay.sent.map((entry) => [entry.url, entry.message]).sort()).toEqual([
+      ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
+      ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
+    ]);
+    await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).not.toHaveAttribute("aria-busy", "true"));
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Usage: / })).toHaveFocus();
   });
 });

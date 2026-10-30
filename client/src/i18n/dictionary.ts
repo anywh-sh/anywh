@@ -1307,6 +1307,39 @@ export interface Dictionary {
      * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
      * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
     usage: {
+      /** The details card (`UsageCard`). */
+      card: {
+        title: string;
+        /** `{count}` profiles in the card's header, plural and singular. */
+        profiles: string;
+        profilesOne: string;
+        /** `{count}` accounts shown in full. */
+        accounts: string;
+        accountsOne: string;
+        refresh: string;
+        /** Tag on the group of the active tab's profile. */
+        activeTab: string;
+        connecting: string;
+        /** A profile whose relay is unreachable, nothing cached. */
+        offline: string;
+        /** Same, with its last numbers shown: "offline · 12m ago". `{ago}`
+         * is `updatedAgo`. */
+        staleSince: string;
+        unsupported: string;
+        noAgents: string;
+        /** Repeated account: "same account as {profile}" — `{profile}` is
+         * drawn as the profile's square and name. */
+        sameAccount: string;
+        signedOut: string;
+        /** The last read failed; the rows are the reading before it. */
+        readErrorKept: string;
+        /** Spoken renewal of a window: "renews in 1h 12m". */
+        renewsIn: string;
+        /** "renews Fri 14:00". */
+        renewsOn: string;
+        /** Legend of the 1px mark on every bar. */
+        paceLegend: string;
+      };
       /** The text seal standing in for each agent's logo (`AgentMark`). */
       marks: Record<KnownAgentId, string>;
       /** The status bar indicator's accessible name: "Usage: {items}". The

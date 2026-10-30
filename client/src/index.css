@@ -495,6 +495,19 @@ body {
   animation: step-in 240ms var(--motion-ease) both;
 }
 
+/* The usage card rising out of the status bar it is anchored to — the
+ * opposite direction of `step-in`, and shorter: it is a peek, opened and
+ * closed often. Reduced motion is covered by the blanket rule above. */
+@keyframes usage-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.animate-usage-card-in {
+  animation: usage-card-in 140ms var(--motion-ease) both;
+}
+
 /* Radix's `ScrollArea` injects an inner wrapper with `display:table;
  * min-width:100%` (as an inline style, not a class) around the content — a
  * table grows to the size of its content without wrapping (our `truncate`
