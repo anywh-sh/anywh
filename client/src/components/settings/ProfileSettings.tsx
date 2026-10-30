@@ -24,6 +24,7 @@ import { currentPlatform } from "@/lib/platform/platform";
 import { profileBadge } from "@/lib/profiles/profileBadge";
 import {
   addProfile,
+  findProfile,
   isTailnetProfile,
   PROFILE_COLOR_COUNT,
   profileColorClass,
@@ -201,16 +202,21 @@ function AgentControl({ profile }: { profile: Profile }) {
     return () => {
       cancelled = true;
     };
-  }, [profile.id, profile.host, profile.relayPort]);
+  }, [profile]);
 
   async function change(next: AgentPreference): Promise<void> {
     setError(null);
     try {
       const { host, port, token } = await resolveConnection(profile);
       const updated = await updateProfileMeta(host, port, profile.id, { agentPreference: next }, token);
-      addProfile({ ...profile, agentPreference: updated.agentPreference ?? next });
+      // The store's copy, not the one this render captured: a rename or a
+      // color change that landed meanwhile must not be undone by this.
+      addProfile({ ...(findProfile(profile.id) ?? profile), agentPreference: updated.agentPreference ?? next });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // What a relay that predates the preference answers; a current one
+      // says "invalid profile patch" for a malformed one instead, which is
+      // an error to show, not a missing feature.
       if (message.includes("label or colorIndex is required")) setUnsupported(true);
       else setError(message);
     }
@@ -280,7 +286,7 @@ function IdentityRows({ profile, effectiveColorIndex }: { profile: Profile; effe
     try {
       const { host, port, token } = await resolveConnection(profile);
       const updated = await updateProfileMeta(host, port, profile.id, patch, token);
-      addProfile({ ...profile, label: updated.label, colorIndex: updated.colorIndex });
+      addProfile({ ...(findProfile(profile.id) ?? profile), label: updated.label, colorIndex: updated.colorIndex });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
