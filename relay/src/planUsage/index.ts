@@ -70,3 +70,38 @@ export { codexHomeDir, hasCodexAuthFile } from "./codexHome.js";
 
 export type { PlanUsageCaptureEvent, PlanUsageCaptureListener } from "./capture.js";
 export { CODEX_RATE_LIMITS_UPDATED_METHOD, PlanUsageCapture, planUsageCapture, planUsageRuntimeOf } from "./capture.js";
+
+export type { AutoReadContext, ClaudeAutoContext, ClaudeAutoDecision } from "./scheduler.js";
+export {
+  BACKOFF_BASE_MS,
+  BACKOFF_MAX_MS,
+  CLAUDE_PROBE_INTERVAL_MS,
+  CODEX_READ_INTERVAL_MS,
+  CONNECT_FLOOR_MS,
+  SCHEDULER_TICK_MS,
+  activityThreshold,
+  backoffDelay,
+  claudeWindowActive,
+  decideClaudeAuto,
+  decideCodexAuto,
+  nextClaudeAutoRefreshAt,
+  nextCodexAutoRefreshAt,
+} from "./scheduler.js";
+
+export { claudeProjectsDir, hasClaudeActivitySince } from "./transcriptActivity.js";
+
+export type {
+  CreatePlanUsageServiceOptions,
+  PlanUsageListener,
+  PlanUsageRefreshOptions,
+  PlanUsageServiceDeps,
+  PlanUsageSnapshotStore,
+} from "./service.js";
+export {
+  PLAN_USAGE_PROBE_ENV,
+  PlanUsageService,
+  createFilePlanUsageStore,
+  createPlanUsageService,
+  isPlanUsageProbeEnabled,
+  planUsagePathFor,
+} from "./service.js";
