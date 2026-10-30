@@ -1,0 +1,9 @@
+#!/bin/sh
+# Fake `systemctl` for the e2e tier, ahead of the real one on PATH (see
+# wdio.conf.js). The in-app installer's prerequisites ask `systemctl --user`
+# whether a user session exists and which anywh-relay@ units are active;
+# answered for real, a developer's machine running its own relays would
+# fail the check — and nothing in a test may talk to the real user session
+# (.anywh/skills/tests/SKILL.md). Says "there is a user session, with no
+# relay running", and does nothing else.
+exit 0
