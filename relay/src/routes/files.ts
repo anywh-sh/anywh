@@ -12,7 +12,7 @@ import {
   resolveRawFile,
   type FilesError,
 } from "../fs/fsFiles.js";
-import { MAX_UPLOAD_BYTES, readRawBody, saveUpload } from "../fs/uploads.js";
+import { MAX_UPLOAD_BYTES, readRawBody, sanitizeUploadName, saveUpload, uploadExtension } from "../fs/uploads.js";
 import { defaultCwd } from "../host/paths.js";
 import type { RouteHandler } from "./context.js";
 
@@ -254,8 +254,8 @@ export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
 
   if (req.method === "POST" && req.url?.startsWith("/upload")) {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
-    const ext = url.searchParams.get("ext") ?? "bin";
-    await saveUpload(req, ext)
+    const name = sanitizeUploadName(url.searchParams.get("name"));
+    await saveUpload(req, uploadExtension(url.searchParams.get("ext"), name), name)
       .then((result) => {
         res.setHeader("Content-Type", "application/json");
         res.setHeader("Access-Control-Allow-Origin", "*");

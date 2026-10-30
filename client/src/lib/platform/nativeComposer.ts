@@ -4,7 +4,9 @@ import type { NativeShellTheme } from "@/lib/platform/nativeShell";
 export interface NativeComposerAttachment {
   /** Attachment id (its path on the relay), handed back on removal. */
   path: string;
-  kind: "image" | "video";
+  /** The native side only tells `video` apart; anything else without a
+   * thumbnail already draws as a document chip there. */
+  kind: "image" | "video" | "file";
   /** `data:image/jpeg;base64,…`, small; `null` draws a name chip instead. */
   thumbnail: string | null;
   /** Used by the chip only. */

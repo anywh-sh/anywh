@@ -35,6 +35,7 @@ import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
+import { ATTACHMENT_ACCEPT } from "@/lib/composer/attachmentTypes";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
 import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
@@ -641,9 +642,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       // as the attach button and drag-and-drop instead of letting
       // ProseMirror try to paste it as inline content.
       handlePaste: (view, event) => {
-        const files = Array.from(event.clipboardData?.files ?? []).filter(
-          (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
-        );
+        // Every pasted file goes to the upload pipeline, which refuses the
+        // unsupported ones out loud instead of dropping them here.
+        const files = Array.from(event.clipboardData?.files ?? []);
         if (files.length > 0) {
           event.preventDefault();
           onAddFiles(files);
@@ -795,15 +796,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 </button>
               </div>
             ) : (
-              // Nothing to preview (a video in a codec the webview can't
-              // decode): the design's mono chip, which names the file
-              // instead of standing in for a picture nobody can see.
+              // Nothing to preview (a text/code/PDF file, or a video in a
+              // codec the webview can't decode): the design's mono chip,
+              // which names the file instead of standing in for a picture
+              // nobody can see.
               <span
                 key={image.path}
                 className="flex h-7 items-center gap-2 border border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
               >
                 {image.kind === "video" ? <Video className="size-3 text-primary" /> : <FileText className="size-3 text-primary" />}
-                <span className="max-w-40 truncate">{attachmentName(image.path, copy.unnamedAttachment)}</span>
+                <span className="max-w-40 truncate">{attachmentName(image, copy.unnamedAttachment)}</span>
                 <button
                   type="button"
                   onClick={() => onRemoveImage(image.path)}
@@ -874,7 +876,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept={ATTACHMENT_ACCEPT}
                 multiple
                 className="hidden"
                 onChange={(event) => {
@@ -889,7 +891,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 size="icon-sm"
                 className="size-[30px] text-text-faint"
                 onClick={() => fileInputRef.current?.click()}
-                aria-label={copy.attach}
+                aria-label={copy.attachAnyFile}
               >
                 <Plus className="size-4" />
               </Button>

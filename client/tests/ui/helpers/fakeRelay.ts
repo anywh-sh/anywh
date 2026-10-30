@@ -119,6 +119,13 @@ export interface SentMessage {
   message: Record<string, unknown>;
 }
 
+/** One `POST /upload`: the query the app sent and the path it got back. */
+export interface FakeUpload {
+  ext: string | null;
+  name: string | null;
+  path: string;
+}
+
 /** One entry of `GET /control/agents`, as the relay answers it. */
 export interface FakeAgent {
   id: string;
@@ -205,6 +212,9 @@ export interface FakeRelay {
   patches: { id: string; body: Record<string, unknown> }[];
   /** How many times `GET /control/agents` was asked. */
   agentChecks: () => number;
+  /** Every `POST /upload` the app made, answered with a path under
+   * `/tmp/anywh-uploads/` the way a real relay names a saved file. */
+  uploads: FakeUpload[];
   /** Restores the real `WebSocket`/`fetch` globals — call in `afterEach`. */
   uninstall: () => void;
 }
@@ -215,6 +225,7 @@ export function installFakeRelay(
 ): FakeRelay {
   const sockets: FakeRelaySocket[] = [];
   const sent: SentMessage[] = [];
+  const uploads: FakeUpload[] = [];
 
   const planUsage: Record<string, FakePlanUsage> | null = options.planUsage ? { ...options.planUsage } : null;
   const deadSockets = new Set<FakeRelaySocket>();
@@ -367,6 +378,12 @@ export function installFakeRelay(
         agentChecks++;
         return Promise.reject(new TypeError("Load failed"));
       }
+      if (url.pathname === "/upload" && init?.method === "POST") {
+        const ext = url.searchParams.get("ext");
+        const upload = { ext, name: url.searchParams.get("name"), path: `/tmp/anywh-uploads/upload-${String(uploads.length + 1)}.${ext ?? "bin"}` };
+        uploads.push(upload);
+        return Promise.resolve(reply(200, { path: upload.path }));
+      }
       const scripted = control && handleControl(url, init, control);
       return scripted
         ? Promise.resolve(scripted)
@@ -394,6 +411,7 @@ export function installFakeRelay(
     control,
     patches,
     agentChecks: () => agentChecks,
+    uploads,
     emit: (message) => {
       for (const socket of sockets) socket.emitMessage(message);
     },
