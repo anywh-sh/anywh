@@ -193,7 +193,9 @@ export function installFakeRelay(
   ): Response | null {
     if (url.pathname === "/control/agents") {
       agentChecks++;
-
+      // A legacy relay's answer never reaches here: its fetch rejects first
+      // (see the stub below).
+      if (scripted.agents === "legacy") return null;
       return reply(200, {
         agents: scripted.agents.map((a) => ({
           id: a.id,
