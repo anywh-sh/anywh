@@ -562,6 +562,21 @@ describe("anywh already on this machine", () => {
     expect(getProfiles().map((p) => p.id)).toEqual(["pessoal", "trabalho"]);
   });
 
+  it("a relaunch in the middle of adopting two profiles comes back to it, not to the shell", async () => {
+    // What the previous launch left: both profiles saved, neither verified.
+    setProfiles([
+      { id: "pessoal", label: "pessoal", host: LOCAL.host, relayPort: LOCAL.port, localRelay: true, unverified: true },
+      { id: "trabalho", label: "trabalho", host: LOCAL.host, relayPort: 8768, localRelay: true, unverified: true },
+    ]);
+    localStorage.setItem("anywh:first-run:adopting", "1");
+    native.probe.mockResolvedValue(TWO_PROFILES);
+    renderApp();
+
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+    expect(screen.queryByRole("button", { name: en.shell.profiles.activeProfile })).not.toBeInTheDocument();
+    expect(localStorage.getItem("anywh:first-run:adopting")).toBeNull();
+  });
+
   it("giving up with Cancel goes back to the welcome with no profile behind, and the next try installs", async () => {
     native.probe.mockResolvedValue(TWO_PROFILES);
     silent = [LOCAL.port];

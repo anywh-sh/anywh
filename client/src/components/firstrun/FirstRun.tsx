@@ -14,7 +14,7 @@ import { localInstallPossible, probeLocalRelay, type LocalRelayProbe } from "@/l
 import { getPendingAgentsProfileId } from "@/lib/install/pendingAgents";
 import { currentPlatform } from "@/lib/platform/platform";
 import { inTauri } from "@/lib/platform/tauri";
-import { adoptLocalProfiles, canAdopt, getAdoptState } from "@/lib/profiles/adoptLocal";
+import { adoptLocalProfiles, canAdopt, getAdoptState, isAdoptionPending, rollback } from "@/lib/profiles/adoptLocal";
 import {
   beginFirstRun,
   ensureFirstRunViews,
@@ -51,6 +51,9 @@ function initialViews(): FirstRunView[] {
   if (pending) return [{ screen: "agents", profileId: pending.id, remoteHost: pending.localRelay ? undefined : pending.host }];
   const setup = getProfileSetupState().state;
   if (!localInstallPossible() && !onWindowsDesktop()) return [{ screen: "other" }];
+  // An adoption closed before its agents step: back to it; the probe below
+  // picks it up again.
+  if (isAdoptionPending()) return [{ screen: "welcome" }, { screen: "preparing", mode: "adopt" }];
   if (setup && setup.status !== "ready") return [{ screen: "welcome" }, { screen: "other" }];
   return [{ screen: "welcome" }];
 }
@@ -111,6 +114,14 @@ export function FirstRun() {
     void promise.then((result) => {
       if (cancelled) return;
       setProbe(result);
+      if (isAdoptionPending() && getAdoptState().status === "idle") {
+        if (canAdopt(result) && result) adoptLocalProfiles(result);
+        else {
+          // Nothing left to adopt: let it go and start from the welcome.
+          rollback();
+          resetFirstRunViews([{ screen: "welcome" }]);
+        }
+      }
       const previous = result?.previousRun;
       const onWelcome = getFirstRunViews().every((v) => v.screen === "welcome");
       if (previous && onWelcome && (previous.alive || (!previous.ok && previous.exitCode === null)) && getLocalInstallState().install.status === "idle") {

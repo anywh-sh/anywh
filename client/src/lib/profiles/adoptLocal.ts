@@ -44,6 +44,23 @@ export interface AdoptState {
   failure: LocalFailure | null;
 }
 
+/**
+ * Set while an adoption hasn't reached its agents step, so a relaunch in
+ * the middle of it (closed on "Connecting", or on its failure) comes back
+ * to it instead of opening the shell on profiles that never answered — the
+ * gate's single-unverified-profile clause can't see two of them.
+ */
+export const ADOPTING_STORAGE_KEY = "anywh:first-run:adopting";
+
+export function isAdoptionPending(): boolean {
+  return localStorage.getItem(ADOPTING_STORAGE_KEY) !== null;
+}
+
+function setAdoptionPending(pending: boolean): void {
+  if (pending) localStorage.setItem(ADOPTING_STORAGE_KEY, "1");
+  else localStorage.removeItem(ADOPTING_STORAGE_KEY);
+}
+
 function initialState(): AdoptState {
   return { status: "idle", profiles: [], activeId: null, failure: null };
 }
@@ -100,6 +117,7 @@ export function adoptLocalProfiles(probe: LocalRelayProbe): void {
     return;
   }
   for (const profile of profiles) addProfile(profile);
+  setAdoptionPending(true);
   publish({ status: "running", profiles, activeId: active.id, failure: null });
   watchSetup();
   releaseSettledProfileSetup(active.id);
@@ -116,6 +134,8 @@ function watchSetup(): void {
     if (!setup || !("profile" in setup) || setup.profile.id !== state.activeId) return;
     if (setup.status === "ready") {
       stopWatchingSetup();
+      // From here the agents step holds the relaunch (its own flag).
+      setAdoptionPending(false);
       publish({ ...state, status: "ready", failure: null });
     } else if (setup.status === "failed") {
       publish({ ...state, status: "failed", failure: { code: "unresponsive", detail: "" } });
@@ -150,6 +170,7 @@ export function rollback(): void {
   const adopted = state.profiles;
   dismissProfileSetup();
   for (const profile of adopted) removeProfile(profile.id);
+  setAdoptionPending(false);
   publish(initialState());
 }
 

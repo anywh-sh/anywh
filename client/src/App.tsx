@@ -48,6 +48,7 @@ import { useProfileImport } from "@/hooks/profiles/useProfileImport";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
 import { getPendingAgentsProfileId } from "@/lib/install/pendingAgents";
+import { isAdoptionPending } from "@/lib/profiles/adoptLocal";
 import { useActiveTheme } from "@/hooks/relay/useThemes";
 import { useProfileSync } from "@/hooks/relay/useProfileSync";
 import { useTailnetSidecarOwner } from "@/hooks/profiles/useTailnetSidecarOwner";
@@ -110,8 +111,11 @@ export default function App() {
   // The agents step is the first run's last, and its profile already
   // exists: a relaunch on it must come back to it, not to the shell.
   const pendingAgents = getPendingAgentsProfileId() !== null;
+  // Likewise an adoption closed before its agents step (any number of
+  // profiles, all still unverified).
+  const adopting = isAdoptionPending() && !firstRun.shellChosen;
 
-  if (profiles.length === 0 || firstRun.active || (soleUnverified && !firstRun.shellChosen) || pendingAgents) return <FirstRun />;
+  if (profiles.length === 0 || firstRun.active || (soleUnverified && !firstRun.shellChosen) || pendingAgents || adopting) return <FirstRun />;
   return <AppShell />;
 }
 
