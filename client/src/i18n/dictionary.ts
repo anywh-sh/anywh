@@ -315,7 +315,6 @@ export interface Dictionary {
     welcome: {
       title: string;
       body: string;
-      worksWith: string;
       cta: string;
       ctaHint: string;
       otherMachine: string;

@@ -30,8 +30,8 @@ describe("Welcome", () => {
     const handlers = renderWelcome();
     expect(screen.getByRole("heading", { name: welcome.title })).toBeInTheDocument();
     expect(screen.getByText(welcome.ctaHint)).toBeInTheDocument();
-    expect(screen.getByText(en.chat.composer.agentNames.claude)).toBeInTheDocument();
-    expect(screen.getByText(en.chat.composer.agentNames.codex)).toBeInTheDocument();
+    // The agents are the agents step's to list, not the welcome's.
+    expect(screen.queryByText(en.chat.composer.agentNames.claude)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: welcome.cta }));
     expect(handlers.onSetUp).toHaveBeenCalledTimes(1);

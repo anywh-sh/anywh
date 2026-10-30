@@ -804,7 +804,6 @@ export const en: Dictionary = {
     welcome: {
       title: "Your coding agents, wherever you are.",
       body: "anywh installs next to the agents you already use. They keep running on this machine, with your login, and you talk to them from here or from your phone.",
-      worksWith: "Works with",
       cta: "Set up on this machine",
       ctaHint: "About 1 minute · no admin password",
       otherMachine: "The agent runs on another machine?",

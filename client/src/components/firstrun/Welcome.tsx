@@ -7,9 +7,6 @@ import { useDict } from "@/i18n";
 const WSL_INSTALL_URL = "https://learn.microsoft.com/windows/wsl/install";
 const AGENT_INSTALL_URL = "https://code.claude.com/docs/en/setup";
 
-/** The agents the welcome names, in the order the relay's registry has them. */
-const WORKS_WITH = ["claude", "codex"] as const;
-
 /**
  * The first screen on a desktop: what anywh is, one way in ("set up on this
  * machine") and one way around it ("the agent runs on another machine?").
@@ -35,7 +32,6 @@ export function Welcome({
 }) {
   const dict = useDict();
   const copy = dict.firstRun.welcome;
-  const names = dict.chat.composer.agentNames;
 
   return (
     <OnboardingFrame large>
@@ -44,14 +40,6 @@ export function Welcome({
           {copy.title}
         </h1>
         <p className="max-w-[60ch] text-[15px] leading-[1.7] text-pretty text-muted-foreground">{copy.body}</p>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="mr-1 font-mono text-[11.5px] text-text-faint">{copy.worksWith}</span>
-          {WORKS_WITH.map((id) => (
-            <span key={id} className="inline-flex h-7 items-center border border-border-soft bg-bg-chrome px-2.5 text-[13px] text-muted-foreground">
-              {names[id]}
-            </span>
-          ))}
-        </div>
       </section>
 
       {windows ? (
