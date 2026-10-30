@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AdvancedOptions } from "@/components/firstrun/AdvancedOptions";
+import { LocaleProvider, useLocale } from "@/i18n";
 import { en } from "@/i18n/en";
+import { ptBr } from "@/i18n/pt-br";
 
 /**
  * The native edge is the only thing stubbed: whether an in-app install
@@ -78,6 +80,29 @@ describe("AdvancedOptions", () => {
     await user.type(screen.getByLabelText(copy.address.custom, { selector: "input" }), "relay.casa.example");
     await user.click(cta);
     expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ host: "relay.casa.example" }));
+  });
+
+  it("a language switch after opening isn't a rename: the profile stays default, labelled in the new language", async () => {
+    const user = userEvent.setup();
+    const onInstall = vi.fn();
+    function SwitchToPt() {
+      const { setLocale } = useLocale();
+      return (
+        <button type="button" onClick={() => setLocale("pt-BR")}>
+          pt
+        </button>
+      );
+    }
+    localStorage.setItem("anywh:locale", "en");
+    render(
+      <LocaleProvider>
+        <SwitchToPt />
+        <AdvancedOptions onInstall={onInstall} onConnect={() => {}} />
+      </LocaleProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "pt" }));
+    await user.click(screen.getByRole("button", { name: ptBr.firstRun.advanced.app.cta }));
+    expect(onInstall).toHaveBeenCalledWith(expect.objectContaining({ profileId: undefined, label: ptBr.firstRun.profile.defaultLabel }));
   });
 
   it("refuses an address a shell would read as more than one, and says why", async () => {

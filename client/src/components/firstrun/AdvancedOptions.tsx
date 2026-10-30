@@ -114,7 +114,10 @@ export function AdvancedOptions({
   const [rows, setRows] = useState<AddressRow[]>([{ choice: "loopback", value: LOOPBACK }]);
   const [choice, setChoice] = useState<AddressChoice>("loopback");
   const [custom, setCustom] = useState("");
-  const [name, setName] = useState(dict.firstRun.profile.defaultLabel);
+  // The label the field opened with: switching language afterwards must not
+  // read as the reader renaming the profile (and give it a new id).
+  const [initialName] = useState(dict.firstRun.profile.defaultLabel);
+  const [name, setName] = useState(initialName);
   const [portText, setPortText] = useState(DEFAULT_PORT);
   const [devMode, setDevMode] = useState(false);
 
@@ -145,7 +148,7 @@ export function AdvancedOptions({
   const showInvalid = choice === CUSTOM && custom.trim().length > 0 && !validHost;
   const port = Number(portText);
   const validPort = Number.isInteger(port) && port > 0 && port <= MAX_PORT;
-  const renamed = name.trim() !== dict.firstRun.profile.defaultLabel && name.trim().length > 0;
+  const renamed = name.trim() !== initialName && name.trim().length > 0;
   // Homebrew's launchd service has no per-profile template: on macOS the id
   // is `default` whatever the label says.
   const profileId = renamed && platform !== "macos" ? slugOf(name) : "default";
@@ -175,7 +178,7 @@ export function AdvancedOptions({
   function handleInstall(): void {
     if (!validHost) return;
     onInstall({
-      label: name.trim() || dict.firstRun.profile.defaultLabel,
+      label: renamed ? name.trim() : dict.firstRun.profile.defaultLabel,
       host,
       profileId: profileId === "default" ? undefined : profileId,
       mode: devMode ? "dev" : "prod",
@@ -292,7 +295,13 @@ export function AdvancedOptions({
             </div>
           </div>
         ) : (
-          <div role="tabpanel" aria-labelledby={appAvailable ? "first-run-install-terminal" : undefined} className="flex flex-col gap-4">
+          <div
+            // A panel only where there are tabs to switch it: without the
+            // in-app install the terminal is the whole section.
+            role={appAvailable ? "tabpanel" : undefined}
+            aria-labelledby={appAvailable ? "first-run-install-terminal" : undefined}
+            className="flex flex-col gap-4"
+          >
             {platform === "windows" && <p className="text-[13.5px] leading-[1.65] text-muted-foreground">{copy.terminal.wsl}</p>}
             <ol className="flex flex-col gap-3">
               {steps.map((step, index) => (
