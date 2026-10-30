@@ -111,6 +111,28 @@
 //                        (`{"loggedIn":false}`, exit 1, Claude Code 2.1.274)
 //                        — a file rather than a flag so a test can log the
 //                        fake out and back in under one running relay.
+//   FAKE_CLAUDE_AUTH_METHOD - `auth status --json`'s `authMethod` (default
+//                        `claude.ai`, the subscription login). Any other
+//                        value drops `subscriptionType`, like an API-key
+//                        login (journal/99 §1.5).
+//   FAKE_CLAUDE_RATE_LIMIT_FILE - if set, a stream-json turn emits a
+//                        `rate_limit_event` between `assistant` and
+//                        `result`, the order Claude Code 2.1.303 uses. The
+//                        file's JSON, when it exists, is the event's
+//                        `rate_limit_info` verbatim; otherwise a mid-window
+//                        `allowed` reading. The plan usage probe below
+//                        always emits one — that event is all it is for.
+//   FAKE_CLAUDE_RATE_LIMIT_REJECTED_FILE - if set and that file exists, the
+//                        event says `rejected` (5h window at 100 %) and the
+//                        turn fails the way the real binary's does at the
+//                        limit: event first, a synthetic "You've hit your
+//                        session limit" reply, `result.is_error`.
+//   FAKE_CLAUDE_INVOCATIONS_FILE - if set, every invocation appends one JSON
+//                        line `{args, cwd, home, billedCredentials}` —
+//                        `billedCredentials` names (never values) whichever of
+//                        ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/OPENAI_API_KEY
+//                        reached the process. Lighter than
+//                        FAKE_CLAUDE_ENV_FILE, and safe to print on failure.
 
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -129,6 +151,10 @@ if (process.env.FAKE_CLAUDE_ARGV_FILE) {
 // the env the relay actually spawned with.
 if (process.env.FAKE_CLAUDE_ENV_FILE) {
   appendFileSync(process.env.FAKE_CLAUDE_ENV_FILE, `${JSON.stringify(process.env)}\n`);
+}
+if (process.env.FAKE_CLAUDE_INVOCATIONS_FILE) {
+  const billedCredentials = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"].filter((name) => process.env[name] !== undefined);
+  appendFileSync(process.env.FAKE_CLAUDE_INVOCATIONS_FILE, `${JSON.stringify({ args, cwd: process.cwd(), home: process.env.HOME, billedCredentials })}\n`);
 }
 // FAKE_CLAUDE_MCP_CONFIG_COPY - if set and `--mcp-config` names a file, that
 // file's content and permission bits are written here as JSON, since the relay
@@ -154,6 +180,54 @@ function emitAndExit(event, code = 0) {
   process.stdout.write(`${JSON.stringify(event)}\n`, () => {
     process.exit(code);
   });
+}
+
+function rateLimitRejected() {
+  const marker = process.env.FAKE_CLAUDE_RATE_LIMIT_REJECTED_FILE;
+  return Boolean(marker && existsSync(marker));
+}
+
+/** The `rate_limit_info` of FAKE_CLAUDE_RATE_LIMIT_FILE/_REJECTED_FILE, in
+ * the shape Claude Code 2.1.303 emits (journal/99 §1.2): `utilization` a 0–1
+ * fraction, `resetsAt` epoch seconds. */
+function rateLimitInfo() {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const fiveHourResetsAt = nowSeconds + 2 * 3600;
+  const sevenDayResetsAt = nowSeconds + 3 * 86400;
+  if (rateLimitRejected()) {
+    return {
+      status: "rejected",
+      resetsAt: fiveHourResetsAt,
+      rateLimitType: "five_hour",
+      overageStatus: "rejected",
+      overageDisabledReason: "out_of_credits",
+      isUsingOverage: false,
+      unifiedWindows: { five_hour: { utilization: 1, resetsAt: fiveHourResetsAt }, seven_day: { utilization: 0.22, resetsAt: sevenDayResetsAt } },
+    };
+  }
+  const file = process.env.FAKE_CLAUDE_RATE_LIMIT_FILE;
+  if (file && existsSync(file)) return JSON.parse(readFileSync(file, "utf8"));
+  return {
+    status: "allowed",
+    resetsAt: fiveHourResetsAt,
+    rateLimitType: "five_hour",
+    overageStatus: "rejected",
+    overageDisabledReason: "out_of_credits",
+    isUsingOverage: false,
+    unifiedWindows: { five_hour: { utilization: 0.42, resetsAt: fiveHourResetsAt }, seven_day: { utilization: 0.17, resetsAt: sevenDayResetsAt } },
+  };
+}
+
+function emitRateLimitEvent(sessionId) {
+  emit({ type: "rate_limit_event", rate_limit_info: rateLimitInfo(), uuid: randomUUID(), session_id: sessionId });
+}
+
+/** The reply and `result` of a turn the account's limit refused: the real
+ * binary answers with a synthetic assistant message and no tokens. */
+function emitRejectedTurn(sessionId) {
+  const text = "You've hit your session limit · resets 1:10am";
+  emit({ type: "assistant", session_id: sessionId, message: { model: "<synthetic>", content: [{ type: "text", text }], usage: { input_tokens: 0, output_tokens: 0 } } });
+  emit({ type: "result", session_id: sessionId, is_error: true, result: text, total_cost_usd: 0, terminal_reason: "api_error" });
 }
 
 function flagValue(name) {
@@ -279,7 +353,14 @@ if (args[0] === "--version") {
     emit({ loggedIn: false });
     process.exit(1);
   }
-  emit({ loggedIn: true, email: "fake@anywh.test", subscriptionType: "pro" });
+  const authMethod = process.env.FAKE_CLAUDE_AUTH_METHOD ?? "claude.ai";
+  emit({
+    loggedIn: true,
+    authMethod,
+    apiProvider: "firstParty",
+    email: "fake@anywh.test",
+    ...(authMethod === "claude.ai" ? { subscriptionType: "pro" } : {}),
+  });
   process.exit(0);
 } else if (args[0] === "-p" && flagValue("--input-format") === "stream-json" && !args.includes("--no-session-persistence")) {
   // A long-lived process driven over stdin, the way the agent host runs
@@ -326,6 +407,22 @@ if (args[0] === "--version") {
     }
   });
   process.stdin.on("end", () => process.exit(0));
+} else if (args[0] === "-p" && flagValue("--output-format") === "stream-json" && args.includes("--no-session-persistence")) {
+  // The plan usage probe (planUsage/probes/claudeUsageProbe.ts): a one-shot
+  // turn that exists for its `rate_limit_event`. The model catalog probe
+  // also passes `--no-session-persistence`, but with `--input-format
+  // stream-json`, caught above; a real turn never passes it.
+  const sessionId = randomUUID();
+  emit({ type: "system", subtype: "init", session_id: sessionId, model: "claude-fake-haiku" });
+  if (rateLimitRejected()) {
+    emitRateLimitEvent(sessionId);
+    emitRejectedTurn(sessionId);
+  } else {
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: "ok" }], usage: { input_tokens: 2, output_tokens: 1 } } });
+    emitRateLimitEvent(sessionId);
+    emit({ type: "result", session_id: sessionId, is_error: false, result: "ok", total_cost_usd: 0.0001 });
+  }
+  process.exit(0);
 } else if (args[0] === "-p") {
   const outputFormat = flagValue("--output-format");
   const resumeId = flagValue("--resume");
@@ -703,6 +800,10 @@ if (args[0] === "--version") {
     const delayMs = Number(process.env.FAKE_CLAUDE_TITLE_DELAY_MS ?? 0);
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     process.stdout.write(replyText, () => process.exit(0));
+  } else if (rateLimitRejected() && outputFormat === "stream-json") {
+    emitRateLimitEvent(sessionId);
+    emitRejectedTurn(sessionId);
+    process.exit(0);
   } else {
     emit({
       type: "assistant",
@@ -712,6 +813,7 @@ if (args[0] === "--version") {
         usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       },
     });
+    if (process.env.FAKE_CLAUDE_RATE_LIMIT_FILE && outputFormat === "stream-json") emitRateLimitEvent(sessionId);
     emit({
       type: "result",
       session_id: sessionId,
