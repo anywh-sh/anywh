@@ -90,6 +90,41 @@ export function connectSessionListWatchWithSnapshot(
   });
 }
 
+/** Connects to `/plan-usage/watch` and collects until `until` matches, with
+ * the listener attached in the same tick the socket is constructed (the
+ * snapshot is sent inside the server's `connection` handler — see
+ * `connectSessionAndCollectUntil`). */
+export function connectPlanUsageWatchAndCollectUntil(
+  port: number,
+  until: (message: Record<string, unknown>) => boolean,
+  timeoutMs = 5000,
+): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
+  return new Promise((resolveConn, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/plan-usage/watch`);
+    const collected: Record<string, unknown>[] = [];
+    const timeout = setTimeout(() => {
+      socket.off("message", onMessage);
+      reject(new Error(`connectPlanUsageWatchAndCollectUntil timed out after ${timeoutMs}ms, collected so far: ${JSON.stringify(collected)}`));
+    }, timeoutMs);
+
+    function onMessage(raw: Buffer): void {
+      const message = JSON.parse(raw.toString()) as Record<string, unknown>;
+      collected.push(message);
+      if (until(message)) {
+        clearTimeout(timeout);
+        socket.off("message", onMessage);
+        resolveConn({ socket, messages: collected });
+      }
+    }
+
+    socket.on("message", onMessage);
+    socket.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
+
 export function sendUserMessage(socket: WebSocket, text: string): void {
   socket.send(JSON.stringify({ type: "user_message", text }));
 }
