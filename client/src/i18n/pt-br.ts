@@ -758,8 +758,8 @@ export const ptBr: Dictionary = {
         customPlaceholder: "relay.casa.exemplo",
         default: "Padrão",
         hints: {
-          loopback: "Nenhum outro device alcança.",
-          lan: "Seus devices nesta rede.",
+          loopback: "Nenhum outro dispositivo alcança.",
+          lan: "Seus dispositivos nesta rede.",
           tailnet: "O mesmo endereço de qualquer lugar.",
           custom: "Um nome ou IP que você controla.",
         },
@@ -782,7 +782,7 @@ export const ptBr: Dictionary = {
     copy: {
       copy: "Copiar",
       copied: "Copiado",
-      failed: "não deu pra copiar",
+      failed: "Não deu para copiar",
     },
     frame: {
       help: "Ajuda",

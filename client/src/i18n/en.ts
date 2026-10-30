@@ -782,7 +782,7 @@ export const en: Dictionary = {
     copy: {
       copy: "Copy",
       copied: "Copied",
-      failed: "couldn't copy",
+      failed: "Couldn't copy",
     },
     frame: {
       help: "Help",
