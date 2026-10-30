@@ -5,6 +5,7 @@ import {
   BACKOFF_MAX_MS,
   CLAUDE_PROBE_INTERVAL_MS,
   activityThreshold,
+  claudeLimitRunning,
   backoffDelay,
   decideClaudeAuto,
   decideCodexAuto,
@@ -129,4 +130,33 @@ test("next automatic read: null when stopped", () => {
   assert.equal(nextCodexAutoRefreshAt(base), NOW);
   assert.equal(nextCodexAutoRefreshAt({ ...base, lastReadingAt: NOW - 30_000 }), NOW + 30_000);
   assert.equal(nextCodexAutoRefreshAt({ ...base, clients: 0 }), null);
+});
+
+// "rejected → no probe until resetsAt", for any exhausted window: with the
+// weekly window at 100 % and the 5h one expired, local activity (the refusal
+// written to a transcript counts) must not probe.
+test("claude: a limit still running on any window blocks every automatic probe until its reset", () => {
+  const weeklyReset = NOW + 2 * 24 * 60 * MIN;
+  const weeklyLimited: RuntimePlanUsage = {
+    runtime: "claude",
+    status: "limited",
+    windows: [
+      { durationMins: 300, usedPercent: 40, resetsAt: NOW - 10 * MIN },
+      { durationMins: 10080, usedPercent: 100, resetsAt: weeklyReset },
+    ],
+    observedAt: NOW - 20 * MIN,
+  };
+  assert.equal(claudeLimitRunning(weeklyLimited, NOW), true);
+  assert.equal(decideClaudeAuto(ctx({ usage: weeklyLimited, localActivity: true })), "skip");
+  // Even with an active 5h window and the cadence due.
+  const activeFiveHour = { ...weeklyLimited, status: "error" as const, windows: [{ durationMins: 300, usedPercent: 40, resetsAt: NOW + 60 * MIN }, weeklyLimited.windows[1]] };
+  assert.equal(decideClaudeAuto(ctx({ usage: activeFiveHour })), "skip");
+  // A model-scoped weekly limit too.
+  const opus = { ...weeklyLimited, windows: [weeklyLimited.windows[0], { durationMins: 10080, usedPercent: 100, resetsAt: weeklyReset, limitId: "seven_day_opus" }] };
+  assert.equal(decideClaudeAuto(ctx({ usage: opus, localActivity: true })), "skip");
+  // A limited status with no window to say until when: left alone.
+  assert.equal(decideClaudeAuto(ctx({ usage: { runtime: "claude", status: "limited", windows: [], observedAt: NOW - MIN }, localActivity: true })), "skip");
+  // Once the exhausted window resets, recent activity after the 5h reset may probe again.
+  assert.equal(claudeLimitRunning(weeklyLimited, weeklyReset), false);
+  assert.equal(decideClaudeAuto(ctx({ now: weeklyReset, usage: weeklyLimited, localActivity: true })), "probe");
 });

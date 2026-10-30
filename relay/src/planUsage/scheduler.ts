@@ -92,8 +92,23 @@ export function activityThreshold(usage: RuntimePlanUsage | undefined, now: numb
 
 export type ClaudeAutoDecision = "probe" | "skip";
 
+/**
+ * Whether the account is held at a limit right now: a window at 100 % whose
+ * reset hasn't come (one with no known reset counts as still running), or a
+ * `limited` status with no window to say until when. A rejected account
+ * changes only at that reset, so nothing automatic probes it until then —
+ * whichever window it is (the weekly one, a model-scoped one), and whatever
+ * local activity says (the refusal itself is written to a transcript).
+ */
+export function claudeLimitRunning(usage: RuntimePlanUsage | undefined, now: number): boolean {
+  if (!usage) return false;
+  if (usage.windows.some((window) => window.usedPercent >= 100 && (window.resetsAt === null || window.resetsAt > now))) return true;
+  return usage.status === "limited" && usage.windows.length === 0;
+}
+
 export function decideClaudeAuto(ctx: ClaudeAutoContext): ClaudeAutoDecision {
   if (!ctx.probeEnabled || ctx.turnActive || commonBlock(ctx)) return "skip";
+  if (claudeLimitRunning(ctx.usage, ctx.now)) return "skip";
   // A connection (a client reconnecting, a second device) never shortens the
   // 4-min cadence: each probe is a paid turn.
   if (shouldAutoProbe(ctx.usage, ctx.now)) return due({ ...ctx, onConnect: false }, CLAUDE_PROBE_INTERVAL_MS) ? "probe" : "skip";
