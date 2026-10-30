@@ -616,10 +616,16 @@ export class PlanUsageService {
   }
 
   private getSalt(): Promise<Uint8Array | undefined> {
-    this.salt ??= this.deps.loadSalt().catch((error: unknown) => {
-      this.deps.log?.(`[plan-usage] account salt unavailable, account keys off: ${(error as Error).message}`);
-      return undefined;
-    });
+    this.salt ??= this.deps.loadSalt().then(
+      (salt) => {
+        if (!salt) this.deps.log?.("[plan-usage] account salt unusable (wrong size), account keys off");
+        return salt;
+      },
+      (error: unknown) => {
+        this.deps.log?.(`[plan-usage] account salt unavailable, account keys off: ${(error as Error).message}`);
+        return undefined;
+      },
+    );
     return this.salt;
   }
 

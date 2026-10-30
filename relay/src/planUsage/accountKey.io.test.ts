@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ACCOUNT_SALT_BYTES, ACCOUNT_SALT_FILE, loadOrCreateAccountSalt } from "./accountKey.js";
@@ -56,4 +56,13 @@ test("an unusable salt file turns keys off and is left as it is", async () => {
   writeFileSync(path, "short", { mode: 0o600 });
   assert.equal(await loadOrCreateAccountSalt(dir), undefined);
   assert.equal(readFileSync(path, "utf8"), "short");
+});
+
+test("an existing salt readable by others is tightened to 0600", async () => {
+  const dir = tempDir();
+  const path = join(dir, ACCOUNT_SALT_FILE);
+  writeFileSync(path, Buffer.alloc(ACCOUNT_SALT_BYTES, 7));
+  chmodSync(path, 0o644);
+  assert.equal((await loadOrCreateAccountSalt(dir))?.length, ACCOUNT_SALT_BYTES);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
 });

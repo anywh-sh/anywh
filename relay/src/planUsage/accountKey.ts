@@ -23,7 +23,7 @@
 // The parts (e-mails, UUIDs) are hashed here and dropped: nothing in this
 // module returns or logs them.
 import { createHmac, randomBytes } from "node:crypto";
-import { link, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { ENV_DIR } from "../host/profileRegistry.js";
 import type { PlanUsageRuntime } from "./types.js";
@@ -107,6 +107,10 @@ function isTaken(error: unknown): boolean {
 
 async function readSalt(path: string): Promise<Uint8Array | undefined | "missing"> {
   try {
+    // A salt readable by others (copied by hand, a lax umask on another
+    // tool) is tightened back to owner-only.
+    const { mode } = await stat(path);
+    if (mode & 0o077) await chmod(path, 0o600).catch(() => undefined);
     const bytes = await readFile(path);
     return bytes.length === ACCOUNT_SALT_BYTES ? new Uint8Array(bytes) : undefined;
   } catch (error) {
@@ -136,9 +140,12 @@ export async function loadOrCreateAccountSalt(dir: string = DEFAULT_ACCOUNT_SALT
   try {
     await handle.writeFile(randomBytes(ACCOUNT_SALT_BYTES));
     await handle.sync();
-  } finally {
+  } catch (error) {
     await handle.close();
+    await unlink(temp).catch(() => undefined);
+    throw error;
   }
+  await handle.close();
   try {
     await link(temp, path);
   } catch (error) {
