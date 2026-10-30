@@ -207,7 +207,7 @@ export function Preparing({
   return (
     <OnboardingFrame steps={steps} current="machine">
       <section className="flex flex-col gap-3">
-        <h1 className="font-display text-[length:calc(29px*var(--font-scale-ratio))] leading-[1.2] font-bold tracking-[-0.03em] text-balance text-foreground">{title}</h1>
+        <h1 className="font-display text-[length:calc(31px*var(--font-scale-ratio))] leading-[1.18] font-bold tracking-[-0.03em] text-balance text-foreground">{title}</h1>
         <p className="max-w-[56ch] text-[length:calc(14px*var(--font-scale-ratio))] leading-[1.7] text-pretty text-muted-foreground">{body}</p>
         {note && <p className="font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{note}</p>}
       </section>

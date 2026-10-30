@@ -176,7 +176,7 @@ export function AgentsScreen({
       current="agents"
     >
       <section className="flex flex-col gap-3">
-        <h1 className="font-display text-[length:calc(32px*var(--font-scale-ratio))] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">{title}</h1>
+        <h1 className="font-display text-[length:calc(31px*var(--font-scale-ratio))] leading-[1.18] font-bold tracking-[-0.03em] text-balance text-foreground">{title}</h1>
         <p aria-live="polite" className="max-w-[60ch] text-[length:calc(15px*var(--font-scale-ratio))] leading-[1.7] text-pretty text-muted-foreground">
           {body.replace("{where}", where).replace("{count}", String(installed.length))}
         </p>
