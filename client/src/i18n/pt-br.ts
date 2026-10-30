@@ -619,7 +619,6 @@ export const ptBr: Dictionary = {
         renewsOn: "renova {when}",
         paceLegend: "ritmo esperado para agora",
       },
-      marks: { claude: "CC", codex: "CX" },
       summary: "Uso: {items}",
       summaryWindow: "{agent} {percent}% {window}",
       summaryLimited: "{agent} esgotado, {reset}",

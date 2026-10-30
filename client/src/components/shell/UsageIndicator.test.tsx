@@ -6,6 +6,7 @@ import { LOCALE_STORAGE_KEY, LocaleProvider } from "@/i18n";
 import type { ProfilePlanUsage } from "@/lib/planUsage/derive";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
 import { setProfiles } from "@/lib/profiles/profiles";
+import { AgentLogo } from "@/components/chat/AgentLogo";
 import { UsageIndicator } from "./UsageIndicator";
 
 const NOW = Date.UTC(2026, 9, 30, 12, 0, 0);
@@ -86,8 +87,20 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAttribute("aria-haspopup", "dialog");
     expect(button()).toHaveAttribute("aria-expanded", "false");
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; Codex 37% 30d");
-    expect(agent("claude")).toHaveTextContent("CC58% 5h · 41% 7d");
-    expect(agent("codex")).toHaveTextContent("CX37% 30d");
+    expect(agent("claude")).toHaveTextContent(/^58% 5h · 41% 7d$/);
+    expect(agent("codex")).toHaveTextContent(/^37% 30d$/);
+  });
+
+  it("draws each agent's product logo at 15px, hidden from assistive tech", () => {
+    renderIndicator({ pessoal: live([claude(58), codexFree(37)]) });
+    for (const runtime of ["claude", "codex"]) {
+      const mark = agent(runtime).querySelector(`[data-agent-mark="${runtime}"]`)!;
+      expect(mark).toHaveAttribute("aria-hidden", "true");
+      expect(mark.querySelector("svg")?.getAttribute("class")).toContain("size-[15px]");
+    }
+    // The same mark the room's agent cards draw.
+    const { container } = render(<AgentLogo agentId="codex" className="size-[15px]" />);
+    expect(agent("codex").querySelector("svg")?.outerHTML).toBe(container.querySelector("svg")?.outerHTML);
   });
 
   it("draws one meter per agent, for its most used window", () => {
@@ -177,8 +190,8 @@ describe("UsageIndicator", () => {
   it("keeps only each mark and the 5h percentage under 1024px", () => {
     stubWidth(1023);
     renderIndicator({ pessoal: live([claude(58), codexFree(37)]) });
-    expect(agent("claude")).toHaveTextContent(/^CC58%$/);
-    expect(agent("codex")).toHaveTextContent(/^CX37%$/);
+    expect(agent("claude")).toHaveTextContent(/^58%$/);
+    expect(agent("codex")).toHaveTextContent(/^37%$/);
     expect(within(button()).queryAllByRole("meter")).toHaveLength(0);
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; Codex 37% 30d");
   });

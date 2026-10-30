@@ -619,7 +619,6 @@ export const en: Dictionary = {
         renewsOn: "renews {when}",
         paceLegend: "expected pace for now",
       },
-      marks: { claude: "CC", codex: "CX" },
       summary: "Usage: {items}",
       summaryWindow: "{agent} {percent}% {window}",
       summaryLimited: "{agent} limit reached, {reset}",

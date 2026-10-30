@@ -153,7 +153,10 @@ describe("UsageCard", () => {
   it("draws an account with its plan, a meter per window, the percentage and the renewal", () => {
     const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41)]) } });
     const account = within(card).getByRole("region", { name: "Claude Code" });
-    expect(account).toHaveTextContent("Max 5x");
+    expect(account).toHaveTextContent(/^Claude CodeMax 5x/);
+    const mark = account.querySelector('[data-agent-mark="claude"]')!;
+    expect(mark).toHaveAttribute("aria-hidden", "true");
+    expect(mark.querySelector("svg")?.getAttribute("class")).toContain("size-[18px]");
     const meters = within(account).getAllByRole("meter");
     expect(meters.map((meter) => meter.getAttribute("aria-label"))).toEqual(["5h: 58% used", "7d: 41% used"]);
     // The pace mark only for the eye; its value in the meter's text.

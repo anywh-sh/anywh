@@ -1354,8 +1354,6 @@ export interface Dictionary {
         /** Legend of the 1px mark on every bar. */
         paceLegend: string;
       };
-      /** The text seal standing in for each agent's logo (`AgentMark`). */
-      marks: Record<KnownAgentId, string>;
       /** The status bar indicator's accessible name: "Usage: {items}". The
        * items are the phrases below, joined with "; ". */
       summary: string;
