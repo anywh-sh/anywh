@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreparingFailure } from "@/components/firstrun/PreparingFailure";
-import { Welcome } from "@/components/firstrun/Welcome";
+import { Welcome, WSL2_DOCS_URL } from "@/components/firstrun/Welcome";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import type { PreparingFailureCode } from "@/lib/install/localInstall";
@@ -50,8 +50,18 @@ describe("Welcome", () => {
       within(steps[0]).getByRole("link", {
         name: welcome.windows.steps.wsl.link,
       }),
-    ).toHaveAttribute("href", "https://learn.microsoft.com/windows/wsl/install");
+    ).toHaveAttribute("href", WSL2_DOCS_URL);
     expect(steps[1]).toHaveTextContent(welcome.windows.steps.agent.title);
+    expect(
+      within(steps[1]).getByRole("link", {
+        name: welcome.windows.steps.agent.link,
+      }),
+    ).toHaveAttribute("href", `${WSL2_DOCS_URL}#install-an-agent`);
+    // `ref=app` and nothing else: no utm, no identifiers.
+    const url = new URL(WSL2_DOCS_URL);
+    expect(url.origin + url.pathname).toBe("https://anywh.sh/docs/windows-wsl2");
+    expect([...url.searchParams.keys()]).toEqual(["ref"]);
+    expect(url.searchParams.get("ref")).toBe("app");
     // No in-app install to offer on Windows.
     expect(screen.queryByRole("button", { name: welcome.cta })).not.toBeInTheDocument();
 

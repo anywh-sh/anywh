@@ -4,8 +4,8 @@ import { QuietLink } from "@/components/firstrun/QuietLink";
 import { Button } from "@/components/ui/button";
 import { useDict } from "@/i18n";
 
-const WSL_INSTALL_URL = "https://learn.microsoft.com/windows/wsl/install";
-const AGENT_INSTALL_URL = "https://code.claude.com/docs/en/setup";
+/** Our own Windows guide. `ref=app` is the only query parameter, on purpose: nothing identifying leaves the app. */
+export const WSL2_DOCS_URL = "https://anywh.sh/docs/windows-wsl2?ref=app";
 
 /**
  * The first screen on a desktop: what anywh is, one way in ("set up on this
@@ -48,8 +48,8 @@ export function Welcome({
             {copy.windows.notice}
           </p>
           <ol className="border border-border-soft bg-bg-chrome">
-            <WindowsStep number={1} title={copy.windows.steps.wsl.title} link={copy.windows.steps.wsl.link} href={WSL_INSTALL_URL} />
-            <WindowsStep number={2} title={copy.windows.steps.agent.title} link={copy.windows.steps.agent.link} href={AGENT_INSTALL_URL} />
+            <WindowsStep number={1} title={copy.windows.steps.wsl.title} link={copy.windows.steps.wsl.link} href={WSL2_DOCS_URL} />
+            <WindowsStep number={2} title={copy.windows.steps.agent.title} link={copy.windows.steps.agent.link} href={`${WSL2_DOCS_URL}#install-an-agent`} />
           </ol>
           <Button type="button" size="lg" onClick={onTerminal} className="gap-2 self-start">
             {copy.windows.cta}
