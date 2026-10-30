@@ -386,7 +386,11 @@ export function updateProfileMeta(
   const existing = current.profiles.find((meta) => meta.id === id);
   const now = new Date().toISOString();
   const themeId = patch.themeId === null ? undefined : (patch.themeId ?? existing?.themeId);
-  const agentPreference = patch.agentPreference === null ? undefined : (patch.agentPreference ?? existing?.agentPreference);
+  // Only a preference this patch sets is normalized; a stored one it
+  // doesn't touch is copied verbatim, so a mode or key a newer relay wrote
+  // survives an edit of the label.
+  const agentPreference =
+    patch.agentPreference === null ? undefined : patch.agentPreference ? normalizeAgentPreference(patch.agentPreference) : existing?.agentPreference;
   const { themeId: _themeId, agentPreference: _agentPreference, ...kept } = existing ?? ({} as Partial<ProfileMeta>);
   const merged: ProfileMeta = {
     ...kept,
@@ -394,7 +398,7 @@ export function updateProfileMeta(
     label: patch.label ?? existing?.label ?? id,
     colorIndex: patch.colorIndex ?? existing?.colorIndex ?? position,
     ...(themeId ? { themeId } : {}),
-    ...(agentPreference ? { agentPreference: normalizeAgentPreference(agentPreference) } : {}),
+    ...(agentPreference ? { agentPreference } : {}),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

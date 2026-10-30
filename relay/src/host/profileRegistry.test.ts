@@ -214,9 +214,10 @@ test("listProfiles: reports a stored agentPreference, and drops one profiles.jso
 
 // A relay older than a field must still read and edit a profiles.json a
 // newer one wrote: the field is ignored on read and carried over by a
-// PATCH. Checked for agentPreference itself against the registry as it
-// was before that field existed; this pins the same property for the next
-// field, on today's code.
+// PATCH. The registry from before agentPreference existed only had the
+// first half: it read such a file without error, but its PATCH rebuilt
+// the entry from the fields it knew and dropped agentPreference. This pins
+// both halves for whatever field comes next, on today's code.
 test("updateProfileMeta/listProfiles: a meta field this version doesn't know is read past and kept on write", async () => {
   await withTempDir(async (envDir) => {
     writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
@@ -228,6 +229,19 @@ test("updateProfileMeta/listProfiles: a meta field this version doesn't know is 
     const stored = (JSON.parse(readFileSync(path, "utf8")) as { profiles: Record<string, unknown>[] }).profiles[0];
     assert.equal(stored.label, "Renamed");
     assert.deepEqual(stored.fromTheFuture, { keep: true });
+  });
+});
+
+test("updateProfileMeta: a stored agentPreference a patch doesn't touch is kept verbatim, even in a shape this version can't use", async () => {
+  await withTempDir((envDir) => {
+    writeEnv(envDir, "pessoal", { RELAY_PORT: "9001" });
+    const path = join(dirname(envDir), "profiles.json");
+    const future = { mode: "perProject", fixedAgentId: "codex", projects: { "/src/a": "claude" } };
+    writeFileSync(path, JSON.stringify({ version: 1, profiles: [{ id: "pessoal", label: "Pessoal", agentPreference: future, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" }] }));
+
+    updateProfileMeta("pessoal", { label: "Renamed" }, envDir);
+    const stored = (JSON.parse(readFileSync(path, "utf8")) as { profiles: Record<string, unknown>[] }).profiles[0];
+    assert.deepEqual(stored.agentPreference, future);
   });
 });
 
