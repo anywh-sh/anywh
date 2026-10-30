@@ -1307,6 +1307,13 @@ export interface Dictionary {
      * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
      * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
     usage: {
+      /** Accessible name of a usage meter: "5h: 58% used". */
+      meterLabel: string;
+      /** Spoken value of a meter whose window has an expected pace — the
+       * pace mark itself is hidden from assistive tech, this carries it. */
+      meterValueWithPace: string;
+      /** Spoken value of a meter with no pace (spent window, unknown reset). */
+      meterValue: string;
       /** A spent window coming back within a day: "back in 58m". */
       resetsIn: string;
       /** A spent window coming back later than a day from now: "back Fri 14:00". */

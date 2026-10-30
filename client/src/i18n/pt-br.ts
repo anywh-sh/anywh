@@ -592,6 +592,9 @@ export const ptBr: Dictionary = {
       noResults: "Nenhuma sessão encontrada.",
     },
     usage: {
+      meterLabel: "{window}: {percent}% usado",
+      meterValueWithPace: "{percent}% usado, esperado {expected}%",
+      meterValue: "{percent}% usado",
       resetsIn: "volta em {duration}",
       resetsOn: "volta {when}",
       updatedAgo: "há {duration}",

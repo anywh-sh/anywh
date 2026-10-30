@@ -592,6 +592,9 @@ export const en: Dictionary = {
       noResults: "No sessions found.",
     },
     usage: {
+      meterLabel: "{window}: {percent}% used",
+      meterValueWithPace: "{percent}% used, {expected}% expected",
+      meterValue: "{percent}% used",
       resetsIn: "back in {duration}",
       resetsOn: "back {when}",
       updatedAgo: "{duration} ago",
