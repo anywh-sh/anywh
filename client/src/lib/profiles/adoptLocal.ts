@@ -4,6 +4,7 @@ import { addProfile, findProfile, removeProfile, type Profile } from "@/lib/prof
 import {
   dismissProfileSetup,
   getProfileSetupState,
+  releaseSettledProfileSetup,
   resumeProfileSetup,
   retryProfileSetup,
   subscribeProfileSetup,
@@ -101,6 +102,7 @@ export function adoptLocalProfiles(probe: LocalRelayProbe): void {
   for (const profile of profiles) addProfile(profile);
   publish({ status: "running", profiles, activeId: active.id, failure: null });
   watchSetup();
+  releaseSettledProfileSetup(active.id);
   resumeProfileSetup(active);
 }
 
@@ -136,7 +138,9 @@ export function retryVerify(): void {
     return;
   }
   const profile = findProfile(state.activeId);
-  if (profile) resumeProfileSetup(profile);
+  if (!profile) return;
+  releaseSettledProfileSetup(profile.id);
+  resumeProfileSetup(profile);
 }
 
 /** Giving up: every profile this run adopted comes off this device and

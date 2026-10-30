@@ -388,6 +388,44 @@ describe("set up on this machine", () => {
     expect(native.start).toHaveBeenCalledTimes(1);
   });
 
+  it("after another machine failed and the reader came back, setting up here still verifies", async () => {
+    silent = [9];
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: welcome.otherMachine }));
+    await user.click(await screen.findByRole("tab", { name: en.firstRun.other.modes.address }));
+    await user.type(screen.getByRole("textbox", { name: en.firstRun.other.address.host }), "10.0.0.9");
+    const port = screen.getByRole("textbox", { name: en.firstRun.other.address.port });
+    await user.clear(port);
+    await user.type(port, "9");
+    await user.click(screen.getByRole("button", { name: en.firstRun.other.connect }));
+    await screen.findByText(en.firstRun.other.failed.verify);
+
+    await user.click(screen.getByRole("button", { name: en.firstRun.frame.back }));
+    await startEasyInstall(user);
+    await finishRun({ id: "default", port: LOCAL.port, host: LOCAL.host });
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+  });
+
+  it("an adoption after another machine failed still connects", async () => {
+    native.probe.mockResolvedValue(TWO_PROFILES);
+    silent = [9];
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: welcome.otherMachine }));
+    await user.click(await screen.findByRole("tab", { name: en.firstRun.other.modes.address }));
+    await user.type(screen.getByRole("textbox", { name: en.firstRun.other.address.host }), "10.0.0.9");
+    const port = screen.getByRole("textbox", { name: en.firstRun.other.address.port });
+    await user.clear(port);
+    await user.type(port, "9");
+    await user.click(screen.getByRole("button", { name: en.firstRun.other.connect }));
+    await screen.findByText(en.firstRun.other.failed.verify);
+
+    await user.click(screen.getByRole("button", { name: en.firstRun.frame.back }));
+    await user.click(await screen.findByRole("button", { name: welcome.cta }));
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+  });
+
   it("a link arriving mid-install waits, and runs only after this machine's profile", async () => {
     const user = userEvent.setup();
     renderApp();

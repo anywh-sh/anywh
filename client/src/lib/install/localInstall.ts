@@ -18,6 +18,7 @@ import { addProfile, findProfile, type Profile } from "@/lib/profiles/profiles";
 import {
   getProfileSetupState,
   holdProfileSetup,
+  releaseSettledProfileSetup,
   resumeProfileSetup,
   retryProfileSetup,
   subscribeProfileSetup,
@@ -494,6 +495,7 @@ function verifyInstalledProfile(result: InstallProfileResult): void {
   addProfile(profile);
   publish({ ...state, verify: { status: "running", profileId: profile.id, failure: null } });
   watchSetup();
+  releaseSettledProfileSetup(profile.id);
   resumeProfileSetup(profile);
 }
 
@@ -568,7 +570,10 @@ export function retryLocalInstall(): void {
     const setup = getProfileSetupState().state;
     const profile = state.verify.profileId ? findProfile(state.verify.profileId) : undefined;
     if (setup?.status === "failed" && setup.stage !== "claim" && setup.profile.id === state.verify.profileId) retryProfileSetup();
-    else if (profile) resumeProfileSetup(profile);
+    else if (profile) {
+      releaseSettledProfileSetup(profile.id);
+      resumeProfileSetup(profile);
+    }
     return;
   }
   if (state.prereqs.status !== "ok") {
