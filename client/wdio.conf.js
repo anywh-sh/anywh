@@ -1,6 +1,15 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+
+function newestMtime(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestMtime(path) : statSync(path).mtimeMs);
+  }
+  return newest;
+}
 
 // Real end-to-end tier (.anywh/skills/tests/SKILL.md) — drives the actual
 // Tauri app (real window, real webview) via @wdio/tauri-service's embedded
@@ -49,6 +58,8 @@ export const e2eSeedPort = 47866;
 export const firstRunE2EFixtures = {
   home: e2eHome,
   installDir: join(e2eHome, "install"),
+  /** Where firstRunAdopt.spec.js keeps the relay it starts beforehand. */
+  adoptDir: join(e2eHome, "adopt-relay"),
   installScript: resolve(import.meta.dirname, "tests/e2e/fixtures/fake-install.sh"),
 };
 mkdirSync(firstRunE2EFixtures.installDir, { recursive: true });
@@ -133,14 +144,28 @@ export const config = {
   // The relay the first run's fake installer may have left running (the
   // spec stops it; this is the backstop for a run that died first) — by its
   // exact PID, never by a pattern that would also match real relays.
+  // The relays the first-run specs start run this checkout's relay/dist,
+  // which `build:e2e` doesn't build: an out-of-date one would test old code
+  // while looking green.
+  onPrepare: () => {
+    const relayDir = resolve(import.meta.dirname, "../relay");
+    const built = join(relayDir, "dist/server.js");
+    if (!existsSync(built)) throw new Error("relay/dist is missing — run `npm run build` in relay/ first");
+    const newest = newestMtime(join(relayDir, "src"));
+    if (newest > statSync(built).mtimeMs) throw new Error("relay/dist is older than relay/src — run `npm run build` in relay/ first");
+  },
+
   onComplete: () => {
-    const pidFile = join(firstRunE2EFixtures.installDir, "relay.pid");
-    try {
-      process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGTERM");
-    } catch {
-      // No relay, or already gone.
+    for (const pidFile of [join(firstRunE2EFixtures.installDir, "relay.pid"), join(firstRunE2EFixtures.adoptDir, "relay.pid")]) {
+      try {
+        process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGTERM");
+      } catch {
+        // No relay, or already gone.
+      }
     }
-    rmSync(e2eHome, { recursive: true, force: true });
+    // Only ever a directory this file made: under the temp dir, with our
+    // prefix — the path comes through the environment.
+    if (dirname(e2eHome) === tmpdir() && basename(e2eHome).startsWith("anywh-e2e-home-")) rmSync(e2eHome, { recursive: true, force: true });
   },
 
   before: async () => {

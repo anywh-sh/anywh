@@ -28,6 +28,8 @@ const COPY = {
     alreadyRan: "Already ran it, connect",
     back: "Back",
     preparing: "Preparing this machine",
+    installing: "Installing anywh",
+    cancel: "Cancel",
     stopped: "The install stopped.",
     continueInTerminal: "Continue in the terminal",
     agents: "Your agents",
@@ -99,10 +101,13 @@ function stopFakeRelay() {
 describe("anywh onboarding", () => {
   const seeded = JSON.stringify([{ id: "e2e", label: "Default", host: "127.0.0.1", relayPort: e2eSeedPort }]);
 
-  before(async () => {
+  // Every case starts on the welcome of a device with no profile, whatever
+  // the one before left behind.
+  beforeEach(async () => {
     await browser.execute(() => {
       localStorage.setItem("anywh:profiles", "[]");
       localStorage.removeItem("anywh:first-run:pending-agents");
+      localStorage.removeItem("anywh:first-run:adopting");
       localStorage.setItem("anywh:locale", "en");
       window.location.reload();
     });
@@ -155,6 +160,19 @@ describe("anywh onboarding", () => {
     await byText(COPY.en.welcome).waitForExist({ timeout: 5000 });
   });
 
+  it("cancelling a running install goes back to the welcome and starts no relay", async () => {
+    writeFileSync(join(installDir, "pause"), "3\n");
+
+    await click(COPY.en.setUp);
+    await byText(COPY.en.installing).waitForExist({ timeout: 15000 });
+    await click(COPY.en.cancel);
+    await byText(COPY.en.welcome).waitForExist({ timeout: 15000 });
+    // The installer's whole process group was stopped before its "service"
+    // step: given the time it would have needed, no relay came up.
+    await browser.pause(4000);
+    expect(existsSync(join(installDir, "relay.pid"))).toBe(false);
+  });
+
   it("sets this machine up in two clicks, finds its agents and starts with the one picked", async () => {
     writeFileSync(join(installDir, "pause"), "4\n");
 
@@ -166,27 +184,38 @@ describe("anywh onboarding", () => {
     await start.waitForExist({ timeout: 60000 });
     await shotBoth("07-agents");
 
-    // The minimum window size holds while the onboarding is on screen.
-    // [S3] If WebKitGTK under Xvfb ignored size hints this would fail; it is
-    // asserted only because it was seen to hold.
+    // What only GET /control/agents can say (an older relay's /host-info
+    // fallback lists installed agents with no login state and no missing
+    // ones): Claude is ready, and Codex is either not signed in (installed
+    // here, under a throwaway HOME) or not found (a runner without it).
+    const states = await browser.execute(() =>
+      Object.fromEntries([...document.querySelectorAll("li[data-state]")].map((card) => [card.textContent?.includes("Codex") ? "codex" : "claude", card.getAttribute("data-state")])),
+    );
+    expect(states.claude).toBe("ready");
+    expect(["noLogin", "missing"]).toContain(states.codex);
+
+    // The minimum window size holds while the onboarding is on screen —
+    // asserted because WebKitGTK under Xvfb was seen to honour it.
     await browser.setWindowSize(400, 400);
-    await browser.pause(500);
+    await browser.waitUntil(async () => (await browser.getWindowSize()).width >= 480, { timeout: 5000 });
     const held = await browser.getWindowSize();
     expect(held.width).toBeGreaterThanOrEqual(480);
     expect(held.height).toBeGreaterThanOrEqual(520);
     // Back to a size where the shell shows its sidebar.
     await browser.setWindowSize(1000, 700);
-    await browser.pause(300);
+    await browser.waitUntil(async () => (await browser.getWindowSize()).width >= 1000, { timeout: 5000 });
 
     await start.click();
     await $('[aria-label="New session"]').waitForExist({ timeout: 20000 });
     await expect(await byText(COPY.en.welcome)).not.toBeExisting();
 
-    // And lifts once it is gone.
+    // The choice reached the relay, stored on its profile.
+    const registry = JSON.parse(readFileSync(join(installDir, "profiles.json"), "utf8"));
+    expect(registry.profiles.find((p) => p.id === "default")?.agentPreference).toEqual({ mode: "fixed", fixedAgentId: "claude" });
+
+    // And the minimum lifts once the onboarding is gone.
     await browser.setWindowSize(400, 400);
-    await browser.pause(500);
-    const released = await browser.getWindowSize();
-    expect(released.width).toBeLessThan(480);
+    await browser.waitUntil(async () => (await browser.getWindowSize()).width < 480, { timeout: 5000 });
     await browser.setWindowSize(1000, 700);
   });
 

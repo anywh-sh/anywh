@@ -57,30 +57,47 @@ echo "ANYWH done download asset=anywh-relay-linux-x64.tar.gz"
 step install; sleep "$pause"; echo "ANYWH done install dir=$state/share"
 step service
 
-port="$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')"
-# Its own session: the app cancels an install by signalling the installer's
-# process group, and the relay is the "service" — it outlives the install.
-setsid env \
-  RELAY_PORT="$port" RELAY_HOST="$host" \
-  RELAY_HOME_OVERRIDE="$state/home" \
-  ANYWH_ENV_DIR="$state/env" \
-  RELAY_SESSIONS_FILE="$state/sessions.json" \
-  RELAY_BACKGROUND_JOBS_FILE="$state/background-jobs.json" \
-  RELAY_WAKEUPS_FILE="$state/wakeups.json" \
-  RELAY_PUSH_DEVICES_FILE="$state/push-devices.json" \
-  AGENT_BIN="$relay_dir/tests/fixtures/fake-claude.mjs" \
-  SYSTEMCTL_BIN="$relay_dir/tests/fixtures/fake-systemctl.mjs" \
-  ANYWH_AGENT_HOST_SOCKET="$state/agent-host.sock" \
-  ANYWH_SESSIONS_ROOT="$state/sessions-root" \
-  node "$relay_dir/dist/server.js" > "$state/relay.log" 2>&1 < /dev/null &
-echo $! > "$state/relay.pid"
-
-for _ in $(seq 1 100); do
-  if node -e 'require("net").connect(+process.argv[1],"127.0.0.1").on("connect",()=>process.exit(0)).on("error",()=>process.exit(1))' "$port"; then
+# A free port, then the relay on it. Picking a port and binding it are two
+# steps, so another process can take it in between: if the relay dies
+# instead of answering, it is retried on another port.
+started=""
+for _attempt in 1 2 3; do
+  port="$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')"
+  # Its own session: the app cancels an install by signalling the
+  # installer's process group, and the relay is the "service" — it
+  # outlives the install.
+  setsid env \
+    RELAY_PORT="$port" RELAY_HOST="$host" \
+    RELAY_HOME_OVERRIDE="$state/home" \
+    ANYWH_ENV_DIR="$state/env" \
+    RELAY_SESSIONS_FILE="$state/sessions.json" \
+    RELAY_BACKGROUND_JOBS_FILE="$state/background-jobs.json" \
+    RELAY_WAKEUPS_FILE="$state/wakeups.json" \
+    RELAY_PUSH_DEVICES_FILE="$state/push-devices.json" \
+    AGENT_BIN="$relay_dir/tests/fixtures/fake-claude.mjs" \
+    SYSTEMCTL_BIN="$relay_dir/tests/fixtures/fake-systemctl.mjs" \
+    ANYWH_AGENT_HOST_SOCKET="$state/agent-host.sock" \
+    ANYWH_SESSIONS_ROOT="$state/sessions-root" \
+    node "$relay_dir/dist/server.js" > "$state/relay.log" 2>&1 < /dev/null &
+  pid=$!
+  for _ in $(seq 1 100); do
+    if node -e 'require("net").connect(+process.argv[1],"127.0.0.1").on("connect",()=>process.exit(0)).on("error",()=>process.exit(1))' "$port"; then
+      started=1
+      break
+    fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if [ -n "$started" ]; then
+    echo "$pid" > "$state/relay.pid"
     break
   fi
-  sleep 0.1
+  kill "$pid" 2>/dev/null
 done
+if [ -z "$started" ]; then
+  echo "ANYWH fail service service_failed the relay never came up"
+  exit 1
+fi
 echo "ANYWH done service manager=e2e"
 
 step profile
