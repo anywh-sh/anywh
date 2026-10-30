@@ -29,6 +29,7 @@ Node's `--env-file-if-exists`) or under systemd (loaded via
 | `EXTRA_PATH_DIRS` | — | Colon-separated directories prepended to the PATH of every spawned agent process, for tools the agent itself invokes (`node`, `git`, a version manager's shim directory). Same PATH problem as above, one level down. |
 | `RELAY_HOME_OVERRIDE` | your real `$HOME` | Overrides `$HOME` for the spawned agent, which is how one machine runs several isolated logins. See [Profiles](./profiles.md). |
 | `TMUX_BIN` | the standard system path | Absolute path to `tmux`, used by the terminal panel. |
+| `ANYWH_PLAN_USAGE_PROBE` | on | `0` stops the minimal `claude -p` turns the relay runs to read the plan usage. Claude's numbers then come only from real turns. See [Plan usage](./plan-usage.md). |
 
 `CLAUDE_BIN` is the former name of `AGENT_BIN`. It still works so an
 existing `.env` survives an upgrade untouched, but it's deprecated — use
