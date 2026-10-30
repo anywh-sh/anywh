@@ -40,7 +40,7 @@ export function Welcome({
   return (
     <OnboardingFrame large>
       <section className="flex flex-col gap-4">
-        <h1 className="max-w-[16ch] font-display text-[36px] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">
+        <h1 className="max-w-[22ch] font-display text-[36px] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">
           {copy.title}
         </h1>
         <p className="max-w-[60ch] text-[15px] leading-[1.7] text-pretty text-muted-foreground">{copy.body}</p>
