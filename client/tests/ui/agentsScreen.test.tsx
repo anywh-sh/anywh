@@ -111,7 +111,7 @@ describe("Your agents", () => {
     screen.getByRole("button", { name: copy.otherMachine }).click();
     expect(onOtherMachine).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(16_000);
+    await vi.advanceTimersByTimeAsync(21_000);
     expect(await screen.findByText(copy.failed)).toBeInTheDocument();
     vi.useRealTimers();
   });

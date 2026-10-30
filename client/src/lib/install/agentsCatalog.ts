@@ -82,9 +82,11 @@ function normalize(raw: AgentInfo): AgentInfo {
 }
 
 /** How long the agents step waits on a relay before saying it couldn't
- * get an answer. Detection itself is bounded on the relay (a few seconds
- * per CLI); past this the machine is unreachable, not slow. */
-export const AGENTS_TIMEOUT_MS = 15_000;
+ * get an answer. Detection is bounded on the relay (a few seconds per
+ * CLI), and a request that arrives during a refresh waits for one more,
+ * so an answer can take twice that; past this the machine is unreachable,
+ * not slow. */
+export const AGENTS_TIMEOUT_MS = 20_000;
 
 /** `promise`, or a rejection once `ms` have passed — for the calls that have
  * no signal of their own to abort. */
