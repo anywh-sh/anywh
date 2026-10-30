@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useDict } from "@/i18n";
 import { parsePairingCode } from "@/lib/profiles/pairingCode";
+import { findProfile, removeProfile } from "@/lib/profiles/profiles";
 import { dismissProfileSetup, enqueueProfileSetup, retryProfileSetup, type SetupState } from "@/lib/profiles/profileSetup";
 import { isValidHost } from "@/lib/profiles/hostAddress";
 
@@ -102,6 +103,19 @@ export function OtherMachine({
   const progressMode = submitted ?? (state?.mode === "tailnet" ? "code" : "address");
 
   const announced = useRef(staleReady);
+
+  // Leaving while this screen's own request is still running (Back) means
+  // giving up on it: it is let go, so it neither pulls the reader back here
+  // nor holds the queue for what they do next. A link that started on its
+  // own is not this screen's to drop.
+  const ownInFlight = useRef(false);
+  ownInFlight.current = submitted !== null && state !== null && (state.status === "claiming" || state.status === "connecting" || state.status === "verifying");
+  useEffect(
+    () => () => {
+      if (ownInFlight.current) dismissProfileSetup();
+    },
+    [],
+  );
   useEffect(() => {
     if (state?.status === "ready" && !announced.current) {
       announced.current = true;
@@ -113,6 +127,14 @@ export function OtherMachine({
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
     if (!canSubmit) return;
+    // A failed attempt left from before (the reader went back and is now
+    // trying again, maybe elsewhere) would hold the queue: let it go, and
+    // with it the profile it saved but never reached.
+    if (state?.status === "failed") {
+      const left = "profile" in state ? state.profile : null;
+      dismissProfileSetup();
+      if (left && findProfile(left.id)?.unverified) removeProfile(left.id);
+    }
     const accepted =
       mode === "code" && parsed
         ? enqueueProfileSetup({ source: "pairingCode", label: parsed.origin, code })

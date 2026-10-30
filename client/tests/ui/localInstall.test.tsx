@@ -467,6 +467,55 @@ describe("set up on this machine", () => {
     await screen.findByRole("heading", { name: en.firstRun.agents.title });
   });
 
+  it("another machine that failed, then Back, then another address: the new one connects and the first leaves nothing behind", async () => {
+    silent = [9];
+    const user = userEvent.setup();
+    renderApp();
+    async function connect(host: string, port: string): Promise<void> {
+      await user.click(await screen.findByRole("tab", { name: en.firstRun.other.modes.address }));
+      const hostField = screen.getByRole("textbox", { name: en.firstRun.other.address.host });
+      await user.clear(hostField);
+      await user.type(hostField, host);
+      const portField = screen.getByRole("textbox", { name: en.firstRun.other.address.port });
+      await user.clear(portField);
+      await user.type(portField, port);
+      await user.click(screen.getByRole("button", { name: en.firstRun.other.connect }));
+    }
+    await user.click(await screen.findByRole("button", { name: welcome.otherMachine }));
+    await connect("10.0.0.9", "9");
+    await screen.findByText(en.firstRun.other.failed.verify);
+    expect(getProfiles().map((p) => p.host)).toEqual(["10.0.0.9"]);
+
+    await user.click(screen.getByRole("button", { name: en.firstRun.frame.back }));
+    await user.click(await screen.findByRole("button", { name: welcome.otherMachine }));
+    await connect("10.0.0.10", String(LOCAL.port));
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+    expect(getProfiles().map((p) => p.host)).toEqual(["10.0.0.10"]);
+  });
+
+  it("Back while another machine is still connecting, then setting up here, still works", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    let answer: () => void = () => {};
+    const routed = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("10.0.0.11") && url.endsWith("/sessions")) return new Promise<Response>((resolve) => (answer = () => resolve(fakeJsonResponse({ sessions: [] }))));
+      return routed!(input, init);
+    });
+    await user.click(await screen.findByRole("button", { name: welcome.otherMachine }));
+    await user.click(await screen.findByRole("tab", { name: en.firstRun.other.modes.address }));
+    await user.type(screen.getByRole("textbox", { name: en.firstRun.other.address.host }), "10.0.0.11");
+    await user.click(screen.getByRole("button", { name: en.firstRun.other.connect }));
+    await user.click(screen.getByRole("button", { name: en.firstRun.frame.back }));
+    await screen.findByRole("button", { name: welcome.cta });
+    answer();
+
+    await startEasyInstall(user);
+    await finishRun({ id: "default", port: LOCAL.port, host: LOCAL.host });
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+  });
+
   it("an adoption after another machine failed still connects", async () => {
     native.probe.mockResolvedValue(TWO_PROFILES);
     silent = [9];

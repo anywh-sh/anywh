@@ -148,7 +148,11 @@ export function FirstRun() {
   // reader to where its progress is drawn.
   const linkRunning = setup.state !== null && setup.state.status !== "ready" && setup.state.status !== "failed" && view.screen === "welcome";
   useEffect(() => {
-    if (linkRunning && getAdoptState().status === "idle" && getLocalInstallState().install.status === "idle") pushFirstRunView({ screen: "other" });
+    // Read live, not from this render: leaving the other-machine screen
+    // (Back) lets go of its own request during this same commit.
+    const live = getProfileSetupState().state;
+    const stillRunning = live !== null && live.status !== "ready" && live.status !== "failed";
+    if (linkRunning && stillRunning && getAdoptState().status === "idle" && getLocalInstallState().install.status === "idle") pushFirstRunView({ screen: "other" });
   }, [linkRunning]);
 
   async function setUpHere(): Promise<void> {
