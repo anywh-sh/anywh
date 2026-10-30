@@ -24,6 +24,7 @@ import { codexRuntimeDef } from "../../runtimes/defs/codex.js";
 import { spawnCodexDaemon, type CodexDaemon, type SpawnCodexDaemonOptions } from "../../runtimes/transports/codexDaemon.js";
 import { JsonRpcRemoteError } from "../../runtimes/transports/jsonRpcStdio.js";
 import type { AgentRuntimeDef, TurnHost } from "../../runtimes/types.js";
+import { codexHomeDir as profileCodexHome } from "../codexHome.js";
 import {
   CODEX_ACCOUNT_LIMIT_ID,
   classifyCodexRateLimitsError,
@@ -123,8 +124,10 @@ const DECLINING_HOST: TurnHost = {
 };
 
 /** `$CODEX_HOME`, `~/.codex` by default, for the profile's home. */
+/** The profile's `CODEX_HOME` (codexHome.ts), from the relay's
+ * `homeOverride` (`$HOME` when absent). */
 export function codexHomeDir(homeOverride: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
-  return env.CODEX_HOME || join(homeOverride ?? env.HOME ?? homedir(), ".codex");
+  return profileCodexHome(homeOverride ?? env.HOME ?? homedir(), env);
 }
 
 function accountIdentity(result: unknown): CodexAccountIdentity | null {
