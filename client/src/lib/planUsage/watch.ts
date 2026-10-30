@@ -19,6 +19,19 @@ export const REFRESH_TIMEOUT_MS = 30_000;
 
 export const PLAN_USAGE_WATCH_PATH = "/plan-usage/watch";
 
+/** How long a `ping` waits for its `pong` before the socket is written off.
+ * A live relay answers in one round-trip; this only has to outlast a slow
+ * tunnel's, since being wrong costs one reconnect. Same as the sidebar's. */
+export const PONG_TIMEOUT_MS = 5_000;
+
+/** The liveness ping's pace while the window is visible, on a profile that
+ * may be pinged on a timer (see `periodicPing`). */
+export const PING_INTERVAL_MS = 30_000;
+
+/** A refresh lost to a dead socket is sent again on the next connection,
+ * this many times at most. */
+const REFRESH_RESENDS = 2;
+
 export interface PlanUsageWatchOptions {
   /** Whether the first connection may bring a sleeping machine up — true for
    * the active tab's profile only. Reconnections never wake (a dropped socket
@@ -27,6 +40,14 @@ export interface PlanUsageWatchOptions {
   onChange: (state: ProfilePlanUsage) => void;
   /** The client's clock, for `receivedAt`. */
   now?: () => number;
+  /**
+   * Ping on a timer while the window is visible, on top of the pings sent on
+   * a refresh and on coming back to the foreground. Off for a profile behind
+   * a broker: a frame towards a paid host counts as someone being there and
+   * keeps its machine from idling — the reason the sidebar's own probe never
+   * runs on a timer (`useForegroundSync`'s `poll` makes the same cut).
+   */
+  periodicPing?: boolean;
 }
 
 /**
@@ -40,12 +61,23 @@ export interface PlanUsageWatchOptions {
  * recognized; the socket is
  * closed right away and never redialed. A socket that fails to open at all
  * (the machine is off, or the upgrade was refused) is retried.
+ *
+ * A socket whose other end vanished without a close frame (a NAT mapping or
+ * a tunnel dropped, the machine slept) still reads as OPEN here forever, and
+ * a refresh sent on it goes nowhere. So the socket proves itself alive with
+ * `ping` → `pong`: on every refresh, on coming back to the foreground and,
+ * where allowed, on a timer. A missing `pong` drops it and redials at once,
+ * and a refresh that was in flight is sent again on the new connection.
  */
 export class PlanUsageWatch {
   private state: ProfilePlanUsage = EMPTY_PROFILE_USAGE;
   private socket: WebSocket | undefined;
   private retryTimer: number | undefined;
   private refreshTimer: number | undefined;
+  private pongTimer: number | undefined;
+  private pingTimer: number | undefined;
+  /** The refresh not answered yet, kept to be sent again if its socket dies. */
+  private pendingRefresh: { message: PlanUsageRefreshMessage; resends: number } | undefined;
   private failures = 0;
   private stopped = false;
   private resolving = false;
@@ -71,6 +103,7 @@ export class PlanUsageWatch {
     this.stopped = true;
     window.clearTimeout(this.retryTimer);
     window.clearTimeout(this.refreshTimer);
+    this.clearLiveness();
     const socket = this.socket;
     this.socket = undefined;
     socket?.close();
@@ -83,22 +116,73 @@ export class PlanUsageWatch {
    * connected or connecting, and on a final state.
    */
   retryNow(options: { wake: boolean }): void {
-    if (this.stopped || this.final || this.resolving || this.socket) return;
+    if (this.stopped || this.final || this.resolving) return;
+    // Connected: a socket that looks fine may be dead — prove it.
+    if (this.socket) {
+      this.probe();
+      return;
+    }
     window.clearTimeout(this.retryTimer);
     this.connect(options.wake);
   }
 
-  /** Sends `plan_usage_refresh`; false when there is no live socket to send
-   * it on. The spinner state clears on the next `plan_usage_state`. */
+  /**
+   * Sends `plan_usage_refresh` and pings alongside it, so a dead socket is
+   * found within `PONG_TIMEOUT_MS` instead of the refresh vanishing. Not
+   * connected right now: the refresh waits for the next connection, which is
+   * dialed at once. False only on a final state (old relay, revoked).
+   */
   refresh(force: boolean, runtime?: PlanUsageRuntime): boolean {
-    const socket = this.socket;
-    if (this.state.connection !== "live" || socket?.readyState !== WebSocket.OPEN) return false;
+    if (this.stopped || this.final) return false;
     const message: PlanUsageRefreshMessage = { type: "plan_usage_refresh", force, ...(runtime ? { runtime } : {}) };
-    socket.send(JSON.stringify(message));
+    this.pendingRefresh = { message, resends: 0 };
     this.update({ refreshing: true });
     window.clearTimeout(this.refreshTimer);
-    this.refreshTimer = window.setTimeout(() => this.update({ refreshing: false }), REFRESH_TIMEOUT_MS);
+    this.refreshTimer = window.setTimeout(() => {
+      this.pendingRefresh = undefined;
+      this.update({ refreshing: false });
+    }, REFRESH_TIMEOUT_MS);
+    const socket = this.socket;
+    if (this.state.connection === "live" && socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(message));
+      this.probe();
+    } else if (!this.socket && !this.resolving) {
+      window.clearTimeout(this.retryTimer);
+      this.connect(false);
+    }
     return true;
+  }
+
+  /** `ping` now, unless one is already waiting for its `pong`. */
+  private probe(): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN || this.state.connection !== "live" || this.pongTimer !== undefined) return;
+    socket.send(JSON.stringify({ type: "ping" }));
+    this.pongTimer = window.setTimeout(() => {
+      this.pongTimer = undefined;
+      if (this.socket !== socket) return;
+      // Silent: dead. Detached before closing, so its own `close` (if it
+      // ever fires on a dead connection) doesn't schedule a second redial.
+      this.socket = undefined;
+      this.clearLiveness();
+      socket.close();
+      this.update({ connection: "offline" });
+      this.connect(false);
+    }, PONG_TIMEOUT_MS);
+  }
+
+  private clearLiveness(): void {
+    window.clearTimeout(this.pongTimer);
+    this.pongTimer = undefined;
+    window.clearInterval(this.pingTimer);
+    this.pingTimer = undefined;
+  }
+
+  private startPeriodicPing(): void {
+    if (!this.options.periodicPing || this.pingTimer !== undefined) return;
+    this.pingTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") this.probe();
+    }, PING_INTERVAL_MS);
   }
 
   private update(patch: Partial<ProfilePlanUsage>): void {
@@ -153,6 +237,11 @@ export class PlanUsageWatch {
     ws.addEventListener("message", (event: MessageEvent) => {
       if (this.socket !== ws) return;
       const message = parseStateMessage(event.data);
+      if (!message && messageType(event.data) === "pong") {
+        window.clearTimeout(this.pongTimer);
+        this.pongTimer = undefined;
+        return;
+      }
       if (!message) {
         // An older relay treating this path as a chat socket opens with its
         // protocol version (see the class comment). Anything else unknown is
@@ -164,8 +253,27 @@ export class PlanUsageWatch {
         }
         return;
       }
+      const first = !answered;
       answered = true;
       this.failures = 0;
+      // Any message is as good as a pong.
+      window.clearTimeout(this.pongTimer);
+      this.pongTimer = undefined;
+      this.startPeriodicPing();
+      const pending = this.pendingRefresh;
+      if (first && pending) {
+        // A new connection with a refresh still owed: its first state is
+        // the snapshot, not the answer. Send the refresh (again) on it.
+        if (pending.resends < REFRESH_RESENDS) {
+          pending.resends += 1;
+          ws.send(JSON.stringify(pending.message));
+          this.update({ connection: "live", runtimes: message.runtimes, observedAt: message.observedAt, receivedAt: this.now() });
+          return;
+        }
+        this.pendingRefresh = undefined;
+      } else {
+        this.pendingRefresh = undefined;
+      }
       window.clearTimeout(this.refreshTimer);
       this.update({
         connection: "live",
@@ -178,8 +286,10 @@ export class PlanUsageWatch {
     ws.addEventListener("close", () => {
       if (this.socket !== ws) return;
       this.socket = undefined;
-      window.clearTimeout(this.refreshTimer);
-      this.update({ connection: "offline", refreshing: false });
+      this.clearLiveness();
+      // A refresh still owed keeps its spinner: it is sent again on the next
+      // connection, or given up on by its own timeout.
+      this.update({ connection: "offline" });
       // A socket that was serving dropped (relay restart, machine asleep):
       // reconnect without waking. One that never answered keeps the
       // attempt's intent, like a failed resolve.

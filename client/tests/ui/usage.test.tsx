@@ -85,7 +85,7 @@ describe("plan usage in the status bar", () => {
     await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "false"));
     relay.sent.length = 0;
     await user.click(within(card).getByRole("button", { name: "Refresh usage" }));
-    expect(relay.sent.map((entry) => [entry.url, entry.message]).sort()).toEqual([
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").map((entry) => [entry.url, entry.message]).sort()).toEqual([
       ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
       ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
     ]);

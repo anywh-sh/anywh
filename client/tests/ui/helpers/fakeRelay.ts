@@ -177,6 +177,9 @@ export interface FakeRelay {
   sockets: FakeRelaySocket[];
   /** The scripted `/plan-usage/watch` answers (a copy of `options.planUsage`). */
   planUsage: Record<string, FakePlanUsage> | null;
+  /** Makes one relay's open plan usage sockets go silent without closing —
+   * a connection that died with no close frame. New sockets answer again. */
+  silentPlanUsage: (hostPort: string) => void;
   /** Pushes a `plan_usage_state` to the open plan usage sockets of one relay. */
   emitPlanUsage: (hostPort: string, runtimes: RuntimePlanUsage[], observedAt?: number) => void;
   /** Everything the app has sent, in order, whether or not the fake answers it. */
@@ -201,13 +204,21 @@ export function installFakeRelay(
   const sent: SentMessage[] = [];
 
   const planUsage: Record<string, FakePlanUsage> | null = options.planUsage ? { ...options.planUsage } : null;
+  const deadSockets = new Set<FakeRelaySocket>();
   const hostPort = (url: string): string => new URL(url).host;
   const isPlanUsageSocket = (socket: FakeRelaySocket): boolean => new URL(socket.url).pathname === "/plan-usage/watch";
 
   function onSend(socket: FakeRelaySocket, raw: string): void {
     const message = JSON.parse(raw) as { type?: string; text?: string };
     sent.push({ url: socket.url, message });
+    if (message.type === "ping" && planUsage && isPlanUsageSocket(socket)) {
+      // The relay's liveness answer — unless the test made this relay go
+      // silent (`silentPlanUsage`), the way a dead connection looks.
+      if (!deadSockets.has(socket)) queueMicrotask(() => socket.emitMessage({ type: "pong" }));
+      return;
+    }
     if (message.type === "plan_usage_refresh" && planUsage) {
+      if (deadSockets.has(socket)) return;
       const script = planUsage[hostPort(socket.url)];
       if (typeof script !== "object") return;
       const answer = () => socket.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: Date.now() });
@@ -342,9 +353,14 @@ export function installFakeRelay(
   return {
     sockets,
     planUsage,
+    silentPlanUsage: (target) => {
+      // Only the sockets open now: the next connection is a new one.
+      const dead = sockets.filter((socket) => isPlanUsageSocket(socket) && hostPort(socket.url) === target && socket.readyState === FakeRelaySocket.OPEN);
+      for (const socket of dead) deadSockets.add(socket);
+    },
     emitPlanUsage: (target, runtimes, observedAt) => {
       for (const socket of sockets) {
-        if (socket.readyState !== FakeRelaySocket.OPEN || !isPlanUsageSocket(socket) || hostPort(socket.url) !== target) continue;
+        if (socket.readyState !== FakeRelaySocket.OPEN || !isPlanUsageSocket(socket) || hostPort(socket.url) !== target || deadSockets.has(socket)) continue;
         socket.emitMessage({ type: "plan_usage_state", runtimes, observedAt: observedAt ?? Date.now() });
       }
     },

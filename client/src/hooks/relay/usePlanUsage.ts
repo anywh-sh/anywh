@@ -3,7 +3,7 @@ import { useForegroundSync } from "@/hooks/relay/useForegroundSync";
 import { EMPTY_PROFILE_USAGE, type ProfilePlanUsage } from "@/lib/planUsage/derive";
 import type { PlanUsageRuntime } from "@/lib/planUsage/model";
 import { PlanUsageWatch } from "@/lib/planUsage/watch";
-import type { Profile } from "@/lib/profiles/profiles";
+import { isBrokeredProfile, type Profile } from "@/lib/profiles/profiles";
 
 /** How often the clocks in the view move ("12s ago", "back in 58m"). The
  * numbers themselves arrive by push and are cached on the relay, so this
@@ -81,6 +81,9 @@ export function usePlanUsage(profiles: readonly Profile[], activeProfileId: stri
       existing?.watch.stop();
       const watch = new PlanUsageWatch(profile, {
         wake: profile.id === activeRef.current,
+        // A brokered profile's machine is a paid host: no timer may keep it
+        // awake. It is still pinged on a refresh and on coming back.
+        periodicPing: !isBrokeredProfile(profile),
         onChange: (state) => {
           if (watchesRef.current.get(profile.id)?.watch !== watch) return;
           setByProfile((prev) => ({ ...prev, [profile.id]: state }));
@@ -117,8 +120,9 @@ export function usePlanUsage(profiles: readonly Profile[], activeProfileId: stri
     return () => window.clearInterval(timer);
   }, []);
 
-  // Back in the foreground: redial anything waiting out a retry, without
-  // waking (glancing at the window is not a reason to resume a machine).
+  // Back in the foreground: redial anything waiting out a retry and ping
+  // whatever looks connected, without waking (glancing at the window is not
+  // a reason to resume a machine).
   const onForeground = useCallback(() => {
     for (const entry of watchesRef.current.values()) entry.watch.retryNow({ wake: false });
     setNow(Date.now());

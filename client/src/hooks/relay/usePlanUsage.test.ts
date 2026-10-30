@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PLAN_USAGE_CLOCK_MS, usePlanUsage } from "@/hooks/relay/usePlanUsage";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
-import { REFRESH_TIMEOUT_MS } from "@/lib/planUsage/watch";
+import { PING_INTERVAL_MS, PONG_TIMEOUT_MS, REFRESH_TIMEOUT_MS } from "@/lib/planUsage/watch";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError } from "@/lib/profiles/tailnetBroker";
@@ -46,6 +46,8 @@ const wakesFor = (profileId: string): (boolean | undefined)[] =>
   resolveSpy.mock.calls.filter(([profile]) => profile.id === profileId).map(([, options]) => options?.wake);
 
 const planSockets = () => relay.sockets.filter((socket) => socket.url.includes("/plan-usage/watch"));
+const refreshes = () => relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh");
+const pings = () => relay.sent.filter((entry) => entry.message.type === "ping");
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
@@ -175,12 +177,14 @@ describe("usePlanUsage", () => {
     act(() => result.current.refresh("trabalho", true));
     expect(result.current.refreshing).toBe(true);
     expect(result.current.byProfile.trabalho.refreshing).toBe(true);
-    expect(relay.sent).toEqual([{ url: "ws://127.0.0.1:8002/plan-usage/watch", message: { type: "plan_usage_refresh", force: true } }]);
+    expect(refreshes()).toEqual([{ url: "ws://127.0.0.1:8002/plan-usage/watch", message: { type: "plan_usage_refresh", force: true } }]);
+    // Sent with a ping, so a dead socket would be caught.
+    expect(pings().map((entry) => entry.url)).toEqual(["ws://127.0.0.1:8002/plan-usage/watch"]);
     await settle();
     expect(result.current.refreshing).toBe(false);
 
     act(() => result.current.refresh());
-    expect(relay.sent.slice(1).map((entry) => [entry.url, entry.message])).toEqual([
+    expect(refreshes().slice(1).map((entry) => [entry.url, entry.message])).toEqual([
       ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: false }],
       ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: false }],
     ]);
@@ -196,6 +200,82 @@ describe("usePlanUsage", () => {
     expect(result.current.refreshing).toBe(true);
     await settle(REFRESH_TIMEOUT_MS);
     expect(result.current.refreshing).toBe(false);
+  });
+
+  it("finds a dead socket on refresh, redials at once and sends the refresh again", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    const [dead] = planSockets();
+    // The connection died without a close frame: still OPEN, answering nothing.
+    relay.silentPlanUsage("127.0.0.1:8001");
+    relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(64)] };
+
+    act(() => result.current.refresh("pessoal", true));
+    expect(result.current.refreshing).toBe(true);
+    await settle(PONG_TIMEOUT_MS - 1);
+    expect(planSockets()).toHaveLength(1);
+    await settle(1);
+
+    expect(dead.readyState).toBe(3);
+    expect(planSockets()).toHaveLength(2);
+    expect(refreshes().map((entry) => entry.url)).toEqual(["ws://127.0.0.1:8001/plan-usage/watch", "ws://127.0.0.1:8001/plan-usage/watch"]);
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").every((entry) => entry.message.force === true)).toBe(true);
+    // Spinning until the answer to the resent refresh, then the new numbers.
+    await settle();
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
+    expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(64);
+  });
+
+  it("keeps a live socket that answers its ping", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    act(() => result.current.refresh("pessoal", false));
+    await settle(PONG_TIMEOUT_MS * 2);
+    expect(planSockets()).toHaveLength(1);
+    expect(planSockets()[0].readyState).toBe(1);
+  });
+
+  it("dials at once for a refresh asked while waiting out a retry", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": "unreachable" } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    expect(result.current.byProfile.pessoal.connection).toBe("offline");
+    relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(33)] };
+    act(() => result.current.refresh("pessoal", true));
+    expect(result.current.refreshing).toBe(true);
+    await settle();
+    expect(refreshes()).toEqual([{ url: "ws://127.0.0.1:8001/plan-usage/watch", message: { type: "plan_usage_refresh", force: true } }]);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(33);
+  });
+
+  it("pings on a timer while visible, and drops a socket that stopped answering", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)] } } });
+    renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    const before = pings().length;
+    await settle(PING_INTERVAL_MS);
+    expect(pings().length).toBe(before + 1);
+
+    relay.silentPlanUsage("127.0.0.1:8001");
+    await settle(PING_INTERVAL_MS + PONG_TIMEOUT_MS);
+    expect(planSockets()[0].readyState).toBe(3);
+    expect(planSockets()).toHaveLength(2);
+    expect(planSockets()[1].readyState).toBe(1);
+  });
+
+  it("never pings a brokered profile on a timer", async () => {
+    const brokered: Profile = { ...PESSOAL, brokerUrl: "https://broker.test/w", brokerNodeId: "node" };
+    resolveSpy.mockImplementation((profile) => Promise.resolve({ host: profile.host, port: profile.relayPort }));
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)] } } });
+    renderHook(() => usePlanUsage([brokered], "pessoal"));
+    await settle();
+    const before = pings().length;
+    await settle(PING_INTERVAL_MS * 3);
+    expect(pings().length).toBe(before);
   });
 
   it("moves its clock every minute", async () => {
