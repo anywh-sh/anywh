@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { uploadAttachment } from "@/lib/relay/imageUpload";
 import { captureVideoFrame } from "@/lib/videoPreview";
 import { useDict } from "@/i18n";
@@ -20,21 +20,33 @@ export interface PendingAttachment {
   frames?: string[];
 }
 
+/** One file the composer took in, from the moment it was picked until it is
+ * sent or removed. `id` is local and exists before the relay has answered,
+ * so an in-flight file can be told apart from its neighbours. */
+export type AttachmentEntry =
+  | { id: string; status: "uploading"; name: string }
+  | { id: string; status: "ready"; name: string; attachment: PendingAttachment };
+
 export interface UseImageUploadResult {
+  /** Every file taken in, in the order it was picked, uploading or not. */
+  entries: AttachmentEntry[];
+  /** The ready ones — what a send carries. */
   pending: PendingAttachment[];
+  /** True while any file is still on its way to the relay. */
   uploading: boolean;
   addFiles: (files: FileList | File[]) => Promise<void>;
   remove: (path: string) => void;
-  /** Empties the list without revoking the object URLs — used when
+  /** Empties the ready ones without revoking the object URLs — used when
    * sending, since the message in the log becomes the owner of those
    * previews. */
   clearWithoutRevoke: () => void;
 }
 
+let nextEntryId = 0;
+
 export function useImageUpload(profile: Profile, onError: (message: string) => void): UseImageUploadResult {
   const dict = useDict();
-  const [pending, setPending] = useState<PendingAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [entries, setEntries] = useState<AttachmentEntry[]>([]);
 
   const addFiles = useCallback(
     async (files: FileList | File[]) => {
@@ -43,53 +55,61 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
       );
       if (attachable.length === 0) return;
 
-      setUploading(true);
-      try {
-        for (const file of attachable) {
-          const isVideo = file.type.startsWith("video/");
-          try {
-            let previewUrl: string | undefined;
-            if (isVideo) {
-              // Best-effort: if the browser can't decode the codec, the
-              // preview fails but the upload/frame extraction on the relay
-              // (which uses ffmpeg, with much broader support) proceeds normally.
-              try {
-                previewUrl = await captureVideoFrame(file);
-              } catch {
-                previewUrl = undefined;
-              }
-            } else {
-              previewUrl = URL.createObjectURL(file);
-            }
+      // Every file gets its entry up front, so `uploading` stays true until
+      // the last one of every batch lands — two overlapping calls (a paste
+      // while a drop is still uploading) can no longer re-enable send early.
+      const batch = attachable.map((file) => ({ file, id: `attachment-${String(++nextEntryId)}` }));
+      setEntries((prev) => [...prev, ...batch.map(({ file, id }) => ({ id, status: "uploading" as const, name: file.name }))]);
 
-            const result = await uploadAttachment(profile, file);
-            setPending((prev) => [
-              ...prev,
-              isVideo
-                ? { kind: "video" as const, path: result.path, previewUrl, frames: result.frames ?? [] }
-                : { kind: "image" as const, path: result.path, previewUrl },
-            ]);
-          } catch (error) {
-            const template = isVideo ? dict.chat.composer.uploadFailedVideo : dict.chat.composer.uploadFailedImage;
-            onError(template.replace("{reason}", error instanceof Error ? error.message : String(error)));
+      for (const { file, id } of batch) {
+        const isVideo = file.type.startsWith("video/");
+        try {
+          let previewUrl: string | undefined;
+          if (isVideo) {
+            // Best-effort: if the browser can't decode the codec, the
+            // preview fails but the upload/frame extraction on the relay
+            // (which uses ffmpeg, with much broader support) proceeds normally.
+            try {
+              previewUrl = await captureVideoFrame(file);
+            } catch {
+              previewUrl = undefined;
+            }
+          } else {
+            previewUrl = URL.createObjectURL(file);
           }
+
+          const result = await uploadAttachment(profile, file);
+          const attachment: PendingAttachment = isVideo
+            ? { kind: "video", path: result.path, previewUrl, frames: result.frames ?? [] }
+            : { kind: "image", path: result.path, previewUrl };
+          setEntries((prev) =>
+            prev.map((entry) => (entry.id === id ? { id, status: "ready", name: entry.name, attachment } : entry)),
+          );
+        } catch (error) {
+          setEntries((prev) => prev.filter((entry) => entry.id !== id));
+          const template = isVideo ? dict.chat.composer.uploadFailedVideo : dict.chat.composer.uploadFailedImage;
+          onError(template.replace("{reason}", error instanceof Error ? error.message : String(error)));
         }
-      } finally {
-        setUploading(false);
       }
     },
     [profile, onError, dict],
   );
 
   const remove = useCallback((path: string) => {
-    setPending((prev) => {
-      const target = prev.find((item) => item.path === path);
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-      return prev.filter((item) => item.path !== path);
+    setEntries((prev) => {
+      const target = prev.find((entry) => entry.status === "ready" && entry.attachment.path === path);
+      if (target?.status === "ready" && target.attachment.previewUrl) URL.revokeObjectURL(target.attachment.previewUrl);
+      return prev.filter((entry) => entry !== target);
     });
   }, []);
 
-  const clearWithoutRevoke = useCallback(() => setPending([]), []);
+  const clearWithoutRevoke = useCallback(() => setEntries((prev) => prev.filter((entry) => entry.status !== "ready")), []);
 
-  return { pending, uploading, addFiles, remove, clearWithoutRevoke };
+  const pending = useMemo(
+    () => entries.flatMap((entry) => (entry.status === "ready" ? [entry.attachment] : [])),
+    [entries],
+  );
+  const uploading = entries.some((entry) => entry.status === "uploading");
+
+  return { entries, pending, uploading, addFiles, remove, clearWithoutRevoke };
 }
