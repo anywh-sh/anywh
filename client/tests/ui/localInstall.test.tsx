@@ -39,7 +39,6 @@ const native = vi.hoisted(() => ({
   start: vi.fn(),
   cancel: vi.fn(),
   status: vi.fn<() => Promise<InstallRunStatus | null>>(),
-  confirmClose: vi.fn(),
   logHandlers: [] as Array<(event: InstallLogEvent) => void>,
   doneHandlers: [] as Array<(event: InstallDoneEvent) => void>,
 }));
@@ -52,7 +51,6 @@ vi.mock("@/lib/install/localRelay", () => ({
   startLocalInstall: (params: unknown) => native.start(params),
   cancelLocalInstall: () => native.cancel(),
   getLocalInstallStatus: () => native.status(),
-  confirmCloseDuringInstall: (action: unknown) => native.confirmClose(action),
   onInstallLog: async (handler: (event: InstallLogEvent) => void) => {
     native.logHandlers.push(handler);
     return () => {};
@@ -61,7 +59,6 @@ vi.mock("@/lib/install/localRelay", () => ({
     native.doneHandlers.push(handler);
     return () => {};
   },
-  onCloseRequestedDuringInstall: async () => () => {},
 }));
 
 const { claimTailnetBundleMock, acquireTailnetSidecarMock, releaseTailnetSidecarMock, peekTailnetSidecarMock, resolveTailnetTargetMock, fetchConnectGrantMock } =
@@ -191,7 +188,6 @@ beforeEach(() => {
   native.start.mockReset().mockResolvedValue({ runId: RUN_ID, logPath: "/tmp/run-1.log", started: true });
   native.cancel.mockReset().mockResolvedValue(undefined);
   native.status.mockReset().mockResolvedValue(statusWith([]));
-  native.confirmClose.mockReset();
   claimTailnetBundleMock.mockReset().mockResolvedValue({ nodeId: "node-1", controlUrl: "https://ctrl.test", authKey: "key", brokerUrl: "https://broker.test/w1" });
   resolveTailnetTargetMock.mockReset().mockResolvedValue({ target: "100.64.0.1:8443", token: "t" });
   acquireTailnetSidecarMock.mockReset().mockResolvedValue({ host: "127.0.0.1", port: 9999 });

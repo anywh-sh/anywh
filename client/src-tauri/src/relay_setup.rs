@@ -63,7 +63,6 @@ const INSTALL_SCRIPT_OVERRIDE_ENV: &str = "ANYWH_INSTALL_SCRIPT";
 
 const LOG_EVENT: &str = "relay-setup-log";
 const DONE_EVENT: &str = "relay-setup-done";
-const CLOSE_REQUESTED_EVENT: &str = "relay-setup-close-requested";
 
 const NODE_MIN_MAJOR: u32 = 20;
 const NODE_MIN_MINOR: u32 = 12;
@@ -674,9 +673,6 @@ pub struct RunInfo {
 struct Inner {
     /// The run whose log a tailer task is currently following, if any.
     tailing: Option<String>,
-    /// Set by `relay_setup_confirm_close("background" | "cancel")`: the next
-    /// `CloseRequested` goes through.
-    allow_close: bool,
 }
 
 /// One `tokio::sync::Mutex` held for the whole start-or-join: two
@@ -686,7 +682,7 @@ pub struct RelaySetup(Mutex<Inner>);
 
 impl Default for RelaySetup {
     fn default() -> Self {
-        RelaySetup(Mutex::new(Inner { tailing: None, allow_close: false }))
+        RelaySetup(Mutex::new(Inner { tailing: None }))
     }
 }
 
@@ -1135,58 +1131,6 @@ pub async fn relay_setup_cancel(app: tauri::AppHandle, state: tauri::State<'_, R
     }
     run.cancelled = true;
     write_state(&dir, &run)
-}
-
-/// Whether the window may close right now. Read from the `CloseRequested`
-/// handler in `lib.rs`: with an install alive and no decision recorded, the
-/// close is prevented and the UI is asked to show its own dialog
-/// (`window.confirm` is not reliable across Tauri's webviews).
-pub fn hold_close(app: &tauri::AppHandle) -> bool {
-    let Some(state) = app.try_state::<RelaySetup>() else {
-        return false;
-    };
-    // Sync context; a contended lock means a start/cancel is mid-flight, and
-    // holding the close for one more click is the safe answer.
-    let Ok(inner) = state.0.try_lock() else {
-        return true;
-    };
-    if inner.allow_close {
-        return false;
-    }
-    let Ok(dir) = setup_dir(app) else {
-        return false;
-    };
-    read_state(&dir).is_some_and(|run| run.exit_code.is_none() && pid_is_installer(run.pid, &run.script_path))
-}
-
-pub fn emit_close_requested(app: &tauri::AppHandle) {
-    let _ = app.emit(CLOSE_REQUESTED_EVENT, ());
-}
-
-/// The three ways out of the close dialog. `background`: the install goes
-/// on without a window and the next launch re-attaches to it. `cancel`:
-/// stop the install (SIGTERM, see `relay_setup_cancel`), then close.
-/// `keep`: stay open — nothing to do but forget the request.
-#[tauri::command]
-pub async fn relay_setup_confirm_close(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, RelaySetup>,
-    action: String,
-) -> Result<(), String> {
-    match action.as_str() {
-        "background" => {}
-        "cancel" => relay_setup_cancel(app.clone(), state.clone()).await?,
-        "keep" => return Ok(()),
-        other => return Err(format!("unknown close action '{other}'")),
-    }
-    {
-        let mut inner = state.0.lock().await;
-        inner.allow_close = true;
-    }
-    if let Some(window) = app.get_webview_window("main") {
-        window.close().map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

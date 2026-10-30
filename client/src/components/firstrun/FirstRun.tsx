@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AdvancedOptions } from "@/components/firstrun/AdvancedOptions";
 import { AgentsScreen } from "@/components/firstrun/AgentsScreen";
-import { CloseDuringInstallDialog } from "@/components/firstrun/CloseDuringInstallDialog";
 import { OnboardingFrame } from "@/components/firstrun/OnboardingFrame";
 import { OtherMachine } from "@/components/firstrun/OtherMachine";
 import { Preparing } from "@/components/firstrun/Preparing";
@@ -218,7 +217,6 @@ export function FirstRun() {
           />
         </OnboardingFrame>
       )}
-      <CloseDuringInstallDialog />
     </>
   );
 }
