@@ -894,6 +894,7 @@ export const en: Dictionary = {
       meta: { notOnPath: "not on PATH", searching: "looking…" },
       noLoginHint: "It's installed but not signed in. Run this in the terminal; you can start now and sign in later.",
       howToInstall: "How to install {agent}",
+      installDocs: "Full install guide",
       start: "Start",
       startWith: "Start with {agent}",
       switchNote: "You can switch agents in each session",

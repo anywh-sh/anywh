@@ -25,6 +25,9 @@ export interface AgentInfo {
   /** Shown, never run: the app does not sign anyone in. */
   loginCommand: string | null;
   installUrl: string | null;
+  /** A fuller install reference, for a CLI whose setup page leaves out the
+   * commands; `null` from a relay that doesn't send it. */
+  docsUrl: string | null;
 }
 
 export type AgentCardState = "checking" | "ready" | "noLogin" | "missing";
@@ -74,6 +77,7 @@ function normalize(raw: AgentInfo): AgentInfo {
     loginCommand:
       typeof raw.loginCommand === "string" ? raw.loginCommand : null,
     installUrl: typeof raw.installUrl === "string" ? raw.installUrl : null,
+    docsUrl: typeof raw.docsUrl === "string" ? raw.docsUrl : null,
   };
 }
 
@@ -114,6 +118,7 @@ async function fromHostInfo(profile: Profile): Promise<AgentsCatalog> {
     loggedIn: null,
     loginCommand: null,
     installUrl: null,
+    docsUrl: null,
   }));
   return { agents, full: false };
 }

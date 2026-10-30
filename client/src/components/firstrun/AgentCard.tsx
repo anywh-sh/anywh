@@ -16,6 +16,7 @@ export interface AgentCardModel {
   version: string | null;
   loginCommand: string | null;
   installUrl: string | null;
+  docsUrl: string | null;
 }
 
 export function cardModelFromInfo(
@@ -29,6 +30,7 @@ export function cardModelFromInfo(
     version: info.version,
     loginCommand: info.loginCommand,
     installUrl: info.installUrl,
+    docsUrl: info.docsUrl,
   };
 }
 
@@ -130,12 +132,20 @@ export function AgentCard({
           {agent.loginCommand && <CommandLine command={agent.loginCommand} />}
         </div>
       )}
-      {missing && agent.installUrl && (
-        <div className="sm:pl-12">
-          <QuietLink href={agent.installUrl} className="text-foreground">
-            {copy.howToInstall.replace("{agent}", agentName)}
-            <ArrowUpRight className="size-3.5" aria-hidden="true" />
-          </QuietLink>
+      {missing && (agent.installUrl || agent.docsUrl) && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 sm:pl-12">
+          {agent.installUrl && (
+            <QuietLink href={agent.installUrl} className="text-foreground">
+              {copy.howToInstall.replace("{agent}", agentName)}
+              <ArrowUpRight className="size-3.5" aria-hidden="true" />
+            </QuietLink>
+          )}
+          {agent.docsUrl && (
+            <QuietLink href={agent.docsUrl}>
+              {copy.installDocs}
+              <ArrowUpRight className="size-3.5" aria-hidden="true" />
+            </QuietLink>
+          )}
         </div>
       )}
     </li>

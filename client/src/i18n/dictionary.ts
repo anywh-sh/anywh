@@ -395,6 +395,8 @@ export interface Dictionary {
       meta: { notOnPath: string; searching: string };
       noLoginHint: string;
       howToInstall: string;
+      /** Beside `howToInstall`, when the CLI has a fuller install reference. */
+      installDocs: string;
       start: string;
       startWith: string;
       switchNote: string;

@@ -131,6 +131,7 @@ export function AgentsScreen({
         version: null,
         loginCommand: null,
         installUrl: null,
+        docsUrl: null,
       }))
     : agents.map((a) => cardModelFromInfo(a, agentCardState(a)));
 

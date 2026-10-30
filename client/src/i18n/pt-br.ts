@@ -894,6 +894,7 @@ export const ptBr: Dictionary = {
       meta: { notOnPath: "não está no PATH", searching: "procurando…" },
       noLoginHint: "Está instalado, mas sem login. Rode isto no terminal; dá para começar antes e entrar depois.",
       howToInstall: "Como instalar o {agent}",
+      installDocs: "Guia completo de instalação",
       start: "Começar",
       startWith: "Começar com {agent}",
       switchNote: "Dá para trocar de agente em cada sessão",

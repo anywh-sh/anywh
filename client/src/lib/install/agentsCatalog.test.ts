@@ -22,6 +22,7 @@ function agent(over: Partial<AgentInfo> & { id: string }): AgentInfo {
     loggedIn: true,
     loginCommand: null,
     installUrl: null,
+    docsUrl: null,
     ...over,
   };
 }
@@ -102,6 +103,7 @@ describe("fetchAgentsCatalog", () => {
               loggedIn: null,
               loginCommand: "codex login",
               installUrl: "https://y",
+              docsUrl: "https://z",
             },
           ],
         }),
@@ -114,6 +116,7 @@ describe("fetchAgentsCatalog", () => {
       ["claude", "ready"],
       ["codex", "missing"],
     ]);
+    expect(catalog.agents.map((a) => a.docsUrl)).toEqual([null, "https://z"]);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:8765/control/agents",
       expect.anything(),
@@ -149,6 +152,7 @@ describe("fetchAgentsCatalog", () => {
           loggedIn: null,
           loginCommand: null,
           installUrl: null,
+          docsUrl: null,
         },
       ]);
     },
