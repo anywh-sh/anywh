@@ -175,19 +175,36 @@ describe("usePlanUsage", () => {
     await settle();
 
     act(() => result.current.refresh("trabalho", true));
-    expect(result.current.refreshing).toBe(true);
     expect(result.current.byProfile.trabalho.refreshing).toBe(true);
     expect(refreshes()).toEqual([{ url: "ws://127.0.0.1:8002/plan-usage/watch", message: { type: "plan_usage_refresh", force: true } }]);
     // Sent with a ping, so a dead socket would be caught.
     expect(pings().map((entry) => entry.url)).toEqual(["ws://127.0.0.1:8002/plan-usage/watch"]);
     await settle();
-    expect(result.current.refreshing).toBe(false);
+    expect(result.current.byProfile.trabalho.refreshing).toBe(false);
 
     act(() => result.current.refresh());
     expect(refreshes().slice(1).map((entry) => [entry.url, entry.message])).toEqual([
       ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: false }],
       ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: false }],
     ]);
+  });
+
+  it("counts a refresh as ours until the read it started is over, and never a read the relay started", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)], readMs: 2_000 } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    // The relay's own minute read: not ours.
+    act(() => relay.emitPlanUsage("127.0.0.1:8001", [{ ...claude(10), reading: true }]));
+    expect(result.current.byProfile.pessoal.refreshing).toBe(false);
+    act(() => relay.emitPlanUsage("127.0.0.1:8001", [claude(10)]));
+
+    act(() => result.current.refresh("pessoal", true));
+    await settle();
+    // Answered with "reading started": still ours.
+    expect(result.current.byProfile.pessoal.runtimes?.[0].reading).toBe(true);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(true);
+    await settle(2_000);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(false);
   });
 
   it("stops spinning when a refresh goes unanswered", async () => {
@@ -197,9 +214,9 @@ describe("usePlanUsage", () => {
     // An answer that never comes: the fake only answers what is scripted.
     relay.planUsage!["127.0.0.1:8001"] = "legacy";
     act(() => result.current.refresh("pessoal", true));
-    expect(result.current.refreshing).toBe(true);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(true);
     await settle(REFRESH_TIMEOUT_MS);
-    expect(result.current.refreshing).toBe(false);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(false);
   });
 
   it("finds a dead socket on refresh, redials at once and sends the refresh again", async () => {
@@ -212,7 +229,7 @@ describe("usePlanUsage", () => {
     relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(64)] };
 
     act(() => result.current.refresh("pessoal", true));
-    expect(result.current.refreshing).toBe(true);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(true);
     await settle(PONG_TIMEOUT_MS - 1);
     expect(planSockets()).toHaveLength(1);
     await settle(1);
@@ -225,7 +242,7 @@ describe("usePlanUsage", () => {
     expect(refreshes().map((entry) => entry.message.force)).toEqual([true, false]);
     // Spinning until the answer to the resent refresh, then the new numbers.
     await settle();
-    expect(result.current.refreshing).toBe(false);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(false);
     expect(result.current.byProfile.pessoal).toMatchObject({ connection: "live" });
     expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(64);
   });
@@ -262,10 +279,10 @@ describe("usePlanUsage", () => {
     expect(result.current.byProfile.pessoal.connection).toBe("offline");
     relay.planUsage!["127.0.0.1:8001"] = { runtimes: [claude(33)] };
     act(() => result.current.refresh("pessoal", true));
-    expect(result.current.refreshing).toBe(true);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(true);
     await settle();
     expect(refreshes()).toEqual([{ url: "ws://127.0.0.1:8001/plan-usage/watch", message: { type: "plan_usage_refresh", force: true } }]);
-    expect(result.current.refreshing).toBe(false);
+    expect(result.current.byProfile.pessoal.refreshing).toBe(false);
     expect(result.current.byProfile.pessoal.runtimes?.[0].windows[0].usedPercent).toBe(33);
   });
 

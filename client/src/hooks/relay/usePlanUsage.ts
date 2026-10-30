@@ -20,8 +20,6 @@ export interface PlanUsageState {
    * when `profileId` is absent. `force: true` is the refresh button (always
    * reads); `false` is opening the card (cheap reads only). */
   refresh: (profileId?: string, force?: boolean, runtime?: PlanUsageRuntime) => void;
-  /** Some profile's refresh hasn't been answered yet. */
-  refreshing: boolean;
 }
 
 /** The fields that decide where and how a profile is dialed; any change
@@ -140,6 +138,5 @@ export function usePlanUsage(profiles: readonly Profile[], activeProfileId: stri
     byProfile: entries,
     now,
     refresh,
-    refreshing: Object.values(entries).some((entry) => entry.refreshing),
   };
 }

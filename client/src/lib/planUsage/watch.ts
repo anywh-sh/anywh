@@ -284,13 +284,17 @@ export class PlanUsageWatch {
       } else {
         this.pendingRefresh = undefined;
       }
-      window.clearTimeout(this.refreshTimer);
+      // A refresh stays "ours" until its read is over: the relay's first
+      // answer to it is usually the push saying the read started. A refresh
+      // the relay answers from its cache ends with that answer.
+      const stillReading = this.state.refreshing && message.runtimes.some((usage) => usage.reading === true);
+      if (!stillReading) window.clearTimeout(this.refreshTimer);
       this.update({
         connection: "live",
         runtimes: message.runtimes,
         observedAt: message.observedAt,
         receivedAt: this.now(),
-        refreshing: false,
+        refreshing: stillReading,
       });
     });
     ws.addEventListener("close", () => {

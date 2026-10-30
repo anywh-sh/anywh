@@ -180,10 +180,10 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAccessibleName("Usage: Claude Code not read yet; Codex read failed (network error)");
   });
 
-  it("shows a read in progress instead of 'not read yet', without pulsing", () => {
-    renderIndicator({ pessoal: live([{ runtime: "claude", status: "unknown", windows: [], observedAt: null, reading: true, readingSince: NOW }]) });
-    expect(agent("claude")).toHaveTextContent("updating…");
-    expect(agent("claude")).not.toHaveTextContent("not read yet");
+  it("shows a read this client asked for, in a slot that is always there, without pulsing", () => {
+    renderIndicator({ pessoal: live([{ runtime: "claude", status: "unknown", windows: [], observedAt: null, reading: true, readingSince: NOW }], { refreshing: true }) });
+    // The words stay; only the mark after them turns.
+    expect(agent("claude")).toHaveTextContent("not read yet");
     const mark = agent("claude").querySelector("[data-usage-reading]")!;
     expect(mark).toHaveAttribute("aria-hidden", "true");
     expect(mark.className).toContain("animate-spin");
@@ -192,10 +192,43 @@ describe("UsageIndicator", () => {
   });
 
   it("keeps the numbers while they are being refreshed, and says so", () => {
-    renderIndicator({ pessoal: live([{ ...claude(58), reading: true, readingSince: NOW }]) });
+    renderIndicator({ pessoal: live([{ ...claude(58), reading: true, readingSince: NOW }], { refreshing: true }) });
     expect(agent("claude")).toHaveTextContent("58% 5h");
     expect(agent("claude").querySelector("[data-usage-reading]")).not.toBeNull();
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h, updating…");
+  });
+
+  it("never shows the relay's own periodic reads, and never moves for them", () => {
+    // A minute of background reads: reading true, then false, again and again.
+    const states = [false, true, false, true, false].map((reading) =>
+      live([{ ...claude(58), reading, ...(reading ? { readingSince: NOW } : {}) }, { ...codexFree(37), reading }]),
+    );
+    const { rerender } = renderIndicator({ pessoal: states[0] });
+    const shape = () => button().innerHTML;
+    const first = shape();
+    for (const state of states.slice(1)) {
+      rerender(
+        <LocaleProvider>
+          <UsageIndicator profileId="pessoal" byProfile={{ pessoal: state }} now={NOW} expanded={false} />
+        </LocaleProvider>,
+      );
+      expect(button().querySelector("[data-usage-reading]")).toBeNull();
+      expect(shape()).toBe(first);
+      expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; Codex 37% 30d");
+    }
+  });
+
+  it("keeps the mark's slot whether or not a read shows, so the bar never shifts", () => {
+    const { rerender } = renderIndicator({ pessoal: live([claude(58)]) });
+    const slots = () => Array.from(button().querySelectorAll("[data-usage-reading-slot]")).map((slot) => slot.className.includes("size-2"));
+    expect(slots()).toEqual([true]);
+    rerender(
+      <LocaleProvider>
+        <UsageIndicator profileId="pessoal" byProfile={{ pessoal: live([{ ...claude(58), reading: true }], { refreshing: true }) }} now={NOW} expanded={false} />
+      </LocaleProvider>,
+    );
+    expect(slots()).toEqual([true]);
+    expect(button().querySelector("[data-usage-reading]")).not.toBeNull();
   });
 
   it("stops believing a read whose end never arrived, and never reads on an unreachable relay", () => {

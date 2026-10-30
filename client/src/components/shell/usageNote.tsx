@@ -46,12 +46,16 @@ export function noteSpoken(note: RuntimeNote, strings: UsageStrings): string {
  * rule in index.css stops it, and the "updating…" text beside it carries the
  * state on its own.
  */
-export function ReadingMark({ className }: { className?: string }) {
+export function ReadingMark({ className, hidden = false }: { className?: string; hidden?: boolean }) {
+  // `hidden` keeps the box (so whatever sits after it doesn't move when a
+  // read starts or ends) and drops the animation, which would otherwise keep
+  // repainting an invisible ring.
   return (
     <span
       aria-hidden="true"
-      data-usage-reading
-      className={cn("size-2 shrink-0 animate-spin rounded-full border border-border border-t-foreground", className)}
+      data-usage-reading={hidden ? undefined : true}
+      data-usage-reading-slot
+      className={cn("size-2 shrink-0 rounded-full border border-border border-t-foreground", hidden ? "invisible" : "animate-spin", className)}
     />
   );
 }

@@ -69,7 +69,12 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
   const names = dict.chat.composer.agentNames;
   const stale = data === "stale";
   // A stale profile's last state can't be mid-read: its relay is gone.
-  const readingOf = (usage: RuntimePlanUsage) => data === "live" && isReading(usage, entry?.receivedAt ?? null, now);
+  // Only a read this client asked for (the refresh button, opening the card)
+  // shows here. The relay also reads on its own every minute, and a mark
+  // coming and going with each of those made the whole bar blink; the card
+  // still shows every read.
+  const readingOf = (usage: RuntimePlanUsage) =>
+    data === "live" && entry?.refreshing === true && isReading(usage, entry.receivedAt, now);
   const summary = [
     ...(outdated ? [strings.outdatedSummary] : []),
     ...runtimes.map((usage) => summarize(usage, agentName(names, usage.runtime), now, readingOf(usage), locale, strings)),
@@ -164,27 +169,32 @@ function AgentBlock({
   );
 
   if (views.length === 0 || !headline) {
-    const note = runtimeNote(usage, now, reading) ?? "notRead";
-    if (note === "reading") {
-      return block(
-        <>
-          <ReadingMark />
-          {!compact && <span>{strings.reading}</span>}
-        </>,
-      );
-    }
+    // The words never change for a read: only the mark after them turns, in
+    // a slot that is always there, so nothing in the bar moves.
+    const note = runtimeNote(usage, now, false) ?? "notRead";
     if (note === "signedOut") {
       return block(
         <>
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
           {!compact && <span>{strings.signedOut}</span>}
+          <ReadingMark hidden={!reading} />
         </>,
       );
     }
     if (note === "apiKey") {
-      return block(<span className="border border-border px-1 leading-[14px] text-muted-foreground">{strings.apiKey}</span>);
+      return block(
+        <>
+          <span className="border border-border px-1 leading-[14px] text-muted-foreground">{strings.apiKey}</span>
+          <ReadingMark hidden={!reading} />
+        </>,
+      );
     }
-    return block(!compact && <span title={noteDetail(note, strings)}>{noteText(note, strings)}</span>);
+    return block(
+      <>
+        {!compact && <span title={noteDetail(note, strings)}>{noteText(note, strings)}</span>}
+        <ReadingMark hidden={!reading} />
+      </>,
+    );
   }
 
   const lead = leadWindow(views) ?? headline;
@@ -197,7 +207,7 @@ function AgentBlock({
     return block(
       <>
         <span className={tone(lead)}>{lead.percent}%</span>
-        {reading && <ReadingMark />}
+        <ReadingMark hidden={!reading} />
       </>,
     );
   }
@@ -224,7 +234,7 @@ function AgentBlock({
             ))}
         </span>
       )}
-      {reading && <ReadingMark />}
+      <ReadingMark hidden={!reading} />
     </>,
   );
 }

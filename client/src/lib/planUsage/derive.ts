@@ -31,7 +31,10 @@ export interface ProfilePlanUsage {
   observedAt: number | null;
   /** When this client received it (client clock), epoch ms. */
   receivedAt: number | null;
-  /** A refresh was asked and its answer hasn't arrived. */
+  /** A refresh this client asked for (the button, opening the card) is still
+   * under way: not answered yet, or answered with a read the relay is still
+   * running. What lets the status bar show a read the user asked for, and
+   * leave out the relay's own periodic ones. */
   refreshing: boolean;
 }
 
