@@ -82,4 +82,22 @@ describe("attaching a non-media file", () => {
     );
     expect(relay.uploads).toEqual([]);
   });
+
+  it("sends a large paste to the agent as \"pasted text.txt\"", async () => {
+    const { user, composer } = await openConversation();
+    await user.click(composer);
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", "Follow these instructions carefully. ".repeat(40));
+    await user.paste(clipboard);
+
+    expect(await screen.findByText(en.chat.composer.pastedTextFileName)).toBeInTheDocument();
+    expect(relay.uploads).toEqual([{ ext: "txt", name: "pasted text.txt", path: "/tmp/anywh-uploads/upload-1.txt" }]);
+
+    const sendButton = screen.getByRole("button", { name: en.common.send });
+    await vi.waitFor(() => expect(sendButton).toBeEnabled());
+    await user.click(sendButton);
+    await vi.waitFor(() =>
+      expect(userMessages().map((m) => m.text)).toEqual(["[arquivo anexado (pasted text.txt): /tmp/anywh-uploads/upload-1.txt]"]),
+    );
+  });
 });
