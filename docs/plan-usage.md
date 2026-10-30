@@ -167,3 +167,10 @@ feature needed no `WS_PROTOCOL_VERSION` bump.
   not been measured against a real paid account.
 - Two profiles logged in to the same account each probe on their own schedule.
 - macOS (Keychain, a different `$HOME` layout) is untested.
+- Codex is taken as logged in only when `auth.json` exists in its
+  `CODEX_HOME`. A Codex configured to keep its credentials in the system
+  keyring (`cli_auth_credentials_store`) has no such file and shows as
+  signed out.
+- A window at 100 % marks the whole agent as limited, including a
+  model-scoped one (Claude's weekly Opus window): the agent still answers
+  with other models, but the window that matters to the person is spent.
