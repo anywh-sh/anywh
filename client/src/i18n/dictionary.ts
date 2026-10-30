@@ -288,6 +288,62 @@ export interface Dictionary {
       relayHostPlaceholder: string;
       done: string;
     };
+    /** Connecting to a machine that is already running somewhere: a pairing
+     * code or an address, with the outcome shown inline. */
+    other: {
+      title: string;
+      body: string;
+      modes: { label: string; code: string; address: string };
+      code: {
+        label: string;
+        placeholder: string;
+        empty: string;
+        invalid: string;
+        /** `{host}` — the machine the code names. */
+        valid: string;
+      };
+      address: { host: string; hostPlaceholder: string; port: string; hint: string };
+      connect: string;
+      connecting: string;
+      steps: { claiming: string; connecting: string; verifying: string };
+      failed: { claim: string; connect: string; verify: string };
+      alreadyQueued: string;
+      retry: string;
+      advanced: string;
+    };
+    /** Where the relay runs and how it gets installed. The one screen that
+     * says "relay" on purpose. */
+    advanced: {
+      title: string;
+      body: string;
+      address: {
+        label: string;
+        loopback: string;
+        lan: string;
+        tailnet: string;
+        custom: string;
+        customPlaceholder: string;
+        default: string;
+        hints: { loopback: string; lan: string; tailnet: string; custom: string };
+      };
+      profileName: string;
+      port: string;
+      /** Under the port when the app does the install: the installer picks it. */
+      portHint: string;
+      install: { label: string; app: string; terminal: string };
+      app: { cta: string; hint: string };
+      terminal: {
+        /** Windows: where these commands go. */
+        wsl: string;
+        /** `{host}`, `{port}` */
+        connectAfter: string;
+        done: string;
+        stepInstall: string;
+        stepProfile: string;
+        stepStart: string;
+      };
+      devMode: { label: string; hint: string };
+    };
     copy: {
       copy: string;
       copied: string;
