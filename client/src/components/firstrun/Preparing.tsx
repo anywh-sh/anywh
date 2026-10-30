@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, ChevronRight, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { OnboardingFrame } from "@/components/firstrun/OnboardingFrame";
 import { isMissingFailure, PreparingFailure } from "@/components/firstrun/PreparingFailure";
-import { Spinner } from "@/components/firstrun/Spinner";
+import { StepIcon } from "@/components/firstrun/StepIcon";
 import { useLocalInstall } from "@/hooks/platform/useLocalInstall";
 import { useDict } from "@/i18n";
 import {
@@ -60,13 +60,6 @@ function useStepTimes(rows: Row[]): Partial<Record<RowKey, number>> {
     times[key] = Math.max(0, Math.round(((mark.end ?? now) - mark.start) / 1000));
   }
   return times;
-}
-
-function StepIcon({ status }: { status: StepStatus }) {
-  if (status === "done") return <Check className="size-3.5 shrink-0 text-diff-add" aria-hidden="true" />;
-  if (status === "failed") return <X className="size-3.5 shrink-0 text-destructive" aria-hidden="true" />;
-  if (status === "running") return <Spinner className="size-3.5" />;
-  return <span className="mx-[3px] size-2 shrink-0 border border-text-faint" aria-hidden="true" />;
 }
 
 /**

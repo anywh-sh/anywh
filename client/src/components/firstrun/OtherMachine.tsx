@@ -4,7 +4,8 @@ import { Field } from "@/components/firstrun/Field";
 import { FirstRunHeading } from "@/components/firstrun/FirstRunHeading";
 import { QuietLink } from "@/components/firstrun/QuietLink";
 import { Segmented } from "@/components/firstrun/Segmented";
-import { StepList, type StepRow } from "@/components/shell/StepList";
+import { StepRows } from "@/components/firstrun/StepIcon";
+import type { StepRow } from "@/components/shell/StepList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
@@ -134,7 +135,7 @@ export function OtherMachine({
       {showingProgress && state ? (
         <section className="flex flex-col gap-4" aria-label={copy.connecting}>
           <div className="border border-border bg-bg-chrome px-4 py-3.5">
-            <StepList steps={progressRows(state, progressMode, copy.steps)} label={copy.connecting} />
+            <StepRows steps={progressRows(state, progressMode, copy.steps)} label={copy.connecting} />
           </div>
           {failed && (
             <div role="alert" className="flex flex-col gap-3 px-4 py-3 shadow-[inset_2px_0_0_var(--destructive)]">
