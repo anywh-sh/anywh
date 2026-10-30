@@ -156,6 +156,10 @@ export type FakePlanUsage =
        * `reading` at once, then the plain state this many ms later. Absent =
        * the plain state right away. */
       readMs?: number;
+      /** The relay's floor between forced reads: a forced refresh reads and
+       * stamps every runtime's `refreshableAt` this far ahead; one inside
+       * the floor is answered from the cache (no `reading`). */
+      cooldownMs?: number;
     }
   | "legacy"
   | "unreachable";
@@ -180,6 +184,9 @@ export interface FakeRelay {
   /** Makes one relay's open plan usage sockets go silent without closing —
    * a connection that died with no close frame. New sockets answer again. */
   silentPlanUsage: (hostPort: string) => void;
+  /** Forced refreshes received, and how many of them read (outside the
+   * floor), across every relay scripted with `cooldownMs`. */
+  forcedRefreshes: () => { received: number; read: number };
   /** Pushes a `plan_usage_state` to the open plan usage sockets of one relay. */
   emitPlanUsage: (hostPort: string, runtimes: RuntimePlanUsage[], observedAt?: number) => void;
   /** Everything the app has sent, in order, whether or not the fake answers it. */
@@ -205,6 +212,8 @@ export function installFakeRelay(
 
   const planUsage: Record<string, FakePlanUsage> | null = options.planUsage ? { ...options.planUsage } : null;
   const deadSockets = new Set<FakeRelaySocket>();
+  let forcedRefreshes = 0;
+  let realReads = 0;
   const hostPort = (url: string): string => new URL(url).host;
   const isPlanUsageSocket = (socket: FakeRelaySocket): boolean => new URL(socket.url).pathname === "/plan-usage/watch";
 
@@ -222,6 +231,17 @@ export function installFakeRelay(
       const script = planUsage[hostPort(socket.url)];
       if (typeof script !== "object") return;
       const answer = () => socket.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: Date.now() });
+      if (script.cooldownMs !== undefined && (message as { force?: boolean }).force === true) {
+        forcedRefreshes++;
+        const floor = script.runtimes[0]?.refreshableAt;
+        if (floor === undefined || floor <= Date.now()) {
+          const until = Date.now() + script.cooldownMs;
+          script.runtimes = script.runtimes.map((usage) => ({ ...usage, refreshableAt: until, observedAt: Date.now() }));
+          realReads++;
+        }
+        queueMicrotask(answer);
+        return;
+      }
       if (script.readMs === undefined) {
         queueMicrotask(answer);
         return;
@@ -353,6 +373,7 @@ export function installFakeRelay(
   return {
     sockets,
     planUsage,
+    forcedRefreshes: () => ({ received: forcedRefreshes, read: realReads }),
     silentPlanUsage: (target) => {
       // Only the sockets open now: the next connection is a new one.
       const dead = sockets.filter((socket) => isPlanUsageSocket(socket) && hostPort(socket.url) === target && socket.readyState === FakeRelaySocket.OPEN);

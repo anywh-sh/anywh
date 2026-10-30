@@ -288,3 +288,55 @@ export function neverSignedIn(usage: RuntimePlanUsage): boolean {
 export function statusBarRuntimes(runtimes: readonly RuntimePlanUsage[]): RuntimePlanUsage[] {
   return runtimes.filter((usage) => !neverSignedIn(usage));
 }
+
+/**
+ * A relay timestamp in this client's clock. The two clocks of a tailnet are
+ * not the same clock: the state message carries the relay's time it was built
+ * (`observedAt`) and the client stamps when it arrived (`receivedAt`), so
+ * their difference is the skew (plus a negligible transit). Without both, the
+ * relay's value is used as is.
+ */
+export function relayToLocal(relayMs: number, entry: ProfilePlanUsage): number {
+  if (entry.observedAt === null || entry.receivedAt === null) return relayMs;
+  return relayMs + (entry.receivedAt - entry.observedAt);
+}
+
+/** The runtimes of live profiles, each with its profile's state. */
+function liveRuntimes(groups: readonly ProfileGroup[]): { usage: RuntimePlanUsage; entry: ProfilePlanUsage }[] {
+  return groups
+    .filter((group) => group.data === "live")
+    .flatMap((group) => (group.usage.runtimes ?? []).map((usage) => ({ usage, entry: group.usage })));
+}
+
+/**
+ * How long until the refresh button can make a relay read again, in ms;
+ * `null` when it can now. The relay answers a forced refresh from its cache
+ * until a runtime's `refreshableAt`, so the button is worth pressing as soon
+ * as any runtime is past its own — and while every one is still inside it,
+ * this is the shortest wait. No live runtime: nothing to hold the button.
+ */
+export function refreshCooldown(groups: readonly ProfileGroup[], nowMs: number): number | null {
+  const runtimes = liveRuntimes(groups);
+  if (runtimes.length === 0) return null;
+  let wait = Number.POSITIVE_INFINITY;
+  for (const { usage, entry } of runtimes) {
+    if (usage.refreshableAt === undefined) return null;
+    const remaining = relayToLocal(usage.refreshableAt, entry) - nowMs;
+    if (remaining <= 0) return null;
+    wait = Math.min(wait, remaining);
+  }
+  return wait;
+}
+
+/** When the newest reading of any live runtime was taken, in this client's
+ * clock — "updated 12s ago". Not when the last state arrived: a refresh the
+ * relay answers from its cache brings a new state with old numbers. */
+export function latestReadingAt(groups: readonly ProfileGroup[]): number | null {
+  let latest: number | null = null;
+  for (const { usage, entry } of liveRuntimes(groups)) {
+    if (usage.observedAt === null) continue;
+    const at = relayToLocal(usage.observedAt, entry);
+    latest = latest === null ? at : Math.max(latest, at);
+  }
+  return latest;
+}

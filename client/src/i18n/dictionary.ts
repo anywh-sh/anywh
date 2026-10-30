@@ -1321,6 +1321,10 @@ export interface Dictionary {
       outdatedSummary: string;
       /** The details card (`UsageCard`). */
       card: {
+        /** When the refresh button can read again: "again in 48s". Shown
+         * next to the reading's age while every relay would answer from its
+         * cache. */
+        againIn: string;
         /** An agent installed but never logged in on this profile (relay's
          * `everSignedIn: false`). Provisional copy: no design sign-off yet. */
         notUsed: string;

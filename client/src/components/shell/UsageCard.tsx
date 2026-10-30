@@ -1,20 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RotateCw } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { UsageAccountBlock } from "@/components/shell/UsageAccountBlock";
 import { useDict, type Dictionary } from "@/i18n";
-import { countAccounts, isReading, profileReading, type ProfileGroup } from "@/lib/planUsage/derive";
-import { formatUpdatedAgo } from "@/lib/planUsage/format";
+import { countAccounts, isReading, latestReadingAt, profileReading, refreshCooldown, type ProfileGroup } from "@/lib/planUsage/derive";
+import { formatSpan, formatUpdatedAgo } from "@/lib/planUsage/format";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
 type UsageStrings = Dictionary["shell"]["usage"];
 
+/** Clicks on refresh closer than this are one click. */
+export const REFRESH_CLICK_DEBOUNCE_MS = 1_000;
+
 export interface UsageCardProps {
   groups: readonly ProfileGroup[];
   profileLabel: (profileId: string) => string;
-  refreshing: boolean;
   /** The refresh button: a forced read of every profile. */
   onRefresh: () => void;
 }
@@ -44,7 +46,7 @@ function useSecondClock(): number {
  * face the app only (top and right — the other two are the window's edge and
  * the status bar), no shadow, and a 140ms rise out of the bar.
  */
-export function UsageCard({ groups, profileLabel, refreshing, onRefresh }: UsageCardProps) {
+export function UsageCard({ groups, profileLabel, onRefresh }: UsageCardProps) {
   const strings = useDict().shell.usage;
   return (
     <PopoverPrimitive.Portal>
@@ -57,7 +59,7 @@ export function UsageCard({ groups, profileLabel, refreshing, onRefresh }: Usage
         data-usage-card
         className="animate-usage-card-in z-50 flex max-h-(--radix-popover-content-available-height) w-[420px] flex-col border-t border-r border-border bg-background font-sans text-foreground outline-hidden"
       >
-        <UsageCardBody groups={groups} profileLabel={profileLabel} refreshing={refreshing} onRefresh={onRefresh} strings={strings} />
+        <UsageCardBody groups={groups} profileLabel={profileLabel} onRefresh={onRefresh} strings={strings} />
       </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   );
@@ -67,24 +69,33 @@ export function UsageCard({ groups, profileLabel, refreshing, onRefresh }: Usage
 export function UsageCardBody({
   groups,
   profileLabel,
-  refreshing,
   onRefresh,
   strings,
 }: UsageCardProps & { strings: UsageStrings }) {
   const now = useSecondClock();
   const card = strings.card;
   const accounts = countAccounts(groups);
-  // Busy while a read is really running on some relay, not only until the
-  // relay acknowledged the refresh (that answer comes at once). `refreshing`
-  // still covers the moment between the click and the relay's first push.
+  // Spinning only while a relay says a read really runs (`reading`) — never
+  // for having sent a refresh: one the relay answers from its cache comes
+  // back in milliseconds, with nothing read, and a spinner would only flash.
   const reading = groups.some((group) => profileReading(group.usage, now));
-  const busy = refreshing || reading;
-  const received = groups
-    .filter((group) => group.data === "live")
-    .map((group) => group.usage.receivedAt)
-    .filter((at): at is number => at !== null);
-  const freshest = received.length > 0 ? Math.max(...received) : null;
+  // Held while every relay would answer from its cache anyway.
+  const cooldown = refreshCooldown(groups, now);
+  const lastClick = useRef(0);
+  const held = reading || cooldown !== null;
+  const latest = latestReadingAt(groups);
+  const age = latest !== null ? formatUpdatedAgo(strings, latest, now) : null;
+  const again = cooldown !== null ? card.againIn.replace("{duration}", formatSpan(cooldown)) : null;
   const plural = (count: number, one: string, many: string) => (count === 1 ? one : many.replace("{count}", String(count)));
+
+  const handleRefresh = () => {
+    if (held) return;
+    // One refresh per click burst: a double click is one request.
+    const at = Date.now();
+    if (at - lastClick.current < REFRESH_CLICK_DEBOUNCE_MS) return;
+    lastClick.current = at;
+    onRefresh();
+  };
 
   return (
     <>
@@ -94,21 +105,24 @@ export function UsageCardBody({
           {plural(groups.length, card.profilesOne, card.profiles)} · {plural(accounts, card.accountsOne, card.accounts)}
         </span>
         <span className="flex-1" />
-        {freshest !== null && (
+        {(age !== null || again !== null) && (
           <span data-usage-age className="font-mono text-[11px] text-text-faint">
-            {formatUpdatedAgo(strings, freshest, now)}
+            {[age, again].filter(Boolean).join(" · ")}
           </span>
         )}
         <button
           type="button"
-          onClick={onRefresh}
+          onClick={handleRefresh}
           aria-label={card.refresh}
-          title={card.refresh}
-          aria-busy={busy}
-          disabled={busy}
-          className="flex size-6 cursor-pointer items-center justify-center text-text-faint outline-hidden transition-colors hover:bg-surface-hover hover:text-foreground focus-visible:bg-surface-hover disabled:cursor-default"
+          title={again !== null ? [age, again].filter(Boolean).join(" · ") : card.refresh}
+          aria-busy={reading}
+          aria-disabled={held}
+          className={cn(
+            "flex size-6 items-center justify-center text-text-faint outline-hidden transition-colors focus-visible:bg-surface-hover",
+            held ? "cursor-default opacity-50" : "cursor-pointer hover:bg-surface-hover hover:text-foreground",
+          )}
         >
-          <RotateCw className={cn("size-3.5", busy && "animate-spin")} strokeWidth={1.5} aria-hidden="true" />
+          <RotateCw className={cn("size-3.5", reading && "animate-spin")} strokeWidth={1.5} aria-hidden="true" />
         </button>
       </header>
 

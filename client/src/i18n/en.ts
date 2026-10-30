@@ -599,6 +599,7 @@ export const en: Dictionary = {
       outdated: "update relay",
       outdatedSummary: "this profile's relay is too old to report usage",
       card: {
+        againIn: "again in {duration}",
         notUsed: "not used on this profile",
         title: "Usage",
         profiles: "{count} profiles",

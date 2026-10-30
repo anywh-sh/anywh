@@ -220,7 +220,9 @@ describe("usePlanUsage", () => {
     expect(dead.readyState).toBe(3);
     expect(planSockets()).toHaveLength(2);
     expect(refreshes().map((entry) => entry.url)).toEqual(["ws://127.0.0.1:8001/plan-usage/watch", "ws://127.0.0.1:8001/plan-usage/watch"]);
-    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").every((entry) => entry.message.force === true)).toBe(true);
+    // The first went out forced; the resend after the dead socket is a
+    // plain resync, never a second forced read.
+    expect(refreshes().map((entry) => entry.message.force)).toEqual([true, false]);
     // Spinning until the answer to the resent refresh, then the new numbers.
     await settle();
     expect(result.current.refreshing).toBe(false);
@@ -236,6 +238,21 @@ describe("usePlanUsage", () => {
     await settle(PONG_TIMEOUT_MS * 2);
     expect(planSockets()).toHaveLength(1);
     expect(planSockets()[0].readyState).toBe(1);
+  });
+
+  it("never turns a flaky connection into repeated forced refreshes", async () => {
+    relay = installFakeRelay(undefined, { planUsage: { "127.0.0.1:8001": { runtimes: [claude(10)] } } });
+    const { result } = renderHook(() => usePlanUsage([PESSOAL], "pessoal"));
+    await settle();
+    // Every connection dies silently right after its snapshot.
+    for (let round = 0; round < 4; round++) {
+      relay.silentPlanUsage("127.0.0.1:8001");
+      if (round === 0) act(() => result.current.refresh("pessoal", true));
+      else act(() => window.dispatchEvent(new Event("focus")));
+      await settle(PONG_TIMEOUT_MS);
+      await settle();
+    }
+    expect(refreshes().filter((entry) => entry.message.force === true)).toHaveLength(1);
   });
 
   it("dials at once for a refresh asked while waiting out a retry", async () => {

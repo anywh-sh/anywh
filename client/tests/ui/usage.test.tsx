@@ -106,4 +106,43 @@ describe("plan usage in the status bar", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: /^Usage: / })).toHaveFocus();
   });
+
+  it("holds refresh while the relay would only answer from its cache, and opens the card with one cheap re-read", async () => {
+    relay.uninstall();
+    relay = installFakeRelay("fake reply", {
+      planUsage: {
+        "127.0.0.1:8001": { runtimes: [claude(58, "aaaa")], cooldownMs: 60_000 },
+        "127.0.0.1:8002": { runtimes: [claude(20, "bbbb")], cooldownMs: 60_000 },
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    const statusBar = document.querySelector<HTMLElement>("[data-status-bar]")!;
+    const indicator = await within(statusBar).findByRole("button", { name: /^Usage: / });
+    const refreshesSent = () => relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").map((entry) => entry.message.force);
+
+    await user.click(indicator);
+    const card = await screen.findByRole("dialog", { name: "Usage" });
+    expect(refreshesSent()).toEqual([false, false]);
+    const refresh = () => within(card).getByRole("button", { name: "Refresh usage" });
+
+    await user.click(refresh());
+    expect(refreshesSent()).toEqual([false, false, true, true]);
+    // Both relays read and started their floor: held, and saying until when.
+    await vi.waitFor(() => expect(refresh()).toHaveAttribute("aria-disabled", "true"));
+    expect(card.querySelector("[data-usage-age]")?.textContent).toMatch(/^now · again in (1m 00s|\d+s)$/);
+    expect(refresh()).toHaveAttribute("aria-busy", "false");
+
+    // More clicks while held: nothing sent.
+    await user.click(refresh());
+    await user.click(refresh());
+    expect(refreshesSent()).toEqual([false, false, true, true]);
+    expect(relay.forcedRefreshes()).toEqual({ received: 2, read: 2 });
+
+    // Closing and opening again: one cheap re-read per opening.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /^Usage: / }));
+    await screen.findByRole("dialog", { name: "Usage" });
+    expect(refreshesSent()).toEqual([false, false, true, true, false, false]);
+  });
 });

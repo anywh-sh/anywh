@@ -40,9 +40,8 @@ function live(runtimes: RuntimePlanUsage[], extra: Partial<ProfilePlanUsage> = {
 }
 
 /** The card the way App mounts it: a Popover root, an anchor, a trigger. */
-function Harness({ byProfile, refreshing = false, onRefresh = () => undefined }: {
+function Harness({ byProfile, onRefresh = () => undefined }: {
   byProfile: Record<string, ProfilePlanUsage>;
-  refreshing?: boolean;
   onRefresh?: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -55,7 +54,6 @@ function Harness({ byProfile, refreshing = false, onRefresh = () => undefined }:
         <UsageCard
           groups={groupByProfile(["pessoal", "trabalho"], byProfile, "trabalho")}
           profileLabel={label}
-          refreshing={refreshing}
           onRefresh={onRefresh}
         />
       </PopoverPrimitive.Root>
@@ -110,12 +108,55 @@ describe("UsageCard", () => {
     expect(header).toHaveTextContent("15s ago");
   });
 
-  it("spins and is busy while refreshing", () => {
-    const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41)]) }, refreshing: true });
+  it("never spins for a sent refresh, only for a read the relay reports", () => {
+    const onRefresh = vi.fn();
+    const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41)]) }, onRefresh });
     const refresh = within(card).getByRole("button", { name: "Refresh usage" });
-    expect(refresh).toHaveAttribute("aria-busy", "true");
-    expect(refresh).toBeDisabled();
-    expect(refresh.querySelector("svg")?.getAttribute("class")).toContain("animate-spin");
+    fireEvent.click(refresh);
+    expect(onRefresh).toHaveBeenCalledOnce();
+    expect(refresh).toHaveAttribute("aria-busy", "false");
+    expect(refresh.querySelector("svg")?.getAttribute("class")).not.toContain("animate-spin");
+  });
+
+  it("takes a burst of clicks as one", () => {
+    const onRefresh = vi.fn();
+    const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41)]) }, onRefresh });
+    const refresh = within(card).getByRole("button", { name: "Refresh usage" });
+    fireEvent.click(refresh);
+    fireEvent.click(refresh);
+    fireEvent.click(refresh);
+    expect(onRefresh).toHaveBeenCalledOnce();
+    act(() => vi.advanceTimersByTime(1000));
+    fireEvent.click(refresh);
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("holds the button while every relay would answer from its cache, and says until when", () => {
+    const onRefresh = vi.fn();
+    // The relay's clock runs 12s ahead of this one (observedAt NOW, received
+    // at NOW - 12s): its refreshableAt NOW + 60s is NOW + 48s here.
+    const { card } = openCard({
+      byProfile: { trabalho: live([{ ...claude(58, 41), refreshableAt: NOW + 60_000 }, { ...claude(10, 10, { runtime: "codex", accountKey: "c" }), refreshableAt: NOW + 30_000 }]) },
+      onRefresh,
+    });
+    const refresh = within(card).getByRole("button", { name: "Refresh usage" });
+    expect(refresh).toHaveAttribute("aria-disabled", "true");
+    expect(card.querySelector("[data-usage-age]")).toHaveTextContent("12s ago · again in 18s");
+    expect(refresh).toHaveAttribute("title", "12s ago · again in 18s");
+    fireEvent.click(refresh);
+    expect(onRefresh).not.toHaveBeenCalled();
+
+    // Free as soon as the first runtime is past its own floor.
+    act(() => vi.advanceTimersByTime(18_000));
+    expect(refresh).toHaveAttribute("aria-disabled", "false");
+    expect(card.querySelector("[data-usage-age]")).toHaveTextContent(/^30s ago$/);
+    fireEvent.click(refresh);
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("is free when any runtime has no floor running", () => {
+    const { card } = openCard({ byProfile: { trabalho: live([{ ...claude(58, 41), refreshableAt: NOW + 60_000 }, claude(10, 10, { runtime: "codex", accountKey: "c" })]) } });
+    expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-disabled", "false");
   });
 
   it("stays busy while a read is really running, not only until the relay answers", () => {

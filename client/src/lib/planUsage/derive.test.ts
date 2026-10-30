@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_PROFILE_USAGE,
+  latestReadingAt,
+  refreshCooldown,
+  relayToLocal,
   neverSignedIn,
   statusBarRuntimes,
   READING_TIMEOUT_MS,
@@ -252,5 +255,33 @@ describe("neverSignedIn / statusBarRuntimes", () => {
     const groups = groupByProfile(["a"], { a: live([claude, out(false)]) }, "a");
     expect(groups[0].accounts.map((entry) => entry.runtime)).toEqual(["claude", "codex"]);
     expect(countAccounts(groups)).toBe(1);
+  });
+});
+
+describe("relay clock / refreshCooldown / latestReadingAt", () => {
+  // Relay 10s ahead: it built the state at NOW + 10s, it arrived at NOW.
+  const skewed = (runtimes: RuntimePlanUsage[]): ProfilePlanUsage => ({ ...live(runtimes), observedAt: NOW + 10_000, receivedAt: NOW });
+
+  it("moves a relay timestamp into this client's clock", () => {
+    expect(relayToLocal(NOW + 70_000, skewed([]))).toBe(NOW + 60_000);
+    expect(relayToLocal(NOW, { ...live([]), observedAt: null })).toBe(NOW);
+  });
+
+  it("waits for the first runtime to leave its floor, and not at all without one", () => {
+    const claude = runtime({ runtime: "claude", refreshableAt: NOW + 70_000 });
+    const codex = runtime({ runtime: "codex", refreshableAt: NOW + 25_000 });
+    const groups = groupByProfile(["a"], { a: skewed([claude, codex]) }, "a");
+    expect(refreshCooldown(groups, NOW)).toBe(15_000);
+    expect(refreshCooldown(groups, NOW + 15_000)).toBeNull();
+    expect(refreshCooldown(groupByProfile(["a"], { a: skewed([claude, runtime({ runtime: "codex" })]) }, "a"), NOW)).toBeNull();
+    expect(refreshCooldown(groupByProfile(["a"], { a: skewed([]) }, "a"), NOW)).toBeNull();
+    // An unreachable profile holds nothing.
+    expect(refreshCooldown(groupByProfile(["a"], { a: { ...skewed([claude]), connection: "offline" } }, "a"), NOW)).toBeNull();
+  });
+
+  it("dates the newest reading, not the newest message", () => {
+    const groups = groupByProfile(["a"], { a: skewed([runtime({ runtime: "claude", observedAt: NOW - 50_000 }), runtime({ runtime: "codex", observedAt: NOW - 20_000 })]) }, "a");
+    expect(latestReadingAt(groups)).toBe(NOW - 30_000);
+    expect(latestReadingAt([])).toBeNull();
   });
 });

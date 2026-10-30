@@ -822,7 +822,6 @@ function AppShell() {
             usageProfileId,
           )}
           profileLabel={(id) => findProfile(id)?.label ?? id}
-          refreshing={planUsage.refreshing}
           onRefresh={() => planUsage.refresh(undefined, true)}
         />
       </PopoverPrimitive.Root>

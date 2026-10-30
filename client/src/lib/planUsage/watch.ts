@@ -67,7 +67,8 @@ export interface PlanUsageWatchOptions {
  * a refresh sent on it goes nowhere. So the socket proves itself alive with
  * `ping` → `pong`: on every refresh, on coming back to the foreground and,
  * where allowed, on a timer. A missing `pong` drops it and redials at once,
- * and a refresh that was in flight is sent again on the new connection.
+ * and a refresh that was in flight is sent again on the new connection —
+ * unforced, so a flaky link can't turn one click into repeated forced reads.
  */
 export class PlanUsageWatch {
   private state: ProfilePlanUsage = EMPTY_PROFILE_USAGE;
@@ -76,8 +77,9 @@ export class PlanUsageWatch {
   private refreshTimer: number | undefined;
   private pongTimer: number | undefined;
   private pingTimer: number | undefined;
-  /** The refresh not answered yet, kept to be sent again if its socket dies. */
-  private pendingRefresh: { message: PlanUsageRefreshMessage; resends: number } | undefined;
+  /** The refresh not answered yet, kept to be sent again if its socket dies.
+   * `sent`: it already reached a socket once. */
+  private pendingRefresh: { message: PlanUsageRefreshMessage; resends: number; sent: boolean } | undefined;
   private failures = 0;
   private stopped = false;
   private resolving = false;
@@ -135,7 +137,7 @@ export class PlanUsageWatch {
   refresh(force: boolean, runtime?: PlanUsageRuntime): boolean {
     if (this.stopped || this.final) return false;
     const message: PlanUsageRefreshMessage = { type: "plan_usage_refresh", force, ...(runtime ? { runtime } : {}) };
-    this.pendingRefresh = { message, resends: 0 };
+    this.pendingRefresh = { message, resends: 0, sent: false };
     this.update({ refreshing: true });
     window.clearTimeout(this.refreshTimer);
     this.refreshTimer = window.setTimeout(() => {
@@ -145,6 +147,7 @@ export class PlanUsageWatch {
     const socket = this.socket;
     if (this.state.connection === "live" && socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));
+      this.pendingRefresh.sent = true;
       this.probe();
     } else if (!this.socket && !this.resolving) {
       window.clearTimeout(this.retryTimer);
@@ -266,7 +269,14 @@ export class PlanUsageWatch {
         // the snapshot, not the answer. Send the refresh (again) on it.
         if (pending.resends < REFRESH_RESENDS) {
           pending.resends += 1;
-          ws.send(JSON.stringify(pending.message));
+          // A refresh that already went out once is not forced again: it
+          // may have reached the relay before the socket died, and a forced
+          // read is the expensive one. Resent as a plain resync — the relay
+          // reads only if its data is stale. A refresh that never left (the
+          // click came while disconnected) goes out as it was asked.
+          const resend = pending.sent ? { ...pending.message, force: false } : pending.message;
+          pending.sent = true;
+          ws.send(JSON.stringify(resend));
           this.update({ connection: "live", runtimes: message.runtimes, observedAt: message.observedAt, receivedAt: this.now() });
           return;
         }
