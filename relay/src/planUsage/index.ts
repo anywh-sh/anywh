@@ -49,3 +49,21 @@ export {
   presentPlanUsage,
   shouldAutoProbe,
 } from "./ingest.js";
+
+export type { AccountKeyKind, ClaudeFileIdentity } from "./accountKey.js";
+export {
+  ACCOUNT_KEY_HEX_LENGTH,
+  ACCOUNT_SALT_BYTES,
+  ACCOUNT_SALT_FILE,
+  DEFAULT_ACCOUNT_SALT_DIR,
+  accountKeyForLog,
+  claudeAccountKey,
+  codexAccountKey,
+  deriveAccountKey,
+  loadOrCreateAccountSalt,
+} from "./accountKey.js";
+
+export type { ClaudeAccountFile, ClaudeTiers, ReadClaudeAccountFileOptions } from "./claudeTier.js";
+export { claudeAccountFilePath, createClaudeAccountFileReader, extractClaudeAccount } from "./claudeTier.js";
+
+export { codexHomeDir, hasCodexAuthFile } from "./codexHome.js";
