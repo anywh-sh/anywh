@@ -67,3 +67,6 @@ export type { ClaudeAccountFile, ClaudeTiers, ReadClaudeAccountFileOptions } fro
 export { claudeAccountFilePath, createClaudeAccountFileReader, extractClaudeAccount } from "./claudeTier.js";
 
 export { codexHomeDir, hasCodexAuthFile } from "./codexHome.js";
+
+export type { PlanUsageCaptureEvent, PlanUsageCaptureListener } from "./capture.js";
+export { CODEX_RATE_LIMITS_UPDATED_METHOD, PlanUsageCapture, planUsageCapture, planUsageRuntimeOf } from "./capture.js";

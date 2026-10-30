@@ -27,11 +27,15 @@ import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "..
 // (a def reaching into session/ for a type it should describe itself).
 // eslint-disable-next-line import-x/no-restricted-paths
 import type { ContextUsage } from "../../session/sessionStore.js";
+import { planUsageCapture, type PlanUsageCapture } from "../../planUsage/index.js";
 
 export interface CodexSessionDriverOptions {
   readonly homeOverride?: string;
   readonly initialSessionId?: string;
   readonly host: SessionDriverHost;
+  /** Where the daemon's `account/rateLimits/updated` pushes and the turn's
+   * start/end go; the relay's shared capture unless a test passes its own. */
+  readonly planUsage?: PlanUsageCapture;
 }
 
 // Locally-typed subset of the real generated bindings this file consumes —
@@ -105,6 +109,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
   private readonly def: AgentRuntimeDef & { exec: JsonRpcDaemonPlan };
   private readonly homeOverride: string | undefined;
   private readonly host: SessionDriverHost;
+  private readonly planUsage: PlanUsageCapture;
   private daemon: CodexDaemon | undefined;
   /** == `getSessionId()`'s backing value — a Codex thread id, not a
    * process handle. `undefined` until the first turn's `thread/start`
@@ -129,6 +134,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
     this.def = def;
     this.homeOverride = options.homeOverride;
     this.host = options.host;
+    this.planUsage = options.planUsage ?? planUsageCapture;
     this.threadId = options.initialSessionId;
   }
 
@@ -182,6 +188,9 @@ export class CodexSessionDriver implements AgentSessionDriver {
       return;
     }
     if (TURN_LIFECYCLE_METHODS.has(method)) return;
+    // Account-wide, not part of the turn (it may also land between turns):
+    // goes to the plan usage capture only, never to the chat mapper.
+    if (this.planUsage.codexNotification(method, params)) return;
     for (const event of this.def.exec.mapNotification(method, params, { turnId: this.inFlightTurnId ?? "" })) {
       this.pendingOnEvent?.(event);
     }
@@ -197,6 +206,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
       if (event.type === "usage") lastUsage = { prefixTokens: event.prefixTokens, contextWindowSize: event.contextWindowSize };
       onEvent(event);
     };
+    const endTurn = this.planUsage.turnStarted("codex");
     try {
       if (!this.threadId) {
         const startSpec = exec.thread.start(ctx);
@@ -230,6 +240,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
       if (isThreadNotFoundError(message)) this.threadId = undefined;
       throw error;
     } finally {
+      endTurn();
       this.inFlightTurnId = undefined;
       this.pendingTurn = undefined;
       this.pendingOnEvent = undefined;

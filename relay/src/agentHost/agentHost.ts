@@ -42,6 +42,7 @@ import { AgentRegistry, type PersistedAgent, type PersistedLifecycle } from "./r
 import { userCodexMcpServers } from "./codexConfig.js";
 import { AGENT_HOST_DIR_MARKER, isAgentHostDirEntry } from "./paths.js";
 import { AgentHostSocketServer } from "./socketServer.js";
+import { CODEX_RATE_LIMITS_UPDATED_METHOD } from "../planUsage/capture.js";
 
 export interface HibernationOptions {
   readonly policy: "idle" | "memory" | "off";
@@ -893,7 +894,10 @@ export class AgentHost {
 
   private onCodexNotification(threadId: string | undefined, method: string, params: unknown): void {
     const agent = this.codexAgentFor(threadId);
-    if (!agent) return;
+    if (!agent) {
+      if (method === CODEX_RATE_LIMITS_UPDATED_METHOD) this.onCodexAccountLimits(method, params);
+      return;
+    }
     if (!this.appendTo(agent, { type: "codex_notification", method, params })) return;
     const before = this.stateOf(agent);
     if (method === "turn/started") {
@@ -911,6 +915,15 @@ export class AgentHost {
     }
     agent.lastActivityAt = this.now();
     if (this.stateOf(agent) !== before) this.broadcast(agent);
+  }
+
+  /** The account's new rate limits, pushed with no thread attached: the
+   * limits are account-wide, so they are recorded on one Codex agent with a
+   * turn in flight, whose relay reads them off the log for its plan usage.
+   * With none in a turn, nobody is reading, and the push is dropped. */
+  private onCodexAccountLimits(method: string, params: unknown): void {
+    const agent = [...this.agents.values()].find((candidate) => candidate.runtime === "codex" && candidate.turnInFlight);
+    if (agent) this.appendTo(agent, { type: "codex_notification", method, params });
   }
 
   /** The transport hands the host a request with no thread attached; it is
