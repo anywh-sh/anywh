@@ -583,6 +583,16 @@ export function retryLocalInstall(): void {
   void startInstall();
 }
 
+/** Cancel before anything was spawned (the check is still running, or it
+ * stopped): forgets the run, so a check that resolves after this can no
+ * longer go on to start the installer behind the reader's back. */
+export function abandonLocalInstall(): void {
+  prereqsGeneration++;
+  releaseHold();
+  stopWatchingSetup();
+  publish(initialState());
+}
+
 export async function cancelInstall(): Promise<void> {
   try {
     await cancelLocalInstall();

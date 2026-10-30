@@ -6,6 +6,7 @@ import { StepIcon } from "@/components/firstrun/StepIcon";
 import { useLocalInstall } from "@/hooks/platform/useLocalInstall";
 import { useDict } from "@/i18n";
 import {
+  abandonLocalInstall,
   cancelInstall,
   preparingFailure,
   preparingOutcome,
@@ -174,6 +175,7 @@ export function Preparing({
       // The done event comes back as `cancelled`, which leaves on its own.
       void cancelInstall();
     } else {
+      abandonLocalInstall();
       onCancel();
     }
   }

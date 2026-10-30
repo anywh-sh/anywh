@@ -371,6 +371,24 @@ describe("set up on this machine", () => {
     await screen.findByRole("button", { name: welcome.cta });
   });
 
+  it("cancelling while this machine is still being checked starts nothing", async () => {
+    let finishCheck: (value: Prerequisites) => void = () => {};
+    native.prerequisites.mockImplementationOnce(() => new Promise<Prerequisites>((resolve) => (finishCheck = resolve)));
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: welcome.cta }));
+    await user.click(await screen.findByRole("button", { name: preparing.cancel }));
+    await screen.findByRole("button", { name: welcome.cta });
+
+    // The check answers after the reader left: nothing may follow from it.
+    await act(async () => {
+      finishCheck(HEALTHY);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(native.start).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: welcome.cta })).toBeInTheDocument();
+  });
+
   it("a relay that installs but doesn't answer is dialled again on retry, nothing reinstalled", async () => {
     silent = [LOCAL.port];
     const user = userEvent.setup();
