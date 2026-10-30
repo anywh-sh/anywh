@@ -505,15 +505,16 @@ export function dismissProfileSetup(): void {
 
 /**
  * Lets go of a request that already settled — failed, or ready and never
- * continued — when it belongs to a profile other than `profileId`. Every
+ * continued — when it belongs to a profile other than `profileId` (any
+ * profile, without one). Every
  * resume is a no-op while a request is current, so a local install or an
  * adoption that dials its own profile after the reader gave up on another
  * machine would otherwise wait behind that leftover forever. Never touches a
  * request still in flight.
  */
-export function releaseSettledProfileSetup(profileId: string): void {
+export function releaseSettledProfileSetup(profileId?: string): void {
   if (current === null || isInFlight(current)) return;
-  if ("profile" in current && current.profile.id === profileId) return;
+  if (profileId !== undefined && "profile" in current && current.profile.id === profileId) return;
   if (current.status === "ready") completeProfileSetup();
   else dismissProfileSetup();
 }

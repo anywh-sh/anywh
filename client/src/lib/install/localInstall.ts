@@ -569,10 +569,13 @@ export function retryLocalInstall(): void {
   void startInstall();
 }
 
-/** Cancel before anything was spawned (the check is still running, or it
- * stopped): forgets the run, so a check that resolves after this can no
+/** Cancel when nothing is running (the check is still going, it stopped,
+ * or the profile installed but didn't answer): forgets the run, so a check that resolves after this can no
  * longer go on to start the installer behind the reader's back. */
 export function abandonLocalInstall(): void {
+  // A verification of this run's profile that failed is let go with it, so
+  // the next attempt (an adoption of what was installed) can dial it again.
+  if (state.verify.profileId) releaseSettledProfileSetup();
   prereqsGeneration++;
   releaseHold();
   stopWatchingSetup();

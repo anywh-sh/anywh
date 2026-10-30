@@ -141,7 +141,12 @@ export function FirstRun() {
   }, [linkRunning]);
 
   async function setUpHere(): Promise<void> {
-    const result = probe ?? (await probing.current) ?? null;
+    // Read again, not the copy from mount: an attempt that installed and
+    // then stopped has changed what is on disk, and repeating it would
+    // reinstall under a running relay instead of adopting it.
+    const fresh = await probeLocalRelay().catch(() => null);
+    const result = fresh ?? probe ?? (await probing.current) ?? null;
+    if (fresh) setProbe(fresh);
     if (canAdopt(result) && result && !adoptionDeclined.current) {
       adoptLocalProfiles(result);
       pushFirstRunView({ screen: "preparing", mode: "adopt" });

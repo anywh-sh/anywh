@@ -390,6 +390,27 @@ describe("set up on this machine", () => {
     await screen.findByRole("button", { name: welcome.cta });
   });
 
+  it("setting up again after an install that stopped at the start adopts what it left, instead of reinstalling", async () => {
+    silent = [LOCAL.port];
+    const user = userEvent.setup();
+    renderApp();
+    await startEasyInstall(user);
+    await finishRun({ id: "default", port: LOCAL.port, host: LOCAL.host });
+    await screen.findByText(fail.codes.unresponsive.body);
+
+    // What that run left on disk: anywh installed, its profile registered.
+    native.probe.mockResolvedValue({
+      ...EMPTY_PROBE,
+      installed: true,
+      profiles: [{ id: "default", label: "Personal", host: LOCAL.host, port: LOCAL.port, homeOverride: null, registered: true }],
+    });
+    silent = [];
+    await user.click(screen.getByRole("button", { name: preparing.cancel }));
+    await user.click(await screen.findByRole("button", { name: welcome.cta }));
+    await screen.findByRole("heading", { name: en.firstRun.agents.title });
+    expect(native.start).toHaveBeenCalledTimes(1);
+  });
+
   it("cancelling while this machine is still being checked starts nothing", async () => {
     let finishCheck: (value: Prerequisites) => void = () => {};
     native.prerequisites.mockImplementationOnce(() => new Promise<Prerequisites>((resolve) => (finishCheck = resolve)));
