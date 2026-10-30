@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowUpCircle } from "lucide-react";
 
 import {
@@ -47,6 +47,9 @@ interface StatusBarProps {
   onDismissBackgroundActivityItem: (item: BackgroundActivityItem) => void;
   /** Footer "parar tudo". */
   onStopAllBackgroundActivity: () => void;
+  /** Plan usage (`UsageIndicator`), drawn on the right just before the relay
+   * status. A slot, so this bar stays unaware of the usage sockets. */
+  usageIndicator?: ReactNode;
 }
 
 /** The status bar's room figures: every room's agents folded into the same
@@ -217,6 +220,7 @@ export function StatusBar({
   onStopBackgroundActivityItem,
   onDismissBackgroundActivityItem,
   onStopAllBackgroundActivity,
+  usageIndicator,
 }: StatusBarProps) {
   const dict = useDict();
   const update = useAppUpdate();
@@ -366,8 +370,12 @@ export function StatusBar({
           {repo.branch} · {changes}
         </span>
       )}
+      {/* Pushes everything after it to the right edge, whichever of the
+          usage indicator and the relay status are drawn. */}
+      <span aria-hidden="true" className="min-w-0 flex-1" />
+      {usageIndicator}
       {connected !== undefined && (
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 px-1.5" role="status">
+        <span className="flex shrink-0 items-center gap-1.5 px-1.5" role="status">
           <span
             aria-hidden="true"
             className={cn("size-1.5 rounded-full", connected ? "bg-diff-add" : "animate-pulse bg-destructive")}

@@ -1307,6 +1307,35 @@ export interface Dictionary {
      * ("5h", "7d"), `{percent}`/`{expected}` whole numbers, `{duration}` a
      * compact span ("58m", "1h 12m") and `{when}` a weekday + time. */
     usage: {
+      /** The text seal standing in for each agent's logo (`AgentMark`). */
+      marks: Record<KnownAgentId, string>;
+      /** The status bar indicator's accessible name: "Usage: {items}". The
+       * items are the phrases below, joined with "; ". */
+      summary: string;
+      /** One agent's reading in that summary: "Claude Code 58% 5h". */
+      summaryWindow: string;
+      /** One spent agent: "Claude Code limit reached, back in 58m". `{reset}`
+       * is `resetsIn`/`resetsOn`, or empty when the reset time is unknown. */
+      summaryLimited: string;
+      /** `{agent}` + one of the state words below: "Codex not signed in". */
+      summaryState: string;
+      /** A window at 100%, with no reset time to say instead. */
+      limited: string;
+      /** The CLI is installed but has no login. */
+      signedOut: string;
+      /** Logged in with an API key or another non-plan login: no windows. */
+      apiKey: string;
+      /** Nothing read yet. */
+      noData: string;
+      /** The last read failed and there is no earlier one to show. */
+      readError: string;
+      /** Another profile with an account at 80–99%: "Trabalho near the limit". */
+      alertWarn: string;
+      /** Another profile with a spent account: "Trabalho limit reached". */
+      alertLimited: string;
+      /** The active profile's relay is unreachable and these are its last
+       * numbers: "offline, last read 12m ago". `{ago}` is `updatedAgo`. */
+      stale: string;
       /** Accessible name of a usage meter: "5h: 58% used". */
       meterLabel: string;
       /** Spoken value of a meter whose window has an expected pace — the

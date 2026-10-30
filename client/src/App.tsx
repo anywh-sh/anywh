@@ -12,6 +12,9 @@ import { TabPanel } from "@/components/shell/TabPanel";
 import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { UsageIndicator } from "@/components/shell/UsageIndicator";
+import { usePlanUsage } from "@/hooks/relay/usePlanUsage";
+import type { Profile } from "@/lib/profiles/profiles";
 import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
@@ -118,6 +121,8 @@ export default function App() {
   if (profiles.length === 0 || firstRun.active || (soleUnverified && !firstRun.shellChosen) || pendingAgents || adopting) return <FirstRun />;
   return <AppShell />;
 }
+
+const NO_PROFILES: readonly Profile[] = [];
 
 /** Everything the app is once a profile exists. Never mounted without one —
  * see `App` above. */
@@ -472,6 +477,13 @@ function AppShell() {
 
   const activeTab = tabsState.tabs.find((tab) => tab.id === activeTabId);
 
+  // Plan usage of every profile, for the status bar. The active tab's
+  // profile is the one allowed to wake its machine; with no tab open, the
+  // active profile. iOS has no status bar, so it opens no sockets at all.
+  const usageProfileId = activeTab?.profileId ?? activeProfile.id;
+  const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
+  const [usageCardOpen, setUsageCardOpen] = useState(false);
+
   const sidebarProps = {
     activeProfile,
     profiles,
@@ -775,6 +787,22 @@ function AppShell() {
         onStopBackgroundActivityItem={stopBackgroundActivityItem}
         onDismissBackgroundActivityItem={dismissBackgroundActivityItem}
         onStopAllBackgroundActivity={stopAllBackgroundActivity}
+        usageIndicator={
+          <UsageIndicator
+            profileId={usageProfileId}
+            profiles={profiles}
+            byProfile={planUsage.byProfile}
+            now={planUsage.now}
+            expanded={usageCardOpen}
+            // The details card lands next; until then the button only keeps
+            // its own open state, and opening it already asks for a cheap
+            // re-read (Codex pulled, Claude from the relay's cache).
+            onClick={() => {
+              if (!usageCardOpen) planUsage.refresh(undefined, false);
+              setUsageCardOpen((open) => !open);
+            }}
+          />
+        }
       />
     </div>
   );

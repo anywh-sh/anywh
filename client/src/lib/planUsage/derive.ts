@@ -129,8 +129,13 @@ export function runtimeLevel(usage: RuntimePlanUsage, nowMs: number): UsageLevel
  * 30-day plan. A tie goes to the shorter window, the one that resets first.
  */
 export function headlineWindow(usage: RuntimePlanUsage, nowMs: number): WindowView | null {
+  return strongestWindow(runtimeWindows(usage, nowMs));
+}
+
+/** The most used of `views`; a tie goes to the shorter window. */
+export function strongestWindow(views: readonly WindowView[]): WindowView | null {
   let best: WindowView | null = null;
-  for (const view of runtimeWindows(usage, nowMs)) {
+  for (const view of views) {
     if (!best || view.percent > best.percent || (view.percent === best.percent && view.durationMins < best.durationMins)) {
       best = view;
     }
@@ -233,4 +238,26 @@ export function otherProfileAlerts(groups: readonly ProfileGroup[], nowMs: numbe
     if (level !== "neutral") alerts.push({ profileId: group.profileId, level });
   }
   return alerts;
+}
+
+/** The windows that measure the account itself, for the status bar's text:
+ * Claude's account-wide windows (no `limitId`) and Codex's account bucket.
+ * Model-scoped windows (`seven_day_opus`, Codex's per-model buckets) stay in
+ * the card. Falls back to every window when none qualify, so a reading made
+ * only of scoped windows still says something. */
+export function accountWindows(views: readonly WindowView[]): WindowView[] {
+  const account = views.filter((view) => view.limitId === undefined || view.limitId === "codex");
+  return account.length > 0 ? account : [...views];
+}
+
+/** When a spent runtime can work again: the latest reset among its spent
+ * windows — while any one of them is at 100%, the agent refuses. `null`
+ * when nothing is spent, or no spent window has a reset time. */
+export function spentUntil(views: readonly WindowView[]): number | null {
+  let until: number | null = null;
+  for (const view of views) {
+    if (view.level !== "limited" || view.resetsAt === null) continue;
+    until = until === null ? view.resetsAt : Math.max(until, view.resetsAt);
+  }
+  return until;
 }

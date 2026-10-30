@@ -1,0 +1,76 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
+import { renderApp } from "./helpers/renderApp";
+import { setProfiles } from "@/lib/profiles/profiles";
+import type { RuntimePlanUsage } from "@/lib/planUsage/model";
+
+// Same Tauri shims as panelToggles.test.tsx.
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }),
+}));
+vi.mock("@tauri-apps/api/core", () => ({ invoke: () => [] }));
+
+const HOUR = 3_600_000;
+
+function claude(usedPercent: number, accountKey: string): RuntimePlanUsage {
+  return {
+    runtime: "claude",
+    status: "ok",
+    windows: [{ durationMins: 300, usedPercent, resetsAt: Date.now() + 2 * HOUR }],
+    observedAt: Date.now(),
+    accountKey,
+  };
+}
+
+let relay: FakeRelay;
+
+beforeEach(() => {
+  localStorage.clear();
+  setProfiles([
+    { id: "pessoal", label: "Pessoal", host: "127.0.0.1", relayPort: 8001 },
+    { id: "trabalho", label: "Trabalho", host: "127.0.0.1", relayPort: 8002 },
+  ]);
+  relay = installFakeRelay("fake reply", {
+    planUsage: {
+      "127.0.0.1:8001": { runtimes: [claude(58, "aaaa")] },
+      "127.0.0.1:8002": { runtimes: [claude(91, "bbbb")] },
+    },
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  relay.uninstall();
+});
+
+describe("plan usage in the status bar", () => {
+  it("shows the active profile's agents, alerts on the other one, and re-reads on open", async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    const statusBar = document.querySelector<HTMLElement>("[data-status-bar]")!;
+    const indicator = await within(statusBar).findByRole("button", { name: /^Usage: / });
+    // Both profiles are watched, whichever tab is active.
+    expect(relay.sockets.filter((socket) => socket.url.includes("/plan-usage/watch")).map((socket) => socket.url).sort()).toEqual([
+      "ws://127.0.0.1:8001/plan-usage/watch",
+      "ws://127.0.0.1:8002/plan-usage/watch",
+    ]);
+    expect(indicator).toHaveAccessibleName("Usage: Claude Code 58% 5h; Trabalho near the limit");
+    expect(within(indicator).getByRole("meter")).toHaveAttribute("aria-valuenow", "58");
+    expect(document.querySelector('[data-usage-alert="trabalho"]')).toHaveAttribute("data-level", "warn");
+
+    await user.click(indicator);
+    expect(screen.getByRole("button", { name: /^Usage: / })).toHaveAttribute("aria-expanded", "true");
+    expect(
+      relay.sent
+        .filter((entry) => entry.message.type === "plan_usage_refresh")
+        .map((entry) => [entry.url, entry.message.force])
+        .sort(),
+    ).toEqual([
+      ["ws://127.0.0.1:8001/plan-usage/watch", false],
+      ["ws://127.0.0.1:8002/plan-usage/watch", false],
+    ]);
+  });
+});

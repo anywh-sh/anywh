@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_PROFILE_USAGE,
+  accountWindows,
+  spentUntil,
   countAccounts,
   groupByProfile,
   headlineWindow,
@@ -236,5 +238,24 @@ describe("otherProfileAlerts", () => {
     const alone = groupByProfile(["active", "other"], { active: live([]), other: { ...live(shared), connection: "offline" } }, "active");
     expect(otherProfileAlerts(alone, NOW)).toEqual([{ profileId: "other", level: "limited" }]);
     expect(otherProfileAlerts(alone, NOW + 2 * MIN)).toEqual([]);
+  });
+});
+
+describe("accountWindows / spentUntil", () => {
+  const view = (durationMins: number, usedPercent: number, resetsAt: number | null, limitId?: string) =>
+    windowView({ durationMins, usedPercent, resetsAt, limitId }, NOW);
+
+  it("keeps the account's own windows, falling back to all", () => {
+    const opus = view(10080, 90, NOW + MIN, "seven_day_opus");
+    expect(accountWindows([view(300, 10, NOW + MIN), opus]).map((v) => v.limitId)).toEqual([undefined]);
+    expect(accountWindows([view(43200, 37, NOW + MIN, "codex")])).toHaveLength(1);
+    expect(accountWindows([opus])).toEqual([opus]);
+  });
+
+  it("is the latest reset among the spent windows", () => {
+    expect(spentUntil([view(300, 100, NOW + 10 * MIN), view(10080, 100, NOW + 90 * MIN)])).toBe(NOW + 90 * MIN);
+    expect(spentUntil([view(300, 100, NOW + 10 * MIN), view(10080, 50, NOW + 90 * MIN)])).toBe(NOW + 10 * MIN);
+    expect(spentUntil([view(300, 99, NOW + 10 * MIN)])).toBeNull();
+    expect(spentUntil([view(300, 100, null)])).toBeNull();
   });
 });
