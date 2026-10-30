@@ -716,3 +716,18 @@ test("limits come from the env when valid", () => {
     { codexFreshMs: 45_000, codexForceFloorMs: DEFAULT_PLAN_USAGE_LIMITS.codexForceFloorMs, claudeForceFloorMs: 0 },
   );
 });
+
+test("transcript limits are checked at most once a minute, however many clients connect", async () => {
+  const t = harness();
+  for (let i = 0; i < 6; i++) {
+    const release = t.service.connectClient();
+    await settle();
+    release();
+    await t.advance(5_000);
+  }
+  assert.equal(t.calls.transcript, 1);
+  await t.advance(MIN);
+  t.service.connectClient();
+  await settle();
+  assert.equal(t.calls.transcript, 2);
+});

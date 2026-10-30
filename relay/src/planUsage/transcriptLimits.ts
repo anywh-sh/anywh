@@ -14,10 +14,9 @@
 // Cost and privacy: only the most recently modified transcripts, only their
 // tail, and only `apiErrorParams.rate_limit_info` of a matching line is read
 // — never logged, never kept. A transcript holds the conversation itself.
-import type { Dirent } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { open } from "node:fs/promises";
 import { claudeProjectsDir } from "./transcriptActivity.js";
+import { TranscriptIndex } from "./transcriptIndex.js";
 import { PLAN_WINDOW_MINS, type PlanWindow } from "./types.js";
 import { epochSecondsToMs, isRecord } from "./windows.js";
 
@@ -38,8 +37,6 @@ export interface ReadTranscriptLimitOptions {
 
 const DEFAULT_MAX_FILES = 5;
 const DEFAULT_TAIL_BYTES = 64 * 1024;
-// projects/<project>/<session>/subagents/*.jsonl is four levels down.
-const MAX_DEPTH = 4;
 // A weekly limit is the longest a refusal can stay true.
 const MAX_AGE_MS = PLAN_WINDOW_MINS.sevenDay * 60_000;
 
@@ -71,30 +68,6 @@ export function parseTranscriptLimitLine(line: string): TranscriptLimit | null {
   return { window: { ...duration, usedPercent: 100, resetsAt }, observedAt };
 }
 
-async function list(dir: string): Promise<Dirent[]> {
-  try {
-    return await readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
-async function collect(dir: string, depth: number, since: number, out: { path: string; mtimeMs: number }[]): Promise<void> {
-  for (const entry of await list(dir)) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (depth < MAX_DEPTH) await collect(path, depth + 1, since, out);
-    } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      try {
-        const { mtimeMs } = await stat(path);
-        if (mtimeMs >= since) out.push({ path, mtimeMs });
-      } catch {
-        // Deleted between the listing and the stat.
-      }
-    }
-  }
-}
-
 async function readTail(path: string, bytes: number): Promise<string[]> {
   const handle = await open(path, "r");
   try {
@@ -110,31 +83,65 @@ async function readTail(path: string, bytes: number): Promise<string[]> {
   }
 }
 
-/**
- * The latest refusal recorded in the profile's most recent transcripts,
- * when the window it names is still running at `now`. Undefined otherwise.
- * Never rejects.
- */
-export async function readClaudeTranscriptLimit(home: string, now: number, options: ReadTranscriptLimitOptions = {}): Promise<TranscriptLimit | undefined> {
-  const files: { path: string; mtimeMs: number }[] = [];
-  await collect(claudeProjectsDir(home, options.env), 1, now - MAX_AGE_MS, files);
-  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-  let latest: TranscriptLimit | undefined;
-  for (const { path } of files.slice(0, options.maxFiles ?? DEFAULT_MAX_FILES)) {
-    let lines: string[];
-    try {
-      lines = await readTail(path, options.tailBytes ?? DEFAULT_TAIL_BYTES);
-    } catch {
-      continue;
-    }
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const limit = parseTranscriptLimitLine(lines[i] ?? "");
-      if (!limit) continue;
-      if (!latest || limit.observedAt > latest.observedAt) latest = limit;
-      break;
-    }
+/** The last refusal in a transcript's tail, or null. */
+async function lastRefusal(path: string, tailBytes: number): Promise<TranscriptLimit | null> {
+  let lines: string[];
+  try {
+    lines = await readTail(path, tailBytes);
+  } catch {
+    return null;
   }
-  if (!latest || latest.window.resetsAt === null || latest.window.resetsAt <= now) return undefined;
-  return latest;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const limit = parseTranscriptLimitLine(lines[i] ?? "");
+    if (limit) return limit;
+  }
+  return null;
+}
+
+export interface TranscriptLimitReader {
+  read(now: number): Promise<TranscriptLimit | undefined>;
+  /** Transcript tails read so far (each a bounded read), for the tests that
+   * bound them. */
+  readonly tailsRead: number;
+}
+
+/**
+ * Reads the latest refusal recorded in the index's most recent transcripts,
+ * when the window it names is still running at `now`. A transcript is read
+ * again only when its mtime or size changed since the last look; the index
+ * bounds the directory walk. Never rejects.
+ */
+export function createTranscriptLimitReader(index: TranscriptIndex, options: Omit<ReadTranscriptLimitOptions, "env"> = {}): TranscriptLimitReader {
+  const cache = new Map<string, { mtimeMs: number; size: number; limit: TranscriptLimit | null }>();
+  let tailsRead = 0;
+  const read = async (now: number): Promise<TranscriptLimit | undefined> => {
+    const recent = (await index.list()).filter((file) => file.mtimeMs >= now - MAX_AGE_MS).slice(0, options.maxFiles ?? DEFAULT_MAX_FILES);
+    let latest: TranscriptLimit | undefined;
+    for (const file of recent) {
+      let entry = cache.get(file.path);
+      if (!entry || entry.mtimeMs !== file.mtimeMs || entry.size !== file.size) {
+        entry = { mtimeMs: file.mtimeMs, size: file.size, limit: await lastRefusal(file.path, options.tailBytes ?? DEFAULT_TAIL_BYTES) };
+        cache.set(file.path, entry);
+        tailsRead += 1;
+      }
+      if (entry.limit && (!latest || entry.limit.observedAt > latest.observedAt)) latest = entry.limit;
+    }
+    // Forget transcripts that left the recent set.
+    const keep = new Set(recent.map((file) => file.path));
+    for (const path of cache.keys()) if (!keep.has(path)) cache.delete(path);
+    if (!latest || latest.window.resetsAt === null || latest.window.resetsAt <= now) return undefined;
+    return latest;
+  };
+  return {
+    read,
+    get tailsRead() {
+      return tailsRead;
+    },
+  };
+}
+
+/** One-off read without a cache (a fresh index each call). */
+export async function readClaudeTranscriptLimit(home: string, now: number, options: ReadTranscriptLimitOptions = {}): Promise<TranscriptLimit | undefined> {
+  const index = new TranscriptIndex({ root: claudeProjectsDir(home, options.env), now: () => now });
+  return createTranscriptLimitReader(index, options).read(now);
 }

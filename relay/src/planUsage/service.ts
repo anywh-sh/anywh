@@ -43,8 +43,9 @@ import {
   type ClaudeAutoContext,
 } from "./scheduler.js";
 import { codexEverSignedInOnDisk } from "./codexHome.js";
-import { hasClaudeActivitySince } from "./transcriptActivity.js";
-import { readClaudeTranscriptLimit, type TranscriptLimit } from "./transcriptLimits.js";
+import { claudeProjectsDir } from "./transcriptActivity.js";
+import { TranscriptIndex, transcriptActivitySince } from "./transcriptIndex.js";
+import { createTranscriptLimitReader, type TranscriptLimit } from "./transcriptLimits.js";
 import type { PlanUsageRuntime, PlanUsageStateMessage, RuntimePlanUsage } from "./types.js";
 import { isRecord } from "./windows.js";
 
@@ -354,7 +355,7 @@ export class PlanUsageService {
     }
 
     if (!claudeWindowActive(slot.usage, now) && slot.usage.status !== "signed_out" && slot.usage.status !== "no_subscription") {
-      await this.checkClaudeTranscriptLimit(now, onConnect);
+      await this.checkClaudeTranscriptLimit(now);
     }
 
     const ctx = (localActivity: boolean): ClaudeAutoContext => ({
@@ -384,9 +385,11 @@ export class PlanUsageService {
   /** With no active 5h window known, a limit refusal Claude Code wrote into
    * a transcript (outside anywh) still says "limited until X" — read without
    * probing, at most once a minute. */
-  private async checkClaudeTranscriptLimit(now: number, onConnect: boolean): Promise<void> {
+  private async checkClaudeTranscriptLimit(now: number): Promise<void> {
     const last = this.lastTranscriptLimitCheckAt;
-    if (last !== null && now - last < (onConnect ? 0 : SCHEDULER_TICK_MS)) return;
+    // A connection gets no shortcut: the transcripts are read at most once a
+    // minute however many clients come and go.
+    if (last !== null && now - last < SCHEDULER_TICK_MS) return;
     this.lastTranscriptLimitCheckAt = now;
     const limit = await this.deps.readClaudeTranscriptLimit(now).catch(() => undefined);
     if (!limit) return;
@@ -728,6 +731,9 @@ export function createPlanUsageService(options: CreatePlanUsageServiceOptions): 
   const home = options.homeOverride ?? homedir();
   const probeDeps = defaultClaudeUsageProbeDeps();
   const readAccountFile = createClaudeAccountFileReader();
+  // One cached view of the transcripts, shared by the activity and limit readers.
+  const transcripts = new TranscriptIndex({ root: claudeProjectsDir(home, env) });
+  const transcriptLimits = createTranscriptLimitReader(transcripts);
   return new PlanUsageService({
     now: Date.now,
     setInterval: (fn, ms) => setInterval(fn, ms).unref(),
@@ -738,8 +744,8 @@ export function createPlanUsageService(options: CreatePlanUsageServiceOptions): 
     probeClaude: () => probeClaudeUsage(options.homeOverride, probeDeps),
     readClaudeAuth: () => probeDeps.readAuthStatus(options.homeOverride),
     readClaudeAccountFile: () => readAccountFile(home, { env }),
-    hasClaudeActivitySince: (since) => hasClaudeActivitySince(home, since, env),
-    readClaudeTranscriptLimit: (now) => readClaudeTranscriptLimit(home, now, { env }),
+    hasClaudeActivitySince: (since) => transcriptActivitySince(transcripts, since),
+    readClaudeTranscriptLimit: (now) => transcriptLimits.read(now),
     codexEverSignedInOnDisk: () => codexEverSignedInOnDisk(home, env),
     createCodexReader: (onUpdate) => createCodexRateLimitsReader({ homeOverride: options.homeOverride, env, onUpdate }),
     loadSalt: () => loadOrCreateAccountSalt(),

@@ -16,7 +16,7 @@ limits of each source.
 | Claude Code | `rate_limit_event` in the stream of a turn the relay runs | none: the turn was happening anyway | at the end of every turn |
 | Claude Code | a **probe**: a minimal `claude -p` turn whose only purpose is that event | a few tokens of Haiku, from the subscription | see [The Claude probe](#the-claude-probe) |
 | Claude Code | `claude auth status --json`, and the tier keys of `~/.claude.json` | none (no turn) | on connect, and every 4 minutes while logged out or unknown |
-| Claude Code | a limit refusal Claude Code wrote into a session transcript (`apiErrorParams.rate_limit_info`) | a bounded read: the tail of the 5 most recent transcripts | with no active 5h window known: on connect and at most once a minute. Only "limited until X", only while X is in the future |
+| Claude Code | a limit refusal Claude Code wrote into a session transcript (`apiErrorParams.rate_limit_info`) | a bounded read: the tail of the 5 most recent transcripts, re-read only when one changed; the transcript listing is cached (a full walk at most every 5 min, otherwise only the directories and the 20 most recent files) | with no active 5h window known: at most once a minute, connections included. Only "limited until X", only while X is in the future |
 | Codex | app-server `account/read` + `account/rateLimits/read` | none: it asks the backend, starts no turn and spends no quota | every minute while a client is connected, when the card opens, after a Codex turn |
 | Codex | app-server `account/rateLimits/updated` | none | pushed by the CLI during turns |
 
