@@ -51,8 +51,10 @@ export interface PlanWindow {
  * - `unknown`: nothing read yet. */
 export type PlanUsageStatus = "ok" | "warning" | "limited" | "signed_out" | "no_subscription" | "error" | "unknown";
 
-/** Where the reading in a `RuntimePlanUsage` came from. */
-export type PlanUsageSource = "turn" | "probe" | "app_server_read" | "app_server_push";
+/** Where the reading in a `RuntimePlanUsage` came from. `transcript` is a
+ * limit refusal Claude Code wrote into a session transcript (only ever
+ * "limited until X"). */
+export type PlanUsageSource = "turn" | "probe" | "app_server_read" | "app_server_push" | "transcript";
 
 export type PlanUsageErrorKind = "network" | "auth" | "parse" | "unknown";
 

@@ -76,6 +76,7 @@ test("what the service persists carries no e-mail, UUID or tier string", async (
         identity: { accountUuid: "acc-uuid-1", organizationUuid: "org-uuid-1" },
       }),
     hasClaudeActivitySince: () => Promise.resolve(false),
+    readClaudeTranscriptLimit: () => Promise.resolve(undefined),
     createCodexReader: () => ({ read: () => Promise.resolve({ kind: "auth", status: "signed_out" }), close: () => {} }),
     loadSalt: () => Promise.resolve(new Uint8Array(32)),
     store: createFilePlanUsageStore(path),

@@ -8,6 +8,7 @@ import type { ClaudeUsageAuth, ClaudeUsageProbeResult } from "./probes/claudeUsa
 import type { CodexRateLimitsResult } from "./probes/codexRateLimits.js";
 import { CLAUDE_PROBE_INTERVAL_MS, SCHEDULER_TICK_MS } from "./scheduler.js";
 import { PlanUsageService, type PlanUsageServiceDeps, type PlanUsageSnapshotStore } from "./service.js";
+import type { TranscriptLimit } from "./transcriptLimits.js";
 import type { PlanUsageStateMessage, PlanWindow, RuntimePlanUsage } from "./types.js";
 
 const NOW = 1_793_320_000_000;
@@ -39,7 +40,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
   const intervals = new Map<number, () => void>();
   let nextId = 1;
   const capture = new PlanUsageCapture(() => now);
-  const calls = { probe: 0, auth: 0, codexRead: 0, codexClose: 0, activity: 0 };
+  const calls = { probe: 0, auth: 0, codexRead: 0, codexClose: 0, activity: 0, transcript: 0 };
   const h = {
     get now() {
       return now;
@@ -48,6 +49,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
       Promise.resolve({ kind: "reading", reading: { status: "ok", windows: claudeWindows(40, now + 2 * 60 * MIN), observedAt: now, source: "probe" }, claudeStatus: "allowed", auth: AUTH }),
     auth: (): Promise<ClaudeUsageAuth> => Promise.resolve(AUTH),
     activity: false,
+    transcriptLimit: undefined as TranscriptLimit | undefined,
     codex: (): Promise<CodexRateLimitsResult> =>
       Promise.resolve({
         kind: "reading",
@@ -83,6 +85,11 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
     hasClaudeActivitySince: () => {
       calls.activity++;
       return Promise.resolve(h.activity);
+    },
+    readClaudeTranscriptLimit: (at) => {
+      calls.transcript++;
+      const limit = h.transcriptLimit;
+      return Promise.resolve(limit && limit.window.resetsAt !== null && limit.window.resetsAt > at ? limit : undefined);
     },
     createCodexReader: (onUpdate) => {
       h.codexUpdate = onUpdate;
@@ -489,4 +496,39 @@ test("a stored snapshot whose 5h window expired shows 0 % and is not probed", as
   assert.equal(t.calls.probe, 0);
   assert.equal(t.claude()?.windows[0]?.usedPercent, 0);
   assert.equal(t.claude()?.windows[1]?.usedPercent, 20);
+});
+
+test("never read, but a transcript records a limit still running: limited until its reset, without probing", async () => {
+  const t = harness();
+  const reset = NOW + 40 * MIN;
+  t.h.transcriptLimit = { window: { durationMins: 300, usedPercent: 100, resetsAt: reset }, observedAt: NOW - 20 * MIN };
+  t.h.activity = true;
+  t.service.connectClient();
+  await settle();
+  assert.equal(t.calls.transcript, 1);
+  assert.equal(t.claude()?.status, "limited");
+  assert.equal(t.claude()?.source, "transcript");
+  assert.deepEqual(t.claude()?.windows, [{ durationMins: 300, usedPercent: 100, resetsAt: reset }]);
+  assert.equal(t.claude()?.observedAt, NOW - 20 * MIN);
+  // Limited inside its window: nothing probes, and the files aren't re-read while the window runs.
+  await t.advance(30 * MIN);
+  assert.equal(t.calls.probe, 0);
+  assert.equal(t.calls.transcript, 1);
+  // After the reset the old 100 % is never shown. (With no local use since:
+  // a recent write after a known reset would now allow a probe.)
+  t.h.activity = false;
+  await t.advance(15 * MIN);
+  assert.equal(t.claude()?.windows[0]?.usedPercent, 0);
+  assert.equal(t.claude()?.status, "ok");
+});
+
+test("a transcript limit older than what the relay already read is ignored", async () => {
+  const stored: RuntimePlanUsage = { runtime: "claude", status: "ok", windows: claudeWindows(30, NOW - MIN), observedAt: NOW - 2 * MIN, source: "probe" };
+  const t = harness({ store: { load: () => [stored], save: () => {} } });
+  t.h.transcriptLimit = { window: { durationMins: 300, usedPercent: 100, resetsAt: NOW + 60 * MIN }, observedAt: NOW - 30 * MIN };
+  t.service.connectClient();
+  await settle();
+  assert.equal(t.calls.transcript, 1);
+  assert.equal(t.claude()?.source, "probe");
+  assert.notEqual(t.claude()?.status, "limited");
 });

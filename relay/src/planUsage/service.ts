@@ -43,6 +43,7 @@ import {
   type ClaudeAutoContext,
 } from "./scheduler.js";
 import { hasClaudeActivitySince } from "./transcriptActivity.js";
+import { readClaudeTranscriptLimit, type TranscriptLimit } from "./transcriptLimits.js";
 import type { PlanUsageRuntime, PlanUsageStateMessage, RuntimePlanUsage } from "./types.js";
 import { isRecord } from "./windows.js";
 
@@ -71,6 +72,9 @@ export interface PlanUsageServiceDeps {
   readClaudeAuth: () => Promise<ClaudeUsageAuth>;
   readClaudeAccountFile: () => Promise<ClaudeAccountFile | undefined>;
   hasClaudeActivitySince: (since: number) => Promise<boolean>;
+  /** The latest limit refusal in the profile's Claude transcripts, if its
+   * window is still running at `now`. */
+  readClaudeTranscriptLimit: (now: number) => Promise<TranscriptLimit | undefined>;
   createCodexReader: (onUpdate: (reading: PlanUsageReading) => void) => CodexRateLimitsReader;
   /** The machine's account salt; undefined turns account keys off. */
   loadSalt: () => Promise<Uint8Array | undefined>;
@@ -111,6 +115,7 @@ export class PlanUsageService {
   private codexReader?: CodexRateLimitsReader;
   private claudeAuthInFlight?: Promise<void>;
   private lastClaudeAuthCheckAt: number | null = null;
+  private lastTranscriptLimitCheckAt: number | null = null;
   private salt?: Promise<Uint8Array | undefined>;
 
   constructor(private readonly deps: PlanUsageServiceDeps) {
@@ -239,6 +244,10 @@ export class PlanUsageService {
       await this.checkClaudeAuth();
     }
 
+    if (!claudeWindowActive(slot.usage, now) && slot.usage.status !== "signed_out" && slot.usage.status !== "no_subscription") {
+      await this.checkClaudeTranscriptLimit(now, onConnect);
+    }
+
     const ctx = (localActivity: boolean): ClaudeAutoContext => ({
       now,
       clients: this.clients,
@@ -262,6 +271,19 @@ export class PlanUsageService {
   }
 
   // --- Claude ------------------------------------------------------------
+
+  /** With no active 5h window known, a limit refusal Claude Code wrote into
+   * a transcript (outside anywh) still says "limited until X" — read without
+   * probing, at most once a minute. */
+  private async checkClaudeTranscriptLimit(now: number, onConnect: boolean): Promise<void> {
+    const last = this.lastTranscriptLimitCheckAt;
+    if (last !== null && now - last < (onConnect ? 0 : SCHEDULER_TICK_MS)) return;
+    this.lastTranscriptLimitCheckAt = now;
+    const limit = await this.deps.readClaudeTranscriptLimit(now).catch(() => undefined);
+    if (!limit) return;
+    const slot = this.slots.claude;
+    this.update("claude", ingestReading(slot.usage, { status: "limited", windows: [limit.window], observedAt: limit.observedAt, source: "transcript" }));
+  }
 
   private async forcedClaude(): Promise<void> {
     if (!this.deps.probeEnabled) return this.checkClaudeAuth();
@@ -575,6 +597,7 @@ export function createPlanUsageService(options: CreatePlanUsageServiceOptions): 
     readClaudeAuth: () => probeDeps.readAuthStatus(options.homeOverride),
     readClaudeAccountFile: () => readAccountFile(home, { env }),
     hasClaudeActivitySince: (since) => hasClaudeActivitySince(home, since, env),
+    readClaudeTranscriptLimit: (now) => readClaudeTranscriptLimit(home, now, { env }),
     createCodexReader: (onUpdate) => createCodexRateLimitsReader({ homeOverride: options.homeOverride, env, onUpdate }),
     loadSalt: () => loadOrCreateAccountSalt(),
     store: createFilePlanUsageStore(planUsagePathFor(options.sessionsFile)),
