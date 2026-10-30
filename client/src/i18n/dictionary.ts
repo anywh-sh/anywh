@@ -364,6 +364,66 @@ export interface Dictionary {
       /** Label of the profile the onboarding creates on this machine. */
       defaultLabel: string;
     };
+    /** The first screen on a desktop: what anywh is, and one way in. */
+    welcome: {
+      title: string;
+      body: string;
+      worksWith: string;
+      cta: string;
+      ctaHint: string;
+      otherMachine: string;
+      /** The CTA is off inside a sandbox — `{container}` (flatpak, snap). */
+      container: string;
+      containerTerminal: string;
+      /** Windows has no in-app install: anywh and the agents live in WSL2,
+       * so the screen says so and lists what to have, without detecting. */
+      windows: {
+        notice: string;
+        steps: {
+          wsl: { title: string; link: string };
+          agent: { title: string; link: string };
+        };
+        cta: string;
+      };
+    };
+    /** The install (or the adoption of an existing one), as three steps. */
+    preparing: {
+      title: string;
+      body: string;
+      adoptTitle: string;
+      adoptBody: string;
+      steps: Record<"check" | "install" | "start" | "read" | "connect", string>;
+      /** The quiet line under a running step. */
+      sub: {
+        /** `{address}` */
+        waitingAt: string;
+        brew: string;
+        download: string;
+        /** `{count}`, `{names}` */
+        profiles: string;
+      };
+      details: string;
+      cancel: string;
+      done: string;
+      resuming: string;
+      reattached: string;
+      failed: string;
+      /** Under the card: `{profile}` is drawn between the two halves. */
+      profileSummary: { before: string; after: string };
+      profilesHere: string;
+      fail: {
+        /** Something the machine lacks, which the reader can add. */
+        titleMissing: string;
+        /** The install itself stopped. */
+        titleStopped: string;
+        keepsProgress: string;
+        actions: Record<"recheck" | "retry" | "terminal" | "back" | "otherMachine", string>;
+        /** One entry per code, so none reaches the screen without copy:
+         * the sentence, the short red line under the failed step, and for
+         * the ones fixed by hand a command to copy or a page to read. */
+        codes: Record<PreparingFailureCode, { body: string; line?: string; command?: string; link?: { label: string; href: string } }>;
+      };
+    };
     /** "Your agents": what the relay found on the machine, one card each, and
      * the choice of which opens by default. `{where}` is `here` or `at`,
      * `{agent}` a product name, `{host}` the other machine's address. */
