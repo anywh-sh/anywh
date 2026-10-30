@@ -44,7 +44,7 @@ after(async () => {
   rmSync(work, { recursive: true, force: true });
 });
 
-type State = { type: string; runtimes: { runtime: string; status: string; windows: { durationMins: number; usedPercent: number; resetsAt: number | null }[]; source?: string; plan?: { label: string }; accountKey?: string }[] };
+type State = { type: string; runtimes: { runtime: string; status: string; windows: { durationMins: number; usedPercent: number; resetsAt: number | null }[]; source?: string; plan?: { label: string }; accountKey?: string; everSignedIn?: boolean }[] };
 
 const isState = (message: Record<string, unknown>): message is Record<string, unknown> & State => message.type === "plan_usage_state";
 const claudeOf = (message: State) => message.runtimes.find((usage) => usage.runtime === "claude");
@@ -83,6 +83,10 @@ test("the snapshot comes first, without protocol_version; unknown Claude is not 
   assert.equal(claudeOf(last)?.status, "unknown");
   assert.match(claudeOf(last)?.accountKey ?? "", /^[0-9a-f]{16}$/);
   assert.equal(probes().length, 0);
+  // Codex: no auth.json and no session history in this profile's home — never used here.
+  assert.equal(codexOf(last)?.everSignedIn, false);
+  // Claude: the login check found a claude.ai login.
+  assert.equal(claudeOf(last)?.everSignedIn, true);
 });
 
 test("ping is answered with pong; malformed or unknown commands are ignored", async () => {

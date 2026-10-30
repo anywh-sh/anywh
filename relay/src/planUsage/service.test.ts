@@ -35,7 +35,7 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((done) => setImmediate(done));
 };
 
-function harness(options: { probeEnabled?: boolean; installed?: string[]; store?: PlanUsageSnapshotStore } = {}) {
+function harness(options: { probeEnabled?: boolean; installed?: string[]; store?: PlanUsageSnapshotStore; codexOnDisk?: boolean } = {}) {
   let now = NOW;
   const intervals = new Map<number, () => void>();
   let nextId = 1;
@@ -49,6 +49,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
       Promise.resolve({ kind: "reading", reading: { status: "ok", windows: claudeWindows(40, now + 2 * 60 * MIN), observedAt: now, source: "probe" }, claudeStatus: "allowed", auth: AUTH }),
     auth: (): Promise<ClaudeUsageAuth> => Promise.resolve(AUTH),
     activity: false,
+    codexOnDisk: false,
     transcriptLimit: undefined as TranscriptLimit | undefined,
     codex: (): Promise<CodexRateLimitsResult> =>
       Promise.resolve({
@@ -86,6 +87,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
       calls.activity++;
       return Promise.resolve(h.activity);
     },
+    codexEverSignedInOnDisk: () => Promise.resolve(h.codexOnDisk),
     readClaudeTranscriptLimit: (at) => {
       calls.transcript++;
       const limit = h.transcriptLimit;
@@ -105,6 +107,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
     log: (line) => h.logs.push(line),
     ...(options.store ? { store: options.store } : {}),
   };
+  h.codexOnDisk = options.codexOnDisk ?? false;
   const service = new PlanUsageService(deps);
   service.setInstalledRuntimes(options.installed ?? ["claude"]);
   service.start();
@@ -552,4 +555,63 @@ test("each probe's outcome is logged as a kind; Codex only when its outcome chan
     "[plan-usage] codex read: auth:signed_out",
   ]);
   assert.ok(!t.h.logs.join("\n").includes("example.invalid"));
+});
+
+test("everSignedIn: Codex never logged in on this profile (nothing on disk) is signed_out with everSignedIn false", async () => {
+  const t = harness({ installed: ["codex"] });
+  t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await settle();
+  await t.service.refresh({ force: false });
+  assert.equal(t.codex()?.status, "signed_out");
+  // Explicit false: absent would read as an older relay.
+  assert.equal(t.codex()?.everSignedIn, false);
+});
+
+test("everSignedIn: the disk bootstraps it, and a lost login keeps it", async () => {
+  const t = harness({ installed: ["codex"], codexOnDisk: true });
+  t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await settle();
+  assert.equal(t.codex()?.everSignedIn, true);
+  await t.service.refresh({ force: false });
+  assert.equal(t.codex()?.status, "signed_out");
+  assert.equal(t.codex()?.everSignedIn, true);
+});
+
+test("everSignedIn: set by a reading and never lost — not by signing out, not by an error", async () => {
+  const t = harness({ installed: ["codex"] });
+  await t.service.refresh({ force: false });
+  assert.equal(t.codex()?.everSignedIn, true);
+  t.h.codex = () => Promise.resolve({ kind: "error", error: "network" });
+  await t.service.refresh({ force: false });
+  t.h.codex = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await t.service.refresh({ force: false });
+  assert.equal(t.codex()?.status, "signed_out");
+  assert.equal(t.codex()?.everSignedIn, true);
+});
+
+test("everSignedIn: Claude's login check sets it; a login without a plan counts", async () => {
+  const t = harness();
+  t.service.connectClient();
+  await settle();
+  assert.equal(t.claude()?.status, "unknown");
+  assert.equal(t.claude()?.everSignedIn, true);
+
+  const apiKey = harness();
+  apiKey.h.auth = () => Promise.resolve({ loggedIn: true, authMethod: "api_key" });
+  apiKey.service.connectClient();
+  await settle();
+  assert.equal(apiKey.claude()?.everSignedIn, true);
+
+  const out = harness();
+  out.h.auth = () => Promise.resolve({ loggedIn: false });
+  out.service.connectClient();
+  await settle();
+  assert.equal(out.claude()?.status, "signed_out");
+  assert.equal(out.claude()?.everSignedIn, false);
+});
+
+test("everSignedIn: a snapshot stored before the field still proves a login by its account key", () => {
+  const stored: RuntimePlanUsage = { runtime: "codex", status: "signed_out", windows: [], accountKey: "0123456789abcdef", observedAt: NOW - MIN };
+  const t = harness({ installed: ["codex"], store: { load: () => [stored], save: () => {} } });
+  assert.equal(t.codex()?.everSignedIn, true);
 });

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PROBE_EDGE_MARGIN_MS,
+  withEverSignedIn,
   emptyPlanUsage,
   ingestAuthState,
   ingestError,
@@ -111,7 +112,7 @@ test("signing out drops the windows, plan and account key", () => {
   const good = ingestReading({ ...emptyPlanUsage("codex"), accountKey: "0123456789abcdef" }, reading({ plan: { family: "free", label: "Free" } }));
   assert.equal(good.accountKey, "0123456789abcdef");
   const out = ingestAuthState(good, "signed_out", T0 + MIN);
-  assert.deepEqual(out, { runtime: "codex", status: "signed_out", windows: [], observedAt: T0 + MIN });
+  assert.deepEqual(out, { runtime: "codex", status: "signed_out", windows: [], observedAt: T0 + MIN, everSignedIn: true });
 });
 
 test("an expired window is presented at 0 %, never its old percentage", () => {
@@ -176,4 +177,18 @@ test("auto probe: never while limited, signed out or without a subscription", ()
 test("auto probe: a warning or a failed read with an active window may probe", () => {
   assert.equal(shouldAutoProbe(claudeAt(FIVE_H_RESET, { status: "warning" }), T0), true);
   assert.equal(shouldAutoProbe(claudeAt(FIVE_H_RESET, { status: "error", error: { kind: "network" } }), T0), true);
+});
+
+test("everSignedIn: a reading sets it, signing out keeps it, nothing clears it", () => {
+  const read = ingestReading(emptyPlanUsage("codex"), reading());
+  assert.equal(read.everSignedIn, true);
+  const out = ingestAuthState(read, "signed_out", T0 + MIN);
+  assert.equal(out.everSignedIn, true);
+  assert.equal(ingestError(out, "network").everSignedIn, true);
+  assert.equal(withEverSignedIn(out, { ...out, everSignedIn: false }).everSignedIn, true);
+});
+
+test("everSignedIn: signed out from nothing proves nothing; a login without a plan does", () => {
+  assert.equal(ingestAuthState(emptyPlanUsage("codex"), "signed_out", T0).everSignedIn, undefined);
+  assert.equal(ingestAuthState(emptyPlanUsage("claude"), "no_subscription", T0).everSignedIn, true);
 });

@@ -41,6 +41,28 @@ export interface PlanUsageReading {
   plan?: PlanLabel;
 }
 
+/** Whether a state proves the runtime is (or was) logged in on this
+ * profile: any reading, a login without a plan, a plan or an account key.
+ * `signed_out`, `unknown` and `error` alone prove nothing. */
+export function impliesSignedIn(usage: RuntimePlanUsage): boolean {
+  return (
+    usage.status === "ok" ||
+    usage.status === "warning" ||
+    usage.status === "limited" ||
+    usage.status === "no_subscription" ||
+    usage.plan !== undefined ||
+    usage.accountKey !== undefined
+  );
+}
+
+/** `next` with `everSignedIn` carried over from `previous` and raised by
+ * what `next` proves — it never goes back to false. */
+export function withEverSignedIn(previous: RuntimePlanUsage, next: RuntimePlanUsage): RuntimePlanUsage {
+  const ever = previous.everSignedIn === true || next.everSignedIn === true || impliesSignedIn(next);
+  if (ever === (next.everSignedIn === true)) return next;
+  return ever ? { ...next, everSignedIn: true } : next;
+}
+
 /** A runtime nothing has been read for yet. */
 export function emptyPlanUsage(runtime: PlanUsageRuntime): RuntimePlanUsage {
   return { runtime, status: "unknown", windows: [], observedAt: null };
@@ -83,7 +105,7 @@ export function ingestReading(previous: RuntimePlanUsage, reading: PlanUsageRead
   if (plan) next.plan = plan;
   if (previous.accountKey !== undefined) next.accountKey = previous.accountKey;
   if (previous.nextAutoRefreshAt !== undefined) next.nextAutoRefreshAt = previous.nextAutoRefreshAt;
-  return next;
+  return withEverSignedIn(previous, next);
 }
 
 /** The CLI has no login, or a login without a plan: the windows and the plan
@@ -95,7 +117,7 @@ export function ingestAuthState(
 ): RuntimePlanUsage {
   const next: RuntimePlanUsage = { runtime: previous.runtime, status, windows: [], observedAt };
   if (previous.nextAutoRefreshAt !== undefined) next.nextAutoRefreshAt = previous.nextAutoRefreshAt;
-  return next;
+  return withEverSignedIn(previous, next);
 }
 
 /** A read failed: keep the last data and its `observedAt`, flag the error. */

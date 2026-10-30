@@ -85,6 +85,14 @@ export interface RuntimePlanUsage {
   /** Opaque account id (16 hex) for deduplicating the same account across
    * profiles in the client; never an e-mail or UUID. */
   accountKey?: string;
+  /** This runtime has been logged in on this profile at some point: seen by
+   * the relay (any reading, a login without a plan, a plan or an account
+   * key), or found on disk (Codex: `auth.json`, or a `sessions/` history in
+   * its `CODEX_HOME`). Persisted, and never goes back to `false` — so a
+   * `signed_out` with it set is a login that was lost, and one without it is
+   * an agent this profile never used. Always sent by a relay that knows
+   * the field; absent = a relay that predates it: treat as `true`. */
+  everSignedIn?: boolean;
   /** When the relay last got a reading, epoch ms; null = never. */
   observedAt: number | null;
   source?: PlanUsageSource;

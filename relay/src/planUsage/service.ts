@@ -19,7 +19,7 @@ import { claudeAccountKey, deriveAccountKey, loadOrCreateAccountSalt } from "./a
 import type { PlanUsageCapture, PlanUsageCaptureEvent } from "./capture.js";
 import { createClaudeAccountFileReader, type ClaudeAccountFile } from "./claudeTier.js";
 import { CODEX_ACCOUNT_LIMIT_ID } from "./codexLimits.js";
-import { emptyPlanUsage, ingestAuthState, ingestError, ingestReading, presentPlanUsage, type PlanUsageReading } from "./ingest.js";
+import { emptyPlanUsage, withEverSignedIn, ingestAuthState, ingestError, ingestReading, presentPlanUsage, type PlanUsageReading } from "./ingest.js";
 import { claudePlanLabel } from "./planLabel.js";
 import {
   claudeUsageAuthGate,
@@ -42,6 +42,7 @@ import {
   nextCodexAutoRefreshAt,
   type ClaudeAutoContext,
 } from "./scheduler.js";
+import { codexEverSignedInOnDisk } from "./codexHome.js";
 import { hasClaudeActivitySince } from "./transcriptActivity.js";
 import { readClaudeTranscriptLimit, type TranscriptLimit } from "./transcriptLimits.js";
 import type { PlanUsageRuntime, PlanUsageStateMessage, RuntimePlanUsage } from "./types.js";
@@ -75,6 +76,10 @@ export interface PlanUsageServiceDeps {
   /** The latest limit refusal in the profile's Claude transcripts, if its
    * window is still running at `now`. */
   readClaudeTranscriptLimit: (now: number) => Promise<TranscriptLimit | undefined>;
+  /** Codex was logged in on this profile at some point, by the disk alone
+   * (`codexEverSignedInOnDisk`): the bootstrap of `everSignedIn` for a
+   * profile the relay has no record of. */
+  codexEverSignedInOnDisk: () => Promise<boolean>;
   createCodexReader: (onUpdate: (reading: PlanUsageReading) => void) => CodexRateLimitsReader;
   /** The machine's account salt; undefined turns account keys off. */
   loadSalt: () => Promise<Uint8Array | undefined>;
@@ -122,14 +127,23 @@ export class PlanUsageService {
   constructor(private readonly deps: PlanUsageServiceDeps) {
     const stored = new Map((deps.store?.load() ?? []).map((usage) => [usage.runtime, usage]));
     this.slots = {
-      claude: { usage: stored.get("claude") ?? emptyPlanUsage("claude"), failures: 0, backoffUntil: null },
-      codex: { usage: stored.get("codex") ?? emptyPlanUsage("codex"), failures: 0, backoffUntil: null },
+      claude: { usage: restored(stored.get("claude"), "claude"), failures: 0, backoffUntil: null },
+      codex: { usage: restored(stored.get("codex"), "codex"), failures: 0, backoffUntil: null },
     };
   }
 
   /** Starts listening to the agent streams. */
   start(): void {
     this.unsubscribeCapture ??= this.deps.capture.subscribe((event) => this.onCapture(event));
+    void this.bootstrapCodexSignIn();
+  }
+
+  /** A profile whose Codex the relay never saw logged in may still have
+   * been: the field is newer than the install. The disk settles it once. */
+  private async bootstrapCodexSignIn(): Promise<void> {
+    if (this.slots.codex.usage.everSignedIn) return;
+    const onDisk = await this.deps.codexEverSignedInOnDisk().catch(() => false);
+    if (onDisk && !this.slots.codex.usage.everSignedIn) this.update("codex", { ...this.slots.codex.usage, everSignedIn: true });
   }
 
   stop(): void {
@@ -158,6 +172,8 @@ export class PlanUsageService {
     const runtimes = RUNTIMES.filter((runtime) => this.installed.has(runtime)).map((runtime) => {
       const slot = this.slots[runtime];
       const shown = { ...presentPlanUsage(slot.usage, now) };
+      // Always explicit: an absent field means a relay older than it.
+      shown.everSignedIn = slot.usage.everSignedIn === true;
       if (slot.readingSince !== undefined) {
         shown.reading = true;
         shown.readingSince = slot.readingSince;
@@ -372,6 +388,8 @@ export class PlanUsageService {
       // Just logged in: nothing read for this account yet.
       const base =
         slot.usage.status === "signed_out" || slot.usage.status === "no_subscription" ? emptyPlanUsage("claude") : { ...slot.usage };
+      // A claude.ai login now: whatever comes of it, the runtime was used here.
+      base.everSignedIn = true;
       if (identity.plan) base.plan = identity.plan;
       else delete base.plan;
       this.update("claude", withAccountKey(base, identity.accountKey));
@@ -474,8 +492,11 @@ export class PlanUsageService {
     this.update(runtime, ingestError(slot.usage, kind));
   }
 
-  private update(runtime: PlanUsageRuntime, next: RuntimePlanUsage): void {
-    if (next === this.slots[runtime].usage) return;
+  private update(runtime: PlanUsageRuntime, proposed: RuntimePlanUsage): void {
+    const previous = this.slots[runtime].usage;
+    if (proposed === previous) return;
+    // Whatever produced `proposed`, `everSignedIn` only ever goes up.
+    const next = withEverSignedIn(previous, proposed);
     this.slots[runtime].usage = next;
     try {
       this.deps.store?.save(RUNTIMES.map((id) => this.slots[id].usage));
@@ -524,6 +545,12 @@ export function outcomeKind(result: ClaudeUsageProbeResult | CodexRateLimitsResu
   }
 }
 
+/** A stored state, or an empty one; a snapshot written before
+ * `everSignedIn` existed still proves a login by its plan or account key. */
+function restored(usage: RuntimePlanUsage | undefined, runtime: PlanUsageRuntime): RuntimePlanUsage {
+  return usage ? withEverSignedIn(usage, usage) : emptyPlanUsage(runtime);
+}
+
 function withAccountKey(usage: RuntimePlanUsage, accountKey: string | undefined): RuntimePlanUsage {
   const next = { ...usage };
   if (accountKey) next.accountKey = accountKey;
@@ -538,7 +565,7 @@ export function planUsagePathFor(sessionsFile: string): string {
   return sessionsFile.endsWith(".json") ? `${sessionsFile.slice(0, -".json".length)}-plan-usage.json` : `${sessionsFile}-plan-usage.json`;
 }
 
-const PERSISTED_KEYS = ["runtime", "status", "windows", "plan", "accountKey", "observedAt", "source", "error"] as const;
+const PERSISTED_KEYS = ["runtime", "status", "windows", "plan", "accountKey", "everSignedIn", "observedAt", "source", "error"] as const;
 
 /** A stored entry, re-checked field by field: the file is ours, but a hand
  * edit or an older format must not reach the client unchecked. */
@@ -557,6 +584,7 @@ function restoreUsage(raw: unknown): RuntimePlanUsage | undefined {
   const usage: Record<string, unknown> = {};
   for (const key of PERSISTED_KEYS) if (raw[key] !== undefined) usage[key] = raw[key];
   usage.windows = windows;
+  if (typeof usage.everSignedIn !== "boolean") delete usage.everSignedIn;
   // An error belongs to the process that saw it.
   if (usage.status === "error") usage.status = windows.length > 0 ? "ok" : "unknown";
   delete usage.error;
@@ -617,6 +645,7 @@ export function createPlanUsageService(options: CreatePlanUsageServiceOptions): 
     readClaudeAccountFile: () => readAccountFile(home, { env }),
     hasClaudeActivitySince: (since) => hasClaudeActivitySince(home, since, env),
     readClaudeTranscriptLimit: (now) => readClaudeTranscriptLimit(home, now, { env }),
+    codexEverSignedInOnDisk: () => codexEverSignedInOnDisk(home, env),
     createCodexReader: (onUpdate) => createCodexRateLimitsReader({ homeOverride: options.homeOverride, env, onUpdate }),
     loadSalt: () => loadOrCreateAccountSalt(),
     store: createFilePlanUsageStore(planUsagePathFor(options.sessionsFile)),

@@ -121,6 +121,13 @@ A dedicated WebSocket per profile, `/plan-usage/watch`:
 - client → relay: `{type: "plan_usage_refresh", runtime?, force}`, answered
   with a fresh `plan_usage_state` once the reads end; `{type: "ping"}`.
 
+Each entry also says whether the agent was ever logged in on that profile
+(`everSignedIn`, kept on disk, never reset): a `signed_out` with it set is a
+lost login, one without it is an agent the profile never used. For a profile
+the relay has no record of, Codex's answer comes from the disk: an
+`auth.json`, or a non-empty `sessions/` history, in its `CODEX_HOME`. The
+databases an app-server creates there without a login don't count.
+
 The types are in `relay/src/planUsage/types.ts`, mirrored in
 `client/src/lib/planUsage/model.ts`. Liveness is client-initiated (`ping`),
 never a server timer, so an idle machine isn't kept awake. Each open socket

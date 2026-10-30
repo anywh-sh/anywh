@@ -77,6 +77,7 @@ test("what the service persists carries no e-mail, UUID or tier string", async (
       }),
     hasClaudeActivitySince: () => Promise.resolve(false),
     readClaudeTranscriptLimit: () => Promise.resolve(undefined),
+    codexEverSignedInOnDisk: () => Promise.resolve(false),
     createCodexReader: () => ({ read: () => Promise.resolve({ kind: "auth", status: "signed_out" }), close: () => {} }),
     loadSalt: () => Promise.resolve(new Uint8Array(32)),
     store: createFilePlanUsageStore(path),
@@ -86,4 +87,15 @@ test("what the service persists carries no e-mail, UUID or tier string", async (
   const text = readFileSync(path, "utf8");
   assert.ok(text.includes("Max 20x"));
   for (const leaked of ["example.invalid", "uuid", "default_claude"]) assert.ok(!text.includes(leaked), leaked);
+});
+
+test("everSignedIn is persisted; an older file without it, or with a bad value, loads without it", () => {
+  const path = join(dir(), "p.json");
+  const store = createFilePlanUsageStore(path);
+  store.save([{ runtime: "codex", status: "signed_out", windows: [], everSignedIn: true, observedAt: 1 }]);
+  assert.equal(store.load()?.[0]?.everSignedIn, true);
+  writeFileSync(path, JSON.stringify({ version: 1, runtimes: [{ runtime: "codex", status: "signed_out", windows: [], observedAt: 1 }, { runtime: "claude", status: "ok", windows: [], observedAt: 1, everSignedIn: "yes" }] }));
+  const loaded = store.load();
+  assert.equal(loaded?.length, 2);
+  for (const usage of loaded ?? []) assert.equal("everSignedIn" in usage, false);
 });
