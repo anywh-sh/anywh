@@ -451,3 +451,42 @@ test("reading is never persisted", async () => {
   assert.ok(saved.length > 0);
   assert.ok(!JSON.stringify(saved).includes("reading"));
 });
+
+test("a stored snapshot with an active window resumes the cadence without probing, its age exposed", async () => {
+  const observedAt = NOW - 30_000;
+  const stored: RuntimePlanUsage = {
+    runtime: "claude",
+    status: "ok",
+    windows: claudeWindows(66, NOW + 2 * 60 * MIN),
+    plan: { family: "max", label: "Max 5x" },
+    observedAt,
+    source: "probe",
+  };
+  const t = harness({ store: { load: () => [stored], save: () => {} } });
+  // Shown at once, with the time it was read — the client's "updated 30s ago".
+  assert.equal(t.claude()?.windows[0]?.usedPercent, 66);
+  assert.equal(t.claude()?.observedAt, observedAt);
+  assert.equal(t.claude()?.source, "probe");
+  // No client: nothing scheduled.
+  assert.equal(t.claude()?.nextAutoRefreshAt, null);
+
+  t.service.connectClient();
+  await settle();
+  // Within the connect floor: no probe, the next one due 4 min after the stored reading.
+  assert.equal(t.calls.probe, 0);
+  assert.equal(t.claude()?.nextAutoRefreshAt, observedAt + CLAUDE_PROBE_INTERVAL_MS);
+  await t.advance(CLAUDE_PROBE_INTERVAL_MS - 2 * MIN);
+  assert.equal(t.calls.probe, 0);
+  await t.advance(2 * MIN);
+  assert.equal(t.calls.probe, 1);
+});
+
+test("a stored snapshot whose 5h window expired shows 0 % and is not probed", async () => {
+  const stored: RuntimePlanUsage = { runtime: "claude", status: "ok", windows: claudeWindows(80, NOW - MIN), observedAt: NOW - 3 * 60 * MIN, source: "probe" };
+  const t = harness({ store: { load: () => [stored], save: () => {} } });
+  t.service.connectClient();
+  await t.advance(20 * MIN);
+  assert.equal(t.calls.probe, 0);
+  assert.equal(t.claude()?.windows[0]?.usedPercent, 0);
+  assert.equal(t.claude()?.windows[1]?.usedPercent, 20);
+});
