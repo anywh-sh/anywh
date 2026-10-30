@@ -1,0 +1,268 @@
+{
+  "_comment": "Plan usage shapes of `codex app-server` from codex-cli 0.154.0 (2026-10-30): the methods the Codex rate limits reader (src/planUsage/probes/codexRateLimits.ts) and the fake app-server rely on. `types` comes from `codex app-server generate-ts --experimental` (doc comments stripped, whitespace collapsed; generating bindings runs no model). `samples` are real replies recorded during the ENG-32 investigation (journal/99 §2.2), redacted: the e-mail is a reserved-domain stand-in and `accountId` a placeholder. Every sample whose `measured` is false was NOT observed: it follows the bindings only (no paid Codex account was available).",
+  "cliVersion": "0.154.0",
+  "types": {
+    "GetAccountParams": "{ refreshToken?: boolean, }",
+    "GetAccountResponse": "{ account: Account | null, requiresOpenaiAuth: boolean, }",
+    "Account": "{ \"type\": \"apiKey\", } | { \"type\": \"chatgpt\", email: string | null, planType: PlanType, } | { \"type\": \"amazonBedrock\", usesCodexManagedCredentials: boolean, }",
+    "GetAccountRateLimitsParams": "{ supportsLunaReserve?: boolean, excludeResetCreditDetails?: boolean, }",
+    "GetAccountRateLimitsResponse": "{ ordinaryUsageAllowed: boolean | null, rateLimits: RateLimitSnapshot, rateLimitsByLimitId: { [key in string]?: RateLimitSnapshot } | null, rateLimitResetCredits: RateLimitResetCreditsSummary | null, accountId: string | null, rateLimitUpsell: JsonValue | null, }",
+    "RateLimitSnapshot": "{ limitId: string | null, limitName: string | null, normalModelSlug: string | null, primary: RateLimitWindow | null, secondary: RateLimitWindow | null, credits: CreditsSnapshot | null, individualLimit: SpendControlLimitSnapshot | null, spendControlReached: boolean | null, planType: PlanType | null, rateLimitReachedType: RateLimitReachedType | null, }",
+    "RateLimitWindow": "{ usedPercent: number, windowDurationMins: number | null, resetsAt: number | null, }",
+    "AccountRateLimitsUpdatedNotification": "{ rateLimits: RateLimitSnapshot, }",
+    "PlanType": "\"free\" | \"go\" | \"plus\" | \"pro\" | \"prolite\" | \"team\" | \"self_serve_business_prolite\" | \"self_serve_business_usage_based\" | \"business\" | \"ent26\" | \"enterprise_cbp_automation\" | \"enterprise_cbp_usage_based\" | \"enterprise\" | \"edu\" | \"edu_plus\" | \"edu_pro\" | \"unknown\"",
+    "RateLimitReachedType": "\"rate_limit_reached\" | \"workspace_owner_credits_depleted\" | \"workspace_member_credits_depleted\" | \"workspace_owner_usage_limit_reached\" | \"workspace_member_usage_limit_reached\""
+  },
+  "serverNotificationMethods": [
+    "account/updated",
+    "account/rateLimits/updated",
+    "account/login/completed"
+  ],
+  "samples": {
+    "accountReadSignedOut": {
+      "measured": true,
+      "result": {
+        "account": null,
+        "requiresOpenaiAuth": true
+      }
+    },
+    "accountReadApiKey": {
+      "measured": true,
+      "result": {
+        "account": {
+          "type": "apiKey"
+        },
+        "requiresOpenaiAuth": true
+      }
+    },
+    "accountReadChatgptFree": {
+      "measured": true,
+      "result": {
+        "account": {
+          "type": "chatgpt",
+          "email": "redacted@example.invalid",
+          "planType": "free"
+        },
+        "requiresOpenaiAuth": true
+      }
+    },
+    "accountReadChatgptPlus": {
+      "measured": false,
+      "result": {
+        "account": {
+          "type": "chatgpt",
+          "email": "redacted@example.invalid",
+          "planType": "plus"
+        },
+        "requiresOpenaiAuth": true
+      }
+    },
+    "rateLimitsReadFree": {
+      "measured": true,
+      "params": {
+        "excludeResetCreditDetails": true
+      },
+      "result": {
+        "ordinaryUsageAllowed": false,
+        "rateLimits": {
+          "limitId": "codex",
+          "limitName": null,
+          "normalModelSlug": null,
+          "primary": {
+            "usedPercent": 100,
+            "windowDurationMins": 43200,
+            "resetsAt": 1795025523
+          },
+          "secondary": null,
+          "credits": {
+            "hasCredits": false,
+            "unlimited": false,
+            "balance": null
+          },
+          "individualLimit": null,
+          "spendControlReached": false,
+          "planType": "free",
+          "rateLimitReachedType": "rate_limit_reached"
+        },
+        "rateLimitsByLimitId": {
+          "codex": {
+            "limitId": "codex",
+            "limitName": null,
+            "normalModelSlug": null,
+            "primary": {
+              "usedPercent": 100,
+              "windowDurationMins": 43200,
+              "resetsAt": 1795025523
+            },
+            "secondary": null,
+            "credits": {
+              "hasCredits": false,
+              "unlimited": false,
+              "balance": null
+            },
+            "individualLimit": null,
+            "spendControlReached": false,
+            "planType": "free",
+            "rateLimitReachedType": "rate_limit_reached"
+          }
+        },
+        "rateLimitResetCredits": {
+          "availableCount": 0,
+          "credits": []
+        },
+        "accountId": "redacted-account-id",
+        "rateLimitUpsell": {
+          "banner_type": "free_trial_rate_limit_reached",
+          "title": "You're out of Codex messages",
+          "description": "Your rate limit resets on {time}. To continue using Codex, start your free trial of Plus today.",
+          "ctas": [
+            {
+              "action": "open_plus_pricing_web",
+              "label": "Try Plus"
+            }
+          ],
+          "reset_at": 1795025523,
+          "referral": null,
+          "request_url": null
+        }
+      }
+    },
+    "rateLimitsReadPaid": {
+      "measured": false,
+      "params": {
+        "excludeResetCreditDetails": true
+      },
+      "result": {
+        "ordinaryUsageAllowed": true,
+        "rateLimits": {
+          "limitId": "codex",
+          "limitName": null,
+          "normalModelSlug": null,
+          "primary": {
+            "usedPercent": 37,
+            "windowDurationMins": 300,
+            "resetsAt": 1793340000
+          },
+          "secondary": {
+            "usedPercent": 12,
+            "windowDurationMins": 10080,
+            "resetsAt": 1793800000
+          },
+          "credits": {
+            "hasCredits": false,
+            "unlimited": false,
+            "balance": null
+          },
+          "individualLimit": null,
+          "spendControlReached": false,
+          "planType": "plus",
+          "rateLimitReachedType": null
+        },
+        "rateLimitsByLimitId": {
+          "codex": {
+            "limitId": "codex",
+            "limitName": null,
+            "normalModelSlug": null,
+            "primary": {
+              "usedPercent": 37,
+              "windowDurationMins": 300,
+              "resetsAt": 1793340000
+            },
+            "secondary": {
+              "usedPercent": 12,
+              "windowDurationMins": 10080,
+              "resetsAt": 1793800000
+            },
+            "credits": {
+              "hasCredits": false,
+              "unlimited": false,
+              "balance": null
+            },
+            "individualLimit": null,
+            "spendControlReached": false,
+            "planType": "plus",
+            "rateLimitReachedType": null
+          },
+          "gpt-5-codex-mini": {
+            "limitId": "gpt-5-codex-mini",
+            "limitName": "GPT-5-Codex-Mini",
+            "normalModelSlug": "gpt-5-codex-mini",
+            "primary": {
+              "usedPercent": 4,
+              "windowDurationMins": 300,
+              "resetsAt": 1793340000
+            },
+            "secondary": null,
+            "credits": null,
+            "individualLimit": null,
+            "spendControlReached": null,
+            "planType": "plus",
+            "rateLimitReachedType": null
+          }
+        },
+        "rateLimitResetCredits": {
+          "availableCount": 0,
+          "credits": []
+        },
+        "accountId": "redacted-account-id",
+        "rateLimitUpsell": null
+      }
+    },
+    "rateLimitsReadSignedOutError": {
+      "measured": true,
+      "error": {
+        "code": -32600,
+        "message": "codex account authentication required to read rate limits"
+      }
+    },
+    "rateLimitsReadApiKeyError": {
+      "measured": true,
+      "error": {
+        "code": -32600,
+        "message": "chatgpt authentication required to read rate limits"
+      }
+    },
+    "rateLimitsUpdatedEmpty": {
+      "measured": true,
+      "params": {
+        "rateLimits": {
+          "limitId": "premium",
+          "limitName": null,
+          "normalModelSlug": null,
+          "primary": null,
+          "secondary": null,
+          "credits": {
+            "hasCredits": false,
+            "unlimited": false,
+            "balance": null
+          },
+          "individualLimit": null,
+          "spendControlReached": null,
+          "planType": null,
+          "rateLimitReachedType": null
+        }
+      }
+    },
+    "rateLimitsUpdatedPaid": {
+      "measured": false,
+      "params": {
+        "rateLimits": {
+          "limitId": "codex",
+          "limitName": null,
+          "normalModelSlug": null,
+          "primary": {
+            "usedPercent": 41,
+            "windowDurationMins": 300,
+            "resetsAt": 1793340001
+          },
+          "secondary": null,
+          "credits": null,
+          "individualLimit": null,
+          "spendControlReached": null,
+          "planType": null,
+          "rateLimitReachedType": null
+        }
+      }
+    }
+  }
+}
