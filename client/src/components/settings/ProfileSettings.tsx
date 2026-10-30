@@ -33,6 +33,8 @@ import {
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { evaluateRelayDrift } from "@/lib/relay/relayDrift";
 import { updateProfileMeta } from "@/lib/relay/relayClient";
+import { getHostInfo } from "@/lib/relay/filesClient";
+import type { AgentPreference } from "@/lib/relay/relay-types";
 import { cn } from "@/lib/utils";
 
 /** Small square button, the shape every choice in this page uses: the
@@ -43,11 +45,13 @@ function ChoiceButton({
   selected,
   onClick,
   title,
+  disabled,
   children,
 }: {
   selected?: boolean;
   onClick: () => void;
   title?: string;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -55,8 +59,9 @@ function ChoiceButton({
       type="button"
       onClick={onClick}
       title={title}
+      disabled={disabled}
       className={cn(
-        "cursor-pointer border px-2.5 py-1 font-mono text-[11.5px] transition-colors",
+        "cursor-pointer border disabled:cursor-not-allowed disabled:opacity-50 px-2.5 py-1 font-mono text-[11.5px] transition-colors",
         selected
           ? "border-primary bg-primary-soft text-primary-ink"
           : "border-border text-muted-foreground hover:border-text-faint hover:bg-surface-hover hover:text-foreground",
@@ -169,6 +174,87 @@ function ModelControl({
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+/** The profile's default agent, stored on its relay (so it follows the
+ * profile to other devices): "last used", or "always" one of the agents the
+ * host can run. Picking "always" pins the first agent right away, since a
+ * fixed mode without an agent means nothing. A relay that predates the field
+ * answers the PATCH with a 400: the control then turns off with a hint. */
+function AgentControl({ profile }: { profile: Profile }) {
+  const dict = useDict();
+  const agentDict = dict.settings.profile.agent;
+  const [agents, setAgents] = useState<string[]>([]);
+  const [unsupported, setUnsupported] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const preference: AgentPreference = profile.agentPreference ?? { mode: "lastUsed" };
+
+  useEffect(() => {
+    let cancelled = false;
+    getHostInfo(profile)
+      .then((info) => {
+        if (!cancelled) setAgents((info.agents ?? []).map((agent) => agent.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.id, profile.host, profile.relayPort]);
+
+  async function change(next: AgentPreference): Promise<void> {
+    setError(null);
+    try {
+      const { host, port, token } = await resolveConnection(profile);
+      const updated = await updateProfileMeta(host, port, profile.id, { agentPreference: next }, token);
+      addProfile({ ...profile, agentPreference: updated.agentPreference ?? next });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("label or colorIndex is required")) setUnsupported(true);
+      else setError(message);
+    }
+  }
+
+  const selectFixed = (fixedAgentId: string) => void change({ mode: "fixed", fixedAgentId });
+  const firstAgent = agents[0];
+
+  return (
+    <>
+      <div className="flex gap-1.5">
+        <ChoiceButton
+          selected={preference.mode === "lastUsed"}
+          onClick={() => preference.mode !== "lastUsed" && void change({ mode: "lastUsed" })}
+          title={unsupported ? agentDict.unsupported : undefined}
+          disabled={unsupported}
+        >
+          {agentDict.lastUsed}
+        </ChoiceButton>
+        <ChoiceButton
+          selected={preference.mode === "fixed"}
+          onClick={() => firstAgent !== undefined && preference.mode !== "fixed" && selectFixed(firstAgent)}
+          title={unsupported ? agentDict.unsupported : undefined}
+          disabled={unsupported || firstAgent === undefined}
+        >
+          {agentDict.fixed}
+        </ChoiceButton>
+      </div>
+      {preference.mode === "fixed" && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {agents.map((agentId) => (
+            <ChoiceButton
+              key={agentId}
+              selected={preference.fixedAgentId === agentId}
+              onClick={() => selectFixed(agentId)}
+              disabled={unsupported}
+            >
+              {agentName(dict.chat.composer.agentNames, agentId)}
+            </ChoiceButton>
+          ))}
+        </div>
+      )}
+      {unsupported && <p className="max-w-[24rem] text-right text-[11px] text-muted-foreground">{agentDict.unsupported}</p>}
+      {error && <p className="max-w-[24rem] text-right text-[11px] text-destructive">{error}</p>}
     </>
   );
 }
@@ -376,6 +462,10 @@ export function ProfileSettings({
           preference={preferences[profile.id] ?? DEFAULT_MODEL_PREFERENCE}
           onChange={(preference) => setPreference(profile.id, preference)}
         />
+      </SettingsRow>
+
+      <SettingsRow title={dict.settings.profile.agent.title} description={dict.settings.profile.agent.description}>
+        <AgentControl profile={profile} />
       </SettingsRow>
 
       <RelayDriftRow profile={profile} />

@@ -16,12 +16,14 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: async () => [] }));
 
 let relay: FakeRelay;
 let patchCalls: { url: string; body: unknown }[];
+let legacyRelay = false;
 
 beforeEach(() => {
   localStorage.clear();
   seedShellProfile();
   relay = installFakeRelay();
   patchCalls = [];
+  legacyRelay = false;
 
   // Settings' "Salvar" flow crosses the network edge via a plain PATCH
   // fetch (relayClient.ts's updateProfileMeta), not the WebSocket the rest
@@ -33,9 +35,18 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("/host-info")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ hostname: "h", platform: "linux", editor: null, agents: [{ id: "claude", capabilities: {} }, { id: "codex", capabilities: {} }] }),
+        } as Response);
+      }
       if (init?.method === "PATCH" && url.includes("/control/profiles/default")) {
-        const body = JSON.parse(String(init.body)) as { label?: string; colorIndex?: number };
+        const body = JSON.parse(String(init.body)) as { label?: string; colorIndex?: number; agentPreference?: unknown };
         patchCalls.push({ url, body });
+        if (legacyRelay && body.agentPreference !== undefined) {
+          return Promise.resolve({ ok: false, status: 400, json: async () => ({ error: "label or colorIndex is required" }) } as Response);
+        }
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -44,6 +55,7 @@ beforeEach(() => {
             colorIndex: body.colorIndex ?? 0,
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
+            ...(body.agentPreference !== undefined ? { agentPreference: body.agentPreference } : {}),
           }),
         } as Response);
       }
@@ -92,5 +104,46 @@ describe("Settings dialog", () => {
     // component's own effect), proving the round trip actually landed in
     // app state, not just in the mocked fetch call.
     await vi.waitFor(() => expect(labelInput).toHaveValue("Perfil Renomeado"));
+  });
+
+  async function openSettings(user: ReturnType<typeof userEvent.setup>) {
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    await user.click(await within(document.body).findByText(en.shell.titleBar.settings));
+    return screen.findByRole("dialog");
+  }
+
+  it("pinning the default agent PATCHes a fixed preference, and going back to last used clears the pin", async () => {
+    const user = userEvent.setup();
+    const dialog = await openSettings(user);
+    const agentRow = within(dialog).getByText(en.settings.profile.agent.title).closest("div")?.parentElement as HTMLElement;
+
+    const always = await within(agentRow).findByRole("button", { name: en.settings.profile.agent.fixed });
+    await vi.waitFor(() => expect(always).toBeEnabled());
+    await user.click(always);
+    await vi.waitFor(() => expect(patchCalls).toHaveLength(1));
+    expect(patchCalls[0].body).toEqual({ agentPreference: { mode: "fixed", fixedAgentId: "claude" } });
+
+    await user.click(await within(agentRow).findByRole("button", { name: "Codex" }));
+    await vi.waitFor(() => expect(patchCalls).toHaveLength(2));
+    expect(patchCalls[1].body).toEqual({ agentPreference: { mode: "fixed", fixedAgentId: "codex" } });
+
+    await user.click(within(agentRow).getByRole("button", { name: en.settings.profile.agent.lastUsed }));
+    await vi.waitFor(() => expect(patchCalls).toHaveLength(3));
+    expect(patchCalls[2].body).toEqual({ agentPreference: { mode: "lastUsed" } });
+  });
+
+  it("a relay that answers the agent preference with 400 disables the control and says why", async () => {
+    legacyRelay = true;
+    const user = userEvent.setup();
+    const dialog = await openSettings(user);
+    const agentRow = within(dialog).getByText(en.settings.profile.agent.title).closest("div")?.parentElement as HTMLElement;
+
+    const always = await within(agentRow).findByRole("button", { name: en.settings.profile.agent.fixed });
+    await vi.waitFor(() => expect(always).toBeEnabled());
+    await user.click(always);
+
+    await vi.waitFor(() => expect(always).toBeDisabled());
+    expect(within(agentRow).getByText(en.settings.profile.agent.unsupported)).toBeInTheDocument();
   });
 });

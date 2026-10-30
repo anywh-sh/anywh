@@ -167,6 +167,13 @@ export interface Dictionary {
         lastUsed: string;
         fixed: string;
       };
+      agent: {
+        title: string;
+        description: string;
+        lastUsed: string;
+        fixed: string;
+        unsupported: string;
+      };
       name: {
         title: string;
         description: string;

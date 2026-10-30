@@ -677,6 +677,13 @@ export const ptBr: Dictionary = {
         lastUsed: "último usado",
         fixed: "sempre o mesmo",
       },
+      agent: {
+        title: "Agente padrão",
+        description: "Já vem selecionado quando uma nova conversa deste perfil abre.",
+        lastUsed: "último usado",
+        fixed: "sempre o mesmo",
+        unsupported: "O relay desta máquina é antigo demais para guardar um agente padrão. Atualize-o para usar esta opção.",
+      },
       name: {
         title: "Nome do perfil",
         description: "Aparece na lista de sessões, nas abas e no seletor de perfil.",

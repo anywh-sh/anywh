@@ -677,6 +677,13 @@ export const en: Dictionary = {
         lastUsed: "last used",
         fixed: "always the same",
       },
+      agent: {
+        title: "Default agent",
+        description: "Already selected when a new conversation in this profile opens.",
+        lastUsed: "last used",
+        fixed: "always the same",
+        unsupported: "This machine's relay is too old to store a default agent. Update it to use this setting.",
+      },
       name: {
         title: "Profile name",
         description: "Shows up in the session list, the tabs and the profile picker.",
