@@ -27,6 +27,10 @@ export interface SelectableAgentsTargets {
   readonly publishSelectable: (agents: readonly SelectableAgent[]) => void;
   readonly publishRoomRuntimes: (ids: readonly string[]) => void;
   readonly publishModelCatalog: (agentId: string, catalog: ModelCatalog) => void;
+  /** An agent whose catalog is already known is not probed again — a
+   * refresh after boot only spends a probe on an agent that just appeared
+   * (or whose earlier probe came back empty). */
+  readonly hasModelCatalog?: (agentId: string) => boolean;
 }
 
 /**
@@ -43,6 +47,7 @@ export async function refreshSelectableAgents(targets: SelectableAgentsTargets):
   targets.publishRoomRuntimes(selectable.map((detection) => detection.id).filter((id) => targets.roomRuntimeIds.includes(id)));
   for (const def of targets.defs) {
     if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
+    if (targets.hasModelCatalog?.(def.identity.id)) continue;
     probeModelCatalog(def, targets.homeOverride, targets.cwd)
       .then((catalog) => {
         if (!catalog) return;

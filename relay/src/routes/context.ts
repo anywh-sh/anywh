@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { HostClient } from "../agentHost/hostClient.js";
 import type { PushStore } from "../push/pushStore.js";
+import type { AgentDetection } from "../runtimes/detection.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { SessionManager } from "../session/sessionManager.js";
 import type { RoomCanvasStore } from "../session/roomCanvas.js";
@@ -23,6 +24,11 @@ export interface RouteContext {
    * hardcoding one CLI. */
   readonly registry: Registry;
   readonly homeOverride: string | undefined;
+  /** Re-detects which agent CLIs are installed and republishes what boot
+   * detection did (`/host-info`'s agents, the room runtimes, a model
+   * catalog for any agent that has none yet). Resolves with every
+   * detection, the agents not installed included. */
+  readonly refreshAgents: () => Promise<readonly AgentDetection[]>;
   readonly port: number;
   readonly defaultSession: string;
   /** The push-address registry, or `null` when push is switched off for

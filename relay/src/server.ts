@@ -16,6 +16,7 @@ import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
 import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
 import { gracefulShutdown } from "./lifecycle.js";
+import { handleAgentCatalogRoutes } from "./routes/agentCatalog.js";
 import { handleAgentRoutes } from "./routes/agents.js";
 import { handleFilesRoutes } from "./routes/files.js";
 import { handleHostRoutes, setSelectableAgents } from "./routes/host.js";
@@ -298,6 +299,7 @@ const routeContext: RouteContext = {
   sessionManager,
   registry,
   homeOverride: HOME_OVERRIDE,
+  refreshAgents,
   port: PORT,
   defaultSession: DEFAULT_SESSION,
   pushStore,
@@ -319,6 +321,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleHostRoutes,
   handlePushRoutes,
   handleAgentRoutes,
+  handleAgentCatalogRoutes,
   handleRoomRoutes,
 ];
 
@@ -385,21 +388,26 @@ function sendModelCatalogs(client: WebSocket): void {
 // `runtimes/executables.ts`, which also grows per agent.
 const SELECTABLE_AGENT_IDS = ["claude", "codex"];
 
-refreshSelectableAgents({
-  defs: [claudeRuntimeDef, codexRuntimeDef],
-  selectableIds: SELECTABLE_AGENT_IDS,
-  roomRuntimeIds: HOST_RUNTIMES,
-  homeOverride: HOME_OVERRIDE,
-  cwd: defaultCwd(HOME_OVERRIDE),
-  publishSelectable: setSelectableAgents,
-  publishRoomRuntimes: (ids) => {
-    roomRuntimes = ids;
-  },
-  publishModelCatalog: (agentId, catalog) => {
-    modelCatalogs[agentId] = catalog;
-    for (const client of modelCatalogClients) sendModelCatalogs(client);
-  },
-}).catch((error: unknown) => {
+function refreshAgents(): ReturnType<typeof refreshSelectableAgents> {
+  return refreshSelectableAgents({
+    defs: [claudeRuntimeDef, codexRuntimeDef],
+    selectableIds: SELECTABLE_AGENT_IDS,
+    roomRuntimeIds: HOST_RUNTIMES,
+    homeOverride: HOME_OVERRIDE,
+    cwd: defaultCwd(HOME_OVERRIDE),
+    publishSelectable: setSelectableAgents,
+    publishRoomRuntimes: (ids) => {
+      roomRuntimes = ids;
+    },
+    publishModelCatalog: (agentId, catalog) => {
+      modelCatalogs[agentId] = catalog;
+      for (const client of modelCatalogClients) sendModelCatalogs(client);
+    },
+    hasModelCatalog: (agentId) => agentId in modelCatalogs,
+  });
+}
+
+refreshAgents().catch((error: unknown) => {
   // detectRuntimes itself never rejects (detection.ts's own contract) —
   // this only exists so a mistake in that contract fails loudly instead
   // of leaving /host-info's `agents` silently empty forever.

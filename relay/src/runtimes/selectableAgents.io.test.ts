@@ -140,3 +140,16 @@ test("refreshSelectableAgents probes the model catalog of each selectable agent,
     assert.deepEqual(published.catalogs, { present: CATALOG });
   });
 });
+
+test("refreshSelectableAgents: an agent whose catalog is already known is not probed again", async () => {
+  await withTmpDir(async (dir) => {
+    const known = fixtureDef("known", writeVersionScript(dir, "known-cli", "1.0.0"), CATALOG);
+    const fresh = fixtureDef("fresh", writeVersionScript(dir, "fresh-cli", "1.0.0"), CATALOG);
+    const { targets, published } = recordingTargets([known, fresh], dir, { hasModelCatalog: (agentId) => agentId === "known" });
+
+    await refreshSelectableAgents(targets);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(Object.keys(published.catalogs), ["fresh"]);
+  });
+});
