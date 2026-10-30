@@ -77,9 +77,6 @@ export function finishFirstRun(profileId: string): void {
   publish();
 }
 
-/** The screens of the v1 first run, kept only until those screens go. */
-export type LegacyFirstRunScreen = "detect" | "home" | "adopt" | "local" | "connect" | "code" | "manual";
-
 export type FirstRunScreen = "welcome" | "preparing" | "agents" | "other" | "advanced";
 
 /** A screen and what it was opened with. The first run is a stack of these:

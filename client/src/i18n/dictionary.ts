@@ -34,8 +34,7 @@ export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypass
  * dictionary" rule. */
 export type KnownAgentId = "claude" | "codex";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
-import type { LegacyFirstRunScreen } from "@/lib/profiles/firstRun";
-import type { LocalFailureAction, LocalNote, LocalStep, PreparingFailureCode } from "@/lib/install/localInstall";
+import type { PreparingFailureCode } from "@/lib/install/localInstall";
 
 /** Two tenses of one kind of call — see `Dictionary["chat"]["activity"]`. */
 export interface ActivityVerb {
@@ -236,65 +235,6 @@ export interface Dictionary {
     /** Drawn in the window's own title bar, which the shell's `TitleBar`
      * isn't there to provide yet. */
     windowTitle: string;
-    back: string;
-    /** Eyebrow beside the mark, naming where in the flow the reader is.
-     * Keyed on the screen union so a new screen is a compile error until
-     * it has a crumb. */
-    crumbs: Record<LegacyFirstRunScreen, string>;
-    home: {
-      title: string;
-      body: string;
-      /** Path 01: the app installs the relay itself, on Linux (systemd) and
-       * macOS (Homebrew) alike. */
-      localTitle: string;
-      localHint: string;
-      /** `{container}` — the card is shown but disabled inside a Flatpak or
-       * Snap, which can't reach the host's `systemd --user`. */
-      localUnavailable: string;
-      connectTitle: string;
-      connectHint: string;
-      codeTitle: string;
-      codeHint: string;
-      /** The line under the paths, for whoever has no relay anywhere yet. */
-      terminalPrompt: string;
-      terminalLink: string;
-    };
-    connect: {
-      title: string;
-      body: string;
-      hostLabel: string;
-      hostPlaceholder: string;
-      portLabel: string;
-      nameLabel: string;
-      namePlaceholder: string;
-      submit: string;
-      /** The queue refused it — the same address is already mid-flight. */
-      alreadyQueued: string;
-    };
-    code: {
-      title: string;
-      body: string;
-      nameLabel: string;
-      namePlaceholder: string;
-      codeLabel: string;
-      submit: string;
-      alreadyQueued: string;
-    };
-    /** The terminal alternative. One body per platform because the
-     * commands differ: Homebrew on macOS, WSL2 on Windows. */
-    manual: {
-      title: string;
-      body: string;
-      bodyMac: string;
-      bodyWindows: string;
-      install: string;
-      profile: string;
-      start: string;
-      /** Stands in for the one value the reader has to fill in themselves,
-       * printed inside angle brackets in the command. */
-      relayHostPlaceholder: string;
-      done: string;
-    };
     /** Connecting to a machine that is already running somewhere: a pairing
      * code or an address, with the outcome shown inline. */
     other: {
@@ -458,65 +398,6 @@ export interface Dictionary {
       startWith: string;
       switchNote: string;
       otherMachine: string;
-    };
-    footer: {
-      nothingInstalled: string;
-    };
-    /** The recognition step: a look at this machine before asking anything. */
-    detect: {
-      title: string;
-      body: string;
-    };
-    /** A relay with profiles was found on this machine: adopt them. */
-    adopt: {
-      title: string;
-      /** `{count}` — registered profiles found. */
-      body: string;
-      /** Meta line of a profile row — `{host}`, `{port}`. */
-      rowMeta: string;
-      /** The `default.env` a stray relay run leaves behind. */
-      orphanNote: string;
-      /** `{count}` */
-      adopt: string;
-      adoptOne: string;
-      createAnother: string;
-      /** Replaces `createAnother` on macOS, where the in-app installer can
-       * only ever provision one relay ("default") — points at the
-       * already-connected profile switcher's "add profile" instead. */
-      macNote: string;
-    };
-    /** Path 01: the in-app install, three steps. */
-    local: {
-      title: string;
-      /** The label of the profile the easy path creates (id `default`). */
-      defaultLabel: string;
-      notes: Record<Exclude<LocalNote, "none">, string>;
-      steps: Record<LocalStep, string>;
-      install: {
-        running: string;
-        failed: string;
-        showRaw: string;
-        hideRaw: string;
-        terminal: string;
-        cancel: string;
-        pendingLink: string;
-        /** `{count}` */
-        pendingLinks: string;
-        discard: string;
-      };
-      /** One sentence per way the install can stop — keyed on the code so a
-       * new one is a compile error until it has copy, never a raw enum on
-       * screen. The installer's own detail line is shown under it. */
-      failures: Record<PreparingFailureCode, string>;
-      actions: Record<LocalFailureAction, string>;
-      /** The window is being closed with an install running. */
-      close: {
-        title: string;
-        body: string;
-        background: string;
-        cancel: string;
-        keep: string;
-      };
     };
   };
   /**
