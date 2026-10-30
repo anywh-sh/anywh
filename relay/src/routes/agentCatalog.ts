@@ -19,7 +19,11 @@ export interface AgentCatalogEntry {
    * reports auth from inside a session. A probe that failed or timed out
    * is `false` — "go check your login" is the useful answer there. */
   readonly loggedIn: boolean | null;
-  /** The full command line a person runs to log in, for display only. */
+  /** The full command line a person runs to log in, for display only.
+   * It starts with `bin`, so a relay whose `AGENT_BIN` names a wrapper
+   * script shows the wrapper's name: that is the binary this relay really
+   * runs, and the one the person's own shell may not know by the CLI's
+   * usual name. */
   readonly loginCommand: string | null;
   readonly installUrl: string | null;
   /** A fuller reference beside `installUrl`, for a CLI whose setup page
