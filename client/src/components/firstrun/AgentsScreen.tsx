@@ -188,23 +188,27 @@ export function AgentsScreen({
             <span className="font-mono text-[11.5px] text-text-faint">{scope}</span>
             {!nothingToStart && recheck}
           </div>
-          <ul role={choosing ? "radiogroup" : undefined} aria-label={choosing ? copy.title : undefined} className="flex flex-col gap-2">
-            {cards.map((card) => (
-              <AgentCard
-                key={card.id}
-                agent={card}
-                choice={
-                  choosing && card.state !== "missing" && card.state !== "checking"
-                    ? {
-                        name: groupName,
-                        checked: card.id === selected,
-                        onSelect: () => setSelected(card.id),
-                      }
-                    : undefined
-                }
-              />
-            ))}
-          </ul>
+          {/* The group wraps the list rather than replacing its role, so
+           * the cards stay list items. */}
+          <div role={choosing ? "radiogroup" : undefined} aria-label={choosing ? copy.title : undefined}>
+            <ul className="flex flex-col gap-2">
+              {cards.map((card) => (
+                <AgentCard
+                  key={card.id}
+                  agent={card}
+                  choice={
+                    choosing && card.state !== "missing" && card.state !== "checking"
+                      ? {
+                          name: groupName,
+                          checked: card.id === selected,
+                          onSelect: () => setSelected(card.id),
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </ul>
+          </div>
         </section>
       )}
 

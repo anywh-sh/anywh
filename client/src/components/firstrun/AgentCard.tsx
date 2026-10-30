@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { ArrowUpRight, Check } from "lucide-react";
 import { AgentLogo } from "@/components/chat/AgentLogo";
 import { CommandLine } from "@/components/firstrun/CommandLine";
@@ -46,6 +47,7 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
   const copy = dict.firstRun.agents;
   const agentName = dict.chat.composer.agentNames[agent.id as KnownAgentId] ?? agent.id;
   const missing = agent.state === "missing";
+  const describedBy = useId();
 
   const meta =
     agent.state === "checking"
@@ -63,9 +65,11 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className={cn("text-[15px] font-medium", missing ? "text-muted-foreground" : "text-foreground")}>{agentName}</span>
-        <span className="truncate font-mono text-[11.5px] text-text-faint">{meta}</span>
+        <span id={`${describedBy}-meta`} className="truncate font-mono text-[11.5px] text-text-faint">
+          {meta}
+        </span>
       </div>
-      <StateLabel state={agent.state} />
+      <StateLabel id={`${describedBy}-state`} state={agent.state} />
     </div>
   );
 
@@ -86,6 +90,9 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
             checked={choice.checked}
             onChange={choice.onSelect}
             aria-label={agentName}
+            // The name alone is the radio's label; what was found and its
+            // state ("No login") are read as its description.
+            aria-describedby={`${describedBy}-meta ${describedBy}-state`}
             className="peer sr-only"
           />
           <span
@@ -124,10 +131,10 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
   );
 }
 
-function StateLabel({ state }: { state: AgentCardState }) {
+function StateLabel({ id, state }: { id: string; state: AgentCardState }) {
   const label = useDict().firstRun.agents.state[state];
   return (
-    <span className="flex shrink-0 items-center gap-2 font-mono text-[12px]">
+    <span id={id} className="flex shrink-0 items-center gap-2 font-mono text-[12px]">
       {state === "ready" && <Check className="size-3.5 text-diff-add" aria-hidden="true" />}
       {state === "noLogin" && <span aria-hidden="true" className="size-2 rounded-full bg-primary" />}
       {state === "missing" && <span aria-hidden="true" className="size-2 border border-text-faint" />}

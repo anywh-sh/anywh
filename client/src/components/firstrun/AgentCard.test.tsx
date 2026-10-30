@@ -43,6 +43,17 @@ describe("AgentCard", () => {
     expect(screen.getByRole("link", { name: copy.installDocs })).toHaveAttribute("href", "https://docs.example");
   });
 
+  it("as a choice, the radio is named by the agent and described by what was found and its state", () => {
+    render(
+      <ul>
+        <AgentCard agent={card({ state: "noLogin" })} choice={{ name: "agents", checked: false, onSelect: () => {} }} />
+      </ul>,
+    );
+    const radio = screen.getByRole("radio", { name: en.chat.composer.agentNames.codex });
+    expect(radio).toHaveAccessibleDescription(new RegExp(copy.state.noLogin));
+    expect(radio).toHaveAccessibleDescription(/codex · v0\.154\.0/);
+  });
+
   it("without a fuller guide only the install page is linked", () => {
     renderCard(card({ state: "missing", version: null }));
     expect(screen.queryByRole("link", { name: copy.installDocs })).not.toBeInTheDocument();
