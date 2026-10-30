@@ -419,8 +419,27 @@ refreshAgents().catch((error: unknown) => {
 // of being imported, so a test that imports it needs a handle to shut it
 // down again without killing the whole process.
 async function dispatchRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  for (const handler of routeHandlers) {
-    if (await handler(req, res, routeContext)) return;
+  // Every route answers CORS `*`, and so must the answers no route wrote:
+  // the client's webview reads this relay cross-origin, and a response
+  // without the header reaches it as a network error, not as the status.
+  // A client probing for a route an older relay lacks can only fall back
+  // if it can read the 426.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  try {
+    for (const handler of routeHandlers) {
+      if (await handler(req, res, routeContext)) return;
+    }
+  } catch (error) {
+    // Without this a handler that throws leaves an unhandled rejection,
+    // which takes the whole relay down, not just the request.
+    console.error(`[relay] ${req.method} ${req.url} failed:`, error);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "internal error" }));
+    } else {
+      res.end();
+    }
+    return;
   }
   res.writeHead(426);
   res.end();
