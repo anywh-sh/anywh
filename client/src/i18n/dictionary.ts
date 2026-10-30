@@ -35,7 +35,7 @@ export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypass
 export type KnownAgentId = "claude" | "codex";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
 import type { FirstRunScreen } from "@/lib/profiles/firstRun";
-import type { InstallRowKey, LocalFailureAction, LocalFailureCode, LocalNote, LocalStep } from "@/lib/install/localInstall";
+import type { LocalFailureAction, LocalNote, LocalStep, PreparingFailureCode } from "@/lib/install/localInstall";
 
 /** Two tenses of one kind of call — see `Dictionary["chat"]["activity"]`. */
 export interface ActivityVerb {
@@ -293,6 +293,21 @@ export interface Dictionary {
       copied: string;
       failed: string;
     };
+    /** The onboarding window's own chrome: Help, Back and the stepper. */
+    frame: {
+      help: string;
+      back: string;
+      steps: {
+        label: string;
+        thisMachine: string;
+        otherMachine: string;
+        agents: string;
+      };
+    };
+    profile: {
+      /** Label of the profile the onboarding creates on this machine. */
+      defaultLabel: string;
+    };
     footer: {
       nothingInstalled: string;
     };
@@ -319,44 +334,14 @@ export interface Dictionary {
        * already-connected profile switcher's "add profile" instead. */
       macNote: string;
     };
-    /** Path 01: the in-app install, four steps. */
+    /** Path 01: the in-app install, three steps. */
     local: {
       title: string;
-      /** `{n}` of 4. */
-      stepOf: string;
+      /** The label of the profile the easy path creates (id `default`). */
+      defaultLabel: string;
       notes: Record<Exclude<LocalNote, "none">, string>;
       steps: Record<LocalStep, string>;
-      prereqs: {
-        node: string;
-        agent: string;
-        systemd: string;
-        /** macOS's equivalent of `node` — checked instead of it, never
-         * alongside. */
-        brew: string;
-        checking: string;
-        /** `{version}` */
-        nodeMeta: string;
-        loggedIn: string;
-        devMode: string;
-        /** The agent row's right-hand detail when the check found no CLI,
-         * or one that isn't logged in — neither of which stops the
-         * install. */
-        agentMeta: { missing: string; loggedOut: string };
-      };
-      address: {
-        nameLabel: string;
-        namePlaceholder: string;
-        nameHint: string;
-        body: string;
-        recommended: string;
-        hints: Record<"tailnet" | "lan" | "public" | "loopback", string>;
-        customLabel: string;
-        customPlaceholder: string;
-        loopbackWarning: string;
-        submit: string;
-      };
       install: {
-        rows: Record<InstallRowKey, string>;
         running: string;
         failed: string;
         showRaw: string;
@@ -368,17 +353,10 @@ export interface Dictionary {
         pendingLinks: string;
         discard: string;
       };
-      verify: {
-        body: string;
-      };
-      /** One sentence per way the wizard can stop — keyed on the code so a
+      /** One sentence per way the install can stop — keyed on the code so a
        * new one is a compile error until it has copy, never a raw enum on
        * screen. The installer's own detail line is shown under it. */
-      /** Shown for the whole wizard, not just the step that found it: the
-       * install completes without an agent CLI, and the first conversation
-       * is what runs into its absence. */
-      agentNotice: { missing: string; loggedOut: string };
-      failures: Record<LocalFailureCode, string>;
+      failures: Record<PreparingFailureCode, string>;
       actions: Record<LocalFailureAction, string>;
       /** The window is being closed with an install running. */
       close: {
