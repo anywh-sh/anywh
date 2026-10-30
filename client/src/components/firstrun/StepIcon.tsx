@@ -23,7 +23,7 @@ export function StepRows({ steps, label }: { steps: Array<{ key: string; label: 
       {steps.map((step) => (
         <li key={step.key} className="flex items-center gap-3">
           <StepIcon status={step.status} />
-          <span className={step.status === "pending" ? "text-[14px] text-text-faint" : "text-[14px] text-foreground"}>{step.label}</span>
+          <span className={step.status === "pending" ? "text-[length:calc(14px*var(--font-scale-ratio))] text-text-faint" : "text-[length:calc(14px*var(--font-scale-ratio))] text-foreground"}>{step.label}</span>
         </li>
       ))}
     </ol>

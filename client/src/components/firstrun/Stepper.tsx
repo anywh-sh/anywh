@@ -28,13 +28,13 @@ export function Stepper({ steps, current }: { steps: StepperStep[]; current: str
             <span
               aria-hidden="true"
               className={cn(
-                "flex size-[18px] items-center justify-center border font-mono text-[10px]",
+                "flex size-[18px] items-center justify-center border font-mono text-[length:calc(10px*var(--font-scale-ratio))]",
                 active ? "border-foreground bg-foreground text-background" : "border-border text-text-faint",
               )}
             >
               {done ? <Check className="size-3 text-diff-add" /> : index + 1}
             </span>
-            <span className={cn("ml-2 text-[12px]", active ? "text-foreground" : "text-text-faint")}>{step.label}</span>
+            <span className={cn("ml-2 text-[length:calc(12px*var(--font-scale-ratio))]", active ? "text-foreground" : "text-text-faint")}>{step.label}</span>
           </li>
         );
       })}

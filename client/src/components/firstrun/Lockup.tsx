@@ -13,7 +13,7 @@ export function Lockup({ large = false, className }: { large?: boolean; classNam
       <span
         className={cn(
           "font-display font-bold tracking-[-0.04em] text-foreground",
-          large ? "text-[21px]" : "text-[16px]",
+          large ? "text-[length:calc(21px*var(--font-scale-ratio))]" : "text-[length:calc(16px*var(--font-scale-ratio))]",
         )}
       >
         anywh.sh

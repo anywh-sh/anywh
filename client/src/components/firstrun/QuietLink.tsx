@@ -4,7 +4,7 @@ import { handleExternalLinkClick } from "@/lib/platform/externalLink";
 import { cn } from "@/lib/utils";
 
 const QUIET =
-  "inline-flex cursor-pointer items-center gap-1 text-[13px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline";
+  "inline-flex cursor-pointer items-center gap-1 text-[length:calc(13px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline";
 
 /**
  * The grey link of the onboarding. `Button variant="link"` is the accent

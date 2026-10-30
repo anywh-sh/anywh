@@ -29,15 +29,15 @@ export function CommandLine({ command, className }: { command: string; className
 
   return (
     <div className={cn("flex min-h-9 items-center gap-2.5 border border-border-soft bg-bg-chrome py-1 pr-1 pl-3", className)}>
-      <span className="shrink-0 font-mono text-[12px] text-primary" aria-hidden="true">
+      <span className="shrink-0 font-mono text-[length:calc(12px*var(--font-scale-ratio))] text-primary" aria-hidden="true">
         $
       </span>
-      <code id={codeId} className="selectable-content min-w-0 flex-1 font-mono text-[12.5px] leading-[1.6] break-all text-foreground">{command}</code>
+      <code id={codeId} className="selectable-content min-w-0 flex-1 font-mono text-[length:calc(12.5px*var(--font-scale-ratio))] leading-[1.6] break-all text-foreground">{command}</code>
       <button
         type="button"
         onClick={() => void handleCopy()}
         aria-describedby={codeId}
-        className="h-7 shrink-0 cursor-pointer border border-border px-2.5 font-mono text-[11px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
+        className="h-7 shrink-0 cursor-pointer border border-border px-2.5 font-mono text-[length:calc(11px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
       >
         <span aria-live="polite">{state === "idle" ? copy.copy : state === "copied" ? copy.copied : copy.failed}</span>
       </button>

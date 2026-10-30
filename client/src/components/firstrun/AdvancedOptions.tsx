@@ -62,8 +62,8 @@ function AddressOption({
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-2">
-          <span className={cn("text-[13.5px]", selected ? "text-foreground" : "text-muted-foreground")}>{title}</span>
-          {tag && <span className="font-mono text-[11px] text-text-faint">{tag}</span>}
+          <span className={cn("text-[length:calc(13.5px*var(--font-scale-ratio))]", selected ? "text-foreground" : "text-muted-foreground")}>{title}</span>
+          {tag && <span className="font-mono text-[length:calc(11px*var(--font-scale-ratio))] text-text-faint">{tag}</span>}
         </span>
         <span className="text-xs leading-[1.5] text-text-faint">{hint}</span>
       </span>
@@ -198,7 +198,7 @@ export function AdvancedOptions({
       <FirstRunHeading title={copy.title} body={copy.body} />
 
       <div className="flex flex-col gap-2">
-        <span id="first-run-address-label" className="text-[12px] font-medium text-text-faint">
+        <span id="first-run-address-label" className="text-[length:calc(12px*var(--font-scale-ratio))] font-medium text-text-faint">
           {copy.address.label}
         </span>
         <div
@@ -236,7 +236,7 @@ export function AdvancedOptions({
             spellCheck={false}
             aria-invalid={showInvalid}
             aria-describedby={showInvalid ? "first-run-address-invalid" : undefined}
-            className="px-3 py-2.5 text-[13px]"
+            className="px-3 py-2.5 text-[length:calc(13px*var(--font-scale-ratio))]"
           />
         )}
         {showInvalid && (
@@ -255,7 +255,7 @@ export function AdvancedOptions({
             // Locked on macOS for the same reason the id is: nothing
             // downstream would change if this were edited.
             disabled={platform === "macos"}
-            className="px-3 py-2.5 text-[13px]"
+            className="px-3 py-2.5 text-[length:calc(13px*var(--font-scale-ratio))]"
           />
         </Field>
         <Field id="first-run-port" label={copy.port} className="w-28">
@@ -265,7 +265,7 @@ export function AdvancedOptions({
             onChange={(event) => setPortText(event.target.value)}
             inputMode="numeric"
             disabled={via === "app"}
-            className="px-3 py-2.5 text-[13px]"
+            className="px-3 py-2.5 text-[length:calc(13px*var(--font-scale-ratio))]"
           />
         </Field>
       </div>
@@ -290,7 +290,7 @@ export function AdvancedOptions({
             <label className="flex cursor-pointer items-start gap-2.5">
               <Checkbox checked={devMode} onCheckedChange={(next) => setDevMode(next === true)} className="mt-0.5" />
               <span className="flex flex-col gap-0.5">
-                <span className="text-[13.5px] text-foreground">{copy.devMode.label}</span>
+                <span className="text-[length:calc(13.5px*var(--font-scale-ratio))] text-foreground">{copy.devMode.label}</span>
                 <span className="text-xs leading-[1.5] text-text-faint">{copy.devMode.hint}</span>
               </span>
             </label>
@@ -309,11 +309,11 @@ export function AdvancedOptions({
             aria-labelledby={appAvailable ? "first-run-install-terminal" : undefined}
             className="flex flex-col gap-4"
           >
-            {platform === "windows" && <p className="text-[13.5px] leading-[1.65] text-muted-foreground">{copy.terminal.wsl}</p>}
+            {platform === "windows" && <p className="text-[length:calc(13.5px*var(--font-scale-ratio))] leading-[1.65] text-muted-foreground">{copy.terminal.wsl}</p>}
             <ol className="flex flex-col gap-3">
               {steps.map((step, index) => (
                 <li key={step.label} className="flex flex-col gap-1.5">
-                  <span className="text-[12px] font-medium text-text-faint">
+                  <span className="text-[length:calc(12px*var(--font-scale-ratio))] font-medium text-text-faint">
                     {index + 1}. {step.label}
                   </span>
                   <CommandLine command={step.command} />

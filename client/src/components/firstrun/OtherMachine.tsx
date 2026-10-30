@@ -168,7 +168,7 @@ export function OtherMachine({
           </div>
           {failed && (
             <div role="alert" className="flex flex-col gap-3 px-4 py-3 shadow-[inset_2px_0_0_var(--destructive)]">
-              <p className="text-[13.5px] leading-[1.65] text-pretty text-muted-foreground">{copy.failed[failed.stage]}</p>
+              <p className="text-[length:calc(13.5px*var(--font-scale-ratio))] leading-[1.65] text-pretty text-muted-foreground">{copy.failed[failed.stage]}</p>
               <Button type="button" size="sm" className="self-start" onClick={handleRetry}>
                 {copy.retry}
               </Button>
@@ -199,7 +199,7 @@ export function OtherMachine({
                     autoCapitalize="characters"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="px-3 py-2.5 text-[13px] tracking-[0.08em]"
+                    className="px-3 py-2.5 text-[length:calc(13px*var(--font-scale-ratio))] tracking-[0.08em]"
                   />
                 </Field>
                 {/* The code names the machine about to receive this
@@ -231,7 +231,7 @@ export function OtherMachine({
                       spellCheck={false}
                       aria-invalid={hostInvalid}
                       aria-describedby={hostInvalid ? "first-run-host-invalid" : undefined}
-                      className="px-3 py-2.5 text-[13px]"
+                      className="px-3 py-2.5 text-[length:calc(13px*var(--font-scale-ratio))]"
                     />
                   </Field>
                   <Field id="first-run-port" label={copy.address.port} className="w-28">
@@ -240,7 +240,7 @@ export function OtherMachine({
                       value={portText}
                       onChange={(event) => setPortText(event.target.value)}
                       inputMode="numeric"
-                      className="px-3 py-2.5 text-[13px]"
+                      className="px-3 py-2.5 text-[length:calc(13px*var(--font-scale-ratio))]"
                     />
                   </Field>
                 </div>

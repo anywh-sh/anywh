@@ -155,7 +155,7 @@ export function AgentsScreen({
       type="button"
       onClick={check}
       disabled={checking}
-      className="inline-flex cursor-pointer items-center gap-1.5 text-[12px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline disabled:cursor-default disabled:opacity-50"
+      className="inline-flex cursor-pointer items-center gap-1.5 text-[length:calc(12px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline disabled:cursor-default disabled:opacity-50"
     >
       <RefreshCw className="size-3" aria-hidden="true" />
       {copy.recheck}
@@ -176,8 +176,8 @@ export function AgentsScreen({
       current="agents"
     >
       <section className="flex flex-col gap-3">
-        <h1 className="font-display text-[32px] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">{title}</h1>
-        <p aria-live="polite" className="max-w-[60ch] text-[15px] leading-[1.7] text-pretty text-muted-foreground">
+        <h1 className="font-display text-[length:calc(32px*var(--font-scale-ratio))] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">{title}</h1>
+        <p aria-live="polite" className="max-w-[60ch] text-[length:calc(15px*var(--font-scale-ratio))] leading-[1.7] text-pretty text-muted-foreground">
           {body.replace("{where}", where).replace("{count}", String(installed.length))}
         </p>
       </section>
@@ -185,7 +185,7 @@ export function AgentsScreen({
       {cards.length > 0 && (
         <section className="flex flex-col gap-3">
           <div className="flex min-h-5 items-center justify-between">
-            <span className="font-mono text-[11.5px] text-text-faint">{scope}</span>
+            <span className="font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{scope}</span>
             {!nothingToStart && recheck}
           </div>
           {/* The group wraps the list rather than replacing its role, so
@@ -223,7 +223,7 @@ export function AgentsScreen({
             {chosenName ? copy.startWith.replace("{agent}", chosenName) : copy.start}
             <ArrowRight aria-hidden="true" />
           </Button>
-          {choosing && <p className="font-mono text-[11.5px] text-text-faint">{copy.switchNote}</p>}
+          {choosing && <p className="font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{copy.switchNote}</p>}
           {/* While the answer is on its way the way out stays: a machine
            * that never answers must not hold the reader here. */}
           {checking && <QuietLink onClick={onOtherMachine}>{copy.otherMachine}</QuietLink>}

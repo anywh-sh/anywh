@@ -73,7 +73,7 @@ export function OnboardingFrame({
           <WindowControls />
         </div>
         <div data-tauri-drag-region className="flex h-full min-w-0 flex-1 items-center justify-center px-2">
-          <span className="pointer-events-none font-mono text-[11.5px] text-text-faint">{copy.windowTitle}</span>
+          <span className="pointer-events-none font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{copy.windowTitle}</span>
         </div>
         <WindowControls />
       </div>
@@ -98,7 +98,7 @@ export function OnboardingFrame({
                 <button
                   type="button"
                   onClick={onBack}
-                  className="-ml-1 inline-flex h-7 cursor-pointer items-center gap-1 text-[13px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
+                  className="-ml-1 inline-flex h-7 cursor-pointer items-center gap-1 text-[length:calc(13px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
                 >
                   <ChevronLeft className="size-3.5" aria-hidden="true" />
                   {copy.frame.back}
@@ -112,8 +112,8 @@ export function OnboardingFrame({
         </div>
       </div>
 
-      <footer className="flex h-8 shrink-0 items-center gap-3 px-4 font-mono text-[10.5px] text-text-faint">
-        <QuietLink href={ONBOARDING_HELP_URL} className="font-mono text-[10.5px]">
+      <footer className="flex h-8 shrink-0 items-center gap-3 px-4 font-mono text-[length:calc(10.5px*var(--font-scale-ratio))] text-text-faint">
+        <QuietLink href={ONBOARDING_HELP_URL} className="font-mono text-[length:calc(10.5px*var(--font-scale-ratio))]">
           {copy.frame.help}
         </QuietLink>
         <div className="flex-1" />

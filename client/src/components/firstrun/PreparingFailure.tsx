@@ -50,7 +50,7 @@ export function PreparingFailure({
 
   return (
     <div role="alert" className="flex flex-col gap-3.5 border-t border-border-soft px-4 py-4">
-      <p className="text-[13.5px] leading-[1.65] text-pretty text-foreground">{entry.body}</p>
+      <p className="text-[length:calc(13.5px*var(--font-scale-ratio))] leading-[1.65] text-pretty text-foreground">{entry.body}</p>
       {entry.command && <CommandLine command={entry.command} />}
       {entry.link && (
         <QuietLink href={entry.link.href} className="self-start">

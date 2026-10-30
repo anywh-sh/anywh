@@ -40,7 +40,7 @@ export function Segmented<T extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
-              "h-6 cursor-pointer px-3 text-[12px] outline-hidden transition-colors focus-visible:underline",
+              "h-6 cursor-pointer px-3 text-[length:calc(12px*var(--font-scale-ratio))] outline-hidden transition-colors focus-visible:underline",
               selected ? "bg-surface-hover text-foreground" : "text-text-faint hover:text-foreground",
             )}
           >

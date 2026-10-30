@@ -207,9 +207,9 @@ export function Preparing({
   return (
     <OnboardingFrame steps={steps} current="machine">
       <section className="flex flex-col gap-3">
-        <h1 className="font-display text-[29px] leading-[1.2] font-bold tracking-[-0.03em] text-balance text-foreground">{title}</h1>
-        <p className="max-w-[56ch] text-[14px] leading-[1.7] text-pretty text-muted-foreground">{body}</p>
-        {note && <p className="font-mono text-[11.5px] text-text-faint">{note}</p>}
+        <h1 className="font-display text-[length:calc(29px*var(--font-scale-ratio))] leading-[1.2] font-bold tracking-[-0.03em] text-balance text-foreground">{title}</h1>
+        <p className="max-w-[56ch] text-[length:calc(14px*var(--font-scale-ratio))] leading-[1.7] text-pretty text-muted-foreground">{body}</p>
+        {note && <p className="font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{note}</p>}
       </section>
 
       <div className="flex flex-col gap-3">
@@ -240,23 +240,23 @@ export function Preparing({
                   <StepIcon status={row.status} />
                   <span
                     className={cn(
-                      "min-w-0 flex-1 text-[14px]",
+                      "min-w-0 flex-1 text-[length:calc(14px*var(--font-scale-ratio))]",
                       row.status === "pending" ? "text-text-faint" : row.status === "done" ? "text-muted-foreground" : "text-foreground",
                     )}
                   >
                     {copy.steps[row.key]}
                   </span>
                   {row.status === "failed" ? (
-                    <span className="shrink-0 font-mono text-[11.5px] text-destructive">{copy.failed}</span>
+                    <span className="shrink-0 font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-destructive">{copy.failed}</span>
                   ) : (
                     times[row.key] !== undefined && (
-                      <span aria-hidden="true" className="shrink-0 font-mono text-[11.5px] text-text-faint">{`${String(times[row.key])}s`}</span>
+                      <span aria-hidden="true" className="shrink-0 font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{`${String(times[row.key])}s`}</span>
                     )
                   )}
                 </div>
                 {row.sub && (
                   <p
-                    className={cn("ml-[26px] font-mono text-[11.5px] break-words", row.status === "failed" ? "text-destructive" : "text-text-faint")}
+                    className={cn("ml-[26px] font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] break-words", row.status === "failed" ? "text-destructive" : "text-text-faint")}
                   >
                     {row.sub}
                   </p>
@@ -270,7 +270,7 @@ export function Preparing({
               type="button"
               aria-expanded={details}
               onClick={() => setDetails((v) => !v)}
-              className="inline-flex cursor-pointer items-center gap-1 text-[12.5px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
+              className="inline-flex cursor-pointer items-center gap-1 text-[length:calc(12.5px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
             >
               <ChevronRight className={cn("size-3.5 transition-transform", details && "rotate-90")} aria-hidden="true" />
               {copy.details}
@@ -280,21 +280,21 @@ export function Preparing({
               <button
                 type="button"
                 onClick={handleCancel}
-                className="cursor-pointer text-[12.5px] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
+                className="cursor-pointer text-[length:calc(12.5px*var(--font-scale-ratio))] text-text-faint outline-hidden transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:underline"
               >
                 {copy.cancel}
               </button>
             )}
           </div>
           {details && (
-            <pre className="scrollbar-thin selectable-content max-h-40 overflow-auto border-t border-border-soft px-4 py-3 font-mono text-[11.5px] leading-[1.75] break-all whitespace-pre-wrap text-text-faint">
+            <pre className="scrollbar-thin selectable-content max-h-40 overflow-auto border-t border-border-soft px-4 py-3 font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] leading-[1.75] break-all whitespace-pre-wrap text-text-faint">
               {adopting ? adopt.profiles.map((p) => `${p.id}  ${p.host}:${String(p.relayPort)}`).join("\n") : [...rawLines, ...(failureDetail ? [failureDetail] : [])].join("\n")}
             </pre>
           )}
         </div>
 
         {adopting ? (
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-text-faint">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:calc(12.5px*var(--font-scale-ratio))] text-text-faint">
             {copy.profilesHere}
             {adopt.profiles.map((p, index) => (
               <span key={p.id} className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -305,7 +305,7 @@ export function Preparing({
           </p>
         ) : (
           install.params && (
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-text-faint">
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[length:calc(12.5px*var(--font-scale-ratio))] text-text-faint">
               {copy.profileSummary.before}
               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                 <span className={cn("size-2 shrink-0", profileColorClassForIndex(0))} aria-hidden="true" />

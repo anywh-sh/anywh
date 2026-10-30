@@ -64,8 +64,8 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
         <AgentLogo agentId={agent.id} className="size-6" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className={cn("text-[15px] font-medium", missing ? "text-muted-foreground" : "text-foreground")}>{agentName}</span>
-        <span id={`${describedBy}-meta`} className="truncate font-mono text-[11.5px] text-text-faint">
+        <span className={cn("text-[length:calc(15px*var(--font-scale-ratio))] font-medium", missing ? "text-muted-foreground" : "text-foreground")}>{agentName}</span>
+        <span id={`${describedBy}-meta`} className="truncate font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">
           {meta}
         </span>
       </div>
@@ -107,7 +107,7 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
 
       {agent.state === "noLogin" && (
         <div className="flex flex-col gap-2.5 sm:pl-12">
-          <p className="max-w-[60ch] text-[13px] leading-[1.6] text-pretty text-muted-foreground">{copy.noLoginHint}</p>
+          <p className="max-w-[60ch] text-[length:calc(13px*var(--font-scale-ratio))] leading-[1.6] text-pretty text-muted-foreground">{copy.noLoginHint}</p>
           {agent.loginCommand && <CommandLine command={agent.loginCommand} />}
         </div>
       )}
@@ -134,7 +134,7 @@ export function AgentCard({ agent, choice }: { agent: AgentCardModel; choice?: {
 function StateLabel({ id, state }: { id: string; state: AgentCardState }) {
   const label = useDict().firstRun.agents.state[state];
   return (
-    <span id={id} className="flex shrink-0 items-center gap-2 font-mono text-[12px]">
+    <span id={id} className="flex shrink-0 items-center gap-2 font-mono text-[length:calc(12px*var(--font-scale-ratio))]">
       {state === "ready" && <Check className="size-3.5 text-diff-add" aria-hidden="true" />}
       {state === "noLogin" && <span aria-hidden="true" className="size-2 rounded-full bg-primary" />}
       {state === "missing" && <span aria-hidden="true" className="size-2 border border-text-faint" />}

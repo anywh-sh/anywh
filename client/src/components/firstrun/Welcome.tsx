@@ -36,15 +36,15 @@ export function Welcome({
   return (
     <OnboardingFrame large>
       <section className="flex flex-col gap-4">
-        <h1 className="max-w-[22ch] font-display text-[36px] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">
+        <h1 className="max-w-[22ch] font-display text-[length:calc(36px*var(--font-scale-ratio))] leading-[1.15] font-bold tracking-[-0.035em] text-balance text-foreground">
           {copy.title}
         </h1>
-        <p className="max-w-[60ch] text-[15px] leading-[1.7] text-pretty text-muted-foreground">{copy.body}</p>
+        <p className="max-w-[60ch] text-[length:calc(15px*var(--font-scale-ratio))] leading-[1.7] text-pretty text-muted-foreground">{copy.body}</p>
       </section>
 
       {windows ? (
         <section className="flex flex-col gap-4">
-          <p role="note" className="border border-border-soft bg-bg-chrome px-4 py-3 text-[13.5px] leading-[1.65] text-pretty text-foreground">
+          <p role="note" className="border border-border-soft bg-bg-chrome px-4 py-3 text-[length:calc(13.5px*var(--font-scale-ratio))] leading-[1.65] text-pretty text-foreground">
             {copy.windows.notice}
           </p>
           <ol className="border border-border-soft bg-bg-chrome">
@@ -63,10 +63,10 @@ export function Welcome({
             <ArrowRight aria-hidden="true" />
           </Button>
           {container === null ? (
-            <p className="font-mono text-[11.5px] text-text-faint">{copy.ctaHint}</p>
+            <p className="font-mono text-[length:calc(11.5px*var(--font-scale-ratio))] text-text-faint">{copy.ctaHint}</p>
           ) : (
             <div className="flex flex-col items-start gap-2">
-              <p className="max-w-[60ch] text-[13px] leading-[1.6] text-pretty text-muted-foreground">
+              <p className="max-w-[60ch] text-[length:calc(13px*var(--font-scale-ratio))] leading-[1.6] text-pretty text-muted-foreground">
                 {copy.container.replace("{container}", container)}
               </p>
               <QuietLink onClick={onTerminal}>{copy.containerTerminal}</QuietLink>
@@ -85,10 +85,10 @@ export function Welcome({
 function WindowsStep({ number, title, link, href }: { number: number; title: string; link: string; href: string }) {
   return (
     <li className="flex items-center gap-3.5 border-b border-border-soft px-4 py-3.5 last:border-b-0">
-      <span className="flex size-5 shrink-0 items-center justify-center border border-border font-mono text-[11px] text-muted-foreground">
+      <span className="flex size-5 shrink-0 items-center justify-center border border-border font-mono text-[length:calc(11px*var(--font-scale-ratio))] text-muted-foreground">
         {number}
       </span>
-      <span className="min-w-0 flex-1 text-[14px] text-foreground">{title}</span>
+      <span className="min-w-0 flex-1 text-[length:calc(14px*var(--font-scale-ratio))] text-foreground">{title}</span>
       <QuietLink href={href} className="no-underline">
         {link}
         <ArrowUpRight className="size-3.5" aria-hidden="true" />
