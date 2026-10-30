@@ -364,6 +364,34 @@ export interface Dictionary {
       /** Label of the profile the onboarding creates on this machine. */
       defaultLabel: string;
     };
+    /** "Your agents": what the relay found on the machine, one card each, and
+     * the choice of which opens by default. `{where}` is `here` or `at`,
+     * `{agent}` a product name, `{host}` the other machine's address. */
+    agents: {
+      searching: string;
+      searchingBody: string;
+      title: string;
+      none: string;
+      bodyTwo: string;
+      bodyOne: string;
+      bodyNone: string;
+      /** The relay couldn't be asked at all. */
+      failed: string;
+      here: string;
+      at: string;
+      /** The small label above the cards: the same place, capitalised. */
+      scopeHere: string;
+      scopeAt: string;
+      recheck: string;
+      state: { ready: string; noLogin: string; missing: string; checking: string };
+      meta: { notOnPath: string; searching: string };
+      noLoginHint: string;
+      howToInstall: string;
+      start: string;
+      startWith: string;
+      switchNote: string;
+      otherMachine: string;
+    };
     footer: {
       nothingInstalled: string;
     };
@@ -777,6 +805,9 @@ export interface Dictionary {
        * languages by nature, but still resolved through here rather than a
        * literal in `AgentModelEffortButton`. */
       agentNames: Record<KnownAgentId, string>;
+      /** Two-letter marks drawn on the agent cards of the first run, keyed
+       * like `agentNames`. */
+      agentBadges: Record<KnownAgentId, string>;
       /** Both toolbar dropdowns' label before the relay has reported this
        * session's mode/model. */
       pending: string;
