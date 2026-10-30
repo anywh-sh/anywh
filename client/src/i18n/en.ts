@@ -805,7 +805,7 @@ export const en: Dictionary = {
       title: "Your coding agents, wherever you are.",
       body: "anywh installs next to the agents you already use. They keep running on this machine, with your login, and you talk to them from here or from your phone.",
       cta: "Set up on this machine",
-      ctaHint: "About 1 minute · no admin password",
+      ctaHint: "About 1 minute",
       otherMachine: "The agent runs on another machine?",
       container: "The app is running in a {container} sandbox, which can't set up anything on this machine. Set it up from the terminal instead.",
       containerTerminal: "Set up from the terminal",

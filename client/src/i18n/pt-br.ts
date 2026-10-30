@@ -805,7 +805,7 @@ export const ptBr: Dictionary = {
       title: "Seus agentes de código, onde você estiver.",
       body: "O anywh se instala ao lado dos agentes que você já usa. Eles continuam rodando nesta máquina, com o seu login, e você conversa com eles daqui ou do celular.",
       cta: "Configurar nesta máquina",
-      ctaHint: "Cerca de 1 minuto · sem senha de administrador",
+      ctaHint: "Cerca de 1 minuto",
       otherMachine: "O agente roda em outra máquina?",
       container: "O app está rodando num sandbox {container}, que não consegue configurar nada nesta máquina. Configure pelo terminal.",
       containerTerminal: "Configurar pelo terminal",
