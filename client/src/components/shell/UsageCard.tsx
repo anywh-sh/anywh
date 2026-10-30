@@ -1,18 +1,17 @@
-import { useEffect, useRef, useState } from "react";
-import { RotateCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { UsageAccountBlock } from "@/components/shell/UsageAccountBlock";
 import { useDict, type Dictionary } from "@/i18n";
-import { countAccounts, isReading, latestReadingAt, profileReading, refreshCooldown, type ProfileGroup } from "@/lib/planUsage/derive";
-import { formatSpan, formatUpdatedAgo } from "@/lib/planUsage/format";
+import { RefreshIconButton, useRefreshControl } from "@/components/shell/UsageRefreshButton";
+import { countAccounts, isReading, type ProfileGroup } from "@/lib/planUsage/derive";
+import { formatUpdatedAgo } from "@/lib/planUsage/format";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
 type UsageStrings = Dictionary["shell"]["usage"];
 
-/** Clicks on refresh closer than this are one click. */
-export const REFRESH_CLICK_DEBOUNCE_MS = 1_000;
+
 
 export interface UsageCardProps {
   groups: readonly ProfileGroup[];
@@ -75,27 +74,8 @@ export function UsageCardBody({
   const now = useSecondClock();
   const card = strings.card;
   const accounts = countAccounts(groups);
-  // Spinning only while a relay says a read really runs (`reading`) — never
-  // for having sent a refresh: one the relay answers from its cache comes
-  // back in milliseconds, with nothing read, and a spinner would only flash.
-  const reading = groups.some((group) => profileReading(group.usage, now));
-  // Held while every relay would answer from its cache anyway.
-  const cooldown = refreshCooldown(groups, now);
-  const lastClick = useRef(0);
-  const held = reading || cooldown !== null;
-  const latest = latestReadingAt(groups);
-  const age = latest !== null ? formatUpdatedAgo(strings, latest, now) : null;
-  const again = cooldown !== null ? card.againIn.replace("{duration}", formatSpan(cooldown)) : null;
+  const { age, again, reading, held, title, handleRefresh } = useRefreshControl(groups, now, onRefresh, strings);
   const plural = (count: number, one: string, many: string) => (count === 1 ? one : many.replace("{count}", String(count)));
-
-  const handleRefresh = () => {
-    if (held) return;
-    // One refresh per click burst: a double click is one request.
-    const at = Date.now();
-    if (at - lastClick.current < REFRESH_CLICK_DEBOUNCE_MS) return;
-    lastClick.current = at;
-    onRefresh();
-  };
 
   return (
     <>
@@ -110,20 +90,7 @@ export function UsageCardBody({
             {[age, again].filter(Boolean).join(" · ")}
           </span>
         )}
-        <button
-          type="button"
-          onClick={handleRefresh}
-          aria-label={card.refresh}
-          title={again !== null ? [age, again].filter(Boolean).join(" · ") : card.refresh}
-          aria-busy={reading}
-          aria-disabled={held}
-          className={cn(
-            "flex size-6 items-center justify-center text-text-faint outline-hidden transition-colors focus-visible:bg-surface-hover",
-            held ? "cursor-default opacity-50" : "cursor-pointer hover:bg-surface-hover hover:text-foreground",
-          )}
-        >
-          <RotateCw className={cn("size-3.5", reading && "animate-spin")} strokeWidth={1.5} aria-hidden="true" />
-        </button>
+        <RefreshIconButton reading={reading} held={held} title={title} onClick={handleRefresh} label={card.refresh} />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-1">

@@ -486,6 +486,13 @@ function AppShell() {
   const usageProfileId = activeTab?.profileId ?? activeProfile.id;
   const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
   const [usageCardOpen, setUsageCardOpen] = useState(false);
+  const usageGroups = groupByProfile(
+    profiles.map((profile) => profile.id),
+    planUsage.byProfile,
+    usageProfileId,
+  );
+  // The card's refresh button and the status bar's send the same request.
+  const refreshUsage = () => planUsage.refresh(undefined, true);
 
   const sidebarProps = {
     activeProfile,
@@ -810,19 +817,17 @@ function AppShell() {
                   byProfile={planUsage.byProfile}
                   now={planUsage.now}
                   expanded={usageCardOpen}
+                  refreshGroups={usageGroups}
+                  onRefresh={refreshUsage}
                 />
               </PopoverPrimitive.Trigger>
             }
           />
         </PopoverPrimitive.Anchor>
         <UsageCard
-          groups={groupByProfile(
-            profiles.map((profile) => profile.id),
-            planUsage.byProfile,
-            usageProfileId,
-          )}
+          groups={usageGroups}
           profileLabel={(id) => findProfile(id)?.label ?? id}
-          onRefresh={() => planUsage.refresh(undefined, true)}
+          onRefresh={refreshUsage}
         />
       </PopoverPrimitive.Root>
     </div>

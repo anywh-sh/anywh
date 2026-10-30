@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LOCALE_STORAGE_KEY, LocaleProvider } from "@/i18n";
-import type { ProfilePlanUsage } from "@/lib/planUsage/derive";
+import { groupByProfile, type ProfilePlanUsage } from "@/lib/planUsage/derive";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
 import { setProfiles } from "@/lib/profiles/profiles";
 import { AgentLogo } from "@/components/chat/AgentLogo";
@@ -40,22 +40,27 @@ function live(runtimes: RuntimePlanUsage[], extra: Partial<ProfilePlanUsage> = {
   return { connection: "live", runtimes, observedAt: NOW, receivedAt: NOW, refreshing: false, ...extra };
 }
 
-function renderIndicator(byProfile: Record<string, ProfilePlanUsage>, props: { expanded?: boolean; onClick?: () => void } = {}) {
+function renderIndicator(
+  byProfile: Record<string, ProfilePlanUsage>,
+  props: { expanded?: boolean; onClick?: () => void; onRefresh?: () => void } = {},
+) {
   return render(
     <LocaleProvider>
       <UsageIndicator
         profileId="pessoal"
-       
         byProfile={byProfile}
         now={NOW}
         expanded={props.expanded ?? false}
         onClick={props.onClick}
+        refreshGroups={props.onRefresh ? groupByProfile(Object.keys(byProfile), byProfile, "pessoal") : undefined}
+        onRefresh={props.onRefresh}
       />
     </LocaleProvider>,
   );
 }
 
-const button = () => screen.getByRole("button");
+const button = () => document.querySelector<HTMLElement>("[data-usage-indicator]")!;
+const refreshButton = () => screen.getByRole("button", { name: "Refresh usage" });
 const agent = (runtime: string) => document.querySelector<HTMLElement>(`[data-usage-agent="${runtime}"]`)!;
 
 function stubWidth(width: number) {
@@ -71,11 +76,15 @@ function stubWidth(width: number) {
 }
 
 beforeEach(() => {
+  // The refresh button keeps its own clock (Date.now); pin it to the test's.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   setProfiles(PROFILES);
   stubWidth(1440);
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
@@ -180,55 +189,82 @@ describe("UsageIndicator", () => {
     expect(button()).toHaveAccessibleName("Usage: Claude Code not read yet; Codex read failed (network error)");
   });
 
-  it("shows a read this client asked for, in a slot that is always there, without pulsing", () => {
-    renderIndicator({ pessoal: live([{ runtime: "claude", status: "unknown", windows: [], observedAt: null, reading: true, readingSince: NOW }], { refreshing: true }) });
-    // The words stay; only the mark after them turns.
-    expect(agent("claude")).toHaveTextContent("not read yet");
-    const mark = agent("claude").querySelector("[data-usage-reading]")!;
-    expect(mark).toHaveAttribute("aria-hidden", "true");
-    expect(mark.className).toContain("animate-spin");
-    expect(mark.className).not.toContain("animate-pulse");
+  it("turns the refresh button for a read this client asked for, without changing the words", () => {
+    renderIndicator(
+      { pessoal: live([{ runtime: "claude", status: "unknown", windows: [], observedAt: null, reading: true, readingSince: NOW }], { refreshing: true }) },
+      { onRefresh: () => undefined },
+    );
+    expect(agent("claude")).toHaveTextContent(/^not read yet$/);
+    expect(refreshButton()).toHaveAttribute("aria-busy", "true");
+    expect(refreshButton()).toHaveAttribute("aria-disabled", "true");
+    const icon = refreshButton().querySelector("svg")!.getAttribute("class") ?? "";
+    expect(icon).toContain("animate-spin");
+    expect(icon).not.toContain("animate-pulse");
     expect(button()).toHaveAccessibleName("Usage: Claude Code updating…");
   });
 
   it("keeps the numbers while they are being refreshed, and says so", () => {
-    renderIndicator({ pessoal: live([{ ...claude(58), reading: true, readingSince: NOW }], { refreshing: true }) });
-    expect(agent("claude")).toHaveTextContent("58% 5h");
-    expect(agent("claude").querySelector("[data-usage-reading]")).not.toBeNull();
+    renderIndicator({ pessoal: live([{ ...claude(58), reading: true, readingSince: NOW }], { refreshing: true }) }, { onRefresh: () => undefined });
+    expect(agent("claude")).toHaveTextContent(/^58% 5h · 41% 7d$/);
+    expect(refreshButton()).toHaveAttribute("aria-busy", "true");
     expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h, updating…");
   });
 
-  it("never shows the relay's own periodic reads, and never moves for them", () => {
+  it("never turns or moves for the relay's own periodic reads", () => {
     // A minute of background reads: reading true, then false, again and again.
     const states = [false, true, false, true, false].map((reading) =>
       live([{ ...claude(58), reading, ...(reading ? { readingSince: NOW } : {}) }, { ...codexFree(37), reading }]),
     );
-    const { rerender } = renderIndicator({ pessoal: states[0] });
-    const shape = () => button().innerHTML;
-    const first = shape();
+    const onRefresh = () => undefined;
+    const { rerender } = renderIndicator({ pessoal: states[0] }, { onRefresh });
+    const group = () => document.querySelector<HTMLElement>("[data-usage-indicator-group]")!;
+    const first = group().innerHTML;
     for (const state of states.slice(1)) {
       rerender(
         <LocaleProvider>
-          <UsageIndicator profileId="pessoal" byProfile={{ pessoal: state }} now={NOW} expanded={false} />
+          <UsageIndicator
+            profileId="pessoal"
+            byProfile={{ pessoal: state }}
+            now={NOW}
+            expanded={false}
+            refreshGroups={groupByProfile(["pessoal"], { pessoal: state }, "pessoal")}
+            onRefresh={onRefresh}
+          />
         </LocaleProvider>,
       );
-      expect(button().querySelector("[data-usage-reading]")).toBeNull();
-      expect(shape()).toBe(first);
+      expect(refreshButton()).toHaveAttribute("aria-busy", "false");
+      expect(group().innerHTML).toBe(first);
       expect(button()).toHaveAccessibleName("Usage: Claude Code 58% 5h; Codex 37% 30d");
     }
   });
 
-  it("keeps the mark's slot whether or not a read shows, so the bar never shifts", () => {
-    const { rerender } = renderIndicator({ pessoal: live([claude(58)]) });
-    const slots = () => Array.from(button().querySelectorAll("[data-usage-reading-slot]")).map((slot) => slot.className.includes("size-2"));
-    expect(slots()).toEqual([true]);
-    rerender(
-      <LocaleProvider>
-        <UsageIndicator profileId="pessoal" byProfile={{ pessoal: live([{ ...claude(58), reading: true }], { refreshing: true }) }} now={NOW} expanded={false} />
-      </LocaleProvider>,
-    );
-    expect(slots()).toEqual([true]);
-    expect(button().querySelector("[data-usage-reading]")).not.toBeNull();
+  it("ends with the agents' text, then a refresh button beside the indicator, never inside it", async () => {
+    const onRefresh = vi.fn();
+    const onClick = vi.fn();
+    renderIndicator({ pessoal: live([claude(58)]) }, { onRefresh, onClick });
+    // No reserved gap after "7d" any more.
+    expect(agent("claude").lastElementChild?.textContent).toBe("58% 5h · 41% 7d");
+    expect(button().contains(refreshButton())).toBe(false);
+    expect(button().nextElementSibling).toBe(refreshButton());
+    await userEvent.click(refreshButton());
+    expect(onRefresh).toHaveBeenCalledOnce();
+    // The indicator's own click (opening the card) is not touched.
+    expect(onClick).not.toHaveBeenCalled();
+    // A burst is one refresh.
+    await userEvent.click(refreshButton());
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  it("holds the refresh button while every relay would answer from its cache", () => {
+    renderIndicator({ pessoal: live([{ ...claude(58), refreshableAt: NOW + 30_000 }]) }, { onRefresh: () => undefined });
+    expect(refreshButton()).toHaveAttribute("aria-disabled", "true");
+    expect(refreshButton().getAttribute("title")).toMatch(/· again in \d+s$/);
+  });
+
+  it("drops the refresh button under 1024px", () => {
+    stubWidth(1023);
+    renderIndicator({ pessoal: live([claude(58)]) }, { onRefresh: () => undefined });
+    expect(screen.queryByRole("button", { name: "Refresh usage" })).toBeNull();
   });
 
   it("stops believing a read whose end never arrived, and never reads on an unreachable relay", () => {
