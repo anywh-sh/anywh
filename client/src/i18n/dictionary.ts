@@ -752,9 +752,6 @@ export interface Dictionary {
        * languages by nature, but still resolved through here rather than a
        * literal in `AgentModelEffortButton`. */
       agentNames: Record<KnownAgentId, string>;
-      /** Two-letter marks drawn on the agent cards of the first run, keyed
-       * like `agentNames`. */
-      agentBadges: Record<KnownAgentId, string>;
       /** Both toolbar dropdowns' label before the relay has reported this
        * session's mode/model. */
       pending: string;

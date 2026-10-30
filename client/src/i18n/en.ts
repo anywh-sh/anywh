@@ -239,10 +239,6 @@ export const en: Dictionary = {
         claude: "Claude Code",
         codex: "Codex",
       },
-      agentBadges: {
-        claude: "CC",
-        codex: "CX",
-      },
       pending: "…",
       modelLocked: "The model is fixed after the conversation's first turn",
       effortLabels: {

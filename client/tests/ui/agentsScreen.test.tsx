@@ -145,6 +145,18 @@ describe("Your agents", () => {
     ).toBeEnabled();
   });
 
+  it("marks each agent with its product logo, not letters", async () => {
+    setup([CLAUDE, CODEX_NO_LOGIN]);
+    mount();
+    await screen.findByRole("radio", { name: "Claude Code" });
+    const cards = document.querySelectorAll("li[data-state]");
+    expect(cards).toHaveLength(2);
+    for (const card of cards)
+      expect(card.querySelector("svg path")).not.toBeNull();
+    expect(screen.queryByText("CC")).not.toBeInTheDocument();
+    expect(screen.queryByText("CX")).not.toBeInTheDocument();
+  });
+
   it("lets Codex without a login be chosen, shows its command, and does not block Start", async () => {
     setup([CLAUDE, CODEX_NO_LOGIN]);
     mount();

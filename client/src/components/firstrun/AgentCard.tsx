@@ -1,4 +1,5 @@
 import { ArrowUpRight, Check } from "lucide-react";
+import { AgentLogo } from "@/components/chat/AgentLogo";
 import { CommandLine } from "@/components/firstrun/CommandLine";
 import { QuietLink } from "@/components/firstrun/QuietLink";
 import { Spinner } from "@/components/firstrun/Spinner";
@@ -52,9 +53,6 @@ export function AgentCard({
   const copy = dict.firstRun.agents;
   const agentName =
     dict.chat.composer.agentNames[agent.id as KnownAgentId] ?? agent.id;
-  const badge =
-    dict.chat.composer.agentBadges[agent.id as KnownAgentId] ??
-    agent.id.slice(0, 2).toUpperCase();
   const missing = agent.state === "missing";
 
   const meta =
@@ -69,10 +67,12 @@ export function AgentCard({
   const head = (
     <div className="flex items-center gap-4">
       <span
-        aria-hidden="true"
-        className="flex size-8 shrink-0 items-center justify-center border border-border bg-bg-chrome font-mono text-[11px] font-bold text-muted-foreground"
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center text-foreground",
+          missing && "opacity-50",
+        )}
       >
-        {badge}
+        <AgentLogo agentId={agent.id} className="size-6" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span

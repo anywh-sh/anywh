@@ -239,10 +239,6 @@ export const ptBr: Dictionary = {
         claude: "Claude Code",
         codex: "Codex",
       },
-      agentBadges: {
-        claude: "CC",
-        codex: "CX",
-      },
       pending: "…",
       modelLocked: "O modelo fica fixo depois do primeiro turno da conversa",
       effortLabels: {
