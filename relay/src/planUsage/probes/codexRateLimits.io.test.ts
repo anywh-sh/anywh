@@ -228,3 +228,37 @@ test("an app-server whose handshake never answers: network error after the init 
   const codex = reader(t, home, {}, { initTimeoutMs: 100, spawnDaemon: () => new Promise(() => {}) });
   assert.deepEqual(await codex.read(), { kind: "error", error: "network" });
 });
+
+// The race behind the flaky "push after a read": the read's reply and the
+// push right behind it handled in one chunk, so the push lands before the
+// awaiting read has stored its state. Forced here by a daemon that resolves
+// the read and delivers the push in the same tick.
+test("a push delivered in the same tick as the read's reply is merged, not dropped", async (t) => {
+  const { home } = setup(t);
+  const updates: PlanUsageReading[] = [];
+  const codex = reader(t, home, {}, {
+    onUpdate: (reading) => updates.push(reading),
+    spawnDaemon: (options) =>
+      Promise.resolve({
+        exited: false,
+        kill: () => {},
+        request: (method: string) => {
+          if (method === "account/read") return Promise.resolve(fixture.samples.accountReadChatgptPlus.result);
+          const reply = Promise.resolve(fixture.samples.rateLimitsReadPaid.result);
+          options.onNotification?.("account/rateLimits/updated", fixture.samples.rateLimitsUpdatedPaid.params);
+          return reply;
+        },
+      }),
+  });
+  const result = await codex.read();
+  assert.equal(result.kind, "reading");
+  await waitFor(() => updates.length > 0);
+  assert.equal(updates[0].source, "app_server_push");
+  assert.deepEqual(
+    updates[0].windows.map((window) => [window.durationMins, window.usedPercent]),
+    [
+      [300, 41],
+      [10080, 12],
+    ],
+  );
+});

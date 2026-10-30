@@ -34,6 +34,7 @@ import {
   parseCodexAccount,
   parseCodexRateLimitsRead,
   parseCodexRateLimitsUpdated,
+  type CodexLimitBucket,
   type CodexRateLimits,
 } from "../codexLimits.js";
 import type { PlanUsageReading } from "../ingest.js";
@@ -157,11 +158,26 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
   let planType: string | null = null;
   // Bumped by `close()`: a spawn that resolves after it is killed at once.
   let generation = 0;
+  // Pushes that arrive while `account/rateLimits/read` is in flight. The
+  // reply and a push right behind it can come in the same chunk, and then
+  // the push is handled before the awaiting read stores `limits`: held here
+  // and folded in once it does, instead of dropped.
+  let pendingPushes: CodexLimitBucket[] | undefined;
 
   function onNotification(method: string, params: unknown): void {
-    if (method !== "account/rateLimits/updated" || !limits) return;
+    if (method !== "account/rateLimits/updated") return;
     const bucket = parseCodexRateLimitsUpdated(params);
     if (!bucket || bucket.limitId !== CODEX_ACCOUNT_LIMIT_ID) return;
+    if (pendingPushes) {
+      pendingPushes.push(bucket);
+      return;
+    }
+    if (!limits) return;
+    applyPush(bucket);
+  }
+
+  function applyPush(bucket: CodexLimitBucket): void {
+    if (!limits) return;
     const merged = mergeCodexRateLimits(limits, bucket);
     if (merged === limits) return;
     limits = merged;
@@ -251,17 +267,23 @@ export function createCodexRateLimitsReader(options: CodexRateLimitsReaderOption
       if (account.kind === "api_key") return { kind: "auth", status: "no_subscription" };
 
       let rateLimitsResult: unknown;
+      pendingPushes = [];
       try {
         rateLimitsResult = await request(target, "account/rateLimits/read", { excludeResetCreditDetails: true });
       } catch (error) {
+        pendingPushes = undefined;
         const auth = error instanceof JsonRpcRemoteError ? classifyCodexRateLimitsError({ code: error.code, message: error.message }) : null;
         if (auth) return { kind: "auth", status: auth };
         throw error;
       }
+      const held = pendingPushes;
+      pendingPushes = undefined;
       const parsed = parseCodexRateLimitsRead(rateLimitsResult);
       if (!parsed) return { kind: "error", error: "parse" };
       limits = parsed;
       planType = account.planType;
+      // Reported after the read itself, so the owner ingests them in order.
+      if (held.length > 0) setImmediate(() => held.forEach(applyPush));
       return { kind: "reading", reading: toReading(parsed, planType, now(), "app_server_read"), identity: accountIdentity(accountResult) };
     } catch (error) {
       if (error instanceof CodexReadTimeout) return { kind: "error", error: "network" };
