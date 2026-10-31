@@ -95,16 +95,47 @@ describe("plan usage in the status bar", () => {
       ["ws://127.0.0.1:8001/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
       ["ws://127.0.0.1:8002/plan-usage/watch", { type: "plan_usage_refresh", force: true }],
     ]);
-    // Busy for as long as the relay says the read runs, with the status bar
-    // saying so too — not only until the relay acknowledged the click.
-    await vi.waitFor(() => expect(document.querySelector('[data-usage-agent="claude"] [data-usage-reading]')).not.toBeNull());
+    // Busy for as long as the relay says the read runs, with the status bar's
+    // own refresh button saying so too — not only until the relay
+    // acknowledged the click.
+    const barRefresh = () => within(statusBar).getByRole("button", { name: "Refresh usage" });
+    await vi.waitFor(() => expect(barRefresh()).toHaveAttribute("aria-busy", "true"));
     expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "true");
     await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "false"));
-    expect(document.querySelector('[data-usage-agent="claude"] [data-usage-reading]')).toBeNull();
+    expect(barRefresh()).toHaveAttribute("aria-busy", "false");
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("button", { name: /^Usage: / })).toHaveFocus();
+  });
+
+  it("refreshes from the status bar without touching the card, and holds there too", async () => {
+    relay.uninstall();
+    relay = installFakeRelay("fake reply", {
+      planUsage: {
+        "127.0.0.1:8001": { runtimes: [claude(58, "aaaa")], cooldownMs: 60_000 },
+        "127.0.0.1:8002": { runtimes: [claude(20, "bbbb")], cooldownMs: 60_000 },
+      },
+    });
+    const user = userEvent.setup();
+    renderApp();
+    const statusBar = document.querySelector<HTMLElement>("[data-status-bar]")!;
+    const indicator = await within(statusBar).findByRole("button", { name: /^Usage: / });
+    const refresh = within(statusBar).getByRole("button", { name: "Refresh usage" });
+    // A sibling of the indicator, not inside it.
+    expect(indicator.contains(refresh)).toBe(false);
+    expect(indicator.parentElement).toBe(refresh.parentElement);
+
+    await user.click(refresh);
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").map((entry) => entry.message.force)).toEqual([true, true]);
+    // The card stayed closed.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(indicator).toHaveAttribute("aria-expanded", "false");
+    // Held while both relays are inside their floor, saying until when.
+    await vi.waitFor(() => expect(refresh).toHaveAttribute("aria-disabled", "true"));
+    expect(refresh.getAttribute("title")).toMatch(/^now · again in (1m 00s|\d+s)$/);
+    await user.click(refresh);
+    expect(relay.forcedRefreshes()).toEqual({ received: 2, read: 2 });
   });
 
   it("holds refresh while the relay would only answer from its cache, and opens the card with one cheap re-read", async () => {
@@ -144,5 +175,33 @@ describe("plan usage in the status bar", () => {
     await user.click(screen.getByRole("button", { name: /^Usage: / }));
     await screen.findByRole("dialog", { name: "Usage" });
     expect(refreshesSent()).toEqual([false, false, true, true, false, false]);
+  });
+
+  it("keeps the card open when the status bar's refresh is clicked, and still closes on a click away", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    const statusBar = document.querySelector<HTMLElement>("[data-status-bar]")!;
+    const indicator = await within(statusBar).findByRole("button", { name: /^Usage: / });
+    await user.click(indicator);
+    const card = await screen.findByRole("dialog", { name: "Usage" });
+    await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "false"));
+    relay.sent.length = 0;
+
+    await user.click(within(statusBar).getByRole("button", { name: "Refresh usage" }));
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").map((entry) => entry.message.force)).toEqual([true, true]);
+    expect(screen.getByRole("dialog", { name: "Usage" })).toBeInTheDocument();
+    expect(indicator).toHaveAttribute("aria-expanded", "true");
+
+    // The card's button right after: the same burst, nothing more sent.
+    await user.click(within(screen.getByRole("dialog", { name: "Usage" })).getByRole("button", { name: "Refresh usage" }));
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh")).toHaveLength(2);
+
+    // A click anywhere else still closes it, and the indicator still toggles.
+    await user.click(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(indicator);
+    await screen.findByRole("dialog", { name: "Usage" });
+    await user.click(indicator);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

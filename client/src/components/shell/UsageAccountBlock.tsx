@@ -162,7 +162,10 @@ function WindowRow({
         {scope && <span className="text-text-faint"> {scope}</span>}
       </span>
       <UsageMeter percent={view.percent} durationMins={view.durationMins} expected={view.expected} warning={view.level === "warn"} className="flex-1" />
-      <span className={cn("w-10 shrink-0 text-right font-mono text-[12px]", tone(view))}>{view.percent}%</span>
+      {/* Already spoken by the meter beside it. */}
+      <span aria-hidden="true" className={cn("w-10 shrink-0 text-right font-mono text-[12px]", tone(view))}>
+        {view.percent}%
+      </span>
       <span className="w-[92px] shrink-0 truncate text-right font-mono text-[11px] text-text-faint">
         {view.level === "limited" ? (
           <span className="text-err">{(until !== null && formatResetPhrase(strings, until, now, locale)) || strings.limited}</span>
