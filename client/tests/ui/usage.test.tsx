@@ -176,4 +176,28 @@ describe("plan usage in the status bar", () => {
     await screen.findByRole("dialog", { name: "Usage" });
     expect(refreshesSent()).toEqual([false, false, true, true, false, false]);
   });
+
+  it("keeps the card open when the status bar's refresh is clicked, and still closes on a click away", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    const statusBar = document.querySelector<HTMLElement>("[data-status-bar]")!;
+    const indicator = await within(statusBar).findByRole("button", { name: /^Usage: / });
+    await user.click(indicator);
+    const card = await screen.findByRole("dialog", { name: "Usage" });
+    await vi.waitFor(() => expect(within(card).getByRole("button", { name: "Refresh usage" })).toHaveAttribute("aria-busy", "false"));
+    relay.sent.length = 0;
+
+    await user.click(within(statusBar).getByRole("button", { name: "Refresh usage" }));
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh").map((entry) => entry.message.force)).toEqual([true, true]);
+    expect(screen.getByRole("dialog", { name: "Usage" })).toBeInTheDocument();
+    expect(indicator).toHaveAttribute("aria-expanded", "true");
+
+    // A click anywhere else still closes it, and the indicator still toggles.
+    await user.click(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(indicator);
+    await screen.findByRole("dialog", { name: "Usage" });
+    await user.click(indicator);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });

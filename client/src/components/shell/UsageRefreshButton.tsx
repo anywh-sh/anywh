@@ -54,6 +54,7 @@ export function RefreshIconButton({
   onClick,
   label,
   className,
+  outsideCard = false,
 }: {
   reading: boolean;
   held: boolean;
@@ -61,6 +62,9 @@ export function RefreshIconButton({
   onClick: () => void;
   label: string;
   className?: string;
+  /** Drawn outside the card (the status bar's): marks it so the open card
+   * doesn't take a click on it for a click away from it. */
+  outsideCard?: boolean;
 }) {
   return (
     <button
@@ -70,6 +74,7 @@ export function RefreshIconButton({
       title={title}
       aria-busy={reading}
       aria-disabled={held}
+      data-usage-refresh={outsideCard || undefined}
       className={cn(
         "flex size-6 shrink-0 items-center justify-center text-text-faint outline-hidden transition-colors focus-visible:bg-surface-hover",
         held ? "cursor-default opacity-50" : "cursor-pointer hover:bg-surface-hover hover:text-foreground",
@@ -110,6 +115,7 @@ export function UsageRefreshButton({ groups, onRefresh }: { groups: readonly Pro
       onClick={control.handleRefresh}
       label={strings.card.refresh}
       className="size-5"
+      outsideCard
     />
   );
 }

@@ -56,6 +56,14 @@ export function UsageCard({ groups, profileLabel, onRefresh }: UsageCardProps) {
         collisionPadding={0}
         aria-label={strings.card.title}
         data-usage-card
+        // The status bar's refresh button sits outside the card but acts on
+        // what it shows: a click (or focus) there is not a dismissal. Every
+        // other outside interaction still closes the card, and the
+        // indicator, being the trigger, still toggles it.
+        onInteractOutside={(event) => {
+          const target = event.target as Element | null;
+          if (target?.closest?.("[data-usage-refresh]")) event.preventDefault();
+        }}
         className="animate-usage-card-in z-50 flex max-h-(--radix-popover-content-available-height) w-[420px] flex-col border-t border-r border-border bg-background font-sans text-foreground outline-hidden"
       >
         <UsageCardBody groups={groups} profileLabel={profileLabel} onRefresh={onRefresh} strings={strings} />
