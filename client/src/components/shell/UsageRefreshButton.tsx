@@ -6,7 +6,8 @@ import { latestReadingAt, profileReading, refreshCooldown, type ProfileGroup } f
 import { formatSpan, formatUpdatedAgo } from "@/lib/planUsage/format";
 import { cn } from "@/lib/utils";
 
-/** Clicks on refresh closer than this are one click. */
+/** Clicks on refresh closer than this are one click — per button here, and
+ * across both buttons where the request is made (App's `refreshUsage`). */
 export const REFRESH_CLICK_DEBOUNCE_MS = 1_000;
 
 /**

@@ -192,6 +192,10 @@ describe("plan usage in the status bar", () => {
     expect(screen.getByRole("dialog", { name: "Usage" })).toBeInTheDocument();
     expect(indicator).toHaveAttribute("aria-expanded", "true");
 
+    // The card's button right after: the same burst, nothing more sent.
+    await user.click(within(screen.getByRole("dialog", { name: "Usage" })).getByRole("button", { name: "Refresh usage" }));
+    expect(relay.sent.filter((entry) => entry.message.type === "plan_usage_refresh")).toHaveLength(2);
+
     // A click anywhere else still closes it, and the indicator still toggles.
     await user.click(document.body);
     expect(screen.queryByRole("dialog")).toBeNull();

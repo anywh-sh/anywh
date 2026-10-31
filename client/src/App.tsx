@@ -13,6 +13,7 @@ import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { UsageCard } from "@/components/shell/UsageCard";
+import { REFRESH_CLICK_DEBOUNCE_MS } from "@/components/shell/UsageRefreshButton";
 import { UsageIndicator } from "@/components/shell/UsageIndicator";
 import { groupByProfile } from "@/lib/planUsage/derive";
 import { Popover as PopoverPrimitive } from "radix-ui";
@@ -491,8 +492,15 @@ function AppShell() {
     planUsage.byProfile,
     usageProfileId,
   );
-  // The card's refresh button and the status bar's send the same request.
-  const refreshUsage = () => planUsage.refresh(undefined, true);
+  // The card's refresh button and the status bar's send the same request,
+  // so a click on one right after a click on the other is still one burst.
+  const lastUsageRefresh = useRef(0);
+  const refreshUsage = () => {
+    const at = Date.now();
+    if (at - lastUsageRefresh.current < REFRESH_CLICK_DEBOUNCE_MS) return;
+    lastUsageRefresh.current = at;
+    planUsage.refresh(undefined, true);
+  };
 
   const sidebarProps = {
     activeProfile,
