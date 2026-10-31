@@ -2,7 +2,8 @@ import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react
 
 import { AgentMark } from "@/components/shell/AgentMark";
 import { UsageMeter } from "@/components/shell/UsageMeter";
-import { ReadingMark, noteDetail, noteSpoken, noteText } from "@/components/shell/usageNote";
+import { UsageRefreshButton } from "@/components/shell/UsageRefreshButton";
+import { noteDetail, noteSpoken, noteText } from "@/components/shell/usageNote";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { useIsCompactStatusBar } from "@/hooks/platform/useMediaQuery";
 import { useDict, useLocale, type Dictionary, type Locale } from "@/i18n";
@@ -15,6 +16,7 @@ import {
   runtimeWindows,
   spentUntil,
   statusBarRuntimes,
+  type ProfileGroup,
   type ProfilePlanUsage,
   type WindowView,
 } from "@/lib/planUsage/derive";
@@ -33,6 +35,10 @@ export interface UsageIndicatorProps extends Omit<ComponentPropsWithoutRef<"butt
   now: number;
   /** Whether the details card is open — mirrored to `aria-expanded`. */
   expanded: boolean;
+  /** Every profile's groups (as the card has them) and the refresh request,
+   * for the refresh button drawn after the indicator. Absent = no button. */
+  refreshGroups?: readonly ProfileGroup[];
+  onRefresh?: () => void;
 }
 
 /**
@@ -49,7 +55,7 @@ export interface UsageIndicatorProps extends Omit<ComponentPropsWithoutRef<"butt
  * installed, or no answer yet.
  */
 export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>(function UsageIndicator(
-  { profileId, byProfile, now, expanded, className, ...buttonProps },
+  { profileId, byProfile, now, expanded, refreshGroups, onRefresh, className, ...buttonProps },
   ref,
 ) {
   const dict = useDict();
@@ -83,53 +89,59 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
     summary.push(strings.stale.replace("{ago}", formatUpdatedAgo(strings, entry.receivedAt, now)));
   }
 
+  // The refresh button is the indicator's sibling, never inside it: the
+  // indicator is itself a button (it opens the card), and a click on refresh
+  // must not open or close the card. Hidden under 1024px, where the bar keeps
+  // only the essentials; the card's own button is a click away there.
   return (
-    <button
-      ref={ref}
-      type="button"
-      aria-haspopup="dialog"
-      aria-expanded={expanded}
-      aria-label={strings.summary.replace("{items}", summary.join("; "))}
-      data-usage-indicator
-      data-stale={stale || undefined}
-      className={cn(
-        "flex shrink-0 cursor-pointer items-center gap-2.5 px-1.5 py-0.5 outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover",
-        expanded && "bg-surface-hover",
-        className,
-      )}
-      {...buttonProps}
-    >
-      <span aria-hidden="true" className={cn("size-1.5 shrink-0", profileColorClass(profileId))} />
-      {stale && (
-        <span
-          data-usage-offline
-          title={entry?.receivedAt != null ? strings.stale.replace("{ago}", formatUpdatedAgo(strings, entry.receivedAt, now)) : undefined}
-          className="whitespace-nowrap text-text-faint"
-        >
-          {strings.card.offline}
-        </span>
-      )}
-      {outdated && (
-        <span data-usage-outdated className="whitespace-nowrap text-text-faint">
-          {strings.outdated}
-        </span>
-      )}
-      {runtimes.map((usage) => (
-        <AgentBlock
-          key={usage.runtime}
-          usage={usage}
-          now={now}
-          reading={readingOf(usage)}
-          compact={compact}
-          stale={stale}
-          locale={locale}
-          strings={strings}
-        />
-      ))}
-      {/* The design also put a dot here for any other profile near or at its
-          limit, after a separator. Removed at the owner's request: other
-          profiles show only in the card. */}
-    </button>
+    <span data-usage-indicator-group className="flex shrink-0 items-center gap-0.5">
+      <button
+        ref={ref}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={expanded}
+        aria-label={strings.summary.replace("{items}", summary.join("; "))}
+        data-usage-indicator
+        data-stale={stale || undefined}
+        className={cn(
+          "flex shrink-0 cursor-pointer items-center gap-2.5 px-1.5 py-0.5 outline-hidden transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover",
+          expanded && "bg-surface-hover",
+          className,
+        )}
+        {...buttonProps}
+      >
+        <span aria-hidden="true" className={cn("size-1.5 shrink-0", profileColorClass(profileId))} />
+        {stale && (
+          <span
+            data-usage-offline
+            title={entry?.receivedAt != null ? strings.stale.replace("{ago}", formatUpdatedAgo(strings, entry.receivedAt, now)) : undefined}
+            className="whitespace-nowrap text-text-faint"
+          >
+            {strings.card.offline}
+          </span>
+        )}
+        {outdated && (
+          <span data-usage-outdated className="whitespace-nowrap text-text-faint">
+            {strings.outdated}
+          </span>
+        )}
+        {runtimes.map((usage) => (
+          <AgentBlock
+            key={usage.runtime}
+            usage={usage}
+            now={now}
+            compact={compact}
+            stale={stale}
+            locale={locale}
+            strings={strings}
+          />
+        ))}
+        {/* The design also put a dot here for any other profile near or at its
+            limit, after a separator. Removed at the owner's request: other
+            profiles show only in the card. */}
+      </button>
+      {!compact && refreshGroups && onRefresh && <UsageRefreshButton groups={refreshGroups} onRefresh={onRefresh} />}
+    </span>
   );
 });
 
@@ -142,7 +154,6 @@ function leadWindow(views: readonly WindowView[]): WindowView | undefined {
 function AgentBlock({
   usage,
   now,
-  reading,
   compact,
   stale,
   locale,
@@ -150,7 +161,6 @@ function AgentBlock({
 }: {
   usage: RuntimePlanUsage;
   now: number;
-  reading: boolean;
   compact: boolean;
   stale: boolean;
   locale: Locale;
@@ -177,7 +187,6 @@ function AgentBlock({
         <>
           <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
           {!compact && <span>{strings.signedOut}</span>}
-          <ReadingMark hidden={!reading} />
         </>,
       );
     }
@@ -185,14 +194,12 @@ function AgentBlock({
       return block(
         <>
           <span className="border border-border px-1 leading-[14px] text-muted-foreground">{strings.apiKey}</span>
-          <ReadingMark hidden={!reading} />
         </>,
       );
     }
     return block(
       <>
         {!compact && <span title={noteDetail(note, strings)}>{noteText(note, strings)}</span>}
-        <ReadingMark hidden={!reading} />
       </>,
     );
   }
@@ -207,7 +214,6 @@ function AgentBlock({
     return block(
       <>
         <span className={tone(lead)}>{lead.percent}%</span>
-        <ReadingMark hidden={!reading} />
       </>,
     );
   }
@@ -234,7 +240,6 @@ function AgentBlock({
             ))}
         </span>
       )}
-      <ReadingMark hidden={!reading} />
     </>,
   );
 }
