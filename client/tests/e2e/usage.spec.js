@@ -186,6 +186,29 @@ describe("plan usage", () => {
     if (!focused) throw new Error("focus did not return to the indicator");
     await shot("eng-39-e2e-statusbar");
   });
+  it("refreshes from the status bar's own button, beside the indicator, without opening the card", async () => {
+    const refresh = await $('[data-status-bar] button[aria-label="Refresh usage"]');
+    await refresh.waitForExist({ timeout: 5000 });
+    const sibling = await browser.execute(() => {
+      const indicator = document.querySelector("[data-usage-indicator]");
+      const button = document.querySelector('[data-status-bar] button[aria-label="Refresh usage"]');
+      return Boolean(indicator && button && !indicator.contains(button) && indicator.parentElement === button.parentElement);
+    });
+    if (!sibling) throw new Error("the status bar's refresh button must be the indicator's sibling");
+    // The forced refresh a moment ago keeps Claude inside the relay's 60s
+    // floor, but Codex (no login, no floor) leaves the button free.
+    const before = { pessoal: pessoal.probes().length, trabalho: trabalho.probes().length };
+    await refresh.click();
+    await browser.pause(500);
+    if (await card().isExisting()) throw new Error("the status bar's refresh opened the card");
+    const after = { pessoal: pessoal.probes().length, trabalho: trabalho.probes().length };
+    if (after.pessoal !== before.pessoal || after.trabalho !== before.trabalho) {
+      throw new Error(`a refresh inside Claude's floor probed again: ${JSON.stringify({ before, after })}`);
+    }
+    assertLayout(await statusBarLayout(), "1440px, refresh button");
+    await shot("eng-39-refresh-statusbar");
+  });
+
 
   it("keeps only the marks and the 5h percentage under 1024px", async () => {
     await browser.setWindowSize(980, 800);
@@ -197,6 +220,8 @@ describe("plan usage", () => {
     if (!text.includes("58%")) throw new Error(`compact indicator lost the 5h percentage: "${text}"`);
     const meters = await browser.execute(() => document.querySelectorAll('[data-usage-indicator] [role="meter"]').length);
     if (meters !== 0) throw new Error("the compact indicator should draw no meter");
+    // Under 1024px the status bar keeps no refresh button (the card has one).
+    if (await $('[data-status-bar] button[aria-label="Refresh usage"]').isExisting()) throw new Error("the compact status bar should have no refresh button");
     assertLayout(await statusBarLayout(), "980px");
     await shot("eng-39-e2e-statusbar-compact");
     // The narrowest the window goes: still first, still no overlap.
