@@ -1,41 +1,34 @@
-import { useLayoutEffect, useState } from "react";
-import { motionFastMs } from "@/lib/motion";
+import { useLayoutEffect, useRef, useState } from "react";
+import { motionMediumMs } from "@/lib/motion";
 
 /**
- * The two halves of the dock opening and closing, which are not the same
- * moment. `shown` is whether it takes space in the layout; `visible` is
- * whether it is slid into place. Width is a layout property and is never
- * animated (see `designVocabulary.test.ts`: a panel toggle is where that
- * costs a layout pass per frame), so the motion is a transform and the layout
- * is kept honest around it:
+ * Whether the dock is still on screen: open, or closed but still closing. The
+ * width and the fade are CSS transitions on the dock itself, so the only thing
+ * script has to know is when the closing is over — until then it keeps drawing
+ * what was there (the panes are gone from the state the instant it closes) and
+ * keeps the frame cut that follows its width; after it, it lets go of both.
  *
- *  - opening: it takes its space at once, then, a frame later, slides in;
- *  - closing: it slides out first, and gives the space back once it is gone.
- *
- * A dock that is open on mount is simply there — nothing animates on load.
+ * Open on mount is simply open: nothing animates on load, or on switching to a
+ * tab whose dock is already open.
  */
-export function useDockPresence(open: boolean): { shown: boolean; visible: boolean } {
-  const [shown, setShown] = useState(open);
-  const [visible, setVisible] = useState(open);
+export function useDockPresence(open: boolean): boolean {
+  const [closing, setClosing] = useState(false);
+  const wasOpen = useRef(open);
 
   useLayoutEffect(() => {
+    const was = wasOpen.current;
+    wasOpen.current = open;
     if (open) {
-      setShown(true);
-      // Two frames: the first paints it where it starts (off to the right),
-      // the second moves it, so there is a start for the transition to run from.
-      let second = 0;
-      const first = requestAnimationFrame(() => {
-        second = requestAnimationFrame(() => setVisible(true));
-      });
-      return () => {
-        cancelAnimationFrame(first);
-        cancelAnimationFrame(second);
-      };
+      setClosing(false);
+      return;
     }
-    setVisible(false);
-    const timer = window.setTimeout(() => setShown(false), motionFastMs());
+    // Closed on mount is not closing: there is nothing to see go.
+    if (!was) return;
+    setClosing(true);
+    // A beat past the transition, so the last frame of it is drawn.
+    const timer = window.setTimeout(() => setClosing(false), motionMediumMs() + 30);
     return () => window.clearTimeout(timer);
   }, [open]);
 
-  return { shown, visible };
+  return open || closing;
 }

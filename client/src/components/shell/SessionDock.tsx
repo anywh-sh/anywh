@@ -24,8 +24,9 @@ interface SessionDockProps {
  * play alone: mounted the whole time the chat tab is active even with the
  * dock closed (`dock.panes.length === 0`), so opening/closing it doesn't
  * remount the pane (and lose its scroll position / virtualizer cache) —
- * closing gives its width back instead of unmounting. Opening slides it in
- * and closing slides it out (`useDockPresence`: by transform, never by width).
+ * closing gives its width back instead of unmounting. Both are animated: the
+ * width opens or closes and the content fades in or out (the box's own CSS
+ * transitions; `useDockPresence` only says when the closing is over).
  * `TerminalPanelSlot`/`FilesPanelSlot` no longer own the column's width —
  * they just fill 100% of the pane space this component hands them.
  *
@@ -38,21 +39,21 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
   const stackRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const open = dock.panes.length > 0;
-  const { shown, visible } = useDockPresence(open);
+  const present = useDockPresence(open);
 
-  // What is drawn while it slides out. The panes are gone from `dock` (and
-  // from `panes`) the instant it closes, which would empty the panel before it
-  // has moved; the last open state is what stays on screen until it has.
+  // What is drawn while it closes. The panes are gone from `dock` (and from
+  // `panes`) the instant it closes, which would empty the panel before it has
+  // gone; the last open state is what stays on screen until it has.
   const lastOpen = useRef({ dock, panes });
   if (open) lastOpen.current = { dock, panes };
   const drawn = open ? { dock, panes } : lastOpen.current;
 
-  const { startDrag } = usePanelDrag(dock.width, onWidthChange, onDragEnd);
+  const { startDrag, isDragging: isWidthDragging } = usePanelDrag(dock.width, onWidthChange, onDragEnd);
   const { isDragging: isSplitDragging, startDrag: startSplitDrag } = useSplitDrag(dock.splitRatio, onSplitRatioChange, stackRef, onDragEnd);
 
-  const maximizedOpen = shown && drawn.dock.maximized !== null;
+  const maximizedOpen = present && drawn.dock.maximized !== null;
   // A maximized pane fills the plane, so there is no side to be on.
-  useDockFrameCut(rootRef, shown && !maximizedOpen, dock.width);
+  useDockFrameCut(rootRef, present && !maximizedOpen, dock.width);
 
   return (
     <div
@@ -60,17 +61,31 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
       // The window chrome's colour and one divider on the canvas side, like
       // the room's side panel: it sits beside the framed plane, not in a box
       // of its own (`useDockFrameCut` takes the frame away from behind it).
-      className={cn("relative h-full shrink-0 overflow-hidden border-l border-border-soft bg-bg-chrome", maximizedOpen && "flex-1")}
-      style={{ width: shown ? (drawn.dock.maximized ? undefined : dock.width) : 0 }}
+      // The width is what animates. It is the one box, `contain`ed so that
+      // what changes inside it is not the page's to lay out, with a fixed-width
+      // child (below) so its content is not re-wrapped on every frame; and the
+      // transition is off while the width is being dragged, or the panel would
+      // trail the pointer. The divider goes with the width, so a closed dock
+      // leaves no sliver.
+      className={cn(
+        "relative h-full shrink-0 overflow-hidden bg-bg-chrome",
+        present && "border-l border-border-soft",
+        !isWidthDragging && "transition-[width] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+        maximizedOpen && "flex-1",
+      )}
+      style={{ width: open ? (drawn.dock.maximized ? undefined : dock.width) : 0, contain: "layout paint" }}
     >
-      {/* The part that moves. Its own width, not the box's: the box takes its
-       * space at once (see `useDockPresence`) and this slides within it, so
-       * the content is never squeezed on the way. */}
+      {/* The content, at the width it will have, fading in as the box opens
+       * (a beat behind it, so the text arrives once there is room for it) and
+       * out as it closes. */}
       <div
-        className={cn("relative h-full transition-transform motion-reduce:transition-none", !visible && "translate-x-full")}
+        className={cn(
+          "relative h-full transition-opacity duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+          open ? "opacity-100 delay-(--motion-fast)" : "opacity-0",
+        )}
         style={{ width: drawn.dock.maximized ? "100%" : dock.width }}
       >
-        {shown && !drawn.dock.maximized && (
+        {present && !drawn.dock.maximized && (
           <div
             onPointerDown={startDrag}
             className="absolute top-0 left-0 z-10 h-full w-1 cursor-col-resize hover:bg-border"

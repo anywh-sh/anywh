@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { SessionDock } from "@/components/shell/SessionDock";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
@@ -8,6 +8,23 @@ afterEach(() => cleanup());
 const open: DockState = { panes: ["files"], width: 420, splitRatio: 0.5, maximized: null };
 const closed: DockState = { ...open, panes: [] };
 const noop = vi.fn();
+
+// jsdom has no layout, so every rect is zero. The cut follows the width the
+// dock has on screen, so give a dock the width its state says it has — and a
+// closed one, none. (The real thing is measured in a browser.)
+beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: HTMLElement): DOMRect {
+      const width = this.hasAttribute("data-dock-edge") ? Number(this.style.width.replace("px", "")) || 0 : 0;
+      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, height: 0, width, toJSON: () => ({}) };
+    },
+  });
+});
+afterEach(() => {
+  // Takes the stub off `HTMLElement.prototype`, leaving the real one on `Element`.
+  delete (HTMLElement.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect;
+});
 
 // The plane's frame and the status bar belong to the shell, outside the dock.
 // jsdom has no layout (every rect is zero), so "the dock touches the plane's

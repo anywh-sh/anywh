@@ -25,11 +25,11 @@ export function useDockFrameCut(ref: RefObject<HTMLElement | null>, active: bool
   useLayoutEffect(() => {
     const dock = ref.current;
     if (!dock) return;
-    dock.dataset.dockWidth = String(width);
-
     function publish(): void {
       const edge = document.querySelector<HTMLElement>(`[${EDGE}]`);
-      const px = edge ? `${edge.dataset.dockWidth ?? "0"}px` : "0px";
+      // The width it has now, not the one it is heading for: while it opens or
+      // closes the cut follows it, frame by frame.
+      const px = edge ? `${edge.getBoundingClientRect().width}px` : "0px";
       for (const el of document.querySelectorAll<HTMLElement>(OUTSIDE)) el.style.setProperty("--dock-side-w", px);
     }
 

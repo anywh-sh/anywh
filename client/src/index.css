@@ -177,6 +177,9 @@
      animation there repaints only what moves, and a moving camera moves one
      composited layer instead of repainting the room. */
   --motion-fast: 120ms;
+  /* A panel opening or closing: long enough to read as a movement, short enough
+   * to stay out of the way. Between the hover feedback above and `step-in`. */
+  --motion-medium: 200ms;
   --motion-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 
