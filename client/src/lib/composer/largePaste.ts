@@ -1,8 +1,8 @@
 // A paste this big becomes an attachment instead of text in the composer:
 // pasted instructions or a log would otherwise flood the field. Either bound
 // is enough on its own — many short lines flood it as much as one long one.
-export const LARGE_PASTE_MIN_CHARS = 1000;
-export const LARGE_PASTE_MIN_LINES = 25;
+export const LARGE_PASTE_MIN_CHARS = 500;
+export const LARGE_PASTE_MIN_LINES = 12;
 
 const NAME_MAX_CHARS = 40;
 
