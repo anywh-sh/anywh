@@ -54,7 +54,6 @@ export const SessionListItem = memo(function SessionListItem({
   const { locale } = useLocale();
   const menu = useContextMenu();
   const running = turnRunning || (roomStatus?.working ?? 0) > 0;
-  const waiting = (roomStatus?.needsYou ?? 0) > 0;
   const indicatorLabel = running ? dict.shell.sidebar.agentWorking : dict.shell.sidebar.backgroundJob;
   // A relay too old to report when the session was last used leaves the row
   // without a time rather than with a made-up one — the meta line is then
@@ -87,30 +86,6 @@ export const SessionListItem = memo(function SessionListItem({
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
       >
-        {/* The status slot: always as wide as its content, so titles line up
-         * whether or not the row has a status to show. One animated
-         * indicator per row at most, `running` first — a live turn and a
-         * background job on the same session would otherwise stack two. The
-         * ring is reserved for an actual turn in flight; a background job
-         * gets its own glyph, a pulsing terminal icon, since that is
-         * literally what `anywh-bg` runs. */}
-        <span className="flex size-3 shrink-0 items-center justify-center">
-          {waiting ? (
-            <span aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus?.needsYou))} className="size-2 shrink-0 rounded-full bg-primary" />
-          ) : running ? (
-            <span
-              aria-label={indicatorLabel}
-              className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
-              style={{ borderTopColor: profileColorVar(session.profileId) }}
-            />
-          ) : completedAt !== undefined ? (
-            <span aria-label={dict.shell.sidebar.completedLabel} className="size-[7px] shrink-0 rounded-full bg-foreground" />
-          ) : (
-            hasBackgroundJob && (
-              <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
-            )
-          )}
-        </span>
         {session.room === true && <RoomGlyph size={14} className="shrink-0 text-text-faint" aria-label={dict.sala.roomGlyph} role="img" />}
         <span
           className={cn(
@@ -122,6 +97,12 @@ export const SessionListItem = memo(function SessionListItem({
         >
           {session.titlePending === true ? <TitleSkeleton /> : session.title}
         </span>
+        {/* Status lives on the right, where the row's meta is: nothing sits
+         * between the profile bar and the title, so titles start at the same
+         * x whatever the row's state. One indicator at most — a live turn and a
+         * background job on the same session would otherwise stack two. The ring is reserved for an actual turn in
+         * flight; a background job gets its own glyph, a pulsing terminal
+         * icon, since that is literally what `anywh-bg` runs. */}
         {roomStatus && (roomStatus.needsYou > 0 || roomStatus.failed > 0) ? (
           <span
             title={(roomStatus.needsYou > 0 ? dict.shell.sidebar.roomNeedsYou : dict.shell.sidebar.roomFailed).replace("{count}", String(roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed))}
@@ -129,20 +110,29 @@ export const SessionListItem = memo(function SessionListItem({
           >
             {roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed}
           </span>
+        ) : running ? (
+          <span
+            aria-label={indicatorLabel}
+            className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
+            style={{ borderTopColor: profileColorVar(session.profileId) }}
+          />
         ) : completedAt !== undefined ? (
           <span title={formatAbsoluteTime(completedAt, locale)} className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-foreground">
             {dict.shell.sidebar.completedNew}
           </span>
+        ) : hasBackgroundJob ? (
+          <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
         ) : (
           lastActive !== null &&
           !bare && (
-          <span
-            title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
-            className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
-          >
-            {lastActive}
-          </span>
-        ))}
+            <span
+              title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
+              className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
+            >
+              {lastActive}
+            </span>
+          )
+        )}
       </button>
       <SessionDeleteMenu menu={menu} title={session.title} onRename={() => onRename(session)} onDelete={() => onDelete(session)} />
     </div>

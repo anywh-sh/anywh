@@ -1097,7 +1097,6 @@ export interface Dictionary {
       clearCompleted: string;
       clearCompletedTitle: string;
       completedNew: string;
-      completedLabel: string;
       olderInSearch: string;
       /** A room row's tooltips; each takes `{count}`. */
       roomNeedsYou: string;

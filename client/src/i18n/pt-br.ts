@@ -430,7 +430,6 @@ export const ptBr: Dictionary = {
       clearCompleted: "limpar",
       clearCompletedTitle: "Mover as concluídas para Recentes",
       completedNew: "nova",
-      completedLabel: "Concluída, ainda não aberta",
       olderInSearch: "Mais antigas na busca",
       roomNeedsYou: "{count} precisam de você",
       roomWorking: "{count} em execução",
