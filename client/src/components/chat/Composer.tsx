@@ -36,7 +36,7 @@ import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { ATTACHMENT_ACCEPT, attachmentKindFor } from "@/lib/composer/attachmentTypes";
-import { isLargePaste, nextPastedTextName } from "@/lib/composer/largePaste";
+import { isLargePaste, pastedTextName } from "@/lib/composer/largePaste";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
 import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
@@ -561,6 +561,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
+  // Names of the attachments already in the message, for `pastedTextName`.
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
   const placeholderRef = useRef(copy.placeholderTask);
   placeholderRef.current = turnInFlight ? copy.placeholderQueue : (placeholder ?? copy.placeholderTask);
   const [placeholderExtension] = useState(() => createPlaceholderExtension(suggestionRef, placeholderRef));
@@ -686,7 +689,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           // it replaces the selection; if the upload fails the text is put
           // back, so a failed attachment never costs the user their paste.
           view.dispatch(view.state.tr.deleteSelection());
-          const file = new File([plain], nextPastedTextName(), { type: "text/plain" });
+          const taken = pendingImagesRef.current.map((image) => image.name ?? "");
+          const file = new File([plain], pastedTextName(plain, taken), { type: "text/plain" });
           void Promise.resolve(onAddFiles([file])).then((notAttached) => {
             if (Array.isArray(notAttached) && notAttached.length > 0) insertInline();
           });

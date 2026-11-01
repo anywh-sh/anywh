@@ -144,7 +144,7 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledWith("  if (x) {\n    run();\n\n\n}", []);
   });
 
-  it("turns a large paste into a \"pasted-text-N.txt\" attachment instead of inline text", async () => {
+  it("turns a large paste into a named .txt attachment instead of inline text", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
     const onAddFiles = vi.fn();
@@ -162,7 +162,7 @@ describe("Composer", () => {
 
     expect(onAddFiles).toHaveBeenCalledOnce();
     const [files] = onAddFiles.mock.calls[0] as [File[]];
-    expect(files.map((file) => file.name)).toEqual([expect.stringMatching(/^pasted-text-\d+\.txt$/)]);
+    expect(files.map((file) => file.name)).toEqual(["step-1.txt"]);
     expect(await files[0].text()).toBe(big);
     // Nothing landed in the field: sending now is an empty message.
     await user.keyboard("{Enter}");
