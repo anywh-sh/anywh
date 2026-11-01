@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   evaluatePrerequisites,
   failureActions,
@@ -180,5 +180,34 @@ describe("toFailureCode", () => {
     expect(toFailureCode("checksum_mismatch")).toBe("checksum_mismatch");
     expect(toFailureCode("bad_flag")).toBe("unexpected");
     expect(toFailureCode("something_new")).toBe("unexpected");
+  });
+});
+
+describe("cancelling before the installer has answered", () => {
+  it("leaves at once and stops the installer the pending start spawns", async () => {
+    vi.resetModules();
+    let answerStart!: (info: { runId: string; logPath: string; started: boolean }) => void;
+    const relay = {
+      checkPrerequisites: vi.fn(() => Promise.resolve(healthy)),
+      startLocalInstall: vi.fn(() => new Promise((resolve) => (answerStart = resolve))),
+      cancelLocalInstall: vi.fn(() => Promise.resolve()),
+      getLocalInstallStatus: vi.fn(() => Promise.resolve(null)),
+      onInstallLog: vi.fn(() => Promise.resolve(() => {})),
+      onInstallDone: vi.fn(() => Promise.resolve(() => {})),
+    };
+    vi.doMock("@/lib/install/localRelay", () => relay);
+    const install = await import("./localInstall");
+
+    install.beginLocalInstall({ label: "Default" });
+    await vi.waitFor(() => expect(relay.startLocalInstall).toHaveBeenCalled());
+    expect(install.getLocalInstallState().install).toMatchObject({ status: "running", runId: null });
+
+    install.abandonLocalInstall();
+    expect(install.getLocalInstallState().install.status).toBe("idle");
+
+    answerStart({ runId: "r1", logPath: "/tmp/r1.log", started: true });
+    await vi.waitFor(() => expect(relay.cancelLocalInstall).toHaveBeenCalledOnce());
+    expect(install.getLocalInstallState().install).toMatchObject({ status: "idle", runId: null });
+    vi.doUnmock("@/lib/install/localRelay");
   });
 });

@@ -516,6 +516,9 @@ async function hydrate(): Promise<void> {
 async function startInstall(): Promise<void> {
   const params = state.params;
   if (!params) return;
+  // Cancelling before the installer has answered (`abandonLocalInstall`)
+  // moves this on; everything below that awaits checks it.
+  const generation = prereqsGeneration;
   // A link arriving while the install owns the screen waits, visibly,
   // instead of opening the setup dialog over the installer's log.
   releaseHold();
@@ -523,18 +526,26 @@ async function startInstall(): Promise<void> {
   publish({ ...state, install: { ...initialState().install, status: "running" } });
   try {
     await ensureListeners();
+    if (generation !== prereqsGeneration) return;
     const info = await startLocalInstall({
       profileLabel: params.label.trim() || undefined,
       profileId: params.profileId ?? undefined,
       relayHost: params.host,
       mode: state.mode,
     });
+    if (generation !== prereqsGeneration) {
+      // Cancelled while the start was on its way: the installer exists now
+      // and nothing on screen follows it, so it is stopped here.
+      await cancelInstall();
+      return;
+    }
     publish({ ...state, install: { ...state.install, runId: info.runId } });
     await hydrate();
     // The run may have finished between start and hydrate (a fast failure).
     const status = await getLocalInstallStatus();
     if (status && status.runId === info.runId && !status.alive) settle(status.ok, status.profile, status.failure);
   } catch (err) {
+    if (generation !== prereqsGeneration) return;
     releaseHold();
     publish({
       ...state,
@@ -569,9 +580,11 @@ export function retryLocalInstall(): void {
   void startInstall();
 }
 
-/** Cancel when nothing is running (the check is still going, it stopped,
- * or the profile installed but didn't answer): forgets the run, so a check that resolves after this can no
- * longer go on to start the installer behind the reader's back. */
+/** Cancel when nothing is running (the check is still going, the start has
+ * not been answered yet, it stopped, or the profile installed but didn't
+ * answer): forgets the run, so a check that resolves after this can no
+ * longer go on to start the installer behind the reader's back, and a start
+ * already on its way stops the installer it spawns. */
 export function abandonLocalInstall(): void {
   // A verification of this run's profile that failed is let go with it, so
   // the next attempt (an adoption of what was installed) can dial it again.

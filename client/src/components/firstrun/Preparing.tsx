@@ -174,8 +174,10 @@ export function Preparing({
     if (adopting) {
       rollback();
       onCancel();
-    } else if (install.install.status === "running") {
+    } else if (install.install.status === "running" && install.install.runId !== null) {
       // The done event comes back as `cancelled`, which leaves on its own.
+      // Before the run has an id the relay has nothing to stop yet (the
+      // start is still on its way), so that case is an abandon, below.
       void cancelInstall();
     } else {
       abandonLocalInstall();
