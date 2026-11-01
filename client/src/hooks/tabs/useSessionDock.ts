@@ -49,6 +49,25 @@ const OLD_STORAGE_KEY = "anywh:session-panels";
 
 type DockMap = Record<string, DockState>;
 
+// Which tab groups have their right-hand panel hidden — the toggle at the
+// strip's right end, the mirror of the sidebar's. Hiding is not closing: the
+// panes a tab had open stay in its `DockState`, so showing the panel again
+// brings back exactly what was there. Keyed by group, not tab: it is the
+// group's strip that carries the toggle, and switching tabs inside a group
+// must not flip it.
+const HIDDEN_STORAGE_KEY = "anywh:right-panel-hidden";
+type HiddenGroups = Record<string, true>;
+
+function loadHidden(): HiddenGroups {
+  try {
+    const raw = localStorage.getItem(HIDDEN_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as HiddenGroups;
+  } catch {
+    return {};
+  }
+}
+
 function clampWidth(width: number, panes: DockPaneKind[]): number {
   const min = panes.includes("files") ? MIN_WIDTH_WITH_FILES : MIN_WIDTH;
   return Math.min(MAX_WIDTH, Math.max(min, width));
@@ -108,7 +127,46 @@ export function useSessionDock() {
     localStorage.removeItem(OLD_STORAGE_KEY);
   }, []);
 
+  const [hiddenGroups, setHiddenGroups] = useState<HiddenGroups>(loadHidden);
+
+  useEffect(() => {
+    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenGroups));
+  }, [hiddenGroups]);
+
   const getDock = useCallback((tabId: string): DockState => docks[tabId] ?? EMPTY_DOCK, [docks]);
+
+  const isGroupHidden = useCallback((groupId: string | null): boolean => groupId !== null && hiddenGroups[groupId] === true, [hiddenGroups]);
+
+  const setGroupHidden = useCallback((groupId: string, hidden: boolean) => {
+    setHiddenGroups((prev) => {
+      if ((prev[groupId] === true) === hidden) return prev;
+      if (!hidden) {
+        const next = { ...prev };
+        delete next[groupId];
+        return next;
+      }
+      return { ...prev, [groupId]: true };
+    });
+  }, []);
+
+  /** The dock as the tab's panel should draw it: the stored one, or — when
+   * its group's panel is hidden — a closed copy of it. The copy is cached per
+   * stored dock, so `TabPanel` (memoized on this exact reference) is not
+   * re-rendered by a call that returns the same thing it did last time. */
+  const closedCopies = useRef(new WeakMap<DockState, DockState>());
+  const getVisibleDock = useCallback(
+    (tabId: string, groupId: string | null): DockState => {
+      const dock = docks[tabId] ?? EMPTY_DOCK;
+      if (groupId === null || hiddenGroups[groupId] !== true || dock.panes.length === 0) return dock;
+      let closed = closedCopies.current.get(dock);
+      if (!closed) {
+        closed = { ...dock, panes: [], maximized: null };
+        closedCopies.current.set(dock, closed);
+      }
+      return closed;
+    },
+    [docks, hiddenGroups],
+  );
 
   /** If `kind` is already open, closes it; otherwise pushes it to the end of
    * the stack — with the terminal already open, files lands below it, and
@@ -192,5 +250,5 @@ export function useSessionDock() {
     });
   }, []);
 
-  return { getDock, togglePane, openPane, closePane, setWidth, setSplitRatio, commitDock, toggleMaximized, removeSession };
+  return { getDock, getVisibleDock, isGroupHidden, setGroupHidden, togglePane, openPane, closePane, setWidth, setSplitRatio, commitDock, toggleMaximized, removeSession };
 }

@@ -294,6 +294,8 @@ export const ptBr: Dictionary = {
   panels: {
     openFiles: "Abrir arquivos",
     closeFiles: "Fechar arquivos",
+    showRightPanel: "Mostrar painel lateral",
+    hideRightPanel: "Esconder painel lateral",
     openTerminal: "Abrir terminal",
     closeTerminal: "Fechar terminal",
     maximize: "Expandir painel",

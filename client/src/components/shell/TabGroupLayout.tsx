@@ -92,6 +92,10 @@ interface TabGroupLayoutProps {
   stripTrailingInsetClass?: string;
   /** The same for the start of the strip row: room for what is pinned over it. */
   stripLeadingInsetClass?: string;
+  /** Whether a group's side panel is hidden, and the toggle for it. Absent
+   * where there is no side panel (compact/iOS). */
+  rightPanelHidden?: (groupId: string) => boolean;
+  onToggleRightPanel?: (groupId: string) => void;
   /** Full-width notices drawn between the strip row and the panels — below
    * the strip so the strip row stays level with the sidebar's own header. */
   belowStrip?: ReactNode;
@@ -248,6 +252,8 @@ export function TabGroupLayout({
   stripTrailing,
   stripTrailingInsetClass,
   stripLeadingInsetClass,
+  rightPanelHidden,
+  onToggleRightPanel,
   belowStrip,
 }: TabGroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -389,6 +395,11 @@ export function TabGroupLayout({
                 onDelete={onDelete}
                 onSplitToNewGroup={(tabId) => onSplitTabToNewGroup(tabId, group.id)}
                 onNewTab={() => onNewTab(group.id)}
+                rightPanel={
+                  onToggleRightPanel && rightPanelHidden
+                    ? { hidden: rightPanelHidden(group.id), onToggle: () => onToggleRightPanel(group.id) }
+                    : undefined
+                }
               />
             </div>
           ))}

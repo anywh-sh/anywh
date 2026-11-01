@@ -294,6 +294,8 @@ export const en: Dictionary = {
   panels: {
     openFiles: "Open files",
     closeFiles: "Close files",
+    showRightPanel: "Show side panel",
+    hideRightPanel: "Hide side panel",
     openTerminal: "Open terminal",
     closeTerminal: "Close terminal",
     maximize: "Expand panel",
