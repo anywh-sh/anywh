@@ -47,6 +47,13 @@ export function TabStripScrollbar({ scrollerRef, contentKey }: TabStripScrollbar
   // The tabs changed width without the strip itself resizing.
   useEffect(measure, [measure, contentKey]);
 
+  // Up, cancelled (a touch interrupted) or capture lost (the window blurred):
+  // all end the drag, or the next move over the thumb would keep scrolling.
+  function endDrag() {
+    drag.current = null;
+    setDragging(false);
+  }
+
   if (!thumb) return null;
 
   return (
@@ -65,14 +72,14 @@ export function TabStripScrollbar({ scrollerRef, contentKey }: TabStripScrollbar
           if (!drag.current || !el) return;
           el.scrollLeft = scrollLeftForThumb(drag.current.startLeft + event.clientX - drag.current.startX, el.scrollWidth, el.clientWidth);
         }}
-        onPointerUp={(event) => {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-          drag.current = null;
-          setDragging(false);
-        }}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
         className={cn(
-          "pointer-events-auto absolute bottom-0 cursor-pointer transition-[height,background-color] duration-150",
-          dragging ? "h-1.5 bg-text-faint" : "h-[3px] bg-border hover:h-1.5 hover:bg-text-faint",
+          // 6px tall, drawn at half height at rest: scaling from the bottom
+          // edge composites, where animating `height` would not.
+          "pointer-events-auto absolute bottom-0 h-1.5 origin-bottom cursor-pointer transition-[transform,background-color]",
+          dragging ? "scale-y-100 bg-text-faint" : "scale-y-50 bg-border hover:scale-y-100 hover:bg-text-faint",
         )}
         style={{ left: thumb.left, width: thumb.width }}
       />

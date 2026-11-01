@@ -96,7 +96,7 @@ export const Sidebar = memo(function Sidebar({
           type="button"
           onClick={onOpenSearch}
           aria-label={dict.shell.sidebar.search}
-          className="flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(13px*var(--chrome-scale))] text-muted-foreground transition-colors duration-[140ms] hover:bg-bg-hover hover:text-foreground"
+          className="flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(13px*var(--chrome-scale))] text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground"
         >
           <Search className="size-3.5 shrink-0" />
           <span className="flex-1">{dict.shell.sidebar.search}</span>
@@ -107,7 +107,7 @@ export const Sidebar = memo(function Sidebar({
           onClick={onNewConversation}
           aria-label={dict.shell.sidebar.newConversation}
           className={cn(
-            "relative flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(13px*var(--chrome-scale))] transition-colors duration-[140ms] hover:text-foreground",
+            "relative flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(13px*var(--chrome-scale))] transition-colors hover:text-foreground",
             newSessionActive ? "bg-bg-elevated text-foreground" : "text-muted-foreground hover:bg-bg-hover",
           )}
         >

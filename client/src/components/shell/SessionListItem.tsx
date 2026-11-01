@@ -69,7 +69,7 @@ export const SessionListItem = memo(function SessionListItem({
         type="button"
         onClick={() => onSelect(session)}
         className={cn(
-          "relative flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors duration-[140ms]",
+          "relative flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors",
           size === "lg" ? "min-h-11 py-2.5" : "h-[30px]",
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
@@ -84,9 +84,12 @@ export const SessionListItem = memo(function SessionListItem({
         <span
           aria-hidden="true"
           className={cn(
-            "absolute left-2 w-0.5 transition-[top,bottom] duration-150 ease-out",
+            // Always the row's full height, scaled down to 14px (14/30 of the
+            // row) when unselected: a transform composites, where animating
+            // `top`/`bottom` would lay out the row on every frame.
+            "absolute inset-y-0 left-2 w-0.5 transition-transform",
             profileColorClass(session.profileId),
-            selected ? "inset-y-0" : "inset-y-2",
+            selected ? "scale-y-100" : "scale-y-[0.4667]",
           )}
         />
         {session.room === true && <RoomGlyph size={14} className="shrink-0 text-text-faint" aria-label={dict.sala.roomGlyph} role="img" />}
@@ -110,12 +113,14 @@ export const SessionListItem = memo(function SessionListItem({
         {roomStatus && roomStatus.needsYou > 0 ? (
           <span
             title={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
+            role="img"
             aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
             className="size-1.5 shrink-0 rounded-full bg-primary"
           />
         ) : roomStatus && roomStatus.failed > 0 && !running ? (
           <span
             title={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
+            role="img"
             aria-label={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
             className="size-1.5 shrink-0 bg-destructive"
           />
@@ -124,6 +129,7 @@ export const SessionListItem = memo(function SessionListItem({
         ) : completedAt !== undefined ? (
           <span
             title={formatAbsoluteTime(completedAt, locale)}
+            role="img"
             aria-label={dict.chat.tabs.sessionDone}
             className="size-1.5 shrink-0 rounded-full bg-foreground"
           />

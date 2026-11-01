@@ -164,7 +164,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
           <span
             aria-hidden="true"
             className={cn(
-              "pointer-events-none absolute -top-px -right-px -left-px z-20 h-0.5 transition-[clip-path,opacity] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
+              "pointer-events-none absolute -top-px -right-px -left-px z-20 h-0.5 transition-[clip-path,opacity] motion-reduce:transition-none",
               profileColorClass(tab.profileId),
               isActive ? "[clip-path:inset(0)]" : "[clip-path:inset(0_13px)] opacity-85",
             )}
@@ -330,7 +330,7 @@ export function TabGroupStrip({
               native one takes height from the strip when it shows up, which
               squeezed the tabs and clipped the profile rule on their top
               edge. */}
-          <div className="relative -mb-px flex h-[41px] min-w-0 self-end">
+          <div className="relative isolate -mb-px flex h-[41px] min-w-0 self-end">
           <div
             ref={scrollerRef}
             role="tablist"
