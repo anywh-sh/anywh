@@ -68,13 +68,14 @@ export const SessionListItem = memo(function SessionListItem({
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
       {/* The profile's colour as a bar down the left edge, not a dot: it is
        * the one piece of per-row chrome that has to survive a long title
-       * truncating, and it doubles as the selected-row marker. */}
+       * truncating, and it doubles as the selected-row marker: full height
+       * when selected, a short centred tick otherwise, animated between. */}
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-y-1 left-0 w-0.5 shrink-0",
+          "absolute left-0 w-0.5 shrink-0 transition-[top,bottom,opacity] duration-150 ease-out",
           profileColorClass(session.profileId),
-          !selected && "opacity-70",
+          selected ? "inset-y-0" : "inset-y-2.5 opacity-85",
         )}
       />
       <button
