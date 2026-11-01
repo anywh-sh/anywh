@@ -112,4 +112,24 @@ describe("attaching a non-media file", () => {
     );
     await vi.waitFor(() => expect(relay.uploads.map((u) => u.name)).toEqual(["notes.md"]));
   });
+
+  it("sends a large paste to the agent as a file named after its first line", async () => {
+    const { user, composer } = await openConversation();
+    await user.click(composer);
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", "Follow these instructions carefully. ".repeat(40));
+    await user.paste(clipboard);
+
+    expect(await screen.findByText("follow-these-instructions-carefully.txt")).toBeInTheDocument();
+    const name = relay.uploads[0]?.name ?? "";
+    expect(relay.uploads).toEqual([{ ext: "txt", name, path: "/tmp/anywh-uploads/upload-1.txt" }]);
+    expect(name).toBe("follow-these-instructions-carefully.txt");
+
+    const sendButton = screen.getByRole("button", { name: en.common.send });
+    await vi.waitFor(() => expect(sendButton).toBeEnabled());
+    await user.click(sendButton);
+    await vi.waitFor(() =>
+      expect(userMessages().map((m) => m.text)).toEqual([`[arquivo anexado (${name}): /tmp/anywh-uploads/upload-1.txt]`]),
+    );
+  });
 });

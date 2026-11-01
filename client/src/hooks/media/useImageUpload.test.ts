@@ -44,8 +44,8 @@ describe("useImageUpload", () => {
   it("stays uploading until the last file of overlapping batches lands", async () => {
     const { result } = renderHook(() => useImageUpload(profile, vi.fn()));
 
-    let first!: Promise<void>;
-    let second!: Promise<void>;
+    let first!: Promise<File[]>;
+    let second!: Promise<File[]>;
     act(() => {
       first = result.current.addFiles([png("a.png")]);
     });
@@ -73,8 +73,8 @@ describe("useImageUpload", () => {
 
   it("keeps the order files were picked in, not the order they finished in", async () => {
     const { result } = renderHook(() => useImageUpload(profile, vi.fn()));
-    let first!: Promise<void>;
-    let second!: Promise<void>;
+    let first!: Promise<File[]>;
+    let second!: Promise<File[]>;
     act(() => {
       first = result.current.addFiles([png("a.png")]);
       second = result.current.addFiles([png("b.png")]);
@@ -92,7 +92,7 @@ describe("useImageUpload", () => {
   it("drops a failed file's entry and reports it", async () => {
     const onError = vi.fn();
     const { result } = renderHook(() => useImageUpload(profile, onError));
-    let done!: Promise<void>;
+    let done!: Promise<File[]>;
     act(() => {
       done = result.current.addFiles([png("a.png")]);
     });
@@ -108,7 +108,7 @@ describe("useImageUpload", () => {
 
   it("clearing after a send keeps files still uploading", async () => {
     const { result } = renderHook(() => useImageUpload(profile, vi.fn()));
-    let first!: Promise<void>;
+    let first!: Promise<File[]>;
     act(() => {
       first = result.current.addFiles([png("a.png")]);
     });

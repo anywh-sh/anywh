@@ -235,7 +235,7 @@ export const NativeComposer = forwardRef<NativeComposerHandle, NativeComposerPro
               console.error("[anywh] failed to read picked attachment:", file.path, error);
             }
           }
-          if (read.length > 0) propsRef.current.onAddFiles(read);
+          if (read.length > 0) void propsRef.current.onAddFiles(read);
         })();
       },
       composerRemoveAttachment: ({ path }) => propsRef.current.onRemoveImage(path),
