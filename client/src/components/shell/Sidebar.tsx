@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
 import { Plus, Search } from "lucide-react";
+import { KbdShortcut } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { SessionList } from "@/components/shell/SessionList";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
@@ -7,7 +8,7 @@ import { ProfileSwitcher } from "@/components/shell/ProfileSwitcher";
 import { useDict } from "@/i18n";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
-import { shortcutLabel } from "@/lib/platform/platform";
+import { shortcutKeys } from "@/lib/platform/platform";
 
 export interface SidebarProps {
   activeProfile: Profile;
@@ -99,7 +100,7 @@ export const Sidebar = memo(function Sidebar({
         >
           <Search className="size-3.5 shrink-0" />
           <span className="flex-1">{dict.shell.sidebar.search}</span>
-          <span className="font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{shortcutLabel("K")}</span>
+          <KbdShortcut keys={shortcutKeys("K")} />
         </button>
         <button
           type="button"
@@ -113,7 +114,7 @@ export const Sidebar = memo(function Sidebar({
           {newSessionActive && <span aria-hidden="true" className="absolute inset-y-0 left-0 w-0.5 bg-muted-foreground" />}
           <Plus className="size-3.5 shrink-0" />
           <span className="flex-1">{dict.shell.sidebar.newConversation}</span>
-          <span className="font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">{shortcutLabel("N")}</span>
+          <KbdShortcut keys={shortcutKeys("N")} />
         </button>
       </div>
 
