@@ -535,8 +535,13 @@ async function startInstall(): Promise<void> {
     });
     if (generation !== prereqsGeneration) {
       // Cancelled while the start was on its way: the installer exists now
-      // and nothing on screen follows it, so it is stopped here.
-      await cancelInstall();
+      // and nothing on screen follows it, so it is stopped here. `cancel` is
+      // not scoped to a run, so it only goes out when this start created the
+      // run (`started`; otherwise it joined one that was already alive and
+      // is not ours to stop) and the reader has not begun again since
+      // (`params`; a new start joins this run through the same `started:
+      // false` answer, and that run is then theirs).
+      if (info.started && state.params === null) await cancelInstall();
       return;
     }
     publish({ ...state, install: { ...state.install, runId: info.runId } });
