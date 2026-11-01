@@ -36,7 +36,10 @@ if [ -f "$state/fail" ]; then
   rm -f "$state/fail"
 fi
 
+# A spec that must act while the installer is really running (cancel it)
+# waits for `step-<name>` instead of for something already on screen.
 step() {
+  : > "$state/step-$1"
   echo "ANYWH step $1"
   if [ "$1" = "$fail_step" ]; then
     echo "$fail_message"
