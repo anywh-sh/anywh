@@ -46,7 +46,7 @@ export function buildComposerPayload(input: ComposerModelInput): NativeComposerP
     path: image.path,
     kind: image.kind,
     thumbnail: image.previewUrl ? input.thumbnailFor(image) : null,
-    name: attachmentName(image.path, copy.unnamedAttachment),
+    name: attachmentName(image, copy.unnamedAttachment),
   }));
 
   const typo = input.typo

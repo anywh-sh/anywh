@@ -35,6 +35,8 @@ import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
+import { ATTACHMENT_ACCEPT, attachmentKindFor } from "@/lib/composer/attachmentTypes";
+import { isLargePaste, pastedTextName } from "@/lib/composer/largePaste";
 import { decideSubmit } from "@/lib/composer/composerSubmit";
 import { effortChoicesFor, type EffortChoices } from "@/lib/composer/effortCatalog";
 import { filterSlashCommands, parseSlashCommand, type SlashCommandEntry } from "@/lib/composer/slashCommands";
@@ -54,7 +56,9 @@ export interface ComposerProps {
   onStop: () => void;
   pendingImages: PendingAttachment[];
   uploadingImage: boolean;
-  onAddFiles: (files: FileList | File[]) => void;
+  /** May resolve with the files that did not end up attached (`useImageUpload`);
+   * the composer puts a large paste back as text when its file is among them. */
+  onAddFiles: (files: FileList | File[]) => void | Promise<File[]>;
   onRemoveImage: (path: string) => void;
   /** `null` only in the brief window before the first `agent_state` arrives
    * — see `useRelayClient`. Drives `AgentModelEffortButton`'s selection. */
@@ -557,6 +561,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // no-ops on a closed socket) since only the send *button* checked `canSend`.
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
+  // Names of the attachments already in the message, for `pastedTextName`.
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
   const placeholderRef = useRef(copy.placeholderTask);
   placeholderRef.current = turnInFlight ? copy.placeholderQueue : (placeholder ?? copy.placeholderTask);
   const [placeholderExtension] = useState(() => createPlaceholderExtension(suggestionRef, placeholderRef));
@@ -641,12 +648,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       // as the attach button and drag-and-drop instead of letting
       // ProseMirror try to paste it as inline content.
       handlePaste: (view, event) => {
-        const files = Array.from(event.clipboardData?.files ?? []).filter(
-          (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
-        );
-        if (files.length > 0) {
+        // Pasted files the composer can attach go to the upload pipeline,
+        // which refuses the unsupported ones of a mixed paste out loud. A
+        // paste with none attachable (a Finder-copied .zip also carries its
+        // name as text) falls through to the text handling below.
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (files.some((file) => attachmentKindFor(file) !== null)) {
           event.preventDefault();
-          onAddFiles(files);
+          void onAddFiles(files);
           return true;
         }
         // Text goes in exactly as copied. Left to ProseMirror, the clipboard's
@@ -660,17 +669,36 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         // is what lets Link's `linkOnPaste` turn a pasted URL into a link.
         const plain = event.clipboardData?.getData("text/plain") ?? "";
         const html = event.clipboardData?.getData("text/html") ?? "";
-        if (!plain || html.includes("data-pm-slice") || !/\s/.test(plain)) return false;
+        if (!plain || html.includes("data-pm-slice")) return false;
+        const large = isLargePaste(plain);
+        if (!large && !/\s/.test(plain)) return false;
         event.preventDefault();
         // Tagged like ProseMirror's own paste, so Link's paste rule still
         // turns a URL inside the pasted text into a link.
-        view.dispatch(
-          view.state.tr
-            .replaceSelection(pastedTextSlice(view.state.schema, plain))
-            .scrollIntoView()
-            .setMeta("paste", true)
-            .setMeta("uiEvent", "paste"),
-        );
+        const insertInline = () =>
+          view.dispatch(
+            view.state.tr
+              .replaceSelection(pastedTextSlice(view.state.schema, plain))
+              .scrollIntoView()
+              .setMeta("paste", true)
+              .setMeta("uiEvent", "paste"),
+          );
+        if (large) {
+          // Too big to read comfortably in the field: it goes to the agent as
+          // a file instead, through the same upload pipeline. Like any paste,
+          // it replaces the selection; if the upload fails the text is put
+          // back, so a failed attachment never costs the user their paste.
+          view.dispatch(view.state.tr.deleteSelection());
+          const taken = pendingImagesRef.current.map((image) => image.name ?? "");
+          const file = new File([plain], pastedTextName(plain, taken), { type: "text/plain" });
+          void Promise.resolve(onAddFiles([file])).then((notAttached) => {
+            // The composer may be gone by the time the upload answers.
+            if (view.isDestroyed) return;
+            if (Array.isArray(notAttached) && notAttached.length > 0) insertInline();
+          });
+          return true;
+        }
+        insertInline();
         return true;
       },
     },
@@ -795,15 +823,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 </button>
               </div>
             ) : (
-              // Nothing to preview (a video in a codec the webview can't
-              // decode): the design's mono chip, which names the file
-              // instead of standing in for a picture nobody can see.
+              // Nothing to preview (a text/code/PDF file, or a video in a
+              // codec the webview can't decode): the design's mono chip,
+              // which names the file instead of standing in for a picture
+              // nobody can see.
               <span
                 key={image.path}
                 className="flex h-7 items-center gap-2 border border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
               >
                 {image.kind === "video" ? <Video className="size-3 text-primary" /> : <FileText className="size-3 text-primary" />}
-                <span className="max-w-40 truncate">{attachmentName(image.path, copy.unnamedAttachment)}</span>
+                <span className="max-w-40 truncate">{attachmentName(image, copy.unnamedAttachment)}</span>
                 <button
                   type="button"
                   onClick={() => onRemoveImage(image.path)}
@@ -874,11 +903,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept={ATTACHMENT_ACCEPT}
                 multiple
                 className="hidden"
                 onChange={(event) => {
-                  if (event.target.files) onAddFiles(event.target.files);
+                  if (event.target.files) void onAddFiles(event.target.files);
                   event.target.value = "";
                   editor?.commands.focus();
                 }}
@@ -889,7 +918,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
                 size="icon-sm"
                 className="size-[30px] text-text-faint"
                 onClick={() => fileInputRef.current?.click()}
-                aria-label={copy.attach}
+                aria-label={copy.attachAnyFile}
               >
                 <Plus className="size-4" />
               </Button>

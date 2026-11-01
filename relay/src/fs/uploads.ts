@@ -17,6 +17,9 @@ const VIDEO_FRAME_COUNT = 6;
 
 export interface UploadResult {
   path: string;
+  /** The file's name on the client's side, when it sent one — informational
+   * only: the file is always saved under a fresh id, never under this. */
+  name?: string;
   /** Only present for video — paths of the frames extracted via ffmpeg, in
    * chronological order (Claude only "sees" images via `Read`, not
    * video, so this is what actually becomes visual context). */
@@ -46,8 +49,29 @@ export function readRawBody(req: IncomingMessage, maxBytes: number): Promise<Buf
   });
 }
 
-export function saveUpload(req: IncomingMessage, ext: string): Promise<UploadResult> {
-  return readRawBody(req, MAX_UPLOAD_BYTES).then((buffer) => handleUploadComplete(buffer, ext));
+export function saveUpload(req: IncomingMessage, ext: string, name?: string): Promise<UploadResult> {
+  return readRawBody(req, MAX_UPLOAD_BYTES).then(async (buffer) => {
+    const result = await handleUploadComplete(buffer, ext);
+    return name ? { ...result, name } : result;
+  });
+}
+
+/** The client's filename reduced to something safe to echo back and log:
+ * its last path segment, without control characters, capped in length.
+ * `undefined` when nothing is left. */
+export function sanitizeUploadName(name: string | null): string | undefined {
+  if (!name) return undefined;
+  const base = name.split(/[\\/]/).pop() ?? "";
+  // eslint-disable-next-line no-control-regex
+  const clean = base.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 255);
+  return clean || undefined;
+}
+
+/** The extension to save under: only the explicit `ext`. The informational
+ * `name` never picks it, so a bare `?name=x.html` still lands as `bin`
+ * (via `sanitizeExtension`). */
+export function uploadExtension(ext: string | null): string {
+  return ext ?? "";
 }
 
 /** Strips anything that isn't a plain ASCII letter/digit — the extension

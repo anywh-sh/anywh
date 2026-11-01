@@ -216,7 +216,7 @@ pub struct GestureHintRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ComposerAttachment {
   pub path: String,
-  /// `"image"` or `"video"`.
+  /// `"image"`, `"video"` or `"file"`; only `"video"` is told apart natively.
   pub kind: String,
   /// `data:image/jpeg;base64,…`, or `None` to draw a name chip instead.
   pub thumbnail: Option<String>,

@@ -32,7 +32,7 @@ describe("anywh composer", () => {
   });
 
   it("renders the toolbar the conversation is driven from", async () => {
-    for (const label of ["Attach image or video", "Record audio", "Send"]) {
+    for (const label of ["Attach a file", "Record audio", "Send"]) {
       const control = await $(`[aria-label="${label}"]`);
       await control.waitForExist({ timeout: 15000 });
       await expect(control).toBeExisting();
