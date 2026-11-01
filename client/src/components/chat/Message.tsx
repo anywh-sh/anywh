@@ -1,5 +1,5 @@
 import { memo, useEffect, useReducer, useRef, useState } from "react";
-import { Check, Copy, Pencil, Video } from "lucide-react";
+import { Check, Copy, FileText, Pencil, Video } from "lucide-react";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { useLongPress } from "@/hooks/useLongPress";
 import { isIOS } from "@/lib/platform/platform";
@@ -8,6 +8,7 @@ import { showNativeContextMenu } from "@/lib/platform/nativeContextMenu";
 import { bubbleMenu } from "@/lib/platform/bubbleMenu";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/format/relativeTime";
 import { useDict, useLocale } from "@/i18n";
+import { attachmentName } from "@/lib/composer/attachmentName";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -165,22 +166,32 @@ export const UserBubble = memo(function UserBubble({
           <>
             {images && images.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
-                {images.map((image) => (
-                  <div key={image.path} className="relative">
-                    {image.previewUrl ? (
-                      <img src={image.previewUrl} alt="" className="max-h-48 max-w-full object-cover" />
-                    ) : (
-                      <div className="flex size-24 items-center justify-center bg-border text-muted-foreground">
-                        <Video className="size-6" />
-                      </div>
-                    )}
-                    {image.kind === "video" && (
-                      <div className="pointer-events-none absolute bottom-1 left-1 flex size-5 items-center justify-center rounded-full bg-media-scrim text-media-scrim-foreground">
-                        <Video className="size-3" />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {images.map((image) =>
+                  image.kind === "file" ? (
+                    <span
+                      key={image.path}
+                      className="flex h-7 items-center gap-2 border border-border bg-bg-sidebar px-2 font-mono text-[10.5px] text-muted-foreground"
+                    >
+                      <FileText className="size-3 text-primary" />
+                      <span className="max-w-60 truncate">{attachmentName(image, dict.chat.composer.unnamedAttachment)}</span>
+                    </span>
+                  ) : (
+                    <div key={image.path} className="relative">
+                      {image.previewUrl ? (
+                        <img src={image.previewUrl} alt="" className="max-h-48 max-w-full object-cover" />
+                      ) : (
+                        <div className="flex size-24 items-center justify-center bg-border text-muted-foreground">
+                          <Video className="size-6" />
+                        </div>
+                      )}
+                      {image.kind === "video" && (
+                        <div className="pointer-events-none absolute bottom-1 left-1 flex size-5 items-center justify-center rounded-full bg-media-scrim text-media-scrim-foreground">
+                          <Video className="size-3" />
+                        </div>
+                      )}
+                    </div>
+                  ),
+                )}
               </div>
             )}
             {text && (

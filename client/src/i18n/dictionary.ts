@@ -696,7 +696,11 @@ export interface Dictionary {
       placeholderTask: string;
       /** Shown instead of `placeholderTask` while a turn runs: a message sent now waits its turn. */
       placeholderQueue: string;
+      /** The native (iOS) composer's attach menu, which only takes images
+       * and video there. */
       attach: string;
+      /** The web composer's attach button, which takes any supported file. */
+      attachAnyFile: string;
       attachmentUploading: string;
       /** Tooltip and label of the send button while an attachment uploads. */
       sendWaitingForUpload: string;
@@ -715,6 +719,10 @@ export interface Dictionary {
        * the article has to agree with it. */
       uploadFailedImage: string;
       uploadFailedVideo: string;
+      uploadFailedFile: string;
+      /** A file the composer refuses by its extension; `{names}` is the
+       * comma-separated list of the refused files' names. */
+      unsupportedAttachment: string;
       /** A dropped path with no basename still has to name the File it
        * becomes — the attachment chip prints this. */
       droppedFile: string;

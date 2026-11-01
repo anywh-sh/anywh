@@ -1,5 +1,6 @@
 import type { Profile } from "@/lib/profiles/profiles";
 import { authHeaders, resolveConnection } from "@/lib/profiles/connectionResolver";
+import { uploadExtension } from "@/lib/composer/attachmentTypes";
 
 export interface UploadResult {
   path: string;
@@ -9,11 +10,13 @@ export interface UploadResult {
 }
 
 export async function uploadAttachment(profile: Profile, file: File): Promise<UploadResult> {
-  const ext = file.name.includes(".") ? (file.name.split(".").pop() ?? "png") : "png";
   const buffer = await file.arrayBuffer();
 
   const { host, port, token } = await resolveConnection(profile);
-  const response = await fetch(`http://${host}:${port}/upload?ext=${encodeURIComponent(ext)}`, {
+  // `name` is informational: the relay still saves under a fresh id, and one
+  // that predates the parameter just ignores it.
+  const query = new URLSearchParams({ ext: uploadExtension(file), name: file.name });
+  const response = await fetch(`http://${host}:${port}/upload?${query.toString()}`, {
     method: "POST",
     headers: authHeaders(token),
     body: buffer,

@@ -46,6 +46,29 @@ test("POST /upload sanitizes an extension with path-breaking characters instead 
   rmSync(result.path, { force: true });
 });
 
+test("POST /upload echoes the client's filename back but still saves under a fresh id", async () => {
+  const response = await fetch(httpUrl("/upload?ext=md&name=..%2Fnotes.md"), { method: "POST", body: Buffer.from("# hi") });
+  assert.equal(response.status, 200);
+  const result = (await response.json()) as { path: string; name?: string };
+  assert.equal(result.name, "notes.md", "only the last path segment survives");
+  assert.match(result.path, /\/[0-9a-f-]{36}\.md$/);
+  rmSync(result.path, { force: true });
+});
+
+test("POST /upload without ext saves as bin, whatever the name says", async () => {
+  const response = await fetch(httpUrl("/upload?name=evil.html"), { method: "POST", body: Buffer.from("<b>") });
+  const result = (await response.json()) as { path: string; name?: string };
+  assert.match(result.path, /\.bin$/);
+  rmSync(result.path, { force: true });
+});
+
+test("POST /upload without name answers exactly as before (no name field)", async () => {
+  const response = await fetch(httpUrl("/upload?ext=txt"), { method: "POST", body: Buffer.from("x") });
+  const result = (await response.json()) as { path: string; name?: string };
+  assert.equal("name" in result, false);
+  rmSync(result.path, { force: true });
+});
+
 test("POST /files/upload writes into the session's own cwd, and requires a name", async () => {
   const missingName = await fetch(httpUrl("/files/upload?session=upload-test"), { method: "POST", body: Buffer.from("x") });
   assert.equal(missingName.status, 400);
