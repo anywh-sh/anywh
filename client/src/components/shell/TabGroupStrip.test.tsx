@@ -84,6 +84,21 @@ describe("TabGroupStrip", () => {
     expect(wrapperOf("Inativa")).not.toHaveClass("sticky");
   });
 
+  // Regression: an unselected tab's wrapper is no stacking context, so its
+  // button (`z-10`) and profile rule (`z-20`) paint at the strip's level.
+  // With the pinned tab at `z-10` too, the tabs after it — the ones scrolling
+  // under it as the strip moves right — drew over it and their titles showed
+  // through the pinned tab's.
+  it("stacks the pinned tab above everything an unselected tab paints", () => {
+    const active = tab({ id: "s1", title: "Ativa" });
+    const other = tab({ id: "s2", title: "Inativa" });
+    renderStrip([active, other], active.id);
+
+    expect(screen.getByRole("tab", { name: "Ativa" }).parentElement).toHaveClass("z-30");
+    expect(screen.getByRole("tab", { name: "Inativa" }).className).toContain("z-10");
+    expect(screen.getByRole("tab", { name: "Inativa" }).parentElement?.querySelector("span[aria-hidden='true']")).toHaveClass("z-20");
+  });
+
   it("scrolls without a native scrollbar, which would take height from the tabs", () => {
     renderStrip([tab()], "s1");
 

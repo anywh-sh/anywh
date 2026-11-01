@@ -136,7 +136,7 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             transform: CSS.Transform.toString(transform),
             transition,
             opacity: isDragging ? 0.5 : 1,
-            zIndex: isDragging ? 1 : undefined,
+            zIndex: isDragging ? 40 : undefined,
           }}
           className={cn(
             // 31px tall and sitting on the plane's top rule: the active tab
@@ -147,8 +147,12 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             // Sticky on both sides: scrolled out of view in either direction,
             // the active tab stops at that edge and stays on screen, so the
             // person never loses which tab they are in. Scrolling is natural
-            // until the tab reaches an edge of the strip.
-            isActive ? "sticky right-0 left-0 z-10 border-border-soft bg-background" : "relative hover:bg-bg-hover",
+            // until the tab reaches an edge of the strip. `z-30`, above the
+            // `z-20` of what an unselected tab paints (its button, its rule,
+            // its close button — a plain `relative` wrapper is no stacking
+            // context, so those compete at the strip's level): any lower and
+            // the tabs after the pinned one, scrolling under it, draw over it.
+            isActive ? "sticky right-0 left-0 z-30 border-border-soft bg-background" : "relative hover:bg-bg-hover",
           )}
         >
           {/* The profile, as a 2px rule across the top of the tab, over the
