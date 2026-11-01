@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { SessionDock } from "@/components/shell/SessionDock";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
 
@@ -64,5 +64,29 @@ describe("useDockFrameCut", () => {
     const plane = frame(container);
     unmount();
     expect(plane.style.getPropertyValue("--dock-side-w")).toBe("0px");
+  });
+});
+
+describe("useDockFrameCut — while the dock slides", () => {
+  it("keeps the frame cut until the dock has slid out, then gives it back", async () => {
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = renderDock(open);
+      rerender(
+        <div>
+          <div data-plane-frame />
+          <div data-status-bar />
+          <SessionDock dock={closed} onWidthChange={noop} onSplitRatioChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
+        </div>,
+      );
+      // Still on its way out: the space (and so the cut) is still the dock's.
+      expect(edge(container)).not.toBeNull();
+
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      expect(edge(container)).toBeNull();
+      expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe("0px");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
