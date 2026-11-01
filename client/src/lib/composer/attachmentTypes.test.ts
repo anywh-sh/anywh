@@ -17,9 +17,11 @@ describe("attachmentKindFor", () => {
     expect(attachmentKindFor(file("Dockerfile"))).toBe("file");
   });
 
-  it("falls back to the MIME type only for media, for a pasted image with no usable name", () => {
+  it("falls back to the MIME type for media and text, for a pasted file with no usable name or an unlisted extension", () => {
     expect(attachmentKindFor(file("image", "image/png"))).toBe("image");
-    expect(attachmentKindFor(file("blob", "text/plain"))).toBeNull();
+    expect(attachmentKindFor(file("blob", "text/plain"))).toBe("file");
+    expect(attachmentKindFor(file("app.conf", "text/plain"))).toBe("file");
+    expect(attachmentKindFor(file("blob", "application/octet-stream"))).toBeNull();
   });
 
   it("refuses anything off the list", () => {

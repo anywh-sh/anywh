@@ -74,8 +74,8 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
       setEntries((prev) => [...prev, ...batch.map(({ file, id }) => ({ id, status: "uploading" as const, name: file.name }))]);
 
       for (const { file, kind, id } of batch) {
+        let previewUrl: string | undefined;
         try {
-          let previewUrl: string | undefined;
           if (kind === "video") {
             // Best-effort: if the browser can't decode the codec, the
             // preview fails but the upload/frame extraction on the relay
@@ -99,6 +99,7 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
             prev.map((entry) => (entry.id === id ? { id, status: "ready", name: entry.name, attachment } : entry)),
           );
         } catch (error) {
+          if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
           setEntries((prev) => prev.filter((entry) => entry.id !== id));
           const template = {
             image: dict.chat.composer.uploadFailedImage,
