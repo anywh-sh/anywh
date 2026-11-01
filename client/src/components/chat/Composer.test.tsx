@@ -48,7 +48,7 @@ function Harness({
   modelCatalog?: ModelCatalog | null;
   contextUsage?: ContextUsage | null;
   onSend?: (text: string, images: PendingAttachment[]) => void;
-  onAddFiles?: (files: FileList | File[]) => void;
+  onAddFiles?: (files: FileList | File[]) => void | Promise<File[]>;
   uploadingImage?: boolean;
 }) {
   const { setLocale } = useLocale();
@@ -144,7 +144,7 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledWith("  if (x) {\n    run();\n\n\n}", []);
   });
 
-  it("turns a large paste into a \"pasted text.txt\" attachment instead of inline text", async () => {
+  it("turns a large paste into a \"pasted-text-N.txt\" attachment instead of inline text", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
     const onAddFiles = vi.fn();
@@ -162,11 +162,69 @@ describe("Composer", () => {
 
     expect(onAddFiles).toHaveBeenCalledOnce();
     const [files] = onAddFiles.mock.calls[0] as [File[]];
-    expect(files.map((file) => file.name)).toEqual([en.chat.composer.pastedTextFileName]);
+    expect(files.map((file) => file.name)).toEqual([expect.stringMatching(/^pasted-text-\d+\.txt$/)]);
     expect(await files[0].text()).toBe(big);
     // Nothing landed in the field: sending now is an empty message.
     await user.keyboard("{Enter}");
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("replaces the selection with the attachment, like an inline paste would", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <LocaleProvider>
+        <Harness onSend={onSend} onAddFiles={vi.fn()} />
+      </LocaleProvider>,
+    );
+
+    const field = screen.getByLabelText(en.chat.composer.placeholder);
+    await user.click(field);
+    await user.keyboard("old draft");
+    await user.keyboard("{Control>}a{/Control}");
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", "x ".repeat(LARGE_PASTE_MIN_CHARS));
+    await user.paste(clipboard);
+    await user.keyboard("{Enter}");
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("sends a large whitespace-free blob to an attachment too", async () => {
+    const user = userEvent.setup();
+    const onAddFiles = vi.fn();
+    render(
+      <LocaleProvider>
+        <Harness onSend={vi.fn()} onAddFiles={onAddFiles} />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", "A".repeat(LARGE_PASTE_MIN_CHARS));
+    await user.paste(clipboard);
+
+    expect(onAddFiles).toHaveBeenCalledOnce();
+  });
+
+  it("puts the text back inline when the attachment could not be added", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    const onAddFiles = vi.fn((files: FileList | File[]) => Promise.resolve(Array.from(files)));
+    render(
+      <LocaleProvider>
+        <Harness onSend={onSend} onAddFiles={onAddFiles} />
+      </LocaleProvider>,
+    );
+
+    await user.click(screen.getByLabelText(en.chat.composer.placeholder));
+    const big = "word ".repeat(LARGE_PASTE_MIN_CHARS / 4);
+    const clipboard = new DataTransfer();
+    clipboard.setData("text/plain", big);
+    await user.paste(clipboard);
+    await user.keyboard("{Enter}");
+
+    expect(onSend).toHaveBeenCalledWith(big.trim(), []);
   });
 
   it("keeps a paste just under the bounds inline", async () => {

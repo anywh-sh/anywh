@@ -41,7 +41,9 @@ export interface UseImageUploadResult {
   pending: PendingAttachment[];
   /** True while any file is still on its way to the relay. */
   uploading: boolean;
-  addFiles: (files: FileList | File[]) => Promise<void>;
+  /** Resolves with the files that did not end up attached — refused by type
+   * or failed to upload (both already reported through `onError`). */
+  addFiles: (files: FileList | File[]) => Promise<File[]>;
   remove: (path: string) => void;
   /** Empties the ready ones without revoking the object URLs — used when
    * sending, since the message in the log becomes the owner of those
@@ -59,13 +61,17 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
     async (files: FileList | File[]) => {
       const attachable: { file: File; kind: AttachmentKind }[] = [];
       const refused: string[] = [];
+      const notAttached: File[] = [];
       for (const file of Array.from(files)) {
         const kind = attachmentKindFor(file);
         if (kind) attachable.push({ file, kind });
-        else refused.push(file.name || dict.chat.composer.unnamedAttachment);
+        else {
+          refused.push(file.name || dict.chat.composer.unnamedAttachment);
+          notAttached.push(file);
+        }
       }
       if (refused.length > 0) onError(dict.chat.composer.unsupportedAttachment.replace("{names}", refused.join(", ")));
-      if (attachable.length === 0) return;
+      if (attachable.length === 0) return notAttached;
 
       // Every file gets its entry up front, so `uploading` stays true until
       // the last one of every batch lands — two overlapping calls (a paste
@@ -101,6 +107,7 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
         } catch (error) {
           if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
           setEntries((prev) => prev.filter((entry) => entry.id !== id));
+          notAttached.push(file);
           const template = {
             image: dict.chat.composer.uploadFailedImage,
             video: dict.chat.composer.uploadFailedVideo,
@@ -109,6 +116,7 @@ export function useImageUpload(profile: Profile, onError: (message: string) => v
           onError(template.replace("{reason}", error instanceof Error ? error.message : String(error)));
         }
       }
+      return notAttached;
     },
     [profile, onError, dict],
   );

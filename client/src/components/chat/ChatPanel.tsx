@@ -1038,7 +1038,7 @@ export function ChatPanel({
                   onStop={stopTurn}
                   pendingImages={images.pending}
                   uploadingImage={images.uploading}
-                  onAddFiles={(files) => void images.addFiles(files)}
+                  onAddFiles={(files) => images.addFiles(files)}
                   onRemoveImage={images.remove}
                   modelCatalog={modelCatalog}
                   onChangeDraft={setDraft}
@@ -1060,7 +1060,7 @@ export function ChatPanel({
                 onStop={stopTurn}
                 pendingImages={images.pending}
                 uploadingImage={images.uploading}
-                onAddFiles={(files) => void images.addFiles(files)}
+                onAddFiles={(files) => images.addFiles(files)}
                 onRemoveImage={images.remove}
                 agentId={agentId}
                 onChangeAgent={setAgent}

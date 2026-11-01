@@ -208,7 +208,6 @@ export const en: Dictionary = {
       uploadFailedImage: "Couldn't upload the image: {reason}",
       uploadFailedVideo: "Couldn't upload the video: {reason}",
       uploadFailedFile: "Couldn't upload the file: {reason}",
-      pastedTextFileName: "pasted text.txt",
       unsupportedAttachment: "Can't attach {names}: only images, videos, text, PDF and code files are supported",
       droppedFile: "file",
       openLinkEditor: "Edit link",

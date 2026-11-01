@@ -208,7 +208,6 @@ export const ptBr: Dictionary = {
       uploadFailedImage: "Falha ao enviar a imagem: {reason}",
       uploadFailedVideo: "Falha ao enviar o vídeo: {reason}",
       uploadFailedFile: "Falha ao enviar o arquivo: {reason}",
-      pastedTextFileName: "texto colado.txt",
       unsupportedAttachment: "Não dá para anexar {names}: só imagens, vídeos, texto, PDF e código são aceitos",
       droppedFile: "arquivo",
       openLinkEditor: "Editar link",

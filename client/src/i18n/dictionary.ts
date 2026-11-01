@@ -723,9 +723,6 @@ export interface Dictionary {
       /** A file the composer refuses by its extension; `{names}` is the
        * comma-separated list of the refused files' names. */
       unsupportedAttachment: string;
-      /** Name of the file a large paste becomes (`largePaste.ts`) — shown on
-       * its chip and handed to the agent. */
-      pastedTextFileName: string;
       /** A dropped path with no basename still has to name the File it
        * becomes — the attachment chip prints this. */
       droppedFile: string;
