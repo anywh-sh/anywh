@@ -642,8 +642,8 @@ function AppShell() {
           renderPanel={renderPanel}
           belowStrip={notices}
           stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
-          rightPanelHidden={sessionDock.isGroupHidden}
-          onToggleRightPanel={(groupId) => sessionDock.setGroupHidden(groupId, !sessionDock.isGroupHidden(groupId))}
+          rightPanelShown={sessionDock.isPanelShown}
+          onToggleRightPanel={sessionDock.togglePanel}
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />

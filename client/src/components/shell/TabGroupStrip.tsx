@@ -54,8 +54,10 @@ interface TabGroupStripProps {
    * focus this one first (see `TabGroupLayout`). */
   onNewTab: () => void;
   /** The side panel's toggle at the strip's right end. Absent where there is
-   * no side panel (compact and iOS), and then so is the button. */
-  rightPanel?: { hidden: boolean; onToggle: () => void };
+   * no side panel (compact and iOS), and then so is the button. `shown` is
+   * whether the panel is on screen — and so whether the buttons that open its
+   * panes are. */
+  rightPanel?: { shown: boolean; onToggle: () => void };
   /** Right padding that keeps the strip's own controls clear of something
    * pinned over its end (the window controls). */
   trailingInsetClass?: string;
@@ -391,11 +393,11 @@ export function TabGroupStrip({
            * for why this is a portal target rather than props flowing down
            * from a lifted `cwd`. `display: contents` keeps the portaled
            * buttons themselves as the flex items in this row, not this span. */}
-          {/* Not mounted while the side panel is hidden: the active tab's
+          {/* Not mounted while the side panel is not showing: the active tab's
            * panel finds no slot and draws none of its buttons, which is how
-           * hiding the panel hides them too. */}
-          {!rightPanel?.hidden && <div ref={(node) => setPanelTogglesSlot(groupId, node)} className="contents" />}
-          {rightPanel && <RightPanelToggleButton shown={!rightPanel.hidden} onToggle={rightPanel.onToggle} />}
+           * closing the panel hides them too. */}
+          {(!rightPanel || rightPanel.shown) && <div ref={(node) => setPanelTogglesSlot(groupId, node)} className="contents" />}
+          {rightPanel && <RightPanelToggleButton shown={rightPanel.shown} onToggle={rightPanel.onToggle} />}
         </div>
       </SortableContext>
 

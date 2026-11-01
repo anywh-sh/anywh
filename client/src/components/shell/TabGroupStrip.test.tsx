@@ -23,7 +23,7 @@ function tab(overrides: Partial<Tab> = {}): Tab {
   };
 }
 
-function renderStrip(tabs: Tab[], activeTabId: string | null, onNewTab = vi.fn(), rightPanel?: { hidden: boolean; onToggle: () => void }) {
+function renderStrip(tabs: Tab[], activeTabId: string | null, onNewTab = vi.fn(), rightPanel?: { shown: boolean; onToggle: () => void }) {
   return render(
     <TooltipProvider>
       <DndContext>
@@ -245,7 +245,7 @@ describe("TabGroupStrip", () => {
 
 describe("TabGroupStrip — the side panel toggle", () => {
   it("has the toggle at the right end, with the slot for the panel's buttons before it", () => {
-    renderStrip([tab()], "s1", vi.fn(), { hidden: false, onToggle: vi.fn() });
+    renderStrip([tab()], "s1", vi.fn(), { shown: true, onToggle: vi.fn() });
     const toggle = screen.getByRole("button", { name: en.panels.hideRightPanel });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     const slot = getPanelTogglesSlot("g1");
@@ -256,15 +256,15 @@ describe("TabGroupStrip — the side panel toggle", () => {
 
   it("calls back when pressed", async () => {
     const onToggle = vi.fn();
-    renderStrip([tab()], "s1", vi.fn(), { hidden: false, onToggle });
+    renderStrip([tab()], "s1", vi.fn(), { shown: true, onToggle });
     await userEvent.setup().click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
     expect(onToggle).toHaveBeenCalledOnce();
   });
 
   // Hiding the panel hides the buttons that open its panes: a tab's panel
   // draws them into this slot, and finds none while the panel is hidden.
-  it("keeps only the toggle while hidden — no slot for the panes' buttons", () => {
-    renderStrip([tab()], "s1", vi.fn(), { hidden: true, onToggle: vi.fn() });
+  it("keeps only the toggle while the panel is not showing — no slot for the panes' buttons", () => {
+    renderStrip([tab()], "s1", vi.fn(), { shown: false, onToggle: vi.fn() });
     expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toHaveAttribute("aria-pressed", "false");
     expect(getPanelTogglesSlot("g1")).toBeNull();
   });
