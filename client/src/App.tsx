@@ -556,7 +556,7 @@ function AppShell() {
       tab={tab}
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
-      dock={sessionDock.getDock(tab.id)}
+      dock={sessionDock.getVisibleDock(tab.id, groupId)}
       // "This tab is the active one of its own group" — drives panel
       // visibility, dock mounting, MessageLog's scroll re-sync and the native
       // drag-drop guard. With a group split, up to one per group can be true
@@ -642,6 +642,8 @@ function AppShell() {
           renderPanel={renderPanel}
           belowStrip={notices}
           stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
+          rightPanelShown={sessionDock.isPanelShown}
+          onToggleRightPanel={sessionDock.togglePanel}
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />

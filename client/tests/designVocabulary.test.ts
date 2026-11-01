@@ -6,12 +6,18 @@ import { describe, expect, it } from "vitest";
  * The redesign's rules, as a test instead of as a convention.
  *
  * Two different things are guarded here, and they fail for two different
- * reasons. The performance rules (no animated layout property, one duration,
- * no `transition-all`) exist because the app's most frequent interactions —
- * tab switch, sidebar collapse, panel toggle — are exactly where a stray
- * `transition: width` costs a layout pass per frame; no test tier can measure
+ * reasons. The performance rules (durations from the tokens, no
+ * `transition-all`) exist because the app's most frequent interactions — tab
+ * switch, sidebar collapse, panel toggle — are exactly where a stray
+ * `transition: all` costs a layout pass per frame; no test tier can measure
  * that (the unit tier runs under happy-dom, which has no layout engine), so
- * the grep is the guard. The vocabulary rules (square corners, one elevation)
+ * the grep is the guard.
+ *
+ * Motion is welcome; what is not is motion that costs performance. Animating a
+ * layout property (a panel's width) is allowed where it is one contained box
+ * whose content does not re-wrap on the way — see `SessionDock` — and is the
+ * author's to justify. What the greps below still forbid is the careless
+ * forms: `transition-all`, a bare `transition`, a hand-written duration. The vocabulary rules (square corners, one elevation)
  * exist because a `rounded-md` copied from a shadcn snippet is invisible in
  * review and permanent once merged.
  *
@@ -78,11 +84,12 @@ function hits(files: SourceFile[], pattern: RegExp, skip?: (file: SourceFile) =>
 }
 
 describe("motion budget", () => {
-  it("never animates a layout property", () => {
+  it("never reaches for every property at once", () => {
     // `transition-all` and a bare `transition` both reach properties that
     // force layout or paint (`all`, and Tailwind's default list, which
-    // includes box-shadow and filter). The named utilities are the whole
-    // allowed set: color, opacity and transform composite on the GPU.
+    // includes box-shadow and filter) — including ones nobody meant to
+    // animate. Name what moves: `transition-colors`, `-opacity`, `-transform`,
+    // or, for a panel opening, `transition-[width]` on a contained box.
     expect(hits(COMPONENTS, /\btransition-all\b|"transition |\btransition(?= |")/)).toEqual([]);
   });
 

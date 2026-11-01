@@ -31,15 +31,15 @@ export function SessionPanel({ maximized, onToggleMaximized, onClose, headerExtr
   const dict = useDict();
 
   return (
-    <div className="relative flex h-full w-full min-w-0 flex-col bg-bg-sidebar">
+    <div className="relative flex h-full w-full min-w-0 flex-col bg-bg-chrome">
       {/* The header wears the chrome surface, like the title bar and the tab
-        * strip above it — the panel's content is what should read as content. */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-bg-chrome">
+        * strip above it — the panel's content is what should read as content.
+        * No rules of its own: the panel is not a box, the plane's frame is the
+        * one thing drawn around content. */}
+      <div className="flex shrink-0 items-center justify-between bg-bg-chrome">
         <div className="min-w-0 flex-1">{headerExtra}</div>
-        {/* Square, flush and the same height as the strip's own controls —
-         * the border on the left is what separates this group from the tabs,
-         * the way the design groups the pane's actions. */}
-        <div className="flex h-8 shrink-0 items-stretch border-l border-border-soft">
+        {/* Square, flush and the same height as the strip's own controls. */}
+        <div className="flex h-8 shrink-0 items-stretch">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

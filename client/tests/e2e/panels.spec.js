@@ -1,9 +1,10 @@
 // The dock's entry points in the real Tauri window. The panes themselves
-// can't be opened here: both toggles are gated on the session having a
+// can't be exercised here: both toggles are gated on the session having a
 // folder, and a folder only exists once a relay has answered — no relay runs
-// in this tier. So what is provable is the gate itself, which is real
-// behaviour and not a harness artifact: the controls are present and
-// deliberately inert until there is something to list.
+// in this tier. So what is provable is the structure and the gate, which are
+// real behaviour and not a harness artifact: a tab with nothing open has no
+// side panel and none of its buttons; opening the panel brings the buttons,
+// and they are deliberately inert until there is something to list.
 //
 // Opening a pane for real (its header, maximize, the split divider) needs a
 // relay and belongs to whichever tier grows one. The toggles are plain
@@ -17,24 +18,35 @@ describe("anywh dock panels", () => {
     await newConversation.click();
   });
 
-  it("renders both pane toggles in the conversation's toolbar", async () => {
-    for (const label of ["Open files", "Open terminal"]) {
+  it("has the side panel's toggle, and none of the pane buttons, while it is closed", async () => {
+    const panelToggle = await $('[aria-label="Show side panel"]');
+    await panelToggle.waitForExist({ timeout: 15000 });
+    for (const label of ["Open files", "Close files", "Open terminal", "Close terminal"]) {
+      await expect(await $(`[aria-label="${label}"]`).isExisting()).toBe(false);
+    }
+    await expect(await $('[aria-label="Close panel"]').isExisting()).toBe(false);
+  });
+
+  it("opens the panel on Files, with both pane buttons inert until the session has a folder", async () => {
+    const panelToggle = await $('[aria-label="Show side panel"]');
+    await panelToggle.click();
+
+    // A tab that never had a pane opens Files, so that button reads "close".
+    for (const label of ["Close files", "Open terminal"]) {
       const toggle = await $(`[aria-label="${label}"]`);
       await toggle.waitForExist({ timeout: 15000 });
-      await expect(toggle).toBeExisting();
-    }
-  });
-
-  it("keeps them inert until the session has a folder to show", async () => {
-    for (const label of ["Open files", "Open terminal"]) {
-      const toggle = await $(`[aria-label="${label}"]`);
       await expect(await toggle.isEnabled()).toBe(false);
     }
+    await expect(await $('[aria-label="Hide side panel"]').isExisting()).toBe(true);
   });
 
-  it("leaves the dock closed while they are", async () => {
-    // The dock column exists at zero width even when shut, so the pane's own
-    // header is what says whether anything actually opened.
-    await expect(await $('[aria-label="Close panel"]').isExisting()).toBe(false);
+  it("takes the pane buttons away again when the panel is hidden", async () => {
+    const panelToggle = await $('[aria-label="Hide side panel"]');
+    await panelToggle.click();
+
+    await $('[aria-label="Show side panel"]').waitForExist({ timeout: 15000 });
+    for (const label of ["Close files", "Open terminal"]) {
+      await expect(await $(`[aria-label="${label}"]`).isExisting()).toBe(false);
+    }
   });
 });
