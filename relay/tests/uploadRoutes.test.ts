@@ -55,10 +55,10 @@ test("POST /upload echoes the client's filename back but still saves under a fre
   rmSync(result.path, { force: true });
 });
 
-test("POST /upload without ext takes the extension from name", async () => {
-  const response = await fetch(httpUrl("/upload?name=data.csv"), { method: "POST", body: Buffer.from("a,b") });
+test("POST /upload without ext saves as bin, whatever the name says", async () => {
+  const response = await fetch(httpUrl("/upload?name=evil.html"), { method: "POST", body: Buffer.from("<b>") });
   const result = (await response.json()) as { path: string; name?: string };
-  assert.match(result.path, /\.csv$/);
+  assert.match(result.path, /\.bin$/);
   rmSync(result.path, { force: true });
 });
 

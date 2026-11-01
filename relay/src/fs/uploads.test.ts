@@ -105,10 +105,7 @@ test("sanitizeUploadName: absent, empty or nothing-left is undefined", () => {
   assert.equal(sanitizeUploadName("dir/"), undefined);
 });
 
-test("uploadExtension prefers the explicit ext, then the name's, else empty (sanitized to 'bin' later)", () => {
-  assert.equal(uploadExtension("png", "a.md"), "png");
-  assert.equal(uploadExtension(null, "notes.md"), "md");
-  assert.equal(uploadExtension(null, "Makefile"), "");
-  assert.equal(uploadExtension(null, ".gitignore"), "");
-  assert.equal(uploadExtension(null, undefined), "");
+test("uploadExtension takes only the explicit ext, else empty (sanitized to 'bin' later)", () => {
+  assert.equal(uploadExtension("png"), "png");
+  assert.equal(uploadExtension(null), "");
 });

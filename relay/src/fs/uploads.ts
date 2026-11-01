@@ -67,12 +67,11 @@ export function sanitizeUploadName(name: string | null): string | undefined {
   return clean || undefined;
 }
 
-/** The extension to save under: the explicit `ext` when the client sent
- * one, else the one in `name`, else `bin` (via `sanitizeExtension`). */
-export function uploadExtension(ext: string | null, name: string | undefined): string {
-  if (ext) return ext;
-  const dot = name?.lastIndexOf(".") ?? -1;
-  return name && dot > 0 ? name.slice(dot + 1) : "";
+/** The extension to save under: only the explicit `ext`. The informational
+ * `name` never picks it, so a bare `?name=x.html` still lands as `bin`
+ * (via `sanitizeExtension`). */
+export function uploadExtension(ext: string | null): string {
+  return ext ?? "";
 }
 
 /** Strips anything that isn't a plain ASCII letter/digit — the extension
