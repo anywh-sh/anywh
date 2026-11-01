@@ -74,10 +74,10 @@ export function ProfileSwitcher({ activeProfile, supported, onChange, allProfile
           >
             <ProfileSquare profileId={activeProfile.id} size="lg" />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[length:calc(13.5px*var(--chrome-scale))] leading-tight font-medium text-foreground">
+              <span className="truncate text-[length:calc(13.5px*var(--chrome-scale))] leading-[1.2] font-medium text-foreground">
                 {activeProfile.label}
               </span>
-              <span className="truncate font-mono text-[length:calc(11px*var(--chrome-scale))] leading-tight text-text-faint">
+              <span className="truncate font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint">
                 {activeBadge.label} · {allProfilesShown ? dict.shell.profiles.scopeAll : dict.shell.profiles.scopeActive}
               </span>
             </span>

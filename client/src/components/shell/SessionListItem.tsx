@@ -65,34 +65,26 @@ export const SessionListItem = memo(function SessionListItem({
 
   return (
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
-      {/* The profile's colour as a bar down the left edge, not a dot: it is
-       * the one piece of per-row chrome that has to survive a long title
-       * truncating, and it doubles as the selected-row marker: full height
-       * when selected, a short centred tick otherwise, animated between. */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute left-0 w-0.5 shrink-0 transition-[top,bottom,opacity] duration-150 ease-out",
-          profileColorClass(session.profileId),
-          selected ? "inset-y-0" : "inset-y-2.5 opacity-85",
-        )}
-      />
       <button
         type="button"
         onClick={() => onSelect(session)}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2.5 px-[9px] text-left transition-colors",
-          size === "lg" ? "min-h-11 py-2.5" : "h-8",
+          "flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors duration-[140ms]",
+          size === "lg" ? "min-h-11 py-2.5" : "h-[30px]",
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
       >
+        {/* The profile's colour as a short bar in the row's flow, not a dot:
+         * it is the one piece of per-row chrome that has to survive a long
+         * title truncating. Same size selected or not — the row's own
+         * background is what marks the selection. */}
+        <span aria-hidden="true" className={cn("h-3.5 w-0.5 shrink-0", profileColorClass(session.profileId))} />
         {session.room === true && <RoomGlyph size={14} className="shrink-0 text-text-faint" aria-label={dict.sala.roomGlyph} role="img" />}
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            size === "lg" ? "text-base" : "text-[length:calc(13.5px*var(--chrome-scale))]",
+            size === "lg" ? "text-base" : "text-[length:calc(13px*var(--chrome-scale))]",
             selected || freshCompletion ? "text-foreground" : "text-muted-foreground",
-            selected && "font-medium",
           )}
         >
           {session.titlePending === true ? <TitleSkeleton /> : session.title}
