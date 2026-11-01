@@ -69,16 +69,26 @@ export const SessionListItem = memo(function SessionListItem({
         type="button"
         onClick={() => onSelect(session)}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors duration-[140ms]",
+          "relative flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors duration-[140ms]",
           size === "lg" ? "min-h-11 py-2.5" : "h-[30px]",
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
       >
-        {/* The profile's colour as a short bar in the row's flow, not a dot:
-         * it is the one piece of per-row chrome that has to survive a long
-         * title truncating. Same size selected or not — the row's own
-         * background is what marks the selection. */}
-        <span aria-hidden="true" className={cn("h-3.5 w-0.5 shrink-0", profileColorClass(session.profileId))} />
+        {/* The profile's colour as a bar, not a dot: it is the one piece of
+         * per-row chrome that has to survive a long title truncating, and it
+         * doubles as the selected-row marker — full height when selected, a
+         * 14px tick otherwise, animated between. The spacer keeps the title's
+         * x the same either way; the bar itself is out of the flow so it can
+         * grow past 14px. */}
+        <span aria-hidden="true" className="w-0.5 shrink-0" />
+        <span
+          aria-hidden="true"
+          className={cn(
+            "absolute left-2 w-0.5 transition-[top,bottom] duration-150 ease-out",
+            profileColorClass(session.profileId),
+            selected ? "inset-y-0" : "inset-y-2",
+          )}
+        />
         {session.room === true && <RoomGlyph size={14} className="shrink-0 text-text-faint" aria-label={dict.sala.roomGlyph} role="img" />}
         <span
           className={cn(
