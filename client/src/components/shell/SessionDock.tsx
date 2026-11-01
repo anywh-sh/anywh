@@ -1,4 +1,5 @@
 import { Fragment, useRef, type ReactNode } from "react";
+import { useDockFrameCut } from "@/hooks/useDockFrameCut";
 import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
 import { useSplitDrag } from "@/hooks/tabs/useSplitDrag";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
@@ -38,10 +39,17 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
 
   const open = dock.panes.length > 0;
   const maximizedOpen = open && dock.maximized !== null;
+  const rootRef = useRef<HTMLDivElement>(null);
+  // A maximized pane fills the plane, so there is no side to be on.
+  useDockFrameCut(rootRef, open && !maximizedOpen, dock.width);
 
   return (
     <div
-      className={cn("relative h-full shrink-0 overflow-hidden border-l border-border-soft bg-bg-sidebar", maximizedOpen && "flex-1")}
+      ref={rootRef}
+      // The window chrome's colour and one divider on the canvas side, like
+      // the room's side panel: it sits beside the framed plane, not in a box
+      // of its own (`useDockFrameCut` takes the frame away from behind it).
+      className={cn("relative h-full shrink-0 overflow-hidden border-l border-border-soft bg-bg-chrome", maximizedOpen && "flex-1")}
       style={{ width: open ? (dock.maximized ? undefined : dock.width) : 0 }}
     >
       {open && !dock.maximized && (
