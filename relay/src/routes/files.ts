@@ -255,7 +255,7 @@ export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
   if (req.method === "POST" && req.url?.startsWith("/upload")) {
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
     const name = sanitizeUploadName(url.searchParams.get("name"));
-    await saveUpload(req, uploadExtension(url.searchParams.get("ext"), name), name)
+    await saveUpload(req, uploadExtension(url.searchParams.get("ext")), name)
       .then((result) => {
         res.setHeader("Content-Type", "application/json");
         res.setHeader("Access-Control-Allow-Origin", "*");

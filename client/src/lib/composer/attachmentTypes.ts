@@ -56,6 +56,9 @@ export function attachmentKindFor(file: Pick<File, "name" | "type">): Attachment
   // is still trustworthy for images and video.
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
+  // An extension the list doesn't know, but the browser says it is text
+  // (`.conf`, `.lock`, `.tex`…): the agent reads it as is.
+  if (file.type.startsWith("text/")) return "file";
   return null;
 }
 
