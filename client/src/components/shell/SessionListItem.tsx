@@ -1,8 +1,8 @@
 import { memo } from "react";
-import { SquareTerminal } from "lucide-react";
+import { Loader2, SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
-import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
+import { profileColorClass } from "@/lib/profiles/profiles";
 import { formatAbsoluteTime, formatCompactTime } from "@/lib/format/relativeTime";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
@@ -101,27 +101,32 @@ export const SessionListItem = memo(function SessionListItem({
         </span>
         {/* Status lives on the right, where the row's meta is: nothing sits
          * between the profile bar and the title, so titles start at the same
-         * x whatever the row's state. One indicator at most — a live turn and a
-         * background job on the same session would otherwise stack two. The ring is reserved for an actual turn in
-         * flight; a background job gets its own glyph, a pulsing terminal
-         * icon, since that is literally what `anywh-bg` runs. */}
-        {roomStatus && (roomStatus.needsYou > 0 || roomStatus.failed > 0) ? (
+         * x whatever the row's state. The glyphs are the tabs' own — orange
+         * dot when something waits for the person, spinner while a turn runs,
+         * red square after a failure, light dot for a finish not yet seen —
+         * so a state reads the same in both places. One indicator at most; a
+         * background job gets its own glyph, a pulsing terminal icon, since
+         * that is literally what `anywh-bg` runs. */}
+        {roomStatus && roomStatus.needsYou > 0 ? (
           <span
-            title={(roomStatus.needsYou > 0 ? dict.shell.sidebar.roomNeedsYou : dict.shell.sidebar.roomFailed).replace("{count}", String(roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed))}
-            className="shrink-0 font-mono text-[length:calc(11.5px*var(--chrome-scale))] text-primary-ink"
-          >
-            {roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed}
-          </span>
-        ) : running ? (
-          <span
-            aria-label={indicatorLabel}
-            className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
-            style={{ borderTopColor: profileColorVar(session.profileId) }}
+            title={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
+            aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
+            className="size-1.5 shrink-0 rounded-full bg-primary"
           />
+        ) : roomStatus && roomStatus.failed > 0 && !running ? (
+          <span
+            title={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
+            aria-label={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
+            className="size-1.5 shrink-0 bg-destructive"
+          />
+        ) : running ? (
+          <Loader2 aria-label={indicatorLabel} className="size-3 shrink-0 animate-spin text-foreground" />
         ) : completedAt !== undefined ? (
-          <span title={formatAbsoluteTime(completedAt, locale)} className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-foreground">
-            {dict.shell.sidebar.completedNew}
-          </span>
+          <span
+            title={formatAbsoluteTime(completedAt, locale)}
+            aria-label={dict.chat.tabs.sessionDone}
+            className="size-1.5 shrink-0 rounded-full bg-foreground"
+          />
         ) : hasBackgroundJob ? (
           <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
         ) : (

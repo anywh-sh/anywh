@@ -1096,7 +1096,6 @@ export interface Dictionary {
        * a row not yet looked at, the row's label, and the link to search. */
       clearCompleted: string;
       clearCompletedTitle: string;
-      completedNew: string;
       olderInSearch: string;
       /** A room row's tooltips; each takes `{count}`. */
       roomNeedsYou: string;
