@@ -1,8 +1,12 @@
 import { memo, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
 import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { RoomPanel } from "@/components/sala/RoomPanel";
 import { SessionDock } from "@/components/shell/SessionDock";
+import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
+import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
+import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
@@ -134,6 +138,68 @@ const TabChat = memo(function TabChat({
   );
 });
 
+interface TabDockProps {
+  tab: Tab;
+  profile: Profile;
+  dock: DockState;
+  terminalTabs: ReturnType<typeof useTerminalTabs>;
+  fileTabs: ReturnType<typeof useFileTabs>;
+  actions: TabPanelActions;
+}
+
+/** The right-hand dock of a tab — its terminal and file panes — shared by a
+ * conversation and a room, which differ in what sits beside it and nothing
+ * else. */
+function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions }: TabDockProps) {
+  return (
+    <SessionDock
+      dock={dock}
+      onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
+      onSplitRatioChange={(ratio) => actions.onDockSplitRatioChange(tab.id, ratio)}
+      onDragEnd={actions.onDockDragEnd}
+      panes={{
+        terminal: dock.panes.includes("terminal") ? (
+          <TerminalPanelSlot
+            profile={profile}
+            chatSessionId={tab.id}
+            maximized={dock.maximized === "terminal"}
+            terminalTabs={terminalTabs}
+            onToggleMaximized={() => actions.onToggleMaximized(tab.id, "terminal")}
+            onClose={() => actions.onClosePane(tab.id, "terminal")}
+          />
+        ) : undefined,
+        files: dock.panes.includes("files") ? (
+          <FilesPanelSlot
+            profile={profile}
+            chatSessionId={tab.id}
+            maximized={dock.maximized === "files"}
+            fileTabs={fileTabs}
+            onToggleMaximized={() => actions.onToggleMaximized(tab.id, "files")}
+            onClose={() => actions.onClosePane(tab.id, "files")}
+            onOpenTerminal={(path) => actions.onOpenTerminalAt(tab.id, path)}
+          />
+        ) : undefined,
+      }}
+    />
+  );
+}
+
+/** A room's files/terminal buttons, drawn into its group's strip. A
+ * conversation's come from its `ChatPanel`, which owns the folder; a room
+ * has no `ChatPanel`, and not being disabled for want of a folder is
+ * deliberate — the relay knows the room's folder, the client never does. */
+function RoomPanelToggles({ groupId, dock, actions, tabId }: { groupId: string | null; dock: DockState; actions: TabPanelActions; tabId: string }) {
+  const slot = usePanelTogglesSlot(groupId);
+  if (!slot) return null;
+  return createPortal(
+    <>
+      <FilesToggleButton open={dock.panes.includes("files")} onToggle={() => actions.onTogglePane(tabId, "files")} />
+      <TerminalToggleButton open={dock.panes.includes("terminal")} onToggle={() => actions.onTogglePane(tabId, "terminal")} />
+    </>,
+    slot,
+  );
+}
+
 interface TabPanelProps extends Omit<TabChatProps, "terminalOpen" | "filesOpen"> {
   /** `terminalOpen`/`filesOpen` are derived from this and handed down, so
    * `TabChat` doesn't take the whole dock — the width and the split ratio
@@ -172,10 +238,13 @@ export const TabPanel = memo(function TabPanel({
   fileTabs,
   actions,
 }: TabPanelProps) {
-  // A room has no conversation of its own here and no dock: its canvas fills
-  // the tab (the principal's conversation and the side panels come later).
+  // A room has no conversation of its own here: its canvas fills the tab (the
+  // principal's conversation comes later). It does have the side panel — the
+  // folder is the principal's, which the relay resolves from the room's id
+  // (a room's id is its principal's session id), so the file tree and the
+  // terminal work on it exactly as they do on a conversation.
   if (tab.room) {
-    return (
+    const room = (
       <RoomPanel
         key={tab.id}
         profile={profile}
@@ -186,6 +255,18 @@ export const TabPanel = memo(function TabPanel({
         onGone={() => actions.onDeleted(tab)}
         onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
       />
+    );
+    if (isCompact || isIOS()) return room;
+    return (
+      <div className="relative flex h-full min-w-0">
+        <div className={cn("min-w-0 flex-1", isVisible && dock.maximized !== null && "invisible absolute inset-0")}>{room}</div>
+        {isVisible && (
+          <>
+            <RoomPanelToggles groupId={groupId} dock={dock} actions={actions} tabId={tab.id} />
+            <TabDock tab={tab} profile={profile} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} />
+          </>
+        )}
+      </div>
     );
   }
 
@@ -246,37 +327,7 @@ export const TabPanel = memo(function TabPanel({
        * briefly (which is exactly what would happen when maximizing a pane
        * if the chat were hidden via `display:none`/zero width). */}
       <div className={cn("min-w-0 flex-1", chatHidden && "invisible absolute inset-0")}>{chat}</div>
-      {isVisible && (
-        <SessionDock
-          dock={dock}
-          onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
-          onSplitRatioChange={(ratio) => actions.onDockSplitRatioChange(tab.id, ratio)}
-          onDragEnd={actions.onDockDragEnd}
-          panes={{
-            terminal: dock.panes.includes("terminal") ? (
-              <TerminalPanelSlot
-                profile={profile}
-                chatSessionId={tab.id}
-                maximized={dock.maximized === "terminal"}
-                terminalTabs={terminalTabs}
-                onToggleMaximized={() => actions.onToggleMaximized(tab.id, "terminal")}
-                onClose={() => actions.onClosePane(tab.id, "terminal")}
-              />
-            ) : undefined,
-            files: dock.panes.includes("files") ? (
-              <FilesPanelSlot
-                profile={profile}
-                chatSessionId={tab.id}
-                maximized={dock.maximized === "files"}
-                fileTabs={fileTabs}
-                onToggleMaximized={() => actions.onToggleMaximized(tab.id, "files")}
-                onClose={() => actions.onClosePane(tab.id, "files")}
-                onOpenTerminal={(path) => actions.onOpenTerminalAt(tab.id, path)}
-              />
-            ) : undefined,
-          }}
-        />
-      )}
+      {isVisible && <TabDock tab={tab} profile={profile} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} />}
     </div>
   );
 });
