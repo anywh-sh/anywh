@@ -305,6 +305,7 @@ export const ptBr: Dictionary = {
     files: {
       title: "Arquivos",
       loading: "Carregando…",
+      noFolder: "Esta sessão ainda não tem uma pasta",
       noFileOpen: "Escolha um arquivo para ler aqui",
       showHidden: "Mostrar arquivos ocultos",
       hideHidden: "Ocultar arquivos ocultos",

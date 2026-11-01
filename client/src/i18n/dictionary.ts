@@ -869,6 +869,7 @@ export interface Dictionary {
     files: {
       title: string;
       loading: string;
+      noFolder: string;
       noFileOpen: string;
       showHidden: string;
       hideHidden: string;

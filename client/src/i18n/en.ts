@@ -305,6 +305,7 @@ export const en: Dictionary = {
     files: {
       title: "Files",
       loading: "Loading…",
+      noFolder: "This session has no folder yet",
       noFileOpen: "Pick a file to read it here",
       showHidden: "Show hidden files",
       hideHidden: "Hide hidden files",
