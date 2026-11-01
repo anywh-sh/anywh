@@ -185,8 +185,10 @@ describe("Composer", () => {
     const clipboard = new DataTransfer();
     clipboard.setData("text/plain", "x ".repeat(LARGE_PASTE_MIN_CHARS));
     await user.paste(clipboard);
-    await user.keyboard("{Enter}");
 
+    // The old draft is gone from the field, not just unsent.
+    expect(field.textContent).toBe("");
+    await user.keyboard("{Enter}");
     expect(onSend).not.toHaveBeenCalled();
   });
 

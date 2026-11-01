@@ -692,6 +692,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           const taken = pendingImagesRef.current.map((image) => image.name ?? "");
           const file = new File([plain], pastedTextName(plain, taken), { type: "text/plain" });
           void Promise.resolve(onAddFiles([file])).then((notAttached) => {
+            // The composer may be gone by the time the upload answers.
+            if (view.isDestroyed) return;
             if (Array.isArray(notAttached) && notAttached.length > 0) insertInline();
           });
           return true;
