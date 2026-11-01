@@ -202,7 +202,7 @@ describe("SessionList completed group", () => {
 
     const heading = screen.getByRole("button", { name: new RegExp(`^${copy.completed}`) });
     expect(heading).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(copy.completedNew)).toBeInTheDocument();
+    expect(screen.getByLabelText(en.chat.tabs.sessionDone)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: copy.clearCompleted }));
     expect(screen.queryByText(copy.completed)).not.toBeInTheDocument();
@@ -251,7 +251,9 @@ describe("SessionList room state", () => {
     expect(headings[0]).toContain(copy.needsYou);
     expect(headings[1]).toContain(copy.running);
     expect(headings[2]).toContain(copy.recent);
-    // The count of what waits shows on the room's row.
-    expect(screen.getByTitle(copy.roomNeedsYou.replace("{count}", "2"))).toHaveTextContent("2");
+    // What waits shows on the room's row as the tab's orange dot — a glyph,
+    // no text; the count is in its label.
+    const dot = screen.getByLabelText(copy.roomNeedsYou.replace("{count}", "2"));
+    expect(dot).toBeEmptyDOMElement();
   });
 });

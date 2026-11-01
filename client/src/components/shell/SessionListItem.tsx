@@ -1,8 +1,8 @@
 import { memo } from "react";
-import { SquareTerminal } from "lucide-react";
+import { Loader2, SquareTerminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDict, useLocale } from "@/i18n";
-import { profileColorClass, profileColorVar } from "@/lib/profiles/profiles";
+import { profileColorClass } from "@/lib/profiles/profiles";
 import { formatAbsoluteTime, formatCompactTime } from "@/lib/format/relativeTime";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
@@ -54,7 +54,6 @@ export const SessionListItem = memo(function SessionListItem({
   const { locale } = useLocale();
   const menu = useContextMenu();
   const running = turnRunning || (roomStatus?.working ?? 0) > 0;
-  const waiting = (roomStatus?.needsYou ?? 0) > 0;
   const indicatorLabel = running ? dict.shell.sidebar.agentWorking : dict.shell.sidebar.backgroundJob;
   // A relay too old to report when the session was last used leaves the row
   // without a time rather than with a made-up one — the meta line is then
@@ -66,82 +65,87 @@ export const SessionListItem = memo(function SessionListItem({
 
   return (
     <div className="relative flex items-center" onContextMenu={menu.onContextMenu}>
-      {/* The profile's colour as a bar down the left edge, not a dot: it is
-       * the one piece of per-row chrome that has to survive a long title
-       * truncating, and it doubles as the selected-row marker. */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "absolute inset-y-1 left-0 w-0.5 shrink-0",
-          profileColorClass(session.profileId),
-          !selected && "opacity-70",
-        )}
-      />
       <button
         type="button"
         onClick={() => onSelect(session)}
         className={cn(
-          "flex w-full cursor-pointer items-center gap-2.5 px-[9px] text-left transition-colors",
-          size === "lg" ? "min-h-11 py-2.5" : "h-8",
+          "relative flex w-full cursor-pointer items-center gap-[9px] px-2 text-left transition-colors",
+          size === "lg" ? "min-h-11 py-2.5" : "h-[30px]",
           selected ? "bg-bg-elevated" : "hover:bg-bg-hover",
         )}
       >
-        {/* The status slot: always as wide as its content, so titles line up
-         * whether or not the row has a status to show. One animated
-         * indicator per row at most, `running` first — a live turn and a
-         * background job on the same session would otherwise stack two. The
-         * ring is reserved for an actual turn in flight; a background job
-         * gets its own glyph, a pulsing terminal icon, since that is
-         * literally what `anywh-bg` runs. */}
-        <span className="flex size-3 shrink-0 items-center justify-center">
-          {waiting ? (
-            <span aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus?.needsYou))} className="size-2 shrink-0 rounded-full bg-primary" />
-          ) : running ? (
-            <span
-              aria-label={indicatorLabel}
-              className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border"
-              style={{ borderTopColor: profileColorVar(session.profileId) }}
-            />
-          ) : completedAt !== undefined ? (
-            <span aria-label={dict.shell.sidebar.completedLabel} className="size-[7px] shrink-0 rounded-full bg-foreground" />
-          ) : (
-            hasBackgroundJob && (
-              <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
-            )
+        {/* The profile's colour as a bar, not a dot: it is the one piece of
+         * per-row chrome that has to survive a long title truncating, and it
+         * doubles as the selected-row marker — full height when selected, a
+         * 14px tick otherwise, animated between. The spacer keeps the title's
+         * x the same either way; the bar itself is out of the flow so it can
+         * grow past 14px. */}
+        <span aria-hidden="true" className="w-0.5 shrink-0" />
+        <span
+          aria-hidden="true"
+          className={cn(
+            // Always the row's full height, scaled down to 14px (14/30 of the
+            // row) when unselected: a transform composites, where animating
+            // `top`/`bottom` would lay out the row on every frame.
+            "absolute inset-y-0 left-2 w-0.5 transition-transform",
+            profileColorClass(session.profileId),
+            selected ? "scale-y-100" : "scale-y-[0.4667]",
           )}
-        </span>
+        />
         {session.room === true && <RoomGlyph size={14} className="shrink-0 text-text-faint" aria-label={dict.sala.roomGlyph} role="img" />}
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
-            size === "lg" ? "text-base" : "text-[length:calc(13.5px*var(--chrome-scale))]",
+            size === "lg" ? "text-base" : "text-[length:calc(13px*var(--chrome-scale))]",
             selected || freshCompletion ? "text-foreground" : "text-muted-foreground",
-            selected && "font-medium",
           )}
         >
           {session.titlePending === true ? <TitleSkeleton /> : session.title}
         </span>
-        {roomStatus && (roomStatus.needsYou > 0 || roomStatus.failed > 0) ? (
+        {/* Status lives on the right, where the row's meta is: nothing sits
+         * between the profile bar and the title, so titles start at the same
+         * x whatever the row's state. The glyphs are the tabs' own — orange
+         * dot when something waits for the person, spinner while a turn runs,
+         * red square after a failure, light dot for a finish not yet seen —
+         * so a state reads the same in both places. One indicator at most; a
+         * background job gets its own glyph, a pulsing terminal icon, since
+         * that is literally what `anywh-bg` runs. */}
+        {roomStatus && roomStatus.needsYou > 0 ? (
           <span
-            title={(roomStatus.needsYou > 0 ? dict.shell.sidebar.roomNeedsYou : dict.shell.sidebar.roomFailed).replace("{count}", String(roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed))}
-            className="shrink-0 font-mono text-[length:calc(11.5px*var(--chrome-scale))] text-primary-ink"
-          >
-            {roomStatus.needsYou > 0 ? roomStatus.needsYou : roomStatus.failed}
-          </span>
+            title={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
+            role="img"
+            aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
+            className="size-1.5 shrink-0 rounded-full bg-primary"
+          />
+        ) : roomStatus && roomStatus.failed > 0 && !running ? (
+          <span
+            title={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
+            role="img"
+            aria-label={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
+            className="size-1.5 shrink-0 bg-destructive"
+          />
+        ) : running ? (
+          <Loader2 aria-label={indicatorLabel} className="size-3 shrink-0 animate-spin text-foreground" />
         ) : completedAt !== undefined ? (
-          <span title={formatAbsoluteTime(completedAt, locale)} className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-foreground">
-            {dict.shell.sidebar.completedNew}
-          </span>
+          <span
+            title={formatAbsoluteTime(completedAt, locale)}
+            role="img"
+            aria-label={dict.chat.tabs.sessionDone}
+            className="size-1.5 shrink-0 rounded-full bg-foreground"
+          />
+        ) : hasBackgroundJob ? (
+          <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
         ) : (
           lastActive !== null &&
           !bare && (
-          <span
-            title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
-            className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
-          >
-            {lastActive}
-          </span>
-        ))}
+            <span
+              title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
+              className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
+            >
+              {lastActive}
+            </span>
+          )
+        )}
       </button>
       <SessionDeleteMenu menu={menu} title={session.title} onRename={() => onRename(session)} onDelete={() => onDelete(session)} />
     </div>

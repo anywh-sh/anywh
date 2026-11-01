@@ -68,6 +68,54 @@ describe("TabGroupStrip", () => {
     expect(screen.getByRole("tab", { name: "Inativa" })).toHaveAttribute("data-state", "inactive");
   });
 
+  // jsdom has no layout, so what is checkable here is the contract the CSS
+  // rests on: only the selected tab is sticky (pinned to whichever edge of
+  // the strip it would scroll past), and the strip's own scrollbar is the
+  // hidden-native + overlay pair, never the native one that took the strip's
+  // height and clipped the profile rule. The behaviour itself is measured in
+  // a real browser.
+  it("pins only the selected tab to the strip's edges", () => {
+    const active = tab({ id: "s1", title: "Ativa" });
+    const other = tab({ id: "s2", title: "Inativa" });
+    renderStrip([active, other], active.id);
+
+    const wrapperOf = (name: string) => screen.getByRole("tab", { name }).parentElement;
+    expect(wrapperOf("Ativa")).toHaveClass("sticky", "left-0", "right-0");
+    expect(wrapperOf("Inativa")).not.toHaveClass("sticky");
+  });
+
+  // Regression: an unselected tab's wrapper is no stacking context, so its
+  // button (`z-10`) and profile rule (`z-20`) paint at the strip's level.
+  // With the pinned tab at `z-10` too, the tabs after it — the ones scrolling
+  // under it as the strip moves right — drew over it and their titles showed
+  // through the pinned tab's.
+  it("stacks the pinned tab above everything an unselected tab paints", () => {
+    const active = tab({ id: "s1", title: "Ativa" });
+    const other = tab({ id: "s2", title: "Inativa" });
+    renderStrip([active, other], active.id);
+
+    expect(screen.getByRole("tab", { name: "Ativa" }).parentElement).toHaveClass("z-30");
+    expect(screen.getByRole("tab", { name: "Inativa" }).className).toContain("z-10");
+    expect(screen.getByRole("tab", { name: "Inativa" }).parentElement?.querySelector("span[aria-hidden='true']")).toHaveClass("z-20");
+  });
+
+  it("scrolls without a native scrollbar, which would take height from the tabs", () => {
+    renderStrip([tab()], "s1");
+
+    expect(screen.getByRole("tablist")).toHaveClass("scrollbar-hidden");
+    expect(screen.getByRole("tablist")).not.toHaveClass("scrollbar-thin");
+  });
+
+  it("draws the profile rule across the whole tab and only clips it on an unselected one", () => {
+    const active = tab({ id: "s1", title: "Ativa" });
+    const other = tab({ id: "s2", title: "Inativa" });
+    renderStrip([active, other], active.id);
+
+    const ruleOf = (name: string) => screen.getByRole("tab", { name }).parentElement?.querySelector("span[aria-hidden='true']");
+    expect(ruleOf("Ativa")).toHaveClass("-left-px", "-right-px", "[clip-path:inset(0)]");
+    expect(ruleOf("Inativa")).toHaveClass("-left-px", "-right-px", "[clip-path:inset(0_13px)]");
+  });
+
   it("shows the tab's full title in a tooltip on hover", async () => {
     const user = userEvent.setup();
     const t = tab();

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { Loader2, Plus, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
@@ -15,6 +15,7 @@ import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
 import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { RoomTabIndicator } from "@/components/sala/RoomTabIndicator";
+import { TabStripScrollbar } from "@/components/shell/TabStripScrollbar";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -135,26 +136,37 @@ function SortableTab({ tab, isActive, canSplit, onSelect, onClose, onRename, onD
             transform: CSS.Transform.toString(transform),
             transition,
             opacity: isDragging ? 0.5 : 1,
-            zIndex: isDragging ? 1 : undefined,
+            zIndex: isDragging ? 40 : undefined,
           }}
           className={cn(
             // 31px tall and sitting on the plane's top rule: the active tab
             // is the plane's own colour and covers that rule by a pixel, so
             // it reads as the plane's tab rather than a button above it.
             // Auto width up to 196px — a short title makes a short tab.
-            "group relative flex h-8 max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
-            isActive ? "border-border-soft bg-background" : "hover:bg-bg-hover",
+            "group flex h-8 max-w-[196px] min-w-[72px] flex-none items-center border border-b-0 border-transparent",
+            // Sticky on both sides: scrolled out of view in either direction,
+            // the active tab stops at that edge and stays on screen, so the
+            // person never loses which tab they are in. Scrolling is natural
+            // until the tab reaches an edge of the strip. `z-30`, above the
+            // `z-20` of what an unselected tab paints (its button, its rule,
+            // its close button — a plain `relative` wrapper is no stacking
+            // context, so those compete at the strip's level): any lower and
+            // the tabs after the pinned one, scrolling under it, draw over it.
+            isActive ? "sticky right-0 left-0 z-30 border-border-soft bg-background" : "relative hover:bg-bg-hover",
           )}
         >
-          {/* The profile, as a 2px rule across the top of the tab: the whole
-              width (borders included) on the active tab, inset by the tab's
-              own padding and a touch dimmer on the others. */}
+          {/* The profile, as a 2px rule across the top of the tab, over the
+              tab's own top border. It is always the tab's full width; what
+              differs is how much of it shows — all of it on the active tab,
+              inset by the tab's padding and a touch dimmer on the others —
+              and the clip animates, so selecting a tab makes the rule grow
+              out from its ends instead of jumping. */}
           <span
             aria-hidden="true"
             className={cn(
-              "pointer-events-none absolute top-0 z-20 h-0.5",
+              "pointer-events-none absolute -top-px -right-px -left-px z-20 h-0.5 transition-[clip-path,opacity] motion-reduce:transition-none",
               profileColorClass(tab.profileId),
-              isActive ? "-right-px -left-px" : "right-[13px] left-[13px] opacity-85",
+              isActive ? "[clip-path:inset(0)]" : "[clip-path:inset(0_13px)] opacity-85",
             )}
           />
           <button
@@ -262,11 +274,30 @@ export function TabGroupStrip({
   const dict = useDict();
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const buttonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const scrollerRef = useRef<HTMLDivElement>(null);
   // Fills whatever width the tabs don't — a separate, non-overlapping
   // droppable rather than wrapping the whole strip, so it never competes
   // with an individual tab's own droppable rect for `over` (dnd-kit doesn't
   // give a nested droppable priority over its overlapping parent).
   const { setNodeRef: setEndDropRef, isOver: isOverEnd } = useDroppable({ id: groupEndDropId(groupId) });
+
+  // Selecting a tab from elsewhere (the sidebar, a shortcut) brings it to
+  // where it naturally sits in the strip. Measured from the widths of the tabs
+  // before it, not from its own position: a sticky tab reports where it is
+  // pinned, which is always on screen and says nothing about where it belongs.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    const index = tabs.findIndex((tab) => tab.id === activeTabId);
+    if (!scroller || index < 0) return;
+    let left = 0;
+    for (let i = 0; i < index; i += 1) left += (scroller.children[i] as HTMLElement | undefined)?.offsetWidth ?? 0;
+    const width = (scroller.children[index] as HTMLElement | undefined)?.offsetWidth ?? 0;
+    if (left < scroller.scrollLeft) scroller.scrollTo({ left, behavior: "smooth" });
+    else if (left + width > scroller.scrollLeft + scroller.clientWidth) scroller.scrollTo({ left: left + width - scroller.clientWidth, behavior: "smooth" });
+    // Only a change of the active tab moves the strip: opening or closing
+    // other tabs must not yank it back.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   // Manual roving focus (ArrowLeft/Right) — replaces the Radix `Tabs` root's
   // own `RovingFocusGroup`, which went away along with it. "Automatic
@@ -295,7 +326,13 @@ export function TabGroupStrip({
             horizontal scroller and stay pinned to the right edge instead of
             scrolling away with the tabs. */}
         <div className={cn("flex h-10 w-full items-center bg-bg-chrome", trailingInsetClass, leadingInsetClass)}>
+          {/* The scrollbar is an overlay drawn by `TabStripScrollbar`: the
+              native one takes height from the strip when it shows up, which
+              squeezed the tabs and clipped the profile rule on their top
+              edge. */}
+          <div className="relative isolate -mb-px flex h-[41px] min-w-0 self-end">
           <div
+            ref={scrollerRef}
             role="tablist"
             aria-orientation="horizontal"
             onWheel={scrollHorizontallyOnWheel}
@@ -306,7 +343,7 @@ export function TabGroupStrip({
             // without this, shrinking the window narrow enough for a tab's
             // content to wrap could pop a vertical scrollbar on a strip
             // that's meant to only ever scroll horizontally.
-            className="scrollbar-thin -mb-px flex h-[41px] min-w-0 flex-nowrap items-end self-end justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 text-muted-foreground"
+            className="scrollbar-hidden flex h-[41px] min-w-0 flex-nowrap items-end justify-start gap-0 overflow-x-auto overflow-y-hidden p-0 text-muted-foreground"
           >
             {tabs.map((tab) => (
               <SortableTab
@@ -325,6 +362,8 @@ export function TabGroupStrip({
                 }}
               />
             ))}
+          </div>
+          <TabStripScrollbar scrollerRef={scrollerRef} contentKey={tabs} />
           </div>
           <Tooltip>
             <TooltipTrigger asChild>

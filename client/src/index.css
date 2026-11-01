@@ -862,3 +862,12 @@ body {
 .hljs-addition {
   background: color-mix(in srgb, var(--primary) 15%, transparent);
 }
+
+/* A scroller whose native scrollbar must not exist — it would take layout
+ * space. Pair it with an overlay scrollbar drawn by the component itself. */
+.scrollbar-hidden {
+  scrollbar-width: none;
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}

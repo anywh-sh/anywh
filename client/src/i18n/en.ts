@@ -429,8 +429,6 @@ export const en: Dictionary = {
       completed: "Completed",
       clearCompleted: "clear",
       clearCompletedTitle: "Move the completed sessions to Recent",
-      completedNew: "new",
-      completedLabel: "Finished, not opened yet",
       olderInSearch: "Older ones in search",
       roomNeedsYou: "{count} need you",
       roomWorking: "{count} running",

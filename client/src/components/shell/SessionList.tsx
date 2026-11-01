@@ -35,8 +35,8 @@ function rowKey(row: Row): string {
 // row is one or two lines depending on whether it carries a profile name and
 // a timestamp). Wrong estimates cost scrollbar accuracy far from the
 // viewport, nothing else.
-const ESTIMATED_HEADING_PX = 36;
-const ESTIMATED_ROW_PX = { default: 32, lg: 58 } as const;
+const ESTIMATED_HEADING_PX = 35;
+const ESTIMATED_ROW_PX = { default: 30, lg: 58 } as const;
 
 interface SessionListProps {
   /** Already merged across the selected profiles and sorted newest-first. */
@@ -151,7 +151,7 @@ export function SessionList({
 
   return (
     <ScrollArea className="min-h-0 flex-1" viewportRef={viewportRef}>
-      <div className={cn("flex flex-col", size === "lg" ? "pb-2" : "px-2 pb-3")}>
+      <div className={cn("flex flex-col", size === "lg" ? "pb-2" : "px-2 pb-2")}>
         {error && (
           <div className="flex flex-col items-start gap-2 px-2 py-2 text-xs text-muted-foreground">
             <p>{dict.shell.sidebar.loadFailed}</p>
@@ -195,12 +195,12 @@ export function SessionList({
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
                 {row.kind === "heading" ? (
-                  <div className={cn("relative", virtualRow.index > 0 && "mt-2.5")}>
+                  <div className="relative mt-3.5">
                     <button
                       type="button"
                       aria-expanded={!collapsed.has(row.id)}
                       onClick={() => toggleGroup(row.id)}
-                      className="flex h-[26px] w-full cursor-pointer items-center gap-2 px-[9px] text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground"
+                      className="flex h-[21px] w-full cursor-pointer items-center gap-2 px-2 pb-1.5 text-left font-mono text-[length:calc(11.5px*var(--chrome-scale))] font-medium text-text-faint transition-colors hover:text-muted-foreground"
                     >
                       <ChevronDown className={cn("-mr-1 size-2.5 shrink-0 transition-transform", collapsed.has(row.id) && "-rotate-90")} aria-hidden />
                       <span className="dark:opacity-80">{dict.shell.sidebar[row.id]}</span>
@@ -214,7 +214,7 @@ export function SessionList({
                         type="button"
                         title={dict.shell.sidebar.clearCompletedTitle}
                         onClick={clearCompletedSessions}
-                        className="absolute top-[3px] right-[calc(9px+2ch+8px)] h-5 cursor-pointer bg-[var(--bg-sidebar)] px-1.5 font-mono text-[length:calc(11px*var(--chrome-scale))] font-normal text-text-faint transition-colors hover:bg-bg-hover hover:text-foreground"
+                        className="absolute top-0 right-[calc(8px+2ch+8px)] h-[15px] cursor-pointer bg-[var(--bg-sidebar)] px-1.5 font-mono text-[length:calc(11px*var(--chrome-scale))] font-normal text-text-faint transition-colors hover:bg-bg-hover hover:text-foreground"
                       >
                         {dict.shell.sidebar.clearCompleted}
                       </button>
@@ -224,7 +224,7 @@ export function SessionList({
                   <button
                     type="button"
                     onClick={onOpenSearch}
-                    className="flex h-[30px] w-full cursor-pointer items-center gap-2.5 px-[9px] text-left text-[length:calc(12.5px*var(--chrome-scale))] text-text-faint transition-colors hover:text-muted-foreground"
+                    className="flex h-[30px] w-full cursor-pointer items-center gap-[9px] px-2 text-left text-[length:calc(12.5px*var(--chrome-scale))] text-text-faint transition-colors hover:text-muted-foreground"
                   >
                     <Search className="size-3 shrink-0" aria-hidden />
                     <span>{dict.shell.sidebar.olderInSearch}</span>
