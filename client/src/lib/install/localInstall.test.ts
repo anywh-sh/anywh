@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   evaluatePrerequisites,
   failureActions,
@@ -180,5 +180,66 @@ describe("toFailureCode", () => {
     expect(toFailureCode("checksum_mismatch")).toBe("checksum_mismatch");
     expect(toFailureCode("bad_flag")).toBe("unexpected");
     expect(toFailureCode("something_new")).toBe("unexpected");
+  });
+});
+
+describe("cancelling before the installer has answered", () => {
+  type StartInfo = { runId: string; logPath: string; started: boolean };
+
+  async function setup() {
+    vi.resetModules();
+    const answers: ((info: StartInfo) => void)[] = [];
+    const relay = {
+      checkPrerequisites: vi.fn(() => Promise.resolve(healthy)),
+      startLocalInstall: vi.fn(() => new Promise<StartInfo>((resolve) => answers.push(resolve))),
+      cancelLocalInstall: vi.fn(() => Promise.resolve()),
+      getLocalInstallStatus: vi.fn(() => Promise.resolve(null)),
+      onInstallLog: vi.fn(() => Promise.resolve(() => {})),
+      onInstallDone: vi.fn(() => Promise.resolve(() => {})),
+    };
+    vi.doMock("@/lib/install/localRelay", () => relay);
+    const install = await import("./localInstall");
+    install.beginLocalInstall({ label: "Default" });
+    await vi.waitFor(() => expect(relay.startLocalInstall).toHaveBeenCalledTimes(1));
+    return { relay, install, answers };
+  }
+
+  it("leaves at once and stops the installer the pending start spawns", async () => {
+    const { relay, install, answers } = await setup();
+    expect(install.getLocalInstallState().install).toMatchObject({ status: "running", runId: null });
+
+    install.abandonLocalInstall();
+    expect(install.getLocalInstallState().install.status).toBe("idle");
+
+    answers[0]({ runId: "r1", logPath: "/tmp/r1.log", started: true });
+    await vi.waitFor(() => expect(relay.cancelLocalInstall).toHaveBeenCalledOnce());
+    expect(install.getLocalInstallState().install).toMatchObject({ status: "idle", runId: null });
+    vi.doUnmock("@/lib/install/localRelay");
+  });
+
+  it("does not stop a run it only joined", async () => {
+    const { relay, install, answers } = await setup();
+    install.abandonLocalInstall();
+
+    // The relay was already running an install from before: not this start's.
+    answers[0]({ runId: "older", logPath: "/tmp/older.log", started: false });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(relay.cancelLocalInstall).not.toHaveBeenCalled();
+    expect(install.getLocalInstallState().install.status).toBe("idle");
+    vi.doUnmock("@/lib/install/localRelay");
+  });
+
+  it("does not stop the run the reader began again in the meantime", async () => {
+    const { relay, install, answers } = await setup();
+    install.abandonLocalInstall();
+    install.beginLocalInstall({ label: "Default" });
+    await vi.waitFor(() => expect(relay.startLocalInstall).toHaveBeenCalledTimes(2));
+
+    // The first start answers late; the second one joins the very same run.
+    answers[0]({ runId: "r1", logPath: "/tmp/r1.log", started: true });
+    answers[1]({ runId: "r1", logPath: "/tmp/r1.log", started: false });
+    await vi.waitFor(() => expect(install.getLocalInstallState().install.runId).toBe("r1"));
+    expect(relay.cancelLocalInstall).not.toHaveBeenCalled();
+    vi.doUnmock("@/lib/install/localRelay");
   });
 });

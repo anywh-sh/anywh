@@ -28,7 +28,6 @@ const COPY = {
     alreadyRan: "Already ran it, connect",
     back: "Back",
     preparing: "Preparing this machine",
-    installing: "Installing anywh",
     cancel: "Cancel",
     stopped: "The install stopped.",
     continueInTerminal: "Continue in the terminal",
@@ -162,9 +161,13 @@ describe("anywh onboarding", () => {
 
   it("cancelling a running install goes back to the welcome and starts no relay", async () => {
     writeFileSync(join(installDir, "pause"), "3\n");
+    // Earlier tests ran the installer in this same directory.
+    rmSync(join(installDir, "step-prereqs"), { force: true });
 
     await click(COPY.en.setUp);
-    await byText(COPY.en.installing).waitForExist({ timeout: 15000 });
+    // "Installing anywh" is a row of the step list, on screen from the first
+    // frame: it says nothing about the installer. Cancel once it is running.
+    await browser.waitUntil(() => existsSync(join(installDir, "step-prereqs")), { timeout: 15000, timeoutMsg: "the installer never reached its first step" });
     await click(COPY.en.cancel);
     await byText(COPY.en.welcome).waitForExist({ timeout: 15000 });
     // The installer's whole process group was stopped before its "service"
