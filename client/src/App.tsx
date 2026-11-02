@@ -592,12 +592,15 @@ function AppShell() {
   // The sidebar is hidden (collapsed on desktop) — the shell buttons then
   // float over the strip, and their measured width tells the strip how much
   // room to leave.
-  // The column opens and closes by animating its width, and the controls that
-  // float over the strip while it is closed have to stay there until it has
-  // finished opening (they move into the column only once it is there), so
-  // "hidden" covers the whole transition, not just the closed state.
+  // The column opens and closes by animating its width. Everything that makes
+  // room for the floating controls — the plane's left margin and the strip's
+  // inset — follows `sidebarHidden`, which flips at the start of the movement
+  // either way, so it eases along with the column instead of after it (which
+  // sent the tabs past their place and back). The controls themselves outlive
+  // the opening by their own fade-out, so they stay mounted while it runs.
   const sidebarMotion = usePanelTransition(!resizable.collapsed);
-  const sidebarHidden = (resizable.collapsed || sidebarMotion.transitioning) && !isCompact;
+  const sidebarHidden = resizable.collapsed && !isCompact;
+  const floatingControls = (resizable.collapsed || sidebarMotion.transitioning) && !isCompact;
   const [leadingWidth, setLeadingWidth] = useState(0);
   const leadingRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
@@ -712,6 +715,20 @@ function AppShell() {
     );
   }
 
+  // The floating controls are always the collapsed form (just the toggle): the
+  // form with the menu belongs to the column. Were this one to switch to it
+  // the moment the sidebar starts opening, it would widen by the menu's width
+  // while the strip is still making room for it.
+  const floatingTitleBar = (
+    <TitleBar
+      showSidebarToggle
+      sidebarCollapsed
+      onToggleSidebar={resizable.toggleCollapsed}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onCheckForUpdates={() => void handleCheckForUpdates()}
+    />
+  );
+
   const titleBar = (
     <TitleBar
       showSidebarToggle={!isCompact}
@@ -806,9 +823,18 @@ function AppShell() {
           {/* Collapsed, the sidebar is gone and only the shell buttons stay,
            * floating over the start of the strip row; the plane runs from 8px
            * in, and the strip leaves room for them. */}
-          {sidebarHidden && (
-            <div ref={leadingRef} className="absolute top-0 left-0 z-30">
-              {titleBar}
+          {floatingControls && (
+            // They fade out as the sidebar opens (and are out of the way of
+            // the pointer while they do), so by the time the tabs have moved
+            // over them there is nothing to overlap.
+            <div
+              ref={leadingRef}
+              className={cn(
+                "absolute top-0 left-0 z-30 transition-opacity duration-(--motion-fast) ease-(--motion-ease) motion-reduce:transition-none",
+                !resizable.collapsed && "pointer-events-none opacity-0",
+              )}
+            >
+              {floatingTitleBar}
             </div>
           )}
           {isCompact && (
