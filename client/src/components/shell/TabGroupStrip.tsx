@@ -332,7 +332,7 @@ export function TabGroupStrip({
             wrapper rather than on the tablist, so the `+` can sit OUTSIDE the
             horizontal scroller and stay pinned to the right edge instead of
             scrolling away with the tabs. */}
-        <div className={cn("flex h-10 w-full items-center bg-bg-chrome", trailingInsetClass, leadingInsetClass)}>
+        <div className={cn("flex h-10 w-full items-center bg-bg-chrome", "transition-[padding-left] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none", trailingInsetClass, leadingInsetClass)}>
           {/* The scrollbar is an overlay drawn by `TabStripScrollbar`: the
               native one takes height from the strip when it shows up, which
               squeezed the tabs and clipped the profile rule on their top

@@ -19,7 +19,13 @@ function readInitialWidth(): number {
 export interface ResizableSidebar {
   /** Effective width in px — 0 when collapsed, without depending on a separate CSS rule. */
   width: number;
+  /** The width it opens to, whether or not it is open right now: what the
+   * column's content is drawn at while the column itself is still opening or
+   * closing. */
+  expandedWidth: number;
   collapsed: boolean;
+  /** The edge is being dragged — the width must follow the pointer, not ease. */
+  isDragging: boolean;
   toggleCollapsed: () => void;
   startDrag: (event: React.PointerEvent) => void;
 }
@@ -28,12 +34,14 @@ export function useResizableSidebar(): ResizableSidebar {
   const [width, setWidth] = useState(readInitialWidth);
   const [collapsed, setCollapsed] = useState(readInitialCollapsed);
   const draggingRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const startDrag = useCallback(
     (event: React.PointerEvent) => {
       if (collapsed) return;
       event.preventDefault();
       draggingRef.current = true;
+      setIsDragging(true);
 
       const startX = event.clientX;
       const startWidth = width;
@@ -46,6 +54,7 @@ export function useResizableSidebar(): ResizableSidebar {
 
       function onUp(): void {
         draggingRef.current = false;
+        setIsDragging(false);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         setWidth((value) => {
@@ -68,5 +77,5 @@ export function useResizableSidebar(): ResizableSidebar {
     });
   }, []);
 
-  return { width: collapsed ? 0 : width, collapsed, toggleCollapsed, startDrag };
+  return { width: collapsed ? 0 : width, expandedWidth: width, collapsed, isDragging, toggleCollapsed, startDrag };
 }
