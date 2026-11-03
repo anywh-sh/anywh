@@ -116,7 +116,7 @@ const press = async (selector) => {
 /** Waits for the side panel to be open at its full width, so a
  * photograph shows the panel and not a frame of it. */
 const panelSettled = () =>
-  browser.waitUntil(() => browser.execute(() => (document.querySelector("aside.sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
+  browser.waitUntil(() => browser.execute(() => (document.querySelector(".sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
 
 /** A button of the selected card's action bar, by its words. */
 const pressBar = async (words) => {
@@ -526,7 +526,7 @@ describe("anywh room canvas", () => {
     // dispatched as the events a real one fires.
     const drag = (dx) =>
       browser.execute((by) => {
-        const grip = document.querySelector('aside.sala-side [role="separator"]');
+        const grip = document.querySelector('.sala-side [role="separator"]');
         const box = grip.getBoundingClientRect();
         const x = box.left + 2;
         const y = box.top + box.height / 2;
@@ -536,13 +536,13 @@ describe("anywh room canvas", () => {
       }, dx);
     const measure = () =>
       browser.execute(() => ({
-        panel: Math.round(document.querySelector("aside.sala-side").getBoundingClientRect().width),
+        panel: Math.round(document.querySelector(".sala-side").getBoundingClientRect().width),
         canvas: Math.round(document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect().width),
         stored: localStorage.getItem("anywh:sala-side-width"),
         // What the conversation's text column can use (680px, its padding and
         // gutters, the divider), or half the window if that is narrower.
         max: Math.max(385, Math.min(729, Math.floor(window.innerWidth / 2))),
-        lit: document.querySelector('aside.sala-side [role="separator"]').hasAttribute("data-dragging"),
+        lit: document.querySelector('.sala-side [role="separator"]').hasAttribute("data-dragging"),
       }));
 
     const before = await measure();
@@ -567,17 +567,17 @@ describe("anywh room canvas", () => {
 
     // Closing and opening again keeps the width.
     await browser.keys("Escape");
-    await browser.waitUntil(async () => !(await $("aside.sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    await browser.waitUntil(async () => !(await $(".sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
     await press('button[aria-label="About this room"]');
     await $('aside[data-panel="about"]').waitForExist({ timeout: 15000 });
     expect((await measure()).panel).toBe(before.max);
 
-    await browser.execute(() => document.querySelector('aside.sala-side [role="separator"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    await browser.execute(() => document.querySelector('.sala-side [role="separator"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
     await browser.waitUntil(async () => (await measure()).panel === 385, { timeout: 5000, timeoutMsg: "a double click did not restore the default width" });
     expect((await measure()).stored).toBe("385");
 
     await browser.keys("Escape");
-    await browser.waitUntil(async () => !(await $("aside.sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    await browser.waitUntil(async () => !(await $(".sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
   });
 
   it("answers in the card: Reply opens the question under it, with a way into the whole conversation", async () => {

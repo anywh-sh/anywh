@@ -1,7 +1,7 @@
 import { useRef, type ReactNode } from "react";
-import { TitleSkeleton } from "@/components/ui/title-skeleton";
 import { useDict } from "@/i18n";
 import { CloseIcon } from "@/components/sala/SalaIcons";
+import { SalaPane } from "@/components/sala/SalaPane";
 import { useSalaSideWidth } from "@/hooks/sala/useSalaSideWidth";
 
 interface SalaSidePanelProps {
@@ -19,29 +19,18 @@ interface SalaSidePanelProps {
 }
 
 /**
- * The room's right-hand panel: docked in the plane like the sidebar (it
- * takes width from the canvas rather than floating over it), a header with
- * what it is about and a close button, a scrolling body and an optional
- * footer. Esc closes it from anywhere inside. Its left edge is a handle that
- * resizes it (`useSalaSideWidth`); a double click there restores the default.
+ * A room's pane on a layout with no dock (compact windows, iOS): docked in
+ * the plane like the sidebar (it takes width from the canvas rather than
+ * floating over it), with a close button in its header. Its left edge is a
+ * handle that resizes it (`useSalaSideWidth`); a double click there restores
+ * the default.
  */
-export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, footer, onClose, children }: SalaSidePanelProps) {
+export function SalaSidePanel({ onClose, ...pane }: SalaSidePanelProps) {
   const dict = useDict().sala.panel;
-  const panel = useRef<HTMLElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const size = useSalaSideWidth(panel);
   return (
-    <aside
-      ref={panel}
-      className="sala-side"
-      data-panel={kind}
-      aria-label={title}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.defaultPrevented) {
-          event.stopPropagation();
-          onClose();
-        }
-      }}
-    >
+    <div ref={panel} className="sala-side">
       <div
         role="separator"
         aria-orientation="vertical"
@@ -54,20 +43,15 @@ export function SalaSidePanel({ mark, title, titlePending, subtitle, kind, foote
         data-dragging={size.dragging ? "" : undefined}
         {...size.gripProps}
       />
-      <div className="sala-side-in">
-        <header className="sala-side-head">
-          <span className="sala-side-mark">{mark}</span>
-          <div className="sala-side-titles">
-            <h2 className="sala-side-title">{titlePending === true ? <TitleSkeleton className="h-4 w-44" /> : title}</h2>
-            <p className="sala-side-sub">{subtitle}</p>
-          </div>
+      <SalaPane
+        {...pane}
+        onClose={onClose}
+        headerActions={
           <button type="button" className="sala-side-close" onClick={onClose} aria-label={dict.close} title={dict.close}>
             <CloseIcon size={12} />
           </button>
-        </header>
-        {children}
-        {footer && <footer className="sala-side-foot">{footer}</footer>}
-      </div>
-    </aside>
+        }
+      />
+    </div>
   );
 }
