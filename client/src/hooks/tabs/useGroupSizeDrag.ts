@@ -35,7 +35,14 @@ const ABSOLUTE_MIN_FRACTION = 0.08;
 export function clampGroupResizeDelta(rawDelta: number, startSizeA: number, startSizeB: number, minFraction: number): number {
   const pairTotal = startSizeA + startSizeB;
   const effectiveMinFraction = minFraction * 2 <= pairTotal ? minFraction : Math.min(ABSOLUTE_MIN_FRACTION, pairTotal / 2);
-  return Math.max(effectiveMinFraction - startSizeA, Math.min(startSizeB - effectiveMinFraction, rawDelta));
+  // A group already under the floor (it was dragged there while the window was
+  // narrower, or the sidebar was open) is not pushed up to it: the floor only
+  // stops a group from getting smaller than it started. Clamping to the floor
+  // outright made the first pointermove throw the handle to the floor's
+  // position before it began to follow the pointer.
+  const low = Math.min(effectiveMinFraction, startSizeA) - startSizeA;
+  const high = startSizeB - Math.min(effectiveMinFraction, startSizeB);
+  return Math.max(low, Math.min(high, rawDelta));
 }
 
 /**

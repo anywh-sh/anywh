@@ -48,4 +48,18 @@ describe("clampGroupResizeDelta", () => {
     const delta = clampGroupResizeDelta(-0.9, 0.5, 0.5, 5);
     expect(0.5 + delta).toBeGreaterThan(0);
   });
+
+  // Regression: shrink the left group, close the sidebar (the container gets
+  // wider, so the floor in px now fits and the group is under it), then drag:
+  // the handle used to jump to the floor on the first pointermove, as if the
+  // position were there, and only then follow the pointer.
+  it("does not push a group that starts under the floor up to it", () => {
+    // A is 0.3, under a floor of 0.4; B is 0.7.
+    expect(clampGroupResizeDelta(0.01, 0.3, 0.7, 0.4)).toBeCloseTo(0.01);
+    expect(clampGroupResizeDelta(0, 0.3, 0.7, 0.4)).toBeCloseTo(0);
+    // It can still not get any smaller than it is.
+    expect(clampGroupResizeDelta(-0.1, 0.3, 0.7, 0.4)).toBeCloseTo(0);
+    // And the neighbour still stops at the floor.
+    expect(clampGroupResizeDelta(0.9, 0.3, 0.7, 0.4)).toBeCloseTo(0.3);
+  });
 });
