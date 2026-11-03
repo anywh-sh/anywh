@@ -13,7 +13,7 @@
 [![Downloads](https://img.shields.io/github/downloads/anywh-sh/anywh/total?style=flat)](https://github.com/anywh-sh/anywh/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat)](LICENSE)
 
-[Website](https://anywh.sh) • [Getting started](#quick-start) • [Issues](https://github.com/anywh-sh/anywh/issues)
+[Website](https://anywh.sh/ghr) • [Getting started](#quick-start) • [Issues](https://github.com/anywh-sh/anywh/issues)
 
 </div>
 
