@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { TabGroupStrip, groupEndDropId } from "@/components/shell/TabGroupStrip";
 import { useGroupSizeDrag } from "@/hooks/tabs/useGroupSizeDrag";
-import { MAX_GROUPS, type Tab, type TabGroup } from "@/hooks/tabs/useTabs";
+import { MAX_GROUPS, newGroupSize, type Tab, type TabGroup } from "@/hooks/tabs/useTabs";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -122,7 +122,7 @@ function availExpr(total: number): string {
   return total > 1 ? `calc(100% - ${(total - 1) * HANDLE_PX}px)` : "100%";
 }
 
-/** Covers roughly the left/right half of the content area (not a thin sliver
+/** Covers the share a new group would get of the content area (not a thin sliver
  * at the very edge) — painting the actual area a new group would occupy,
  * not just a narrow target to hit, so it reads as "drop here to fill this
  * space" the way an editor's own split-preview does. Only rendered while a
@@ -140,16 +140,17 @@ function availExpr(total: number): string {
  * olive close to `background`'s own darkness) — a dark tint at any opacity
  * just reads as a smudge on a dark background, while a light tint at low
  * opacity reads as an actual highlight. */
-function EdgeDropZone({ id, side }: { id: string; side: "left" | "right" }) {
+function EdgeDropZone({ id, side, groupCount }: { id: string; side: "left" | "right"; groupCount: number }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "absolute inset-y-0 z-20 w-2/5 border-foreground/50 bg-foreground/20 transition-opacity",
+        "absolute inset-y-0 z-20 border-foreground/50 bg-foreground/20 transition-opacity",
         side === "left" ? "left-0 border-r-2" : "right-0 border-l-2",
         isOver ? "opacity-100" : "opacity-0",
       )}
+      style={{ width: `${newGroupSize(groupCount) * 100}%` }}
     />
   );
 }
@@ -453,8 +454,8 @@ export function TabGroupLayout({
           })}
           {isDraggingTab && groups.length < MAX_GROUPS && (
             <>
-              <EdgeDropZone id={EDGE_START_DROP_ID} side="left" />
-              <EdgeDropZone id={EDGE_END_DROP_ID} side="right" />
+              <EdgeDropZone id={EDGE_START_DROP_ID} side="left" groupCount={groups.length} />
+              <EdgeDropZone id={EDGE_END_DROP_ID} side="right" groupCount={groups.length} />
             </>
           )}
         </div>
