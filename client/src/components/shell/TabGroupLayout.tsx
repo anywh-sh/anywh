@@ -17,10 +17,10 @@ import { profileColorClass } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-// The divider between two groups: one 1px rule, the plane frame's own, so a
-// split reads as two panes side by side instead of one pane with a gap in it.
-const HANDLE_PX = 1;
-// Extra invisible hit area on each side of the divider — a 1px line is far too
+// The groups touch: there is no gap between them to draw a second edge in. The
+// one rule between two groups is the resize handle's own line, laid over their
+// shared edge (`GroupResizeHandle`).
+// Extra invisible hit area on each side of that edge — a 1px line is far too
 // thin to grab, and a resize would otherwise feel unresponsive just from
 // missing the target.
 const RESIZE_HIT_PADDING_PX = 4;
@@ -118,10 +118,6 @@ function groupCssVars(groups: TabGroup[]): CSSProperties {
   return vars;
 }
 
-function availExpr(total: number): string {
-  return total > 1 ? `calc(100% - ${(total - 1) * HANDLE_PX}px)` : "100%";
-}
-
 /** Covers the share a new group would get of the content area (not a thin sliver
  * at the very edge) — painting the actual area a new group would occupy,
  * not just a narrow target to hit, so it reads as "drop here to fill this
@@ -168,12 +164,10 @@ function EdgeDropZone({ id, side, groupCount }: { id: string; side: "left" | "ri
  * revealed on hover via the `group`/`group-hover` pair below. */
 function GroupResizeHandle({
   index,
-  avail,
   isDragging,
   onPointerDown,
 }: {
   index: number;
-  avail: string;
   isDragging: boolean;
   onPointerDown: (event: React.PointerEvent) => void;
 }) {
@@ -185,8 +179,8 @@ function GroupResizeHandle({
       // and its hover highlight belong to the content, not to the tabs.
       className="group absolute top-10 bottom-0 z-30 cursor-col-resize"
       style={{
-        left: `calc(${avail} * var(--g${index + 1}-cum, 0) + ${index * HANDLE_PX - RESIZE_HIT_PADDING_PX}px)`,
-        width: HANDLE_PX + RESIZE_HIT_PADDING_PX * 2,
+        left: `calc(100% * var(--g${index + 1}-cum, 0) - ${RESIZE_HIT_PADDING_PX}px)`,
+        width: RESIZE_HIT_PADDING_PX * 2,
       }}
     >
       <div className={cn("mx-auto h-full transition-colors", isDragging ? "w-1 bg-border" : "w-px bg-border-soft group-hover:w-1 group-hover:bg-border")} />
@@ -278,7 +272,6 @@ export function TabGroupLayout({
   }, [groups]);
 
   const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs]);
-  const avail = availExpr(groups.length);
 
   function handleDragStart(event: DragStartEvent): void {
     setIsDraggingTab(true);
@@ -379,10 +372,7 @@ export function TabGroupLayout({
               data-testid={`group-strip-${group.id}`}
               className="min-w-0 shrink-0 grow-0 overflow-x-clip"
               style={{
-                flexBasis: `calc(${avail} * var(--g${index}-frac, ${group.size}))`,
-                // Level with the panel below, which sits one divider further
-                // right for each group before it.
-                marginLeft: index > 0 ? HANDLE_PX : undefined,
+                flexBasis: `calc(100% * var(--g${index}-frac, ${group.size}))`,
                 transition: draggingIndex === null ? "flex-basis 150ms ease" : "none",
               }}
               // Foreground for "focus follows the pointer": clicking anywhere
@@ -418,7 +408,7 @@ export function TabGroupLayout({
         {belowStrip}
 
         {groups.slice(0, -1).map((_, index) => (
-          <GroupResizeHandle key={`resize-${index}`} index={index} avail={avail} isDragging={draggingIndex === index} onPointerDown={startDrag(index)} />
+          <GroupResizeHandle key={`resize-${index}`} index={index} isDragging={draggingIndex === index} onPointerDown={startDrag(index)} />
         ))}
 
         <div className="relative min-h-0 flex-1 bg-background">
@@ -437,8 +427,8 @@ export function TabGroupLayout({
                 // it measures 0, even for a single frame).
                 className={cn("absolute overflow-hidden", tab.room ? "top-0 -bottom-px" : "inset-y-0", !isVisible && "invisible")}
                 style={{
-                  left: `calc(${avail} * var(--g${groupIndex}-cum, 0) + ${groupIndex * HANDLE_PX}px)`,
-                  width: `calc(${avail} * var(--g${groupIndex}-frac, ${group.size}))`,
+                  left: `calc(100% * var(--g${groupIndex}-cum, 0))`,
+                  width: `calc(100% * var(--g${groupIndex}-frac, ${group.size}))`,
                   // Scopes layout/paint invalidation to this one panel — a
                   // resize of a sibling group must never force this one to
                   // re-layout too. Not `strict`/`size`: that would contain

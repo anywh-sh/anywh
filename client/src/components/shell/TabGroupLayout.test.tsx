@@ -69,32 +69,32 @@ describe("TabGroupLayout geometry", () => {
     renderLayout(tabs, [group("g1", ["s1"], 1)]);
 
     const panel = screen.getByTestId("tab-panel-s1");
-    expect(panel.style.left).toBe("calc(100% * var(--g0-cum, 0) + 0px)");
+    expect(panel.style.left).toBe("calc(100% * var(--g0-cum, 0))");
     expect(panel.style.width).toBe("calc(100% * var(--g0-frac, 1))");
   });
 
-  it("splits the available width (minus handles) proportionally across two groups", () => {
+  it("splits the width proportionally across two groups", () => {
     const tabs = [tab("s1"), tab("s2")];
     renderLayout(tabs, [group("g1", ["s1"], 0.3), group("g2", ["s2"], 0.7)]);
 
     const panelA = screen.getByTestId("tab-panel-s1");
     const panelB = screen.getByTestId("tab-panel-s2");
-    const avail = "calc(100% - 1px)";
+    const avail = "100%";
 
-    expect(panelA.style.left).toBe(`calc(${avail} * var(--g0-cum, 0) + 0px)`);
+    expect(panelA.style.left).toBe(`calc(${avail} * var(--g0-cum, 0))`);
     expect(panelA.style.width).toBe(`calc(${avail} * var(--g0-frac, 0.3))`);
-    expect(panelB.style.left).toBe(`calc(${avail} * var(--g1-cum, 0) + 1px)`);
+    expect(panelB.style.left).toBe(`calc(${avail} * var(--g1-cum, 0))`);
     expect(panelB.style.width).toBe(`calc(${avail} * var(--g1-frac, 0.7))`);
   });
 
-  it("accounts for both handles across three groups", () => {
+  it("places each of three groups after the ones before it", () => {
     const tabs = [tab("s1"), tab("s2"), tab("s3")];
     renderLayout(tabs, [group("g1", ["s1"], 0.2), group("g2", ["s2"], 0.3), group("g3", ["s3"], 0.5)]);
 
-    const avail = "calc(100% - 2px)";
-    expect(screen.getByTestId("tab-panel-s1").style.left).toBe(`calc(${avail} * var(--g0-cum, 0) + 0px)`);
-    expect(screen.getByTestId("tab-panel-s2").style.left).toBe(`calc(${avail} * var(--g1-cum, 0) + 1px)`);
-    expect(screen.getByTestId("tab-panel-s3").style.left).toBe(`calc(${avail} * var(--g2-cum, 0) + 2px)`);
+    const avail = "100%";
+    expect(screen.getByTestId("tab-panel-s1").style.left).toBe(`calc(${avail} * var(--g0-cum, 0))`);
+    expect(screen.getByTestId("tab-panel-s2").style.left).toBe(`calc(${avail} * var(--g1-cum, 0))`);
+    expect(screen.getByTestId("tab-panel-s3").style.left).toBe(`calc(${avail} * var(--g2-cum, 0))`);
   });
 
   it("gives the strip row the exact same calc() expression as its group's panel, in flexBasis", () => {
