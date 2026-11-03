@@ -64,7 +64,25 @@ export function TitleBar({
       {showSidebarToggle && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" className="size-[30px]" onClick={onToggleSidebar} aria-label={sidebarLabel}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-[30px]"
+              // The shortcut acts the moment the key goes down; a click acts when
+              // the button comes back up, one press-and-release later — the gap
+              // between a toggle that feels instant and one that does not. So a
+              // pointer acts on the press, as the shortcut does, and the `click`
+              // that follows it (it has a position, `detail` > 0) is left alone.
+              // A `click` with none — from the keyboard, or an assistive
+              // technology — is the only one that still acts.
+              onPointerDown={(event) => {
+                if (event.button === 0) onToggleSidebar();
+              }}
+              onClick={(event) => {
+                if (event.detail === 0) onToggleSidebar();
+              }}
+              aria-label={sidebarLabel}
+            >
               {/* One icon for both states, not a pair that swaps: the
                * control is a toggle, and the design draws it as a panel
                * outline that fills in when the panel is showing. Swapping

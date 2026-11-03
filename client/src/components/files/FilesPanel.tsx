@@ -18,6 +18,11 @@ import { physicalPositionToClientPoint } from "@/lib/dragDropPosition";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
+/** How often a panel with no folder asks again. The folder arrives on the
+ * session's own socket, which this panel cannot see, so it asks the relay
+ * rather than waiting to be told. */
+const FOLDER_RETRY_MS = 1500;
+
 export interface ChangeSignal {
   path: string;
   token: number;
@@ -269,19 +274,39 @@ export function FilesPanel({ profile, chatSessionId, maximized, fileTabs, onTogg
   // Not persisted — same as the terminal's tab list, this is view state, not
   // worth surviving a restart. Defaults to filtered.
   const [showHidden, setShowHidden] = useState(false);
+  // Whether the relay has said the session has no folder (yet), as opposed to
+  // not having answered. The panel can be open before the folder exists — the
+  // toggle does not wait for one — and says so instead of a spinner that
+  // never ends.
+  const [noFolder, setNoFolder] = useState(false);
 
   // Learns/confirms the session's real root once per mount — if it drifted
   // from what was persisted, `syncRoot` itself resets everything path-based
   // below (decision 9: only possible before the first turn locks the cwd).
+  // With no folder yet it keeps asking, so the tree appears by itself the
+  // moment the session has one.
   useEffect(() => {
     let cancelled = false;
-    listFiles(profile, chatSessionId)
-      .then((result) => {
-        if (!cancelled) fileTabs.syncRoot(chatSessionId, result.root);
-      })
-      .catch(() => {});
+    let timer: number | undefined;
+    function learnRoot(): void {
+      listFiles(profile, chatSessionId)
+        .then((result) => {
+          if (cancelled) return;
+          setNoFolder(false);
+          fileTabs.syncRoot(chatSessionId, result.root);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          // A `TypeError` is the request itself failing (relay unreachable):
+          // that is not "no folder", so the panel keeps saying it is loading.
+          setNoFolder(!(error instanceof TypeError));
+          timer = window.setTimeout(learnRoot, FOLDER_RETRY_MS);
+        });
+    }
+    learnRoot();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, chatSessionId]);
@@ -305,7 +330,9 @@ export function FilesPanel({ profile, chatSessionId, maximized, fileTabs, onTogg
         onClose={onClose}
         headerExtra={<div className="flex h-8 items-center px-2.5 font-mono text-[11px] text-muted-foreground">{copy.title}</div>}
       >
-        <div className="flex h-full items-center justify-center font-mono text-[11px] text-muted-foreground">{copy.loading}</div>
+        <div className="flex h-full items-center justify-center px-4 text-center font-mono text-[11px] text-muted-foreground">
+          {noFolder ? copy.noFolder : copy.loading}
+        </div>
       </SessionPanel>
     );
   }

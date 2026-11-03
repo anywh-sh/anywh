@@ -188,3 +188,112 @@ describe("useSessionDock — exported layout constants", () => {
     expect(MIN_WIDTH_WITH_FILES).toBeLessThan(MIN_USABLE_CHAT_PX);
   });
 });
+
+describe("useSessionDock — hiding a group's side panel", () => {
+  it("is shown unless the group was hidden", () => {
+    const { result } = renderHook(() => useSessionDock());
+    expect(result.current.isGroupHidden("g1")).toBe(false);
+    expect(result.current.isGroupHidden(null)).toBe(false);
+  });
+
+  it("hiding closes the dock a tab is drawn with but keeps what it had open", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.openPane("t1", "files"));
+    act(() => result.current.setGroupHidden("g1", true));
+
+    expect(result.current.getVisibleDock("t1", "g1")).toMatchObject({ panes: [], maximized: null });
+    // The stored dock is untouched: showing the panel again is the whole undo.
+    expect(result.current.getDock("t1").panes).toEqual(["terminal", "files"]);
+
+    act(() => result.current.setGroupHidden("g1", false));
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal", "files"]);
+  });
+
+  it("hides per group: another group's tab keeps its dock", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.openPane("t2", "terminal"));
+    act(() => result.current.setGroupHidden("g1", true));
+
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual([]);
+    expect(result.current.getVisibleDock("t2", "g2").panes).toEqual(["terminal"]);
+  });
+
+  it("never hides without a group (compact and iOS have no side panel to hide)", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.setGroupHidden("g1", true));
+    expect(result.current.getVisibleDock("t1", null).panes).toEqual(["terminal"]);
+  });
+
+  it("returns the same closed dock until something changes, so a memoized panel is not re-rendered", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.setGroupHidden("g1", true));
+    expect(result.current.getVisibleDock("t1", "g1")).toBe(result.current.getVisibleDock("t1", "g1"));
+  });
+
+  it("remembers the choice across a restart", () => {
+    const first = renderHook(() => useSessionDock());
+    act(() => first.result.current.setGroupHidden("g1", true));
+    first.unmount();
+    const second = renderHook(() => useSessionDock());
+    expect(second.result.current.isGroupHidden("g1")).toBe(true);
+  });
+});
+
+describe("useSessionDock — the side panel toggle", () => {
+  it("is not showing until something is open on the group's active tab", () => {
+    const { result } = renderHook(() => useSessionDock());
+    expect(result.current.isPanelShown("g1", "t1")).toBe(false);
+    expect(result.current.isPanelShown("g1", null)).toBe(false);
+    act(() => result.current.openPane("t1", "terminal"));
+    expect(result.current.isPanelShown("g1", "t1")).toBe(true);
+  });
+
+  it("opens Files on a tab that never had a pane", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePanel("g1", "t1"));
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["files"]);
+    expect(result.current.isPanelShown("g1", "t1")).toBe(true);
+  });
+
+  it("opens the pane used last when the tab has nothing open", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.closePane("t1", "terminal"));
+    expect(result.current.isPanelShown("g1", "t1")).toBe(false);
+    act(() => result.current.togglePanel("g1", "t1"));
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal"]);
+  });
+
+  it("hides what is open and brings the same panes back, in the same order", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.openPane("t1", "files"));
+    act(() => result.current.togglePanel("g1", "t1"));
+    expect(result.current.isPanelShown("g1", "t1")).toBe(false);
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual([]);
+
+    act(() => result.current.togglePanel("g1", "t1"));
+    expect(result.current.isPanelShown("g1", "t1")).toBe(true);
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal", "files"]);
+  });
+
+  it("shows the panel again on a tab of a hidden group that has nothing open", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.openPane("t1", "terminal"));
+    act(() => result.current.togglePanel("g1", "t1"));
+    // Another tab of the same, hidden group: the toggle opens its own panel.
+    act(() => result.current.togglePanel("g1", "t2"));
+    expect(result.current.isGroupHidden("g1")).toBe(false);
+    expect(result.current.getVisibleDock("t2", "g1").panes).toEqual(["files"]);
+  });
+
+  it("does nothing without an active tab", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePanel("g1", null));
+    expect(result.current.isGroupHidden("g1")).toBe(false);
+  });
+});

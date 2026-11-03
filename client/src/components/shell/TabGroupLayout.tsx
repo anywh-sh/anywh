@@ -12,15 +12,17 @@ import {
 } from "@dnd-kit/core";
 import { TabGroupStrip, groupEndDropId } from "@/components/shell/TabGroupStrip";
 import { useGroupSizeDrag } from "@/hooks/tabs/useGroupSizeDrag";
-import { MAX_GROUPS, type Tab, type TabGroup } from "@/hooks/tabs/useTabs";
+import { MAX_GROUPS, newGroupSize, type Tab, type TabGroup } from "@/hooks/tabs/useTabs";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-const HANDLE_PX = 4;
-// Extra invisible hit area on each side of the handle's visible 4px gap —
-// the gap itself is grab-able but thin enough that a resize can otherwise
-// feel unresponsive just from missing the target.
+// The groups touch: there is no gap between them to draw a second edge in. The
+// one rule between two groups is the resize handle's own line, laid over their
+// shared edge (`GroupResizeHandle`).
+// Extra invisible hit area on each side of that edge — a 1px line is far too
+// thin to grab, and a resize would otherwise feel unresponsive just from
+// missing the target.
 const RESIZE_HIT_PADDING_PX = 4;
 export const EDGE_START_DROP_ID = "group-edge-start";
 export const EDGE_END_DROP_ID = "group-edge-end";
@@ -92,6 +94,11 @@ interface TabGroupLayoutProps {
   stripTrailingInsetClass?: string;
   /** The same for the start of the strip row: room for what is pinned over it. */
   stripLeadingInsetClass?: string;
+  /** Whether a group's side panel is on screen, and the toggle for it — both
+   * given the group's active tab, which is the one whose panes are in the
+   * panel. Absent where there is no side panel (compact/iOS). */
+  rightPanelShown?: (groupId: string, activeTabId: string | null) => boolean;
+  onToggleRightPanel?: (groupId: string, activeTabId: string | null) => void;
   /** Full-width notices drawn between the strip row and the panels — below
    * the strip so the strip row stays level with the sidebar's own header. */
   belowStrip?: ReactNode;
@@ -111,11 +118,7 @@ function groupCssVars(groups: TabGroup[]): CSSProperties {
   return vars;
 }
 
-function availExpr(total: number): string {
-  return total > 1 ? `calc(100% - ${(total - 1) * HANDLE_PX}px)` : "100%";
-}
-
-/** Covers roughly the left/right half of the content area (not a thin sliver
+/** Covers the share a new group would get of the content area (not a thin sliver
  * at the very edge) — painting the actual area a new group would occupy,
  * not just a narrow target to hit, so it reads as "drop here to fill this
  * space" the way an editor's own split-preview does. Only rendered while a
@@ -133,16 +136,17 @@ function availExpr(total: number): string {
  * olive close to `background`'s own darkness) — a dark tint at any opacity
  * just reads as a smudge on a dark background, while a light tint at low
  * opacity reads as an actual highlight. */
-function EdgeDropZone({ id, side }: { id: string; side: "left" | "right" }) {
+function EdgeDropZone({ id, side, groupCount }: { id: string; side: "left" | "right"; groupCount: number }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "absolute inset-y-0 z-20 w-2/5 border-foreground/50 bg-foreground/20 transition-opacity",
+        "absolute inset-y-0 z-20 border-foreground/50 bg-foreground/20 transition-opacity",
         side === "left" ? "left-0 border-r-2" : "right-0 border-l-2",
         isOver ? "opacity-100" : "opacity-0",
       )}
+      style={{ width: `${newGroupSize(groupCount) * 100}%` }}
     />
   );
 }
@@ -155,17 +159,15 @@ function EdgeDropZone({ id, side }: { id: string; side: "left" | "right" }) {
  * lines up with the boundary by construction rather than by the flex layout
  * `TabGroupStrip`'s row used to rely on (that's what confined the old handle
  * to the strip row in the first place — flex siblings can't span past their
- * own row). Widened past its own visible 4px line by `RESIZE_HIT_PADDING_PX`
+ * own row). Widened past its own visible line by `RESIZE_HIT_PADDING_PX`
  * on each side for an easier grab target; the extra width is hit area only,
  * revealed on hover via the `group`/`group-hover` pair below. */
 function GroupResizeHandle({
   index,
-  avail,
   isDragging,
   onPointerDown,
 }: {
   index: number;
-  avail: string;
   isDragging: boolean;
   onPointerDown: (event: React.PointerEvent) => void;
 }) {
@@ -173,13 +175,15 @@ function GroupResizeHandle({
     <div
       data-testid={`group-resize-handle-${index}`}
       onPointerDown={onPointerDown}
-      className="group absolute inset-y-0 z-30 cursor-col-resize"
+      // Starts under the strip row, where the plane's frame does: the divider
+      // and its hover highlight belong to the content, not to the tabs.
+      className="group absolute top-10 bottom-0 z-30 cursor-col-resize"
       style={{
-        left: `calc(${avail} * var(--g${index + 1}-cum, 0) + ${index * HANDLE_PX - RESIZE_HIT_PADDING_PX}px)`,
-        width: HANDLE_PX + RESIZE_HIT_PADDING_PX * 2,
+        left: `calc(100% * var(--g${index + 1}-cum, 0) - ${RESIZE_HIT_PADDING_PX}px)`,
+        width: RESIZE_HIT_PADDING_PX * 2,
       }}
     >
-      <div className={cn("mx-auto h-full w-1 transition-colors", isDragging ? "bg-border" : "group-hover:bg-border")} />
+      <div className={cn("mx-auto h-full transition-colors", isDragging ? "w-1 bg-border" : "w-px bg-border-soft group-hover:w-1 group-hover:bg-border")} />
     </div>
   );
 }
@@ -248,6 +252,8 @@ export function TabGroupLayout({
   stripTrailing,
   stripTrailingInsetClass,
   stripLeadingInsetClass,
+  rightPanelShown,
+  onToggleRightPanel,
   belowStrip,
 }: TabGroupLayoutProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -266,7 +272,6 @@ export function TabGroupLayout({
   }, [groups]);
 
   const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs]);
-  const avail = availExpr(groups.length);
 
   function handleDragStart(event: DragStartEvent): void {
     setIsDraggingTab(true);
@@ -367,7 +372,7 @@ export function TabGroupLayout({
               data-testid={`group-strip-${group.id}`}
               className="min-w-0 shrink-0 grow-0 overflow-x-clip"
               style={{
-                flexBasis: `calc(${avail} * var(--g${index}-frac, ${group.size}))`,
+                flexBasis: `calc(100% * var(--g${index}-frac, ${group.size}))`,
                 transition: draggingIndex === null ? "flex-basis 150ms ease" : "none",
               }}
               // Foreground for "focus follows the pointer": clicking anywhere
@@ -389,6 +394,11 @@ export function TabGroupLayout({
                 onDelete={onDelete}
                 onSplitToNewGroup={(tabId) => onSplitTabToNewGroup(tabId, group.id)}
                 onNewTab={() => onNewTab(group.id)}
+                rightPanel={
+                  onToggleRightPanel && rightPanelShown
+                    ? { shown: rightPanelShown(group.id, group.activeTabId), onToggle: () => onToggleRightPanel(group.id, group.activeTabId) }
+                    : undefined
+                }
               />
             </div>
           ))}
@@ -398,7 +408,7 @@ export function TabGroupLayout({
         {belowStrip}
 
         {groups.slice(0, -1).map((_, index) => (
-          <GroupResizeHandle key={`resize-${index}`} index={index} avail={avail} isDragging={draggingIndex === index} onPointerDown={startDrag(index)} />
+          <GroupResizeHandle key={`resize-${index}`} index={index} isDragging={draggingIndex === index} onPointerDown={startDrag(index)} />
         ))}
 
         <div className="relative min-h-0 flex-1 bg-background">
@@ -417,8 +427,8 @@ export function TabGroupLayout({
                 // it measures 0, even for a single frame).
                 className={cn("absolute overflow-hidden", tab.room ? "top-0 -bottom-px" : "inset-y-0", !isVisible && "invisible")}
                 style={{
-                  left: `calc(${avail} * var(--g${groupIndex}-cum, 0) + ${groupIndex * HANDLE_PX}px)`,
-                  width: `calc(${avail} * var(--g${groupIndex}-frac, ${group.size}))`,
+                  left: `calc(100% * var(--g${groupIndex}-cum, 0))`,
+                  width: `calc(100% * var(--g${groupIndex}-frac, ${group.size}))`,
                   // Scopes layout/paint invalidation to this one panel — a
                   // resize of a sibling group must never force this one to
                   // re-layout too. Not `strict`/`size`: that would contain
@@ -434,8 +444,8 @@ export function TabGroupLayout({
           })}
           {isDraggingTab && groups.length < MAX_GROUPS && (
             <>
-              <EdgeDropZone id={EDGE_START_DROP_ID} side="left" />
-              <EdgeDropZone id={EDGE_END_DROP_ID} side="right" />
+              <EdgeDropZone id={EDGE_START_DROP_ID} side="left" groupCount={groups.length} />
+              <EdgeDropZone id={EDGE_END_DROP_ID} side="right" groupCount={groups.length} />
             </>
           )}
         </div>

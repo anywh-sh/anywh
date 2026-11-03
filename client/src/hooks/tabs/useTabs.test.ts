@@ -28,6 +28,20 @@ describe("useTabs — groups", () => {
     expect(result.current.activeTabId).toBe("s1");
   });
 
+  it("splits a group exactly in the middle, and equally again for a third", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => {
+      result.current.openTab("p1", "s1");
+      result.current.openTab("p1", "s2");
+      result.current.openTab("p1", "s3");
+    });
+    act(() => result.current.splitTabToNewGroup("s2", result.current.groups[0].id));
+    expect(result.current.groups.map((g) => g.size)).toEqual([0.5, 0.5]);
+
+    act(() => result.current.splitTabToNewGroup("s3", result.current.groups[1].id));
+    for (const g of result.current.groups) expect(g.size).toBeCloseTo(1 / 3);
+  });
+
   it("opening a tab that's already open elsewhere focuses its group instead of duplicating it", () => {
     const { result } = renderHook(() => useTabs());
     act(() => {

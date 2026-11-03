@@ -78,11 +78,13 @@ interface PersistedTabLayout {
 export const MAX_GROUPS = 3;
 const MIN_GROUP_SIZE = 0.05;
 
-/** Share a freshly split-off group starts with — matches `TabGroupLayout`'s
- * `EdgeDropZone` tint (`w-2/5`), so the group that actually lands is the same
- * size as the area the drag promised, not whatever `normalizeSizes`' even-split
- * fallback would have produced. */
-const NEW_GROUP_SIZE = 0.4;
+/** Share a freshly split-off group starts with: an equal one, so a split in
+ * two is exactly the middle (the way the user is going to work in it), and the
+ * `EdgeDropZone` tint covers the same share (`TabGroupLayout`), the area the
+ * drag promised and the one that lands. */
+export function newGroupSize(groupCount: number): number {
+  return 1 / (groupCount + 1);
+}
 
 const TABS_KEY = "anywh:tabs";
 const ACTIVE_TAB_KEY = "anywh:active-tab";
@@ -444,11 +446,11 @@ export function useTabs() {
       const afterIndex = afterGroupId === null ? -1 : prev.groups.findIndex((group) => group.id === afterGroupId);
       if (afterGroupId !== null && afterIndex === -1) return prev;
 
-      // Existing groups give up NEW_GROUP_SIZE between them, proportionally
-      // to their current share, so the new group lands at exactly the size
-      // its drop-zone tint promised instead of an even split of the total.
-      const newGroup = createGroup([tabId], tabId, NEW_GROUP_SIZE);
-      const existingScale = 1 - NEW_GROUP_SIZE;
+      // Existing groups give up the new group's share between them,
+      // proportionally to their current share.
+      const newSize = newGroupSize(prev.groups.length);
+      const newGroup = createGroup([tabId], tabId, newSize);
+      const existingScale = 1 - newSize;
       const groups = prev.groups.map((group) => {
         const scaled = { ...group, size: group.size * existingScale };
         if (group.id !== sourceGroup.id) return scaled;

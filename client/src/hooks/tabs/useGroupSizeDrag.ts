@@ -8,34 +8,34 @@ import { MIN_USABLE_CHAT_PX, MIN_WIDTH_WITH_FILES } from "@/hooks/tabs/useSessio
  * number — a group can host a dock, so its own minimum has to account for one. */
 export const MIN_GROUP_PX = MIN_WIDTH_WITH_FILES + MIN_USABLE_CHAT_PX;
 
-// Real safety floor — just enough to keep a group from ever reaching exactly
-// 0 (which would corrupt the virtualizer's height cache, same invariant
-// `TabGroupLayout`'s `invisible`-not-`display:none` panels protect). Small
-// on purpose: it only kicks in once `MIN_GROUP_PX` itself doesn't fit (see
-// `clampGroupResizeDelta`), where the goal is a responsive drag, not landing
-// on another aspirational number.
-const ABSOLUTE_MIN_FRACTION = 0.08;
+// The most of a pair's width the floor may take, per group. `MIN_GROUP_PX` is
+// an aspiration that stops fitting on an ordinary window, and a floor that is
+// the aspiration where it fits and something else where it does not makes the
+// handle free to move with the sidebar open and stuck against a wall with it
+// closed (the same pair, a wider container). Capping the floor at a share of
+// the pair keeps the handle's range the same at any window size, and always
+// leaves half the pair to move in; it also keeps a group from ever reaching 0
+// (which would corrupt the virtualizer's height cache, the same invariant
+// `TabGroupLayout`'s `invisible`-not-`display:none` panels protect).
+const MAX_FLOOR_SHARE_OF_PAIR = 0.25;
 
 /** How much of `rawDelta` (the pointer's raw movement, in fraction-of-container
  * space) actually gets applied to the pair of adjacent groups sharing a
  * resize handle, clamped so neither group's fraction drops below
  * `minFraction` (in the common case, `MIN_GROUP_PX` converted to a fraction
- * of the container).
- *
- * `MIN_GROUP_PX` is an aspiration, not a hard requirement — on an ordinary
- * window, two groups splitting 1200-1600px don't leave room for two
- * 900px-wide groups at once (`minFraction * 2 > pairTotal`). Naively
- * clamping to `minFraction` there makes the lower bound land *above* the
- * upper one, and `Math.max(low, Math.min(high, raw))` with `low > high`
- * always returns `low` regardless of `raw` — every pointermove would
- * compute the identical forced delta no matter which direction (or how far)
- * the pointer actually moved, making the handle look completely
- * unresponsive. When the aspiration doesn't fit, this falls back to a much
- * smaller absolute floor instead, which still leaves real room to drag. */
+ * of the container). `minFraction` is capped at a quarter of the pair (see above), so the range
+ * is the same whether the container is narrow or wide. */
 export function clampGroupResizeDelta(rawDelta: number, startSizeA: number, startSizeB: number, minFraction: number): number {
   const pairTotal = startSizeA + startSizeB;
-  const effectiveMinFraction = minFraction * 2 <= pairTotal ? minFraction : Math.min(ABSOLUTE_MIN_FRACTION, pairTotal / 2);
-  return Math.max(effectiveMinFraction - startSizeA, Math.min(startSizeB - effectiveMinFraction, rawDelta));
+  const effectiveMinFraction = Math.min(minFraction, pairTotal * MAX_FLOOR_SHARE_OF_PAIR);
+  // A group already under the floor (it was dragged there while the window was
+  // narrower, or the sidebar was open) is not pushed up to it: the floor only
+  // stops a group from getting smaller than it started. Clamping to the floor
+  // outright made the first pointermove throw the handle to the floor's
+  // position before it began to follow the pointer.
+  const low = Math.min(effectiveMinFraction, startSizeA) - startSizeA;
+  const high = startSizeB - Math.min(effectiveMinFraction, startSizeB);
+  return Math.max(low, Math.min(high, rawDelta));
 }
 
 /**

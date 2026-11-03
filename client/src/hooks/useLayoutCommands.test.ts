@@ -22,12 +22,16 @@ function makeTabsState(overrides: Partial<ReturnType<typeof useTabs>> = {}): Ret
   } as unknown as ReturnType<typeof useTabs>;
 }
 
+function makeDock(overrides: Record<string, unknown> = {}): ReturnType<typeof useSessionDock> {
+  return { togglePane: vi.fn(), openPane: vi.fn(), isGroupHidden: vi.fn(() => false), setGroupHidden: vi.fn(), ...overrides } as unknown as ReturnType<typeof useSessionDock>;
+}
+
 function makeArgs(overrides: Record<string, unknown> = {}) {
   return {
     isCompact: false,
     activeTabId: "t2",
     tabsState: makeTabsState(),
-    sessionDock: { togglePane: vi.fn(), openPane: vi.fn() } as unknown as ReturnType<typeof useSessionDock>,
+    sessionDock: makeDock(),
     terminalTabs: { addTerminal: vi.fn() } as unknown as ReturnType<typeof useTerminalTabs>,
     fileTabs: { expandDirs: vi.fn(), openPreview: vi.fn() } as unknown as ReturnType<typeof useFileTabs>,
     resizable: { toggleCollapsed: vi.fn() } as unknown as ReturnType<typeof useResizableSidebar>,
@@ -105,10 +109,33 @@ describe("useLayoutCommands — desktop-only gates", () => {
   });
 
   it("handleToggleTerminalPanel toggles the terminal pane for the active tab otherwise", () => {
-    const sessionDock = { togglePane: vi.fn(), openPane: vi.fn() } as unknown as ReturnType<typeof useSessionDock>;
+    const sessionDock = makeDock();
     const { result } = renderHook(() => useLayoutCommands(makeArgs({ sessionDock }) as never));
     result.current.handleToggleTerminalPanel();
     expect(sessionDock.togglePane).toHaveBeenCalledWith("t2", "terminal");
+    expect(sessionDock.setGroupHidden).not.toHaveBeenCalled();
+  });
+
+  // The side panel's toggle hides the panel and the buttons that open its
+  // panes, so a shortcut is the one way to ask for a pane while it is hidden.
+  // It means "show me this": a toggle would close a pane nobody can see.
+  it("shows a hidden side panel with the pane open instead of toggling the pane", () => {
+    const sessionDock = makeDock({ isGroupHidden: vi.fn(() => true) });
+    const { result } = renderHook(() => useLayoutCommands(makeArgs({ sessionDock }) as never));
+    result.current.handleToggleFilesPanel();
+    expect(sessionDock.setGroupHidden).toHaveBeenCalledWith("g1", false);
+    expect(sessionDock.openPane).toHaveBeenCalledWith("t2", "files");
+    expect(sessionDock.togglePane).not.toHaveBeenCalled();
+  });
+
+  it("shows a hidden side panel when a folder is opened in the terminal", () => {
+    const sessionDock = makeDock({ isGroupHidden: vi.fn(() => true) });
+    const terminalTabs = { addTerminal: vi.fn() } as unknown as ReturnType<typeof useTerminalTabs>;
+    const { result } = renderHook(() => useLayoutCommands(makeArgs({ sessionDock, terminalTabs }) as never));
+    result.current.handleOpenTerminalAt("t2", "/work");
+    expect(sessionDock.setGroupHidden).toHaveBeenCalledWith("g1", false);
+    expect(sessionDock.openPane).toHaveBeenCalledWith("t2", "terminal");
+    expect(terminalTabs.addTerminal).toHaveBeenCalledWith("t2", "/work");
   });
 
   it("handleSplitActiveTab splits the focused group's active tab into a new group", () => {

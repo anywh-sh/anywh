@@ -177,6 +177,9 @@
      animation there repaints only what moves, and a moving camera moves one
      composited layer instead of repainting the room. */
   --motion-fast: 120ms;
+  /* A panel opening or closing: long enough to read as a movement, short enough
+   * to stay out of the way. Between the hover feedback above and `step-in`. */
+  --motion-medium: 200ms;
   --motion-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 
@@ -870,4 +873,28 @@ body {
 }
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+/* The dock docked on the chrome, like the room's side panel (see
+ * `useDockFrameCut`): the plane's frame stops where the dock begins, and the
+ * status bar's rule ends there too, so the main container is the one framed
+ * thing and the panel beside it is not boxed in. `--dock-side-w` is the dock's
+ * width; with a room's own side panel beside it, the two are cut together. */
+:has([data-testid^="tab-panel-"]:not(.invisible) [data-dock-edge]) > [data-plane-frame] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--dock-side-w, 0px)), transparent 0);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--dock-side-w, 0px)), transparent 0);
+}
+:has([data-testid^="tab-panel-"]:not(.invisible) [data-dock-edge]) [data-status-bar] {
+  border-top-color: transparent;
+  background-image: linear-gradient(to right, var(--border-soft) calc(100% - var(--dock-side-w, 0px) - 8px), transparent 0);
+  background-size: 100% 1px;
+  background-origin: border-box;
+  background-repeat: no-repeat;
+}
+:has([data-testid^="tab-panel-"]:not(.invisible) .sala-side):has([data-testid^="tab-panel-"]:not(.invisible) [data-dock-edge]) > [data-plane-frame] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--sala-side-w, 385px) - var(--dock-side-w, 0px)), transparent 0);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--sala-side-w, 385px) - var(--dock-side-w, 0px)), transparent 0);
+}
+:has([data-testid^="tab-panel-"]:not(.invisible) .sala-side):has([data-testid^="tab-panel-"]:not(.invisible) [data-dock-edge]) [data-status-bar] {
+  background-image: linear-gradient(to right, var(--border-soft) calc(100% - var(--sala-side-w, 385px) - var(--dock-side-w, 0px) - 8px), transparent 0);
 }

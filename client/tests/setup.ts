@@ -1,4 +1,17 @@
 import "@testing-library/jest-dom/vitest";
+import { Window } from "happy-dom";
+
+// Node 25 and later ship their own `localStorage` global (web storage), an
+// accessor that returns `undefined` — and warns — unless the process was
+// started with `--localstorage-file`. happy-dom's environment copies its
+// window's properties onto the global only where there is none already, so on
+// such a Node its `localStorage` never lands, and every module that reads it
+// while it is being imported (`profiles.ts` does) fails to load: the whole
+// suite went red the day CI's `lts/*` started to mean Node 26. The accessor is
+// told apart by its descriptor rather than by reading it, which is what warns.
+if (Object.getOwnPropertyDescriptor(globalThis, "localStorage")?.get !== undefined) {
+  Object.defineProperty(globalThis, "localStorage", { value: new Window().localStorage, configurable: true, writable: true });
+}
 
 // happy-dom (like jsdom) has no real layout engine — every element's
 // getBoundingClientRect() reports all-zero dimensions. @tanstack/react-virtual

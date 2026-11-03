@@ -56,18 +56,39 @@ export function useLayoutCommands({
     }
   }
 
+  // A pane asked for while its group's side panel is hidden — by a shortcut,
+  // or by a path or folder the person clicked — brings the panel back: the
+  // request means "show me this", and it would otherwise open something
+  // nobody can see.
+  function revealRightPanel(tabId: string): void {
+    const group = tabsState.groups.find((candidate) => candidate.tabIds.includes(tabId));
+    if (group) sessionDock.setGroupHidden(group.id, false);
+  }
+
+  /** `togglePane`, except that on a hidden panel it shows the panel with the
+   * pane open instead of toggling a pane the person cannot see. */
+  function togglePaneRevealing(tabId: string, kind: "terminal" | "files"): void {
+    const group = tabsState.groups.find((candidate) => candidate.tabIds.includes(tabId));
+    if (group && sessionDock.isGroupHidden(group.id)) {
+      sessionDock.setGroupHidden(group.id, false);
+      sessionDock.openPane(tabId, kind);
+      return;
+    }
+    sessionDock.togglePane(tabId, kind);
+  }
+
   // Embedded terminal — desktop only (the original screenshot/flow
   // is clearly desktop, iOS is left out for now, same gate that voice/titlebar
   // already use).
   function handleToggleTerminalPanel(): void {
     if (isCompact || isIOS() || !activeTabId) return;
-    sessionDock.togglePane(activeTabId, "terminal");
+    togglePaneRevealing(activeTabId, "terminal");
   }
 
   // Work dir file panel — same desktop-only gate as the terminal.
   function handleToggleFilesPanel(): void {
     if (isCompact || isIOS() || !activeTabId) return;
-    sessionDock.togglePane(activeTabId, "files");
+    togglePaneRevealing(activeTabId, "files");
   }
 
   /** "Open in terminal" on a folder row in the file tree — always a fresh
@@ -77,6 +98,7 @@ export function useLayoutCommands({
    * the terminal panel itself. */
   function handleOpenTerminalAt(tabId: string, path: string): void {
     if (isCompact || isIOS()) return;
+    revealRightPanel(tabId);
     sessionDock.openPane(tabId, "terminal");
     terminalTabs.addTerminal(tabId, path);
   }
@@ -90,6 +112,7 @@ export function useLayoutCommands({
    * somewhere browsable instead of just failing silently. */
   function handleOpenFilePath(profile: Profile, tabId: string, rawPath: string): void {
     if (isCompact || isIOS()) return;
+    revealRightPanel(tabId);
     sessionDock.openPane(tabId, "files");
     resolveChatPath(profile, tabId, rawPath)
       .then(({ target, isDirectory, existingDirs }) => {

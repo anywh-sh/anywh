@@ -857,6 +857,8 @@ export interface Dictionary {
      * toolbar, but they name this surface, which is where the key belongs. */
     openFiles: string;
     closeFiles: string;
+    showRightPanel: string;
+    hideRightPanel: string;
     openTerminal: string;
     closeTerminal: string;
     maximize: string;
@@ -867,6 +869,7 @@ export interface Dictionary {
     files: {
       title: string;
       loading: string;
+      noFolder: string;
       noFileOpen: string;
       showHidden: string;
       hideHidden: string;

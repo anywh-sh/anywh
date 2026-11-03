@@ -44,6 +44,7 @@ import { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
 import { useIsCompactViewport } from "@/hooks/platform/useIsCompactViewport";
 import { useTabs, type Tab } from "@/hooks/tabs/useTabs";
 import { useSessionDock } from "@/hooks/tabs/useSessionDock";
+import { usePanelTransition } from "@/hooks/usePanelTransition";
 import { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import { useWindowFocus } from "@/hooks/platform/useWindowFocus";
@@ -556,7 +557,7 @@ function AppShell() {
       tab={tab}
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
-      dock={sessionDock.getDock(tab.id)}
+      dock={sessionDock.getVisibleDock(tab.id, groupId)}
       // "This tab is the active one of its own group" — drives panel
       // visibility, dock mounting, MessageLog's scroll re-sync and the native
       // drag-drop guard. With a group split, up to one per group can be true
@@ -591,7 +592,15 @@ function AppShell() {
   // The sidebar is hidden (collapsed on desktop) — the shell buttons then
   // float over the strip, and their measured width tells the strip how much
   // room to leave.
+  // The column opens and closes by animating its width. Everything that makes
+  // room for the floating controls — the plane's left margin and the strip's
+  // inset — follows `sidebarHidden`, which flips at the start of the movement
+  // either way, so it eases along with the column instead of after it (which
+  // sent the tabs past their place and back). The controls themselves outlive
+  // the opening by their own fade-out, so they stay mounted while it runs.
+  const sidebarMotion = usePanelTransition(!resizable.collapsed);
   const sidebarHidden = resizable.collapsed && !isCompact;
+  const floatingControls = (resizable.collapsed || sidebarMotion.transitioning) && !isCompact;
   const [leadingWidth, setLeadingWidth] = useState(0);
   const leadingRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
@@ -603,7 +612,7 @@ function AppShell() {
     <div className="relative min-h-0 flex-1">
       {tabsState.tabs.length === 0 ? (
         <div className="flex h-full flex-col">
-          <div data-tauri-drag-region className={cn("relative h-10 shrink-0 border-b border-border-soft bg-bg-chrome", sidebarHidden && "pl-[var(--shell-leading)]")}>
+          <div data-tauri-drag-region className={cn("relative h-10 shrink-0 border-b border-border-soft bg-bg-chrome", "transition-[padding-left] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none", sidebarHidden && "pl-[var(--shell-leading)]")}>
             {windowControls && <div className="absolute top-0 right-0 h-10">{windowControls}</div>}
           </div>
           {notices}
@@ -642,6 +651,8 @@ function AppShell() {
           renderPanel={renderPanel}
           belowStrip={notices}
           stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
+          rightPanelShown={sessionDock.isPanelShown}
+          onToggleRightPanel={sessionDock.togglePanel}
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />
@@ -704,6 +715,20 @@ function AppShell() {
     );
   }
 
+  // The floating controls are always the collapsed form (just the toggle): the
+  // form with the menu belongs to the column. Were this one to switch to it
+  // the moment the sidebar starts opening, it would widen by the menu's width
+  // while the strip is still making room for it.
+  const floatingTitleBar = (
+    <TitleBar
+      showSidebarToggle
+      sidebarCollapsed
+      onToggleSidebar={resizable.toggleCollapsed}
+      onOpenSettings={() => setSettingsOpen(true)}
+      onCheckForUpdates={() => void handleCheckForUpdates()}
+    />
+  );
+
   const titleBar = (
     <TitleBar
       showSidebarToggle={!isCompact}
@@ -729,22 +754,51 @@ function AppShell() {
       <UpdateModal open={updateModalOpen} onOpenChange={setUpdateModalOpen} />
 
       <div className="flex min-h-0 flex-1">
-        {!isCompact && !resizable.collapsed && (
+        {!isCompact && (
           // The window's top-left corner and the sidebar are one column: the
           // traffic lights and the shell buttons sit on top of the session
           // list, and the tab strip starts where this column ends. The rule
           // between the sidebar and the plane is the plane's own frame, so the
           // column draws none.
-          <div className="relative flex shrink-0 flex-col bg-bg-sidebar" style={{ width: resizable.width }}>
-            {titleBar}
-            <div className="relative min-h-0 flex-1">
-              <div className="h-full overflow-hidden">
-                <Sidebar {...sidebarProps} />
-              </div>
-              <div
-                onPointerDown={resizable.startDrag}
-                className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
-              />
+          //
+          // The column is always here, and its width is what opens and closes:
+          // a box that is not mounted has nothing to animate from. Its content
+          // is mounted only while there is something to see (open, or still
+          // closing), at the width it will have, and fades with the box — see
+          // `SessionDock` for the same arrangement on the right. The transition
+          // is off while the edge is being dragged, or the column would trail
+          // the pointer.
+          <div
+            className={cn(
+              "relative flex shrink-0 flex-col overflow-hidden bg-bg-sidebar",
+              !resizable.isDragging && "transition-[width] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+            )}
+            style={{ width: resizable.width, contain: "layout paint" }}
+          >
+            {/* The wrapper is always here, so the fade has an element that was
+             * already drawn at the other opacity to run from; only what is in
+             * it comes and goes. */}
+            <div
+              className={cn(
+                "relative flex h-full flex-col transition-opacity duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+                resizable.collapsed ? "opacity-0" : "opacity-100 delay-(--motion-fast)",
+              )}
+              style={{ width: resizable.expandedWidth }}
+            >
+              {sidebarMotion.present && (
+                <>
+                  {titleBar}
+                  <div className="relative min-h-0 flex-1">
+                    <div className="h-full overflow-hidden">
+                      <Sidebar {...sidebarProps} />
+                    </div>
+                    <div
+                      onPointerDown={resizable.startDrag}
+                      className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-border"
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -760,15 +814,27 @@ function AppShell() {
 
         {/* Collapsed, the plane keeps 8px of the frame on its left. */}
         <div
-          className={cn("relative flex min-w-0 flex-1 flex-col", sidebarHidden && "pl-2")}
+          // The plane's 8px of frame on its left, and the room the strip leaves
+          // for the floating controls, ease in and out with the column rather
+          // than jumping when it starts to close or finishes opening.
+          className={cn("relative flex min-w-0 flex-1 flex-col", "transition-[padding-left] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none", sidebarHidden && "pl-2")}
           style={sidebarHidden ? ({ "--shell-leading": `${String(Math.max(0, leadingWidth - 8))}px` } as React.CSSProperties) : undefined}
         >
           {/* Collapsed, the sidebar is gone and only the shell buttons stay,
            * floating over the start of the strip row; the plane runs from 8px
            * in, and the strip leaves room for them. */}
-          {sidebarHidden && (
-            <div ref={leadingRef} className="absolute top-0 left-0 z-30">
-              {titleBar}
+          {floatingControls && (
+            // They fade out as the sidebar opens (and are out of the way of
+            // the pointer while they do), so by the time the tabs have moved
+            // over them there is nothing to overlap.
+            <div
+              ref={leadingRef}
+              className={cn(
+                "absolute top-0 left-0 z-30 transition-opacity duration-(--motion-fast) ease-(--motion-ease) motion-reduce:transition-none",
+                !resizable.collapsed && "pointer-events-none opacity-0",
+              )}
+            >
+              {floatingTitleBar}
             </div>
           )}
           {isCompact && (
