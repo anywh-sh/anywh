@@ -14,13 +14,9 @@ describe("clampGroupResizeDelta", () => {
   });
 
   // Regression: reported live as "resize handle doesn't respond to
-  // dragging" — an ordinary browser window (1200-1600px) splitting 2 groups
-  // makes MIN_GROUP_PX (900px) amount to more than half of a 50/50 pair
-  // (minFraction 0.75 > 0.5, so 2x it exceeds the pair's total of 1). Before
-  // the fix, clampGroupResizeDelta's two bounds inverted (low > high), and
-  // Math.max/Math.min always resolved to the same forced value — every
-  // pointermove computed the exact same delta regardless of how far or which
-  // direction the pointer actually moved.
+  // dragging" — an ordinary window splitting 2 groups makes MIN_GROUP_PX
+  // (900px) more than half of a 50/50 pair. The bounds used to invert there
+  // (low > high) and every pointermove resolved to the same forced delta.
   it("still tracks the pointer's direction when MIN_GROUP_PX exceeds half the pair's width", () => {
     const containerWidth = 1200; // MIN_GROUP_PX / 1200 = 0.75 > 0.5
     const minFraction = MIN_GROUP_PX / containerWidth;
@@ -35,31 +31,41 @@ describe("clampGroupResizeDelta", () => {
     expect(draggingLeft).toBeLessThan(0);
   });
 
-  it("falls back to a small absolute floor, not a frozen midpoint, once MIN_GROUP_PX is infeasible", () => {
-    // A naive "cap minFraction at half the pair" fix would still freeze the
-    // drag at exactly the midpoint (low === high whenever the cap binds),
-    // just at a different fixed point instead of a wrong one — still not a
-    // responsive drag. The small absolute floor below leaves real room.
-    const delta = clampGroupResizeDelta(0.2, 0.5, 0.5, 5 /* absurdly oversized minFraction */);
-    expect(delta).toBeCloseTo(0.2);
+  it("caps the floor at a quarter of the pair, so an oversized floor still leaves room to drag", () => {
+    expect(clampGroupResizeDelta(0.2, 0.5, 0.5, 5 /* absurdly oversized minFraction */)).toBeCloseTo(0.2);
+    // A can shrink to 0.25 of the pair and no further.
+    expect(clampGroupResizeDelta(-0.9, 0.5, 0.5, 5)).toBeCloseTo(-0.25);
+    expect(clampGroupResizeDelta(0.9, 0.5, 0.5, 5)).toBeCloseTo(0.25);
   });
 
-  it("still protects against a group reaching exactly zero even with an infeasible MIN_GROUP_PX", () => {
-    const delta = clampGroupResizeDelta(-0.9, 0.5, 0.5, 5);
-    expect(0.5 + delta).toBeGreaterThan(0);
+  // Regression: with the sidebar open the handle moved freely, and with it
+  // closed it hit a wall. The floor was MIN_GROUP_PX where that fit the pair and
+  // a tiny one where it did not, so the same pair had a far smaller range in
+  // the wider container. The range must not depend on the container's width.
+  it("gives the same range for the same pair in a narrow and in a wide container", () => {
+    const narrow = MIN_GROUP_PX / 1200;
+    const wide = MIN_GROUP_PX / 1800;
+    for (const minFraction of [narrow, wide]) {
+      expect(clampGroupResizeDelta(-0.9, 0.5, 0.5, minFraction)).toBeLessThanOrEqual(-0.25 + 1e-9);
+      expect(clampGroupResizeDelta(0.9, 0.5, 0.5, minFraction)).toBeGreaterThanOrEqual(0.25 - 1e-9);
+    }
   });
 
-  // Regression: shrink the left group, close the sidebar (the container gets
-  // wider, so the floor in px now fits and the group is under it), then drag:
-  // the handle used to jump to the floor on the first pointermove, as if the
-  // position were there, and only then follow the pointer.
+  it("never lets a group reach zero, whatever the floor", () => {
+    expect(0.5 + clampGroupResizeDelta(-0.9, 0.5, 0.5, 5)).toBeGreaterThan(0);
+    expect(0.5 + clampGroupResizeDelta(-0.9, 0.5, 0.5, 0)).toBeGreaterThanOrEqual(0);
+  });
+
+  // Regression: a group already under the floor used to be thrown up to it on
+  // the first pointermove, as if the handle's position were there, before it
+  // began to follow the pointer.
   it("does not push a group that starts under the floor up to it", () => {
-    // A is 0.3, under a floor of 0.4; B is 0.7.
-    expect(clampGroupResizeDelta(0.01, 0.3, 0.7, 0.4)).toBeCloseTo(0.01);
-    expect(clampGroupResizeDelta(0, 0.3, 0.7, 0.4)).toBeCloseTo(0);
+    // A is 0.2, under the floor of 0.25 of the pair; B is 0.8.
+    expect(clampGroupResizeDelta(0.01, 0.2, 0.8, 0.4)).toBeCloseTo(0.01);
+    expect(clampGroupResizeDelta(0, 0.2, 0.8, 0.4)).toBeCloseTo(0);
     // It can still not get any smaller than it is.
-    expect(clampGroupResizeDelta(-0.1, 0.3, 0.7, 0.4)).toBeCloseTo(0);
+    expect(clampGroupResizeDelta(-0.1, 0.2, 0.8, 0.4)).toBeCloseTo(0);
     // And the neighbour still stops at the floor.
-    expect(clampGroupResizeDelta(0.9, 0.3, 0.7, 0.4)).toBeCloseTo(0.3);
+    expect(clampGroupResizeDelta(0.9, 0.2, 0.8, 0.4)).toBeCloseTo(0.55);
   });
 });
