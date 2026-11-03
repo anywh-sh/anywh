@@ -1,4 +1,4 @@
-import { Fragment, useRef, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useDockPresence } from "@/hooks/useDockPresence";
 import { useDockFrameCut } from "@/hooks/useDockFrameCut";
 import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
@@ -55,6 +55,22 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
   // A maximized pane fills the plane, so there is no side to be on.
   useDockFrameCut(rootRef, present && !maximizedOpen, dock.width);
 
+  // The width a maximized pane grows to, in pixels: `auto`/`flex-1` cannot be
+  // transitioned, so maximizing animates between two lengths like opening does.
+  // Measured off the plane the dock sits in, which only changes when the window
+  // or a split group does, never as the dock animates.
+  const [planeWidth, setPlaneWidth] = useState(0);
+  useLayoutEffect(() => {
+    const plane = rootRef.current?.parentElement;
+    if (!plane) return;
+    const measure = () => setPlaneWidth(plane.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(plane);
+    return () => observer.disconnect();
+  }, []);
+  const boxWidth = drawn.dock.maximized && planeWidth > 0 ? planeWidth : dock.width;
+
   return (
     <div
       ref={rootRef}
@@ -68,12 +84,13 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
       // trail the pointer. The divider goes with the width, so a closed dock
       // leaves no sliver.
       className={cn(
-        "relative h-full shrink-0 overflow-hidden bg-bg-chrome",
+        // `ml-auto` keeps the right edge put when the chat leaves the flow to
+        // make room, so a maximized pane grows leftwards from where it was.
+        "relative ml-auto h-full shrink-0 overflow-hidden bg-bg-chrome",
         present && "border-l border-border-soft",
         !isWidthDragging && "transition-[width] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
-        maximizedOpen && "flex-1",
       )}
-      style={{ width: open ? (drawn.dock.maximized ? undefined : dock.width) : 0, contain: "layout paint" }}
+      style={{ width: open ? boxWidth : 0, contain: "layout paint" }}
     >
       {/* The content, at the width it will have, fading in as the box opens
        * (a beat behind it, so the text arrives once there is room for it) and
@@ -83,7 +100,7 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
           "relative h-full transition-opacity duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
           open ? "opacity-100 delay-(--motion-fast)" : "opacity-0",
         )}
-        style={{ width: drawn.dock.maximized ? "100%" : dock.width }}
+        style={{ width: boxWidth }}
       >
         {present && !drawn.dock.maximized && (
           <div
