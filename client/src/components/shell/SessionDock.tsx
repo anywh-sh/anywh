@@ -4,7 +4,12 @@ import { useDockFrameCut } from "@/hooks/useDockFrameCut";
 import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
 import { useSplitDrag } from "@/hooks/tabs/useSplitDrag";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
+import { DEFAULT_DOCK_WIDTH, dockWidthBounds } from "@/hooks/tabs/useSessionDock";
+import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
+
+/** How far one arrow key press moves the column's edge. */
+const KEY_STEP = 16;
 
 interface SessionDockProps {
   dock: DockState;
@@ -36,6 +41,7 @@ interface SessionDockProps {
  * is why `SessionPanel` no longer has an `onStartDrag`.
  */
 export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd, panes }: SessionDockProps) {
+  const dict = useDict();
   const stackRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const open = dock.panes.length > 0;
@@ -50,6 +56,24 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
 
   const { startDrag, isDragging: isWidthDragging } = usePanelDrag(dock.width, onWidthChange, onDragEnd);
   const { isDragging: isSplitDragging, startDrag: startSplitDrag } = useSplitDrag(dock.splitRatio, onSplitRatioChange, stackRef, onDragEnd);
+
+  const bounds = dockWidthBounds(drawn.dock.panes);
+  const commitWidth = (width: number): void => {
+    onWidthChange(width);
+    onDragEnd();
+  };
+  // The edge is on the column's left: ArrowLeft moves it left, widening it.
+  const onEdgeKeyDown = (event: React.KeyboardEvent): void => {
+    const next =
+      event.key === "ArrowLeft" ? dock.width + KEY_STEP
+      : event.key === "ArrowRight" ? dock.width - KEY_STEP
+      : event.key === "Home" ? bounds.min
+      : event.key === "End" ? bounds.max
+      : null;
+    if (next === null) return;
+    event.preventDefault();
+    commitWidth(next);
+  };
 
   const maximizedOpen = present && drawn.dock.maximized !== null;
   // A maximized pane fills the plane, so there is no side to be on.
@@ -96,8 +120,17 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
       >
         {present && !drawn.dock.maximized && (
           <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={dict.panels.resize}
+            aria-valuenow={dock.width}
+            aria-valuemin={bounds.min}
+            aria-valuemax={bounds.max}
+            tabIndex={0}
             onPointerDown={startDrag}
-            className="absolute top-0 left-0 z-10 h-full w-1 cursor-col-resize hover:bg-border"
+            onKeyDown={onEdgeKeyDown}
+            onDoubleClick={() => commitWidth(DEFAULT_DOCK_WIDTH)}
+            className="absolute top-0 left-0 z-10 h-full w-1 cursor-col-resize hover:bg-border focus-visible:bg-border focus-visible:outline-none"
           />
         )}
 

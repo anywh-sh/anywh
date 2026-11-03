@@ -52,7 +52,7 @@ const MIN_WIDTH_ROOM_PANE = 385;
 // width, not just its own pane kind — not wired yet, tracked as a known gap
 // rather than solved preventively here).
 export const MIN_USABLE_CHAT_PX = 480;
-const DEFAULT_WIDTH = 480;
+export const DEFAULT_DOCK_WIDTH = 480;
 const MIN_SPLIT_RATIO = 0.2;
 const MAX_SPLIT_RATIO = 0.8;
 
@@ -83,13 +83,19 @@ function loadHidden(): HiddenGroups {
   }
 }
 
-function clampWidth(width: number, panes: DockPaneKind[]): number {
+/** The narrowest and widest the column may be with these panes in it. */
+export function dockWidthBounds(panes: readonly DockPaneKind[]): { min: number; max: number } {
   const min = panes.includes("files")
     ? MIN_WIDTH_WITH_FILES
     : panes.includes("agent") || panes.includes("about")
       ? MIN_WIDTH_ROOM_PANE
       : MIN_WIDTH;
-  return Math.min(MAX_WIDTH, Math.max(min, width));
+  return { min, max: MAX_WIDTH };
+}
+
+function clampWidth(width: number, panes: DockPaneKind[]): number {
+  const { min, max } = dockWidthBounds(panes);
+  return Math.min(max, Math.max(min, width));
 }
 
 function clampSplitRatio(ratio: number): number {
@@ -125,7 +131,7 @@ function loadPersisted(): DockMap {
   }
 }
 
-const EMPTY_DOCK: DockState = { panes: [], width: DEFAULT_WIDTH, splitRatio: 0.5, maximized: null };
+const EMPTY_DOCK: DockState = { panes: [], width: DEFAULT_DOCK_WIDTH, splitRatio: 0.5, maximized: null };
 
 function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
   if (!dock.panes.includes(kind)) return dock;

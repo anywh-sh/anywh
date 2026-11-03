@@ -296,6 +296,7 @@ export const en: Dictionary = {
     closeFiles: "Close files",
     showRightPanel: "Show side panel",
     hideRightPanel: "Hide side panel",
+    resize: "Resize panel",
     openTerminal: "Open terminal",
     closeTerminal: "Close terminal",
     maximize: "Expand panel",
