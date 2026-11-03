@@ -17,10 +17,12 @@ import { profileColorClass } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-const HANDLE_PX = 4;
-// Extra invisible hit area on each side of the handle's visible 4px gap —
-// the gap itself is grab-able but thin enough that a resize can otherwise
-// feel unresponsive just from missing the target.
+// The divider between two groups: one 1px rule, the plane frame's own, so a
+// split reads as two panes side by side instead of one pane with a gap in it.
+const HANDLE_PX = 1;
+// Extra invisible hit area on each side of the divider — a 1px line is far too
+// thin to grab, and a resize would otherwise feel unresponsive just from
+// missing the target.
 const RESIZE_HIT_PADDING_PX = 4;
 export const EDGE_START_DROP_ID = "group-edge-start";
 export const EDGE_END_DROP_ID = "group-edge-end";
@@ -160,7 +162,7 @@ function EdgeDropZone({ id, side }: { id: string; side: "left" | "right" }) {
  * lines up with the boundary by construction rather than by the flex layout
  * `TabGroupStrip`'s row used to rely on (that's what confined the old handle
  * to the strip row in the first place — flex siblings can't span past their
- * own row). Widened past its own visible 4px line by `RESIZE_HIT_PADDING_PX`
+ * own row). Widened past its own visible line by `RESIZE_HIT_PADDING_PX`
  * on each side for an easier grab target; the extra width is hit area only,
  * revealed on hover via the `group`/`group-hover` pair below. */
 function GroupResizeHandle({
@@ -178,13 +180,15 @@ function GroupResizeHandle({
     <div
       data-testid={`group-resize-handle-${index}`}
       onPointerDown={onPointerDown}
-      className="group absolute inset-y-0 z-30 cursor-col-resize"
+      // Starts under the strip row, where the plane's frame does: the divider
+      // and its hover highlight belong to the content, not to the tabs.
+      className="group absolute top-10 bottom-0 z-30 cursor-col-resize"
       style={{
         left: `calc(${avail} * var(--g${index + 1}-cum, 0) + ${index * HANDLE_PX - RESIZE_HIT_PADDING_PX}px)`,
         width: HANDLE_PX + RESIZE_HIT_PADDING_PX * 2,
       }}
     >
-      <div className={cn("mx-auto h-full w-1 transition-colors", isDragging ? "bg-border" : "group-hover:bg-border")} />
+      <div className={cn("mx-auto h-full transition-colors", isDragging ? "w-1 bg-border" : "w-px bg-border-soft group-hover:w-1 group-hover:bg-border")} />
     </div>
   );
 }
@@ -375,6 +379,9 @@ export function TabGroupLayout({
               className="min-w-0 shrink-0 grow-0 overflow-x-clip"
               style={{
                 flexBasis: `calc(${avail} * var(--g${index}-frac, ${group.size}))`,
+                // Level with the panel below, which sits one divider further
+                // right for each group before it.
+                marginLeft: index > 0 ? HANDLE_PX : undefined,
                 transition: draggingIndex === null ? "flex-basis 150ms ease" : "none",
               }}
               // Foreground for "focus follows the pointer": clicking anywhere
