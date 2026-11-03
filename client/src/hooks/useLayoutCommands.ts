@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useResizableSidebar } from "@/hooks/tabs/useResizableSidebar";
-import type { useSessionDock } from "@/hooks/tabs/useSessionDock";
+import type { DockPaneKind, useSessionDock } from "@/hooks/tabs/useSessionDock";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import { resolveChatPath } from "@/lib/relay/filesClient";
@@ -38,6 +38,8 @@ export function useLayoutCommands({
   handleToggleTerminalPanel: () => void;
   handleToggleFilesPanel: () => void;
   handleOpenTerminalAt: (tabId: string, path: string) => void;
+  handleOpenPane: (tabId: string, kind: DockPaneKind) => void;
+  handleTogglePane: (tabId: string, kind: DockPaneKind) => void;
   handleOpenFilePath: (profile: Profile, tabId: string, rawPath: string) => void;
   handleCycleTab: (direction: 1 | -1) => void;
   handleSplitActiveTab: () => void;
@@ -67,7 +69,7 @@ export function useLayoutCommands({
 
   /** `togglePane`, except that on a hidden panel it shows the panel with the
    * pane open instead of toggling a pane the person cannot see. */
-  function togglePaneRevealing(tabId: string, kind: "terminal" | "files"): void {
+  function togglePaneRevealing(tabId: string, kind: DockPaneKind): void {
     const group = tabsState.groups.find((candidate) => candidate.tabIds.includes(tabId));
     if (group && sessionDock.isGroupHidden(group.id)) {
       sessionDock.setGroupHidden(group.id, false);
@@ -75,6 +77,14 @@ export function useLayoutCommands({
       return;
     }
     sessionDock.togglePane(tabId, kind);
+  }
+
+  /** A room opening one of its own panes (an agent's conversation, the room's
+   * information): "show me this", so it also brings back a hidden panel. */
+  function handleOpenPane(tabId: string, kind: DockPaneKind): void {
+    if (isCompact || isIOS()) return;
+    revealRightPanel(tabId);
+    sessionDock.openPane(tabId, kind);
   }
 
   // Embedded terminal — desktop only (the original screenshot/flow
@@ -159,6 +169,8 @@ export function useLayoutCommands({
     handleToggleTerminalPanel,
     handleToggleFilesPanel,
     handleOpenTerminalAt,
+    handleOpenPane,
+    handleTogglePane: togglePaneRevealing,
     handleOpenFilePath,
     handleCycleTab,
     handleSplitActiveTab,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { CheckIcon } from "@/components/sala/SalaIcons";
 import { AboutRoomPanel } from "@/components/sala/AboutRoomPanel";
@@ -6,9 +6,12 @@ import { AgentAnswer } from "@/components/sala/AgentAnswer";
 import { AgentPanel } from "@/components/sala/AgentPanel";
 import { NewAgentLauncher, type LaunchOutcome } from "@/components/sala/NewAgentLauncher";
 import { SalaCanvas, type SalaCanvasHandle } from "@/components/sala/SalaCanvas";
+import type { RoomDock, RoomPaneKind } from "@/components/sala/roomDock";
+import type { RoomPaneShell } from "@/components/sala/RoomPaneFrame";
 import { useRoomWorktrees } from "@/hooks/sala/useRoomWorktrees";
 import { useRoomChannel } from "@/hooks/sala/useRoomChannel";
 import { useRoomCanvas } from "@/hooks/sala/useRoomCanvas";
+import { useRoomPanes } from "@/hooks/sala/useRoomPanes";
 import { useDict } from "@/i18n";
 import { effectiveModel, getModelCatalogs, labelForModel } from "@/lib/composer/modelCatalog";
 import {
@@ -29,6 +32,7 @@ import { isRoomCompleted } from "@/lib/sala/roomStatus";
 import { retainedWorktrees } from "@/lib/sala/roomFigures";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { Camera } from "@/lib/sala/camera";
+import { cn } from "@/lib/utils";
 
 interface RoomPanelProps {
   profile: Profile;
@@ -44,9 +48,13 @@ interface RoomPanelProps {
   onGone: () => void;
   /** Opens one of the room's agents as a tab of its own. */
   onOpenSession: (sessionId: string, title: string | null) => void;
+  /** The tab's dock, where the room's panes open; `null` where there is none
+   * (compact windows, iOS) and the room keeps a panel of its own. */
+  dock: RoomDock | null;
 }
 
-type PanelState = { kind: "about" } | { kind: "agent"; id: string } | null;
+/** Esc pressed in the terminal or the file viewer is theirs, not the room's. */
+const NOT_THE_ROOMS = '[data-dock-pane="terminal"], [data-dock-pane="files"]';
 
 /**
  * A room's tab: its live state (one channel), its layout (the relay's
@@ -54,15 +62,25 @@ type PanelState = { kind: "about" } | { kind: "agent"; id: string } | null;
  * goes through the relay and comes back over the channel — it keeps no copy
  * of an agent's state of its own.
  */
-export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnectedChange, onGone, onOpenSession }: RoomPanelProps) {
+export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnectedChange, onGone, onOpenSession, dock }: RoomPanelProps) {
   const dict = useDict().sala;
   const channel = useRoomChannel(profile, roomId);
   const ready = channel.summary !== null;
   const layout = useRoomCanvas(profile, roomId, channel.agents, ready);
   const [contextCount, setContextCount] = useState(0);
-  const [panel, setPanel] = useState<PanelState>(null);
+  const panes = useRoomPanes(dock);
+  // The agent the agent pane shows; none picked yet is the principal. Kept
+  // while the pane is closed: the agent button comes back to the last one.
+  const [focusedAgentId, setFocusedAgentId] = useState<string | null>(null);
+  const openAgent = useCallback(
+    (agentId: string) => {
+      setFocusedAgentId(agentId);
+      panes.open("agent");
+    },
+    [panes.open],
+  );
   // Stable so the chats under the provider don't re-render with the panel.
-  const cardActions = useMemo(() => ({ openAgent: (agentId: string) => setPanel({ kind: "agent", id: agentId }) }), []);
+  const cardActions = useMemo(() => ({ openAgent }), [openAgent]);
   const [launcher, setLauncher] = useState<{ open: boolean; parentId: string | undefined }>({ open: false, parentId: undefined });
   const canvasHandle = useRef<SalaCanvasHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -194,46 +212,99 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   );
 
   const principalId = channel.agents.find((a) => a.role === "principal")?.agentId;
-  const panelAgent = panel?.kind === "agent" ? channel.agents.find((a) => a.agentId === panel.id) : undefined;
+  const panelAgent = panes.agentOpen ? (channel.agents.find((a) => a.agentId === (focusedAgentId ?? principalId)) ?? channel.agents.find((a) => a.agentId === principalId)) : undefined;
   const refreshKey = channel.agents.map((a) => `${a.agentId}:${String(a.report?.at ?? 0)}`).join("|");
   const completed = isRoomCompleted(channel.agents);
   const worktrees = useRoomWorktrees(profile, roomId, refreshKey, completed || panelAgent !== undefined);
   const kept = retainedWorktrees(worktrees.data.worktrees).length;
 
-  // The agent a panel showed is gone (removed): so is the panel.
+  // The agent the pane showed is gone (removed): the pane stays, on the principal.
+  const focusedGone = focusedAgentId !== null && ready && !channel.agents.some((a) => a.agentId === focusedAgentId);
   useEffect(() => {
-    if (panel?.kind === "agent" && !panelAgent && ready) setPanel(null);
-  }, [panel, panelAgent, ready]);
+    if (focusedGone) setFocusedAgentId(null);
+  }, [focusedGone]);
 
-  // Esc closes the panel from anywhere on a visible room: whatever has its own
-  // use for the key (a menu, a dialog, the launcher) stops it first.
-  const panelOpen = panel !== null;
+  // Esc closes the pane opened last from anywhere on a visible room: whatever
+  // has its own use for the key (a menu, a dialog, the launcher) stops it
+  // first, and so does the terminal or the file viewer beside the pane.
+  const lastPane = panes.last;
+  const closePane = panes.close;
   useEffect(() => {
-    if (!panelOpen) return;
+    if (lastPane === null) return;
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if ((rootRef.current?.getClientRects().length ?? 0) === 0) return;
-      setPanel(null);
+      if (event.target instanceof Element && event.target.closest(NOT_THE_ROOMS)) return;
+      closePane(lastPane);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [panelOpen]);
+  }, [lastPane, closePane]);
+
+  // The tab's dock sits beside the room whatever the room is showing: a room
+  // still loading, or gone, has the terminal and the files like any other tab.
+  const withDock = (room: ReactNode, panesContent: Partial<Record<RoomPaneKind, ReactNode>> = {}): ReactNode => {
+    if (!dock) return room;
+    return (
+      <RoomCardActionsContext.Provider value={cardActions}>
+        <div className="relative flex h-full min-w-0">
+          {/* Out of the flow, not shrunk, while a pane is maximized: the canvas keeps its size. */}
+          <div className={cn("min-w-0 flex-1", dock.maximized !== null && "invisible absolute inset-0")}>{room}</div>
+          {dock.render(panesContent)}
+        </div>
+      </RoomCardActionsContext.Provider>
+    );
+  };
 
   if (gone) {
-    return <div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-text-faint">{dict.canvas.gone}</div>;
+    return withDock(<div className="flex h-full items-center justify-center px-6 text-center font-mono text-[13px] text-text-faint">{dict.canvas.gone}</div>);
   }
   // Until the first snapshot there is nothing to draw but an empty room, and
   // an empty room is a claim ("no agents") this screen cannot make yet.
   if (layout.status !== "ready" || !ready) {
-    return <div className="flex h-full items-center justify-center font-mono text-[13px] text-text-faint">{dict.canvas.loading}</div>;
+    return withDock(<div className="flex h-full items-center justify-center font-mono text-[13px] text-text-faint">{dict.canvas.loading}</div>);
   }
+
+  const shellOf = (kind: RoomPaneKind): RoomPaneShell =>
+    dock ? { kind: "dock", maximized: dock.maximized === kind, onToggleMaximized: () => dock.toggleMaximized(kind) } : { kind: "side" };
 
   const openLauncher = (parentId?: string): void => {
     setLauncher((current) => (current.open && parentId === undefined ? { open: false, parentId: undefined } : { open: true, parentId: parentId ?? principalId }));
   };
 
-  return (
-    <RoomCardActionsContext.Provider value={cardActions}>
+  const aboutPane = panes.aboutOpen && (
+    <AboutRoomPanel
+      profile={profile}
+      roomId={roomId}
+      title={principalTitle ?? dict.card.untitled}
+      titlePending={principalTitlePending}
+      agents={channel.agents}
+      refreshKey={refreshKey}
+      shell={shellOf("about")}
+      onClose={() => panes.close("about")}
+    />
+  );
+  const agentPane = panelAgent && (
+    <AgentPanel
+      key={panelAgent.agentId}
+      profile={profile}
+      roomId={roomId}
+      agent={panelAgent}
+      parent={channel.agents.find((a) => a.agentId === panelAgent.parentId && a.role === "worker")}
+      modelLabel={modelLabelOf(panelAgent)}
+      observedSince={channel.since.get(panelAgent.agentId)?.since ?? 0}
+      worktrees={worktrees.data.worktrees}
+      shell={shellOf("agent")}
+      onClose={() => panes.close("agent")}
+      onOpenInTab={(agentId) => onOpenSession(agentId, channel.agents.find((a) => a.agentId === agentId)?.title ?? null)}
+      onDelegate={(agentId) => openLauncher(agentId)}
+      onStop={(agentId) => void onStopAgent(agentId)}
+      onResume={onResumeAgent}
+      onRemove={(agentId) => canvasHandle.current?.removeAgent(agentId)}
+    />
+  );
+
+  const room = (
     <div ref={rootRef} className="flex h-[calc(100%-1px)] min-w-0 bg-background" data-room-id={roomId}>
       <div className="relative h-full min-w-0 flex-1">
         <SalaCanvas
@@ -251,7 +322,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           onRestoreAgent={onRestoreAgent}
           onCheckWork={onCheckWork}
           onAttachFiles={onAttachFiles}
-          onOpenAgent={(agentId) => setPanel({ kind: "agent", id: agentId })}
+          onOpenAgent={openAgent}
           onNewAgent={openLauncher}
           newAgentOpen={launcher.open}
           launcher={
@@ -267,12 +338,14 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
               />
             )
           }
-          onAbout={() => setPanel((current) => (current?.kind === "about" ? null : { kind: "about" }))}
-          aboutVisible={panel === null}
-          renderAnswer={(agent, close) => <AgentAnswer profile={profile} agent={agent} onClose={close} onOpenConversation={() => setPanel({ kind: "agent", id: agent.agentId })} />}
-          onEscape={() => setPanel(null)}
+          onAbout={() => panes.toggle("about")}
+          aboutVisible={panes.last === null}
+          renderAnswer={(agent, close) => <AgentAnswer profile={profile} agent={agent} onClose={close} onOpenConversation={() => openAgent(agent.agentId)} />}
+          onEscape={() => {
+            if (panes.last !== null) panes.close(panes.last);
+          }}
           onSelectMany={() => {
-            setPanel(null);
+            panes.closeAll();
             setLauncher({ open: false, parentId: undefined });
           }}
         />
@@ -281,34 +354,16 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
             <CheckIcon size={12} />
             <b>{dict.completed.title}</b>
             {kept > 0 && <span>{kept === 1 ? dict.completed.keptOne : dict.completed.kept.replace("{count}", String(kept))}</span>}
-            <button type="button" onClick={() => setPanel({ kind: "about" })}>
+            <button type="button" onClick={() => panes.open("about")}>
               {dict.completed.review}
             </button>
           </div>
         )}
       </div>
-      {panel?.kind === "about" && (
-        <AboutRoomPanel profile={profile} roomId={roomId} title={principalTitle ?? dict.card.untitled} titlePending={principalTitlePending} agents={channel.agents} refreshKey={refreshKey} onClose={() => setPanel(null)} />
-      )}
-      {panelAgent && (
-        <AgentPanel
-          key={panelAgent.agentId}
-          profile={profile}
-          roomId={roomId}
-          agent={panelAgent}
-          parent={channel.agents.find((a) => a.agentId === panelAgent.parentId && a.role === "worker")}
-          modelLabel={modelLabelOf(panelAgent)}
-          observedSince={channel.since.get(panelAgent.agentId)?.since ?? 0}
-          worktrees={worktrees.data.worktrees}
-          onClose={() => setPanel(null)}
-          onOpenInTab={(agentId) => onOpenSession(agentId, channel.agents.find((a) => a.agentId === agentId)?.title ?? null)}
-          onDelegate={(agentId) => openLauncher(agentId)}
-          onStop={(agentId) => void onStopAgent(agentId)}
-          onResume={onResumeAgent}
-          onRemove={(agentId) => canvasHandle.current?.removeAgent(agentId)}
-        />
-      )}
+      {!dock && aboutPane}
+      {!dock && agentPane}
     </div>
-    </RoomCardActionsContext.Provider>
   );
+  if (dock) return withDock(room, { about: aboutPane || undefined, agent: agentPane || undefined });
+  return <RoomCardActionsContext.Provider value={cardActions}>{room}</RoomCardActionsContext.Provider>;
 }

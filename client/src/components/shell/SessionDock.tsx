@@ -22,6 +22,10 @@ interface SessionDockProps {
    * isn't mounted at all (e.g. files pane not implemented yet, or lazily
    * not mounted). Only kinds present in `dock.panes` are actually rendered. */
   panes: Partial<Record<DockPaneKind, ReactNode>>;
+  /** The tab it belongs to is not on screen: the column stays mounted, so what
+   * is in it (a room's conversation) keeps its connection, but it takes no
+   * part in the shell's frame. */
+  background?: boolean;
 }
 
 /**
@@ -40,7 +44,7 @@ interface SessionDockProps {
  * both act on the column/split as a whole, not on an individual pane, which
  * is why `SessionPanel` no longer has an `onStartDrag`.
  */
-export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd, panes }: SessionDockProps) {
+export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd, panes, background = false }: SessionDockProps) {
   const dict = useDict();
   const stackRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -77,7 +81,7 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
 
   const maximizedOpen = present && drawn.dock.maximized !== null;
   // A maximized pane fills the plane, so there is no side to be on.
-  useDockFrameCut(rootRef, present && !maximizedOpen, dock.width);
+  useDockFrameCut(rootRef, present && !maximizedOpen && !background, dock.width);
 
   return (
     <div
@@ -155,6 +159,7 @@ export function SessionDock({ dock, onWidthChange, onSplitRatioChange, onDragEnd
                  * `react-virtual` height cache if its container ever measured
                  * zero, even for an instant. */}
                 <div
+                  data-dock-pane={kind}
                   className={cn("relative min-h-0 w-full", hiddenByMaximize && "invisible absolute inset-0")}
                   style={hiddenByMaximize ? undefined : { flex: fillsWhole ? "1 1 0%" : `${flexBasis} 1 0%` }}
                 >

@@ -1,6 +1,6 @@
 import { useMemo, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
-import type { useSessionDock } from "@/hooks/tabs/useSessionDock";
+import type { DockPaneKind, useSessionDock } from "@/hooks/tabs/useSessionDock";
 import type { useTabs } from "@/hooks/tabs/useTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import type { TabPanelActions } from "@/components/shell/TabPanel";
@@ -23,6 +23,8 @@ interface UseTabPanelActionsArgs {
   fileTabs: ReturnType<typeof useFileTabs>;
   onOpenFilePath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
+  onOpenPane: (tabId: string, kind: DockPaneKind) => void;
+  onTogglePane: (tabId: string, kind: DockPaneKind) => void;
   setConnectedByTab: Dispatch<SetStateAction<Record<string, boolean>>>;
   setModelLabelByTab: Dispatch<SetStateAction<Record<string, string | null>>>;
   setBackgroundActivityByTab: Dispatch<SetStateAction<Record<string, BackgroundActivityEntry>>>;
@@ -60,6 +62,8 @@ export function useTabPanelActions({
   fileTabs,
   onOpenFilePath,
   onOpenTerminalAt,
+  onOpenPane,
+  onTogglePane,
   setConnectedByTab,
   setModelLabelByTab,
   setBackgroundActivityByTab,
@@ -73,6 +77,10 @@ export function useTabPanelActions({
   onOpenFilePathRef.current = onOpenFilePath;
   const onOpenTerminalAtRef = useRef(onOpenTerminalAt);
   onOpenTerminalAtRef.current = onOpenTerminalAt;
+  const onOpenPaneRef = useRef(onOpenPane);
+  onOpenPaneRef.current = onOpenPane;
+  const onTogglePaneRef = useRef(onTogglePane);
+  onTogglePaneRef.current = onTogglePane;
 
   return useMemo<TabPanelActions>(
     () => ({
@@ -133,7 +141,10 @@ export function useTabPanelActions({
       onModelLabelChange: (tabId, label) => {
         setModelLabelByTab((prev) => (prev[tabId] === label ? prev : { ...prev, [tabId]: label }));
       },
-      onTogglePane: (tabId, kind) => sessionDock.togglePane(tabId, kind),
+      // Both reveal a hidden panel: they run from the room, which can ask
+      // for a pane whether or not the strip's buttons are on screen.
+      onTogglePane: (tabId, kind) => onTogglePaneRef.current(tabId, kind),
+      onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),

@@ -9,8 +9,16 @@ import type { DockState } from "@/hooks/tabs/useSessionDock";
 import type { Tab } from "@/hooks/tabs/useTabs";
 
 // The canvas is not what this is about: only that a room's tab carries the
-// side panel the way a conversation's does.
-vi.mock("@/components/sala/RoomPanel", () => ({ RoomPanel: () => <div data-testid="room-canvas" /> }));
+// side panel the way a conversation's does. The room draws the dock it is
+// handed, so the stand-in does the same.
+vi.mock("@/components/sala/RoomPanel", () => ({
+  RoomPanel: ({ dock }: { dock: { render: (panes: object) => React.ReactNode } | null }) => (
+    <>
+      <div data-testid="room-canvas" />
+      {dock?.render({})}
+    </>
+  ),
+}));
 vi.mock("@/components/files/FilesPanelSlot", () => ({ FilesPanelSlot: () => <div data-testid="files-pane" /> }));
 vi.mock("@/components/terminal/TerminalPanelSlot", () => ({ TerminalPanelSlot: () => <div data-testid="terminal-pane" /> }));
 
