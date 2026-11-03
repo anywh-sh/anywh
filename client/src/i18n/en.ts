@@ -294,6 +294,10 @@ export const en: Dictionary = {
   panels: {
     openFiles: "Open files",
     closeFiles: "Close files",
+    openRoomAbout: "About this room",
+    closeRoomAbout: "Close room info",
+    openAgent: "Open agent conversation",
+    closeAgent: "Close agent conversation",
     showRightPanel: "Show side panel",
     hideRightPanel: "Hide side panel",
     resize: "Resize panel",

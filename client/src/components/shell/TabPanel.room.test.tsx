@@ -72,6 +72,19 @@ describe("TabPanel — a room's tab", () => {
     expect(actions.onTogglePane).toHaveBeenCalledWith("room-1", "files");
   });
 
+  it("draws the room's own buttons after files and terminal, and toggles their panes", async () => {
+    const { slot, actions } = renderRoom({ dock: { ...closed, panes: ["agent"] } });
+    const names = within(slot)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual([en.panels.openFiles, en.panels.openTerminal, en.panels.openRoomAbout, en.panels.closeAgent]);
+    const user = userEvent.setup();
+    await user.click(within(slot).getByRole("button", { name: en.panels.openRoomAbout }));
+    await user.click(within(slot).getByRole("button", { name: en.panels.closeAgent }));
+    expect(actions.onTogglePane).toHaveBeenCalledWith("room-1", "about");
+    expect(actions.onTogglePane).toHaveBeenCalledWith("room-1", "agent");
+  });
+
   it("shows the panes it has open", () => {
     renderRoom({ dock: { ...closed, panes: ["files", "terminal"] } });
     expect(screen.getByTestId("files-pane")).toBeInTheDocument();

@@ -339,7 +339,8 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
             )
           }
           onAbout={() => panes.toggle("about")}
-          aboutVisible={panes.last === null}
+          // With a dock the strip has the room's button; without one this is the only way to it.
+          aboutVisible={!dock && panes.last === null}
           renderAnswer={(agent, close) => <AgentAnswer profile={profile} agent={agent} onClose={close} onOpenConversation={() => openAgent(agent.agentId)} />}
           onEscape={() => {
             if (panes.last !== null) panes.close(panes.last);

@@ -72,7 +72,8 @@ async function openRoom(agents: RoomAgent[] = [principal, worker]) {
 }
 
 const openOrchestrator = (user: ReturnType<typeof userEvent.setup>) => user.click(screen.getByRole("button", { name: /Orchestrator, Running/ }));
-const aboutButton = () => screen.getByRole("button", { name: en.sala.panel.about });
+// The strip's button, which is there once the side panel shows (the floating one on the canvas only exists where there is no dock).
+const aboutButton = () => screen.findByRole("button", { name: en.panels.openRoomAbout });
 
 describe("a room's panes in the session dock", () => {
   it("opens the orchestrator's conversation as a pane of the dock, not a panel of the room", async () => {
@@ -90,43 +91,43 @@ describe("a room's panes in the session dock", () => {
     expect(socketsOf("room-1")).toHaveLength(1);
   }, 20_000);
 
-  it("stacks the room's information and a conversation in the order they were opened", async () => {
+  it("stacks a conversation and the room's information in the order they were opened", async () => {
     const user = await openRoom();
-    await user.click(aboutButton());
     await openOrchestrator(user);
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["about", "agent"]));
+    await user.click(await aboutButton());
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "about"]));
   }, 20_000);
 
   it("closes the oldest pane when a third is opened", async () => {
     const user = await openRoom();
-    await user.click(aboutButton());
     await openOrchestrator(user);
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["about", "agent"]));
+    await user.click(await aboutButton());
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "about"]));
     await user.click(screen.getByRole("button", { name: en.panels.openTerminal }));
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "terminal"]));
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["about", "terminal"]));
   }, 20_000);
 
   it("closes the pane opened last on Esc, and leaves the other", async () => {
     const user = await openRoom();
-    await user.click(aboutButton());
     await openOrchestrator(user);
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["about", "agent"]));
+    await user.click(await aboutButton());
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "about"]));
     await user.keyboard("{Escape}");
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["about"]));
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent"]));
   }, 20_000);
 
   it("brings the panes back when the side panel is hidden and shown again", async () => {
     const user = await openRoom();
-    await user.click(aboutButton());
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["about"]));
+    await openOrchestrator(user);
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent"]));
     await user.click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
     // The dock keeps what it showed mounted while closed; what says it is
     // closed is the toggle, and the width it is drawn with.
-    const dockWidth = () => (pane("about")?.closest('div[style*="contain"]') as HTMLElement | null)?.style.width;
+    const dockWidth = () => (pane("agent")?.closest('div[style*="contain"]') as HTMLElement | null)?.style.width;
     await vi.waitFor(() => expect(dockWidth()).toBe("0px"));
     await user.click(screen.getByRole("button", { name: en.panels.showRightPanel }));
     await vi.waitFor(() => expect(dockWidth()).not.toBe("0px"));
-    expect(panelKinds()).toEqual(["about"]);
+    expect(panelKinds()).toEqual(["agent"]);
   }, 20_000);
 
   it("opens the agent pane on the orchestrator from the side panel toggle of a room with nothing open", async () => {

@@ -7,6 +7,7 @@ import type { RoomDock, RoomPaneKind } from "@/components/sala/roomDock";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
+import { RoomAboutToggleButton, RoomAgentToggleButton } from "@/components/shell/RoomPaneToggleButtons";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
@@ -205,6 +206,8 @@ function RoomPanelToggles({ groupId, dock, actions, tabId }: { groupId: string |
     <>
       <FilesToggleButton open={dock.panes.includes("files")} onToggle={() => actions.onTogglePane(tabId, "files")} />
       <TerminalToggleButton open={dock.panes.includes("terminal")} onToggle={() => actions.onTogglePane(tabId, "terminal")} />
+      <RoomAboutToggleButton open={dock.panes.includes("about")} onToggle={() => actions.onTogglePane(tabId, "about")} />
+      <RoomAgentToggleButton open={dock.panes.includes("agent")} onToggle={() => actions.onTogglePane(tabId, "agent")} />
     </>,
     slot,
   );

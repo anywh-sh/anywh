@@ -294,6 +294,10 @@ export const ptBr: Dictionary = {
   panels: {
     openFiles: "Abrir arquivos",
     closeFiles: "Fechar arquivos",
+    openRoomAbout: "Sobre a sala",
+    closeRoomAbout: "Fechar informações da sala",
+    openAgent: "Abrir conversa do agente",
+    closeAgent: "Fechar conversa do agente",
     showRightPanel: "Mostrar painel lateral",
     hideRightPanel: "Esconder painel lateral",
     resize: "Redimensionar painel",
