@@ -102,6 +102,14 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
   };
 }
 
+/** `kind` added to the end of the stack. The width is clamped here too: it is
+ * otherwise only clamped when dragged, so a dock left at the terminal's
+ * minimum would stay that narrow when the wider files pane joined it. */
+function pushPane(dock: DockState, kind: DockPaneKind): DockState {
+  const panes = [...dock.panes, kind];
+  return { ...dock, panes, width: clampWidth(dock.width, panes), last: kind };
+}
+
 /**
  * State of all the app's right-side docks, one per session tab — same
  * pattern as `useTabs.ts` (a map instead of separate instances), persisted
@@ -178,7 +186,7 @@ export function useSessionDock() {
         const existing = prev[tabId] ?? EMPTY_DOCK;
         if (existing.panes.length > 0) return prev;
         const kind = existing.last ?? "files";
-        return { ...prev, [tabId]: { ...existing, panes: [kind], last: kind } };
+        return { ...prev, [tabId]: pushPane(existing, kind) };
       });
     },
     [isPanelShown, setGroupHidden],
@@ -212,7 +220,7 @@ export function useSessionDock() {
       if (existing.panes.includes(kind)) {
         return { ...prev, [tabId]: withoutPane(existing, kind) };
       }
-      return { ...prev, [tabId]: { ...existing, panes: [...existing.panes, kind], last: kind } };
+      return { ...prev, [tabId]: pushPane(existing, kind) };
     });
   }, []);
 
@@ -223,7 +231,7 @@ export function useSessionDock() {
     setDocks((prev) => {
       const existing = prev[tabId] ?? EMPTY_DOCK;
       if (existing.panes.includes(kind)) return prev;
-      return { ...prev, [tabId]: { ...existing, panes: [...existing.panes, kind], last: kind } };
+      return { ...prev, [tabId]: pushPane(existing, kind) };
     });
   }, []);
 

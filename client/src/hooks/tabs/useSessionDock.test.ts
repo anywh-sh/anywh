@@ -104,6 +104,25 @@ describe("useSessionDock — width and split ratio", () => {
   });
 });
 
+describe("useSessionDock — width when a pane joins", () => {
+  it("widens a terminal-width dock when the files pane is added", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "terminal"));
+    act(() => result.current.setWidth("t1", 320));
+    expect(result.current.getDock("t1").width).toBe(320);
+    act(() => result.current.openPane("t1", "files"));
+    expect(result.current.getDock("t1").width).toBe(MIN_WIDTH_WITH_FILES);
+  });
+
+  it("leaves a dock that is already wide enough alone", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "terminal"));
+    act(() => result.current.setWidth("t1", 700));
+    act(() => result.current.togglePane("t1", "files"));
+    expect(result.current.getDock("t1").width).toBe(700);
+  });
+});
+
 describe("useSessionDock — maximized", () => {
   it("toggleMaximized is a no-op until the dock has been created", () => {
     const { result } = renderHook(() => useSessionDock());
