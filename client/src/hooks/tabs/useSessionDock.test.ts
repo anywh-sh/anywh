@@ -123,6 +123,52 @@ describe("useSessionDock — width when a pane joins", () => {
   });
 });
 
+describe("useSessionDock — at most two panes", () => {
+  it("closes the oldest pane when a third is opened", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "terminal"));
+    act(() => result.current.togglePane("t1", "agent"));
+    act(() => result.current.togglePane("t1", "about"));
+    expect(result.current.getDock("t1").panes).toEqual(["agent", "about"]);
+  });
+
+  it("clears the maximized pane when it is the one that was closed", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "terminal"));
+    act(() => result.current.toggleMaximized("t1", "terminal"));
+    act(() => result.current.openPane("t1", "files"));
+    act(() => result.current.openPane("t1", "agent"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["files", "agent"], maximized: null });
+  });
+
+  it("keeps the maximized pane when it survives", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "terminal"));
+    act(() => result.current.togglePane("t1", "agent"));
+    act(() => result.current.toggleMaximized("t1", "agent"));
+    act(() => result.current.openPane("t1", "about"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["agent", "about"], maximized: "agent" });
+  });
+
+  it("gives a room pane its own minimum width", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "agent"));
+    act(() => result.current.setWidth("t1", 100));
+    expect(result.current.getDock("t1").width).toBe(385);
+  });
+
+  it("drops unknown kinds, repeats and anything past two when loading what a build wrote", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        t1: { panes: ["terminal", "bogus", "terminal", "files", "agent"], width: 480, splitRatio: 0.5, maximized: "terminal", last: "bogus" },
+      }),
+    );
+    const { result } = renderHook(() => useSessionDock());
+    expect(result.current.getDock("t1")).toEqual({ panes: ["files", "agent"], width: 480, splitRatio: 0.5, maximized: null });
+  });
+});
+
 describe("useSessionDock — maximized", () => {
   it("toggleMaximized is a no-op until the dock has been created", () => {
     const { result } = renderHook(() => useSessionDock());
@@ -276,6 +322,12 @@ describe("useSessionDock — the side panel toggle", () => {
     act(() => result.current.togglePanel("g1", "t1"));
     expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["files"]);
     expect(result.current.isPanelShown("g1", "t1")).toBe(true);
+  });
+
+  it("opens the given fallback on a tab that never had a pane", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePanel("g1", "t1", "agent"));
+    expect(result.current.getDock("t1").panes).toEqual(["agent"]);
   });
 
   it("opens the pane used last when the tab has nothing open", () => {

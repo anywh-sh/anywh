@@ -6,8 +6,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * that stack in the same column. `panes` is the stack, top to bottom;
  * pushing a kind that's already there is a no-op from the caller's
  * perspective (use `togglePane`, which removes it instead).
+ *
+ * `agent` and `about` are a room's: one agent's conversation, and the room's
+ * own information. Only a room's tab ever opens them.
  */
-export type DockPaneKind = "terminal" | "files";
+export type DockPaneKind = "terminal" | "files" | "agent" | "about";
+
+const PANE_KINDS: readonly DockPaneKind[] = ["terminal", "files", "agent", "about"];
+/** How many panes the column holds at once: opening one more closes the one
+ * that has been there longest. */
+export const MAX_DOCK_PANES = 2;
 
 export interface DockState {
   /** Visual order, top to bottom. Empty = dock closed. */
@@ -33,6 +41,9 @@ const MIN_WIDTH = 320;
 // default.
 export const MIN_WIDTH_WITH_FILES = 420;
 const MAX_WIDTH = 900;
+// A room pane holds a whole conversation, or the room's figures: narrower than
+// this and the chat's composer wraps into nothing.
+const MIN_WIDTH_ROOM_PANE = 385;
 // Floor for how much of a group's own width should stay usable as chat once
 // a dock with the files pane sits at its own minimum (`MIN_WIDTH_WITH_FILES`)
 // next to it — feeds `useGroupSizeDrag`'s `MIN_GROUP_PX`. Doesn't protect
@@ -73,7 +84,11 @@ function loadHidden(): HiddenGroups {
 }
 
 function clampWidth(width: number, panes: DockPaneKind[]): number {
-  const min = panes.includes("files") ? MIN_WIDTH_WITH_FILES : MIN_WIDTH;
+  const min = panes.includes("files")
+    ? MIN_WIDTH_WITH_FILES
+    : panes.includes("agent") || panes.includes("about")
+      ? MIN_WIDTH_ROOM_PANE
+      : MIN_WIDTH;
   return Math.min(MAX_WIDTH, Math.max(min, width));
 }
 
@@ -81,11 +96,30 @@ function clampSplitRatio(ratio: number): number {
   return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, ratio));
 }
 
+/** Stored docks are read back as they were written, by this build or another:
+ * kinds this one does not know, repeats and a stack past the limit are dropped
+ * rather than drawn. */
+function sanitizeDocks(docks: DockMap): DockMap {
+  const known = (kind: unknown): kind is DockPaneKind => PANE_KINDS.includes(kind as DockPaneKind);
+  const result: DockMap = {};
+  for (const [tabId, dock] of Object.entries(docks)) {
+    const panes = (Array.isArray(dock.panes) ? dock.panes : []).filter((kind, index, all) => known(kind) && all.indexOf(kind) === index).slice(-MAX_DOCK_PANES);
+    result[tabId] = {
+      ...dock,
+      panes,
+      maximized: dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null,
+      last: known(dock.last) ? dock.last : undefined,
+    };
+    if (result[tabId].last === undefined) delete result[tabId].last;
+  }
+  return result;
+}
+
 function loadPersisted(): DockMap {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) as DockMap;
+    return sanitizeDocks(JSON.parse(raw) as DockMap);
   } catch {
     return {};
   }
@@ -102,12 +136,14 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
   };
 }
 
-/** `kind` added to the end of the stack. The width is clamped here too: it is
+/** `kind` added to the end of the stack, closing the oldest pane when the
+ * column is already full. The width is clamped here too: it is
  * otherwise only clamped when dragged, so a dock left at the terminal's
  * minimum would stay that narrow when the wider files pane joined it. */
 function pushPane(dock: DockState, kind: DockPaneKind): DockState {
-  const panes = [...dock.panes, kind];
-  return { ...dock, panes, width: clampWidth(dock.width, panes), last: kind };
+  const panes = [...dock.panes, kind].slice(-MAX_DOCK_PANES);
+  const maximized = dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null;
+  return { ...dock, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
 }
 
 /**
@@ -172,10 +208,11 @@ export function useSessionDock() {
 
   /** The toggle. Shown, it hides the panel — what was open is kept, so
    * showing it again is the undo. Not shown, it shows it, and when the tab
-   * has nothing open it opens the pane used last (Files if there never was
-   * one), so the panel is never an empty column. */
+   * has nothing open it opens the pane used last (`fallback` if there never
+   * was one: Files, or a room's agent), so the panel is never an empty
+   * column. */
   const togglePanel = useCallback(
-    (groupId: string, tabId: string | null) => {
+    (groupId: string, tabId: string | null, fallback: DockPaneKind = "files") => {
       if (tabId === null) return;
       if (isPanelShown(groupId, tabId)) {
         setGroupHidden(groupId, true);
@@ -185,8 +222,7 @@ export function useSessionDock() {
       setDocks((prev) => {
         const existing = prev[tabId] ?? EMPTY_DOCK;
         if (existing.panes.length > 0) return prev;
-        const kind = existing.last ?? "files";
-        return { ...prev, [tabId]: pushPane(existing, kind) };
+        return { ...prev, [tabId]: pushPane(existing, existing.last ?? fallback) };
       });
     },
     [isPanelShown, setGroupHidden],
