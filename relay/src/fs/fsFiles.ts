@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, rmSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 
 // Backs the work dir file panel — list/read/raw for a session's
@@ -202,6 +202,49 @@ export function deleteFile(rawRoot: string, rawPath: string): DeleteResult {
 
   try {
     unlinkSync(resolved.path);
+  } catch (error) {
+    return { ok: false, error: errorFromErrno(error) };
+  }
+  return { ok: true };
+}
+
+/** Recursively removes a directory inside the root. Refuses the root itself
+ * (and so any ancestor, which `resolveWithinRoot` already rejects as
+ * outside). A symlink to a directory removes only the link — the target is
+ * never followed. Permanent: there is no trash on the relay's side. */
+export function deleteDirectory(rawRoot: string, rawPath: string): DeleteResult {
+  const rootResolved = resolveWithinRoot(rawRoot, null);
+  if (!rootResolved.ok) return rootResolved;
+  if (!isAbsolute(rawPath)) return { ok: false, error: "invalid_path" };
+
+  const lexical = resolve(rawPath);
+  let linkStat;
+  try {
+    linkStat = lstatSync(lexical);
+  } catch (error) {
+    return { ok: false, error: errorFromErrno(error) };
+  }
+
+  if (linkStat.isSymbolicLink()) {
+    // Confine the link's own location, not its target.
+    const parent = resolveWithinRoot(rawRoot, dirname(lexical));
+    if (!parent.ok) return parent;
+    try {
+      if (!statSync(lexical).isDirectory()) return { ok: false, error: "not_found" };
+      unlinkSync(lexical);
+    } catch (error) {
+      return { ok: false, error: errorFromErrno(error) };
+    }
+    return { ok: true };
+  }
+
+  const resolved = resolveWithinRoot(rawRoot, rawPath);
+  if (!resolved.ok) return resolved;
+  if (resolved.path === rootResolved.root) return { ok: false, error: "invalid_path" };
+  if (!linkStat.isDirectory()) return { ok: false, error: "not_found" };
+
+  try {
+    rmSync(resolved.path, { recursive: true });
   } catch (error) {
     return { ok: false, error: errorFromErrno(error) };
   }

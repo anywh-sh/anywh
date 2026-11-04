@@ -20,7 +20,7 @@ import { detectEditors, type DetectedEditor } from "@/lib/platform/editors";
 import { buildEditorUrl, type EditorId, type EditorLocality } from "@/lib/platform/editorLinks";
 import { finishBatchDownload, notifyFileDownloaded, startBatchDownload, tickBatchDownload } from "@/lib/platform/downloadNotifications";
 import { downloadFile, downloadFolder, PartialFolderDownloadError } from "@/lib/relay/fileDownload";
-import { createFile, deleteFile, getHostInfo, listFiles, renameFile, type FileEntry } from "@/lib/relay/filesClient";
+import { createFile, deleteFile, deleteFolder, getHostInfo, listFiles, renameFile, type FileEntry } from "@/lib/relay/filesClient";
 import { isIOS } from "@/lib/platform/platform";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
@@ -562,6 +562,26 @@ function FileTreeNode({
     }
   }
 
+  async function handleDeleteFolder(): Promise<void> {
+    try {
+      await deleteFolder(profile, sessionId, entry.path);
+      onFileDeleted(entry.path);
+    } catch (error) {
+      console.error("[anywh] failed to delete folder:", error);
+      window.alert(copy.errors.delete);
+    }
+  }
+
+  async function confirmDeleteFolder(): Promise<void> {
+    const confirmed = await confirmDialog(copy.deleteFolder.description.replace("{name}", entry.name), {
+      title: copy.deleteFolder.title,
+      kind: "warning",
+      okLabel: dict.common.delete,
+      cancelLabel: dict.common.cancel,
+    });
+    if (confirmed) await handleDeleteFolder();
+  }
+
   async function confirmDelete(): Promise<void> {
     const confirmed = await confirmDialog(copy.deleteFile.description.replace("{name}", entry.name), {
       title: copy.deleteFile.title,
@@ -788,6 +808,17 @@ function FileTreeNode({
               >
                 <Download />
                 {copy.download}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  menu.setOpen(false);
+                  void confirmDeleteFolder();
+                }}
+              >
+                <Trash2 />
+                {copy.deleteFolder.title}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

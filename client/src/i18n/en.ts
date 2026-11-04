@@ -346,6 +346,7 @@ export const en: Dictionary = {
         emptyFolder: "empty folder",
         listFailed: "Couldn't list this folder.",
         deleteFile: { title: "Delete file", description: "Delete \"{name}\"? This can't be undone." },
+        deleteFolder: { title: "Delete folder", description: "Delete the folder \"{name}\" and everything inside it? This can't be undone." },
         deleteFiles: { title: "Delete files", description: "Delete the {count} selected files? This can't be undone." },
         errors: {
           create: "Couldn't create the file.",

@@ -346,6 +346,7 @@ export const ptBr: Dictionary = {
         emptyFolder: "pasta vazia",
         listFailed: "Não foi possível listar esta pasta.",
         deleteFile: { title: "Excluir arquivo", description: "Excluir \"{name}\"? Não dá para desfazer." },
+        deleteFolder: { title: "Excluir pasta", description: "Excluir a pasta \"{name}\" e tudo que há dentro dela? Não dá para desfazer." },
         deleteFiles: { title: "Excluir arquivos", description: "Excluir os {count} arquivos selecionados? Não dá para desfazer." },
         errors: {
           create: "Não foi possível criar o arquivo.",

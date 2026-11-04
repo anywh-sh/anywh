@@ -4,6 +4,7 @@ import { readJsonBody } from "../protocol/httpBody.js";
 import { listDirectories } from "../fs/fsBrowse.js";
 import {
   createFile,
+  deleteDirectory,
   deleteFile,
   listFiles,
   readFileForViewer,
@@ -155,6 +156,32 @@ export const handleFilesRoutes: RouteHandler = async (req, res, ctx) => {
           return;
         }
         res.end(JSON.stringify({ ok: true, path: result.path }));
+      })
+      .catch(() => {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: "invalid body" }));
+      });
+    return true;
+  }
+
+  if (req.method === "POST" && req.url?.startsWith("/files/delete-dir")) {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    await readJsonBody(req)
+      .then((body) => {
+        if (!isFilesDeleteBody(body)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "invalid_path" }));
+          return;
+        }
+        const root = ctx.sessionStore.getCwdState(body.session?.trim() || ctx.defaultSession).cwd;
+        const result = deleteDirectory(root, body.path);
+        if (!result.ok) {
+          res.writeHead(statusForFilesError(result.error));
+          res.end(JSON.stringify({ error: result.error }));
+          return;
+        }
+        res.end(JSON.stringify({ ok: true }));
       })
       .catch(() => {
         res.writeHead(400);

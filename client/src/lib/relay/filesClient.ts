@@ -154,6 +154,12 @@ export async function uploadFile(profile: Profile, sessionId: string, name: stri
   return response.json() as Promise<{ path: string }>;
 }
 
+/** Recursive and permanent — the relay refuses the session root. */
+export async function deleteFolder(profile: Profile, sessionId: string, path: string): Promise<void> {
+  const { base, token } = await resolveBase(profile);
+  await postJson(`${base}/files/delete-dir`, { session: sessionId, path }, token);
+}
+
 /** File-only write surface — the context menu that drives these (`FileTree`)
  * never shows delete/rename for a directory row. */
 export async function deleteFile(profile: Profile, sessionId: string, path: string): Promise<void> {
