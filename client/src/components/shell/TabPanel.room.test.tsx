@@ -29,7 +29,7 @@ afterEach(() => {
 
 const room: Tab = { id: "room-1", profileId: "default", title: "A room", room: true, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew: false };
 const profile = { id: "default", label: "Default", host: "127.0.0.1", relayPort: 8765 };
-const closed: DockState = { panes: [], width: 480, splitRatio: 0.5, maximized: null };
+const closed: DockState = { panes: [], width: 480, maximized: null };
 
 function renderRoom(overrides: { dock?: DockState; isVisible?: boolean; isCompact?: boolean; actions?: Partial<TabPanelActions> } = {}) {
   const slot = document.createElement("div");

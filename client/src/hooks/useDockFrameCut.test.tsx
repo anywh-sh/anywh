@@ -5,7 +5,7 @@ import type { DockState } from "@/hooks/tabs/useSessionDock";
 
 afterEach(() => cleanup());
 
-const open: DockState = { panes: ["files"], width: 420, splitRatio: 0.5, maximized: null };
+const open: DockState = { panes: ["files"], width: 420, maximized: null };
 const closed: DockState = { ...open, panes: [] };
 const noop = vi.fn();
 
@@ -34,7 +34,7 @@ function renderDock(dock: DockState) {
     <div>
       <div data-plane-frame />
       <div data-status-bar />
-      <SessionDock dock={dock} onWidthChange={noop} onSplitRatioChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
+      <SessionDock dock={dock} onWidthChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
     </div>,
   );
 }
@@ -63,7 +63,7 @@ describe("useDockFrameCut", () => {
       <div>
         <div data-plane-frame />
         <div data-status-bar />
-        <SessionDock dock={{ ...open, width: 560 }} onWidthChange={noop} onSplitRatioChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
+        <SessionDock dock={{ ...open, width: 560 }} onWidthChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
       </div>,
     );
     expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe("560px");
@@ -93,7 +93,7 @@ describe("useDockFrameCut — while the dock slides", () => {
         <div>
           <div data-plane-frame />
           <div data-status-bar />
-          <SessionDock dock={closed} onWidthChange={noop} onSplitRatioChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
+          <SessionDock dock={closed} onWidthChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
         </div>,
       );
       // Still on its way out: the space (and so the cut) is still the dock's.

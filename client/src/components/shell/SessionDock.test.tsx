@@ -8,9 +8,9 @@ afterEach(cleanup);
 function renderDock(dock: Partial<DockState> = {}) {
   const onWidthChange = vi.fn();
   const onDragEnd = vi.fn();
-  const state: DockState = { panes: ["terminal"], width: 480, splitRatio: 0.5, maximized: null, ...dock };
+  const state: DockState = { panes: ["terminal"], width: 480, maximized: null, ...dock };
   render(
-    <SessionDock dock={state} onWidthChange={onWidthChange} onSplitRatioChange={() => undefined} onDragEnd={onDragEnd} panes={{ terminal: <div>term</div>, agent: <div>agent</div> }} />,
+    <SessionDock dock={state} onWidthChange={onWidthChange} onDragEnd={onDragEnd} panes={{ terminal: <div>term</div>, agent: <div>agent</div> }} />,
   );
   return { onWidthChange, onDragEnd, separator: screen.getByRole("separator", { name: "Resize panel" }) };
 }

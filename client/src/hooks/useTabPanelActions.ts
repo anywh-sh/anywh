@@ -150,7 +150,6 @@ export function useTabPanelActions({
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),
       onOpenTerminalAt: (tabId, path) => onOpenTerminalAtRef.current(tabId, path),
       onDockWidthChange: (tabId, width) => sessionDock.setWidth(tabId, width),
-      onDockSplitRatioChange: (tabId, ratio) => sessionDock.setSplitRatio(tabId, ratio),
       onDockDragEnd: () => sessionDock.commitDock(),
       onRoomCreated: (tab, profile, roomId, title) => {
         // No title typed (an image alone): the relay names the room and says so.
@@ -182,7 +181,6 @@ export function useTabPanelActions({
       sessionDock.closePane,
       sessionDock.toggleMaximized,
       sessionDock.setWidth,
-      sessionDock.setSplitRatio,
       sessionDock.commitDock,
       terminalTabs.removeSession,
       fileTabs.removeSession,

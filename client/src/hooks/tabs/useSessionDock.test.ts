@@ -17,7 +17,7 @@ afterEach(() => {
 describe("useSessionDock — panes", () => {
   it("starts closed for a tab that was never touched", () => {
     const { result } = renderHook(() => useSessionDock());
-    expect(result.current.getDock("t1")).toEqual({ panes: [], width: 480, splitRatio: 0.5, maximized: null });
+    expect(result.current.getDock("t1")).toEqual({ panes: [], width: 480, maximized: null });
   });
 
   it("togglePane opens a pane that isn't there yet", () => {
@@ -66,7 +66,7 @@ describe("useSessionDock — panes", () => {
   });
 });
 
-describe("useSessionDock — width and split ratio", () => {
+describe("useSessionDock — width", () => {
   it("setWidth is a no-op until the dock has been created by a pane call", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.setWidth("t1", 600));
@@ -92,15 +92,6 @@ describe("useSessionDock — width and split ratio", () => {
     act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.setWidth("t1", 5000));
     expect(result.current.getDock("t1").width).toBe(900);
-  });
-
-  it("setSplitRatio clamps to [0.2, 0.8]", () => {
-    const { result } = renderHook(() => useSessionDock());
-    act(() => result.current.openPane("t1", "terminal"));
-    act(() => result.current.setSplitRatio("t1", -1));
-    expect(result.current.getDock("t1").splitRatio).toBeCloseTo(0.2);
-    act(() => result.current.setSplitRatio("t1", 5));
-    expect(result.current.getDock("t1").splitRatio).toBeCloseTo(0.8);
   });
 });
 
@@ -155,7 +146,7 @@ describe("useSessionDock — one view at a time", () => {
       }),
     );
     const { result } = renderHook(() => useSessionDock());
-    expect(result.current.getDock("t1")).toEqual({ panes: ["agent"], width: 480, splitRatio: 0.5, maximized: null });
+    expect(result.current.getDock("t1")).toEqual({ panes: ["agent"], width: 480, maximized: null });
   });
 });
 
@@ -166,10 +157,9 @@ describe("useSessionDock — maximized", () => {
     expect(result.current.getDock("t1").maximized).toBeNull();
   });
 
-  it("toggleMaximized sets and then clears the maximized pane, leaving panes/splitRatio untouched", () => {
+  it("toggleMaximized sets and then clears the maximized pane, leaving panes untouched", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.openPane("t1", "files"));
-    act(() => result.current.setSplitRatio("t1", 0.3));
 
     act(() => result.current.toggleMaximized("t1", "files"));
     expect(result.current.getDock("t1").maximized).toBe("files");
@@ -178,7 +168,6 @@ describe("useSessionDock — maximized", () => {
     const dock = result.current.getDock("t1");
     expect(dock.maximized).toBeNull();
     expect(dock.panes).toEqual(["files"]);
-    expect(dock.splitRatio).toBeCloseTo(0.3);
   });
 });
 
@@ -190,7 +179,7 @@ describe("useSessionDock — persistence", () => {
   });
 
   it("loads persisted dock state on mount", () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ t1: { panes: ["terminal"], width: 500, splitRatio: 0.5, maximized: null } }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ t1: { panes: ["terminal"], width: 500, maximized: null } }));
     const { result } = renderHook(() => useSessionDock());
     expect(result.current.getDock("t1").panes).toEqual(["terminal"]);
     expect(result.current.getDock("t1").width).toBe(500);
@@ -227,7 +216,7 @@ describe("useSessionDock — removeSession", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.removeSession("t1"));
-    expect(result.current.getDock("t1")).toEqual({ panes: [], width: 480, splitRatio: 0.5, maximized: null });
+    expect(result.current.getDock("t1")).toEqual({ panes: [], width: 480, maximized: null });
   });
 
   it("is a no-op for a tab with no entry", () => {

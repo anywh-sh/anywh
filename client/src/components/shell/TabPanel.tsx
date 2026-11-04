@@ -55,7 +55,6 @@ export interface TabPanelActions {
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
   onDockWidthChange: (tabId: string, width: number) => void;
-  onDockSplitRatioChange: (tabId: string, ratio: number) => void;
   onDockDragEnd: () => void;
   /** A new-session tab opened a room: `tab` is now the room, `roomId` its id. */
   onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string) => void;
@@ -164,7 +163,6 @@ function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions, roomPane
       dock={dock}
       background={background}
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
-      onSplitRatioChange={(ratio) => actions.onDockSplitRatioChange(tab.id, ratio)}
       onDragEnd={actions.onDockDragEnd}
       panes={{
         agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
@@ -215,9 +213,8 @@ function RoomPanelToggles({ groupId, dock, actions, tabId }: { groupId: string |
 
 interface TabPanelProps extends Omit<TabChatProps, "terminalOpen" | "filesOpen"> {
   /** `terminalOpen`/`filesOpen` are derived from this and handed down, so
-   * `TabChat` doesn't take the whole dock — the width and the split ratio
-   * move on every frame of a drag, and the conversation has no business
-   * re-rendering for either. */
+   * `TabChat` doesn't take the whole dock — the width moves on every frame of
+   * a drag, and the conversation has no business re-rendering for it. */
   dock: DockState;
   terminalTabs: ReturnType<typeof useTerminalTabs>;
   fileTabs: ReturnType<typeof useFileTabs>;
