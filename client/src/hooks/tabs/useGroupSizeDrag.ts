@@ -40,7 +40,7 @@ export function clampGroupResizeDelta(rawDelta: number, startSizeA: number, star
 
 /**
  * Drag for a handle between two adjacent tab groups — sibling of
- * `usePanelDrag`/`useSplitDrag`, but working in fraction space (0..1) over
+ * `usePanelDrag`, but working in fraction space (0..1) over
  * the whole `sizes` array instead of a single pixel value, and mutating the
  * container's CSS custom properties directly during the drag instead of
  * going through React state. That's what lets a resize run at zero React

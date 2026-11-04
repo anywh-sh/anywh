@@ -14,6 +14,46 @@ interface SessionPanelProps {
   children: ReactNode;
 }
 
+/** The maximize and close buttons at the end of a pane's header — square,
+ * flush and the same height as the strip's own controls. Shared by every pane
+ * of the dock, a room's included. */
+export function PaneHeaderButtons({ maximized, onToggleMaximized, onClose }: Pick<SessionPanelProps, "maximized" | "onToggleMaximized" | "onClose">) {
+  const dict = useDict();
+
+  return (
+    <div className="flex h-8 shrink-0 items-stretch">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onToggleMaximized}
+            aria-label={maximized ? dict.panels.restore : dict.panels.maximize}
+            className="h-full border-0 hover:border-0"
+          >
+            {maximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{maximized ? dict.panels.restore : dict.panels.maximize}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label={dict.panels.close}
+            className="h-full border-0 hover:border-0 hover:text-destructive"
+          >
+            <X className="size-3.5" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{dict.panels.close}</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 /**
  * Generic shell for one pane of the right-side dock — maximize/close,
  * without knowing anything about the content it hosts. Terminal is the
@@ -28,8 +68,6 @@ interface SessionPanelProps {
  * an individual pane.
  */
 export function SessionPanel({ maximized, onToggleMaximized, onClose, headerExtra, children }: SessionPanelProps) {
-  const dict = useDict();
-
   return (
     <div className="relative flex h-full w-full min-w-0 flex-col bg-bg-chrome">
       {/* The header wears the chrome surface, like the title bar and the tab
@@ -39,36 +77,7 @@ export function SessionPanel({ maximized, onToggleMaximized, onClose, headerExtr
       <div className="flex shrink-0 items-center justify-between bg-bg-chrome">
         <div className="min-w-0 flex-1">{headerExtra}</div>
         {/* Square, flush and the same height as the strip's own controls. */}
-        <div className="flex h-8 shrink-0 items-stretch">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onToggleMaximized}
-                aria-label={maximized ? dict.panels.restore : dict.panels.maximize}
-                className="h-full border-0 hover:border-0"
-              >
-                {maximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{maximized ? dict.panels.restore : dict.panels.maximize}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onClose}
-                aria-label={dict.panels.close}
-                className="h-full border-0 hover:border-0 hover:text-destructive"
-              >
-                <X className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{dict.panels.close}</TooltipContent>
-          </Tooltip>
-        </div>
+        <PaneHeaderButtons maximized={maximized} onToggleMaximized={onToggleMaximized} onClose={onClose} />
       </div>
 
       <div className="min-h-0 flex-1">{children}</div>

@@ -113,10 +113,64 @@ const press = async (selector) => {
   await element.click();
 };
 
-/** Waits for the side panel to be open at its full width, so a
- * photograph shows the panel and not a frame of it. */
+/** Waits for the room's pane to be open at its full width, so a
+ * photograph shows the pane and not a frame of it. */
 const panelSettled = () =>
-  browser.waitUntil(() => browser.execute(() => (document.querySelector("aside.sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
+  browser.waitUntil(() => browser.execute(() => (document.querySelector("[data-dock-pane] aside")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
+
+/** Opens the room's information from the strip. With the side panel hidden the
+ * strip only offers the panel's own button, which opens the agent's pane
+ * first; the room's buttons are there after it. Does nothing if it is open. */
+const openAbout = async (label = "About this room", showLabel = "Show side panel", closeLabel = "Close room info") => {
+  if (await $(`button[aria-label="${closeLabel}"]`).isExisting()) return;
+  if (!(await $(`button[aria-label="${label}"]`).isExisting())) {
+    await press(`button[aria-label="${showLabel}"]`);
+    // Showing the panel brings back the pane opened last, which may be this one.
+    if (await $(`button[aria-label="${closeLabel}"]`).waitForExist({ timeout: 1500, reverse: false }).catch(() => false)) return;
+  }
+  await press(`button[aria-label="${label}"]`);
+};
+
+/** Closes every pane of the dock, so the next test starts with the canvas at
+ * its full width: the dock keeps what it had open from one test to the next.
+ * Through the strip's buttons, which are there exactly while a pane is open:
+ * the dock keeps the last pane drawn while it closes, so the pane's own
+ * header is no sign of it. */
+const closePanes = async () => {
+  const open = 'button[aria-label="Close room info"], button[aria-label="Close agent conversation"]';
+  while (await $(open).isExisting()) {
+    await press(open);
+    await browser.pause(150);
+  }
+  // With nothing open the strip gives up the room's buttons (and the panel's
+  // toggle says "Show"): wait for that, or the next test presses one on its way out.
+  await browser.waitUntil(async () => !(await $('button[aria-label="About this room"]').isExisting()) && (await $('button[aria-label="Show side panel"]').isExisting()), {
+    timeout: 5000,
+    timeoutMsg: "the dock never emptied",
+  });
+};
+
+/** Esc, as a person at the keyboard sends it. The strip's button keeps the
+ * focus it was clicked with, and its tooltip (opened by that focus) takes the
+ * first Esc for itself — this driver never delivers the pointerdown that would
+ * have closed it — so the focus is let go of first. */
+const escape = async () => {
+  await browser.execute(() => document.activeElement?.blur());
+  await browser.keys("Escape");
+};
+
+/** Esc until `selector` is gone. A tooltip the pointer is resting on (it opens
+ * on hover, a beat after the click, and on a slow machine after `escape` has
+ * already run) takes an Esc for itself; the pane's own is the next one. */
+const escapeUntilGone = (selector, timeoutMsg) =>
+  browser.waitUntil(
+    async () => {
+      await escape();
+      await browser.pause(300);
+      return !(await $(selector).isExisting());
+    },
+    { timeout: 8000, interval: 100, timeoutMsg },
+  );
 
 /** A button of the selected card's action bar, by its words. */
 const pressBar = async (words) => {
@@ -501,7 +555,7 @@ describe("anywh room canvas", () => {
   });
 
   it("opens 'About this room' with the room's numbers, usage and worktrees, and closes it with Esc", async () => {
-    await press('button[aria-label="About this room"]');
+    await openAbout();
     const panel = await $('aside[data-panel="about"]');
     await panel.waitForExist({ timeout: 15000 });
     const text = await panel.getText();
@@ -509,75 +563,84 @@ describe("anywh room canvas", () => {
     expect(text).toContain("Usage");
     expect(text).toContain("Shared context");
     expect(text).toContain("Worktrees");
-    // The "i" button gives way to the panel.
+    // The strip's button now closes it.
     expect(await $$('button[aria-label="About this room"]').length).toBe(0);
+    await expect(await $('button[aria-label="Close room info"]')).toBeExisting();
     await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
     await panelSettled();
     await shot("B-sobre-a-sala");
-    await browser.keys("Escape");
-    await browser.waitUntil(async () => !(await $('aside[data-panel="about"]').isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    // The last view to close stays drawn while the dock fades out: the strip says it is closed.
+    await escapeUntilGone('button[aria-label="Close room info"]', "Esc did not close the panel");
+    await closePanes();
   });
 
-  it("resizes the side panel from its left edge, keeps the width, and goes back to it on a double click", async () => {
-    await press('button[aria-label="About this room"]');
+  it("resizes the dock from its left edge, keeps the width, and goes back to it on a double click", async () => {
+    await openAbout();
     await $('aside[data-panel="about"]').waitForExist({ timeout: 15000 });
     await panelSettled();
+    const edge = '[role="separator"][aria-label="Resize panel"]';
     // A WebDriver pointer action delivers no pointerdown here, so the drag is
     // dispatched as the events a real one fires.
     const drag = (dx) =>
-      browser.execute((by) => {
-        const grip = document.querySelector('aside.sala-side [role="separator"]');
-        const box = grip.getBoundingClientRect();
-        const x = box.left + 2;
-        const y = box.top + box.height / 2;
-        grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1 }));
-        window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x + by, clientY: y, pointerId: 1 }));
-        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: x + by, clientY: y, pointerId: 1 }));
-      }, dx);
+      browser.execute(
+        (by, selector) => {
+          const grip = document.querySelector(selector);
+          const box = grip.getBoundingClientRect();
+          const x = box.left + 2;
+          const y = box.top + box.height / 2;
+          grip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1 }));
+          window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x + by, clientY: y, pointerId: 1 }));
+          window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: x + by, clientY: y, pointerId: 1 }));
+        },
+        dx,
+        edge,
+      );
     const measure = () =>
-      browser.execute(() => ({
-        panel: Math.round(document.querySelector("aside.sala-side").getBoundingClientRect().width),
-        canvas: Math.round(document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect().width),
-        stored: localStorage.getItem("anywh:sala-side-width"),
-        // What the conversation's text column can use (680px, its padding and
-        // gutters, the divider), or half the window if that is narrower.
-        max: Math.max(385, Math.min(729, Math.floor(window.innerWidth / 2))),
-        lit: document.querySelector('aside.sala-side [role="separator"]').hasAttribute("data-dragging"),
-      }));
+      browser.execute((selector) => {
+        const grip = document.querySelector(selector);
+        return {
+          width: Number(grip.getAttribute("aria-valuenow")),
+          min: Number(grip.getAttribute("aria-valuemin")),
+          max: Number(grip.getAttribute("aria-valuemax")),
+          canvas: Math.round(document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect().width),
+        };
+      }, edge);
 
-    const before = await measure();
-    expect(before.panel).toBe(385);
-    // Narrower than the default is not allowed.
-    await drag(120);
-    expect((await measure()).panel).toBe(385);
-
-    await drag(-80);
-    await browser.waitUntil(async () => (await measure()).panel === Math.min(465, before.max), { timeout: 5000, timeoutMsg: "the panel did not follow the drag" });
+    // The dock opens with a width transition: the baseline is taken once the canvas has stopped moving.
+    let last = await measure();
+    await browser.waitUntil(
+      async () => {
+        await browser.pause(300);
+        const now = await measure();
+        const still = now.canvas === last.canvas;
+        last = now;
+        return still;
+      },
+      { timeout: 5000, timeoutMsg: "the dock never finished opening" },
+    );
+    const before = last;
+    expect(before.width).toBe(480);
+    // Narrower than the least a pane takes is not allowed.
+    await drag(2000);
+    expect((await measure()).width).toBe(before.min);
+    await drag(-100);
+    await browser.waitUntil(async () => (await measure()).width === before.min + 100, { timeout: 5000, timeoutMsg: "the dock did not follow the drag" });
     const wider = await measure();
-    expect(wider.stored).toBe(String(wider.panel));
-    // The canvas gives the panel the width it took.
-    expect(before.canvas - wider.canvas).toBe(wider.panel - before.panel);
+    // The canvas gives the dock the width it took (once the dock's own width
+    // transition has run its course).
+    await browser.waitUntil(async () => before.canvas - (await measure()).canvas === wider.width - before.width, { timeout: 5000, timeoutMsg: "the canvas did not give the dock the width it took" });
+    await drag(-4000);
+    await browser.waitUntil(async () => (await measure()).width === before.max, { timeout: 5000, timeoutMsg: "the dock did not stop at its maximum" });
 
-    await drag(-2000);
-    await browser.waitUntil(async () => (await measure()).panel === before.max, { timeout: 5000, timeoutMsg: "the panel did not stop at its maximum" });
-    // Let go at the maximum, with the handle left behind the pointer: it is not lit any more.
-    expect((await measure()).lit).toBe(false);
-    // The width goes on the panel itself, never on the document root.
-    expect(await browser.execute(() => document.documentElement.style.getPropertyValue("--sala-side-w"))).toBe("");
+    // Hidden and shown again keeps the width.
+    await press('button[aria-label="Hide side panel"]');
+    await press('button[aria-label="Show side panel"]');
+    await $(edge).waitForExist({ timeout: 15000 });
+    expect((await measure()).width).toBe(before.max);
 
-    // Closing and opening again keeps the width.
-    await browser.keys("Escape");
-    await browser.waitUntil(async () => !(await $("aside.sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
-    await press('button[aria-label="About this room"]');
-    await $('aside[data-panel="about"]').waitForExist({ timeout: 15000 });
-    expect((await measure()).panel).toBe(before.max);
-
-    await browser.execute(() => document.querySelector('aside.sala-side [role="separator"]').dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-    await browser.waitUntil(async () => (await measure()).panel === 385, { timeout: 5000, timeoutMsg: "a double click did not restore the default width" });
-    expect((await measure()).stored).toBe("385");
-
-    await browser.keys("Escape");
-    await browser.waitUntil(async () => !(await $("aside.sala-side").isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    await browser.execute((selector) => document.querySelector(selector).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), edge);
+    await browser.waitUntil(async () => (await measure()).width === 480, { timeout: 5000, timeoutMsg: "a double click did not restore the default width" });
+    await closePanes();
   });
 
   it("answers in the card: Reply opens the question under it, with a way into the whole conversation", async () => {
@@ -605,7 +668,8 @@ describe("anywh room canvas", () => {
     await panelSettled();
     await shot("B-resumo-do-agente");
     await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
-    await browser.waitUntil(async () => !(await $('aside[data-panel="agent"]').isExisting()), { timeout: 5000 });
+    // The last pane to close stays drawn while the dock fades out: the strip says it is closed.
+    await browser.waitUntil(async () => !(await $('button[aria-label="Close agent conversation"]').isExisting()), { timeout: 5000, timeoutMsg: "the agent's pane did not close" });
   });
 
   it("speaks Portuguese when the app does: the card states, the area counts and the toolbar", async () => {
@@ -623,7 +687,7 @@ describe("anywh room canvas", () => {
     await browser.execute(() => document.querySelector('[aria-label="Ajustar à tela"]').click());
     await roomInView();
     await shot("B-sala-10-agentes-pt");
-    await press('button[aria-label="Sobre a sala"]');
+    await openAbout("Sobre a sala", "Mostrar painel lateral");
     const aboutPt = await $('aside[data-panel="about"]');
     await aboutPt.waitForExist({ timeout: 15000 });
     const aboutText = await aboutPt.getText();

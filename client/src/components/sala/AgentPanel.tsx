@@ -8,7 +8,7 @@ import { AgentLogo } from "@/components/chat/AgentLogo";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { Clock } from "@/components/sala/SalaCard";
 import { CheckIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
-import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
+import { RoomPaneFrame, type RoomPaneShell } from "@/components/sala/RoomPaneFrame";
 import { subtasksKey, useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import { useDict } from "@/i18n";
@@ -31,6 +31,7 @@ interface AgentPanelProps {
   worktrees: readonly RoomWorktree[];
   /** A subtask's row picked: the canvas selects its mini-card. */
   onSelectSubtask: (taskId: string) => void;
+  shell: RoomPaneShell;
   onClose: () => void;
   onOpenInTab: (agentId: string) => void;
   onDelegate: (agentId: string) => void;
@@ -60,17 +61,17 @@ export function AgentPanel(props: AgentPanelProps) {
   if (agent.role === "principal") {
     // A fixed name, never a placeholder: the generated title is the room's.
     return (
-      <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={dict.sala.orchestrator} subtitle={subtitle} kind="principal" onClose={props.onClose}>
+      <RoomPaneFrame shell={props.shell} mark={<Tile runtime={agent.runtime} />} title={dict.sala.orchestrator} subtitle={subtitle} kind="principal" onClose={props.onClose}>
         <div className="sala-side-chat">
           <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} />
         </div>
-      </SalaSidePanel>
+      </RoomPaneFrame>
     );
   }
   return <WorkerPanel key={agent.agentId} {...props} title={agent.title ?? dict.sala.card.untitled} subtitle={subtitle} />;
 }
 
-function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, onSelectSubtask, title, subtitle, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
+function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, onSelectSubtask, title, subtitle, shell, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
   const dict = useDict();
   const text = dict.sala.panel.agent;
   const status = cardStatus(agent, 0);
@@ -116,7 +117,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
   const extras = agent.connectors.length > 0 || subtasks.length > 0 || stopped;
 
   return (
-    <SalaSidePanel mark={<Tile runtime={agent.runtime} />} title={title} titlePending={agent.titlePending} subtitle={subtitle} kind="agent" footer={footer} onClose={onClose}>
+    <RoomPaneFrame shell={shell} mark={<Tile runtime={agent.runtime} />} title={title} titlePending={agent.titlePending} subtitle={subtitle} kind="agent" footer={footer} onClose={onClose}>
       <div className="sala-side-status">
         <span className={cn("sala-side-state", status.tone)}>
           {(status.tone === "run" || status.tone === "start") && <span className="sala-spin" aria-hidden="true" />}
@@ -189,7 +190,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
       <div className="sala-side-chat flush">
         <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} renderComposer={(session) => <WorkerComposer session={session} text={text} />} />
       </div>
-    </SalaSidePanel>
+    </RoomPaneFrame>
   );
 }
 

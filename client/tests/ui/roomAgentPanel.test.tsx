@@ -57,6 +57,7 @@ function openWorker(worktrees: RoomWorktree[] = []): void {
           observedSince={0}
           worktrees={worktrees}
           onClose={() => undefined}
+          shell={{ kind: "side" }}
           onOpenInTab={() => undefined}
           onDelegate={() => undefined}
           onStop={() => undefined}

@@ -163,7 +163,7 @@ describe("tab group resize — performance guards", () => {
     const beforeDrag = chatPanelRenderCount;
 
     // Pointer down itself sets draggingIndex (a real, one-time React state
-    // change — same pattern usePanelDrag/useSplitDrag already use for their
+    // change — same pattern usePanelDrag already uses for its
     // own isDragging flag, driving the handle highlight and disabling the
     // CSS transition). That's expected and cheap; it's the *moves* that must
     // cost nothing, which is the part measured below.

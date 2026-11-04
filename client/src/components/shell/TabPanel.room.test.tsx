@@ -9,8 +9,16 @@ import type { DockState } from "@/hooks/tabs/useSessionDock";
 import type { Tab } from "@/hooks/tabs/useTabs";
 
 // The canvas is not what this is about: only that a room's tab carries the
-// side panel the way a conversation's does.
-vi.mock("@/components/sala/RoomPanel", () => ({ RoomPanel: () => <div data-testid="room-canvas" /> }));
+// side panel the way a conversation's does. The room draws the dock it is
+// handed, so the stand-in does the same.
+vi.mock("@/components/sala/RoomPanel", () => ({
+  RoomPanel: ({ dock }: { dock: { render: (panes: object) => React.ReactNode } | null }) => (
+    <>
+      <div data-testid="room-canvas" />
+      {dock?.render({})}
+    </>
+  ),
+}));
 vi.mock("@/components/files/FilesPanelSlot", () => ({ FilesPanelSlot: () => <div data-testid="files-pane" /> }));
 vi.mock("@/components/terminal/TerminalPanelSlot", () => ({ TerminalPanelSlot: () => <div data-testid="terminal-pane" /> }));
 
@@ -21,7 +29,7 @@ afterEach(() => {
 
 const room: Tab = { id: "room-1", profileId: "default", title: "A room", room: true, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew: false };
 const profile = { id: "default", label: "Default", host: "127.0.0.1", relayPort: 8765 };
-const closed: DockState = { panes: [], width: 480, splitRatio: 0.5, maximized: null };
+const closed: DockState = { panes: [], width: 480, maximized: null };
 
 function renderRoom(overrides: { dock?: DockState; isVisible?: boolean; isCompact?: boolean; actions?: Partial<TabPanelActions> } = {}) {
   const slot = document.createElement("div");
@@ -62,6 +70,19 @@ describe("TabPanel — a room's tab", () => {
     const { slot, actions } = renderRoom();
     await userEvent.setup().click(within(slot).getByRole("button", { name: en.panels.openFiles }));
     expect(actions.onTogglePane).toHaveBeenCalledWith("room-1", "files");
+  });
+
+  it("draws the room's own buttons after files and terminal, and toggles their panes", async () => {
+    const { slot, actions } = renderRoom({ dock: { ...closed, panes: ["agent"] } });
+    const names = within(slot)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual([en.panels.openFiles, en.panels.openTerminal, en.panels.openRoomAbout, en.panels.closeAgent]);
+    const user = userEvent.setup();
+    await user.click(within(slot).getByRole("button", { name: en.panels.openRoomAbout }));
+    await user.click(within(slot).getByRole("button", { name: en.panels.closeAgent }));
+    expect(actions.onTogglePane).toHaveBeenCalledWith("room-1", "about");
+    expect(actions.onTogglePane).toHaveBeenCalledWith("room-1", "agent");
   });
 
   it("shows the panes it has open", () => {
