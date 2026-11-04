@@ -294,11 +294,29 @@ describe("useSessionDock — the side panel toggle", () => {
     expect(result.current.isPanelShown("g1", "t1")).toBe(true);
   });
 
-  it("opens Files on a tab that never had a pane", () => {
+  it("opens the no-selection view on a tab that never had a pane", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.togglePanel("g1", "t1"));
-    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["files"]);
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["none"]);
     expect(result.current.isPanelShown("g1", "t1")).toBe(true);
+  });
+
+  it("restores a persisted Files choice instead of the no-selection view", () => {
+    const first = renderHook(() => useSessionDock());
+    act(() => first.result.current.openPane("t1", "files"));
+    act(() => first.result.current.closePane("t1", "files"));
+    first.unmount();
+    const { result } = renderHook(() => useSessionDock());
+    expect(result.current.getDock("t1").panes).toEqual([]);
+    act(() => result.current.togglePanel("g1", "t1"));
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["files"]);
+  });
+
+  it("leaves the no-selection view for a picked pane", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePanel("g1", "t1"));
+    act(() => result.current.togglePane("t1", "files"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["files"], last: "files" });
   });
 
   it("opens the given fallback on a tab that never had a pane", () => {
@@ -335,7 +353,7 @@ describe("useSessionDock — the side panel toggle", () => {
     // Another tab of the same, hidden group: the toggle opens its own panel.
     act(() => result.current.togglePanel("g1", "t2"));
     expect(result.current.isGroupHidden("g1")).toBe(false);
-    expect(result.current.getVisibleDock("t2", "g1").panes).toEqual(["files"]);
+    expect(result.current.getVisibleDock("t2", "g1").panes).toEqual(["none"]);
   });
 
   it("does nothing without an active tab", () => {

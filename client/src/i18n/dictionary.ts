@@ -866,6 +866,7 @@ export interface Dictionary {
     closeAgent: string;
     showRightPanel: string;
     hideRightPanel: string;
+    noSelection: string;
     /** The column's left edge, a separator that can be dragged or moved by key. */
     resize: string;
     openTerminal: string;

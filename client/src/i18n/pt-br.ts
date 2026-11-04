@@ -301,6 +301,7 @@ export const ptBr: Dictionary = {
     closeAgent: "Fechar conversa do agente",
     showRightPanel: "Mostrar painel lateral",
     hideRightPanel: "Esconder painel lateral",
+    noSelection: "Selecione uma opção para visualizar",
     resize: "Redimensionar painel",
     openTerminal: "Abrir terminal",
     closeTerminal: "Fechar terminal",

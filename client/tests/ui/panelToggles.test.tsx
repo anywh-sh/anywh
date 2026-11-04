@@ -91,16 +91,17 @@ describe("files/terminal toggles — cwd gate", () => {
     renderApp();
     await openConversationAndPanel(user);
 
-    // A panel opened on a tab that never had a pane opens Files, so its
-    // button reads "close" while the terminal's reads "open".
-    const filesToggle = await screen.findByLabelText(en.panels.closeFiles, undefined, SLOW);
+    // A panel opened on a tab that never had a pane has nothing selected: it
+    // draws the empty state, and both buttons read "open".
+    expect(await screen.findByText(en.panels.noSelection, undefined, SLOW)).toBeInTheDocument();
+    const filesToggle = await screen.findByLabelText(en.panels.openFiles, undefined, SLOW);
     const terminalToggle = await screen.findByLabelText(en.panels.openTerminal, undefined, SLOW);
     expect(filesToggle).toBeDisabled();
     expect(terminalToggle).toBeDisabled();
 
     chatSocket().emitMessage({ type: "cwd_state", cwd: "/home/user/project", locked: false });
 
-    await vi.waitFor(() => expect(screen.getByLabelText(en.panels.closeFiles)).toBeEnabled(), SLOW);
+    await vi.waitFor(() => expect(screen.getByLabelText(en.panels.openFiles)).toBeEnabled(), SLOW);
     expect(screen.getByLabelText(en.panels.openTerminal)).toBeEnabled();
   }, TEST_TIMEOUT);
 
@@ -125,7 +126,7 @@ describe("files/terminal toggles — cwd gate", () => {
     await user.click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
 
     expect(screen.queryByLabelText(en.panels.openTerminal)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(en.panels.closeFiles)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(en.panels.openFiles)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument();
   }, TEST_TIMEOUT);
 });
