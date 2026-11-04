@@ -3,14 +3,21 @@ import { Tooltip as TooltipPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+// `disableHoverableContent`: Radix keeps a tooltip open while the pointer
+// crosses the gap to the bubble (WCAG 1.4.13 "hoverable"), which is right for
+// rich popovers but wrong for plain labels: the bubble would linger while the
+// pointer rests between it and the trigger. Ours are text-only labels with
+// nothing to click, so leaving the trigger closes them.
 function TooltipProvider({
   delayDuration = 400,
+  disableHoverableContent = true,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (
     <TooltipPrimitive.Provider
       data-slot="tooltip-provider"
       delayDuration={delayDuration}
+      disableHoverableContent={disableHoverableContent}
       {...props}
     />
   )
@@ -23,9 +30,24 @@ function Tooltip({
 }
 
 function TooltipTrigger({
+  onFocus,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onFocus={(event) => {
+        onFocus?.(event)
+        // Radix opens on any focus. A click (or code moving focus after one,
+        // like selecting a tab) is not a keyboard visit, and the tooltip
+        // would pop up on a trigger the person just used. `:focus-visible`
+        // is what the browser already uses to tell the two apart; a
+        // prevented default makes Radix skip its own open.
+        if (!(event.target as Element).matches(":focus-visible")) event.preventDefault()
+      }}
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({
