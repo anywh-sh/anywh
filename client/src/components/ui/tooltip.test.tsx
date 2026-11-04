@@ -29,14 +29,14 @@ describe("Tooltip", () => {
   // this) is not a keyboard visit; the label must not pop up for it.
   it("does not open on a focus that is not :focus-visible", () => {
     const trigger = renderTooltip();
-    trigger.matches = ((selector: string) => selector !== ":focus-visible") as typeof trigger.matches;
+    trigger.matches = ((selector: string) => selector !== ":focus-visible");
     fireEvent.focus(trigger);
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("opens on keyboard (:focus-visible) focus", async () => {
     const trigger = renderTooltip();
-    trigger.matches = ((selector: string) => selector === ":focus-visible") as typeof trigger.matches;
+    trigger.matches = ((selector: string) => selector === ":focus-visible");
     fireEvent.focus(trigger);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("label");
   });
