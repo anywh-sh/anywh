@@ -706,7 +706,7 @@ function AppShell() {
       <div className="flex h-full w-screen flex-col overflow-hidden bg-background text-foreground">
         <RevokedProfileBanners />
         {profileSetupDialog}
-        <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} onSelectSession={handleSearchSelectSession} />
+        <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
         {/* `relative` stays for the web stack floating above the native
          * composer (see the comment on the desktop branch); the drawer, top
          * bar and composer are native. */}
@@ -744,7 +744,7 @@ function AppShell() {
       {profileSetupDialog}
       <DownloadToasts />
 
-      <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} onSelectSession={handleSearchSelectSession} />
+      <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

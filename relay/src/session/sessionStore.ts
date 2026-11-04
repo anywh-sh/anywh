@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync,
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
+import { capStoredTitle, firstLineTitle, MAX_STORED_TITLE_CHARS } from "./titleCap.js";
 import { isRoomMembership, type RoomMembership } from "./room.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
@@ -78,6 +79,9 @@ export interface ContextUsage {
 export type AgentId = string;
 
 const DEFAULT_AGENT_ID: AgentId = "claude";
+
+/** Length an oversized stored title is shortened to — what the title generator aims for. */
+const MIGRATED_TITLE_CHARS = 50;
 
 export interface SessionEntry {
   /** Which agent def owns this session — every session today, since no
@@ -422,6 +426,12 @@ export class SessionStore {
       if (this.sanitizeStoredPrompt(entry, "pendingChoice", isPersistedChoice)) this.migrated = true;
       if (this.sanitizeStoredPrompt(entry, "pendingApproval", isPersistedApproval)) this.migrated = true;
       if (this.sanitizeStoredPrompt(entry, "queuedApproval", isPersistedApproval)) this.migrated = true;
+      if (typeof entry.title === "string" && entry.title.length > MAX_STORED_TITLE_CHARS) {
+        // Written before titles were capped (a whole model reply, in the worst
+        // case): every list that reads them pays for the length.
+        entry.title = firstLineTitle(entry.title, MIGRATED_TITLE_CHARS);
+        this.migrated = true;
+      }
       if (entry.room !== undefined && !isRoomMembership(entry.room)) {
         // Same treatment as a bad pendingChoice: the session survives, as an
         // ordinary one, and the bad record is not written back.
@@ -747,7 +757,7 @@ export class SessionStore {
    * manual rename — in both cases it's just "the title now is this one". */
   setTitle(id: string, title: string): void {
     this.ensureEntry(id);
-    this.records[id].title = title;
+    this.records[id].title = capStoredTitle(title);
     this.persist();
     this.notifyRoom(id);
   }

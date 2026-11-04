@@ -268,3 +268,16 @@ test("a rename by hand ends the wait at once", () => {
     cleanup();
   }
 });
+
+test("a rename by hand is cut to the stored cap in both the store and the announced row", () => {
+  const { manager, store, events, cleanup } = titleStack(() => new Promise(() => undefined));
+  try {
+    manager.generateTitle("p1", "Fix the whole login flow, again");
+    manager.renameTitle("p1", "long ".repeat(100));
+    const stored = store.getTitle("p1")!;
+    assert.ok(stored.length <= 120);
+    assert.equal(events.at(-1)?.title, stored);
+  } finally {
+    cleanup();
+  }
+});

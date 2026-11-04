@@ -1309,7 +1309,18 @@ export interface Dictionary {
       title: string;
       description: string;
       placeholder: string;
-      noResults: string;
+      clear: string;
+      listLabel: string;
+      emptyTitle: string;
+      emptyHint: string;
+      totalOne: string;
+      totalMany: string;
+      resultsOne: string;
+      resultsMany: string;
+      synced: string;
+      neverSynced: string;
+      navigate: string;
+      open: string;
     };
     /** Plan usage (Claude Code / Codex subscription windows): the status
      * bar's indicator and its details card. `{window}` is a window's label

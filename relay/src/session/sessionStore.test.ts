@@ -790,3 +790,31 @@ test("SessionStore.lastUsedAgentId and lastUsedAgentIdInFile agree on the same r
     assert.equal(lastUsedAgentIdInFile(join(dirname(filePath), "missing.json")), undefined);
   });
 });
+
+test("setTitle cuts a title longer than the stored cap", () => {
+  withStoreFile(undefined, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    store.recordId("abc-123");
+    store.setTitle("abc-123", `${"word ".repeat(400)}end`);
+    const title = store.getTitle("abc-123")!;
+    assert.ok(title.length <= 120, `got ${title.length}`);
+    assert.ok(title.endsWith("…"));
+    store.setTitle("abc-123", "Short one");
+    assert.equal(store.getTitle("abc-123"), "Short one");
+  });
+});
+
+test("a file with a model reply stored as a title is migrated to a short one and persisted once", () => {
+  const seed = {
+    big: { agentId: "claude", sessionId: {}, title: `Here is the answer\n${"x".repeat(27_000)}`, cwd: { cwd: "/x", locked: false }, lastActiveAt: 1 },
+    ok: { agentId: "claude", sessionId: {}, title: "Fine title", cwd: { cwd: "/x", locked: false }, lastActiveAt: 2 },
+  };
+  withStoreFile(seed, (filePath) => {
+    const store = new SessionStore(filePath, DEFAULT_CWD);
+    assert.equal(store.getTitle("big"), "Here is the answer");
+    assert.equal(store.getTitle("ok"), "Fine title");
+    const onDisk = JSON.parse(readFileSync(filePath, "utf8")) as Record<string, { title: string }>;
+    assert.equal(onDisk.big.title, "Here is the answer");
+    assert.ok(readFileSync(filePath, "utf8").length < 2_000);
+  });
+});
