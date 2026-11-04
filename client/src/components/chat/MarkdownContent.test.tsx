@@ -77,4 +77,12 @@ describe("MarkdownContent", () => {
     await userEvent.click(link);
     expect(openUrl).toHaveBeenCalledWith("https://example.com");
   });
+
+  it("renders a table inside a scroll wrapper so one long cell scrolls instead of clipping columns", () => {
+    const { container } = render(<MarkdownContent text={"| # | File |\n|---|---|\n| 1 | /a/very/long/path.tsx |"} />);
+
+    const table = container.querySelector("table");
+    expect(table).not.toBeNull();
+    expect(table?.parentElement).toHaveClass("prose-chat-table");
+  });
 });

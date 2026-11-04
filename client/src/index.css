@@ -776,6 +776,9 @@ body {
 /* Rules run horizontally only, with the outer border closing the shape —
    the full grid the cells used to draw turned a three-column table into
    graph paper, and the columns already read as columns from alignment. */
+.prose-chat-table {
+  overflow-x: auto;
+}
 .prose-chat table {
   border: 1px solid var(--border);
   border-collapse: collapse;
@@ -784,6 +787,17 @@ body {
 }
 .prose-chat thead {
   background: var(--bg-sidebar);
+}
+/* `overflow-wrap: anywhere` (inherited from `.prose-chat`) also shrinks an
+   element's min-content width to a single character, and the auto table
+   layout reads that as "this column may collapse" — so the column with the
+   long text took nearly all the width and short cells like `C1` or `criar
+   agora` were split mid-word. `break-word` wraps the same way when a cell
+   really overflows but leaves min-content at the longest word, so short
+   columns keep their words whole and the long column is the one that wraps. */
+.prose-chat th,
+.prose-chat td {
+  overflow-wrap: break-word;
 }
 .prose-chat th {
   border-bottom: 1px solid var(--border);

@@ -40,6 +40,15 @@ export function MarkdownContent({
       remarkRehypeOptions={userMessage ? USER_MESSAGE_REHYPE_OPTIONS : undefined}
       rehypePlugins={[rehypeHighlight]}
       components={{
+        // Cells wrap at `break-word` (see `.prose-chat th`), which keeps short
+        // columns from collapsing but lets one long unbreakable string widen
+        // the table past the message — the wrapper turns that into a
+        // horizontal scroll instead of clipped columns.
+        table: ({ children }) => (
+          <div className="prose-chat-table scrollbar-thin">
+            <table>{children}</table>
+          </div>
+        ),
         // A real markdown link (`[foo](bar/baz.ts)`, as opposed to the `code`
         // override below) whose `href` isn't an external URL scheme: the
         // opener plugin's scope only knows http(s)/mailto/tel/the editor
