@@ -248,15 +248,25 @@ export function FileTree({
 
   async function handleBulkDelete(paths: string[]): Promise<void> {
     // A folder takes its children with it — deleting those too would fail.
-    for (const path of dropNestedPaths(paths)) {
+    const targets = dropNestedPaths(paths);
+    let failed = 0;
+    for (const path of targets) {
       try {
         if (allEntriesByPath.get(path)?.kind === "dir") await deleteFolder(profile, sessionId, path);
         else await deleteFile(profile, sessionId, path);
         onFileDeleted(path);
       } catch (error) {
+        // Keep going: one bad entry must not strand the rest of the batch.
+        failed += 1;
         console.error("[anywh] failed to delete:", path, error);
-        window.alert(copy.errors.delete);
       }
+    }
+    if (failed > 0) {
+      window.alert(
+        targets.length === 1
+          ? copy.errors.delete
+          : copy.errors.deleteSome.replace("{failed}", String(failed)).replace("{total}", String(targets.length)),
+      );
     }
     setSelectedPaths(new Set());
   }

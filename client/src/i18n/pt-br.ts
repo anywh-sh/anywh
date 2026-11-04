@@ -355,6 +355,7 @@ export const ptBr: Dictionary = {
           downloadFolderPartial: "Não foi possível baixar {failed} dos {total} arquivos da pasta.",
           rename: "Não foi possível renomear o arquivo.",
           delete: "Não foi possível excluir o arquivo.",
+          deleteSome: "Não foi possível excluir {failed} de {total} itens. Os demais foram excluídos.",
         },
       },
       downloads: {

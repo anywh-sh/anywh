@@ -355,6 +355,7 @@ export const en: Dictionary = {
           downloadFolderPartial: "Couldn't download {failed} of the folder's {total} files.",
           rename: "Couldn't rename the file.",
           delete: "Couldn't delete the file.",
+          deleteSome: "Couldn't delete {failed} of {total} items. The rest were deleted.",
         },
       },
       downloads: {

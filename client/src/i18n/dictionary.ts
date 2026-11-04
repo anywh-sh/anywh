@@ -937,6 +937,7 @@ export interface Dictionary {
           downloadFolderPartial: string;
           rename: string;
           delete: string;
+          deleteSome: string;
         };
       };
       downloads: {
