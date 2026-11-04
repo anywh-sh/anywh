@@ -601,6 +601,8 @@ export const en: Dictionary = {
       totalMany: "{count} sessions",
       resultsOne: "1 result",
       resultsMany: "{count} results",
+      synced: "synced {time}",
+      neverSynced: "never synced",
       navigate: "navigate",
       open: "open",
     },

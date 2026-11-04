@@ -1317,6 +1317,8 @@ export interface Dictionary {
       totalMany: string;
       resultsOne: string;
       resultsMany: string;
+      synced: string;
+      neverSynced: string;
       navigate: string;
       open: string;
     };

@@ -601,6 +601,8 @@ export const ptBr: Dictionary = {
       totalMany: "{count} sessões",
       resultsOne: "1 resultado",
       resultsMany: "{count} resultados",
+      synced: "sincronizado {time}",
+      neverSynced: "nunca sincronizado",
       navigate: "navegar",
       open: "abrir",
     },

@@ -1,6 +1,6 @@
 import { Dialog, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
-import { useMergedSessions } from "@/hooks/tabs/useMergedSessions";
+import { useMergedSessions, useSessionListCache } from "@/hooks/tabs/useMergedSessions";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
 import { useDict, useLocale } from "@/i18n";
 import { formatRelativeTime } from "@/lib/format/relativeTime";
@@ -22,6 +22,9 @@ import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type Key
 interface SessionSearchProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The profile whose relay is connected right now; its list is live, so it
+   * gets no sync age. */
+  activeProfileId: string;
   onSelectSession: (profileId: string, sessionId: string, title: string) => void;
 }
 
@@ -50,7 +53,7 @@ function flattenGroups(groups: SearchGroup[], labels: ReadonlyMap<string, string
  * anything. The palette lives in its own component so that closing it throws
  * the query and the highlighted row away.
  */
-export function SessionSearch({ open, onOpenChange, onSelectSession }: SessionSearchProps) {
+export function SessionSearch({ open, onOpenChange, activeProfileId, onSelectSession }: SessionSearchProps) {
   const dict = useDict();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,14 +66,22 @@ export function SessionSearch({ open, onOpenChange, onSelectSession }: SessionSe
         >
           <DialogPrimitive.Title className="sr-only">{dict.shell.search.title}</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">{dict.shell.search.description}</DialogPrimitive.Description>
-          <SearchPalette onClose={() => onOpenChange(false)} onSelectSession={onSelectSession} />
+          <SearchPalette activeProfileId={activeProfileId} onClose={() => onOpenChange(false)} onSelectSession={onSelectSession} />
         </DialogPrimitive.Content>
       </DialogPortal>
     </Dialog>
   );
 }
 
-function SearchPalette({ onClose, onSelectSession }: { onClose: () => void; onSelectSession: SessionSearchProps["onSelectSession"] }) {
+function SearchPalette({
+  activeProfileId,
+  onClose,
+  onSelectSession,
+}: {
+  activeProfileId: string;
+  onClose: () => void;
+  onSelectSession: SessionSearchProps["onSelectSession"];
+}) {
   const dict = useDict().shell.search;
   const { locale } = useLocale();
   const profiles = useProfiles();
@@ -80,6 +91,7 @@ function SearchPalette({ onClose, onSelectSession }: { onClose: () => void; onSe
   // list shows, and someone reaching for search is looking for a session
   // they cannot see.
   const sessions = useMergedSessions(allProfileIds);
+  const cache = useSessionListCache();
   const labels = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile.label])), [profiles]);
   const index = useMemo(() => buildSearchIndex(sessions), [sessions]);
 
@@ -145,6 +157,11 @@ function SearchPalette({ onClose, onSelectSession }: { onClose: () => void; onSe
     }
   };
 
+  /** How stale an inactive profile's rows may be — the one thing search
+   * cannot fix, since it never goes to the relay. */
+  const syncLabel = (syncedAt: number | null) =>
+    syncedAt === null ? dict.neverSynced : dict.synced.replace("{time}", formatRelativeTime(syncedAt, locale));
+
   const activeId = activeRowIndex === undefined ? undefined : `${listId}-${active}`;
   const totalLabel = hasQuery
     ? count === 1
@@ -206,6 +223,10 @@ function SearchPalette({ onClose, onSelectSession }: { onClose: () => void; onSe
                 >
                   <span className={cn("size-1.5 shrink-0", profileColorClass(row.profileId))} />
                   <span className="min-w-0 truncate">{row.label}</span>
+                  <span className="flex-1" />
+                  {row.profileId !== activeProfileId ? (
+                    <span className="shrink-0 font-normal">{syncLabel(cache[row.profileId]?.syncedAt ?? null)}</span>
+                  ) : null}
                 </div>
               );
             }
