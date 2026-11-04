@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchRoomCanvas, RoomRequestError, saveRoomCanvas, type RoomAgent, type RoomCanvas, type RoomCanvasCamera } from "@/lib/relay/roomClient";
-import { cardRects, placeAgents, prunePositions, storedArea } from "@/lib/sala/layout";
+import { footprintRects, placeAgents, prunePositions, storedArea } from "@/lib/sala/layout";
 import type { Camera } from "@/lib/sala/camera";
 import type { Profile } from "@/lib/profiles/profiles";
 
@@ -50,7 +50,7 @@ export function useRoomCanvas(profile: Profile, roomId: string, agents: readonly
     if (!dirtyRef.current || !loadedRef.current) return;
     dirtyRef.current = false;
     const current = canvasRef.current;
-    const cards = cardRects(agentsRef.current, current.positions);
+    const cards = footprintRects(agentsRef.current, current.positions);
     const body: RoomCanvas = {
       ...current,
       positions: prunePositions(current.positions, new Set(agentsRef.current.map((a) => a.agentId))),

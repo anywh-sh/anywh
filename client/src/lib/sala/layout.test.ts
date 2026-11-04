@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { RoomAgent, RoomCanvas } from "@/lib/relay/roomClient";
-import { AREA_BAR, AREA_ROW_MAX, WRAP_SHIFT, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
+import { AREA_BAR, AREA_ROW_MAX, WRAP_SHIFT, AREA_GAP, AREA_PAD, CARD_H, CARD_W, CARD_W_MAIN, GRID, areaRect, cardRects, edgePath, footprintRects, groupInto, membershipAfterDrop, pathLength, placeAgents, prunePositions, spawnUnder, subtreeIds, trackDrag, treeOrder, worldBounds } from "@/lib/sala/layout";
 import type { Rect } from "@/lib/sala/camera";
+import { SUB_DROP, subtaskBand } from "@/lib/sala/subtasks";
 
 function agent(agentId: string, over: Partial<RoomAgent> = {}): RoomAgent {
   return { agentId, role: "worker", parentId: "main", title: agentId, runtime: "claude", model: null, createdBy: "agent", state: "working", queuedMessages: 0, needsYou: [], subtasksRunning: 0, connectors: [], ...over };
@@ -408,5 +409,54 @@ describe("rows of an area", () => {
     const out = placeAgents([...four, agent("e", { area: "Design" })], moved);
     for (const [id, at] of Object.entries(moved.positions)) expect(out.positions[id]).toEqual(at);
     expect(out.positions.e).toBeDefined();
+  });
+});
+
+describe("tidy layout with subtask bands", () => {
+  const subs = (n: number): RoomAgent["subtasks"] => Array.from({ length: n }, (_, i) => ({ taskId: `t${String(i)}`, toolUseId: `u${String(i)}`, status: "running" as const, startedAt: 10 + i }));
+  const boxesApart = (a: Rect, b: Rect): boolean => a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+
+  it("lays out exactly as before when nobody has subtasks", () => {
+    const agents = [main, agent("a"), agent("b", { area: "Docs" }), agent("c", { parentId: "a" })];
+    const finished = agents.map((a) => (a.agentId === "a" ? { ...a, state: "done" as const, subtasks: [{ taskId: "x", toolUseId: "y", status: "completed" as const, startedAt: 1 }] } : a));
+    expect(placeAgents(finished, empty)).toEqual(placeAgents(agents, empty));
+  });
+
+  it("keeps two neighbours' bands apart", () => {
+    const agents = [main, agent("a", { subtasks: subs(3) }), agent("b", { subtasks: subs(3) })];
+    const out = placeAgents(agents, empty);
+    const fp = footprintRects(agents, out.positions);
+    expect(boxesApart(fp.get("a")!, fp.get("b")!)).toBe(true);
+    expect(boxesApart(fp.get("a")!, fp.get("main")!)).toBe(true);
+  });
+
+  it("moves a worker's children below its band", () => {
+    const agents = [main, agent("a", { subtasks: subs(4) }), agent("c", { parentId: "a" })];
+    const out = placeAgents(agents, empty);
+    const cards = cardRects(agents, out.positions);
+    const band = subtaskBand(cards.get("a")!, 4)!;
+    expect(out.positions.c.y).toBeGreaterThanOrEqual(band.y + band.h);
+    expect(band.y).toBe(cards.get("a")!.y + CARD_H + SUB_DROP);
+  });
+
+  it("puts the band inside its parent's area frame", () => {
+    const agents = [main, agent("a", { area: "Auth", subtasks: subs(3) })];
+    const out = placeAgents(agents, empty);
+    const cards = cardRects(agents, out.positions);
+    const band = subtaskBand(cards.get("a")!, 3)!;
+    const frame = areaRect(out.areas[0], footprintRects(agents, out.positions));
+    expect(frame.x).toBeLessThanOrEqual(band.x);
+    expect(frame.x + frame.w).toBeGreaterThanOrEqual(band.x + band.w);
+    expect(frame.y + frame.h).toBeGreaterThanOrEqual(band.y + band.h);
+    expect(out.areas[0].height).toBe(frame.h);
+  });
+
+  it("keeps a new card placed by hand clear of a band", () => {
+    const arranged: RoomCanvas = { ...empty, manual: true, positions: { main: { x: 0, y: 0 }, a: { x: 0, y: 240 } } };
+    const agents = [main, agent("a", { subtasks: subs(3) }), agent("b", { parentId: "a" })];
+    const out = placeAgents(agents, arranged);
+    const fp = footprintRects(agents, out.positions);
+    const b = cardRects(agents, out.positions).get("b")!;
+    expect(boxesApart(fp.get("a")!, b)).toBe(true);
   });
 });

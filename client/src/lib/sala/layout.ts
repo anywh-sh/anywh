@@ -4,6 +4,7 @@
 // place here, under whoever delegated to them, clear of everything else.
 import type { RoomAgent, RoomCanvas, RoomCanvasArea } from "@/lib/relay/roomClient";
 import { GRID, boundsOf, snap, type Rect } from "@/lib/sala/camera";
+import { bandDepth, bandWidth, footprint, subtaskBand, subtaskTiles } from "@/lib/sala/subtasks";
 
 // One width for every card, the principal's included: a card is a terminal
 // window, and the role is a word in its strip rather than a bigger box. The
@@ -109,6 +110,20 @@ export function cardRects(agents: readonly RoomAgent[], positions: RoomCanvas["p
   for (const agent of agents) {
     const at = positions[agent.agentId];
     if (at) out.set(agent.agentId, { x: at.x, y: at.y, ...cardSize(agent) });
+  }
+  return out;
+}
+
+/** What each card takes on the canvas: the card, and under it the band of
+ * its subtasks' mini-cards when it has some. What areas, obstacles and the
+ * canvas' extent are measured with; links and drags use the card alone. */
+export function footprintRects(agents: readonly RoomAgent[], positions: RoomCanvas["positions"]): Map<string, Rect> {
+  const out = new Map<string, Rect>();
+  for (const agent of agents) {
+    const at = positions[agent.agentId];
+    if (!at) continue;
+    const card = { x: at.x, y: at.y, ...cardSize(agent) };
+    out.set(agent.agentId, footprint(card, subtaskBand(card, subtaskTiles(agent))));
   }
   return out;
 }
@@ -220,13 +235,18 @@ export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): R
     const at = positions[agent.agentId];
     return at ? { x: at.x, y: at.y, ...cardSize(agent) } : undefined;
   };
+  // What a placed card takes, its subtasks' band included.
+  const takenBy = (agent: RoomAgent): Rect | undefined => {
+    const rect = rectOf(agent);
+    return rect && footprint(rect, subtaskBand(rect, subtaskTiles(agent)));
+  };
 
   for (const agent of treeOrder(agents)) {
     if (positions[agent.agentId] !== undefined) continue;
     const size = cardSize(agent);
     const cards = new Map<string, Rect>();
     for (const other of agents) {
-      const rect = rectOf(other);
+      const rect = takenBy(other);
       if (rect) cards.set(other.agentId, rect);
     }
     const own = areaOfMember(agent.agentId);
@@ -278,7 +298,7 @@ export function placeAgents(agents: readonly RoomAgent[], canvas: RoomCanvas): R
     }
   }
 
-  const cards = cardRects(agents, positions);
+  const cards = footprintRects(agents, positions);
   return { ...canvas, positions, areas: areas.map((a) => storedArea(a, cards)) };
 }
 
@@ -292,6 +312,8 @@ interface Placed {
   /** Centre of the card, relative to the subtree's root. */
   cx: number;
   y: number;
+  /** How far its subtasks' band reaches below the card, 0 without one. */
+  depth: number;
 }
 
 interface SubtreeLayout {
@@ -331,12 +353,17 @@ export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): Ro
 
   const layout = (agent: RoomAgent, seen: Set<string>): SubtreeLayout => {
     const { w } = cardSize(agent);
+    // The band of mini-cards under the card is as much a part of it as the
+    // card: as wide as the wider of the two, and its children start below it.
+    const tiles = subtaskTiles(agent);
+    const half = Math.max(w, bandWidth(tiles)) / 2;
+    const depth = bandDepth(tiles);
     seen.add(agent.agentId);
     // Members of one area stay together, in the order the channel listed them.
     const order: string[] = [];
     for (const kid of kids.get(agent.agentId) ?? []) if (!order.includes(key(kid.agentId))) order.push(key(kid.agentId));
     const children = (kids.get(agent.agentId) ?? []).filter((k) => !seen.has(k.agentId)).sort((a, b) => order.indexOf(key(a.agentId)) - order.indexOf(key(b.agentId)));
-    if (children.length === 0) return { cards: [{ id: agent.agentId, cx: 0, y: 0 }], minX: -w / 2, maxX: w / 2 };
+    if (children.length === 0) return { cards: [{ id: agent.agentId, cx: 0, y: 0, depth }], minX: -half, maxX: half };
     // Children of one group (same area) fill rows of AREA_ROW_MAX; a row after
     // the first starts WRAP_SHIFT to the left and below the tallest subtree
     // of the row above it.
@@ -347,7 +374,7 @@ export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): Ro
       else groups.push([kid]);
     }
     let cursor = 0;
-    const shifted: { id: string; cx: number; y: number }[] = [];
+    const shifted: Placed[] = [];
     const roots: number[] = [];
     let minX = Infinity;
     let maxX = -Infinity;
@@ -371,14 +398,14 @@ export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): Ro
         const sub = layout(kid, seen);
         const offset = x - sub.minX;
         placed.push({ cards: sub.cards.map((c) => ({ ...c, y: c.y + rowY })), offset, row, sub });
-        rowDepth = Math.max(rowDepth, ...sub.cards.map((c) => c.y));
+        rowDepth = Math.max(rowDepth, ...sub.cards.map((c) => c.y + c.depth));
         x = offset + sub.maxX;
         gMin = Math.min(gMin, offset + sub.minX);
         gMax = Math.max(gMax, x);
       }
       const shift = groupStart - gMin;
       for (const { cards: cs, offset, row, sub } of placed) {
-        for (const card of cs) shifted.push({ id: card.id, cx: card.cx + offset + shift, y: card.y + ROW });
+        for (const card of cs) shifted.push({ ...card, cx: card.cx + offset + shift, y: card.y + ROW + depth });
         if (row === 0) roots.push(offset + shift);
         minX = Math.min(minX, offset + shift + sub.minX);
       }
@@ -387,8 +414,8 @@ export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): Ro
       previous = key(group[0].agentId);
     }
     const centre = (roots[0] + roots[roots.length - 1]) / 2;
-    const cards: Placed[] = [{ id: agent.agentId, cx: centre, y: 0 }, ...shifted];
-    return { cards, minX: Math.min(centre - w / 2, minX), maxX: Math.max(centre + w / 2, maxX) };
+    const cards: Placed[] = [{ id: agent.agentId, cx: centre, y: 0, depth }, ...shifted];
+    return { cards, minX: Math.min(centre - half, minX), maxX: Math.max(centre + half, maxX) };
   };
 
   const seen = new Set<string>();
@@ -421,7 +448,7 @@ export function tidyLayout(agents: readonly RoomAgent[], canvas: RoomCanvas): Ro
     }
     area.members!.push(agent.agentId);
   }
-  const cards = cardRects(agents, positions);
+  const cards = footprintRects(agents, positions);
   const placedAreas = areas.map((a) => storedArea(a, cards));
 
   const same =

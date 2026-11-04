@@ -59,6 +59,10 @@ export interface RoomAgent {
   report?: RoomReportView;
   needsYou: RoomNeedsYou[];
   subtasksRunning: number;
+  /** Its native subagents (every running one and the latest finished, at
+   * most eight, oldest first); absent from a relay that does not send them,
+   * which shows none. */
+  subtasks?: RoomSubtaskView[];
   /** Epoch ms the agent's latest turn began; absent if it never ran. */
   startedAt?: number;
   /** MCP servers the agent has called, in order of first use. */
@@ -66,6 +70,27 @@ export interface RoomAgent {
   /** Its latest actions, oldest first; absent from a relay that does not
    * send them. */
   activity?: RoomAction[];
+}
+
+/** One native subagent of an agent as the room channel sends it: one line
+ * of each text. */
+export interface RoomSubtaskView {
+  taskId: string;
+  toolUseId: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  description?: string;
+  subagentType?: string;
+  /** What it is doing, while it runs. */
+  activity?: string;
+  /** The first line of how it ended. */
+  summaryLine?: string;
+  startedAt: number;
+  endedAt?: number;
+  totalTokens?: number;
+  toolUses?: number;
+  /** A pending approval of its parent came from it; the approval is still
+   * the parent's to answer. */
+  needsYou?: true;
 }
 
 export interface RoomSummary {
@@ -332,6 +357,8 @@ export interface RoomSubtask {
   subagentType?: string;
   activity?: string;
   summary?: string;
+  totalTokens?: number;
+  toolUses?: number;
   startedAt: number;
   endedAt?: number;
 }
