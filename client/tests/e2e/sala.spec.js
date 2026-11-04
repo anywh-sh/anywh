@@ -120,10 +120,43 @@ const panelSettled = () =>
 
 /** Opens the room's information from the strip. With the side panel hidden the
  * strip only offers the panel's own button, which opens the agent's pane
- * first; the room's buttons are there after it. */
-const openAbout = async (label = "About this room", showLabel = "Show side panel") => {
-  if (!(await $(`button[aria-label="${label}"]`).isExisting())) await press(`button[aria-label="${showLabel}"]`);
+ * first; the room's buttons are there after it. Does nothing if it is open. */
+const openAbout = async (label = "About this room", showLabel = "Show side panel", closeLabel = "Close room info") => {
+  if (await $(`button[aria-label="${closeLabel}"]`).isExisting()) return;
+  if (!(await $(`button[aria-label="${label}"]`).isExisting())) {
+    await press(`button[aria-label="${showLabel}"]`);
+    // Showing the panel brings back the pane opened last, which may be this one.
+    if (await $(`button[aria-label="${closeLabel}"]`).waitForExist({ timeout: 1500, reverse: false }).catch(() => false)) return;
+  }
   await press(`button[aria-label="${label}"]`);
+};
+
+/** Closes every pane of the dock, so the next test starts with the canvas at
+ * its full width: the dock keeps what it had open from one test to the next.
+ * Through the strip's buttons, which are there exactly while a pane is open:
+ * the dock keeps the last pane drawn while it closes, so the pane's own
+ * header is no sign of it. */
+const closePanes = async () => {
+  const open = 'button[aria-label="Close room info"], button[aria-label="Close agent conversation"]';
+  while (await $(open).isExisting()) {
+    await press(open);
+    await browser.pause(150);
+  }
+  // With nothing open the strip gives up the room's buttons (and the panel's
+  // toggle says "Show"): wait for that, or the next test presses one on its way out.
+  await browser.waitUntil(async () => !(await $('button[aria-label="About this room"]').isExisting()) && (await $('button[aria-label="Show side panel"]').isExisting()), {
+    timeout: 5000,
+    timeoutMsg: "the dock never emptied",
+  });
+};
+
+/** Esc, as a person at the keyboard sends it. The strip's button keeps the
+ * focus it was clicked with, and its tooltip (opened by that focus) takes the
+ * first Esc for itself — this driver never delivers the pointerdown that would
+ * have closed it — so the focus is let go of first. */
+const escape = async () => {
+  await browser.execute(() => document.activeElement?.blur());
+  await browser.keys("Escape");
 };
 
 /** A button of the selected card's action bar, by its words. */
@@ -523,8 +556,9 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
     await panelSettled();
     await shot("B-sobre-a-sala");
-    await browser.keys("Escape");
+    await escape();
     await browser.waitUntil(async () => !(await $('aside[data-panel="about"]').isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    await closePanes();
   });
 
   it("resizes the dock from its left edge, keeps the width, and goes back to it on a double click", async () => {
@@ -559,7 +593,19 @@ describe("anywh room canvas", () => {
         };
       }, edge);
 
-    const before = await measure();
+    // The dock opens with a width transition: the baseline is taken once the canvas has stopped moving.
+    let last = await measure();
+    await browser.waitUntil(
+      async () => {
+        await browser.pause(300);
+        const now = await measure();
+        const still = now.canvas === last.canvas;
+        last = now;
+        return still;
+      },
+      { timeout: 5000, timeoutMsg: "the dock never finished opening" },
+    );
+    const before = last;
     expect(before.width).toBe(480);
     // Narrower than the least a pane takes is not allowed.
     await drag(2000);
@@ -567,8 +613,9 @@ describe("anywh room canvas", () => {
     await drag(-100);
     await browser.waitUntil(async () => (await measure()).width === before.min + 100, { timeout: 5000, timeoutMsg: "the dock did not follow the drag" });
     const wider = await measure();
-    // The canvas gives the dock the width it took.
-    expect(before.canvas - wider.canvas).toBe(wider.width - before.width);
+    // The canvas gives the dock the width it took (once the dock's own width
+    // transition has run its course).
+    await browser.waitUntil(async () => before.canvas - (await measure()).canvas === wider.width - before.width, { timeout: 5000, timeoutMsg: "the canvas did not give the dock the width it took" });
     await drag(-4000);
     await browser.waitUntil(async () => (await measure()).width === before.max, { timeout: 5000, timeoutMsg: "the dock did not stop at its maximum" });
 
@@ -580,6 +627,7 @@ describe("anywh room canvas", () => {
 
     await browser.execute((selector) => document.querySelector(selector).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), edge);
     await browser.waitUntil(async () => (await measure()).width === 480, { timeout: 5000, timeoutMsg: "a double click did not restore the default width" });
+    await closePanes();
   });
 
   it("answers in the card: Reply opens the question under it, with a way into the whole conversation", async () => {
@@ -607,7 +655,8 @@ describe("anywh room canvas", () => {
     await panelSettled();
     await shot("B-resumo-do-agente");
     await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
-    await browser.waitUntil(async () => !(await $('aside[data-panel="agent"]').isExisting()), { timeout: 5000 });
+    // The last pane to close stays drawn while the dock fades out: the strip says it is closed.
+    await browser.waitUntil(async () => !(await $('button[aria-label="Close agent conversation"]').isExisting()), { timeout: 5000, timeoutMsg: "the agent's pane did not close" });
   });
 
   it("speaks Portuguese when the app does: the card states, the area counts and the toolbar", async () => {
