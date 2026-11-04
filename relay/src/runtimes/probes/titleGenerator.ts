@@ -1,5 +1,5 @@
 import { runQuickPrompt } from "./quickPrompt.js";
-import { cutTitle } from "../../session/titleCap.js";
+import { firstLineTitle } from "../../session/titleCap.js";
 import type { AgentRuntimeDef } from "../types.js";
 
 const SYSTEM_PROMPT =
@@ -36,11 +36,7 @@ const MAX_PROMPT_CHARS = 2000;
  * for a session the relay hasn't titled yet.
  */
 export function fallbackTitle(prompt: string): string | null {
-  const firstLine = prompt.trim().split("\n")[0] ?? "";
-  const trimmed = firstLine.replace(/\s+/g, " ").trim();
-  if (trimmed.length === 0) return null;
-  if (trimmed.length <= MAX_TITLE_CHARS) return trimmed;
-  return cutTitle(trimmed, MAX_TITLE_CHARS);
+  return firstLineTitle(prompt, MAX_TITLE_CHARS);
 }
 
 /**

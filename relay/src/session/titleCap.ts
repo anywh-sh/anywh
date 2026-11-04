@@ -19,3 +19,11 @@ export function capStoredTitle(title: string): string {
   if (title.length <= MAX_STORED_TITLE_CHARS) return title;
   return cutTitle(title.replace(/\s+/g, " ").trim(), MAX_STORED_TITLE_CHARS - 1);
 }
+
+/** A title made of `text`'s first line, whitespace collapsed and cut to `max`;
+ * `null` when there is nothing to salvage. */
+export function firstLineTitle(text: string, max: number): string | null {
+  const trimmed = (text.trim().split("\n")[0] ?? "").replace(/\s+/g, " ").trim();
+  if (trimmed.length === 0) return null;
+  return trimmed.length <= max ? trimmed : cutTitle(trimmed, max);
+}
