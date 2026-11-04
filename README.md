@@ -20,7 +20,7 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshot-desktop.png" alt="anywh desktop client showing a room: an orchestrator coordinating six Claude Code and Codex agents grouped into Design, Research and Code areas, each card with its live activity, one agent waiting for approval, and the session sidebar on the left" width="100%">
+  <img src="assets/screenshot-desktop.png" alt="anywh desktop client showing a room: an orchestrator coordinating six Claude Code and Codex agents grouped into Design, Research and Code areas, each card with its live activity, one agent waiting for approval; tabs from two profiles, each in its own color, and plan usage in the status bar" width="100%">
 </p>
 
 ## Why
