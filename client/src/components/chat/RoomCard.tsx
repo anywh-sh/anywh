@@ -1,7 +1,7 @@
 import { memo, useEffect, useReducer } from "react";
 import "@/components/chat/roomCard.css";
 import { useRoomCardActions } from "@/components/chat/roomCardActions";
-import { CheckIcon, CloseIcon, QuestionIcon } from "@/components/sala/SalaIcons";
+import { CheckIcon, CloseIcon, QuestionIcon, RoomGlyph } from "@/components/sala/SalaIcons";
 import { formatCompactTime } from "@/lib/format/relativeTime";
 import type { RoomCard as RoomCardData, RoomReportCard } from "@/lib/relay/agent-event";
 import { useDict, useLocale } from "@/i18n";
@@ -79,6 +79,22 @@ export const RoomCard = memo(function RoomCard({ room }: { room: RoomCardData })
         <span className="room-card-title" title={title}>
           {title}
         </span>
+      </div>
+    </div>
+  );
+});
+
+/** The notice that an agent launched subagents, in the look of a report card:
+ * what they do is on its canvas card (a room) or in the tray, not here. */
+export const SubagentsLaunched = memo(function SubagentsLaunched({ count }: { count: number }) {
+  const copy = useDict().chat.log.subagentsLaunched;
+  return (
+    <div className="room-card" role="status">
+      <span className="room-card-icon" aria-hidden="true">
+        <RoomGlyph size={14} />
+      </span>
+      <div className="room-card-body">
+        <span className="room-card-title">{(count === 1 ? copy.one : copy.many).replace("{count}", String(count))}</span>
       </div>
     </div>
   );

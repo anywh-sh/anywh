@@ -659,6 +659,8 @@ export interface Dictionary {
         ago: string;
         untitledAgent: string;
       };
+      /** `{count}` subagents an agent launched, shown as one notice. */
+      subagentsLaunched: { one: string; many: string };
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;

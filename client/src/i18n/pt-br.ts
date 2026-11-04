@@ -172,6 +172,7 @@ export const ptBr: Dictionary = {
         replyAria: "Responder a {title}",
         instructionAria: "Tarefa do orquestrador: {title}",
       },
+      subagentsLaunched: { one: "1 subagente foi lançado", many: "{count} subagentes foram lançados" },
       compacted: "Conversa compactada",
       compactedAuto: "Conversa compactada automaticamente",
       idleSubtitle: "Escreva uma mensagem abaixo para começar.",

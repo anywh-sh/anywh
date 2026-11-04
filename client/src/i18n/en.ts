@@ -172,6 +172,7 @@ export const en: Dictionary = {
         replyAria: "Reply to {title}",
         instructionAria: "Task from the orchestrator: {title}",
       },
+      subagentsLaunched: { one: "1 subagent launched", many: "{count} subagents launched" },
       compacted: "Conversation compacted",
       compactedAuto: "Conversation compacted automatically",
       idleSubtitle: "Write a message below to start.",

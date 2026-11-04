@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
-import { RoomCard } from "@/components/chat/RoomCard";
+import { RoomCard, SubagentsLaunched } from "@/components/chat/RoomCard";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { WorkBlock } from "@/components/chat/activity/WorkBlock";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
@@ -93,7 +93,8 @@ type RenderItem = TimelineItem | { kind: "trailing" };
 
 function itemKey(item: RenderItem): string {
   if (item.kind === "trailing") return TRAILING_KEY;
-  return item.kind === "work" ? `work-${item.id}` : item.entry.id;
+  if (item.kind === "work") return `work-${item.id}`;
+  return item.kind === "subagents" ? `subagents-${item.id}` : item.entry.id;
 }
 
 interface UserActionHandlers {
@@ -117,6 +118,14 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           onCopy={userActions.onCopy}
           onOpenPath={userActions.onOpenPath}
         />
+      </LogEntryRow>
+    );
+  }
+
+  if (item.kind === "subagents") {
+    return (
+      <LogEntryRow key={`subagents-${item.id}`}>
+        <SubagentsLaunched count={item.count} />
       </LogEntryRow>
     );
   }
