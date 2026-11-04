@@ -11,6 +11,7 @@ import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../bridges/permissionBridge.js";
 import type { ModelCatalog, RoomAgentSetup } from "../runtimes/types.js";
 import type { FileCursorStore, HostClient } from "../agentHost/hostClient.js";
+import { capStoredTitle } from "./titleCap.js";
 
 /** What a relay with rooms adds to its sessions. */
 /** How long a room agent's title is shown as a placeholder before the
@@ -390,8 +391,9 @@ export class SessionManager {
    * currently open (`sessions.get` may return `undefined`; only the
    * SessionStore needs to exist). If the session is open on some device,
    * `SharedSession.setTitle` propagates the change live. */
-  renameTitle(id: string, title: string): boolean {
+  renameTitle(id: string, rawTitle: string): boolean {
     if (this.sessionStore.getTitle(id) === null && !this.sessions.has(id)) return false;
+    const title = capStoredTitle(rawTitle);
     // A name given by hand is final: no generated one is waited for.
     this.clearTitlePending(id);
     this.sessionStore.setTitle(id, title);
