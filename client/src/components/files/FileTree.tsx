@@ -20,6 +20,7 @@ import { detectEditors, type DetectedEditor } from "@/lib/platform/editors";
 import { buildEditorUrl, type EditorId, type EditorLocality } from "@/lib/platform/editorLinks";
 import { finishBatchDownload, notifyFileDownloaded, startBatchDownload, tickBatchDownload } from "@/lib/platform/downloadNotifications";
 import { downloadFile, downloadFolder, PartialFolderDownloadError } from "@/lib/relay/fileDownload";
+import { dropNestedPaths } from "@/lib/files/selection";
 import { createFile, deleteFile, deleteFolder, getHostInfo, listFiles, renameFile, type FileEntry } from "@/lib/relay/filesClient";
 import { isIOS } from "@/lib/platform/platform";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -63,18 +64,18 @@ interface FileTreeProps {
 
 const INDENT_PX = 14;
 
-/** Depth-first, pre-order list of files (dirs skipped, per the SHIFT-range
- * decision below) in the exact order `FileTreeChildren`/`FileTreeNode`
+/** Depth-first, pre-order list of every visible entry (files and folders,
+ * like an IDE's project panel) in the exact order `FileTreeChildren`/`FileTreeNode`
  * render them — the only way to compute "everything between the anchor and
  * the SHIFT-clicked row" without duplicating the render's own tree walk. A
  * collapsed folder's contents are invisible, so they never enter the range. */
-function flattenVisibleFiles(dir: string, nodesByDir: Record<string, DirState>, expanded: string[]): FileEntry[] {
+function flattenVisibleEntries(dir: string, nodesByDir: Record<string, DirState>, expanded: string[]): FileEntry[] {
   const nodes = nodesByDir[dir];
   if (!Array.isArray(nodes)) return [];
   const result: FileEntry[] = [];
   for (const entry of nodes) {
-    if (entry.kind === "file") result.push(entry);
-    else if (expanded.includes(entry.path)) result.push(...flattenVisibleFiles(entry.path, nodesByDir, expanded));
+    result.push(entry);
+    if (entry.kind === "dir" && expanded.includes(entry.path)) result.push(...flattenVisibleEntries(entry.path, nodesByDir, expanded));
   }
   return result;
 }
@@ -191,7 +192,7 @@ export function FileTree({
   const [editorLocality, setEditorLocality] = useState<EditorLocality>(null);
   const [detectedEditors, setDetectedEditors] = useState<DetectedEditor[]>([]);
 
-  // SHIFT range-select (files only). `anchorPath` is the last *plain* click,
+  // SHIFT range-select (files and folders). `anchorPath` is the last *plain* click,
   // never moved by a SHIFT-click, so repeated SHIFT-clicks keep extending the
   // same range instead of walking it. Kept in sync with `activePath` below so
   // navigating away (a tab click, "open in new tab", ...) collapses back to a
@@ -204,7 +205,7 @@ export function FileTree({
     setSelectedPaths(activePath ? new Set([activePath]) : new Set());
   }, [activePath]);
 
-  const visibleFiles = useMemo(() => flattenVisibleFiles(root, nodesByDir, expanded), [root, nodesByDir, expanded]);
+  const visibleEntries = useMemo(() => flattenVisibleEntries(root, nodesByDir, expanded), [root, nodesByDir, expanded]);
 
   // Every cached file entry regardless of current expand state — a SHIFT
   // range can include a file whose parent folder gets collapsed afterwards,
@@ -218,28 +219,42 @@ export function FileTree({
   }, [nodesByDir]);
 
   const handleFileClick = useCallback(
-    (path: string, shiftKey: boolean) => {
+    (path: string, shiftKey: boolean, kind: FileEntry["kind"] = "file", selectOnly = false) => {
+      // A folder (or a right-click) only moves the selection; opening a
+      // preview is for a plain click on a file.
+      if (kind === "dir" && !shiftKey) {
+        setAnchorPath(path);
+        setSelectedPaths(new Set([path]));
+        return;
+      }
+      if (selectOnly) {
+        setAnchorPath(path);
+        setSelectedPaths(new Set([path]));
+        return;
+      }
       if (shiftKey && anchorPath) {
-        const anchorIndex = visibleFiles.findIndex((entry) => entry.path === anchorPath);
-        const targetIndex = visibleFiles.findIndex((entry) => entry.path === path);
+        const anchorIndex = visibleEntries.findIndex((entry) => entry.path === anchorPath);
+        const targetIndex = visibleEntries.findIndex((entry) => entry.path === path);
         if (anchorIndex !== -1 && targetIndex !== -1) {
           const [start, end] = anchorIndex < targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
-          setSelectedPaths(new Set(visibleFiles.slice(start, end + 1).map((entry) => entry.path)));
+          setSelectedPaths(new Set(visibleEntries.slice(start, end + 1).map((entry) => entry.path)));
           return;
         }
       }
       onOpenPreview(path);
     },
-    [anchorPath, visibleFiles, onOpenPreview],
+    [anchorPath, visibleEntries, onOpenPreview],
   );
 
   async function handleBulkDelete(paths: string[]): Promise<void> {
-    for (const path of paths) {
+    // A folder takes its children with it — deleting those too would fail.
+    for (const path of dropNestedPaths(paths)) {
       try {
-        await deleteFile(profile, sessionId, path);
+        if (allEntriesByPath.get(path)?.kind === "dir") await deleteFolder(profile, sessionId, path);
+        else await deleteFile(profile, sessionId, path);
         onFileDeleted(path);
       } catch (error) {
-        console.error("[anywh] failed to delete file:", path, error);
+        console.error("[anywh] failed to delete:", path, error);
         window.alert(copy.errors.delete);
       }
     }
@@ -247,8 +262,9 @@ export function FileTree({
   }
 
   async function handleBulkDownload(paths: string[]): Promise<void> {
-    const jobId = startBatchDownload(paths.length);
-    for (const [index, path] of paths.entries()) {
+    const files = paths.filter((path) => allEntriesByPath.get(path)?.kind === "file");
+    const jobId = startBatchDownload(files.length);
+    for (const [index, path] of files.entries()) {
       const entry = allEntriesByPath.get(path);
       if (entry) {
         try {
@@ -406,7 +422,7 @@ interface SharedTreeProps {
   /** Multi-select (SHIFT range, files only) — owned by `FileTree` since a
    * range spans nodes from possibly-different `FileTreeChildren` subtrees. */
   selectedPaths: Set<string>;
-  onFileClick: (path: string, shiftKey: boolean) => void;
+  onFileClick: (path: string, shiftKey: boolean, kind?: FileEntry["kind"], selectOnly?: boolean) => void;
   onBulkDelete: (paths: string[]) => void;
   onBulkDownload: (paths: string[]) => void;
 }
@@ -526,7 +542,7 @@ function FileTreeNode({
   // A row is part of the "batch" menu/highlight only once 2+ files are
   // selected and this one is among them — a lone selected file (the common
   // case) keeps the regular single-file menu and `isActive`'s highlight.
-  const isMultiSelected = !isDir && selectedPaths.size > 1 && selectedPaths.has(entry.path);
+  const isMultiSelected = selectedPaths.size > 1 && selectedPaths.has(entry.path);
   // File and directory rows show different items below — both get a menu now, "open in terminal" only makes
   // sense for a folder.
   const menu = useContextMenu();
@@ -562,26 +578,6 @@ function FileTreeNode({
     }
   }
 
-  async function handleDeleteFolder(): Promise<void> {
-    try {
-      await deleteFolder(profile, sessionId, entry.path);
-      onFileDeleted(entry.path);
-    } catch (error) {
-      console.error("[anywh] failed to delete folder:", error);
-      window.alert(copy.errors.delete);
-    }
-  }
-
-  async function confirmDeleteFolder(): Promise<void> {
-    const confirmed = await confirmDialog(copy.deleteFolder.description.replace("{name}", entry.name), {
-      title: copy.deleteFolder.title,
-      kind: "warning",
-      okLabel: dict.common.delete,
-      cancelLabel: dict.common.cancel,
-    });
-    if (confirmed) await handleDeleteFolder();
-  }
-
   async function confirmDelete(): Promise<void> {
     const confirmed = await confirmDialog(copy.deleteFile.description.replace("{name}", entry.name), {
       title: copy.deleteFile.title,
@@ -600,6 +596,24 @@ function FileTreeNode({
       cancelLabel: dict.common.cancel,
     });
     if (confirmed) onBulkDelete(Array.from(selectedPaths));
+  }
+
+  async function confirmDeleteFolder(): Promise<void> {
+    const confirmed = await confirmDialog(copy.deleteFolder.description.replace("{name}", entry.name), {
+      title: copy.deleteFolder.title,
+      kind: "warning",
+      okLabel: dict.common.delete,
+      cancelLabel: dict.common.cancel,
+    });
+    if (confirmed) onBulkDelete([entry.path]);
+  }
+
+  /** Delete / Cmd+Backspace: acts on the whole selection when this row is
+   * part of it, otherwise on this row alone. */
+  async function confirmDeleteSelection(): Promise<void> {
+    if (isMultiSelected) await confirmBulkDelete();
+    else if (isDir) await confirmDeleteFolder();
+    else await confirmDelete();
   }
 
   async function handleDownloadFolder(): Promise<void> {
@@ -623,6 +637,33 @@ function FileTreeNode({
     }
   }
 
+  const batchMenuItems = (
+    <>
+      <DropdownMenuItem
+        onSelect={(event) => {
+          event.preventDefault();
+          menu.setOpen(false);
+          onBulkDownload(Array.from(selectedPaths));
+        }}
+      >
+        <Download />
+        {copy.downloadMany.replace("{count}", String(selectedPaths.size))}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        variant="destructive"
+        onSelect={(event) => {
+          event.preventDefault();
+          menu.setOpen(false);
+          void confirmBulkDelete();
+        }}
+      >
+        <Trash2 />
+        {copy.deleteMany.replace("{count}", String(selectedPaths.size))}
+      </DropdownMenuItem>
+    </>
+  );
+
   return (
     <div>
       <div
@@ -638,8 +679,8 @@ function FileTreeNode({
           // looks like a plain click on this row and would collapse a
           // multi-selection right as a batch action's menu item is picked.
           if (!event.currentTarget.contains(event.target as Node)) return;
-          if (isDir) onToggleExpand(entry.path);
-          else onFileClick(entry.path, event.shiftKey);
+          if (isDir && !event.shiftKey) onToggleExpand(entry.path);
+          onFileClick(entry.path, event.shiftKey, entry.kind);
         }}
         onDoubleClick={() => !isDir && onOpenPinned(entry.path)}
         onMouseDown={(event) => {
@@ -652,14 +693,20 @@ function FileTreeNode({
           // Right-clicking a file outside the current selection replaces it
           // (mirrors a plain click) — only a file already part of a 2+
           // selection keeps that selection and gets the batch menu below.
-          if (!isDir && !isMultiSelected) onFileClick(entry.path, false);
+          if (!isMultiSelected) onFileClick(entry.path, false, entry.kind, true);
           menu.onContextMenu(event);
         }}
         onKeyDown={(event) => {
           if (!event.currentTarget.contains(event.target as Node)) return;
+          const isDeleteKey = event.key === "Delete" || (event.key === "Backspace" && (event.metaKey || event.ctrlKey));
+          if (isDeleteKey) {
+            event.preventDefault();
+            void confirmDeleteSelection();
+            return;
+          }
           if (event.key !== "Enter" && event.key !== " ") return;
           if (isDir) onToggleExpand(entry.path);
-          else onFileClick(entry.path, false);
+          else onFileClick(entry.path, false, entry.kind);
         }}
         style={{ paddingLeft: `${depth * INDENT_PX + 8}px` }}
         className={cn(
@@ -671,7 +718,7 @@ function FileTreeNode({
           "flex cursor-pointer items-center gap-1.5 py-0.5 pr-2 transition-colors hover:bg-surface-hover",
           isActive
             ? "bg-primary-soft text-primary-ink"
-            : isMultiSelected
+            : isMultiSelected || (isDir && selectedPaths.has(entry.path))
               ? "bg-primary-soft/60 text-foreground"
               : isDir
                 ? isExpanded
@@ -696,30 +743,7 @@ function FileTreeNode({
             <ContextMenuAnchor position={menu.position} />
             <DropdownMenuContent align="start">
               {isMultiSelected ? (
-                <>
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      menu.setOpen(false);
-                      onBulkDownload(Array.from(selectedPaths));
-                    }}
-                  >
-                    <Download />
-                    {copy.downloadMany.replace("{count}", String(selectedPaths.size))}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      menu.setOpen(false);
-                      void confirmBulkDelete();
-                    }}
-                  >
-                    <Trash2 />
-                    {copy.deleteMany.replace("{count}", String(selectedPaths.size))}
-                  </DropdownMenuItem>
-                </>
+                batchMenuItems
               ) : (
                 <>
                   <DropdownMenuItem
@@ -780,46 +804,52 @@ function FileTreeNode({
           <DropdownMenu open={menu.open} onOpenChange={menu.setOpen}>
             <ContextMenuAnchor position={menu.position} />
             <DropdownMenuContent align="start">
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  menu.setOpen(false);
-                  onOpenTerminal(entry.path);
-                }}
-              >
-                <SquareTerminal />
-                {copy.openInTerminal}
-              </DropdownMenuItem>
-              <EditorOpenMenuItems
-                editors={detectedEditors}
-                locality={editorLocality}
-                path={entry.path}
-                itemLabel={(label) => copy.openIn.replace("{editor}", label)}
-                subTriggerLabel={copy.openWith}
-                onSelected={() => menu.setOpen(false)}
-              />
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  menu.setOpen(false);
-                  void handleDownloadFolder();
-                }}
-              >
-                <Download />
-                {copy.download}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  menu.setOpen(false);
-                  void confirmDeleteFolder();
-                }}
-              >
-                <Trash2 />
-                {copy.deleteFolder.title}
-              </DropdownMenuItem>
+              {isMultiSelected ? (
+                batchMenuItems
+              ) : (
+                <>
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      menu.setOpen(false);
+                      onOpenTerminal(entry.path);
+                    }}
+                  >
+                    <SquareTerminal />
+                    {copy.openInTerminal}
+                  </DropdownMenuItem>
+                  <EditorOpenMenuItems
+                    editors={detectedEditors}
+                    locality={editorLocality}
+                    path={entry.path}
+                    itemLabel={(label) => copy.openIn.replace("{editor}", label)}
+                    subTriggerLabel={copy.openWith}
+                    onSelected={() => menu.setOpen(false)}
+                  />
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      menu.setOpen(false);
+                      void handleDownloadFolder();
+                    }}
+                  >
+                    <Download />
+                    {copy.download}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      menu.setOpen(false);
+                      void confirmDeleteFolder();
+                    }}
+                  >
+                    <Trash2 />
+                    {copy.deleteFolder.title}
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
