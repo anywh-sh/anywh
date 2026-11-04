@@ -8,6 +8,8 @@ import type { RoomAgent } from "@/lib/relay/roomClient";
 import { CheckIcon, CloseIcon, ConversationGlyph, AreaIcon, QuestionIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
 import { prefersReducedMotion } from "@/components/sala/useArrivals";
+import { SalaSubtaskCard } from "@/components/sala/SalaSubtaskCard";
+import { MINI_H, MINI_W, subtaskBand, subtaskRects, visibleSubtasks } from "@/lib/sala/subtasks";
 
 export interface SalaCardProps {
   agent: RoomAgent;
@@ -36,6 +38,12 @@ export interface SalaCardProps {
   boot?: "edge" | "frame";
   /** A card this one just delegated to is arriving: its bottom port lights up. */
   delegating?: boolean;
+  /** The subtask of this agent drawn as selected, if any. */
+  subSelected?: string | null;
+  /** Its subtasks' mini-cards: a click, opening one (`undefined`: the "+N" card), stopping one. */
+  onSelectSub: (agentId: string, taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
+  onOpenSub: (agentId: string, taskId: string | undefined) => void;
+  onStopSub: (agentId: string, taskId: string) => void;
   canGroup: boolean;
   canStop: boolean;
   canRemove: boolean;
@@ -111,6 +119,12 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   // The principal opens its conversation on a click instead: it has no bar.
   const bar = useBarPresence(props.bar && !main);
   const lines = cardLines(agent, status);
+  const { shown: subs, hidden: subsHidden } = visibleSubtasks(agent);
+  const subTiles = subs.length + (subsHidden > 0 ? 1 : 0);
+  // The mini-cards sit in the node, from its top left, so that they move with
+  // the card: a press on one drags its parent.
+  const subRects = subtaskRects({ x: 0, y: 0, w, h }, subTiles);
+  const subBand = subtaskBand({ x: 0, y: 0, w, h }, subTiles);
 
   const activityText = ((): string => {
     switch (activity.kind) {
@@ -186,8 +200,31 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
           )}
         </div>
       </div>
+      {subTiles > 0 && subBand && (
+        <div className="sala-subs">
+          {subRects.map((rect, i) => {
+            const subtask = subs[i];
+            return (
+              <SalaSubtaskCard
+                key={subtask?.taskId ?? "more"}
+                subtask={subtask}
+                hidden={subsHidden}
+                x={rect.x}
+                y={rect.y}
+                w={MINI_W}
+                h={MINI_H}
+                parentTitle={title}
+                selected={subtask !== undefined && props.subSelected === subtask.taskId}
+                onSelect={(taskId, event) => props.onSelectSub(agent.agentId, taskId, event)}
+                onOpen={(taskId) => props.onOpenSub(agent.agentId, taskId)}
+                onStop={(taskId) => props.onStopSub(agent.agentId, taskId)}
+              />
+            );
+          })}
+        </div>
+      )}
       {hasParent && <span className="sala-port top" aria-hidden="true" />}
-      {hasKids && <span className="sala-port bot" aria-hidden="true" />}
+      {(hasKids || subTiles > 0) && <span className="sala-port bot" aria-hidden="true" />}
       {bar && (
         <div className={cn("sala-bar", bar === "closing" && "out")} data-nodrag role="toolbar" aria-label={dict.actions.label} inert={bar === "closing"}>
           <button type="button" onClick={() => props.onOpen(agent.agentId)}>

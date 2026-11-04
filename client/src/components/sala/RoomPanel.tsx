@@ -21,6 +21,7 @@ import {
   restoreRoomAgent,
   resumeRoomAgent,
   RoomRequestError,
+  stopAgentSubtask,
   stopRoomAgent,
   type LaunchAgentInput,
   type RoomAgent,
@@ -123,6 +124,12 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           return false;
         },
       ),
+    [profile, roomId],
+  );
+  const onStopSubtask = useCallback(
+    (agentId: string, taskId: string) => {
+      stopAgentSubtask(profile, roomId, agentId, taskId).catch((error: unknown) => console.error("[anywh] failed to stop a subtask", error));
+    },
     [profile, roomId],
   );
   const onRemoveAgent = useCallback(
@@ -252,6 +259,8 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           onCheckWork={onCheckWork}
           onAttachFiles={onAttachFiles}
           onOpenAgent={(agentId) => setPanel({ kind: "agent", id: agentId })}
+          onOpenSubtask={(agentId) => setPanel({ kind: "agent", id: agentId })}
+          onStopSubtask={onStopSubtask}
           onNewAgent={openLauncher}
           newAgentOpen={launcher.open}
           launcher={

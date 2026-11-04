@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SalaCanvas, type SalaCanvasProps } from "@/components/sala/SalaCanvas";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { RoomAgent, RoomCanvas, RoomWorktree } from "@/lib/relay/roomClient";
+import type { RoomAgent, RoomCanvas, RoomSubtaskView, RoomWorktree } from "@/lib/relay/roomClient";
 
 afterEach(cleanup);
 
@@ -38,6 +38,8 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         onCanvasChange={onCanvasChange}
         onCameraSettled={onCameraSettled}
         onOpenAgent={vi.fn()}
+        onOpenSubtask={vi.fn()}
+        onStopSubtask={vi.fn()}
         onNewAgent={vi.fn()}
         newAgentOpen={false}
         launcher={null}
@@ -773,5 +775,95 @@ describe("SalaCanvas — selecting several agents", () => {
     ]);
     expect(await screen.findByText("2 agents left the room")).toBeInTheDocument();
     expect(selectedIds()).toEqual([]);
+  });
+});
+
+function subtask(taskId: string, over: Partial<RoomSubtaskView> = {}): RoomSubtaskView {
+  return { taskId, toolUseId: `tu-${taskId}`, status: "running", description: `Task ${taskId}`, startedAt: 1_000, ...over };
+}
+
+describe("SalaCanvas — a worker's subtasks", () => {
+  const withSubtasks = (list: RoomSubtaskView[], over: Partial<RoomAgent> = {}): RoomAgent[] => [
+    agents[0],
+    agent("a", { subtasks: list, subtasksRunning: list.filter((t) => t.status === "running").length, startedAt: 500, ...over }),
+    agents[2],
+  ];
+  const mini = (id: string): HTMLElement => document.querySelector<HTMLElement>(`[data-subtask-id="${id}"]`)!;
+
+  it("draws each as a mini-card inside its parent's node, linked by a dashed elbow", () => {
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1", { activity: "Grep verifyToken" }), subtask("s2", { status: "completed", endedAt: 4_000, summaryLine: "3 call sites" })]) });
+    expect(card("a").contains(mini("s1"))).toBe(true);
+    expect(card("a").contains(mini("s2"))).toBe(true);
+    expect(mini("s1")).toHaveTextContent("Grep verifyToken");
+    expect(mini("s2")).toHaveTextContent("3 call sites");
+    const edges = [...document.querySelectorAll<SVGPathElement>('[data-sub-edge="a"]')];
+    expect(edges).toHaveLength(2);
+    for (const edge of edges) {
+      expect(edge.getAttribute("class")).toContain("sub");
+      // The same straight elbow as the links between agents: no curve in it.
+      expect(edge.getAttribute("d")).toMatch(/^M[\d. -]+V[\d. -]+H[\d. -]+V[\d. -]+$/);
+    }
+  });
+
+  it("draws none for a worker without subtasks, nor once it is over and nothing runs", () => {
+    mount(canvasOf());
+    expect(document.querySelector(".sala-sub")).toBeNull();
+    cleanup();
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1", { status: "completed", endedAt: 2_000 })], { state: "done" }) });
+    expect(document.querySelector(".sala-sub")).toBeNull();
+  });
+
+  it("moves the links with the parent while it is dragged, and drags the parent from a mini-card", () => {
+    const { viewport } = mount(canvasOf(), { agents: withSubtasks([subtask("s1")]) });
+    const edge = document.querySelector<SVGPathElement>('[data-sub-edge="a"]')!;
+    const before = edge.getAttribute("d");
+    pointer("pointerDown", mini("s1").querySelector(".sala-node-body")!, 100, 400);
+    pointer("pointerMove", viewport, 140, 400);
+    pointer("pointerMove", viewport, 220, 440);
+    expect(card("a")).toHaveAttribute("data-drag");
+    expect(edge.getAttribute("d")).not.toBe(before);
+    pointer("pointerCancel", viewport, 220, 440);
+    expect(edge.getAttribute("d")).toBe(before);
+  });
+
+  it("stops one subtask from its button without picking up the parent", () => {
+    const onStopSubtask = vi.fn();
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1"), subtask("s2")]), onStopSubtask });
+    const stop = within(mini("s2")).getByRole("button", { name: /Stop subtask Task s2/ });
+    pointer("pointerDown", stop, 100, 400);
+    fireEvent.click(stop);
+    expect(onStopSubtask).toHaveBeenCalledWith("a", "s2");
+    expect(card("a")).not.toHaveAttribute("data-drag");
+  });
+
+  it("offers no stop on a finished one", () => {
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1"), subtask("s2", { status: "completed", endedAt: 2_000 })]) });
+    expect(within(mini("s2")).queryByRole("button", { name: /Stop subtask/ })).toBeNull();
+  });
+
+  it("opens the parent's panel from a double click on a mini-card, and from Enter", () => {
+    const onOpenSubtask = vi.fn();
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1")]), onOpenSubtask });
+    const hit = within(mini("s1")).getByRole("button", { name: /Subtask Task s1/ });
+    fireEvent.doubleClick(hit);
+    expect(onOpenSubtask).toHaveBeenLastCalledWith("a", "s1");
+    fireEvent.keyDown(hit, { key: "Enter" });
+    expect(onOpenSubtask).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks a subtask whose approval is the parent's to answer", () => {
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1", { needsYou: true, activity: "Bash: npx tsc" })]) });
+    expect(mini("s1").className).toContain("wait");
+    expect(mini("s1")).toHaveTextContent("Your turn");
+  });
+
+  it("folds what does not fit into a +N card that opens the agent", () => {
+    const onOpenSubtask = vi.fn();
+    mount(canvasOf(), { agents: withSubtasks(Array.from({ length: 8 }, (_, i) => subtask(`s${String(i)}`, { startedAt: 1_000 + i }))), onOpenSubtask });
+    expect(document.querySelectorAll(".sala-sub")).toHaveLength(6);
+    const more = document.querySelector<HTMLElement>(".sala-sub.more")!;
+    expect(more).toHaveTextContent("+3");
+    fireEvent.click(within(more).getByRole("button"));
+    expect(onOpenSubtask).toHaveBeenCalledWith("a", undefined);
   });
 });

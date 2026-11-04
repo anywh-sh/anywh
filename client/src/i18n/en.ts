@@ -1003,6 +1003,17 @@ export const en: Dictionary = {
       reconnecting: "Reconnecting to the room…",
       empty: "No agents yet",
     },
+    subtask: {
+      untitled: "Subtask",
+      aria: "Subtask {title}, {status}, of {parent}",
+      stopAria: "Stop subtask {title}",
+      stop: "Stop",
+      tokens: "{count} tok",
+      needsYou: "Your turn",
+      waiting: "waiting",
+      more: "+{count}",
+      moreAria: "{count} more subtasks, open the agent",
+    },
     card: {
       aria: "{title}, {status}",
       untitled: "Starting…",

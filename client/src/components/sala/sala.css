@@ -1978,3 +1978,136 @@
 :root[data-appearance="light"] .sala-cfm-ok:not(.danger):hover {
   background: color-mix(in srgb, var(--foreground) 82%, var(--background));
 }
+
+/* ─── subtasks ───
+ * A worker's native subagents, drawn under its card as mini-cards. They sit
+ * inside the card's node (positioned from its top left), so they move with it
+ * and a press on one drags the parent. Dashed all through: border and link. A
+ * link keeps the card links' elbow and tones, only dashed and still: no
+ * drawing-in, no pulse. */
+.sala-subs {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.sala-sub {
+  position: absolute;
+}
+.sala-sub .sala-node-card {
+  --sala-term-line: color-mix(in srgb, var(--border) 40%, var(--border-soft));
+  --sala-log-at: color-mix(in srgb, var(--text-faint) 35%, var(--bg-chrome));
+  --sala-log-past: color-mix(in srgb, var(--text-faint) 55%, var(--bg-chrome));
+  --c: var(--text-faint);
+  --rule: var(--sala-term-line);
+  border-style: dashed;
+  box-shadow: 0 10px 22px -16px var(--shadow-color);
+}
+.sala-sub.run .sala-node-card {
+  --c: var(--state-run);
+  --rule: color-mix(in srgb, var(--state-run) 60%, transparent);
+}
+.sala-sub.wait .sala-node-card {
+  --c: var(--primary-ink);
+  --rule: var(--primary);
+}
+.sala-sub.done .sala-node-card {
+  --c: var(--diff-add);
+  --rule: color-mix(in srgb, var(--diff-add) 60%, transparent);
+}
+.sala-sub.stop .sala-node-card {
+  --rule: color-mix(in srgb, var(--text-faint) 45%, var(--bg-chrome));
+}
+.sala-sub.sel .sala-node-card {
+  box-shadow:
+    0 0 0 1px var(--text-faint),
+    0 14px 28px -16px var(--shadow-color);
+}
+.sala-sub .sala-node-head {
+  height: 26px;
+  padding: 0 9px;
+  gap: 7px;
+}
+.sala-sub .sala-title {
+  font-size: 12px;
+}
+.sala-sub.done .sala-title,
+.sala-sub.stop .sala-title {
+  color: var(--muted-foreground);
+}
+.sala-sub .sala-state {
+  width: 12px;
+  height: 12px;
+}
+.sala-sub .sala-spin {
+  width: 10px;
+  height: 10px;
+}
+.sala-sub .sala-node-body {
+  gap: 2px;
+  padding: 6px 9px 7px;
+  font-size: 11px;
+  line-height: 16px;
+}
+.sala-sub-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  cursor: pointer;
+}
+.sala-sub-hit:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+}
+.sala-sub .sala-node-head,
+.sala-sub .sala-node-body {
+  position: relative;
+  pointer-events: none;
+}
+.sala-sub-stop {
+  position: relative;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  border: 1px solid var(--sala-term-line);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.sala-sub-stop:hover {
+  color: var(--foreground);
+  border-color: var(--sala-edge);
+}
+.sala-sub-stop i {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+}
+.sala-sub-meta {
+  display: flex;
+  justify-content: space-between;
+  font: 400 10.5px var(--font-mono);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sala-sub-badge {
+  margin-right: 6px;
+  padding: 2px 6px;
+  background: var(--primary);
+  color: var(--bg-chrome);
+  font: 500 10.5px var(--font-sans);
+}
+.sala-sub.more .sala-node-card {
+  align-items: center;
+  justify-content: center;
+}
+.sala-sub-more {
+  font: 500 12px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.sala-edge.sub {
+  stroke-dasharray: 4 4;
+}

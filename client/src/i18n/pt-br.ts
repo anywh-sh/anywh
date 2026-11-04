@@ -1003,6 +1003,17 @@ export const ptBr: Dictionary = {
       reconnecting: "Reconectando à sala…",
       empty: "Ainda sem agentes",
     },
+    subtask: {
+      untitled: "Subtarefa",
+      aria: "Subtarefa {title}, {status}, de {parent}",
+      stopAria: "Parar a subtarefa {title}",
+      stop: "Parar",
+      tokens: "{count} tok",
+      needsYou: "Sua vez",
+      waiting: "esperando",
+      more: "+{count}",
+      moreAria: "Mais {count} subtarefas, abrir o agente",
+    },
     card: {
       aria: "{title}, {status}",
       untitled: "Iniciando…",
