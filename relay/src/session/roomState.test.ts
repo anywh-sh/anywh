@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RoomAgentState } from "./room.js";
-import { summarizeRoom, type RoomAgentView } from "./roomState.js";
+import type { SubtaskInfo } from "../runtimes/sessionDriver.js";
+import { ROOM_SUBTASKS_SENT, subtaskViews, summarizeRoom, type RoomAgentView } from "./roomState.js";
 
 const view = (state: RoomAgentState, needsYou: RoomAgentView["needsYou"] = []): RoomAgentView => ({
   agentId: `a-${Math.random()}`,
@@ -29,4 +30,35 @@ test("an empty room has every count at zero", () => {
   const summary = summarizeRoom([]);
   assert.ok(Object.values(summary.counts).every((n) => n === 0));
   assert.equal(summary.needsYou, 0);
+});
+
+const subtask = (taskId: string, startedAt: number, extra: Partial<SubtaskInfo> = {}): SubtaskInfo => ({ taskId, toolUseId: `tu-${taskId}`, status: "running", background: true, startedAt, ...extra });
+
+test("an agent's subtasks go out oldest first: every running one, then the most recent finished, up to the cap", () => {
+  const finished = Array.from({ length: 10 }, (_, i) => subtask(`f${i}`, i, { status: "completed", endedAt: 100 + i }));
+  const views = subtaskViews([...finished, subtask("r1", 50), subtask("r2", 60)]);
+  assert.equal(views.length, ROOM_SUBTASKS_SENT);
+  assert.deepEqual(
+    views.map((view) => view.taskId),
+    ["f4", "f5", "f6", "f7", "f8", "f9", "r1", "r2"],
+    "the oldest finished make room, the running are never cut, the order is when each started",
+  );
+});
+
+test("each text goes out as one line: the activity while running, the summary's first line once ended", () => {
+  const long = "x".repeat(200);
+  const [running, ended] = subtaskViews([
+    subtask("a", 1, { activity: `${long}\nmore`, summary: "never sent", totalTokens: 10, toolUses: 1, description: "Look", subagentType: "Explore" }),
+    subtask("b", 2, { status: "failed", activity: "stale", summary: "\n  Could not read\nthe rest", endedAt: 3 }),
+  ]);
+  assert.equal(running.activity?.length, 60);
+  assert.ok(running.activity?.endsWith("…"));
+  assert.equal(running.summaryLine, undefined);
+  assert.deepEqual([running.totalTokens, running.toolUses, running.description, running.subagentType], [10, 1, "Look", "Explore"]);
+  assert.deepEqual([ended.activity, ended.summaryLine, ended.endedAt], [undefined, "Could not read", 3]);
+});
+
+test("the subtask a pending approval came from is marked, by its task id or its Agent call's id; a finished one never is", () => {
+  const views = subtaskViews([subtask("a", 1), subtask("b", 2), subtask("c", 3, { status: "stopped", endedAt: 4 }), subtask("d", 4)], new Set(["a", "tu-b", "c"]));
+  assert.deepEqual(views.map((view) => view.needsYou ?? false), [true, true, false, false]);
 });

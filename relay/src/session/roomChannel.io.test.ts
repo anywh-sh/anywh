@@ -124,3 +124,22 @@ test("a watcher that joins while a change is waiting to be sent does not make th
     room.close();
   }
 });
+
+test("a subtask's new activity alone is a change: the agent goes out again with it", async () => {
+  const room = await setup();
+  try {
+    const subtasks = (activity: string): RoomAgentView["subtasks"] => [{ taskId: "t1", toolUseId: "tu1", status: "running", startedAt: 1, activity }];
+    room.agents.set("w", { ...agent("w", "working"), subtasksRunning: 1, subtasks: subtasks("Reading a.ts") });
+    const { socket, messages } = await room.connect();
+    await until(() => messages.length === 1);
+    room.agents.set("w", { ...agent("w", "working"), subtasksRunning: 1, subtasks: subtasks("Reading b.ts") });
+    room.channel.touch("r");
+    await until(() => messages.some((m) => m.type === "room_agent_state"));
+    const sent = messages.find((m) => m.type === "room_agent_state") as { agent: RoomAgentView };
+    assert.equal(sent.agent.subtasks?.[0]?.activity, "Reading b.ts");
+    assert.ok(!messages.some((m) => m.type === "room_summary"), "the totals did not change");
+    socket.close();
+  } finally {
+    room.close();
+  }
+});
