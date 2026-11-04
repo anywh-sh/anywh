@@ -155,7 +155,7 @@ describe("anywh room canvas — subtasks", () => {
     await press(`//*[@data-subtask-id="${taskId}"]//*[contains(@class, "sala-bar")]//button[contains(., "Open conversation")]`);
     const row = await $(`[data-subtask-row="${taskId}"]`);
     await row.waitForExist({ timeout: 15000, timeoutMsg: "the parent's panel never listed the subtask" });
-    await browser.waitUntil(() => browser.execute(() => (document.querySelector("aside.sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000 });
+    await browser.waitUntil(() => browser.execute(() => (document.querySelector('aside[data-panel="agent"]')?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the agent's panel never finished opening" });
     // No stop in the rows: that is the mini-card's bar.
     expect(await browser.execute(() => [...document.querySelectorAll("[data-subtask-row]")].some((el) => /Stop/.test(el.textContent ?? "") || el.querySelector("button") !== null))).toBe(false);
     // Pick another row than the selected mini-card: the canvas moves its selection.
