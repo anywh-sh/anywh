@@ -71,4 +71,23 @@ describe("anywh desktop shell", () => {
     await restored.waitForExist({ timeout: 5000 });
     await expect(restored).toBeExisting();
   });
+
+  it("opens session search with Ctrl+K, filters it, and backs out with Escape", async () => {
+    await browser.keys(["Control", "k"]);
+    const input = await $('[role="combobox"]');
+    await input.waitForExist({ timeout: 5000 });
+    await expect(input).toBeFocused();
+
+    // No relay runs for this tier, so the cached list is empty: typing
+    // exercises the real <input> in the webview and ends on the empty state.
+    await input.setValue("zzz");
+    const empty = await $("span=No session matches “zzz”");
+    await empty.waitForExist({ timeout: 5000 });
+
+    // First Escape clears the query, the second closes the palette.
+    await browser.keys("Escape");
+    await expect(input).toHaveValue("");
+    await browser.keys("Escape");
+    await input.waitForExist({ timeout: 5000, reverse: true });
+  });
 });
