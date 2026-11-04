@@ -77,6 +77,10 @@
      validator, so a custom theme can't declare it. Until it is one, it
      follows the theme's appearance (the light value is further down). */
   --warn: #e6c35c;
+  /* The room's agent button in the strip: a hue of its own, so the
+     conversation reads as a different thing from the file and terminal panes
+     beside it. Not a theme key, like `--warn`. */
+  --room-agent: #b79cf5;
   /* Only for an added line in a diff or code preview (CodeLines) — not a UI
      color, and for the same reason as hljs-string/number below: `--primary`
      is orange/terracotta, too close to `--destructive` in hue to work as the
@@ -189,6 +193,7 @@
    holds 4.5:1 on every light surface it is printed on (themeContrast.test). */
 :root[data-appearance="light"] {
   --warn: #8f6319;
+  --room-agent: #6a45c2;
 }
 
 /* Without this, `dark:` in Tailwind v4 falls back to the default
@@ -260,6 +265,7 @@
      own: a spent window is the same "stop" as every other destructive tone,
      and the design's value for it is `--destructive`'s. */
   --color-warn: var(--warn);
+  --color-room-agent: var(--room-agent);
   --color-err: var(--destructive);
 
   --color-overlay: var(--overlay);

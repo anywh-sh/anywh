@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Folder, GitBranch } from "lucide-react";
-import { SalaSidePanel } from "@/components/sala/SalaSidePanel";
+import { RoomPaneFrame, type RoomPaneShell } from "@/components/sala/RoomPaneFrame";
 import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { RoomGlyph } from "@/components/sala/SalaIcons";
 import { useRoomWorktrees } from "@/hooks/sala/useRoomWorktrees";
@@ -21,6 +21,7 @@ interface AboutRoomPanelProps {
   agents: readonly RoomAgent[];
   /** Changes whenever something an agent reports could have changed what the panel shows. */
   refreshKey: string;
+  shell: RoomPaneShell;
   onClose: () => void;
 }
 
@@ -39,7 +40,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * and the worktrees they made. Read from the relay when it opens and again
  * when the room's agents report something new.
  */
-export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, refreshKey, onClose }: AboutRoomPanelProps) {
+export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, refreshKey, shell, onClose }: AboutRoomPanelProps) {
   const dict = useDict().sala.panel.aboutRoom;
   const [members, setMembers] = useState<RoomMemberInfo[]>([]);
   const [context, setContext] = useState<RoomContextItem[] | null>(null);
@@ -79,7 +80,7 @@ export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, r
   const completed = isRoomCompleted(agents);
 
   return (
-    <SalaSidePanel mark={<RoomGlyph size={16} />} title={title} titlePending={titlePending} subtitle={dict.subtitle.replace("{count}", String(counts.agents))} kind="about" onClose={onClose}>
+    <RoomPaneFrame shell={shell} mark={<RoomGlyph size={16} />} title={title} titlePending={titlePending} subtitle={dict.subtitle.replace("{count}", String(counts.agents))} kind="about" onClose={onClose}>
       <div className="sala-side-body scrollbar-thin">
         <div className="sala-stats">
           <div>
@@ -180,6 +181,6 @@ export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, r
           {worktrees.data.worktrees.length > 0 && <p className="sala-side-fine">{dict.worktreesTotal.replace("{size}", formatBytes(worktrees.data.totalSizeBytes))}</p>}
         </Section>
       </div>
-    </SalaSidePanel>
+    </RoomPaneFrame>
   );
 }

@@ -26,7 +26,7 @@ async function renderPanel() {
   return screen.getByRole("separator");
 }
 
-const panelWidth = (): string => (document.querySelector("aside.sala-side") as HTMLElement).style.width;
+const panelWidth = (): string => (document.querySelector(".sala-side") as HTMLElement).style.width;
 const frameWidth = (): string => (document.querySelector("[data-plane-frame]") as HTMLElement).style.getPropertyValue("--sala-side-w");
 
 describe("SalaSidePanel resizing", () => {

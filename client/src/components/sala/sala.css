@@ -1314,11 +1314,14 @@
     background: var(--border);
   }
 }
-.sala-side-in {
+/* What a pane holds, whatever draws the column around it: the dock's or the
+ * compact layout's own panel. */
+.sala-pane {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .sala-side-head {
   flex: none;
@@ -1419,26 +1422,26 @@
   background: var(--surface-hover);
   color: var(--foreground);
 }
-.sala-side .grow {
+.sala-pane .grow {
   flex: 1;
   min-width: 0;
 }
-.sala-side .trunc {
+.sala-pane .trunc {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sala-side .mono {
+.sala-pane .mono {
   font: 400 11.5px var(--font-mono);
   color: var(--muted-foreground);
 }
-.sala-side .dim {
+.sala-pane .dim {
   color: var(--text-faint);
 }
-.sala-side .warn {
+.sala-pane .warn {
   color: var(--primary-ink);
 }
-.sala-side .ok {
+.sala-pane .ok {
   color: var(--diff-add);
 }
 .sala-side-sec {

@@ -67,7 +67,8 @@ export interface SalaCanvasProps {
   newAgentOpen: boolean;
   /** The launcher, drawn over the toolbar while it is open. */
   launcher: ReactNode;
-  /** The "i" button: about the room. Hidden while a side panel is open. */
+  /** The "i" button and key: about the room. The button is only drawn where the
+   * room has no dock to carry one in its strip, and not while a panel is open. */
   onAbout: () => void;
   aboutVisible: boolean;
   /** What an agent asked, answerable under its card. */

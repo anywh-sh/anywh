@@ -6,20 +6,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * that stack in the same column. `panes` is the stack, top to bottom;
  * pushing a kind that's already there is a no-op from the caller's
  * perspective (use `togglePane`, which removes it instead).
+ *
+ * `agent` and `about` are a room's: one agent's conversation, and the room's
+ * own information. Only a room's tab ever opens them.
  */
-export type DockPaneKind = "terminal" | "files";
+export type DockPaneKind = "terminal" | "files" | "agent" | "about";
+
+const PANE_KINDS: readonly DockPaneKind[] = ["terminal", "files", "agent", "about"];
+/** How many panes the column holds at once: one view, and opening another
+ * switches to it. */
+export const MAX_DOCK_PANES = 1;
 
 export interface DockState {
   /** Visual order, top to bottom. Empty = dock closed. */
   panes: DockPaneKind[];
   /** Column width — shared by every pane, not per pane. */
   width: number;
-  /** Fraction of the column height the first pane in `panes` gets, when
-   * there are two. Clamped to [0.2, 0.8] so neither pane can be dragged
-   * down to nothing. */
-  splitRatio: number;
-  /** Which pane is expanded to fill the whole column (hiding the chat and
-   * the other pane), `null` for the normal split layout. */
+  /** Which pane is expanded to fill the whole plane (hiding the chat),
+   * `null` for the normal layout. */
   maximized: DockPaneKind | null;
   /** The pane opened last on this tab, kept after it is closed: it is what
    * showing a side panel that has nothing open brings up. Absent on a tab
@@ -33,6 +37,9 @@ const MIN_WIDTH = 320;
 // default.
 export const MIN_WIDTH_WITH_FILES = 420;
 const MAX_WIDTH = 900;
+// A room pane holds a whole conversation, or the room's figures: narrower than
+// this and the chat's composer wraps into nothing.
+const MIN_WIDTH_ROOM_PANE = 385;
 // Floor for how much of a group's own width should stay usable as chat once
 // a dock with the files pane sits at its own minimum (`MIN_WIDTH_WITH_FILES`)
 // next to it — feeds `useGroupSizeDrag`'s `MIN_GROUP_PX`. Doesn't protect
@@ -41,9 +48,7 @@ const MAX_WIDTH = 900;
 // width, not just its own pane kind — not wired yet, tracked as a known gap
 // rather than solved preventively here).
 export const MIN_USABLE_CHAT_PX = 480;
-const DEFAULT_WIDTH = 480;
-const MIN_SPLIT_RATIO = 0.2;
-const MAX_SPLIT_RATIO = 0.8;
+export const DEFAULT_DOCK_WIDTH = 480;
 
 const STORAGE_KEY = "anywh:session-dock";
 // Old single-slot shape (`{ open, kind, width, maximized }`) this hook
@@ -72,26 +77,54 @@ function loadHidden(): HiddenGroups {
   }
 }
 
-function clampWidth(width: number, panes: DockPaneKind[]): number {
-  const min = panes.includes("files") ? MIN_WIDTH_WITH_FILES : MIN_WIDTH;
-  return Math.min(MAX_WIDTH, Math.max(min, width));
+/** The narrowest and widest the column may be with these panes in it. */
+export function dockWidthBounds(panes: readonly DockPaneKind[]): { min: number; max: number } {
+  const min = panes.includes("files")
+    ? MIN_WIDTH_WITH_FILES
+    : panes.includes("agent") || panes.includes("about")
+      ? MIN_WIDTH_ROOM_PANE
+      : MIN_WIDTH;
+  return { min, max: MAX_WIDTH };
 }
 
-function clampSplitRatio(ratio: number): number {
-  return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, ratio));
+function clampWidth(width: number, panes: DockPaneKind[]): number {
+  const { min, max } = dockWidthBounds(panes);
+  return Math.min(max, Math.max(min, width));
+}
+
+/** Stored docks are read back as they were written, by this build or another:
+ * kinds this one does not know, repeats and a stack past the limit are dropped
+ * rather than drawn. */
+function sanitizeDocks(docks: DockMap): DockMap {
+  const known = (kind: unknown): kind is DockPaneKind => PANE_KINDS.includes(kind as DockPaneKind);
+  const result: DockMap = {};
+  for (const [tabId, dock] of Object.entries(docks)) {
+    const panes = (Array.isArray(dock.panes) ? dock.panes : []).filter((kind, index, all) => known(kind) && all.indexOf(kind) === index).slice(-MAX_DOCK_PANES);
+    // A dock written when two panes could share the column carries a split
+    // ratio that nothing reads any more.
+    const { splitRatio: _legacySplitRatio, ...current } = dock as DockState & { splitRatio?: number };
+    result[tabId] = {
+      ...current,
+      panes,
+      maximized: dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null,
+      last: known(dock.last) ? dock.last : undefined,
+    };
+    if (result[tabId].last === undefined) delete result[tabId].last;
+  }
+  return result;
 }
 
 function loadPersisted(): DockMap {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) as DockMap;
+    return sanitizeDocks(JSON.parse(raw) as DockMap);
   } catch {
     return {};
   }
 }
 
-const EMPTY_DOCK: DockState = { panes: [], width: DEFAULT_WIDTH, splitRatio: 0.5, maximized: null };
+const EMPTY_DOCK: DockState = { panes: [], width: DEFAULT_DOCK_WIDTH, maximized: null };
 
 function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
   if (!dock.panes.includes(kind)) return dock;
@@ -100,6 +133,16 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
     panes: dock.panes.filter((pane) => pane !== kind),
     maximized: dock.maximized === kind ? null : dock.maximized,
   };
+}
+
+/** `kind` added to the end of the stack, closing the oldest pane when the
+ * column is already full. The width is clamped here too: it is
+ * otherwise only clamped when dragged, so a dock left at the terminal's
+ * minimum would stay that narrow when the wider files pane joined it. */
+function pushPane(dock: DockState, kind: DockPaneKind): DockState {
+  const panes = [...dock.panes, kind].slice(-MAX_DOCK_PANES);
+  const maximized = dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null;
+  return { ...dock, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
 }
 
 /**
@@ -113,7 +156,7 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
 export function useSessionDock() {
   const [docks, setDocks] = useState<DockMap>(loadPersisted);
   // Set right before a `setDocks` call driven by a per-frame drag update
-  // (width/split-ratio resize), so the effect below skips that write —
+  // (width resize), so the effect below skips that write —
   // `commitDock` flushes the final value once the drag ends instead. Reset
   // after every skip, so a change from any other setter (not drag-driven)
   // persists immediately as before.
@@ -164,10 +207,11 @@ export function useSessionDock() {
 
   /** The toggle. Shown, it hides the panel — what was open is kept, so
    * showing it again is the undo. Not shown, it shows it, and when the tab
-   * has nothing open it opens the pane used last (Files if there never was
-   * one), so the panel is never an empty column. */
+   * has nothing open it opens the pane used last (`fallback` if there never
+   * was one: Files, or a room's agent), so the panel is never an empty
+   * column. */
   const togglePanel = useCallback(
-    (groupId: string, tabId: string | null) => {
+    (groupId: string, tabId: string | null, fallback: DockPaneKind = "files") => {
       if (tabId === null) return;
       if (isPanelShown(groupId, tabId)) {
         setGroupHidden(groupId, true);
@@ -177,8 +221,7 @@ export function useSessionDock() {
       setDocks((prev) => {
         const existing = prev[tabId] ?? EMPTY_DOCK;
         if (existing.panes.length > 0) return prev;
-        const kind = existing.last ?? "files";
-        return { ...prev, [tabId]: { ...existing, panes: [kind], last: kind } };
+        return { ...prev, [tabId]: pushPane(existing, existing.last ?? fallback) };
       });
     },
     [isPanelShown, setGroupHidden],
@@ -212,7 +255,7 @@ export function useSessionDock() {
       if (existing.panes.includes(kind)) {
         return { ...prev, [tabId]: withoutPane(existing, kind) };
       }
-      return { ...prev, [tabId]: { ...existing, panes: [...existing.panes, kind], last: kind } };
+      return { ...prev, [tabId]: pushPane(existing, kind) };
     });
   }, []);
 
@@ -223,7 +266,7 @@ export function useSessionDock() {
     setDocks((prev) => {
       const existing = prev[tabId] ?? EMPTY_DOCK;
       if (existing.panes.includes(kind)) return prev;
-      return { ...prev, [tabId]: { ...existing, panes: [...existing.panes, kind], last: kind } };
+      return { ...prev, [tabId]: pushPane(existing, kind) };
     });
   }, []);
 
@@ -244,17 +287,8 @@ export function useSessionDock() {
     });
   }, []);
 
-  const setSplitRatio = useCallback((tabId: string, ratio: number) => {
-    suppressPersistRef.current = true;
-    setDocks((prev) => {
-      const existing = prev[tabId];
-      if (!existing) return prev;
-      return { ...prev, [tabId]: { ...existing, splitRatio: clampSplitRatio(ratio) } };
-    });
-  }, []);
-
   /** Flushes the current dock state to storage — call on drag end (pointer
-   * up) after a `setWidth`/`setSplitRatio` sequence, whose per-frame calls
+   * up) after a `setWidth` sequence, whose per-frame calls
    * skip the write via `suppressPersistRef` to avoid blocking the main
    * thread on every `pointermove` (same fix as `useResizableSidebar.ts`). */
   const commitDock = useCallback(() => {
@@ -264,7 +298,7 @@ export function useSessionDock() {
     });
   }, []);
 
-  /** Expanding doesn't touch `panes`/`splitRatio` — restoring means going
+  /** Expanding doesn't touch `panes` — restoring means going
    * back to whatever layout was there before, for free. */
   const toggleMaximized = useCallback((tabId: string, kind: DockPaneKind) => {
     setDocks((prev) => {
@@ -285,5 +319,5 @@ export function useSessionDock() {
     });
   }, []);
 
-  return { getDock, getVisibleDock, isGroupHidden, setGroupHidden, isPanelShown, togglePanel, togglePane, openPane, closePane, setWidth, setSplitRatio, commitDock, toggleMaximized, removeSession };
+  return { getDock, getVisibleDock, isGroupHidden, setGroupHidden, isPanelShown, togglePanel, togglePane, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
 }

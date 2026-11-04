@@ -1,16 +1,18 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChatPanel, type BackgroundJobActions, type TurnProgress } from "@/components/chat/ChatPanel";
 import { RoomCardActionsContext } from "@/components/chat/roomCardActions";
 import { RoomPanel } from "@/components/sala/RoomPanel";
+import type { RoomDock, RoomPaneKind } from "@/components/sala/roomDock";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { FilesToggleButton } from "@/components/shell/FilesToggleButton";
 import { TerminalToggleButton } from "@/components/shell/TerminalToggleButton";
+import { RoomAboutToggleButton, RoomAgentToggleButton } from "@/components/shell/RoomPaneToggleButtons";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
-import type { DockState } from "@/hooks/tabs/useSessionDock";
+import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import type { Tab } from "@/hooks/tabs/useTabs";
@@ -45,13 +47,14 @@ export interface TabPanelActions {
   onDeleted: (tab: Tab) => void;
   onConnectedChange: (tabId: string, connected: boolean) => void;
   onModelLabelChange: (tabId: string, label: string | null) => void;
-  onTogglePane: (tabId: string, kind: "terminal" | "files") => void;
-  onClosePane: (tabId: string, kind: "terminal" | "files") => void;
-  onToggleMaximized: (tabId: string, kind: "terminal" | "files") => void;
+  onTogglePane: (tabId: string, kind: DockPaneKind) => void;
+  /** Opens a pane without toggling it shut when it is already open. */
+  onOpenPane: (tabId: string, kind: DockPaneKind) => void;
+  onClosePane: (tabId: string, kind: DockPaneKind) => void;
+  onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
   onDockWidthChange: (tabId: string, width: number) => void;
-  onDockSplitRatioChange: (tabId: string, ratio: number) => void;
   onDockDragEnd: () => void;
   /** A new-session tab opened a room: `tab` is now the room, `roomId` its id. */
   onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string) => void;
@@ -145,20 +148,26 @@ interface TabDockProps {
   terminalTabs: ReturnType<typeof useTerminalTabs>;
   fileTabs: ReturnType<typeof useFileTabs>;
   actions: TabPanelActions;
+  /** A room's own panes (an agent's conversation, the room's information). */
+  roomPanes?: Partial<Record<RoomPaneKind, ReactNode>>;
+  /** The tab is not on screen: only the room's panes stay mounted. */
+  background?: boolean;
 }
 
-/** The right-hand dock of a tab — its terminal and file panes — shared by a
- * conversation and a room, which differ in what sits beside it and nothing
- * else. */
-function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions }: TabDockProps) {
+/** The right-hand dock of a tab — its terminal and file panes, and a room's —
+ * shared by a conversation and a room, which differ in what sits beside it and
+ * nothing else. */
+function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions, roomPanes, background = false }: TabDockProps) {
   return (
     <SessionDock
       dock={dock}
+      background={background}
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
-      onSplitRatioChange={(ratio) => actions.onDockSplitRatioChange(tab.id, ratio)}
       onDragEnd={actions.onDockDragEnd}
       panes={{
-        terminal: dock.panes.includes("terminal") ? (
+        agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
+        about: dock.panes.includes("about") ? roomPanes?.about : undefined,
+        terminal: dock.panes.includes("terminal") && !background ? (
           <TerminalPanelSlot
             profile={profile}
             chatSessionId={tab.id}
@@ -168,7 +177,7 @@ function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions }: TabDoc
             onClose={() => actions.onClosePane(tab.id, "terminal")}
           />
         ) : undefined,
-        files: dock.panes.includes("files") ? (
+        files: dock.panes.includes("files") && !background ? (
           <FilesPanelSlot
             profile={profile}
             chatSessionId={tab.id}
@@ -195,6 +204,8 @@ function RoomPanelToggles({ groupId, dock, actions, tabId }: { groupId: string |
     <>
       <FilesToggleButton open={dock.panes.includes("files")} onToggle={() => actions.onTogglePane(tabId, "files")} />
       <TerminalToggleButton open={dock.panes.includes("terminal")} onToggle={() => actions.onTogglePane(tabId, "terminal")} />
+      <RoomAboutToggleButton open={dock.panes.includes("about")} onToggle={() => actions.onTogglePane(tabId, "about")} />
+      <RoomAgentToggleButton open={dock.panes.includes("agent")} onToggle={() => actions.onTogglePane(tabId, "agent")} />
     </>,
     slot,
   );
@@ -202,9 +213,8 @@ function RoomPanelToggles({ groupId, dock, actions, tabId }: { groupId: string |
 
 interface TabPanelProps extends Omit<TabChatProps, "terminalOpen" | "filesOpen"> {
   /** `terminalOpen`/`filesOpen` are derived from this and handed down, so
-   * `TabChat` doesn't take the whole dock — the width and the split ratio
-   * move on every frame of a drag, and the conversation has no business
-   * re-rendering for either. */
+   * `TabChat` doesn't take the whole dock — the width moves on every frame of
+   * a drag, and the conversation has no business re-rendering for it. */
   dock: DockState;
   terminalTabs: ReturnType<typeof useTerminalTabs>;
   fileTabs: ReturnType<typeof useFileTabs>;
@@ -244,29 +254,39 @@ export const TabPanel = memo(function TabPanel({
   // (a room's id is its principal's session id), so the file tree and the
   // terminal work on it exactly as they do on a conversation.
   if (tab.room) {
-    const room = (
-      <RoomPanel
-        key={tab.id}
-        profile={profile}
-        roomId={tab.id}
-        onTitle={(title, pending) => actions.onTitle(tab, title, pending)}
-        onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
-        onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
-        onGone={() => actions.onDeleted(tab)}
-        onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
-      />
-    );
-    if (isCompact || isIOS()) return room;
+    // The room draws the dock itself: its panes need what only it has (the
+    // agents, the handlers on them). The dock stays mounted while the tab is in
+    // the background, so a conversation in it keeps its connection; its
+    // terminal and files do not (they close, as they do on any tab).
+    const roomDock: RoomDock | null =
+      isCompact || isIOS()
+        ? null
+        : {
+            panes: dock.panes,
+            maximized: dock.maximized,
+            open: (kind) => actions.onOpenPane(tab.id, kind),
+            toggle: (kind) => actions.onTogglePane(tab.id, kind),
+            close: (kind) => actions.onClosePane(tab.id, kind),
+            toggleMaximized: (kind) => actions.onToggleMaximized(tab.id, kind),
+            render: (roomPanes) => (
+              <TabDock tab={tab} profile={profile} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} roomPanes={roomPanes} background={!isVisible} />
+            ),
+          };
     return (
-      <div className="relative flex h-full min-w-0">
-        <div className={cn("min-w-0 flex-1", isVisible && dock.maximized !== null && "invisible absolute inset-0")}>{room}</div>
-        {isVisible && (
-          <>
-            <RoomPanelToggles groupId={groupId} dock={dock} actions={actions} tabId={tab.id} />
-            <TabDock tab={tab} profile={profile} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} />
-          </>
-        )}
-      </div>
+      <>
+        {roomDock && isVisible && <RoomPanelToggles groupId={groupId} dock={dock} actions={actions} tabId={tab.id} />}
+        <RoomPanel
+          key={tab.id}
+          profile={profile}
+          roomId={tab.id}
+          onTitle={(title, pending) => actions.onTitle(tab, title, pending)}
+          onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
+          onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
+          onGone={() => actions.onDeleted(tab)}
+          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+          dock={roomDock}
+        />
+      </>
     );
   }
 

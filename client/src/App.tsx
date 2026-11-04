@@ -373,6 +373,8 @@ function AppShell() {
     handleToggleTerminalPanel,
     handleToggleFilesPanel,
     handleOpenTerminalAt,
+    handleOpenPane,
+    handleTogglePane,
     handleOpenFilePath,
     handleCycleTab,
     handleSplitActiveTab,
@@ -542,6 +544,8 @@ function AppShell() {
     fileTabs,
     onOpenFilePath: handleOpenFilePath,
     onOpenTerminalAt: handleOpenTerminalAt,
+    onOpenPane: handleOpenPane,
+    onTogglePane: handleTogglePane,
     setConnectedByTab,
     setModelLabelByTab,
     setBackgroundActivityByTab,
@@ -652,7 +656,10 @@ function AppShell() {
           belowStrip={notices}
           stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
           rightPanelShown={sessionDock.isPanelShown}
-          onToggleRightPanel={sessionDock.togglePanel}
+          onToggleRightPanel={(groupId, tabId) =>
+            // A panel with nothing in it opens a room on its agent's conversation, anything else on Files.
+            sessionDock.togglePanel(groupId, tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "files")
+          }
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
         />

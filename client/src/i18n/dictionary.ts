@@ -857,8 +857,15 @@ export interface Dictionary {
      * toolbar, but they name this surface, which is where the key belongs. */
     openFiles: string;
     closeFiles: string;
+    /** A room's own buttons: what it says about itself, and the conversation of the agent looked at last. */
+    openRoomAbout: string;
+    closeRoomAbout: string;
+    openAgent: string;
+    closeAgent: string;
     showRightPanel: string;
     hideRightPanel: string;
+    /** The column's left edge, a separator that can be dragged or moved by key. */
+    resize: string;
     openTerminal: string;
     closeTerminal: string;
     maximize: string;
