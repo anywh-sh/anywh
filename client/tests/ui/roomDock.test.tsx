@@ -91,29 +91,30 @@ describe("a room's panes in the session dock", () => {
     expect(socketsOf("room-1")).toHaveLength(1);
   }, 20_000);
 
-  it("stacks a conversation and the room's information in the order they were opened", async () => {
+  it("switches to the room's information when it is opened over a conversation", async () => {
     const user = await openRoom();
     await openOrchestrator(user);
     await user.click(await aboutButton());
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "about"]));
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["about"]));
   }, 20_000);
 
-  it("closes the oldest pane when a third is opened", async () => {
+  it("switches to the terminal when it is opened over the room's information", async () => {
     const user = await openRoom();
     await openOrchestrator(user);
     await user.click(await aboutButton());
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "about"]));
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["about"]));
     await user.click(screen.getByRole("button", { name: en.panels.openTerminal }));
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["about", "terminal"]));
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["terminal"]));
   }, 20_000);
 
-  it("closes the pane opened last on Esc, and leaves the other", async () => {
+  it("closes the view on Esc", async () => {
     const user = await openRoom();
     await openOrchestrator(user);
     await user.click(await aboutButton());
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent", "about"]));
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["about"]));
     await user.keyboard("{Escape}");
-    await vi.waitFor(() => expect(panelKinds()).toEqual(["agent"]));
+    // Closed: the strip offers only the panel's own toggle again.
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument());
   }, 20_000);
 
   it("brings the panes back when the side panel is hidden and shown again", async () => {

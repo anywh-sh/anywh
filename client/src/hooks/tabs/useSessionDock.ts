@@ -13,9 +13,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type DockPaneKind = "terminal" | "files" | "agent" | "about";
 
 const PANE_KINDS: readonly DockPaneKind[] = ["terminal", "files", "agent", "about"];
-/** How many panes the column holds at once: opening one more closes the one
- * that has been there longest. */
-export const MAX_DOCK_PANES = 2;
+/** How many panes the column holds at once: one view, and opening another
+ * switches to it. */
+export const MAX_DOCK_PANES = 1;
 
 export interface DockState {
   /** Visual order, top to bottom. Empty = dock closed. */

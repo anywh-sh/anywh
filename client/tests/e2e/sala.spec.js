@@ -569,7 +569,8 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
     await panelSettled();
     await shot("B-sobre-a-sala");
-    await escapeUntilGone('aside[data-panel="about"]', "Esc did not close the panel");
+    // The last view to close stays drawn while the dock fades out: the strip says it is closed.
+    await escapeUntilGone('button[aria-label="Close room info"]', "Esc did not close the panel");
     await closePanes();
   });
 

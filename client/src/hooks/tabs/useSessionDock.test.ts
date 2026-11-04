@@ -33,11 +33,11 @@ describe("useSessionDock — panes", () => {
     expect(result.current.getDock("t1").panes).toEqual([]);
   });
 
-  it("togglePane stacks a second pane below the first, in call order", () => {
+  it("togglePane switches to another pane instead of stacking it", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.togglePane("t1", "terminal"));
     act(() => result.current.togglePane("t1", "files"));
-    expect(result.current.getDock("t1").panes).toEqual(["terminal", "files"]);
+    expect(result.current.getDock("t1").panes).toEqual(["files"]);
   });
 
   it("togglePane closing the maximized pane also clears maximized", () => {
@@ -123,31 +123,21 @@ describe("useSessionDock — width when a pane joins", () => {
   });
 });
 
-describe("useSessionDock — at most two panes", () => {
-  it("closes the oldest pane when a third is opened", () => {
+describe("useSessionDock — one view at a time", () => {
+  it("switches to the pane that is opened, whatever it was showing", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.togglePane("t1", "terminal"));
     act(() => result.current.togglePane("t1", "agent"));
-    act(() => result.current.togglePane("t1", "about"));
-    expect(result.current.getDock("t1").panes).toEqual(["agent", "about"]);
+    act(() => result.current.openPane("t1", "about"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["about"], last: "about" });
   });
 
-  it("clears the maximized pane when it is the one that was closed", () => {
+  it("clears the maximized pane when it is the one that was switched away from", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.togglePane("t1", "terminal"));
     act(() => result.current.toggleMaximized("t1", "terminal"));
     act(() => result.current.openPane("t1", "files"));
-    act(() => result.current.openPane("t1", "agent"));
-    expect(result.current.getDock("t1")).toMatchObject({ panes: ["files", "agent"], maximized: null });
-  });
-
-  it("keeps the maximized pane when it survives", () => {
-    const { result } = renderHook(() => useSessionDock());
-    act(() => result.current.togglePane("t1", "terminal"));
-    act(() => result.current.togglePane("t1", "agent"));
-    act(() => result.current.toggleMaximized("t1", "agent"));
-    act(() => result.current.openPane("t1", "about"));
-    expect(result.current.getDock("t1")).toMatchObject({ panes: ["agent", "about"], maximized: "agent" });
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["files"], maximized: null });
   });
 
   it("gives a room pane its own minimum width", () => {
@@ -157,7 +147,7 @@ describe("useSessionDock — at most two panes", () => {
     expect(result.current.getDock("t1").width).toBe(385);
   });
 
-  it("drops unknown kinds, repeats and anything past two when loading what a build wrote", () => {
+  it("drops unknown kinds, repeats and all but the last pane when loading what a build wrote", () => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
@@ -165,7 +155,7 @@ describe("useSessionDock — at most two panes", () => {
       }),
     );
     const { result } = renderHook(() => useSessionDock());
-    expect(result.current.getDock("t1")).toEqual({ panes: ["files", "agent"], width: 480, splitRatio: 0.5, maximized: null });
+    expect(result.current.getDock("t1")).toEqual({ panes: ["agent"], width: 480, splitRatio: 0.5, maximized: null });
   });
 });
 
@@ -178,7 +168,6 @@ describe("useSessionDock — maximized", () => {
 
   it("toggleMaximized sets and then clears the maximized pane, leaving panes/splitRatio untouched", () => {
     const { result } = renderHook(() => useSessionDock());
-    act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.openPane("t1", "files"));
     act(() => result.current.setSplitRatio("t1", 0.3));
 
@@ -188,7 +177,7 @@ describe("useSessionDock — maximized", () => {
     act(() => result.current.toggleMaximized("t1", "files"));
     const dock = result.current.getDock("t1");
     expect(dock.maximized).toBeNull();
-    expect(dock.panes).toEqual(["terminal", "files"]);
+    expect(dock.panes).toEqual(["files"]);
     expect(dock.splitRatio).toBeCloseTo(0.3);
   });
 });
@@ -263,16 +252,15 @@ describe("useSessionDock — hiding a group's side panel", () => {
 
   it("hiding closes the dock a tab is drawn with but keeps what it had open", () => {
     const { result } = renderHook(() => useSessionDock());
-    act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.openPane("t1", "files"));
     act(() => result.current.setGroupHidden("g1", true));
 
     expect(result.current.getVisibleDock("t1", "g1")).toMatchObject({ panes: [], maximized: null });
     // The stored dock is untouched: showing the panel again is the whole undo.
-    expect(result.current.getDock("t1").panes).toEqual(["terminal", "files"]);
+    expect(result.current.getDock("t1").panes).toEqual(["files"]);
 
     act(() => result.current.setGroupHidden("g1", false));
-    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal", "files"]);
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["files"]);
   });
 
   it("hides per group: another group's tab keeps its dock", () => {
@@ -339,9 +327,8 @@ describe("useSessionDock — the side panel toggle", () => {
     expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal"]);
   });
 
-  it("hides what is open and brings the same panes back, in the same order", () => {
+  it("hides what is open and brings the same pane back", () => {
     const { result } = renderHook(() => useSessionDock());
-    act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.openPane("t1", "files"));
     act(() => result.current.togglePanel("g1", "t1"));
     expect(result.current.isPanelShown("g1", "t1")).toBe(false);
@@ -349,7 +336,7 @@ describe("useSessionDock — the side panel toggle", () => {
 
     act(() => result.current.togglePanel("g1", "t1"));
     expect(result.current.isPanelShown("g1", "t1")).toBe(true);
-    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal", "files"]);
+    expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["files"]);
   });
 
   it("shows the panel again on a tab of a hidden group that has nothing open", () => {
