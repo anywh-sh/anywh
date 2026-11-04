@@ -159,6 +159,19 @@ const escape = async () => {
   await browser.keys("Escape");
 };
 
+/** Esc until `selector` is gone. A tooltip the pointer is resting on (it opens
+ * on hover, a beat after the click, and on a slow machine after `escape` has
+ * already run) takes an Esc for itself; the pane's own is the next one. */
+const escapeUntilGone = (selector, timeoutMsg) =>
+  browser.waitUntil(
+    async () => {
+      await escape();
+      await browser.pause(300);
+      return !(await $(selector).isExisting());
+    },
+    { timeout: 8000, interval: 100, timeoutMsg },
+  );
+
 /** A button of the selected card's action bar, by its words. */
 const pressBar = async (words) => {
   const button = await $(`//*[contains(@class, "sala-bar")]//button[contains(., "${words}")]`);
@@ -556,8 +569,7 @@ describe("anywh room canvas", () => {
     await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
     await panelSettled();
     await shot("B-sobre-a-sala");
-    await escape();
-    await browser.waitUntil(async () => !(await $('aside[data-panel="about"]').isExisting()), { timeout: 5000, timeoutMsg: "Esc did not close the panel" });
+    await escapeUntilGone('aside[data-panel="about"]', "Esc did not close the panel");
     await closePanes();
   });
 
