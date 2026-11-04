@@ -4,7 +4,7 @@
 
 # anywh.sh
 
-### A self-hosted remote control for your coding agents — chat, voice, and a file browser from any device, while they keep running on your own machine
+### Run your coding agents from any device — orchestrate Claude Code and Codex in parallel on your own machine, and steer them by chat, voice and a file browser from wherever you are
 
 **Agent-agnostic by design** — Claude Code, Codex CLI, and more
 
@@ -20,7 +20,7 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshot-desktop.png" alt="anywh desktop client showing multiple session tabs, a chat with rendered Markdown and code blocks, a file browser, and an integrated terminal side by side" width="100%">
+  <img src="assets/screenshot-desktop.png" alt="anywh desktop client showing a room: an orchestrator coordinating six Claude Code and Codex agents grouped into Design, Research and Code areas, each card with its live activity, one agent waiting for approval; tabs from two profiles, each in its own color, and plan usage in the status bar" width="100%">
 </p>
 
 ## Why
@@ -31,7 +31,9 @@ SSH from a phone is the usual answer and it is miserable: no voice input, no dra
 
 anywh moves nothing. It is a relay between a real client app and the agent CLI already installed on your machine: the process keeps running where it always ran, logged in the way it already is, and the app is just a better way to reach it from whatever device you have on you. No API key is ever involved: the relay strips the provider's API key from the environment of the process it spawns, so usage counts against the subscription you already pay for, never pay-per-token.
 
-Self-hosted and used daily by its author: chat, voice, image upload, multi-session, multi-profile, an integrated terminal, and a file browser — validated on Windows, macOS and iOS.
+And one agent at a time is rarely the shape of the work anymore. A room is a canvas for a whole demand: you launch agents into it — Claude Code and Codex side by side — group them by area, and attach context that every agent in the room reads and every new one inherits. Each card shows what its agent is doing right now, the ones that need you say so, and each agent can work on its own git worktree, which is kept until its work is integrated. The agents run in a host service of their own, so they keep going across a relay restart, and answering one from your phone is the same gesture as from your desk.
+
+Self-hosted and used daily by its author: rooms of parallel agents, chat, voice, image upload, multi-session, multi-profile, an integrated terminal, and a file browser — validated on Windows, macOS and iOS.
 
 ## Supported agents
 
@@ -120,9 +122,10 @@ This matters more than "no authentication" alone suggests: the relay's default p
 
 - [x] Interactive file browser — browse, read, download, rename/delete, and open files in your editor (local or over SSH)
 - [x] Multi-session and multi-profile support
+- [x] Rooms — several agents working one demand in parallel, grouped by area, with shared context and a git worktree each
 - [x] A pluggable agent runtime contract, with Codex CLI as the second agent behind it — pick per session, with its own native permission modes and approval prompts
 - [ ] More agent CLIs — Kimi CLI, and any ACP-speaking agent, beyond Claude Code and Codex
-- [ ] Workspace isolation — a git worktree per session instead of a shared working directory, so several agents can work the same repo without stepping on each other
+- [ ] Workspace isolation for ordinary chats — the per-agent git worktree rooms already use, for a single session too
 - [ ] Direct model access (BYOK) — talk to a model API with your own key instead of going through a CLI, same UI and session model either way
 
 ## Docs
