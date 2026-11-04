@@ -63,6 +63,18 @@
 //                        control request names it (then `task_updated`
 //                        killed, `task_notification` stopped), as measured
 //                        on Claude Code 2.1.303
+//   [[subagents:<spec>]] start one native subagent per comma-separated word
+//                        of <spec>, in order, each with a `task_started` and
+//                        a `task_progress` carrying `usage`: `run` keeps
+//                        running until a `stop_task` names it; `done` and
+//                        `fail` end at once (`task_notification` completed or
+//                        failed, with a summary and `usage`); `ask` keeps
+//                        running and puts a Bash call to the
+//                        `--permission-prompt-tool` under its `agent_id`, as a
+//                        subagent's permission request does. With an `ask`
+//                        the turn ends awaiting approval; otherwise with a
+//                        [[gate:<path>]] it stays in flight until <path>
+//                        exists, and without one it ends
 //   FAKE_CLAUDE_CACHE_READ_TOKENS=<n> (env): the cache-read part of every
 //   response's usage, so the prefix (the context in use) is a realistic size.
 //   FAKE_CLAUDE_PROMPTS_FILE=<path> (env): every prompt received is
@@ -79,6 +91,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+
+// What `[[subagents:<spec>]]` names its subagents and says they are doing.
+const SUBAGENT_TITLES = ["Map the room channel", "Read the layout tests", "Survey the canvas CSS", "Check the i18n keys", "Trace the drag code", "Audit the session store", "List the fixtures", "Time the test suite"];
+const SUBAGENT_ACTIVITY = ["Reading roomChannel.ts", "Searching for tidyLayout", "Reading sala.css", "Reading dictionary.ts", "Searching for onItemDown", "Reading sessionStore.ts"];
 
 export async function runPersistent(args) {
   const flag = (name) => {
@@ -191,6 +207,46 @@ export async function runPersistent(args) {
       emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent", description: "survey the repo" })) });
       emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
       finish("started a subagent");
+      return;
+    }
+    const subagentSpec = /\[\[subagents:([a-z,]+)\]\]/.exec(text)?.[1];
+    if (subagentSpec) {
+      const kinds = subagentSpec.split(",").filter(Boolean);
+      const asking = [];
+      for (const [index, kind] of kinds.entries()) {
+        const taskId = `task-${turns}-${index}`;
+        const toolUseId = `toolu_agent_${turns}_${index}`;
+        const description = SUBAGENT_TITLES[index % SUBAGENT_TITLES.length];
+        const usage = { total_tokens: 1200 * (index + 1), tool_uses: index + 2, duration_ms: 4000 * (index + 1) };
+        emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id: toolUseId, name: "Agent", input: { description, prompt: "look around", run_in_background: true } }] } });
+        emit({ type: "system", subtype: "task_started", task_id: taskId, tool_use_id: toolUseId, task_type: "local_agent", description, subagent_type: "Explore", is_backgrounded: true });
+        emit({ type: "system", subtype: "task_progress", task_id: taskId, tool_use_id: toolUseId, description: SUBAGENT_ACTIVITY[index % SUBAGENT_ACTIVITY.length], last_tool_name: "Read", usage });
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Async agent launched" }] } });
+        if (kind === "done" || kind === "fail") {
+          const ended = { ...usage, total_tokens: usage.total_tokens + 300 };
+          emit({ type: "system", subtype: "task_notification", task_id: taskId, tool_use_id: toolUseId, status: kind === "done" ? "completed" : "failed", summary: kind === "done" ? `Found 3 places for ${description.toLowerCase()}.\nDetails follow.` : "Could not read the files", usage: ended });
+          continue;
+        }
+        subagents.set(taskId, toolUseId);
+        if (kind === "ask") asking.push({ taskId, id: `toolu_sub_ask_${turns}_${index}` });
+      }
+      emit({ type: "system", subtype: "background_tasks_changed", tasks: [...subagents.keys()].map((id) => ({ task_id: id, task_type: "local_agent" })) });
+      if (asking.length > 0 && flag("--permission-prompt-tool")) {
+        for (const ask of asking) {
+          const input = { command: "npm test" };
+          emit({ type: "assistant", parent_tool_use_id: subagents.get(ask.taskId), message: { role: "assistant", model, content: [{ type: "tool_use", id: ask.id, name: "Bash", input }] } });
+          await callRoomTool("approve", { tool_name: "Bash", input, tool_use_id: ask.id, agent_id: ask.taskId });
+        }
+        finish("awaiting approval");
+        return;
+      }
+      const subGate = /\[\[gate:([^\]]+)\]\]/.exec(text)?.[1];
+      if (subGate) {
+        toolCall("toolu_gate", "make build");
+        await waitForFile(subGate);
+        emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_gate", content: "built" }] } });
+      }
+      finish(`started ${kinds.length} subagents`);
       return;
     }
     if (reportWhenReminded !== null && text.startsWith("You ended your turn without calling report")) {
