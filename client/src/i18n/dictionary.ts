@@ -659,6 +659,8 @@ export interface Dictionary {
         ago: string;
         untitledAgent: string;
       };
+      /** `{count}` subagents an agent launched, shown as one notice. */
+      subagentsLaunched: { one: string; many: string };
       compacted: string;
       compactedAuto: string;
       idleSubtitle: string;
@@ -1453,6 +1455,21 @@ export interface Dictionary {
       reconnecting: string;
       empty: string;
     };
+    /** A native subagent drawn under its parent's card. */
+    subtask: {
+      /** The name of one with no description. */
+      untitled: string;
+      /** `{title}`, `{status}`, `{parent}`. */
+      aria: string;
+      /** `{count}` tokens, short. */
+      tokens: string;
+      /** The pending approval of its parent came from it. */
+      needsYou: string;
+      waiting: string;
+      /** `{count}` more, past what fits. */
+      more: string;
+      moreAria: string;
+    };
     card: {
       /** `{title}`, `{status}`. */
       aria: string;
@@ -1602,7 +1619,6 @@ export interface Dictionary {
         worktree: string;
         connectors: string;
         subtasks: string;
-        subtaskStop: string;
         activity: string;
         failedTitle: string;
         failedBody: string;

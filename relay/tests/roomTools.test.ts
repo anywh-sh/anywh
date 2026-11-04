@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type WebSocket from "ws";
+import WebSocket from "ws";
 import type { AgentActivity } from "../src/agentHost/protocol.js";
 import { hostEnvDir, startHostProcess, type HostProcess } from "./helpers/agentHostProcess.js";
 import { spawnRelay, type SpawnedServer } from "./helpers/spawnedServer.js";
@@ -384,6 +384,69 @@ test("a worker's native subagents are its subtasks: listed, and stopped one by o
     assert.equal((await fetch(`${url}/nope/stop`, { method: "POST" })).status, 404);
     assert.equal((await fetch(`${base}/rooms/${roomId}/agents/not-a-member/subtasks`)).status, 404);
   } finally {
+    socket.close();
+  }
+});
+
+/** A watcher of the room's channel: every message, and each agent as last sent. */
+async function watchRoom(roomId: string): Promise<{ socket: WebSocket; messages: Record<string, unknown>[]; agent: (id: string) => Record<string, unknown> | undefined }> {
+  const messages: Record<string, unknown>[] = [];
+  const socket = new WebSocket(`ws://127.0.0.1:${relay.port}/rooms/${roomId}/watch`);
+  socket.on("message", (raw: Buffer) => messages.push(JSON.parse(raw.toString()) as Record<string, unknown>));
+  await new Promise<void>((resolve, reject) => {
+    socket.once("open", () => resolve());
+    socket.once("error", reject);
+  });
+  const agent = (id: string): Record<string, unknown> | undefined => {
+    let found: Record<string, unknown> | undefined;
+    for (const message of messages) {
+      if (message.type === "room_snapshot") found = (message.agents as Record<string, unknown>[]).find((candidate) => candidate.agentId === id) ?? found;
+      if (message.type === "room_agent_state" && (message.agent as { agentId: string }).agentId === id) found = message.agent as Record<string, unknown>;
+    }
+    return found;
+  };
+  return { socket, messages, agent };
+}
+
+test("a worker's subtasks travel on the room's channel: each one's state, line and tokens, and the one an approval came from", async () => {
+  // Asked, not bypassed: the subagent's call goes to the approval tool.
+  const roomId = await createRoom({ permissionMode: "default" });
+  const socket = await connectSession(relay.port, roomId);
+  const watcher = await watchRoom(roomId);
+  type View = { taskId: string; status: string; description?: string; activity?: string; summaryLine?: string; totalTokens?: number; toolUses?: number; needsYou?: true; endedAt?: number };
+  try {
+    const { last } = await principalTurn(socket, marker("delegate", { task: "fan out [[subagents:run,done,ask]]", runtime: "claude", model: "haiku" }));
+    const { agentId } = JSON.parse(last) as { agentId: string };
+    const subtasksOf = (): View[] => (watcher.agent(agentId)?.subtasks as View[] | undefined) ?? [];
+    await waitFor(() => subtasksOf().length === 3 && subtasksOf()[2]?.needsYou === true, 20_000, "three subtasks on the channel, the asking one marked");
+    const [running, done, asking] = subtasksOf();
+    assert.deepEqual(
+      { status: running.status, activity: running.activity, totalTokens: running.totalTokens, toolUses: running.toolUses, needsYou: running.needsYou },
+      { status: "running", activity: "Reading roomChannel.ts", totalTokens: 1200, toolUses: 2, needsYou: undefined },
+    );
+    assert.equal(done.status, "completed");
+    assert.equal(done.summaryLine, "Found 3 places for read the layout tests.", "only the summary's first line is sent");
+    assert.equal(done.activity, undefined);
+    assert.equal(done.totalTokens, 2700);
+    assert.equal(asking.status, "running");
+    assert.equal(watcher.agent(agentId)?.subtasksRunning, 2);
+    assert.ok(((watcher.agent(agentId)?.needsYou as unknown[]) ?? []).length > 0, "the approval is still the parent's");
+
+    // A new watcher gets the same in its snapshot.
+    const late = await watchRoom(roomId);
+    await waitFor(() => late.messages.some((message) => message.type === "room_snapshot"), 10_000, "the snapshot");
+    assert.deepEqual((late.agent(agentId)?.subtasks as View[]).map((view) => view.status), ["running", "completed", "running"]);
+    late.socket.close();
+
+    // Stopping one comes back as a delta for that agent.
+    const stop = await fetch(`${base}/rooms/${roomId}/agents/${agentId}/subtasks/${running.taskId}/stop`, { method: "POST" });
+    assert.equal(stop.status, 200, await stop.clone().text());
+    await waitFor(() => subtasksOf()[0]?.status === "stopped", 15_000, "the stopped subtask on the channel");
+    assert.ok(subtasksOf()[0]?.endedAt !== undefined);
+    assert.equal(subtasksOf()[2]?.status, "running", "the others go on");
+    assert.equal(watcher.agent(agentId)?.subtasksRunning, 1);
+  } finally {
+    watcher.socket.close();
     socket.close();
   }
 });

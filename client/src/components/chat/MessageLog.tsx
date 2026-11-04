@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
-import { RoomCard } from "@/components/chat/RoomCard";
+import { RoomCard, SubagentsLaunched } from "@/components/chat/RoomCard";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { WorkBlock } from "@/components/chat/activity/WorkBlock";
 import { buildTimeline, type TimelineItem } from "@/lib/format/activity";
@@ -26,6 +26,8 @@ interface MessageLogProps {
    * call with one is drawn by the subagent's own card, not here (see
    * `buildTimeline`). Stable between subagent progress updates. */
   spawnedSubagentIds: ReadonlySet<string>;
+  /** Delegated tasks in a row are one "launched" notice (see `buildTimeline`). */
+  foldSubagents: boolean;
   /** Whether there are turns older than what's already loaded —
    * controls whether scrolling near the top still triggers a fetch. */
   hasMoreHistory: boolean;
@@ -93,7 +95,8 @@ type RenderItem = TimelineItem | { kind: "trailing" };
 
 function itemKey(item: RenderItem): string {
   if (item.kind === "trailing") return TRAILING_KEY;
-  return item.kind === "work" ? `work-${item.id}` : item.entry.id;
+  if (item.kind === "work") return `work-${item.id}`;
+  return item.kind === "subagents" ? `subagents-${item.id}` : item.entry.id;
 }
 
 interface UserActionHandlers {
@@ -117,6 +120,14 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           onCopy={userActions.onCopy}
           onOpenPath={userActions.onOpenPath}
         />
+      </LogEntryRow>
+    );
+  }
+
+  if (item.kind === "subagents") {
+    return (
+      <LogEntryRow key={`subagents-${item.id}`}>
+        <SubagentsLaunched count={item.count} />
       </LogEntryRow>
     );
   }
@@ -213,6 +224,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   streamingEntries,
   attributionByToolUseId,
   spawnedSubagentIds,
+  foldSubagents,
   hasMoreHistory,
   loadingOlderHistory,
   onLoadOlderHistory,
@@ -242,7 +254,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   // committed (see reducer in useMessageLog) — memoizing here avoids
   // regrouping on every streaming token, when only `streamingEntries`
   // changes.
-  const items = useMemo(() => buildTimeline(entries, spawnedSubagentIds), [entries, spawnedSubagentIds]);
+  const items = useMemo(() => buildTimeline(entries, spawnedSubagentIds, { foldLaunches: foldSubagents }), [entries, spawnedSubagentIds, foldSubagents]);
 
   const hasTrailing = trailing !== undefined && trailing !== null && trailing !== false;
   const allItems = useMemo<RenderItem[]>(

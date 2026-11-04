@@ -46,9 +46,19 @@ export interface WorkItem {
   durationMs?: number;
 }
 
-/** A row of the message log after grouping: one entry as it is, or the work
- * of a turn drawn as one block. */
-export type TimelineItem = { kind: "single"; entry: LogEntry } | WorkItem;
+/** The delegated tasks drawn in a row, one after another: a single notice
+ * that they were launched, not a card for each (a subagent's own work is on
+ * the canvas of a room, or in the tray while it runs). */
+export interface SubagentsItem {
+  kind: "subagents";
+  /** The id of the first task, stable as the row grows. */
+  id: string;
+  count: number;
+}
+
+/** A row of the message log after grouping: one entry as it is, the work
+ * of a turn drawn as one block, or the subagents it launched. */
+export type TimelineItem = { kind: "single"; entry: LogEntry } | WorkItem | SubagentsItem;
 
 /** Whether a call is part of the flowing activity, as opposed to a plan,
  * which keeps a card of its own (a checklist, not an action), or a delegated
@@ -59,6 +69,11 @@ export function isActivityCall(entry: LogEntry): entry is ToolCallEntry {
 
 function isTaskCall(entry: LogEntry): entry is ToolCallEntry {
   return entry.kind === "tool-call" && entry.toolKind === "task";
+}
+
+/** A task that did not fail: a launch, not a report (see `SubagentsItem`). */
+function isLaunch(entry: LogEntry): boolean {
+  return isTaskCall(entry) && !(entry.isError && !entry.aborted);
 }
 
 /**
@@ -166,9 +181,10 @@ function buildWork(sources: WorkSource[], end: TurnEnd): WorkItem {
  *
  * `spawned` is the `toolUseId`s the CLI reported a subagent for. A task that
  * isn't shown (`isTaskShown`) is left out — it neither joins nor splits a
- * block.
+ * block. With `foldLaunches`, the tasks that are shown and did not fail become
+ * a `SubagentsItem` instead of a card each.
  */
-export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> = new Set()): TimelineItem[] {
+export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> = new Set(), options: { foldLaunches?: boolean } = {}): TimelineItem[] {
   const ends = turnEnds(entries);
   const items: TimelineItem[] = [];
   let run: WorkSource[] = [];
@@ -197,6 +213,14 @@ export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> 
       return;
     }
     settle();
+    // A task that did not fail is a launch, not a report: neighbours join one
+    // notice. One that failed keeps its card, whose message is the explanation.
+    if (options.foldLaunches && isLaunch(entry)) {
+      const last = items[items.length - 1];
+      if (last?.kind === "subagents") items[items.length - 1] = { ...last, count: last.count + 1 };
+      else items.push({ kind: "subagents", id: entry.id, count: 1 });
+      return;
+    }
     items.push({ kind: "single", entry });
   });
   settle();

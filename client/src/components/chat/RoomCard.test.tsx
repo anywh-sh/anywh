@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RoomCard } from "./RoomCard";
+import { RoomCard, SubagentsLaunched } from "./RoomCard";
 import { RoomCardActionsContext } from "./roomCardActions";
 import { LocaleProvider, LOCALE_STORAGE_KEY } from "@/i18n";
 import { en } from "@/i18n/en";
@@ -93,5 +93,29 @@ describe("RoomCard", () => {
   it("falls back to the starting title when the instruction has none", () => {
     renderCard({ kind: "instruction", title: null });
     expect(screen.getByText(en.sala.card.untitled)).toBeInTheDocument();
+  });
+});
+
+describe("SubagentsLaunched", () => {
+  it("says how many subagents were launched, in the singular too", () => {
+    render(
+      <LocaleProvider>
+        <SubagentsLaunched count={3} />
+        <SubagentsLaunched count={1} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("3 subagents launched")).toBeInTheDocument();
+    expect(screen.getByText("1 subagent launched")).toBeInTheDocument();
+  });
+
+  it("speaks Portuguese when the app does, and offers nothing to press", () => {
+    localStorage.setItem(LOCALE_STORAGE_KEY, "pt-BR");
+    render(
+      <LocaleProvider>
+        <SubagentsLaunched count={3} />
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("3 subagentes foram lançados")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

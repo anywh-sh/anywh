@@ -106,6 +106,9 @@ export interface SubtaskInfo {
   /** What it is doing right now, in the CLI's own words. */
   readonly activity?: string;
   readonly summary?: string;
+  /** From the CLI's own `usage` for it, the latest reported. */
+  readonly totalTokens?: number;
+  readonly toolUses?: number;
   readonly startedAt: number;
   readonly endedAt?: number;
 }

@@ -30,6 +30,7 @@ import {
 import { CameraController, releaseVelocity } from "@/lib/sala/cameraController";
 import { cardStatus } from "@/lib/sala/agentCard";
 import { AREA_PAD, areaRect, cardRects, edgePath, groupInto, membershipAfterDrop, pathLength, storedArea, subtreeIds, trackDrag, worldBounds } from "@/lib/sala/layout";
+import { footprint, subtaskBand, subtaskRects, subtaskTiles, visibleSubtasks, subtaskTone } from "@/lib/sala/subtasks";
 import { prefersReducedMotion, useArrivals, useNewAreas } from "@/components/sala/useArrivals";
 import { areasLeft, isAdditiveClick, removalPlan, toggleInSelection, type RemovalPlan } from "@/lib/sala/selection";
 import { isMacOS } from "@/lib/platform/platform";
@@ -62,6 +63,8 @@ export interface SalaCanvasProps {
   onAttachFiles: (files: File[]) => Promise<boolean>;
   /** "Open conversation" on a card: the room's side panel shows that agent. */
   onOpenAgent: (agentId: string) => void;
+  /** The stop button of a mini-card. */
+  onStopSubtask: (agentId: string, taskId: string) => void;
   /** "Delegate" on a card, or the toolbar's new agent (`undefined`): the launcher opens. */
   onNewAgent: (parentId?: string) => void;
   newAgentOpen: boolean;
@@ -84,6 +87,8 @@ export interface SalaCanvasProps {
 
 export interface SalaCanvasHandle {
   removeAgent: (agentId: string) => void;
+  /** Selects a subtask's mini-card, its bar open, and brings it into view. */
+  selectSubtask: (agentId: string, taskId: string) => void;
 }
 
 interface Toast {
@@ -132,6 +137,17 @@ const placeFrame = (el: HTMLElement, rect: Rect): void => {
 };
 
 /** The states a link takes the color of (its child's); any other draws the neutral line. */
+/** Each card's rect taken to cover its subtasks' band: what an area and the
+ * extent of the canvas are measured with. Links and drags use the card alone. */
+function withBands(agents: readonly RoomAgent[], cards: ReadonlyMap<string, Rect>): Map<string, Rect> {
+  const out = new Map(cards);
+  for (const agent of agents) {
+    const card = cards.get(agent.agentId);
+    if (card) out.set(agent.agentId, footprint(card, subtaskBand(card, subtaskTiles(agent))));
+  }
+  return out;
+}
+
 const linkTone = (tone: string): string | false => (tone === "run" || tone === "start" || tone === "wait" || tone === "done" || tone === "stop") && tone;
 
 let nextId = 0;
@@ -151,6 +167,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const [tool, setTool] = useState<SalaTool>("select");
   const [spaceDown, setSpaceDown] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  /** A mini-card picked under the selected agent: it counts only while that agent stays selected. */
+  const [pickedSub, setPickedSub] = useState<{ parentId: string; taskId: string } | null>(null);
+  const selectedSub = pickedSub !== null && pickedSub.parentId === selected ? pickedSub.taskId : null;
   /** Several agents selected at once (never one, never the principal). */
   const [many, setMany] = useState<string[]>([]);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
@@ -182,6 +201,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   // ─── what is on the canvas ───
   const rects = useMemo(() => cardRects(agents, canvas.positions), [agents, canvas.positions]);
+  const reach = useMemo(() => withBands(agents, rects), [agents, rects]);
   const byId = useMemo(() => new Map(agents.map((a) => [a.agentId, a])), [agents]);
   const kids = useMemo(() => {
     const out = new Map<string, number>();
@@ -197,7 +217,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
           const agent = byId.get(id);
           return agent && rects.has(id) ? [agent] : [];
         });
-        const rect = areaRect(area, rects);
+        const rect = areaRect(area, reach);
         const running = members.filter((m) => cardStatus(m, m.role === "principal" ? liveWorkers : 0).tone === "run").length;
         const waiting = members.filter((m) => cardStatus(m, m.role === "principal" ? liveWorkers : 0).tone === "wait").length;
         return {
@@ -208,16 +228,16 @@ export function SalaCanvas(props: SalaCanvasProps) {
           waiting,
         };
       }),
-    [canvas.areas, rects, byId, liveWorkers, dict.area],
+    [canvas.areas, rects, reach, byId, liveWorkers, dict.area],
   );
   const bounds = useMemo(
     () =>
       worldBounds(
-        [...rects.values()],
+        [...reach.values()],
         frames.map((f) => f.rect),
         canvas.texts.map((t, i) => ({ x: t.x, y: t.y, text: t.text, big: i === TEXT_BIG_AT })),
       ),
-    [rects, frames, canvas.texts],
+    [reach, frames, canvas.texts],
   );
   // What the room held when it first showed is not arriving; what joins it
   // while it is open is.
@@ -392,7 +412,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
    * frame it draws now, so that when its members are gone it does not fall
    * back to wherever it was first made. */
   const commit = useCallback((next: RoomCanvas): void => {
-    const cards = cardRects(latest.current.agents, next.positions);
+    const cards = withBands(latest.current.agents, cardRects(latest.current.agents, next.positions));
     const stored = { ...next, areas: next.areas.map((a) => storedArea(a, cards)) };
     // Two changes in one tick (an input losing focus, then a tool click) each
     // start from what the one before left, not from the last render.
@@ -410,6 +430,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
     return out;
   }, []);
 
+  /** `cards` taken to cover each card's subtasks band, for drawing areas. */
+  const foot = useCallback((cards: ReadonlyMap<string, Rect>): Map<string, Rect> => withBands(latest.current.agents, cards), []);
+
   const writeFrame = useCallback((id: string, rect: Rect): void => {
     const el = worldRef.current?.querySelector<HTMLElement>(`[data-area-id="${CSS.escape(id)}"]`);
     if (el) placeFrame(el, rect);
@@ -418,6 +441,15 @@ export function SalaCanvas(props: SalaCanvasProps) {
   const writeEdges = useCallback((rectsNow: ReadonlyMap<string, Rect>, agentId: string): void => {
     const world = worldRef.current;
     if (!world) return;
+    const self = rectsNow.get(agentId);
+    const owner = latest.current.agents.find((a) => a.agentId === agentId);
+    if (self && owner) {
+      const minis = subtaskRects(self, subtaskTiles(owner));
+      for (const path of world.querySelectorAll<SVGPathElement>(`[data-sub-edge="${CSS.escape(agentId)}"]`)) {
+        const mini = minis[Number(path.getAttribute("data-sub-i"))];
+        if (mini) path.setAttribute("d", edgePath(self, mini));
+      }
+    }
     for (const a of latest.current.agents) {
       if (a.parentId === undefined || (a.agentId !== agentId && a.parentId !== agentId)) continue;
       const p = rectsNow.get(a.parentId);
@@ -568,7 +600,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const area = cv.areas.find((a) => a.id === id);
       if (!area) return;
       const cards = withRects();
-      const rect = areaRect(area, cards);
+      const rect = areaRect(area, foot(cards));
       dragRef.current = {
         kind: "frame",
         pointerId: event.pointerId,
@@ -646,7 +678,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
         if (isHome) {
           const others = new Map(now);
           others.delete(d.id);
-          writeFrame(area.id, areaRect(area, track.leaving ? others : now));
+          writeFrame(area.id, areaRect(area, foot(track.leaving ? others : now)));
         }
       }
       return;
@@ -662,7 +694,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     }
     const area = latest.current.canvas.areas.find((a) => a.id === d.id);
     if (area) {
-      writeFrame(d.id, d.members.length > 0 ? areaRect(area, now) : { ...areaRect(area, now), x: d.ox + dx / z, y: d.oy + dy / z });
+      writeFrame(d.id, d.members.length > 0 ? areaRect(area, foot(now)) : { ...areaRect(area, foot(now)), x: d.ox + dx / z, y: d.oy + dy / z });
     }
   };
 
@@ -682,7 +714,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       writeEdges(cards, id);
     }
     for (const area of cv.areas) {
-      writeFrame(area.id, areaRect(area, cards));
+      writeFrame(area.id, areaRect(area, foot(cards)));
       flag(area.id, "release", false);
       flag(area.id, "drop", false);
     }
@@ -786,7 +818,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const { areas } = membershipAfterDrop(cv.areas, cards, d.id);
       if (d.el) d.el.style.transform = translate(x, y);
       writeEdges(cards, d.id);
-      for (const area of areas) writeFrame(area.id, areaRect(area, cards));
+      for (const area of areas) writeFrame(area.id, areaRect(area, foot(cards)));
       commit({ ...cv, positions, areas });
       if (d.el) settleDrop(d.el, d.id, from.x - x, from.y - y);
       return;
@@ -810,7 +842,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     const areas = cv.areas.map((a) => (a.id === d.id && d.members.length === 0 ? { ...a, x: d.ox + sx, y: d.oy + sy } : a));
     commit({ ...cv, positions, areas });
     const cards = cardRects(list, positions);
-    for (const area of areas) writeFrame(area.id, areaRect(area, cards));
+    for (const area of areas) writeFrame(area.id, areaRect(area, foot(cards)));
     for (const m of d.members) {
       const el = worldRef.current?.querySelector<HTMLElement>(`[data-agent-id="${CSS.escape(m.id)}"]`);
       if (el) el.style.transform = translate(m.ox + sx, m.oy + sy);
@@ -848,7 +880,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const at = cards.get(id);
       if (at) cards.set(id, { ...at, x: at.x + ox, y: at.y + oy });
       writeEdges(cards, id);
-      for (const area of cv.areas) if (area.members?.includes(id)) writeFrame(area.id, areaRect(area, cards));
+      for (const area of cv.areas) if (area.members?.includes(id)) writeFrame(area.id, areaRect(area, foot(cards)));
       if (k < 1) settling.current = { raf: requestAnimationFrame(step), el };
       else stopSettle();
     };
@@ -858,11 +890,20 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   // ─── actions ───
   const select = useCallback((id: string) => {
+    setPickedSub(null);
     setSelected(id);
     setMany([]);
     setSelectedArea(null);
     setAnswering(null);
   }, []);
+  /** A click on a mini-card: it is selected, and its parent with it. */
+  const onSelectSub = useCallback(
+    (agentId: string, taskId: string): void => {
+      select(agentId);
+      setPickedSub({ parentId: agentId, taskId });
+    },
+    [select],
+  );
   /** A click on a card (or Enter on it). The principal's opens its
    * conversation straight away: it is never selected and has no bar, and
    * so never joins a selection of several either. A modified click on a
@@ -884,6 +925,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     // Read from the ref, not this render: two clicks can land before React
     // renders again, and the second must see what the first selected.
     const next = toggleInSelection(selection.current.many, selection.current.single, id);
+    setPickedSub(null);
     selection.current = next;
     setMany(next.many);
     setSelected(next.single);
@@ -921,13 +963,13 @@ export function SalaCanvas(props: SalaCanvasProps) {
       const { canvas: cv, agents: list } = latest.current;
       const cards = cardRects(list, cv.positions);
       const ids = subtreeIds(list, agentId).filter((id) => cards.has(id));
-      const rect = areaRectForIds(ids, cards);
+      const rect = areaRectForIds(ids, foot(cards));
       const id = newId("area");
       pendingFocus.current = `area:${id}`;
       commit({ ...cv, areas: groupInto(cv.areas, ids, rect, id) });
       setSelected(null);
     },
-    [commit],
+    [commit, foot],
   );
 
   const stopAgent = useCallback(
@@ -1013,7 +1055,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     if (inside.length === 0) return;
     const id = newId("area");
     pendingFocus.current = `area:${id}`;
-    commit({ ...cv, areas: groupInto(cv.areas, inside, areaRectForIds(inside, cards), id) });
+    commit({ ...cv, areas: groupInto(cv.areas, inside, areaRectForIds(inside, foot(cards)), id) });
     setMany([]);
     setSelected(null);
     showToast(dict.toast.grouped.replace("{count}", String(inside.length)));
@@ -1045,7 +1087,24 @@ export function SalaCanvas(props: SalaCanvasProps) {
     removeAgents(confirm.plan, confirm.work !== "unknown" && confirm.work.length > 0);
   };
 
-  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne }), [askRemoveOne]);
+  const selectSubtask = useCallback(
+    (agentId: string, taskId: string): void => {
+      select(agentId);
+      const agent = latest.current.agents.find((a) => a.agentId === agentId);
+      const card = cardRects(latest.current.agents, latest.current.canvas.positions).get(agentId);
+      if (!agent || !card) return;
+      const { shown } = visibleSubtasks(agent);
+      const at = shown.findIndex((task) => task.taskId === taskId);
+      // One the canvas does not draw (finished with its parent, or folded into "+N") is the parent selected.
+      const mini = at < 0 ? undefined : subtaskRects(card, subtaskTiles(agent))[at];
+      if (at >= 0) setPickedSub({ parentId: agentId, taskId });
+      follow.current = false;
+      const next = revealCamera(cam().effective, mini ?? card, vpSize.current);
+      if (next !== cam().effective) cam().animate(next, 440);
+    },
+    [select],
+  );
+  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne, selectSubtask }), [askRemoveOne, selectSubtask]);
 
   const confirmView = ((): SalaConfirmView | null => {
     if (!confirm) return null;
@@ -1311,6 +1370,30 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 </g>
               );
             })}
+            {agents.map((a) => {
+              const parent = rects.get(a.agentId);
+              if (!parent) return null;
+              const { shown, hidden } = visibleSubtasks(a);
+              const minis = subtaskRects(parent, shown.length + (hidden > 0 ? 1 : 0));
+              if (minis.length === 0) return null;
+              return (
+                <g key={`sub:${a.agentId}`}>
+                  {minis.map((mini, i) => {
+                    const subtask = shown[i];
+                    const tone = subtask ? subtaskTone(subtask) : "stop";
+                    return (
+                      <path
+                        key={subtask?.taskId ?? "more"}
+                        data-sub-edge={a.agentId}
+                        data-sub-i={i}
+                        className={cn("sala-edge", "sub", linkTone(tone), (selected === a.agentId || (subtask !== undefined && selectedSub === subtask.taskId)) && "sel")}
+                        d={edgePath(parent, mini)}
+                      />
+                    );
+                  })}
+                </g>
+              );
+            })}
           </svg>
 
           {frames.map(({ area, rect, count, running, waiting }) => (
@@ -1387,7 +1470,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 w={rect.w}
                 h={rect.h}
                 selected={selected === agent.agentId || manyNow.includes(agent.agentId)}
-                bar={selected === agent.agentId}
+                bar={selected === agent.agentId && selectedSub === null}
                 hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
                 hasKids={(kids.get(agent.agentId) ?? 0) > 0}
                 boot={arrivals.get(agent.agentId)}
@@ -1397,6 +1480,9 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 workers={workers}
                 liveWorkers={liveWorkers}
                 observedSince={props.since.get(agent.agentId)?.since ?? 0}
+                subSelected={selected === agent.agentId ? selectedSub : null}
+                onSelectSub={onSelectSub}
+                onStopSub={props.onStopSubtask}
                 canGroup={agent.role === "worker"}
                 canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}
                 canRemove={agent.role === "worker"}
@@ -1414,10 +1500,11 @@ export function SalaCanvas(props: SalaCanvasProps) {
           {answering !== null &&
             (() => {
               const agent = byId.get(answering);
-              const rect = rects.get(answering);
-              if (!agent || !rect || agent.needsYou.length === 0) return null;
+              const card = rects.get(answering);
+              const rect = reach.get(answering);
+              if (!agent || !card || !rect || agent.needsYou.length === 0) return null;
               return (
-                <div className="sala-answer-at" data-answer-for={answering} style={{ transform: translate(rect.x, rect.y + rect.h + 12) }}>
+                <div className="sala-answer-at" data-answer-for={answering} style={{ transform: translate(card.x, rect.y + rect.h + 12) }}>
                   {props.renderAnswer(agent, () => setAnswering(null))}
                 </div>
               );

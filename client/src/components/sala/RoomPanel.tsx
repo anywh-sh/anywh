@@ -24,6 +24,7 @@ import {
   restoreRoomAgent,
   resumeRoomAgent,
   RoomRequestError,
+  stopAgentSubtask,
   stopRoomAgent,
   type LaunchAgentInput,
   type RoomAgent,
@@ -143,6 +144,13 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       ),
     [profile, roomId],
   );
+  const onStopSubtask = useCallback(
+    (agentId: string, taskId: string) => {
+      stopAgentSubtask(profile, roomId, agentId, taskId).catch((error: unknown) => console.error("[anywh] failed to stop a subtask", error));
+    },
+    [profile, roomId],
+  );
+  const onSelectSubtask = useCallback((agentId: string, taskId: string) => canvasHandle.current?.selectSubtask(agentId, taskId), []);
   const onRemoveAgent = useCallback(
     (agentId: string, discard: boolean) =>
       removeRoomAgent(profile, roomId, agentId, { discard }).then(
@@ -295,6 +303,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       observedSince={channel.since.get(panelAgent.agentId)?.since ?? 0}
       worktrees={worktrees.data.worktrees}
       shell={shellOf("agent")}
+      onSelectSubtask={(taskId) => onSelectSubtask(panelAgent.agentId, taskId)}
       onClose={() => panes.close("agent")}
       onOpenInTab={(agentId) => onOpenSession(agentId, channel.agents.find((a) => a.agentId === agentId)?.title ?? null)}
       onDelegate={(agentId) => openLauncher(agentId)}
@@ -323,6 +332,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           onCheckWork={onCheckWork}
           onAttachFiles={onAttachFiles}
           onOpenAgent={openAgent}
+          onStopSubtask={onStopSubtask}
           onNewAgent={openLauncher}
           newAgentOpen={launcher.open}
           launcher={

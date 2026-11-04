@@ -50,7 +50,8 @@ export interface HostAgentBinding {
   readonly cursors?: Pick<FileCursorStore, "get" | "set">;
   /** This relay's id, recorded on the agent in the host (see `roomOwnerOf`). */
   readonly owner?: string;
-  /** The number of native subagents the agent has running changed. */
+  /** What is known about the agent's native subagents changed (one started,
+   * reported progress or tokens, or ended). */
   readonly onSubtasksChanged?: () => void;
 }
 
@@ -167,6 +168,9 @@ export class HostSessionDriver implements AgentSessionDriver {
     // Records still arriving for the old conversation (a background subagent
     // finishing) must not hand its session id back.
     this.closeSubscription();
+    // Nor report the end of its subagents: they belong to the conversation
+    // that was cleared.
+    if (this.subtasks.endRunning()) this.options.binding.onSubtasksChanged?.();
   }
 
   stop(): boolean {
@@ -472,18 +476,15 @@ export class HostSessionDriver implements AgentSessionDriver {
     return "stopping";
   }
 
-  private runningSubtasks(): number {
-    return this.subtasks.list().filter((task) => task.status === "running").length;
-  }
-
   private onRecord(record: EventMessage): void {
     this.options.binding.cursors?.set(this.agentId, { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc });
     const event = record.ev;
     if (!this.daemonPlan && !this.resetPending && typeof event.session_id === "string") this.sessionId = event.session_id;
-    if (!this.daemonPlan) {
-      const before = this.runningSubtasks();
-      this.subtasks.observe(event);
-      if (this.runningSubtasks() !== before) this.options.binding.onSubtasksChanged?.();
+    if (!this.daemonPlan && this.subtasks.observe(event)) this.options.binding.onSubtasksChanged?.();
+    // The agent's process is gone (with a turn running or not): its
+    // subagents went with it, and nothing will report their end.
+    if (event.type === "host_process" && (event.subtype === "exited" || event.subtype === "lost") && this.subtasks.endRunning()) {
+      this.options.binding.onSubtasksChanged?.();
     }
     // A permission request of this agent (a native subagent's carries its
     // `agent_id`) is not on this log: the CLI puts it to the room bridge's

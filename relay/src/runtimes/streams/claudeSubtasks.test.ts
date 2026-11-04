@@ -53,3 +53,37 @@ test("a resumed subagent runs again under its id; only the most recent finished 
   assert.equal(tracker.list().filter((subtask) => subtask.status !== "running").length, 50);
   assert.equal(tracker.get("a")?.status, "running", "a running one is never dropped");
 });
+
+test("progress and the end carry the tokens and tool uses; observe says whether anything changed", () => {
+  let now = 10;
+  const tracker = new ClaudeSubtaskTracker(() => now);
+  assert.equal(tracker.observe({ type: "assistant" }), false);
+  assert.equal(tracker.observe(started("a")), true);
+  const progress = { type: "system", subtype: "task_progress", task_id: "a", description: "Reading x.ts", usage: { total_tokens: 900, tool_uses: 2, duration_ms: 50 } };
+  assert.equal(tracker.observe(progress), true);
+  assert.equal(tracker.observe(progress), false, "the same progress twice is no change");
+  assert.equal(tracker.observe({ type: "system", subtype: "task_progress", task_id: "nobody", description: "x" }), false);
+  assert.deepEqual([tracker.get("a")?.totalTokens, tracker.get("a")?.toolUses], [900, 2]);
+  assert.equal(tracker.observe({ type: "system", subtype: "task_progress", task_id: "a", usage: { total_tokens: "lots" } }), false, "a malformed usage is ignored");
+  now = 20;
+  assert.equal(tracker.observe({ type: "system", subtype: "task_notification", task_id: "a", status: "completed", summary: "done", usage: { total_tokens: 1500, tool_uses: 4 } }), true);
+  assert.deepEqual([tracker.get("a")?.status, tracker.get("a")?.totalTokens, tracker.get("a")?.toolUses, tracker.get("a")?.endedAt], ["completed", 1500, 4, 20]);
+});
+
+test("endRunning ends only what is still running, at the time it is called", () => {
+  let now = 1;
+  const tracker = new ClaudeSubtaskTracker(() => now);
+  tracker.observe(started("a"));
+  tracker.observe(started("b"));
+  tracker.observe({ type: "system", subtype: "task_notification", task_id: "b", status: "completed" });
+  now = 7;
+  assert.equal(tracker.endRunning(), true);
+  assert.deepEqual(
+    tracker.list().map((subtask) => [subtask.taskId, subtask.status, subtask.endedAt]),
+    [
+      ["a", "stopped", 7],
+      ["b", "completed", 1],
+    ],
+  );
+  assert.equal(tracker.endRunning("failed"), false, "nothing left to end");
+});

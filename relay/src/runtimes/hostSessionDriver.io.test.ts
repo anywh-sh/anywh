@@ -125,6 +125,31 @@ test("Stop interrupts the turn in the host and keeps the agent; a crash fails th
   });
 });
 
+test("each subtask's tokens are kept, every change is told, and the running ones end when the agent's process goes", async () => {
+  await withHost(async ({ dir, client }) => {
+    let told = 0;
+    const driver = new HostSessionDriver(claudeRuntimeDef, { binding: { client, agentId: "w11", roomId: "room-a", setup: workerSetup, onSubtasksChanged: () => told++ } });
+    await driver.sendTurn(ctx(dir, "fan out [[subagents:run,done]]"), () => {});
+    await waitFor(() => driver.listSubtasks().length === 2, 8000, "two subtasks");
+    assert.deepEqual(
+      driver.listSubtasks().map(({ status, totalTokens, toolUses, activity }) => ({ status, totalTokens, toolUses, activity })),
+      [
+        { status: "running", totalTokens: 1200, toolUses: 2, activity: "Reading roomChannel.ts" },
+        { status: "completed", totalTokens: 2700, toolUses: 3, activity: "Searching for tidyLayout" },
+      ],
+    );
+    // Started, progress and ended each count, not only the running number.
+    assert.ok(told >= 4, `told ${told} times`);
+    await assert.rejects(driver.sendTurn(ctx(dir, "boom [[crash]]"), () => {}), /exited during the turn/);
+    await waitFor(() => driver.listSubtasks().every((subtask) => subtask.status !== "running"), 8000, "no subtask left running");
+    const [ended] = driver.listSubtasks();
+    assert.equal(ended?.status, "stopped");
+    assert.ok(ended?.endedAt !== undefined);
+    assert.equal(driver.listSubtasks()[1]?.status, "completed", "a finished one keeps how it ended");
+    driver.dispose();
+  });
+});
+
 test("an agent the host lost is recreated on the same session; /clear starts a fresh one", async () => {
   await withHost(async ({ dir, client }) => {
     const driver = driverFor(client, "w4");
@@ -184,6 +209,11 @@ test("after /clear, late records of the old conversation never bring its session
     const taskId = driver.listSubtasks()[0]?.taskId;
     assert.ok(taskId, "a running subtask");
     driver.resetSessionId();
+    assert.deepEqual(
+      driver.listSubtasks().map((subtask) => subtask.status),
+      ["stopped"],
+      "the cleared conversation's subagents are over, whatever its process still says",
+    );
     // The old conversation keeps talking: its subagent ends, with records
     // carrying the old session id.
     const watcher = new HostClient({ socketPath: (client as unknown as { options: { socketPath: string } }).options.socketPath });

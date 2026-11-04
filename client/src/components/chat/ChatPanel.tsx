@@ -158,6 +158,10 @@ interface ChatPanelProps {
    * card and the session's socket stay this panel's, so there is still
    * exactly one connection. */
   renderComposer?: (session: EmbeddedComposerSession) => ReactNode;
+  /** This is a room agent's conversation shown beside the room's canvas,
+   * where its subagents already have a card each: the log says that they were
+   * launched instead of drawing one row for every one. */
+  besideRoom?: boolean;
 }
 
 /** A file name inside `[arquivo anexado (…): …]` must not be able to close
@@ -231,6 +235,7 @@ export function ChatPanel({
   onOpenPath,
   isActiveTab,
   renderComposer,
+  besideRoom,
 }: ChatPanelProps) {
   const dict = useDict();
   const log = useMessageLog();
@@ -934,6 +939,7 @@ export function ChatPanel({
           streamingEntries={log.streamingEntries}
           attributionByToolUseId={log.attributionByToolUseId}
           spawnedSubagentIds={spawnedSubagentIds}
+          foldSubagents={besideRoom === true}
           hasMoreHistory={log.hasMoreHistory}
           loadingOlderHistory={log.loadingOlderHistory}
           onLoadOlderHistory={handleLoadOlderHistory}

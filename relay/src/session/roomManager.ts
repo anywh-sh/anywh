@@ -35,7 +35,7 @@ import {
   type RoomMembership,
 } from "./room.js";
 import { roomPromptsDraft, type PushNotificationDraft, type RoomPromptEntry } from "../push/events.js";
-import { summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
+import { subtaskViews, summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
 import { buildRoomDigest, isUrgent, reportCard, type DigestEntry } from "./roomDigest.js";
 import type { RoomCard } from "../protocol/agent-event.js";
 import {
@@ -526,6 +526,9 @@ export class RoomManager implements RoomToolHost {
   private agentView(id: string, room: RoomMembership): RoomAgentView {
     const runtime = this.store.getAgentId(id);
     const needsYou = this.needsYou(id);
+    const subtasks = this.options.sessions.peek(id)?.listSubtasks() ?? [];
+    // Which subtasks the pending approval's calls came from.
+    const askedBy = new Set(needsYou.some((asked) => asked.kind === "approval") ? (this.store.getPendingApproval(id)?.calls ?? []).flatMap((call) => (call.agentId ? [call.agentId] : [])) : []);
     return {
       agentId: id,
       role: room.role,
@@ -544,7 +547,8 @@ export class RoomManager implements RoomToolHost {
       ...(room.startedAt !== undefined ? { startedAt: room.startedAt } : {}),
       connectors: room.connectors ?? [],
       needsYou,
-      subtasksRunning: this.options.sessions.peek(id)?.listSubtasks().filter((task) => task.status === "running").length ?? 0,
+      subtasksRunning: subtasks.filter((task) => task.status === "running").length,
+      ...(subtasks.length > 0 ? { subtasks: subtaskViews(subtasks, askedBy) } : {}),
     };
   }
 

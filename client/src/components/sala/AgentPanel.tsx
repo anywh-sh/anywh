@@ -9,11 +9,11 @@ import { ConnectorLogo } from "@/components/sala/ConnectorLogo";
 import { Clock } from "@/components/sala/SalaCard";
 import { CheckIcon, CloseIcon, TrashIcon } from "@/components/sala/SalaIcons";
 import { RoomPaneFrame, type RoomPaneShell } from "@/components/sala/RoomPaneFrame";
-import { useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
+import { subtasksKey, useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
-import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
+import { type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
 import { cardClock, cardStatus } from "@/lib/sala/agentCard";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { agentWork, formatBytes, formatTokens, windowPercent, type AgentWork } from "@/lib/sala/roomFigures";
@@ -29,6 +29,8 @@ interface AgentPanelProps {
   modelLabel: string;
   observedSince: number;
   worktrees: readonly RoomWorktree[];
+  /** A subtask's row picked: the canvas selects its mini-card. */
+  onSelectSubtask: (taskId: string) => void;
   shell: RoomPaneShell;
   onClose: () => void;
   onOpenInTab: (agentId: string) => void;
@@ -61,7 +63,7 @@ export function AgentPanel(props: AgentPanelProps) {
     return (
       <RoomPaneFrame shell={props.shell} mark={<Tile runtime={agent.runtime} />} title={dict.sala.orchestrator} subtitle={subtitle} kind="principal" onClose={props.onClose}>
         <div className="sala-side-chat">
-          <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} />
+          <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} besideRoom />
         </div>
       </RoomPaneFrame>
     );
@@ -69,12 +71,12 @@ export function AgentPanel(props: AgentPanelProps) {
   return <WorkerPanel key={agent.agentId} {...props} title={agent.title ?? dict.sala.card.untitled} subtitle={subtitle} />;
 }
 
-function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, title, subtitle, shell, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
+function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, onSelectSubtask, title, subtitle, shell, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
   const dict = useDict();
   const text = dict.sala.panel.agent;
   const status = cardStatus(agent, 0);
   const clock = cardClock(agent, observedSince, 0);
-  const { subtasks, reload } = useAgentSubtasks(profile, roomId, agent.agentId, agent.subtasksRunning);
+  const { subtasks } = useAgentSubtasks(profile, roomId, agent.agentId, subtasksKey(agent));
   const work = agentWork(worktrees, agent.agentId);
   const canStop = agent.state !== "stopped" && agent.state !== "done";
   const stopped = agent.state === "stopped";
@@ -164,23 +166,12 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
             <section className="sala-side-sec">
               <h3 className="sala-side-h">{text.subtasks}</h3>
               {subtasks.map((task) => (
-                <div key={task.taskId} className="sala-side-row">
+                <button key={task.taskId} type="button" className="sala-side-row sub" data-subtask-row={task.taskId} onClick={() => onSelectSubtask(task.taskId)}>
                   <span className={cn("sala-sub-dot", task.status)} aria-hidden="true" />
                   <span className="grow trunc" title={task.activity ?? task.summary}>
                     {task.description ?? task.subagentType ?? task.taskId}
                   </span>
-                  {task.status === "running" && (
-                    <button
-                      type="button"
-                      className="sala-mini"
-                      onClick={() => {
-                        stopAgentSubtask(profile, roomId, agent.agentId, task.taskId).then(reload, (error: unknown) => console.error("[anywh] failed to stop a subtask", error));
-                      }}
-                    >
-                      {text.subtaskStop}
-                    </button>
-                  )}
-                </div>
+                </button>
               ))}
             </section>
           )}
@@ -197,7 +188,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
        * calls and thinking, the turn as it streams and the question it asks.
        * Only the box under it is the room's own. */}
       <div className="sala-side-chat flush">
-        <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} renderComposer={(session) => <WorkerComposer session={session} text={text} />} />
+        <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} besideRoom renderComposer={(session) => <WorkerComposer session={session} text={text} />} />
       </div>
     </RoomPaneFrame>
   );
