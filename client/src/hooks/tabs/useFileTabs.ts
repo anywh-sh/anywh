@@ -96,6 +96,19 @@ export function useFileTabs() {
     });
   }, []);
 
+  /** A folder got deleted — closes every tab open on a file inside it. */
+  const closeTabsUnder = useCallback((tabId: string, dir: string) => {
+    const prefix = dir.endsWith("/") ? dir : `${dir}/`;
+    setState((prev) => {
+      const existing = prev[tabId];
+      if (!existing) return prev;
+      const open = existing.open.filter((tab) => !tab.path.startsWith(prefix));
+      if (open.length === existing.open.length) return prev;
+      const activePath = existing.activePath?.startsWith(prefix) ? (open[open.length - 1]?.path ?? null) : existing.activePath;
+      return { ...prev, [tabId]: { ...existing, open, activePath } };
+    });
+  }, []);
+
   /** A file open in a tab got renamed via the context menu — moves its tab
    * (and the active/expanded state pointing at it) to the new path instead
    * of just closing it, so the user doesn't lose their place. */
@@ -179,6 +192,7 @@ export function useFileTabs() {
     openPreview,
     openPinned,
     closeTab,
+    closeTabsUnder,
     renamePath,
     setActiveFile,
     toggleExpanded,

@@ -922,6 +922,7 @@ export interface Dictionary {
          * undone, because on the relay's side it genuinely can't — there is
          * no trash to recover from. */
         deleteFile: { title: string; description: string };
+        deleteFolder: { title: string; description: string };
         deleteFiles: { title: string; description: string };
         /** Failures that reach the user through an alert. They stay generic
          * on purpose: the relay's own message for these is a stack-level
@@ -937,6 +938,7 @@ export interface Dictionary {
           downloadFolderPartial: string;
           rename: string;
           delete: string;
+          deleteSome: string;
         };
       };
       downloads: {
