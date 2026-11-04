@@ -9,10 +9,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *
  * `agent` and `about` are a room's: one agent's conversation, and the room's
  * own information. Only a room's tab ever opens them.
+ *
+ * `none` is the "no selection" view: the panel is open but nothing was picked
+ * in it yet, so it draws an empty state that asks for a choice. It is what a
+ * non-room tab's panel shows the first time it opens, and the place future
+ * views (integrations, ...) are chosen from.
  */
-export type DockPaneKind = "terminal" | "files" | "agent" | "about";
+export type DockPaneKind = "none" | "terminal" | "files" | "agent" | "about";
 
-const PANE_KINDS: readonly DockPaneKind[] = ["terminal", "files", "agent", "about"];
+const PANE_KINDS: readonly DockPaneKind[] = ["none", "terminal", "files", "agent", "about"];
 /** How many panes the column holds at once: one view, and opening another
  * switches to it. */
 export const MAX_DOCK_PANES = 1;
@@ -208,10 +213,10 @@ export function useSessionDock() {
   /** The toggle. Shown, it hides the panel — what was open is kept, so
    * showing it again is the undo. Not shown, it shows it, and when the tab
    * has nothing open it opens the pane used last (`fallback` if there never
-   * was one: Files, or a room's agent), so the panel is never an empty
-   * column. */
+   * was one: the "no selection" view, or a room's agent), so the panel is
+   * never a blank column. */
   const togglePanel = useCallback(
-    (groupId: string, tabId: string | null, fallback: DockPaneKind = "files") => {
+    (groupId: string, tabId: string | null, fallback: DockPaneKind = "none") => {
       if (tabId === null) return;
       if (isPanelShown(groupId, tabId)) {
         setGroupHidden(groupId, true);

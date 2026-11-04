@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
 // The dock's entry points in the real Tauri window. The panes themselves
 // can't be exercised here: both toggles are gated on the session having a
 // folder, and a folder only exists once a relay has answered — no relay runs
@@ -11,6 +14,10 @@
 // `<button onClick>`, not Radix triggers, so a driver click does reach them
 // (unlike the dropdown triggers in shell.spec.js) — the gate is what stops
 // them, nothing else.
+// Screenshots go to `ANYWH_E2E_SCREENSHOTS` when it is set (a folder outside
+// the repo); otherwise none are taken.
+const SHOTS = process.env.ANYWH_E2E_SCREENSHOTS;
+
 describe("anywh dock panels", () => {
   before(async () => {
     const newConversation = await $('[aria-label="New session"]');
@@ -27,17 +34,24 @@ describe("anywh dock panels", () => {
     await expect(await $('[aria-label="Close panel"]').isExisting()).toBe(false);
   });
 
-  it("opens the panel on Files, with both pane buttons inert until the session has a folder", async () => {
+  it("opens the panel on its empty state, with both pane buttons inert until the session has a folder", async () => {
     const panelToggle = await $('[aria-label="Show side panel"]');
     await panelToggle.click();
 
-    // A tab that never had a pane opens Files, so that button reads "close".
-    for (const label of ["Close files", "Open terminal"]) {
+    // A tab that never had a pane opens nothing selected, so both read "open".
+    await $('[data-testid="dock-empty-state"]').waitForExist({ timeout: 15000 });
+    for (const label of ["Open files", "Open terminal"]) {
       const toggle = await $(`[aria-label="${label}"]`);
       await toggle.waitForExist({ timeout: 15000 });
       await expect(await toggle.isEnabled()).toBe(false);
     }
     await expect(await $('[aria-label="Hide side panel"]').isExisting()).toBe(true);
+    if (SHOTS) {
+      // The column opens by animating its width; wait until it has.
+      await browser.waitUntil(() => browser.execute(() => (document.querySelector('[data-testid="dock-empty-state"]')?.getBoundingClientRect().width ?? 0) >= 300), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
+      mkdirSync(SHOTS, { recursive: true });
+      await browser.saveScreenshot(join(SHOTS, "right-sidebar-empty-state.png"));
+    }
   });
 
   it("takes the pane buttons away again when the panel is hidden", async () => {
@@ -45,7 +59,7 @@ describe("anywh dock panels", () => {
     await panelToggle.click();
 
     await $('[aria-label="Show side panel"]').waitForExist({ timeout: 15000 });
-    for (const label of ["Close files", "Open terminal"]) {
+    for (const label of ["Open files", "Open terminal"]) {
       await expect(await $(`[aria-label="${label}"]`).isExisting()).toBe(false);
     }
   });

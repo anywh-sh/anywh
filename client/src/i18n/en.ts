@@ -301,6 +301,7 @@ export const en: Dictionary = {
     closeAgent: "Close agent conversation",
     showRightPanel: "Show side panel",
     hideRightPanel: "Hide side panel",
+    noSelection: "Select an option to visualize",
     resize: "Resize panel",
     openTerminal: "Open terminal",
     closeTerminal: "Close terminal",

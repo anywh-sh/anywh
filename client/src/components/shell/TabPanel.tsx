@@ -12,6 +12,7 @@ import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
+import { DockEmptyState } from "@/components/shell/DockEmptyState";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
@@ -165,6 +166,7 @@ function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions, roomPane
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
       onDragEnd={actions.onDockDragEnd}
       panes={{
+        none: dock.panes.includes("none") ? <DockEmptyState /> : undefined,
         agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
         about: dock.panes.includes("about") ? roomPanes?.about : undefined,
         terminal: dock.panes.includes("terminal") && !background ? (
