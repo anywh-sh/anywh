@@ -1,3 +1,4 @@
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -8,6 +9,36 @@ import { remarkUserMessage, USER_MESSAGE_REHYPE_OPTIONS } from "@/lib/format/rem
 
 const REMARK_PLUGINS = [remarkGfm];
 const USER_REMARK_PLUGINS = [remarkGfm, remarkUserMessage];
+
+/** A cell with at most this many characters never wraps. Table layout shares
+ * the width out in proportion to each column's text, so a short column next to
+ * a long one gets a sliver and wraps ("14 + até 30" over three lines) while the
+ * long one has room to spare. Keeping short text on one line is what makes the
+ * long column the one that wraps. */
+const SHORT_CELL_MAX_CHARS = 20;
+
+function textOf(node: ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (typeof node === "object" && "props" in node) return textOf((node.props as { children?: ReactNode }).children);
+  return "";
+}
+
+type CellProps = ComponentPropsWithoutRef<"td"> & { node?: unknown };
+
+function tableCell(Tag: "td" | "th") {
+  return function TableCell({ node: _node, children, className, ...props }: CellProps) {
+    const short = textOf(children).trim().length <= SHORT_CELL_MAX_CHARS;
+    return (
+      <Tag {...props} className={short ? `${className ?? ""} whitespace-nowrap`.trim() : className}>
+        {children}
+      </Tag>
+    );
+  };
+}
+const TableTd = tableCell("td");
+const TableTh = tableCell("th");
 
 /**
  * GFM + syntax-highlighted code blocks + external links opened via the
@@ -49,6 +80,8 @@ export function MarkdownContent({
             <table>{children}</table>
           </div>
         ),
+        td: TableTd,
+        th: TableTh,
         // A real markdown link (`[foo](bar/baz.ts)`, as opposed to the `code`
         // override below) whose `href` isn't an external URL scheme: the
         // opener plugin's scope only knows http(s)/mailto/tel/the editor

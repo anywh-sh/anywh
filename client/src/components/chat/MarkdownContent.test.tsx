@@ -85,4 +85,14 @@ describe("MarkdownContent", () => {
     expect(table).not.toBeNull();
     expect(table?.parentElement).toHaveClass("prose-chat-table");
   });
+
+  it("keeps a short table cell on one line and lets a long one wrap", () => {
+    const text = "| Dia | What happens |\n|---|---|\n| 14 + até 30 | Stripe only releases the money after 30 days for a Brazilian card and 5 days for an international one |";
+    const { container } = render(<MarkdownContent text={text} />);
+
+    const [short, long] = Array.from(container.querySelectorAll("tbody td"));
+    expect(short).toHaveClass("whitespace-nowrap");
+    expect(long).not.toHaveClass("whitespace-nowrap");
+    expect(container.querySelector("th")).toHaveClass("whitespace-nowrap");
+  });
 });
