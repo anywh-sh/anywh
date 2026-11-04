@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFile, deleteFile, listFiles, readFileForViewer, renameFile, resolveChatPath, resolveRawFile, resolveWithinRoot } from "./fsFiles.js";
+import { createFile, deleteDirectory, deleteFile, listFiles, readFileForViewer, renameFile, resolveChatPath, resolveRawFile, resolveWithinRoot } from "./fsFiles.js";
 
 function withTempDir(run: (dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), "anywh-fsfiles-test-"));
@@ -233,6 +233,57 @@ test("deleteFile: a path outside the root is rejected", () => {
       assert.equal(result.ok, false);
       if (!result.ok) assert.equal(result.error, "outside_root");
       assert.equal(existsSync(file), true);
+    });
+  });
+});
+
+test("deleteDirectory: removes a non-empty tree", () => {
+  withTempDir((dir) => {
+    const sub = join(dir, "pasta");
+    mkdirSync(join(sub, "fundo"), { recursive: true });
+    writeFileSync(join(sub, "fundo", "a.txt"), "a");
+
+    assert.deepEqual(deleteDirectory(dir, sub), { ok: true });
+    assert.equal(existsSync(sub), false);
+  });
+});
+
+test("deleteDirectory: a regular file is rejected", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "a.txt");
+    writeFileSync(file, "a");
+    assert.deepEqual(deleteDirectory(dir, file), { ok: false, error: "not_found" });
+    assert.equal(existsSync(file), true);
+  });
+});
+
+test("deleteDirectory: the root itself is rejected", () => {
+  withTempDir((dir) => {
+    assert.deepEqual(deleteDirectory(dir, dir), { ok: false, error: "invalid_path" });
+    assert.equal(existsSync(dir), true);
+  });
+});
+
+test("deleteDirectory: a path outside the root is rejected", () => {
+  withTempDir((outer) => {
+    withTempDir((root) => {
+      const result = deleteDirectory(root, outer);
+      assert.deepEqual(result, { ok: false, error: "outside_root" });
+      assert.equal(existsSync(outer), true);
+    });
+  });
+});
+
+test("deleteDirectory: a symlink to a directory removes only the link", () => {
+  withTempDir((outer) => {
+    withTempDir((root) => {
+      writeFileSync(join(outer, "keep.txt"), "keep");
+      const link = join(root, "atalho");
+      symlinkSync(outer, link);
+
+      assert.deepEqual(deleteDirectory(root, link), { ok: true });
+      assert.equal(existsSync(link), false);
+      assert.equal(existsSync(join(outer, "keep.txt")), true);
     });
   });
 });
