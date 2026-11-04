@@ -543,6 +543,36 @@ body {
   &[data-state="closed"] { animation: tooltip-out 90ms linear both; }
 }
 
+/* The session search palette: drops in from a few pixels above and fades,
+ * over a backdrop that fades alone; on the way out only the fade, shorter —
+ * the same budget as the tooltip above. Radix's `Presence` holds the palette
+ * mounted until the `closed` animation ends. Reduced motion is covered by the
+ * blanket rule above. */
+@keyframes search-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes search-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes search-out {
+  to {
+    opacity: 0;
+  }
+}
+[data-slot="session-search"] {
+  &[data-state="open"] { animation: search-in 140ms ease both; }
+  &[data-state="closed"] { animation: search-out 90ms linear both; }
+}
+[data-slot="session-search-overlay"] {
+  &[data-state="open"] { animation: search-fade-in 140ms ease both; }
+  &[data-state="closed"] { animation: search-out 90ms linear both; }
+}
+
 /* Radix's `ScrollArea` injects an inner wrapper with `display:table;
  * min-width:100%` (as an inline style, not a class) around the content — a
  * table grows to the size of its content without wrapping (our `truncate`

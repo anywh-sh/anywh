@@ -58,7 +58,7 @@ export function SessionSearch({ open, onOpenChange, activeProfileId, onSelectSes
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPortal>
-        <DialogOverlay className="bg-black/55" />
+        <DialogOverlay data-slot="session-search-overlay" className="bg-black/55" />
         <DialogPrimitive.Content
           data-slot="session-search"
           aria-describedby={undefined}
