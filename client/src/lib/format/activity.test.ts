@@ -94,7 +94,8 @@ describe("buildTimeline", () => {
   describe("a delegated task", () => {
     const task = (o: Partial<ToolCallEntry> = {}) => call({ name: "Agent", toolKind: "task", subject: { kind: "task", label: "explore" }, ...o });
     const kinds = (entries: LogEntry[], spawned: string[] = []) => buildTimeline(entries, new Set(spawned)).map((i) => (i.kind === "work" ? i.steps.length : i.kind));
-    const launched = (entries: LogEntry[], spawned: string[] = []) => buildTimeline(entries, new Set(spawned)).flatMap((i) => (i.kind === "subagents" ? [i.count] : []));
+    const folded = (entries: LogEntry[], spawned: string[] = []) => buildTimeline(entries, new Set(spawned), { foldLaunches: true });
+    const launched = (entries: LogEntry[], spawned: string[] = []) => folded(entries, spawned).flatMap((i) => (i.kind === "subagents" ? [i.count] : []));
 
     it("is not drawn while it runs: the subagent card is its one representation", () => {
       expect(kinds([task({ done: false, toolUseId: "a" })])).toEqual([]);
@@ -110,25 +111,31 @@ describe("buildTimeline", () => {
       expect(kinds([task({ toolUseId: "a", isError: true })], ["a"])).toEqual(["single"]);
     });
 
+    it("is a card each, one after another, unless the log folds launches (a conversation outside a room)", () => {
+      const calls = [task({ toolUseId: "a" }), task({ toolUseId: "b" }), task({ toolUseId: "c" })];
+      expect(kinds(calls)).toEqual(["single", "single", "single"]);
+      expect(launched(calls)).toEqual([3]);
+    });
+
     it("is drawn as a launch notice when it ended without the CLI ever reporting a subagent for it", () => {
-      expect(kinds([task({ toolUseId: "a" })])).toEqual(["subagents"]);
-      expect(kinds([task({ toolUseId: undefined })])).toEqual(["subagents"]);
+      expect(folded([task({ toolUseId: "a" })]).map((i) => i.kind)).toEqual(["subagents"]);
+      expect(folded([task({ toolUseId: undefined })]).map((i) => i.kind)).toEqual(["subagents"]);
     });
 
     it("folds tasks in a row into one notice that counts them, and one that failed keeps its card", () => {
       expect(launched([task({ toolUseId: "a" }), task({ toolUseId: "b" }), task({ toolUseId: "c" })])).toEqual([3]);
-      expect(kinds([task({ toolUseId: "a" }), task({ toolUseId: "b", isError: true, content: "no" }), task({ toolUseId: "c" })])).toEqual(["subagents", "single", "subagents"]);
+      expect(folded([task({ toolUseId: "a" }), task({ toolUseId: "b", isError: true, content: "no" }), task({ toolUseId: "c" })]).map((i) => i.kind)).toEqual(["subagents", "single", "subagents"]);
     });
 
     it("starts a new notice after something else, and gives it the id of its first task", () => {
       const first = task({ toolUseId: "a" });
-      const items = buildTimeline([first, task({ toolUseId: "b" }), text("t1", "between"), task({ toolUseId: "c" })]);
+      const items = folded([first, task({ toolUseId: "b" }), text("t1", "between"), task({ toolUseId: "c" })]);
       expect(items.map((i) => (i.kind === "subagents" ? i.count : i.kind))).toEqual([2, "single", 1]);
       expect(items[0]).toMatchObject({ kind: "subagents", id: first.id });
     });
 
     it("is drawn when the turn was stopped before any subagent was reported, not when one was", () => {
-      expect(kinds([task({ toolUseId: "a", aborted: true, isError: true })])).toEqual(["subagents"]);
+      expect(folded([task({ toolUseId: "a", aborted: true, isError: true })]).map((i) => i.kind)).toEqual(["subagents"]);
       expect(kinds([task({ toolUseId: "a", aborted: true, isError: true })], ["a"])).toEqual([]);
     });
 

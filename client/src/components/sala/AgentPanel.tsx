@@ -63,7 +63,7 @@ export function AgentPanel(props: AgentPanelProps) {
     return (
       <RoomPaneFrame shell={props.shell} mark={<Tile runtime={agent.runtime} />} title={dict.sala.orchestrator} subtitle={subtitle} kind="principal" onClose={props.onClose}>
         <div className="sala-side-chat">
-          <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} />
+          <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} besideRoom />
         </div>
       </RoomPaneFrame>
     );
@@ -188,7 +188,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
        * calls and thinking, the turn as it streams and the question it asks.
        * Only the box under it is the room's own. */}
       <div className="sala-side-chat flush">
-        <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} renderComposer={(session) => <WorkerComposer session={session} text={text} />} />
+        <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} besideRoom renderComposer={(session) => <WorkerComposer session={session} text={text} />} />
       </div>
     </RoomPaneFrame>
   );

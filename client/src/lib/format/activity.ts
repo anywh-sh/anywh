@@ -181,9 +181,10 @@ function buildWork(sources: WorkSource[], end: TurnEnd): WorkItem {
  *
  * `spawned` is the `toolUseId`s the CLI reported a subagent for. A task that
  * isn't shown (`isTaskShown`) is left out — it neither joins nor splits a
- * block.
+ * block. With `foldLaunches`, the tasks that are shown and did not fail become
+ * a `SubagentsItem` instead of a card each.
  */
-export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> = new Set()): TimelineItem[] {
+export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> = new Set(), options: { foldLaunches?: boolean } = {}): TimelineItem[] {
   const ends = turnEnds(entries);
   const items: TimelineItem[] = [];
   let run: WorkSource[] = [];
@@ -214,7 +215,7 @@ export function buildTimeline(entries: LogEntry[], spawned: ReadonlySet<string> 
     settle();
     // A task that did not fail is a launch, not a report: neighbours join one
     // notice. One that failed keeps its card, whose message is the explanation.
-    if (isLaunch(entry)) {
+    if (options.foldLaunches && isLaunch(entry)) {
       const last = items[items.length - 1];
       if (last?.kind === "subagents") items[items.length - 1] = { ...last, count: last.count + 1 };
       else items.push({ kind: "subagents", id: entry.id, count: 1 });

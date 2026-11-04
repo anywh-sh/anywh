@@ -26,6 +26,8 @@ interface MessageLogProps {
    * call with one is drawn by the subagent's own card, not here (see
    * `buildTimeline`). Stable between subagent progress updates. */
   spawnedSubagentIds: ReadonlySet<string>;
+  /** Delegated tasks in a row are one "launched" notice (see `buildTimeline`). */
+  foldSubagents: boolean;
   /** Whether there are turns older than what's already loaded —
    * controls whether scrolling near the top still triggers a fetch. */
   hasMoreHistory: boolean;
@@ -222,6 +224,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   streamingEntries,
   attributionByToolUseId,
   spawnedSubagentIds,
+  foldSubagents,
   hasMoreHistory,
   loadingOlderHistory,
   onLoadOlderHistory,
@@ -251,7 +254,7 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   // committed (see reducer in useMessageLog) — memoizing here avoids
   // regrouping on every streaming token, when only `streamingEntries`
   // changes.
-  const items = useMemo(() => buildTimeline(entries, spawnedSubagentIds), [entries, spawnedSubagentIds]);
+  const items = useMemo(() => buildTimeline(entries, spawnedSubagentIds, { foldLaunches: foldSubagents }), [entries, spawnedSubagentIds, foldSubagents]);
 
   const hasTrailing = trailing !== undefined && trailing !== null && trailing !== false;
   const allItems = useMemo<RenderItem[]>(
