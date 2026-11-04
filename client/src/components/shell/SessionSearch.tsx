@@ -62,6 +62,11 @@ export function SessionSearch({ open, onOpenChange, activeProfileId, onSelectSes
         <DialogPrimitive.Content
           data-slot="session-search"
           aria-describedby={undefined}
+          // Radix listens for Esc ahead of the input's own handler, so a typed
+          // query is protected here: the input then clears it (see `onKeyDown`).
+          onEscapeKeyDown={(event) => {
+            if (event.target instanceof HTMLInputElement && event.target.value !== "") event.preventDefault();
+          }}
           className="fixed top-[72px] left-1/2 z-50 w-[540px] max-w-[calc(100%-2rem)] -translate-x-1/2 border border-border bg-bg-sidebar shadow-popover outline-none"
         >
           <DialogPrimitive.Title className="sr-only">{dict.shell.search.title}</DialogPrimitive.Title>
@@ -146,10 +151,10 @@ function SearchPalette({
         break;
       }
       case "Escape":
-        // Esc backs out of a query first and only then out of the palette.
+        // Esc backs out of a query first and only then out of the palette
+        // (`onEscapeKeyDown` above keeps Radix from closing it meanwhile).
         if (query !== "") {
           event.preventDefault();
-          event.stopPropagation();
           setQuery("");
           setActive(0);
         }
