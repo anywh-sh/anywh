@@ -1,4 +1,5 @@
 import { runQuickPrompt } from "./quickPrompt.js";
+import { cutTitle } from "../../session/titleCap.js";
 import type { AgentRuntimeDef } from "../types.js";
 
 const SYSTEM_PROMPT =
@@ -39,9 +40,7 @@ export function fallbackTitle(prompt: string): string | null {
   const trimmed = firstLine.replace(/\s+/g, " ").trim();
   if (trimmed.length === 0) return null;
   if (trimmed.length <= MAX_TITLE_CHARS) return trimmed;
-  const cut = trimmed.slice(0, MAX_TITLE_CHARS);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${(lastSpace > MAX_TITLE_CHARS / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+  return cutTitle(trimmed, MAX_TITLE_CHARS);
 }
 
 /**
