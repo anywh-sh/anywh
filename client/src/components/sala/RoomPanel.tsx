@@ -47,7 +47,7 @@ interface RoomPanelProps {
   onOpenSession: (sessionId: string, title: string | null) => void;
 }
 
-type PanelState = { kind: "about" } | { kind: "agent"; id: string } | null;
+type PanelState = { kind: "about" } | { kind: "agent"; id: string; subtask?: string } | null;
 
 /**
  * A room's tab: its live state (one channel), its layout (the relay's
@@ -259,7 +259,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           onCheckWork={onCheckWork}
           onAttachFiles={onAttachFiles}
           onOpenAgent={(agentId) => setPanel({ kind: "agent", id: agentId })}
-          onOpenSubtask={(agentId) => setPanel({ kind: "agent", id: agentId })}
+          onOpenSubtask={(agentId, taskId) => setPanel({ kind: "agent", id: agentId, subtask: taskId })}
           onStopSubtask={onStopSubtask}
           onNewAgent={openLauncher}
           newAgentOpen={launcher.open}
@@ -309,6 +309,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
           modelLabel={modelLabelOf(panelAgent)}
           observedSince={channel.since.get(panelAgent.agentId)?.since ?? 0}
           worktrees={worktrees.data.worktrees}
+          focusSubtask={panel?.kind === "agent" && panel.id === panelAgent.agentId ? panel.subtask : undefined}
           onClose={() => setPanel(null)}
           onOpenInTab={(agentId) => onOpenSession(agentId, channel.agents.find((a) => a.agentId === agentId)?.title ?? null)}
           onDelegate={(agentId) => openLauncher(agentId)}

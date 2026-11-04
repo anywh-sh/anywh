@@ -2111,3 +2111,9 @@
 .sala-edge.sub {
   stroke-dasharray: 4 4;
 }
+
+/* The row of the subtask opened from the canvas. */
+.sala-side-row.focus {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
