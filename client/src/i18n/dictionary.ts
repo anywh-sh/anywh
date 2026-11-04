@@ -1452,9 +1452,6 @@ export interface Dictionary {
       untitled: string;
       /** `{title}`, `{status}`, `{parent}`. */
       aria: string;
-      /** `{title}`. */
-      stopAria: string;
-      stop: string;
       /** `{count}` tokens, short. */
       tokens: string;
       /** The pending approval of its parent came from it. */
@@ -1613,7 +1610,6 @@ export interface Dictionary {
         worktree: string;
         connectors: string;
         subtasks: string;
-        subtaskStop: string;
         activity: string;
         failedTitle: string;
         failedBody: string;

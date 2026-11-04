@@ -40,9 +40,8 @@ export interface SalaCardProps {
   delegating?: boolean;
   /** The subtask of this agent drawn as selected, if any. */
   subSelected?: string | null;
-  /** Its subtasks' mini-cards: a click, opening one (`undefined`: the "+N" card), stopping one. */
+  /** Its subtasks' mini-cards: a click, stopping one. */
   onSelectSub: (agentId: string, taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
-  onOpenSub: (agentId: string, taskId: string | undefined) => void;
   onStopSub: (agentId: string, taskId: string) => void;
   canGroup: boolean;
   canStop: boolean;
@@ -216,7 +215,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
                 parentTitle={title}
                 selected={subtask !== undefined && props.subSelected === subtask.taskId}
                 onSelect={(taskId, event) => props.onSelectSub(agent.agentId, taskId, event)}
-                onOpen={(taskId) => props.onOpenSub(agent.agentId, taskId)}
+                onOpen={() => props.onOpen(agent.agentId)}
                 onStop={(taskId) => props.onStopSub(agent.agentId, taskId)}
               />
             );

@@ -2017,6 +2017,9 @@
 .sala-sub.stop .sala-node-card {
   --rule: color-mix(in srgb, var(--text-faint) 45%, var(--bg-chrome));
 }
+.sala-sub:hover .sala-node-card {
+  border-color: var(--sala-edge);
+}
 .sala-sub.sel .sala-node-card {
   box-shadow:
     0 0 0 1px var(--text-faint),
@@ -2063,29 +2066,6 @@
   position: relative;
   pointer-events: none;
 }
-.sala-sub-stop {
-  position: relative;
-  z-index: 1;
-  width: 14px;
-  height: 14px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-faint);
-  border: 1px solid var(--sala-term-line);
-  pointer-events: auto;
-  cursor: pointer;
-}
-.sala-sub-stop:hover {
-  color: var(--foreground);
-  border-color: var(--sala-edge);
-}
-.sala-sub-stop i {
-  width: 6px;
-  height: 6px;
-  background: currentColor;
-}
 .sala-sub-meta {
   display: flex;
   justify-content: space-between;
@@ -2112,8 +2092,15 @@
   stroke-dasharray: 4 4;
 }
 
-/* The row of the subtask opened from the canvas. */
-.sala-side-row.focus {
-  background: color-mix(in srgb, var(--foreground) 6%, transparent);
-  box-shadow: inset 2px 0 0 var(--primary);
+/* A subtask's row in the panel: it takes the person to its mini-card. */
+.sala-side-row.sub {
+  width: 100%;
+  padding: 0 6px;
+  margin: 0 -6px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+.sala-side-row.sub:hover {
+  background: var(--surface-hover);
 }

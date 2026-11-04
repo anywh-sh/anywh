@@ -5,7 +5,7 @@ import { formatClock } from "@/lib/sala/agentCard";
 import { formatTokens } from "@/lib/sala/roomFigures";
 import type { RoomSubtaskView } from "@/lib/relay/roomClient";
 import { subtaskTone } from "@/lib/sala/subtasks";
-import { CheckIcon, CloseIcon, QuestionIcon } from "@/components/sala/SalaIcons";
+import { CheckIcon, CloseIcon, ConversationGlyph, QuestionIcon } from "@/components/sala/SalaIcons";
 import { useSecondTick } from "@/components/sala/useSecondTick";
 
 export interface SalaSubtaskCardProps {
@@ -20,7 +20,8 @@ export interface SalaSubtaskCardProps {
   parentTitle: string;
   selected: boolean;
   onSelect: (taskId: string, event: ReactMouseEvent<HTMLElement>) => void;
-  onOpen: (taskId: string | undefined) => void;
+  /** The parent's conversation: what "Open" does, and what the "+N" card does. */
+  onOpen: () => void;
   onStop: (taskId: string) => void;
 }
 
@@ -35,19 +36,21 @@ function Elapsed({ since }: { since: number }) {
  * its own: the state, what it was asked, what it does now (or how it ended),
  * its tokens and its time. It is not an agent: no runtime, no model, no way
  * to talk to it. It sits inside its parent's node, so pressing and dragging
- * it moves the parent, and its stop button is the one thing it does itself.
+ * it moves the parent. Selected, it offers what a card offers, as far as it
+ * applies: open the parent's conversation, and stop it while it runs.
  */
 export const SalaSubtaskCard = memo(function SalaSubtaskCard(props: SalaSubtaskCardProps) {
   const { subtask, x, y, w, h } = props;
   const dict = useDict().sala;
   const text = dict.subtask;
+  const actions = dict.card.actions;
   const style = { left: x, top: y, width: w, height: h };
 
   if (!subtask) {
     return (
       <div className="sala-sub more" style={style}>
         <div className="sala-node-card">
-          <button type="button" className="sala-sub-hit" aria-label={text.moreAria.replace("{count}", String(props.hidden ?? 0))} onClick={() => props.onOpen(undefined)} />
+          <button type="button" className="sala-sub-hit" aria-label={text.moreAria.replace("{count}", String(props.hidden ?? 0))} onClick={props.onOpen} />
           <span className="sala-sub-more">{text.more.replace("{count}", String(props.hidden ?? 0))}</span>
         </div>
       </div>
@@ -68,10 +71,6 @@ export const SalaSubtaskCard = memo(function SalaSubtaskCard(props: SalaSubtaskC
           className="sala-sub-hit"
           aria-label={text.aria.replace("{title}", title).replace("{status}", dict.card.status[statusKey]).replace("{parent}", props.parentTitle)}
           onClick={(event) => props.onSelect(subtask.taskId, event)}
-          onDoubleClick={() => props.onOpen(subtask.taskId)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") props.onOpen(subtask.taskId);
-          }}
         />
         <div className="sala-node-head">
           <span className="sala-state" title={dict.card.status[statusKey]}>
@@ -84,11 +83,6 @@ export const SalaSubtaskCard = memo(function SalaSubtaskCard(props: SalaSubtaskC
           <span className="sala-title" title={title}>
             {title}
           </span>
-          {running && (
-            <button type="button" className="sala-sub-stop" data-nodrag aria-label={text.stopAria.replace("{title}", title)} title={text.stop} onClick={() => props.onStop(subtask.taskId)}>
-              <i aria-hidden="true" />
-            </button>
-          )}
         </div>
         <div className="sala-node-body">
           <div className={cn("sala-line", running && "now")}>
@@ -106,6 +100,20 @@ export const SalaSubtaskCard = memo(function SalaSubtaskCard(props: SalaSubtaskC
         </div>
       </div>
       <span className="sala-port top" aria-hidden="true" />
+      {props.selected && (
+        <div className="sala-bar" data-nodrag role="toolbar" aria-label={actions.label}>
+          <button type="button" onClick={props.onOpen}>
+            <ConversationGlyph size={13} />
+            <span>{actions.open}</span>
+          </button>
+          {running && (
+            <button type="button" onClick={() => props.onStop(subtask.taskId)}>
+              <span aria-hidden="true" style={{ width: 8, height: 8, background: "currentColor" }} />
+              <span>{actions.stop}</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 });

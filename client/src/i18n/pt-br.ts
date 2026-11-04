@@ -1006,8 +1006,6 @@ export const ptBr: Dictionary = {
     subtask: {
       untitled: "Subtarefa",
       aria: "Subtarefa {title}, {status}, de {parent}",
-      stopAria: "Parar a subtarefa {title}",
-      stop: "Parar",
       tokens: "{count} tok",
       needsYou: "Sua vez",
       waiting: "esperando",
@@ -1136,7 +1134,6 @@ export const ptBr: Dictionary = {
         worktree: "Worktree {branch}",
         connectors: "Conectores",
         subtasks: "Subtarefas",
-        subtaskStop: "Parar",
         activity: "Atividade",
         failedTitle: "Este agente falhou",
         failedBody: "O turno terminou com erro. Mande uma mensagem para tentar de novo, ou remova.",

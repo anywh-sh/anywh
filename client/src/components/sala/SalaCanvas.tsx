@@ -63,9 +63,6 @@ export interface SalaCanvasProps {
   onAttachFiles: (files: File[]) => Promise<boolean>;
   /** "Open conversation" on a card: the room's side panel shows that agent. */
   onOpenAgent: (agentId: string) => void;
-  /** A mini-card opened (its parent's panel shows that subtask); `undefined`
-   * for the "+N" one, which opens the panel alone. */
-  onOpenSubtask: (agentId: string, taskId: string | undefined) => void;
   /** The stop button of a mini-card. */
   onStopSubtask: (agentId: string, taskId: string) => void;
   /** "Delegate" on a card, or the toolbar's new agent (`undefined`): the launcher opens. */
@@ -89,6 +86,8 @@ export interface SalaCanvasProps {
 
 export interface SalaCanvasHandle {
   removeAgent: (agentId: string) => void;
+  /** Selects a subtask's mini-card, its bar open, and brings it into view. */
+  selectSubtask: (agentId: string, taskId: string) => void;
 }
 
 interface Toast {
@@ -170,7 +169,6 @@ export function SalaCanvas(props: SalaCanvasProps) {
   /** A mini-card picked under the selected agent: it counts only while that agent stays selected. */
   const [pickedSub, setPickedSub] = useState<{ parentId: string; taskId: string } | null>(null);
   const selectedSub = pickedSub !== null && pickedSub.parentId === selected ? pickedSub.taskId : null;
-  const onSelectSub = useCallback((agentId: string, taskId: string): void => setPickedSub({ parentId: agentId, taskId }), []);
   /** Several agents selected at once (never one, never the principal). */
   const [many, setMany] = useState<string[]>([]);
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
@@ -891,11 +889,20 @@ export function SalaCanvas(props: SalaCanvasProps) {
 
   // ─── actions ───
   const select = useCallback((id: string) => {
+    setPickedSub(null);
     setSelected(id);
     setMany([]);
     setSelectedArea(null);
     setAnswering(null);
   }, []);
+  /** A click on a mini-card: it is selected, and its parent with it. */
+  const onSelectSub = useCallback(
+    (agentId: string, taskId: string): void => {
+      select(agentId);
+      setPickedSub({ parentId: agentId, taskId });
+    },
+    [select],
+  );
   /** A click on a card (or Enter on it). The principal's opens its
    * conversation straight away: it is never selected and has no bar, and
    * so never joins a selection of several either. A modified click on a
@@ -917,6 +924,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
     // Read from the ref, not this render: two clicks can land before React
     // renders again, and the second must see what the first selected.
     const next = toggleInSelection(selection.current.many, selection.current.single, id);
+    setPickedSub(null);
     selection.current = next;
     setMany(next.many);
     setSelected(next.single);
@@ -1078,7 +1086,24 @@ export function SalaCanvas(props: SalaCanvasProps) {
     removeAgents(confirm.plan, confirm.work !== "unknown" && confirm.work.length > 0);
   };
 
-  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne }), [askRemoveOne]);
+  const selectSubtask = useCallback(
+    (agentId: string, taskId: string): void => {
+      select(agentId);
+      const agent = latest.current.agents.find((a) => a.agentId === agentId);
+      const card = cardRects(latest.current.agents, latest.current.canvas.positions).get(agentId);
+      if (!agent || !card) return;
+      const { shown } = visibleSubtasks(agent);
+      const at = shown.findIndex((task) => task.taskId === taskId);
+      // One the canvas does not draw (finished with its parent, or folded into "+N") is the parent selected.
+      const mini = at < 0 ? undefined : subtaskRects(card, subtaskTiles(agent))[at];
+      if (at >= 0) setPickedSub({ parentId: agentId, taskId });
+      follow.current = false;
+      const next = revealCamera(cam().effective, mini ?? card, vpSize.current);
+      if (next !== cam().effective) cam().animate(next, 440);
+    },
+    [select],
+  );
+  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne, selectSubtask }), [askRemoveOne, selectSubtask]);
 
   const confirmView = ((): SalaConfirmView | null => {
     if (!confirm) return null;
@@ -1444,7 +1469,7 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 w={rect.w}
                 h={rect.h}
                 selected={selected === agent.agentId || manyNow.includes(agent.agentId)}
-                bar={selected === agent.agentId}
+                bar={selected === agent.agentId && selectedSub === null}
                 hasParent={agent.parentId !== undefined && byId.has(agent.parentId)}
                 hasKids={(kids.get(agent.agentId) ?? 0) > 0}
                 boot={arrivals.get(agent.agentId)}
@@ -1456,7 +1481,6 @@ export function SalaCanvas(props: SalaCanvasProps) {
                 observedSince={props.since.get(agent.agentId)?.since ?? 0}
                 subSelected={selected === agent.agentId ? selectedSub : null}
                 onSelectSub={onSelectSub}
-                onOpenSub={props.onOpenSubtask}
                 onStopSub={props.onStopSubtask}
                 canGroup={agent.role === "worker"}
                 canStop={agent.role === "worker" && agent.state !== "stopped" && agent.state !== "done"}

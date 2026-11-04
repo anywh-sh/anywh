@@ -39,6 +39,13 @@ async function say(port, roomId, text) {
   if (!sent) throw new Error("could not reach the room's principal");
 }
 
+/** A plain click: this driver delivers no pointerdown, which the mini-card's drag would take. */
+const press = async (selector) => {
+  const element = await $(selector);
+  await element.waitForClickable({ timeout: 15000 });
+  await element.click();
+};
+
 const minis = () => $$(".sala-sub[data-subtask-id]");
 const miniClass = (taskId) => browser.execute((id) => document.querySelector(`[data-subtask-id="${id}"]`)?.className ?? "", taskId);
 
@@ -121,13 +128,18 @@ describe("anywh room canvas — subtasks", () => {
     await shot("subtask-minicards-dark");
   });
 
-  it("stops one subtask from its button and leaves the others, and the worker, going", async () => {
+  it("selects a mini-card with a click and stops that subtask from its bar, leaving the others and the worker going", async () => {
     const running = await browser.execute(() => [...document.querySelectorAll(".sala-sub.run[data-subtask-id]")].map((el) => el.getAttribute("data-subtask-id")));
     expect(running).toHaveLength(2);
     const [target, other] = running;
-    const stop = await $(`[data-subtask-id="${target}"] .sala-sub-stop`);
-    await stop.waitForClickable({ timeout: 15000 });
-    await stop.click();
+    await press(`[data-subtask-id="${target}"] .sala-sub-hit`);
+    const bar = await $(`[data-subtask-id="${target}"] .sala-bar`);
+    await bar.waitForExist({ timeout: 15000, timeoutMsg: "the mini-card's bar never opened" });
+    // The same bar a card has, with only what applies: no way to delegate or remove a subtask.
+    await expect(bar).toHaveText(expect.stringContaining("Open conversation"));
+    await expect(bar).not.toHaveText(expect.stringContaining("Delegate"));
+    await shot("subtask-minicards-selected");
+    await press(`//*[@data-subtask-id="${target}"]//*[contains(@class, "sala-bar")]//button[contains(., "Stop")]`);
     await browser.waitUntil(async () => (await miniClass(target)).includes("stop"), { timeout: 20000, timeoutMsg: "the stopped subtask never showed as stopped" });
     expect(await miniClass(other)).toContain("run");
     expect(await browser.execute((id) => document.querySelector(`[data-agent-id="${id}"]`)?.getAttribute("data-state"), workerId)).toBe("working");
@@ -136,14 +148,22 @@ describe("anywh room canvas — subtasks", () => {
     await shot("subtask-minicards-stopped");
   });
 
-  it("opens the parent's panel with the subtask's row marked from a double click on its mini-card", async () => {
+  it("lists the subtasks in the parent's panel without a way to stop them, and a row selects its mini-card with its bar open", async () => {
     const taskId = await browser.execute(() => document.querySelector(".sala-sub.run[data-subtask-id]").getAttribute("data-subtask-id"));
-    // This driver delivers a click only: the double click is dispatched as the event a real one makes.
-    await browser.execute((id) => document.querySelector(`[data-subtask-id="${id}"] .sala-sub-hit`).dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })), taskId);
+    // The panel opens from the bar of a mini-card, which opens its parent's conversation.
+    await press(`[data-subtask-id="${taskId}"] .sala-sub-hit`);
+    await press(`//*[@data-subtask-id="${taskId}"]//*[contains(@class, "sala-bar")]//button[contains(., "Open conversation")]`);
     const row = await $(`[data-subtask-row="${taskId}"]`);
     await row.waitForExist({ timeout: 15000, timeoutMsg: "the parent's panel never listed the subtask" });
-    expect(await row.getAttribute("class")).toContain("focus");
     await browser.waitUntil(() => browser.execute(() => (document.querySelector("aside.sala-side")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000 });
+    // No stop in the rows: that is the mini-card's bar.
+    expect(await browser.execute(() => [...document.querySelectorAll("[data-subtask-row]")].some((el) => /Stop/.test(el.textContent ?? "") || el.querySelector("button") !== null))).toBe(false);
+    // Pick another row than the selected mini-card: the canvas moves its selection.
+    const done = await browser.execute(() => document.querySelector(".sala-sub.done[data-subtask-id]").getAttribute("data-subtask-id"));
+    await press(`[data-subtask-row="${done}"]`);
+    await $(`[data-subtask-id="${done}"] .sala-bar`).waitForExist({ timeout: 15000, timeoutMsg: "the row did not open the mini-card's bar" });
+    expect(await miniClass(done)).toContain("sel");
+    expect(await miniClass(taskId)).not.toContain("sel");
     await shot("subtask-minicards-panel");
   });
 

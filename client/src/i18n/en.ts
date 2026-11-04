@@ -1006,8 +1006,6 @@ export const en: Dictionary = {
     subtask: {
       untitled: "Subtask",
       aria: "Subtask {title}, {status}, of {parent}",
-      stopAria: "Stop subtask {title}",
-      stop: "Stop",
       tokens: "{count} tok",
       needsYou: "Your turn",
       waiting: "waiting",
@@ -1136,7 +1134,6 @@ export const en: Dictionary = {
         worktree: "Worktree {branch}",
         connectors: "Connectors",
         subtasks: "Subtasks",
-        subtaskStop: "Stop",
         activity: "Activity",
         failedTitle: "This agent failed",
         failedBody: "Its turn ended with an error. Message it to try again, or remove it.",

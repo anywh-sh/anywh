@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { SalaCanvas, type SalaCanvasProps } from "@/components/sala/SalaCanvas";
+import { createRef } from "react";
+import { SalaCanvas, type SalaCanvasHandle, type SalaCanvasProps } from "@/components/sala/SalaCanvas";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { RoomAgent, RoomCanvas, RoomSubtaskView, RoomWorktree } from "@/lib/relay/roomClient";
 
@@ -38,7 +39,6 @@ function mount(canvas: RoomCanvas, props: Partial<SalaCanvasProps> = {}) {
         onCanvasChange={onCanvasChange}
         onCameraSettled={onCameraSettled}
         onOpenAgent={vi.fn()}
-        onOpenSubtask={vi.fn()}
         onStopSubtask={vi.fn()}
         onNewAgent={vi.fn()}
         newAgentOpen={false}
@@ -826,29 +826,59 @@ describe("SalaCanvas — a worker's subtasks", () => {
     expect(edge.getAttribute("d")).toBe(before);
   });
 
-  it("stops one subtask from its button without picking up the parent", () => {
+  const hitOf = (id: string): HTMLElement => within(mini(id)).getByRole("button", { name: new RegExp(`Subtask Task ${id}`) });
+
+  it("selects a mini-card on a click and offers its bar, in place of its parent's", () => {
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1"), subtask("s2")]) });
+    expect(within(mini("s1")).queryByRole("toolbar")).toBeNull();
+    fireEvent.click(hitOf("s1"));
+    expect(within(mini("s1")).getByRole("toolbar")).toBeInTheDocument();
+    expect(within(mini("s2")).queryByRole("toolbar")).toBeNull();
+    expect(mini("s1").className).toContain("sel");
+    // Only the mini-card's bar: the parent's would be a second one on the same card.
+    expect(screen.getAllByRole("toolbar", { name: "Agent actions" })).toHaveLength(1);
+  });
+
+  it("stops one subtask from its bar, leaving the others and the parent as they were", () => {
     const onStopSubtask = vi.fn();
     mount(canvasOf(), { agents: withSubtasks([subtask("s1"), subtask("s2")]), onStopSubtask });
-    const stop = within(mini("s2")).getByRole("button", { name: /Stop subtask Task s2/ });
-    pointer("pointerDown", stop, 100, 400);
-    fireEvent.click(stop);
+    fireEvent.click(hitOf("s2"));
+    fireEvent.click(within(mini("s2")).getByRole("button", { name: "Stop" }));
     expect(onStopSubtask).toHaveBeenCalledWith("a", "s2");
-    expect(card("a")).not.toHaveAttribute("data-drag");
+    expect(onStopSubtask).toHaveBeenCalledTimes(1);
   });
 
-  it("offers no stop on a finished one", () => {
+  it("has no stop button on the mini-card itself, nor in the bar of a finished one", () => {
     mount(canvasOf(), { agents: withSubtasks([subtask("s1"), subtask("s2", { status: "completed", endedAt: 2_000 })]) });
-    expect(within(mini("s2")).queryByRole("button", { name: /Stop subtask/ })).toBeNull();
+    expect(within(mini("s1")).queryByRole("button", { name: /Stop/ })).toBeNull();
+    fireEvent.click(hitOf("s2"));
+    expect(within(mini("s2")).queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(within(mini("s2")).getByRole("button", { name: "Open conversation" })).toBeInTheDocument();
   });
 
-  it("opens the parent's panel from a double click on a mini-card, and from Enter", () => {
-    const onOpenSubtask = vi.fn();
-    mount(canvasOf(), { agents: withSubtasks([subtask("s1")]), onOpenSubtask });
-    const hit = within(mini("s1")).getByRole("button", { name: /Subtask Task s1/ });
-    fireEvent.doubleClick(hit);
-    expect(onOpenSubtask).toHaveBeenLastCalledWith("a", "s1");
-    fireEvent.keyDown(hit, { key: "Enter" });
-    expect(onOpenSubtask).toHaveBeenCalledTimes(2);
+  it("opens the parent's conversation from the bar", () => {
+    const onOpenAgent = vi.fn();
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1")]), onOpenAgent });
+    fireEvent.click(hitOf("s1"));
+    fireEvent.click(within(mini("s1")).getByRole("button", { name: "Open conversation" }));
+    expect(onOpenAgent).toHaveBeenCalledWith("a");
+  });
+
+  it("lets go of the mini-card when its parent is clicked", () => {
+    const { viewport } = mount(canvasOf(), { agents: withSubtasks([subtask("s1")]) });
+    fireEvent.click(hitOf("s1"));
+    pointer("pointerDown", card("a").querySelector(".sala-node-body")!, 100, 340);
+    pointer("pointerUp", viewport, 100, 340);
+    expect(within(mini("s1")).queryByRole("toolbar")).toBeNull();
+    expect(mini("s1").className).not.toContain("sel");
+  });
+
+  it("selects a mini-card from outside, as the panel's rows do, its bar open", () => {
+    const handle = createRef<SalaCanvasHandle>();
+    mount(canvasOf(), { agents: withSubtasks([subtask("s1"), subtask("s2")]), handleRef: handle });
+    act(() => handle.current!.selectSubtask("a", "s2"));
+    expect(within(mini("s2")).getByRole("toolbar")).toBeInTheDocument();
+    expect(card("a").className).toContain("sel");
   });
 
   it("marks a subtask whose approval is the parent's to answer", () => {
@@ -858,12 +888,12 @@ describe("SalaCanvas — a worker's subtasks", () => {
   });
 
   it("folds what does not fit into a +N card that opens the agent", () => {
-    const onOpenSubtask = vi.fn();
-    mount(canvasOf(), { agents: withSubtasks(Array.from({ length: 8 }, (_, i) => subtask(`s${String(i)}`, { startedAt: 1_000 + i }))), onOpenSubtask });
+    const onOpenAgent = vi.fn();
+    mount(canvasOf(), { agents: withSubtasks(Array.from({ length: 8 }, (_, i) => subtask(`s${String(i)}`, { startedAt: 1_000 + i }))), onOpenAgent });
     expect(document.querySelectorAll(".sala-sub")).toHaveLength(6);
     const more = document.querySelector<HTMLElement>(".sala-sub.more")!;
     expect(more).toHaveTextContent("+3");
     fireEvent.click(within(more).getByRole("button"));
-    expect(onOpenSubtask).toHaveBeenCalledWith("a", undefined);
+    expect(onOpenAgent).toHaveBeenCalledWith("a");
   });
 });

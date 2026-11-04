@@ -13,7 +13,7 @@ import { subtasksKey, useAgentSubtasks } from "@/hooks/sala/useAgentSubtasks";
 import { useVoiceRecording } from "@/hooks/media/useVoiceRecording";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
-import { stopAgentSubtask, type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
+import { type RoomAgent, type RoomWorktree } from "@/lib/relay/roomClient";
 import { cardClock, cardStatus } from "@/lib/sala/agentCard";
 import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { agentWork, formatBytes, formatTokens, windowPercent, type AgentWork } from "@/lib/sala/roomFigures";
@@ -29,8 +29,8 @@ interface AgentPanelProps {
   modelLabel: string;
   observedSince: number;
   worktrees: readonly RoomWorktree[];
-  /** A subtask opened from its mini-card on the canvas: its row is marked and brought into view. */
-  focusSubtask?: string;
+  /** A subtask's row picked: the canvas selects its mini-card. */
+  onSelectSubtask: (taskId: string) => void;
   onClose: () => void;
   onOpenInTab: (agentId: string) => void;
   onDelegate: (agentId: string) => void;
@@ -70,17 +70,12 @@ export function AgentPanel(props: AgentPanelProps) {
   return <WorkerPanel key={agent.agentId} {...props} title={agent.title ?? dict.sala.card.untitled} subtitle={subtitle} />;
 }
 
-/** Brings the row of the subtask the person opened into view, once it is drawn. */
-function scrollIntoView(row: HTMLElement | null): void {
-  row?.scrollIntoView?.({ block: "nearest" });
-}
-
-function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, focusSubtask, title, subtitle, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
+function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, onSelectSubtask, title, subtitle, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
   const dict = useDict();
   const text = dict.sala.panel.agent;
   const status = cardStatus(agent, 0);
   const clock = cardClock(agent, observedSince, 0);
-  const { subtasks, reload } = useAgentSubtasks(profile, roomId, agent.agentId, subtasksKey(agent));
+  const { subtasks } = useAgentSubtasks(profile, roomId, agent.agentId, subtasksKey(agent));
   const work = agentWork(worktrees, agent.agentId);
   const canStop = agent.state !== "stopped" && agent.state !== "done";
   const stopped = agent.state === "stopped";
@@ -170,23 +165,12 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
             <section className="sala-side-sec">
               <h3 className="sala-side-h">{text.subtasks}</h3>
               {subtasks.map((task) => (
-                <div key={task.taskId} className={cn("sala-side-row", task.taskId === focusSubtask && "focus")} data-subtask-row={task.taskId} ref={task.taskId === focusSubtask ? scrollIntoView : undefined}>
+                <button key={task.taskId} type="button" className="sala-side-row sub" data-subtask-row={task.taskId} onClick={() => onSelectSubtask(task.taskId)}>
                   <span className={cn("sala-sub-dot", task.status)} aria-hidden="true" />
                   <span className="grow trunc" title={task.activity ?? task.summary}>
                     {task.description ?? task.subagentType ?? task.taskId}
                   </span>
-                  {task.status === "running" && (
-                    <button
-                      type="button"
-                      className="sala-mini"
-                      onClick={() => {
-                        stopAgentSubtask(profile, roomId, agent.agentId, task.taskId).then(reload, (error: unknown) => console.error("[anywh] failed to stop a subtask", error));
-                      }}
-                    >
-                      {text.subtaskStop}
-                    </button>
-                  )}
-                </div>
+                </button>
               ))}
             </section>
           )}
