@@ -107,14 +107,14 @@ describe("a room's panes in the session dock", () => {
     await vi.waitFor(() => expect(panelKinds()).toEqual(["terminal"]));
   }, 20_000);
 
-  it("closes the view on Esc", async () => {
+  it("falls back to the empty state on Esc", async () => {
     const user = await openRoom();
     await openOrchestrator(user);
     await user.click(await aboutButton());
     await vi.waitFor(() => expect(panelKinds()).toEqual(["about"]));
     await user.keyboard("{Escape}");
-    // Closed: the strip offers only the panel's own toggle again.
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument());
+    // The panel stays open, on its no-selection view.
+    await vi.waitFor(() => expect(panelKinds()).toEqual(["none"]));
   }, 20_000);
 
   it("brings the panes back when the side panel is hidden and shown again", async () => {
