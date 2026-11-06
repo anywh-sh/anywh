@@ -1,4 +1,4 @@
-import { AnywhLogo } from "@/components/shell/AnywhLogo";
+import { AnywhMarkSilhouette } from "@/components/shell/AnywhLogo";
 import { useDict } from "@/i18n";
 
 /** The dot grid behind it, drawn from the same `--canvas-grid` token as the
@@ -12,17 +12,18 @@ const GRID_STYLE = {
 
 /**
  * What the side panel draws when it is open but nothing was picked in it: the
- * mark over a dot grid, and a prompt to choose a view from the rail. It is the
+ * mark's shape, quiet, over a dot grid on the chrome's colour (the status
+ * bar's and the sidebar's), and a prompt to choose a view from the rail. It is the
  * dock's "no selection" pane (`none`), so a view added to the panel later is
  * chosen from here without the panel having to guess a default.
  */
 export function DockEmptyState() {
   const dict = useDict();
   return (
-    <div data-testid="dock-empty-state" className="relative flex h-full w-full items-center justify-center bg-background p-6">
+    <div data-testid="dock-empty-state" className="relative flex h-full w-full items-center justify-center bg-bg-chrome p-6">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={GRID_STYLE} />
       <div className="relative flex flex-col items-center gap-4 text-center">
-        <AnywhLogo className="size-14" />
+        <AnywhMarkSilhouette className="size-14 text-border" />
         <p className="text-sm text-muted-foreground">{dict.panels.noSelection}</p>
       </div>
     </div>

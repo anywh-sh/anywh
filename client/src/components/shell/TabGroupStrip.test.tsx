@@ -23,7 +23,7 @@ function tab(overrides: Partial<Tab> = {}): Tab {
   };
 }
 
-function renderStrip(tabs: Tab[], activeTabId: string | null, onNewTab = vi.fn()) {
+function renderStrip(tabs: Tab[], activeTabId: string | null, onNewTab = vi.fn(), rightPanel?: { shown: boolean; onToggle: () => void }) {
   return render(
     <TooltipProvider>
       <DndContext>
@@ -38,6 +38,7 @@ function renderStrip(tabs: Tab[], activeTabId: string | null, onNewTab = vi.fn()
           onDelete={vi.fn()}
           onSplitToNewGroup={vi.fn()}
           onNewTab={onNewTab}
+          rightPanel={rightPanel}
         />
       </DndContext>
     </TooltipProvider>,
@@ -193,6 +194,25 @@ describe("TabGroupStrip", () => {
     ).toBeInTheDocument();
   });
 
+  // The actual files/terminal toggle buttons are portaled in here by a tab's
+  // own `ChatPanel` (see panelTogglesSlot.ts and ChatPanel.tsx) — `cwd`,
+  // which gates them, lives only on that tab's socket and is deliberately
+  // not passed down as a prop. What this component owns is publishing (and
+  // un-publishing) the slot itself, right before the `+`.
+  describe("panel toggles slot", () => {
+    it("publishes a node for this group id while mounted, right after the +", () => {
+      const { unmount } = renderStrip([tab()], "s1");
+
+      const slot = getPanelTogglesSlot("g1");
+      expect(slot).not.toBeNull();
+      const newTab = screen.getByRole("button", { name: en.chat.tabs.newTab });
+      expect(newTab.compareDocumentPosition(slot!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      unmount();
+      expect(getPanelTogglesSlot("g1")).toBeNull();
+    });
+  });
+
   it("hides the split context-menu item when allowSplit is false", async () => {
     const user = userEvent.setup();
     const a = tab({ id: "s1", title: "Primeira" });
@@ -223,13 +243,35 @@ describe("TabGroupStrip", () => {
   });
 });
 
-// The side panel's toggle and the buttons that open its panes live in the
-// panel's own rail (`SessionDock`), not in the strip.
-describe("TabGroupStrip — the side panel", () => {
-  it("has neither the panel's toggle nor a slot for its buttons", () => {
+describe("TabGroupStrip — the side panel toggle", () => {
+  it("has the toggle at the right end, with the slot for the panel's buttons before it", () => {
+    renderStrip([tab()], "s1", vi.fn(), { shown: true, onToggle: vi.fn() });
+    const toggle = screen.getByRole("button", { name: en.panels.hideRightPanel });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    const slot = getPanelTogglesSlot("g1");
+    expect(slot).not.toBeNull();
+    // Slot first, toggle after it: the toggle is the outermost control.
+    expect(slot?.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("calls back when pressed", async () => {
+    const onToggle = vi.fn();
+    renderStrip([tab()], "s1", vi.fn(), { shown: true, onToggle });
+    await userEvent.setup().click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  // Hiding the panel hides the buttons that open its panes: a tab's panel
+  // draws them into this slot, and finds none while the panel is hidden.
+  it("keeps only the toggle while the panel is not showing — no slot for the panes' buttons", () => {
+    renderStrip([tab()], "s1", vi.fn(), { shown: false, onToggle: vi.fn() });
+    expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toHaveAttribute("aria-pressed", "false");
+    expect(getPanelTogglesSlot("g1")).toBeNull();
+  });
+
+  it("draws no toggle where there is no side panel", () => {
     renderStrip([tab()], "s1");
     expect(screen.queryByRole("button", { name: en.panels.hideRightPanel })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: en.panels.showRightPanel })).not.toBeInTheDocument();
-    expect(getPanelTogglesSlot("g1")).toBeNull();
   });
 });

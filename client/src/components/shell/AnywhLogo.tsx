@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 /**
  * The mark: a filled accent square with a chevron and a bar cut out of it.
  *
@@ -22,6 +24,26 @@ export function AnywhLogo({ className }: { className?: string }) {
         strokeLinejoin="round"
       />
       <rect x="22.5" y="11.3" width="4.4" height="9.4" rx="2.2" fill="#fdf1e8" />
+    </svg>
+  );
+}
+
+/**
+ * The mark's shape alone, for a backdrop rather than for identity: one flat
+ * colour (`currentColor`) with the chevron and the bar cut out, so what is
+ * behind it shows through them. Where the mark stands for the brand, it is
+ * `AnywhLogo`, in its own colours.
+ */
+export function AnywhMarkSilhouette({ className }: { className?: string }) {
+  const maskId = useId();
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
+      <mask id={maskId}>
+        <rect width="32" height="32" fill="#fff" />
+        <path d="M10.6 8.7L18.2 16l-7.6 7.3" fill="none" stroke="#000" strokeWidth="4.2" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="22.5" y="11.3" width="4.4" height="9.4" rx="2.2" fill="#000" />
+      </mask>
+      <rect width="32" height="32" fill="currentColor" mask={`url(#${maskId})`} />
     </svg>
   );
 }

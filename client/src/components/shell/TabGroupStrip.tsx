@@ -12,9 +12,11 @@ import type { Tab } from "@/hooks/tabs/useTabs";
 import { useContextMenu } from "@/hooks/platform/useContextMenu";
 import { SessionDeleteMenu } from "@/components/shell/SessionDeleteMenu";
 import { RenameSessionDialog } from "@/components/shell/RenameSessionDialog";
+import { setPanelTogglesSlot } from "@/lib/panelTogglesSlot";
 import { profileColorClass } from "@/lib/profiles/profiles";
 import { RoomTabIndicator } from "@/components/sala/RoomTabIndicator";
 import { TabStripScrollbar } from "@/components/shell/TabStripScrollbar";
+import { RightPanelToggleButton } from "@/components/shell/RightPanelToggleButton";
 
 // A long enough session title (auto-inferred from the first prompt, or
 // hand-typed via rename) could otherwise stretch the tooltip arbitrarily
@@ -51,6 +53,11 @@ interface TabGroupStripProps {
    * `openTab` always appends to the focused group, so the caller has to
    * focus this one first (see `TabGroupLayout`). */
   onNewTab: () => void;
+  /** The side panel's toggle at the strip's right end. Absent where there is
+   * no side panel (compact and iOS), and then so is the button. `shown` is
+   * whether the panel is on screen — and so whether the buttons that open its
+   * panes are. */
+  rightPanel?: { shown: boolean; onToggle: () => void };
   /** Right padding that keeps the strip's own controls clear of something
    * pinned over its end (the window controls). */
   trailingInsetClass?: string;
@@ -267,6 +274,7 @@ export function TabGroupStrip({
   onDelete,
   onSplitToNewGroup,
   onNewTab,
+  rightPanel,
   trailingInsetClass,
   leadingInsetClass,
 }: TabGroupStripProps) {
@@ -380,6 +388,16 @@ export function TabGroupStrip({
           {/* Fills whatever the tabs and the `+` leave — the window's drag
               handle, and the group's "append at the end" drop zone. */}
           <div ref={setEndDropRef} data-tauri-drag-region className={cn("h-full min-w-2 flex-1", isOverEnd && "bg-border")} />
+          {/* Published so this group's own active tab's `ChatPanel` can portal
+           * the files/terminal toggle pair in here — see panelTogglesSlot.ts
+           * for why this is a portal target rather than props flowing down
+           * from a lifted `cwd`. `display: contents` keeps the portaled
+           * buttons themselves as the flex items in this row, not this span. */}
+          {/* Not mounted while the side panel is not showing: the active tab's
+           * panel finds no slot and draws none of its buttons, which is how
+           * closing the panel hides them too. */}
+          {(!rightPanel || rightPanel.shown) && <div ref={(node) => setPanelTogglesSlot(groupId, node)} className="contents" />}
+          {rightPanel && <RightPanelToggleButton shown={rightPanel.shown} onToggle={rightPanel.onToggle} />}
         </div>
       </SortableContext>
 

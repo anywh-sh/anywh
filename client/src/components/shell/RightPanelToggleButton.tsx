@@ -10,9 +10,10 @@ interface RightPanelToggleButtonProps {
 }
 
 /**
- * The top of the side panel's rail, the mirror of the title bar's sidebar
- * toggle: always there, with the buttons that open the panel's panes under
- * it. Hiding the panel leaves the rail; showing it brings back what was open.
+ * The strip's right-hand end, the mirror of the title bar's sidebar toggle:
+ * always there, and what it controls is everything to its left that belongs
+ * to the side panel — the panel itself and the buttons that open its panes.
+ * Hiding the panel hides all of them; showing it brings back what was open.
  * One glyph for both states, drawn brighter while the panel shows, like the
  * sidebar's, so it reads as one control rather than two trading places.
  */
@@ -36,7 +37,7 @@ export function RightPanelToggleButton({ shown, onToggle }: RightPanelToggleButt
           <PanelRight className="size-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="left">{label}</TooltipContent>
+      <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   );
 }
