@@ -142,7 +142,11 @@ const closePanes = async () => {
     await press(open);
     await browser.pause(150);
   }
-  // With nothing open the strip gives up the room's buttons (and the panel's
+  // Closing the last view leaves the panel on its empty state, still drawn:
+  // hide it, which is what hands the canvas its full width back.
+  const hide = 'button[aria-label="Hide side panel"]';
+  if (await $(hide).isExisting()) await press(hide);
+  // With the panel hidden the strip gives up the room's buttons (and the panel's
   // toggle says "Show"): wait for that, or the next test presses one on its way out.
   await browser.waitUntil(async () => !(await $('button[aria-label="About this room"]').isExisting()) && (await $('button[aria-label="Show side panel"]').isExisting()), {
     timeout: 5000,
@@ -670,6 +674,7 @@ describe("anywh room canvas", () => {
     await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
     // The last pane to close stays drawn while the dock fades out: the strip says it is closed.
     await browser.waitUntil(async () => !(await $('button[aria-label="Close agent conversation"]').isExisting()), { timeout: 5000, timeoutMsg: "the agent's pane did not close" });
+    await closePanes();
   });
 
   it("speaks Portuguese when the app does: the card states, the area counts and the toolbar", async () => {
@@ -856,6 +861,7 @@ describe("anywh room canvas", () => {
     await panelSettled();
     await shot("B-sala-concluida-sobre");
     await press('aside[data-panel="about"] button[aria-label="Close panel"]');
+    await closePanes();
 
     // The agent that made the worktree: its card does not carry the task (the title is generated).
     const spike = worktree.agentId;
@@ -869,6 +875,7 @@ describe("anywh room canvas", () => {
     expect(await mark.getText()).toContain(worktree.branch);
     expect(await mark.getAttribute("title")).toContain("not integrated");
     await press('aside[data-panel="agent"] button[aria-label="Close panel"]');
+    await closePanes();
 
     // Removing the agent that made it asks first, and the one question says
     // the work would be lost: no second dialog after the relay's answer.
