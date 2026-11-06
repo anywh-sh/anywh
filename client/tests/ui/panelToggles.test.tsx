@@ -130,3 +130,22 @@ describe("files/terminal toggles — cwd gate", () => {
     expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument();
   }, TEST_TIMEOUT);
 });
+
+describe("side panel — one state for every session", () => {
+  it("follows the person to another session, and closes on all of them", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await openConversationAndPanel(user);
+    await screen.findByText(en.panels.noSelection, undefined, SLOW);
+
+    // A second session that never opened the panel still shows it open.
+    await user.click(screen.getByRole("button", { name: en.shell.sidebar.newConversation }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.panels.hideRightPanel })).toBeInTheDocument(), SLOW);
+    expect(screen.getByText(en.panels.noSelection)).toBeInTheDocument();
+
+    // Closing it there closes it on the first one too.
+    await user.click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
+    await user.click(screen.getAllByRole("tab")[0]);
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument(), SLOW);
+  }, TEST_TIMEOUT);
+});

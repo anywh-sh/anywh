@@ -561,7 +561,7 @@ function AppShell() {
       tab={tab}
       groupId={groupId}
       profile={findProfile(tab.profileId) ?? getProfiles()[0]}
-      dock={sessionDock.getVisibleDock(tab.id, groupId)}
+      dock={sessionDock.getVisibleDock(tab.id, groupId, tab.room ? "agent" : "none")}
       // "This tab is the active one of its own group" — drives panel
       // visibility, dock mounting, MessageLog's scroll re-sync and the native
       // drag-drop guard. With a group split, up to one per group can be true
@@ -655,10 +655,10 @@ function AppShell() {
           renderPanel={renderPanel}
           belowStrip={notices}
           stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
-          rightPanelShown={sessionDock.isPanelShown}
-          onToggleRightPanel={(groupId, tabId) =>
+          rightPanelShown={(_groupId, tabId) => tabId !== null && sessionDock.isPanelShown()}
+          onToggleRightPanel={(_groupId, tabId) =>
             // A panel with nothing in it opens a room on its agent's conversation, anything else on the "no selection" view.
-            sessionDock.togglePanel(groupId, tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "none")
+            sessionDock.togglePanel(tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "none")
           }
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
