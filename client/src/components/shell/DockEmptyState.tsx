@@ -3,10 +3,13 @@ import { useDict } from "@/i18n";
 
 /** The dot grid behind it, drawn from the same `--canvas-grid` token as the
  * room canvas and the onboarding, faded toward the edges so it never reaches
- * the panel's border. */
+ * the panel's border. Laid out from the centre, like the content over it, so
+ * resizing the panel grows the grid evenly on both sides instead of sliding
+ * it under the mark. */
 const GRID_STYLE = {
   backgroundImage: "radial-gradient(circle, var(--canvas-grid) 1px, transparent 1.5px)",
   backgroundSize: "24px 24px",
+  backgroundPosition: "center",
   maskImage: "radial-gradient(ellipse at center, black 30%, transparent 85%)",
 } as const;
 
