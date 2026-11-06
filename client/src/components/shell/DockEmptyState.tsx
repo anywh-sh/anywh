@@ -3,14 +3,14 @@ import { useDict } from "@/i18n";
 
 /** The dot grid behind it, drawn from the same `--canvas-grid` token as the
  * room canvas and the onboarding, faded toward the edges so it never reaches
- * the panel's border. Laid out from the centre, like the content over it, so
- * resizing the panel grows the grid evenly on both sides instead of sliding
- * it under the mark. */
+ * the panel's border. Laid out from the centre, where the mark is, so a row
+ * and a column of dots run through the mark's middle at any panel size and
+ * the dots around it sit the same distance from each of its sides. */
 const GRID_STYLE = {
   backgroundImage: "radial-gradient(circle, var(--canvas-grid) 1px, transparent 1.5px)",
   backgroundSize: "24px 24px",
   backgroundPosition: "center",
-  maskImage: "radial-gradient(ellipse at center, black 30%, transparent 85%)",
+  maskImage: "radial-gradient(ellipse at center, black 25.5%, transparent 72%)",
 } as const;
 
 /**
@@ -25,9 +25,12 @@ export function DockEmptyState() {
   return (
     <div data-testid="dock-empty-state" className="relative flex h-full w-full items-center justify-center bg-bg-chrome p-6">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={GRID_STYLE} />
-      <div className="relative flex flex-col items-center gap-4 text-center">
-        <AnywhMarkSilhouette className="size-14 text-border" />
-        <p className="text-sm text-muted-foreground">{dict.panels.noSelection}</p>
+      {/* The mark alone is what is centred: the text hangs below it, out of the
+       * layout, so the mark lands on the grid's centre instead of sitting
+       * above it by half the text's height. */}
+      <div className="relative">
+        <AnywhMarkSilhouette className="block size-14 text-border" />
+        <p className="absolute top-full left-1/2 mt-4 -translate-x-1/2 text-center text-sm whitespace-nowrap text-muted-foreground">{dict.panels.noSelection}</p>
       </div>
     </div>
   );
