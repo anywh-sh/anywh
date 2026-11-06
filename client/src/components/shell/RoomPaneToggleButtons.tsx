@@ -12,10 +12,10 @@ const BUTTON_CLASS =
   "flex size-[30px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground";
 
 /**
- * A room's own buttons in its group's strip, after files and terminal (see
- * `panelTogglesSlot.ts`): what the room says about itself, and the
- * conversation of the agent looked at last. Raw `<button>` markup like the
- * ones beside them.
+ * A room's own buttons in its group's side panel rail, under files and
+ * terminal (see `panelTogglesSlot.ts`): what the room says about itself, and
+ * the conversation of the agent looked at last. Raw `<button>` markup like
+ * the ones above them.
  */
 export function RoomAboutToggleButton({ open, onToggle }: RoomPaneToggleButtonProps) {
   const dict = useDict();
@@ -27,7 +27,7 @@ export function RoomAboutToggleButton({ open, onToggle }: RoomPaneToggleButtonPr
           <Info className="size-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="left">{label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -42,7 +42,7 @@ export function RoomAgentToggleButton({ open, onToggle }: RoomPaneToggleButtonPr
           <Bot className="size-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="left">{label}</TooltipContent>
     </Tooltip>
   );
 }

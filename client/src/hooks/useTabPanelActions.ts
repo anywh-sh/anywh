@@ -81,6 +81,9 @@ export function useTabPanelActions({
   onOpenPaneRef.current = onOpenPane;
   const onTogglePaneRef = useRef(onTogglePane);
   onTogglePaneRef.current = onTogglePane;
+  // Changes with the panel's open state, which `actions` must not follow.
+  const togglePanelRef = useRef(sessionDock.togglePanel);
+  togglePanelRef.current = sessionDock.togglePanel;
 
   return useMemo<TabPanelActions>(
     () => ({
@@ -141,11 +144,14 @@ export function useTabPanelActions({
       onModelLabelChange: (tabId, label) => {
         setModelLabelByTab((prev) => (prev[tabId] === label ? prev : { ...prev, [tabId]: label }));
       },
-      // Both reveal a hidden panel: they run from the room, which can ask
-      // for a pane whether or not the strip's buttons are on screen.
+      // Both reveal a hidden panel: the rail's buttons stay while it is
+      // hidden, and the room can ask for a pane at any time.
       onTogglePane: (tabId, kind) => onTogglePaneRef.current(tabId, kind),
       onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
+      // A panel with nothing in it opens a room on its agent's conversation,
+      // anything else on the "no selection" view.
+      onTogglePanel: (tab) => togglePanelRef.current(tab.id, tab.room ? "agent" : "none"),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),
       onOpenTerminalAt: (tabId, path) => onOpenTerminalAtRef.current(tabId, path),

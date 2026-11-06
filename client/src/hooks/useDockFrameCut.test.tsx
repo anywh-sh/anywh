@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
-import { SessionDock } from "@/components/shell/SessionDock";
+import { DOCK_RAIL_WIDTH, SessionDock } from "@/components/shell/SessionDock";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
 
 afterEach(() => cleanup());
@@ -10,8 +11,9 @@ const closed: DockState = { ...open, panes: [] };
 const noop = vi.fn();
 
 // jsdom has no layout, so every rect is zero. The cut follows the width the
-// dock has on screen, so give a dock the width its state says it has — and a
-// closed one, none. (The real thing is measured in a browser.)
+// dock has on screen, so give a dock the width its style says it has: the
+// panel's plus the rail's, or the rail's alone when closed. (The real thing
+// is measured in a browser.)
 beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
     configurable: true,
@@ -31,11 +33,11 @@ afterEach(() => {
 // right edge" holds here, which is the one-group case this is about.
 function renderDock(dock: DockState) {
   return render(
-    <div>
+    <TooltipProvider><div>
       <div data-plane-frame />
       <div data-status-bar />
-      <SessionDock dock={dock} onWidthChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
-    </div>,
+      <SessionDock dock={dock} onWidthChange={noop} onDragEnd={noop} groupId={null} onTogglePanel={noop} panes={{ files: <div /> }} />
+    </div></TooltipProvider>,
   );
 }
 
@@ -44,29 +46,30 @@ const statusBar = (container: HTMLElement) => container.querySelector<HTMLElemen
 const edge = (container: HTMLElement) => container.querySelector("[data-dock-edge]");
 
 describe("useDockFrameCut", () => {
-  it("gives the frame and the status bar the dock's width when it is open at the right edge", () => {
+  it("gives the frame and the status bar the dock's width, rail included, when it is open at the right edge", () => {
     const { container } = renderDock(open);
     expect(edge(container)).not.toBeNull();
-    expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe("420px");
-    expect(statusBar(container).style.getPropertyValue("--dock-side-w")).toBe("420px");
+    expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe(`${420 + DOCK_RAIL_WIDTH}px`);
+    expect(statusBar(container).style.getPropertyValue("--dock-side-w")).toBe(`${420 + DOCK_RAIL_WIDTH}px`);
   });
 
-  it("cuts nothing while the dock is closed", () => {
+  // The rail stays beside the plane with the panel closed, outside its frame.
+  it("cuts the rail's width while the dock is closed", () => {
     const { container } = renderDock(closed);
-    expect(edge(container)).toBeNull();
-    expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe("0px");
+    expect(edge(container)).not.toBeNull();
+    expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe(`${DOCK_RAIL_WIDTH}px`);
   });
 
   it("follows the dock's width", () => {
     const { container, rerender } = renderDock(open);
     rerender(
-      <div>
+      <TooltipProvider><div>
         <div data-plane-frame />
         <div data-status-bar />
-        <SessionDock dock={{ ...open, width: 560 }} onWidthChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
-      </div>,
+        <SessionDock dock={{ ...open, width: 560 }} onWidthChange={noop} onDragEnd={noop} groupId={null} onTogglePanel={noop} panes={{ files: <div /> }} />
+      </div></TooltipProvider>,
     );
-    expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe("560px");
+    expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe(`${560 + DOCK_RAIL_WIDTH}px`);
   });
 
   // A maximized pane fills the plane: there is no side to be docked on.
@@ -85,23 +88,20 @@ describe("useDockFrameCut", () => {
 });
 
 describe("useDockFrameCut — while the dock slides", () => {
-  it("keeps the frame cut until the dock has slid out, then gives it back", async () => {
+  it("follows the dock down to the rail as it closes", async () => {
     vi.useFakeTimers();
     try {
       const { container, rerender } = renderDock(open);
       rerender(
-        <div>
+        <TooltipProvider><div>
           <div data-plane-frame />
           <div data-status-bar />
-          <SessionDock dock={closed} onWidthChange={noop} onDragEnd={noop} panes={{ files: <div /> }} />
-        </div>,
+          <SessionDock dock={closed} onWidthChange={noop} onDragEnd={noop} groupId={null} onTogglePanel={noop} panes={{ files: <div /> }} />
+        </div></TooltipProvider>,
       );
-      // Still on its way out: the space (and so the cut) is still the dock's.
-      expect(edge(container)).not.toBeNull();
-
       await act(() => vi.advanceTimersByTimeAsync(300));
-      expect(edge(container)).toBeNull();
-      expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe("0px");
+      expect(edge(container)).not.toBeNull();
+      expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe(`${DOCK_RAIL_WIDTH}px`);
     } finally {
       vi.useRealTimers();
     }

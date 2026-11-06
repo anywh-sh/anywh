@@ -52,6 +52,8 @@ export interface TabPanelActions {
   /** Opens a pane without toggling it shut when it is already open. */
   onOpenPane: (tabId: string, kind: DockPaneKind) => void;
   onClosePane: (tabId: string, kind: DockPaneKind) => void;
+  /** The side panel's own toggle, at the top of its rail. */
+  onTogglePanel: (tab: Tab) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -145,6 +147,7 @@ const TabChat = memo(function TabChat({
 interface TabDockProps {
   tab: Tab;
   profile: Profile;
+  groupId: string | null;
   dock: DockState;
   terminalTabs: ReturnType<typeof useTerminalTabs>;
   fileTabs: ReturnType<typeof useFileTabs>;
@@ -158,11 +161,13 @@ interface TabDockProps {
 /** The right-hand dock of a tab — its terminal and file panes, and a room's —
  * shared by a conversation and a room, which differ in what sits beside it and
  * nothing else. */
-function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions, roomPanes, background = false }: TabDockProps) {
+function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions, roomPanes, background = false }: TabDockProps) {
   return (
     <SessionDock
       dock={dock}
       background={background}
+      groupId={groupId}
+      onTogglePanel={() => actions.onTogglePanel(tab)}
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
       onDragEnd={actions.onDockDragEnd}
       panes={{
@@ -195,7 +200,7 @@ function TabDock({ tab, profile, dock, terminalTabs, fileTabs, actions, roomPane
   );
 }
 
-/** A room's files/terminal buttons, drawn into its group's strip. A
+/** A room's pane buttons, drawn into its group's side panel rail. A
  * conversation's come from its `ChatPanel`, which owns the folder; a room
  * has no `ChatPanel`, and not being disabled for want of a folder is
  * deliberate — the relay knows the room's folder, the client never does. */
@@ -271,7 +276,7 @@ export const TabPanel = memo(function TabPanel({
             close: (kind) => actions.onClosePane(tab.id, kind),
             toggleMaximized: (kind) => actions.onToggleMaximized(tab.id, kind),
             render: (roomPanes) => (
-              <TabDock tab={tab} profile={profile} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} roomPanes={roomPanes} background={!isVisible} />
+              <TabDock tab={tab} profile={profile} groupId={groupId} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} roomPanes={roomPanes} background={!isVisible} />
             ),
           };
     return (
@@ -349,7 +354,7 @@ export const TabPanel = memo(function TabPanel({
        * briefly (which is exactly what would happen when maximizing a pane
        * if the chat were hidden via `display:none`/zero width). */}
       <div className={cn("min-w-0 flex-1", chatHidden && "invisible absolute inset-0")}>{chat}</div>
-      {isVisible && <TabDock tab={tab} profile={profile} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} />}
+      {isVisible && <TabDock tab={tab} profile={profile} groupId={groupId} dock={dock} terminalTabs={terminalTabs} fileTabs={fileTabs} actions={actions} />}
     </div>
   );
 });

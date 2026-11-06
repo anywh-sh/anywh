@@ -1,6 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionDock } from "@/components/shell/SessionDock";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
+import { getPanelTogglesSlot } from "@/lib/panelTogglesSlot";
+import { en } from "@/i18n/en";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
 
 afterEach(cleanup);
@@ -10,7 +16,9 @@ function renderDock(dock: Partial<DockState> = {}) {
   const onDragEnd = vi.fn();
   const state: DockState = { panes: ["terminal"], width: 480, maximized: null, ...dock };
   render(
-    <SessionDock dock={state} onWidthChange={onWidthChange} onDragEnd={onDragEnd} panes={{ terminal: <div>term</div>, agent: <div>agent</div> }} />,
+    <TooltipProvider>
+      <SessionDock dock={state} onWidthChange={onWidthChange} onDragEnd={onDragEnd} groupId="g1" onTogglePanel={vi.fn()} panes={{ terminal: <div>term</div>, agent: <div>agent</div> }} />
+    </TooltipProvider>,
   );
   return { onWidthChange, onDragEnd, separator: screen.getByRole("separator", { name: "Resize panel" }) };
 }
@@ -57,5 +65,57 @@ describe("SessionDock edge", () => {
     fireEvent.doubleClick(separator);
     expect(onWidthChange).toHaveBeenCalledWith(480);
     expect(onDragEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Stands in for a tab's `ChatPanel`: portals a button into its group's slot. */
+function PortaledButton({ groupId }: { groupId: string }) {
+  const slot = usePanelTogglesSlot(groupId);
+  return slot ? createPortal(<button type="button">pane button</button>, slot) : null;
+}
+
+function renderRail(dock: Partial<DockState>, extra: { background?: boolean } = {}) {
+  const onTogglePanel = vi.fn();
+  const state: DockState = { panes: [], width: 480, maximized: null, ...dock };
+  const result = render(
+    <TooltipProvider>
+      <SessionDock dock={state} onWidthChange={vi.fn()} onDragEnd={vi.fn()} groupId="g1" onTogglePanel={onTogglePanel} background={extra.background} panes={{ terminal: <div>term</div> }} />
+      <PortaledButton groupId="g1" />
+    </TooltipProvider>,
+  );
+  return { ...result, onTogglePanel, rail: () => screen.getByTestId("dock-rail") };
+}
+
+describe("SessionDock rail", () => {
+  it("stays with the panel closed: the toggle, then the panes' buttons under it", () => {
+    const { rail } = renderRail({ panes: [] });
+    const names = within(rail())
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    expect(names).toEqual([en.panels.showRightPanel, "pane button"]);
+    expect(screen.queryByText("term")).not.toBeInTheDocument();
+  });
+
+  it("reads as pressed while the panel is open, and toggles it", async () => {
+    const { rail, onTogglePanel } = renderRail({ panes: ["terminal"] });
+    const toggle = within(rail()).getByRole("button", { name: en.panels.hideRightPanel });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await userEvent.setup().click(toggle);
+    expect(onTogglePanel).toHaveBeenCalledOnce();
+  });
+
+  it("publishes its group's slot while mounted and releases it on unmount", () => {
+    const { unmount } = renderRail({});
+    expect(getPanelTogglesSlot("g1")).not.toBeNull();
+    unmount();
+    expect(getPanelTogglesSlot("g1")).toBeNull();
+  });
+
+  // A room's dock stays mounted in the background; the group's slot belongs
+  // to the tab on screen.
+  it("claims no slot for a tab in the background", () => {
+    renderRail({}, { background: true });
+    expect(getPanelTogglesSlot("g1")).toBeNull();
+    expect(screen.queryByText("pane button")).not.toBeInTheDocument();
   });
 });

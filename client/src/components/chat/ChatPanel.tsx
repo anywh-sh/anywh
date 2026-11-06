@@ -129,7 +129,7 @@ interface ChatPanelProps {
    * that lives outside the panel, like the iOS native top bar. */
   onModelLabelChange?: (label: string | null) => void;
   /** This tab's group, for portaling the files/terminal toggle pair into
-   * that group's strip (see `usePanelTogglesSlot`) — `null` on compact/iOS,
+   * that group's side panel rail (see `usePanelTogglesSlot`) — `null` on compact/iOS,
    * where panels aren't available and nothing is portaled regardless. */
   groupId?: string | null;
   /** Embedded terminal — desktop only, `App` passes `undefined` on
@@ -1104,7 +1104,7 @@ export function ChatPanel({
         </div>
       </div>
 
-      {/* This group's own active tab claims the strip's toggle slot — see
+      {/* This group's own active tab claims the rail's toggle slot — see
        * panelTogglesSlot.ts for why this is a portal rather than `cwd`
        * (only known here, on this tab's own socket) flowing down as a prop.
        * Disabled until the session has a folder: the terminal is born in it

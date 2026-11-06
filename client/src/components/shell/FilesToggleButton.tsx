@@ -11,13 +11,11 @@ interface FilesToggleButtonProps {
 
 /**
  * Work dir file panel button — portaled by a tab's `ChatPanel` into its
- * group's `TabGroupStrip` toggle slot (see `panelTogglesSlot.ts`), landing
- * right after the group's `+` and immediately to the left of
- * `TerminalToggleButton` (new tab, then files, then terminal). Raw
- * `<button>` markup, not the shared `Button` component, like the `+` beside
- * it. Only the group's own
- * active tab ever claims the slot, so this reflects that tab's state, not a
- * fixed per-tab instance.
+ * group's side panel rail (see `panelTogglesSlot.ts`), right under the
+ * panel's own toggle and above `TerminalToggleButton`. Raw `<button>` markup,
+ * not the shared `Button` component, like the toggle above it. Only the
+ * group's own active tab ever claims the slot, so this reflects that tab's
+ * state, not a fixed per-tab instance.
  */
 export function FilesToggleButton({ open, disabled, onToggle }: FilesToggleButtonProps) {
   const dict = useDict();
@@ -38,7 +36,7 @@ export function FilesToggleButton({ open, disabled, onToggle }: FilesToggleButto
           <File className="size-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">
+      <TooltipContent side="left">
         {open ? dict.panels.closeFiles : dict.panels.openFiles}
         {/* Literal Ctrl even on macOS — VS Code's own Explorer shortcut,
          * same reasoning as the terminal's `Ctrl+\``. */}
