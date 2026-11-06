@@ -36,7 +36,7 @@ function renderDock(dock: DockState) {
     <TooltipProvider><div>
       <div data-plane-frame />
       <div data-status-bar />
-      <SessionDock dock={dock} onWidthChange={noop} onDragEnd={noop} groupId={null} onTogglePanel={noop} panes={{ files: <div /> }} />
+      <SessionDock dock={dock} onWidthChange={noop} onDragEnd={noop} groupId={null} panes={{ files: <div /> }} />
     </div></TooltipProvider>,
   );
 }
@@ -71,7 +71,7 @@ describe("useDockFrameCut", () => {
       <TooltipProvider><div>
         <div data-plane-frame />
         <div data-status-bar />
-        <SessionDock dock={{ ...open, width: 560 }} onWidthChange={noop} onDragEnd={noop} groupId={null} onTogglePanel={noop} panes={{ files: <div /> }} />
+        <SessionDock dock={{ ...open, width: 560 }} onWidthChange={noop} onDragEnd={noop} groupId={null} panes={{ files: <div /> }} />
       </div></TooltipProvider>,
     );
     expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe(`${560 + DOCK_RAIL_WIDTH}px`);
@@ -101,7 +101,7 @@ describe("useDockFrameCut — while the dock slides", () => {
         <TooltipProvider><div>
           <div data-plane-frame />
           <div data-status-bar />
-          <SessionDock dock={closed} onWidthChange={noop} onDragEnd={noop} groupId={null} onTogglePanel={noop} panes={{ files: <div /> }} />
+          <SessionDock dock={closed} onWidthChange={noop} onDragEnd={noop} groupId={null} panes={{ files: <div /> }} />
         </div></TooltipProvider>,
       );
       await act(() => vi.advanceTimersByTimeAsync(300));

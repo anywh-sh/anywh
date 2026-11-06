@@ -52,8 +52,6 @@ export interface TabPanelActions {
   /** Opens a pane without toggling it shut when it is already open. */
   onOpenPane: (tabId: string, kind: DockPaneKind) => void;
   onClosePane: (tabId: string, kind: DockPaneKind) => void;
-  /** The side panel's own toggle, at the top of its rail. */
-  onTogglePanel: (tab: Tab) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -167,7 +165,6 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
       dock={dock}
       background={background}
       groupId={groupId}
-      onTogglePanel={() => actions.onTogglePanel(tab)}
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
       onDragEnd={actions.onDockDragEnd}
       panes={{

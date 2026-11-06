@@ -28,7 +28,7 @@ const profile = { id: "default", label: "Default", host: "127.0.0.1", relayPort:
 const closed: DockState = { panes: [], width: 480, maximized: null };
 
 function renderRoom(overrides: { dock?: DockState; isVisible?: boolean; isCompact?: boolean; actions?: Partial<TabPanelActions> } = {}) {
-  const actions = { onTogglePane: vi.fn(), onTogglePanel: vi.fn(), ...overrides.actions } as unknown as TabPanelActions;
+  const actions = { onTogglePane: vi.fn(), ...overrides.actions } as unknown as TabPanelActions;
   render(
     <TooltipProvider>
       <TabPanel
@@ -73,8 +73,7 @@ describe("TabPanel — a room's tab", () => {
     const names = within(slot)
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
-    // The panel's own toggle first, then the panes' buttons under it.
-    expect(names).toEqual([en.panels.hideRightPanel, en.panels.openFiles, en.panels.openTerminal, en.panels.openRoomAbout, en.panels.closeAgent]);
+    expect(names).toEqual([en.panels.openFiles, en.panels.openTerminal, en.panels.openRoomAbout, en.panels.closeAgent]);
     const user = userEvent.setup();
     await user.click(within(slot).getByRole("button", { name: en.panels.openRoomAbout }));
     await user.click(within(slot).getByRole("button", { name: en.panels.closeAgent }));
@@ -90,13 +89,21 @@ describe("TabPanel — a room's tab", () => {
 
   // The rail is what is left of the column while the panel is hidden: the
   // panes go, the buttons that open them stay.
-  it("keeps the buttons in the rail and shows no panes while the panel is hidden", async () => {
-    const { rail, actions } = renderRoom();
-    expect(within(rail()).getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument();
+  it("keeps the buttons in the rail and shows no panes while the panel is hidden", () => {
+    const { rail } = renderRoom();
     expect(within(rail()).getByRole("button", { name: en.panels.openFiles })).toBeEnabled();
     expect(screen.queryByTestId("files-pane")).not.toBeInTheDocument();
-    await userEvent.setup().click(within(rail()).getByRole("button", { name: en.panels.showRightPanel }));
-    expect(actions.onTogglePanel).toHaveBeenCalledWith(room);
+  });
+
+  // The left sidebar's selected-row look: raised background and an edge bar.
+  it("marks the button of the pane on screen as selected", () => {
+    const { rail } = renderRoom({ dock: { ...closed, panes: ["files"] } });
+    const files = within(rail()).getByRole("button", { name: en.panels.closeFiles });
+    const terminal = within(rail()).getByRole("button", { name: en.panels.openTerminal });
+    expect(files).toHaveClass("bg-bg-elevated");
+    expect(files.querySelector('span[aria-hidden="true"]')).not.toBeNull();
+    expect(terminal).not.toHaveClass("bg-bg-elevated");
+    expect(terminal.querySelector('span[aria-hidden="true"]')).toBeNull();
   });
 
   it("claims its group's slot only while it is the group's visible tab", () => {

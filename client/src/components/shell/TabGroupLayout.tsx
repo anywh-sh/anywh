@@ -82,9 +82,8 @@ interface TabGroupLayoutProps {
   onCommitSizes: (sizes: number[]) => void;
   onRenameSession: (tabId: string, title: string) => void;
   onDelete: (tabId: string) => void;
-  /** `groupId` is `null` in flat/compact mode — no real per-group strip
-   * exists there to own a toggle slot (see `panelTogglesSlot.ts`), and
-   * panels are unavailable in that mode regardless. */
+  /** `groupId` is `null` in flat/compact mode — there is no side panel
+   * there, and so no rail to own a toggle slot (see `panelTogglesSlot.ts`). */
   renderPanel: (tab: Tab, groupId: string | null) => ReactNode;
   /** Pinned over the far right of the strip row — where the window controls
    * go on platforms that draw their own. Takes no flow space (the groups'

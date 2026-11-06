@@ -1,12 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionDock } from "@/components/shell/SessionDock";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { getPanelTogglesSlot } from "@/lib/panelTogglesSlot";
-import { en } from "@/i18n/en";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
 
 afterEach(cleanup);
@@ -17,7 +15,7 @@ function renderDock(dock: Partial<DockState> = {}) {
   const state: DockState = { panes: ["terminal"], width: 480, maximized: null, ...dock };
   render(
     <TooltipProvider>
-      <SessionDock dock={state} onWidthChange={onWidthChange} onDragEnd={onDragEnd} groupId="g1" onTogglePanel={vi.fn()} panes={{ terminal: <div>term</div>, agent: <div>agent</div> }} />
+      <SessionDock dock={state} onWidthChange={onWidthChange} onDragEnd={onDragEnd} groupId="g1" panes={{ terminal: <div>term</div>, agent: <div>agent</div> }} />
     </TooltipProvider>,
   );
   return { onWidthChange, onDragEnd, separator: screen.getByRole("separator", { name: "Resize panel" }) };
@@ -75,33 +73,21 @@ function PortaledButton({ groupId }: { groupId: string }) {
 }
 
 function renderRail(dock: Partial<DockState>, extra: { background?: boolean } = {}) {
-  const onTogglePanel = vi.fn();
   const state: DockState = { panes: [], width: 480, maximized: null, ...dock };
   const result = render(
     <TooltipProvider>
-      <SessionDock dock={state} onWidthChange={vi.fn()} onDragEnd={vi.fn()} groupId="g1" onTogglePanel={onTogglePanel} background={extra.background} panes={{ terminal: <div>term</div> }} />
+      <SessionDock dock={state} onWidthChange={vi.fn()} onDragEnd={vi.fn()} groupId="g1" background={extra.background} panes={{ terminal: <div>term</div> }} />
       <PortaledButton groupId="g1" />
     </TooltipProvider>,
   );
-  return { ...result, onTogglePanel, rail: () => screen.getByTestId("dock-rail") };
+  return { ...result, rail: () => screen.getByTestId("dock-rail") };
 }
 
 describe("SessionDock rail", () => {
-  it("stays with the panel closed: the toggle, then the panes' buttons under it", () => {
+  it("stays with the panel closed, with the panes' buttons in it", () => {
     const { rail } = renderRail({ panes: [] });
-    const names = within(rail())
-      .getAllByRole("button")
-      .map((button) => button.getAttribute("aria-label") ?? button.textContent);
-    expect(names).toEqual([en.panels.showRightPanel, "pane button"]);
+    expect(within(rail()).getByRole("button", { name: "pane button" })).toBeInTheDocument();
     expect(screen.queryByText("term")).not.toBeInTheDocument();
-  });
-
-  it("reads as pressed while the panel is open, and toggles it", async () => {
-    const { rail, onTogglePanel } = renderRail({ panes: ["terminal"] });
-    const toggle = within(rail()).getByRole("button", { name: en.panels.hideRightPanel });
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await userEvent.setup().click(toggle);
-    expect(onTogglePanel).toHaveBeenCalledOnce();
   });
 
   it("publishes its group's slot while mounted and releases it on unmount", () => {

@@ -1,7 +1,7 @@
 import { SquareTerminal } from "lucide-react";
 import { useDict } from "@/i18n";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { RailSelectedMark, railButtonClass } from "@/components/shell/railButton";
 
 interface TerminalToggleButtonProps {
   open: boolean;
@@ -28,11 +28,9 @@ export function TerminalToggleButton({ open, disabled, onToggle }: TerminalToggl
           disabled={disabled}
           onClick={onToggle}
           aria-label={open ? dict.panels.closeTerminal : dict.panels.openTerminal}
-          className={cn(
-            "flex size-[30px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
-            open && "text-foreground",
-          )}
+          className={railButtonClass(open)}
         >
+          <RailSelectedMark selected={open} />
           <SquareTerminal className="size-4" />
         </button>
       </TooltipTrigger>

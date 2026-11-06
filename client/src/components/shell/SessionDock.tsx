@@ -1,5 +1,4 @@
 import { useCallback, useRef, type ReactNode } from "react";
-import { RightPanelToggleButton } from "@/components/shell/RightPanelToggleButton";
 import { useDockPresence } from "@/hooks/useDockPresence";
 import { useDockFrameCut } from "@/hooks/useDockFrameCut";
 import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
@@ -12,9 +11,11 @@ import { cn } from "@/lib/utils";
 /** How far one arrow key press moves the column's edge. */
 const KEY_STEP = 16;
 
-/** The rail's width: one column of the strip's 30px buttons, with room either
- * side of them. */
-export const DOCK_RAIL_WIDTH = 36;
+/** The rail's width: one column of the strip's 30px buttons, against its
+ * right edge so they sit under the strip's panel toggle. The 8px the rest
+ * leaves on their left is the 8px of chrome the plane keeps on the window's
+ * right, so the icons have as much room on either side. */
+export const DOCK_RAIL_WIDTH = 38;
 
 interface SessionDockProps {
   dock: DockState;
@@ -33,8 +34,6 @@ interface SessionDockProps {
   /** The tab's group, whose pane buttons the rail is the slot for (see
    * `panelTogglesSlot.ts`). */
   groupId: string | null;
-  /** The panel's own toggle, the rail's first button. */
-  onTogglePanel: () => void;
 }
 
 /**
@@ -52,14 +51,14 @@ interface SessionDockProps {
  * acts on the column as a whole, not on an individual pane, which is why
  * `SessionPanel` has no `onStartDrag`.
  *
- * Down its right edge runs the rail: the panel's toggle, then the buttons that
- * open each of its panes, one under the other. The rail stays when the panel
+ * Down its right edge runs the rail: the buttons that open each of its panes,
+ * one under the other, under the strip's panel toggle. The rail stays when the panel
  * closes — it is what is left of the column, so the panes are one click away
  * whether the panel is showing or not — and only the panel beside it opens
  * and closes. The buttons are portaled in by whoever owns their state (a
  * conversation's `ChatPanel`, a room's `TabPanel`) through the rail's slot.
  */
-export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background = false, groupId, onTogglePanel }: SessionDockProps) {
+export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background = false, groupId }: SessionDockProps) {
   const dict = useDict();
   const rootRef = useRef<HTMLDivElement>(null);
   const open = dock.panes.length > 0;
@@ -171,10 +170,9 @@ export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background 
         // Pinned to the right edge, so it stays put while the panel beside it
         // opens and closes, and opaque, so the panel's content never shows
         // under it while it slides.
-        className="absolute top-0 right-0 bottom-0 z-20 flex flex-col items-center bg-bg-chrome pt-1"
+        className="absolute top-0 right-0 bottom-0 z-20 flex flex-col items-end bg-bg-chrome pt-1"
         style={{ width: DOCK_RAIL_WIDTH }}
       >
-        <RightPanelToggleButton shown={open} onToggle={onTogglePanel} />
         {/* The slot the pane buttons are portaled into. `display: contents`
          * keeps the buttons themselves as the rail's flex items. */}
         <div ref={slotRef} className="contents" />

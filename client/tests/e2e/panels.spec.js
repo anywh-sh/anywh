@@ -27,7 +27,7 @@ describe("anywh dock panels", () => {
   });
 
   it("has the side panel's toggle and the pane buttons in its rail while it is closed", async () => {
-    const panelToggle = await $('[data-testid="dock-rail"] [aria-label="Show side panel"]');
+    const panelToggle = await $('[aria-label="Show side panel"]');
     await panelToggle.waitForExist({ timeout: 15000 });
     for (const label of ["Open files", "Open terminal"]) {
       await expect(await $(`[data-testid="dock-rail"] [aria-label="${label}"]`).isExisting()).toBe(true);
