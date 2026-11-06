@@ -118,22 +118,17 @@ const press = async (selector) => {
 const panelSettled = () =>
   browser.waitUntil(() => browser.execute(() => (document.querySelector("[data-dock-pane] aside")?.getBoundingClientRect().width ?? 0) >= 383), { timeout: 10000, timeoutMsg: "the side panel never finished opening" });
 
-/** Opens the room's information from the strip. With the side panel hidden the
- * strip only offers the panel's own button, which opens the agent's pane
- * first; the room's buttons are there after it. Does nothing if it is open. */
-const openAbout = async (label = "About this room", showLabel = "Show side panel", closeLabel = "Close room info") => {
+/** Opens the room's information from the side panel's rail, whose buttons are
+ * there whether the panel is showing or not: pressing one shows the panel on
+ * its pane. Does nothing if it is open. */
+const openAbout = async (label = "About this room", closeLabel = "Close room info") => {
   if (await $(`button[aria-label="${closeLabel}"]`).isExisting()) return;
-  if (!(await $(`button[aria-label="${label}"]`).isExisting())) {
-    await press(`button[aria-label="${showLabel}"]`);
-    // Showing the panel brings back the pane opened last, which may be this one.
-    if (await $(`button[aria-label="${closeLabel}"]`).waitForExist({ timeout: 1500, reverse: false }).catch(() => false)) return;
-  }
-  await press(`button[aria-label="${label}"]`);
+  await press(`[data-testid="dock-rail"] button[aria-label="${label}"]`);
 };
 
 /** Closes every pane of the dock, so the next test starts with the canvas at
  * its full width: the dock keeps what it had open from one test to the next.
- * Through the strip's buttons, which are there exactly while a pane is open:
+ * Through the rail's buttons, which read "Close" exactly while a pane is open:
  * the dock keeps the last pane drawn while it closes, so the pane's own
  * header is no sign of it. */
 const closePanes = async () => {
@@ -146,9 +141,9 @@ const closePanes = async () => {
   // hide it, which is what hands the canvas its full width back.
   const hide = 'button[aria-label="Hide side panel"]';
   if (await $(hide).isExisting()) await press(hide);
-  // With the panel hidden the strip gives up the room's buttons (and the panel's
-  // toggle says "Show"): wait for that, or the next test presses one on its way out.
-  await browser.waitUntil(async () => !(await $('button[aria-label="About this room"]').isExisting()) && (await $('button[aria-label="Show side panel"]').isExisting()), {
+  // Hidden, the panel's toggle says "Show" and no rail button reads "Close":
+  // wait for that, or the next test presses one on its way out.
+  await browser.waitUntil(async () => !(await $(open).isExisting()) && (await $('button[aria-label="Show side panel"]').isExisting()), {
     timeout: 5000,
     timeoutMsg: "the dock never emptied",
   });
@@ -567,7 +562,7 @@ describe("anywh room canvas", () => {
     expect(text).toContain("Usage");
     expect(text).toContain("Shared context");
     expect(text).toContain("Worktrees");
-    // The strip's button now closes it.
+    // The rail's button now closes it.
     expect(await $$('button[aria-label="About this room"]').length).toBe(0);
     await expect(await $('button[aria-label="Close room info"]')).toBeExisting();
     await browser.waitUntil(async () => (await panel.getText()).includes("10"), { timeout: 15000, timeoutMsg: "the agent count never showed" });
@@ -692,7 +687,7 @@ describe("anywh room canvas", () => {
     await browser.execute(() => document.querySelector('[aria-label="Ajustar à tela"]').click());
     await roomInView();
     await shot("B-sala-10-agentes-pt");
-    await openAbout("Sobre a sala", "Mostrar painel lateral");
+    await openAbout("Sobre a sala", "Fechar informações da sala");
     const aboutPt = await $('aside[data-panel="about"]');
     await aboutPt.waitForExist({ timeout: 15000 });
     const aboutText = await aboutPt.getText();
