@@ -34,11 +34,6 @@ export interface DockState {
    * showing a side panel that has nothing open brings up. Absent on a tab
    * that never opened one. */
   last?: DockPaneKind;
-  /** The tab's panel is hidden by the strip's toggle. Hiding is not closing:
-   * `panes` stay as they were, so showing the panel again brings back exactly
-   * what was there. Per tab, not per group — each session keeps its own
-   * panel open or closed. */
-  hidden?: true;
 }
 
 const MIN_WIDTH = 320;
@@ -68,9 +63,23 @@ const OLD_STORAGE_KEY = "anywh:session-panels";
 
 type DockMap = Record<string, DockState>;
 
-// Where the panel's visibility used to be kept, per tab group — it made every
-// session in a group share one open/closed state. Now a flag of each tab's dock.
+// Whether the right-hand panel is open — the toggle at the strip's right end,
+// the mirror of the sidebar's. One answer for the whole app, not per tab or
+// group: switching to another session, in any profile, keeps the panel as it
+// was, and a session with nothing chosen yet draws the "no selection" view.
+// Closing is not forgetting: the panes a tab had open stay in its `DockState`,
+// so opening the panel again brings back exactly what was there.
+const OPEN_STORAGE_KEY = "anywh:right-panel-open";
+// Where this used to be kept, per tab group — it made no sense across groups.
 const OLD_HIDDEN_STORAGE_KEY = "anywh:right-panel-hidden";
+
+function loadOpen(): boolean {
+  try {
+    return localStorage.getItem(OPEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 /** The narrowest and widest the column may be with these panes in it. */
 export function dockWidthBounds(panes: readonly DockPaneKind[]): { min: number; max: number } {
@@ -105,8 +114,6 @@ function sanitizeDocks(docks: DockMap): DockMap {
       last: known(dock.last) ? dock.last : undefined,
     };
     if (result[tabId].last === undefined) delete result[tabId].last;
-    if (dock.hidden === true) result[tabId].hidden = true;
-    else delete result[tabId].hidden;
   }
   return result;
 }
@@ -142,8 +149,7 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
 function pushPane(dock: DockState, kind: DockPaneKind): DockState {
   const panes = [...dock.panes, kind].slice(-MAX_DOCK_PANES);
   const maximized = dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null;
-  const { hidden: _hidden, ...shown } = dock;
-  return { ...shown, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
+  return { ...dock, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
 }
 
 /**
@@ -173,87 +179,118 @@ export function useSessionDock() {
 
   useEffect(() => {
     localStorage.removeItem(OLD_STORAGE_KEY);
+  }, []);
+
+  const [panelOpen, setPanelOpen] = useState<boolean>(loadOpen);
+
+  useEffect(() => {
+    localStorage.setItem(OPEN_STORAGE_KEY, String(panelOpen));
+  }, [panelOpen]);
+
+  useEffect(() => {
     localStorage.removeItem(OLD_HIDDEN_STORAGE_KEY);
   }, []);
 
   const getDock = useCallback((tabId: string): DockState => docks[tabId] ?? EMPTY_DOCK, [docks]);
 
-  /** Whether the side panel is on screen for the tab `tabId`: not hidden, and
-   * with something open on it. The toggle's state and the buttons that open
-   * its panes both follow this one answer. */
-  const isPanelShown = useCallback(
-    (tabId: string | null): boolean => {
-      if (tabId === null) return false;
-      const dock = docks[tabId] ?? EMPTY_DOCK;
-      return dock.hidden !== true && dock.panes.length > 0;
+  /** Whether the side panel is on screen. The toggle's state and the buttons
+   * that open its panes both follow this one answer. */
+  const isPanelShown = useCallback((): boolean => panelOpen, [panelOpen]);
+
+  /** The toggle. Open, it closes the panel — what each tab had is kept, so
+   * opening it again is the undo. Closed, it opens it, and a tab with nothing
+   * open gets the pane it used last (`fallback` if there never was one: the
+   * "no selection" view, or a room's agent), so the panel is never a blank
+   * column. */
+  const togglePanel = useCallback(
+    (tabId: string | null, fallback: DockPaneKind = "none") => {
+      if (panelOpen) {
+        setPanelOpen(false);
+        return;
+      }
+      setPanelOpen(true);
+      if (tabId === null) return;
+      setDocks((prev) => {
+        const existing = prev[tabId] ?? EMPTY_DOCK;
+        if (existing.panes.length > 0) return prev;
+        return { ...prev, [tabId]: pushPane(existing, existing.last ?? fallback) };
+      });
     },
-    [docks],
+    [panelOpen],
   );
 
-  /** The toggle. Shown, it hides the panel — what was open is kept, so
-   * showing it again is the undo. Not shown, it shows it, and when the tab
-   * has nothing open it opens the pane used last (`fallback` if there never
-   * was one: the "no selection" view, or a room's agent), so the panel is
-   * never a blank column. */
-  const togglePanel = useCallback((tabId: string | null, fallback: DockPaneKind = "none") => {
-    if (tabId === null) return;
-    setDocks((prev) => {
-      const existing = prev[tabId] ?? EMPTY_DOCK;
-      if (existing.hidden !== true && existing.panes.length > 0) return { ...prev, [tabId]: { ...existing, hidden: true } };
-      if (existing.panes.length > 0) {
-        const { hidden: _hidden, ...shown } = existing;
-        return { ...prev, [tabId]: shown };
-      }
-      return { ...prev, [tabId]: pushPane(existing, existing.last ?? fallback) };
-    });
-  }, []);
-
-  /** The dock as the tab's panel should draw it: the stored one, or — when
-   * the tab's panel is hidden — a closed copy of it. The copy is cached per
-   * stored dock, so `TabPanel` (memoized on this exact reference) is not
-   * re-rendered by a call that returns the same thing it did last time. */
+  /** The dock as the tab's panel should draw it: the stored one when the panel
+   * is open and the tab has something in it; a closed copy when the panel is
+   * closed; and the `fallback` view — "no selection" unless a room asks for
+   * its agent — when it is open on a tab that has not picked anything yet.
+   * The copies are cached per stored dock, so `TabPanel` (memoized on this
+   * exact reference) is not re-rendered by a call that returns the same thing
+   * it did last time. */
   const closedCopies = useRef(new WeakMap<DockState, DockState>());
+  const fallbackCopies = useRef(new WeakMap<DockState, Map<DockPaneKind, DockState>>());
   const getVisibleDock = useCallback(
-    (tabId: string, groupId: string | null): DockState => {
+    (tabId: string, groupId: string | null, fallback: DockPaneKind = "none"): DockState => {
       const dock = docks[tabId] ?? EMPTY_DOCK;
-      if (groupId === null || dock.hidden !== true || dock.panes.length === 0) return dock;
-      let closed = closedCopies.current.get(dock);
-      if (!closed) {
-        closed = { ...dock, panes: [], maximized: null };
-        closedCopies.current.set(dock, closed);
+      if (groupId === null) return dock;
+      if (!panelOpen) {
+        if (dock.panes.length === 0) return dock;
+        let closed = closedCopies.current.get(dock);
+        if (!closed) {
+          closed = { ...dock, panes: [], maximized: null };
+          closedCopies.current.set(dock, closed);
+        }
+        return closed;
       }
-      return closed;
+      if (dock.panes.length > 0) return dock;
+      let byKind = fallbackCopies.current.get(dock);
+      if (!byKind) {
+        byKind = new Map();
+        fallbackCopies.current.set(dock, byKind);
+      }
+      let shown = byKind.get(fallback);
+      if (!shown) {
+        shown = { ...dock, panes: [fallback] };
+        byKind.set(fallback, shown);
+      }
+      return shown;
     },
-    [docks],
+    [docks, panelOpen],
   );
 
   /** If `kind` is already open, closes it; otherwise pushes it to the end of
    * the stack — with the terminal already open, files lands below it, and
    * vice versa. */
-  const togglePane = useCallback((tabId: string, kind: DockPaneKind) => {
-    setDocks((prev) => {
-      const existing = prev[tabId] ?? EMPTY_DOCK;
-      // On a hidden panel the pane is not on screen: asking for it means "show
+  const togglePane = useCallback(
+    (tabId: string, kind: DockPaneKind) => {
+      // On a closed panel the pane is not on screen: asking for it means "show
       // me this", not closing something nobody can see.
-      if (existing.panes.includes(kind) && existing.hidden !== true) {
-        return { ...prev, [tabId]: withoutPane(existing, kind) };
-      }
-      return { ...prev, [tabId]: pushPane(existing, kind) };
-    });
-  }, []);
+      const closing = panelOpen && (docks[tabId] ?? EMPTY_DOCK).panes.includes(kind);
+      if (!closing) setPanelOpen(true);
+      setDocks((prev) => {
+        const existing = prev[tabId] ?? EMPTY_DOCK;
+        if (closing) return { ...prev, [tabId]: withoutPane(existing, kind) };
+        return { ...prev, [tabId]: pushPane(existing, kind) };
+      });
+    },
+    [docks, panelOpen],
+  );
 
   /** Ensures `kind` is present, without `togglePane`'s close-if-already-open
    * behavior — for actions that only ever mean "show me this pane" (the file
    * tree's "open in terminal"), never "close it". */
   const openPane = useCallback((tabId: string, kind: DockPaneKind) => {
+    setPanelOpen(true);
     setDocks((prev) => {
       const existing = prev[tabId] ?? EMPTY_DOCK;
-      if (existing.panes.includes(kind) && existing.hidden !== true) return prev;
+      if (existing.panes.includes(kind)) return prev;
       return { ...prev, [tabId]: pushPane(existing, kind) };
     });
   }, []);
 
   const closePane = useCallback((tabId: string, kind: DockPaneKind) => {
+    // Closing the "no selection" view is closing the panel: it is what every
+    // tab with nothing open draws, so it would otherwise come straight back.
+    if (kind === "none") setPanelOpen(false);
     setDocks((prev) => {
       const existing = prev[tabId];
       if (!existing) return prev;
