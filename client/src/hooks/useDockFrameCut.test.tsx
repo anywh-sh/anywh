@@ -46,11 +46,16 @@ const statusBar = (container: HTMLElement) => container.querySelector<HTMLElemen
 const edge = (container: HTMLElement) => container.querySelector("[data-dock-edge]");
 
 describe("useDockFrameCut", () => {
-  it("gives the frame and the status bar the dock's width, rail included, when it is open at the right edge", () => {
+  it("gives the frame the dock's width, rail included, when it is open at the right edge", () => {
     const { container } = renderDock(open);
     expect(edge(container)).not.toBeNull();
     expect(frame(container).style.getPropertyValue("--dock-side-w")).toBe(`${420 + DOCK_RAIL_WIDTH}px`);
-    expect(statusBar(container).style.getPropertyValue("--dock-side-w")).toBe(`${420 + DOCK_RAIL_WIDTH}px`);
+  });
+
+  // The status bar's rule runs the window's width, under the dock too.
+  it("leaves the status bar whole", () => {
+    const { container } = renderDock(open);
+    expect(statusBar(container).style.getPropertyValue("--dock-side-w")).toBe("");
   });
 
   // The rail stays beside the plane with the panel closed, outside its frame.
