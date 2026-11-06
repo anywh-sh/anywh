@@ -1345,7 +1345,7 @@ mod tests {
 
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a stand-in relay");
         let port = listener.local_addr().unwrap().port();
-        let run = |timeout: &str| {
+        let run = |port: u16, timeout: &str| {
             std::process::Command::new("bash")
                 .arg("-c")
                 .arg(format!("source {}; wait_for_relay 127.0.0.1 {port}", lib.display()))
@@ -1354,13 +1354,19 @@ mod tests {
                 .expect("run wait_for_relay")
         };
 
-        assert!(run("5").success(), "wait_for_relay didn't see a port that was listening");
+        assert!(run(port, "5").success(), "wait_for_relay didn't see a port that was listening");
 
         // Nothing listening: it has to come back with a status the caller
         // can branch on, not hang and not take the installer down with it.
+        //
+        // Not the port just closed: it is an ephemeral one, and freed it can
+        // be handed to another test running alongside, or a connect to it
+        // can pick it as its own source port and connect to itself — either
+        // makes it "ready". Port 1 is outside the ephemeral range and only
+        // root could listen on it.
         drop(listener);
         let started = std::time::Instant::now();
-        assert!(!run("1").success(), "wait_for_relay called a closed port ready");
+        assert!(!run(1, "1").success(), "wait_for_relay called a closed port ready");
         assert!(started.elapsed() >= Duration::from_millis(900), "it gave up before the timeout it was given");
 
         std::fs::remove_dir_all(&dir).ok();

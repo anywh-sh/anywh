@@ -1,0 +1,49 @@
+name: apt install (cached)
+description: >
+  Installs Ubuntu packages with the .deb files kept in the Actions cache.
+  The runner's mirror is usually fast, but some runs it slows to a few KB/s
+  and the download that normally takes seconds holds the job for many
+  minutes, so the job gets cancelled or times out without any test failing.
+  A cache hit installs without downloading, and a miss is bounded by apt's
+  own retries and timeouts instead of hanging.
+inputs:
+  packages:
+    description: Space-separated package names, as given to `apt-get install`.
+    required: true
+runs:
+  using: composite
+  steps:
+    # The cache key is the exact set of .debs this install would download
+    # (their file names carry their versions): it changes only when the
+    # package list or what the archive serves for it changes, so a hit is
+    # always the very files apt asks for.
+    - id: plan
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update
+        # shellcheck disable=SC2086 # word splitting is the package list
+        uris=$(apt-get install -y --print-uris -qq $PACKAGES | cut -d"'" -f2 | sort)
+        echo "key=apt-${RUNNER_OS}-${RUNNER_ARCH}-$(printf '%s' "$uris" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.apt-archives
+        key: ${{ steps.plan.outputs.key }}
+    - shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        mkdir -p ~/.apt-archives
+        # What the cache had goes where apt looks first; anything missing is
+        # downloaded as usual.
+        if compgen -G "$HOME/.apt-archives/*.deb" > /dev/null; then sudo cp ~/.apt-archives/*.deb /var/cache/apt/archives/; fi
+        # shellcheck disable=SC2086 # word splitting is the package list
+        sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o APT::Keep-Downloaded-Packages=true install -y $PACKAGES
+        if compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then cp /var/cache/apt/archives/*.deb ~/.apt-archives/; fi
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.apt-archives
+        key: ${{ steps.plan.outputs.key }}
