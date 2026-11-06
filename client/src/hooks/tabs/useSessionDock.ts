@@ -131,11 +131,14 @@ function loadPersisted(): DockMap {
 
 const EMPTY_DOCK: DockState = { panes: [], width: DEFAULT_DOCK_WIDTH, maximized: null };
 
+/** Closing a view drops the panel back to the "no selection" pane rather than
+ * shutting the column: the panel is hidden only by its own toggle, or by
+ * closing `none` itself. */
 function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
   if (!dock.panes.includes(kind)) return dock;
   return {
     ...dock,
-    panes: dock.panes.filter((pane) => pane !== kind),
+    panes: kind === "none" ? [] : ["none"],
     maximized: dock.maximized === kind ? null : dock.maximized,
   };
 }

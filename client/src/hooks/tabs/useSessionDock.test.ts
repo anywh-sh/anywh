@@ -26,11 +26,11 @@ describe("useSessionDock — panes", () => {
     expect(result.current.getDock("t1").panes).toEqual(["terminal"]);
   });
 
-  it("togglePane closes a pane that's already open", () => {
+  it("togglePane closing a pane that's already open falls back to the no-selection view", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.togglePane("t1", "terminal"));
     act(() => result.current.togglePane("t1", "terminal"));
-    expect(result.current.getDock("t1").panes).toEqual([]);
+    expect(result.current.getDock("t1").panes).toEqual(["none"]);
   });
 
   it("togglePane switches to another pane instead of stacking it", () => {
@@ -55,13 +55,16 @@ describe("useSessionDock — panes", () => {
     expect(result.current.getDock("t1").panes).toEqual(["files"]);
   });
 
-  it("closePane removes a pane and is a no-op for a tab with no dock yet", () => {
+  it("closePane falls back to the no-selection view, and closing that empties the dock; no-op for a tab with no dock yet", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.closePane("never-opened", "terminal"));
     expect(result.current.getDock("never-opened").panes).toEqual([]);
 
     act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.closePane("t1", "terminal"));
+    expect(result.current.getDock("t1").panes).toEqual(["none"]);
+
+    act(() => result.current.closePane("t1", "none"));
     expect(result.current.getDock("t1").panes).toEqual([]);
   });
 });
@@ -305,6 +308,7 @@ describe("useSessionDock — the side panel toggle", () => {
     const first = renderHook(() => useSessionDock());
     act(() => first.result.current.openPane("t1", "files"));
     act(() => first.result.current.closePane("t1", "files"));
+    act(() => first.result.current.closePane("t1", "none"));
     first.unmount();
     const { result } = renderHook(() => useSessionDock());
     expect(result.current.getDock("t1").panes).toEqual([]);
@@ -329,6 +333,8 @@ describe("useSessionDock — the side panel toggle", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.openPane("t1", "terminal"));
     act(() => result.current.closePane("t1", "terminal"));
+    expect(result.current.isPanelShown("g1", "t1")).toBe(true);
+    act(() => result.current.closePane("t1", "none"));
     expect(result.current.isPanelShown("g1", "t1")).toBe(false);
     act(() => result.current.togglePanel("g1", "t1"));
     expect(result.current.getVisibleDock("t1", "g1").panes).toEqual(["terminal"]);
