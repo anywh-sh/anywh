@@ -34,6 +34,11 @@ export interface DockState {
    * showing a side panel that has nothing open brings up. Absent on a tab
    * that never opened one. */
   last?: DockPaneKind;
+  /** The tab's panel is hidden by the strip's toggle. Hiding is not closing:
+   * `panes` stay as they were, so showing the panel again brings back exactly
+   * what was there. Per tab, not per group — each session keeps its own
+   * panel open or closed. */
+  hidden?: true;
 }
 
 const MIN_WIDTH = 320;
@@ -63,24 +68,9 @@ const OLD_STORAGE_KEY = "anywh:session-panels";
 
 type DockMap = Record<string, DockState>;
 
-// Which tab groups have their right-hand panel hidden — the toggle at the
-// strip's right end, the mirror of the sidebar's. Hiding is not closing: the
-// panes a tab had open stay in its `DockState`, so showing the panel again
-// brings back exactly what was there. Keyed by group, not tab: it is the
-// group's strip that carries the toggle, and switching tabs inside a group
-// must not flip it.
-const HIDDEN_STORAGE_KEY = "anywh:right-panel-hidden";
-type HiddenGroups = Record<string, true>;
-
-function loadHidden(): HiddenGroups {
-  try {
-    const raw = localStorage.getItem(HIDDEN_STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as HiddenGroups;
-  } catch {
-    return {};
-  }
-}
+// Where the panel's visibility used to be kept, per tab group — it made every
+// session in a group share one open/closed state. Now a flag of each tab's dock.
+const OLD_HIDDEN_STORAGE_KEY = "anywh:right-panel-hidden";
 
 /** The narrowest and widest the column may be with these panes in it. */
 export function dockWidthBounds(panes: readonly DockPaneKind[]): { min: number; max: number } {
@@ -115,6 +105,8 @@ function sanitizeDocks(docks: DockMap): DockMap {
       last: known(dock.last) ? dock.last : undefined,
     };
     if (result[tabId].last === undefined) delete result[tabId].last;
+    if (dock.hidden === true) result[tabId].hidden = true;
+    else delete result[tabId].hidden;
   }
   return result;
 }
@@ -150,7 +142,8 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
 function pushPane(dock: DockState, kind: DockPaneKind): DockState {
   const panes = [...dock.panes, kind].slice(-MAX_DOCK_PANES);
   const maximized = dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null;
-  return { ...dock, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
+  const { hidden: _hidden, ...shown } = dock;
+  return { ...shown, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
 }
 
 /**
@@ -180,37 +173,21 @@ export function useSessionDock() {
 
   useEffect(() => {
     localStorage.removeItem(OLD_STORAGE_KEY);
+    localStorage.removeItem(OLD_HIDDEN_STORAGE_KEY);
   }, []);
-
-  const [hiddenGroups, setHiddenGroups] = useState<HiddenGroups>(loadHidden);
-
-  useEffect(() => {
-    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(hiddenGroups));
-  }, [hiddenGroups]);
 
   const getDock = useCallback((tabId: string): DockState => docks[tabId] ?? EMPTY_DOCK, [docks]);
 
-  const isGroupHidden = useCallback((groupId: string | null): boolean => groupId !== null && hiddenGroups[groupId] === true, [hiddenGroups]);
-
-  const setGroupHidden = useCallback((groupId: string, hidden: boolean) => {
-    setHiddenGroups((prev) => {
-      if ((prev[groupId] === true) === hidden) return prev;
-      if (!hidden) {
-        const next = { ...prev };
-        delete next[groupId];
-        return next;
-      }
-      return { ...prev, [groupId]: true };
-    });
-  }, []);
-
-  /** Whether the side panel is on screen for a group whose active tab is
-   * `tabId`: not hidden, and with something open on that tab. The toggle's
-   * state and the buttons that open its panes both follow this one answer. */
+  /** Whether the side panel is on screen for the tab `tabId`: not hidden, and
+   * with something open on it. The toggle's state and the buttons that open
+   * its panes both follow this one answer. */
   const isPanelShown = useCallback(
-    (groupId: string, tabId: string | null): boolean =>
-      tabId !== null && hiddenGroups[groupId] !== true && (docks[tabId] ?? EMPTY_DOCK).panes.length > 0,
-    [docks, hiddenGroups],
+    (tabId: string | null): boolean => {
+      if (tabId === null) return false;
+      const dock = docks[tabId] ?? EMPTY_DOCK;
+      return dock.hidden !== true && dock.panes.length > 0;
+    },
+    [docks],
   );
 
   /** The toggle. Shown, it hides the panel — what was open is kept, so
@@ -218,32 +195,28 @@ export function useSessionDock() {
    * has nothing open it opens the pane used last (`fallback` if there never
    * was one: the "no selection" view, or a room's agent), so the panel is
    * never a blank column. */
-  const togglePanel = useCallback(
-    (groupId: string, tabId: string | null, fallback: DockPaneKind = "none") => {
-      if (tabId === null) return;
-      if (isPanelShown(groupId, tabId)) {
-        setGroupHidden(groupId, true);
-        return;
+  const togglePanel = useCallback((tabId: string | null, fallback: DockPaneKind = "none") => {
+    if (tabId === null) return;
+    setDocks((prev) => {
+      const existing = prev[tabId] ?? EMPTY_DOCK;
+      if (existing.hidden !== true && existing.panes.length > 0) return { ...prev, [tabId]: { ...existing, hidden: true } };
+      if (existing.panes.length > 0) {
+        const { hidden: _hidden, ...shown } = existing;
+        return { ...prev, [tabId]: shown };
       }
-      setGroupHidden(groupId, false);
-      setDocks((prev) => {
-        const existing = prev[tabId] ?? EMPTY_DOCK;
-        if (existing.panes.length > 0) return prev;
-        return { ...prev, [tabId]: pushPane(existing, existing.last ?? fallback) };
-      });
-    },
-    [isPanelShown, setGroupHidden],
-  );
+      return { ...prev, [tabId]: pushPane(existing, existing.last ?? fallback) };
+    });
+  }, []);
 
   /** The dock as the tab's panel should draw it: the stored one, or — when
-   * its group's panel is hidden — a closed copy of it. The copy is cached per
+   * the tab's panel is hidden — a closed copy of it. The copy is cached per
    * stored dock, so `TabPanel` (memoized on this exact reference) is not
    * re-rendered by a call that returns the same thing it did last time. */
   const closedCopies = useRef(new WeakMap<DockState, DockState>());
   const getVisibleDock = useCallback(
     (tabId: string, groupId: string | null): DockState => {
       const dock = docks[tabId] ?? EMPTY_DOCK;
-      if (groupId === null || hiddenGroups[groupId] !== true || dock.panes.length === 0) return dock;
+      if (groupId === null || dock.hidden !== true || dock.panes.length === 0) return dock;
       let closed = closedCopies.current.get(dock);
       if (!closed) {
         closed = { ...dock, panes: [], maximized: null };
@@ -251,7 +224,7 @@ export function useSessionDock() {
       }
       return closed;
     },
-    [docks, hiddenGroups],
+    [docks],
   );
 
   /** If `kind` is already open, closes it; otherwise pushes it to the end of
@@ -260,7 +233,9 @@ export function useSessionDock() {
   const togglePane = useCallback((tabId: string, kind: DockPaneKind) => {
     setDocks((prev) => {
       const existing = prev[tabId] ?? EMPTY_DOCK;
-      if (existing.panes.includes(kind)) {
+      // On a hidden panel the pane is not on screen: asking for it means "show
+      // me this", not closing something nobody can see.
+      if (existing.panes.includes(kind) && existing.hidden !== true) {
         return { ...prev, [tabId]: withoutPane(existing, kind) };
       }
       return { ...prev, [tabId]: pushPane(existing, kind) };
@@ -273,7 +248,7 @@ export function useSessionDock() {
   const openPane = useCallback((tabId: string, kind: DockPaneKind) => {
     setDocks((prev) => {
       const existing = prev[tabId] ?? EMPTY_DOCK;
-      if (existing.panes.includes(kind)) return prev;
+      if (existing.panes.includes(kind) && existing.hidden !== true) return prev;
       return { ...prev, [tabId]: pushPane(existing, kind) };
     });
   }, []);
@@ -327,5 +302,5 @@ export function useSessionDock() {
     });
   }, []);
 
-  return { getDock, getVisibleDock, isGroupHidden, setGroupHidden, isPanelShown, togglePanel, togglePane, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
+  return { getDock, getVisibleDock, isPanelShown, togglePanel, togglePane, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
 }

@@ -130,3 +130,27 @@ describe("files/terminal toggles — cwd gate", () => {
     expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument();
   }, TEST_TIMEOUT);
 });
+
+describe("side panel — one state per session", () => {
+  it("keeps a session's panel open or closed independently of the other sessions in its group", async () => {
+    const user = userEvent.setup();
+    renderApp();
+    await openConversationAndPanel(user);
+    await screen.findByText(en.panels.noSelection, undefined, SLOW);
+
+    // A second session in the same group starts with its own panel closed.
+    await user.click(screen.getByRole("button", { name: en.shell.sidebar.newConversation }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument(), SLOW);
+    expect(screen.queryByText(en.panels.noSelection)).not.toBeInTheDocument();
+
+    // Opening and closing it there does not touch the first session's panel.
+    await user.click(screen.getByRole("button", { name: en.panels.showRightPanel }));
+    await screen.findByText(en.panels.noSelection, undefined, SLOW);
+    await user.click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
+    expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument();
+
+    // Back on the first session its panel is still open.
+    await user.click(screen.getAllByRole("tab")[0]);
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: en.panels.hideRightPanel })).toBeInTheDocument(), SLOW);
+  }, TEST_TIMEOUT);
+});

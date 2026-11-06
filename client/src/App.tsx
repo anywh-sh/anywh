@@ -655,10 +655,10 @@ function AppShell() {
           renderPanel={renderPanel}
           belowStrip={notices}
           stripLeadingInsetClass={sidebarHidden ? "pl-[var(--shell-leading)]" : undefined}
-          rightPanelShown={sessionDock.isPanelShown}
-          onToggleRightPanel={(groupId, tabId) =>
+          rightPanelShown={(_groupId, tabId) => sessionDock.isPanelShown(tabId)}
+          onToggleRightPanel={(_groupId, tabId) =>
             // A panel with nothing in it opens a room on its agent's conversation, anything else on the "no selection" view.
-            sessionDock.togglePanel(groupId, tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "none")
+            sessionDock.togglePanel(tabId, tabsState.tabs.find((tab) => tab.id === tabId)?.room ? "agent" : "none")
           }
           stripTrailing={windowControls}
           stripTrailingInsetClass={windowControls ? WINDOW_CONTROLS_INSET_CLASS : undefined}
