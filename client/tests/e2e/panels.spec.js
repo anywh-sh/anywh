@@ -5,9 +5,10 @@ import { join } from "node:path";
 // can't be exercised here: both toggles are gated on the session having a
 // folder, and a folder only exists once a relay has answered — no relay runs
 // in this tier. So what is provable is the structure and the gate, which are
-// real behaviour and not a harness artifact: a tab with nothing open has no
-// side panel and none of its buttons; opening the panel brings the buttons,
-// and they are deliberately inert until there is something to list.
+// real behaviour and not a harness artifact: the panel's rail is there with
+// the panel closed, toggle and pane buttons both; opening and hiding the
+// panel leaves the rail as it is; and the pane buttons are deliberately inert
+// until there is something to list.
 //
 // Opening a pane for real (its header, maximize, the split divider) needs a
 // relay and belongs to whichever tier grows one. The toggles are plain
@@ -25,12 +26,13 @@ describe("anywh dock panels", () => {
     await newConversation.click();
   });
 
-  it("has the side panel's toggle, and none of the pane buttons, while it is closed", async () => {
+  it("has the side panel's toggle and the pane buttons in its rail while it is closed", async () => {
     const panelToggle = await $('[aria-label="Show side panel"]');
     await panelToggle.waitForExist({ timeout: 15000 });
-    for (const label of ["Open files", "Close files", "Open terminal", "Close terminal"]) {
-      await expect(await $(`[aria-label="${label}"]`).isExisting()).toBe(false);
+    for (const label of ["Open files", "Open terminal"]) {
+      await expect(await $(`[data-testid="dock-rail"] [aria-label="${label}"]`).isExisting()).toBe(true);
     }
+    await expect(await $('[data-testid="dock-empty-state"]').isDisplayed()).toBe(false);
     await expect(await $('[aria-label="Close panel"]').isExisting()).toBe(false);
   });
 
@@ -54,13 +56,13 @@ describe("anywh dock panels", () => {
     }
   });
 
-  it("takes the pane buttons away again when the panel is hidden", async () => {
+  it("keeps the pane buttons in the rail when the panel is hidden", async () => {
     const panelToggle = await $('[aria-label="Hide side panel"]');
     await panelToggle.click();
 
     await $('[aria-label="Show side panel"]').waitForExist({ timeout: 15000 });
     for (const label of ["Open files", "Open terminal"]) {
-      await expect(await $(`[aria-label="${label}"]`).isExisting()).toBe(false);
+      await expect(await $(`[data-testid="dock-rail"] [aria-label="${label}"]`).isExisting()).toBe(true);
     }
   });
 });

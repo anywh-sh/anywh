@@ -194,25 +194,6 @@ describe("TabGroupStrip", () => {
     ).toBeInTheDocument();
   });
 
-  // The actual files/terminal toggle buttons are portaled in here by a tab's
-  // own `ChatPanel` (see panelTogglesSlot.ts and ChatPanel.tsx) — `cwd`,
-  // which gates them, lives only on that tab's socket and is deliberately
-  // not passed down as a prop. What this component owns is publishing (and
-  // un-publishing) the slot itself, right before the `+`.
-  describe("panel toggles slot", () => {
-    it("publishes a node for this group id while mounted, right after the +", () => {
-      const { unmount } = renderStrip([tab()], "s1");
-
-      const slot = getPanelTogglesSlot("g1");
-      expect(slot).not.toBeNull();
-      const newTab = screen.getByRole("button", { name: en.chat.tabs.newTab });
-      expect(newTab.compareDocumentPosition(slot!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-      unmount();
-      expect(getPanelTogglesSlot("g1")).toBeNull();
-    });
-  });
-
   it("hides the split context-menu item when allowSplit is false", async () => {
     const user = userEvent.setup();
     const a = tab({ id: "s1", title: "Primeira" });
@@ -244,14 +225,13 @@ describe("TabGroupStrip", () => {
 });
 
 describe("TabGroupStrip — the side panel toggle", () => {
-  it("has the toggle at the right end, with the slot for the panel's buttons before it", () => {
+  // The buttons that open the panel's panes are in the panel's own rail
+  // (`SessionDock`), not here.
+  it("has the toggle at the right end, and no slot for the panel's buttons", () => {
     renderStrip([tab()], "s1", vi.fn(), { shown: true, onToggle: vi.fn() });
     const toggle = screen.getByRole("button", { name: en.panels.hideRightPanel });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
-    const slot = getPanelTogglesSlot("g1");
-    expect(slot).not.toBeNull();
-    // Slot first, toggle after it: the toggle is the outermost control.
-    expect(slot?.compareDocumentPosition(toggle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(getPanelTogglesSlot("g1")).toBeNull();
   });
 
   it("calls back when pressed", async () => {
@@ -261,12 +241,9 @@ describe("TabGroupStrip — the side panel toggle", () => {
     expect(onToggle).toHaveBeenCalledOnce();
   });
 
-  // Hiding the panel hides the buttons that open its panes: a tab's panel
-  // draws them into this slot, and finds none while the panel is hidden.
-  it("keeps only the toggle while the panel is not showing — no slot for the panes' buttons", () => {
+  it("reads as not pressed while the panel is not showing", () => {
     renderStrip([tab()], "s1", vi.fn(), { shown: false, onToggle: vi.fn() });
     expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toHaveAttribute("aria-pressed", "false");
-    expect(getPanelTogglesSlot("g1")).toBeNull();
   });
 
   it("draws no toggle where there is no side panel", () => {

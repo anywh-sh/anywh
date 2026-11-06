@@ -73,9 +73,9 @@ function subscribeViewport(listener: () => void): () => void {
 
 const getViewportWidth = (): number => window.innerWidth;
 
-/** The rules outside the panel that have to line up with its edge (the
- * plane's frame and the status bar's rule, at the end of `sala.css`). */
-const OUTSIDE = "[data-plane-frame], [data-status-bar]";
+/** The rule outside the panel that has to line up with its edge (the
+ * plane's frame, at the end of `sala.css`). */
+const OUTSIDE = "[data-plane-frame]";
 
 /**
  * Draws `width`. The panel gets a plain `width`, which nothing inherits; the

@@ -1,9 +1,9 @@
 import { useLayoutEffect, type RefObject } from "react";
 
-/** What has to line up with the dock's edge: the plane's frame and the status
- * bar's top rule (the rules at the end of `index.css`, the same two the room's
- * side panel cuts in `sala.css`). */
-const OUTSIDE = "[data-plane-frame], [data-status-bar]";
+/** What has to line up with the dock's edge: the plane's frame (the rules at
+ * the end of `index.css`, the same one the room's side panel cuts in
+ * `sala.css`). The status bar's rule is not cut: it runs the window's width. */
+const OUTSIDE = "[data-plane-frame]";
 const EDGE = "data-dock-edge";
 
 /**
@@ -12,8 +12,8 @@ const EDGE = "data-dock-edge";
  * thing and the panel beside it is not boxed in. The panel cannot draw that
  * itself — the frame belongs to the shell, over the whole plane — so it
  * publishes where it is: it marks itself (`data-dock-edge`) when it touches
- * the plane's right edge, and gives the frame and the status bar its width,
- * which the rules in `index.css` cut them by.
+ * the plane's right edge, and gives the frame its width, which the rules in
+ * `index.css` cut it by.
  *
  * Only a dock at the plane's right edge cuts anything. In a split, the group
  * to the left keeps the frame all around it, and the dock that is inside the

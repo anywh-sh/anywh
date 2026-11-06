@@ -1,16 +1,37 @@
+import { AnywhMarkSilhouette } from "@/components/shell/AnywhLogo";
 import { useDict } from "@/i18n";
 
+/** The dot grid behind it, drawn from the same `--canvas-grid` token as the
+ * room canvas and the onboarding, faded toward the edges so it never reaches
+ * the panel's border. Laid out from the centre, where the mark is, so a row
+ * and a column of dots run through the mark's middle at any panel size and
+ * the dots around it sit the same distance from each of its sides. */
+const GRID_STYLE = {
+  backgroundImage: "radial-gradient(circle, var(--canvas-grid) 1px, transparent 1.5px)",
+  backgroundSize: "24px 24px",
+  backgroundPosition: "center",
+  maskImage: "radial-gradient(ellipse at center, black 25.5%, transparent 72%)",
+} as const;
+
 /**
- * What the side panel draws when it is open but nothing was picked in it: a
- * centred prompt to choose a view. It is the dock's "no selection" pane
- * (`none`), so a view added to the panel later is chosen from here without
- * the panel having to guess a default.
+ * What the side panel draws when it is open but nothing was picked in it: the
+ * mark's shape, quiet, over a dot grid on the chrome's colour (the status
+ * bar's and the sidebar's), and a prompt to choose a view from the rail. It is the
+ * dock's "no selection" pane (`none`), so a view added to the panel later is
+ * chosen from here without the panel having to guess a default.
  */
 export function DockEmptyState() {
   const dict = useDict();
   return (
-    <div data-testid="dock-empty-state" className="flex h-full w-full items-center justify-center bg-background p-6 text-center text-sm text-muted-foreground">
-      {dict.panels.noSelection}
+    <div data-testid="dock-empty-state" className="relative flex h-full w-full items-center justify-center bg-bg-chrome p-6">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={GRID_STYLE} />
+      {/* The mark alone is what is centred: the text hangs below it, out of the
+       * layout, so the mark lands on the grid's centre instead of sitting
+       * above it by half the text's height. */}
+      <div className="relative">
+        <AnywhMarkSilhouette className="block size-14 text-border" />
+        <p className="absolute top-full left-1/2 mt-4 -translate-x-1/2 text-center text-sm whitespace-nowrap text-muted-foreground">{dict.panels.noSelection}</p>
+      </div>
     </div>
   );
 }

@@ -34,14 +34,13 @@ afterEach(() => {
   relay.uninstall();
 });
 
-// The files/terminal toggles live in the tab group strip, next to the side
-// panel's own toggle (portaled there by the active tab's own ChatPanel — see
-// panelTogglesSlot.ts). They belong to the side panel: a tab with nothing
-// open has no panel, and none of them. Opening the panel brings them, and the
-// gate that makes them usable is still `cwd`: it arrives on the tab's own
-// socket as `cwd_state`, same as a real relay, and nothing renders the pair
-// as usable before that lands — there is no folder yet to open a terminal in
-// or list files from.
+// The files/terminal toggles live in the side panel's rail, under the panel's
+// own toggle (portaled there by the active tab's own ChatPanel — see
+// panelTogglesSlot.ts). The rail stays when the panel is closed, so they are
+// always one click away; the gate that makes them usable is `cwd`: it arrives
+// on the tab's own socket as `cwd_state`, same as a real relay, and nothing
+// renders the pair as usable before that lands — there is no folder yet to
+// open a terminal in or list files from.
 // Opening the panel mounts the Files pane, and clicking the terminal button
 // mounts the terminal's: both are lazy chunks (react-markdown, the code
 // viewer, xterm) that the first mount has to load and transform. On a slow CI
@@ -74,7 +73,7 @@ async function openConversationAndPanel(user: ReturnType<typeof userEvent.setup>
 }
 
 describe("files/terminal toggles — cwd gate", () => {
-  it("has neither toggle while the side panel is closed", async () => {
+  it("has both toggles while the side panel is closed, and one opens the panel on its pane", async () => {
     const user = userEvent.setup();
     renderApp();
 
@@ -82,8 +81,15 @@ describe("files/terminal toggles — cwd gate", () => {
     await screen.findByLabelText(en.chat.composer.placeholder);
     await screen.findByRole("button", { name: en.panels.showRightPanel }, SLOW);
 
-    expect(screen.queryByLabelText(en.panels.openFiles)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(en.panels.openTerminal)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText(en.panels.openFiles, undefined, SLOW)).toBeInTheDocument();
+    expect(screen.getByLabelText(en.panels.openTerminal)).toBeInTheDocument();
+
+    chatSocket().emitMessage({ type: "cwd_state", cwd: "/home/user/project", locked: false });
+    await vi.waitFor(() => expect(screen.getByLabelText(en.panels.openTerminal)).toBeEnabled(), SLOW);
+    await user.click(screen.getByLabelText(en.panels.openTerminal));
+
+    expect(await screen.findByLabelText(en.panels.closeTerminal, undefined, SLOW)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: en.panels.hideRightPanel })).toBeInTheDocument();
   }, TEST_TIMEOUT);
 
   it("stays disabled until the session's cwd arrives, then enables", async () => {
@@ -117,7 +123,7 @@ describe("files/terminal toggles — cwd gate", () => {
     expect(await screen.findByLabelText(en.panels.closeTerminal, undefined, SLOW)).toBeInTheDocument();
   }, TEST_TIMEOUT);
 
-  it("takes the pane buttons away with the panel", async () => {
+  it("keeps the pane buttons when the panel closes", async () => {
     const user = userEvent.setup();
     renderApp();
     await openConversationAndPanel(user);
@@ -125,9 +131,9 @@ describe("files/terminal toggles — cwd gate", () => {
 
     await user.click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
 
-    expect(screen.queryByLabelText(en.panels.openTerminal)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(en.panels.openFiles)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: en.panels.showRightPanel })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: en.panels.showRightPanel }, SLOW)).toBeInTheDocument();
+    expect(screen.getByLabelText(en.panels.openTerminal)).toBeInTheDocument();
+    expect(screen.getByLabelText(en.panels.openFiles)).toBeInTheDocument();
   }, TEST_TIMEOUT);
 });
 

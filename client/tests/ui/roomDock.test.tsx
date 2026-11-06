@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DOCK_RAIL_WIDTH } from "@/components/shell/SessionDock";
 import { act, cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
@@ -123,11 +124,11 @@ describe("a room's panes in the session dock", () => {
     await vi.waitFor(() => expect(panelKinds()).toEqual(["agent"]));
     await user.click(screen.getByRole("button", { name: en.panels.hideRightPanel }));
     // The dock keeps what it showed mounted while closed; what says it is
-    // closed is the toggle, and the width it is drawn with.
+    // closed is the toggle, and the width it is drawn with: the rail's alone.
     const dockWidth = () => (pane("agent")?.closest('div[style*="contain"]') as HTMLElement | null)?.style.width;
-    await vi.waitFor(() => expect(dockWidth()).toBe("0px"));
+    await vi.waitFor(() => expect(dockWidth()).toBe(`${DOCK_RAIL_WIDTH}px`));
     await user.click(screen.getByRole("button", { name: en.panels.showRightPanel }));
-    await vi.waitFor(() => expect(dockWidth()).not.toBe("0px"));
+    await vi.waitFor(() => expect(dockWidth()).not.toBe(`${DOCK_RAIL_WIDTH}px`));
     expect(panelKinds()).toEqual(["agent"]);
   }, 20_000);
 

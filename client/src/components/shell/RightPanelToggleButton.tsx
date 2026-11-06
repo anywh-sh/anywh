@@ -11,9 +11,8 @@ interface RightPanelToggleButtonProps {
 
 /**
  * The strip's right-hand end, the mirror of the title bar's sidebar toggle:
- * always there, and what it controls is everything to its left that belongs
- * to the side panel — the panel itself and the buttons that open its panes.
- * Hiding the panel hides all of them; showing it brings back what was open.
+ * always there, over the side panel's rail. Hiding the panel leaves the rail
+ * and its buttons; showing it brings back what was open.
  * One glyph for both states, drawn brighter while the panel shows, like the
  * sidebar's, so it reads as one control rather than two trading places.
  */
@@ -30,7 +29,7 @@ export function RightPanelToggleButton({ shown, onToggle }: RightPanelToggleButt
           aria-label={label}
           aria-pressed={shown}
           className={cn(
-            "flex size-[30px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground",
+            "flex h-[30px] w-10 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground",
             shown && "text-foreground",
           )}
         >

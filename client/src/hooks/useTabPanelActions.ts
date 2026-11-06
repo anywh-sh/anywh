@@ -141,8 +141,8 @@ export function useTabPanelActions({
       onModelLabelChange: (tabId, label) => {
         setModelLabelByTab((prev) => (prev[tabId] === label ? prev : { ...prev, [tabId]: label }));
       },
-      // Both reveal a hidden panel: they run from the room, which can ask
-      // for a pane whether or not the strip's buttons are on screen.
+      // Both reveal a hidden panel: the rail's buttons stay while it is
+      // hidden, and the room can ask for a pane at any time.
       onTogglePane: (tabId, kind) => onTogglePaneRef.current(tabId, kind),
       onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
