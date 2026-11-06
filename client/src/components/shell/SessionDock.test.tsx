@@ -5,6 +5,7 @@ import { SessionDock } from "@/components/shell/SessionDock";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { usePanelTogglesSlot } from "@/hooks/usePanelTogglesSlot";
 import { getPanelTogglesSlot } from "@/lib/panelTogglesSlot";
+import { en } from "@/i18n/en";
 import type { DockState } from "@/hooks/tabs/useSessionDock";
 
 afterEach(cleanup);
@@ -84,9 +85,12 @@ function renderRail(dock: Partial<DockState>, extra: { background?: boolean } = 
 }
 
 describe("SessionDock rail", () => {
-  it("stays with the panel closed, with the panes' buttons in it", () => {
+  it("stays with the panel closed: the panes' buttons, then the one that adds views", () => {
     const { rail } = renderRail({ panes: [] });
-    expect(within(rail()).getByRole("button", { name: "pane button" })).toBeInTheDocument();
+    const names = within(rail())
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    expect(names).toEqual(["pane button", en.panels.addView]);
     expect(screen.queryByText("term")).not.toBeInTheDocument();
   });
 

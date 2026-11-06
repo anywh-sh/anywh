@@ -29,7 +29,7 @@ export function RightPanelToggleButton({ shown, onToggle }: RightPanelToggleButt
           aria-label={label}
           aria-pressed={shown}
           className={cn(
-            "flex size-[30px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground",
+            "flex h-[30px] w-10 shrink-0 cursor-pointer items-center justify-center text-muted-foreground transition-colors hover:bg-bg-hover hover:text-foreground",
             shown && "text-foreground",
           )}
         >

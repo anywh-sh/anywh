@@ -73,7 +73,8 @@ describe("TabPanel — a room's tab", () => {
     const names = within(slot)
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
-    expect(names).toEqual([en.panels.openFiles, en.panels.openTerminal, en.panels.openRoomAbout, en.panels.closeAgent]);
+    // The panes' buttons, then, under the divider, the one that adds views.
+    expect(names).toEqual([en.panels.openFiles, en.panels.openTerminal, en.panels.openRoomAbout, en.panels.closeAgent, en.panels.addView]);
     const user = userEvent.setup();
     await user.click(within(slot).getByRole("button", { name: en.panels.openRoomAbout }));
     await user.click(within(slot).getByRole("button", { name: en.panels.closeAgent }));

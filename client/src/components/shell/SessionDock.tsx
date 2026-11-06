@@ -1,4 +1,5 @@
 import { useCallback, useRef, type ReactNode } from "react";
+import { RailAddButton } from "@/components/shell/RailAddButton";
 import { useDockPresence } from "@/hooks/useDockPresence";
 import { useDockFrameCut } from "@/hooks/useDockFrameCut";
 import { usePanelDrag } from "@/hooks/tabs/usePanelDrag";
@@ -11,11 +12,9 @@ import { cn } from "@/lib/utils";
 /** How far one arrow key press moves the column's edge. */
 const KEY_STEP = 16;
 
-/** The rail's width: one column of the strip's 30px buttons, against its
- * right edge so they sit under the strip's panel toggle. The 8px the rest
- * leaves on their left is the 8px of chrome the plane keeps on the window's
- * right, so the icons have as much room on either side. */
-export const DOCK_RAIL_WIDTH = 38;
+/** The rail's width, which its buttons fill edge to edge, and so does the
+ * strip's panel toggle above it. */
+export const DOCK_RAIL_WIDTH = 40;
 
 interface SessionDockProps {
   dock: DockState;
@@ -52,7 +51,8 @@ interface SessionDockProps {
  * `SessionPanel` has no `onStartDrag`.
  *
  * Down its right edge runs the rail: the buttons that open each of its panes,
- * one under the other, under the strip's panel toggle. The rail stays when the panel
+ * one under the other, under the strip's panel toggle, then a divider and the
+ * button that will add views from other platforms. The rail stays when the panel
  * closes — it is what is left of the column, so the panes are one click away
  * whether the panel is showing or not — and only the panel beside it opens
  * and closes. The buttons are portaled in by whoever owns their state (a
@@ -170,12 +170,15 @@ export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background 
         // Pinned to the right edge, so it stays put while the panel beside it
         // opens and closes, and opaque, so the panel's content never shows
         // under it while it slides.
-        className="absolute top-0 right-0 bottom-0 z-20 flex flex-col items-end bg-bg-chrome pt-1"
+        className="absolute top-0 right-0 bottom-0 z-20 flex flex-col bg-bg-chrome pt-1"
         style={{ width: DOCK_RAIL_WIDTH }}
       >
         {/* The slot the pane buttons are portaled into. `display: contents`
          * keeps the buttons themselves as the rail's flex items. */}
         <div ref={slotRef} className="contents" />
+        {/* The panes' own buttons end here; what is under the divider adds to them. */}
+        <div aria-hidden="true" className="mx-auto my-1 h-px w-5 shrink-0 bg-border" />
+        <RailAddButton />
       </div>
     </div>
   );
