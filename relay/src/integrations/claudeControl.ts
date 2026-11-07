@@ -68,6 +68,9 @@ export interface ClaudeControlProcess {
   readonly exited: boolean;
   /** Ends the process. Idempotent. */
   close(): void;
+  /** Ends the process once the requests it has are answered (at once with
+   * none); it takes no new ones meanwhile. */
+  closeWhenIdle(): void;
 }
 
 interface Pending {
@@ -98,6 +101,10 @@ export function startClaudeControl(options: ClaudeControlOptions): ClaudeControl
   const pending = new Map<string, Pending>();
   let nextId = 0;
   let exited = false;
+  let draining = false;
+  // Requests asked and not answered yet, those still waiting for the
+  // handshake included.
+  let inFlight = 0;
   let stdout = "";
 
   const finish = (detail: string): void => {
@@ -178,13 +185,24 @@ export function startClaudeControl(options: ClaudeControlOptions): ClaudeControl
 
   return {
     async request(subtype, payload = {}, timeoutMs = CLAUDE_CONTROL_REQUEST_TIMEOUT_MS) {
-      await ready;
-      return send(subtype, payload, timeoutMs);
+      if (draining) throw new ClaudeControlExited("closing");
+      inFlight += 1;
+      try {
+        await ready;
+        return await send(subtype, payload, timeoutMs);
+      } finally {
+        inFlight -= 1;
+        if (draining && inFlight === 0) close();
+      }
     },
     get exited() {
       return exited;
     },
     close,
+    closeWhenIdle() {
+      draining = true;
+      if (inFlight === 0) close();
+    },
   };
 }
 
@@ -243,10 +261,11 @@ export class ClaudeControlPool {
 
   /** A request on the process of `cwd` (the neutral folder when absent).
    * `fresh` replaces a running process first: one started before a config
-   * change still reports the servers it loaded then. */
+   * change still reports the servers it loaded then. The one replaced
+   * still answers what it was asked before it ends. */
   request(cwd: string | undefined, subtype: string, payload?: Record<string, unknown>, options: { timeoutMs?: number; fresh?: boolean } = {}): Promise<unknown> {
     const key = cwd ?? this.options.neutralCwd;
-    if (options.fresh) this.stop(key);
+    if (options.fresh) this.stop(key, true);
     return this.acquire(key).request(subtype, payload, options.timeoutMs);
   }
 
@@ -257,6 +276,12 @@ export class ClaudeControlPool {
 
   close(): void {
     for (const key of [...this.processes.keys()]) this.stop(key);
+  }
+
+  /** Every next request starts a new process (one that loads new tokens);
+   * the running ones end once they answered what they were asked. */
+  recycle(): void {
+    for (const key of [...this.processes.keys()]) this.stop(key, true);
   }
 
   private acquire(key: string): ClaudeControlProcess {
@@ -305,11 +330,12 @@ export class ClaudeControlPool {
     for (const [key] of projects.slice(0, projects.length - this.maxProjectProcesses + 1)) this.stop(key);
   }
 
-  private stop(key: string): void {
+  private stop(key: string, drain = false): void {
     const pooled = this.processes.get(key);
     if (!pooled) return;
     this.processes.delete(key);
     clearTimeout(pooled.idle);
-    pooled.process.close();
+    if (drain) pooled.process.closeWhenIdle();
+    else pooled.process.close();
   }
 }

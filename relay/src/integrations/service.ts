@@ -834,7 +834,7 @@ export function createIntegrationService(options: CreateIntegrationServiceOption
     reloadMcp: async (runtimeId) => {
       // A Claude process loads tokens when it starts: the next one does.
       if (runtimeId === "claude") {
-        claudePool?.close();
+        claudePool?.recycle();
         caller.reset();
       } else {
         await codexControl?.reload();

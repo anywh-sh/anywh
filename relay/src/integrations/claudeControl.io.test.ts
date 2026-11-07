@@ -122,3 +122,24 @@ test("pool: a process with no request for `idleMs` is stopped; the next request 
   await pool.request(undefined, "mcp_status");
   assert.equal(invocations().length, 2);
 });
+
+test("pool: a fresh scan or a recycle lets the replaced process answer what it was asked before it ends", async (t) => {
+  const { dir, def, invocations } = setup(t, { FAKE_CLAUDE_MCP_CALL_DELAY_MS: "400" });
+  const pool = new ClaudeControlPool({ def, neutralCwd: dir });
+  t.after(() => pool.close());
+  const call = () => pool.request(undefined, "mcp_call", { tool: "mcp__sentry__whoami", arguments: {} }) as Promise<{ content: { text: string }[] }>;
+
+  const slow = call();
+  await waitFor(() => pool.running().length === 1);
+  await pool.request(undefined, "mcp_status", {}, { fresh: true });
+  assert.equal(invocations().length, 2, "the scan ran on a new process");
+  assert.match((await slow).content[0].text, /"tool":"whoami"/);
+
+  const again = call();
+  await new Promise((r) => setTimeout(r, 100));
+  pool.recycle();
+  assert.deepEqual(pool.running(), []);
+  assert.match((await again).content[0].text, /"tool":"whoami"/);
+  await pool.request(undefined, "mcp_status");
+  assert.equal(invocations().length, 3);
+});

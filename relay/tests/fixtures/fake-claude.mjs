@@ -113,7 +113,8 @@
 //                        their status: an isolated server that does not come
 //                        up). `mcp_call` answers the official Atlassian
 //                        server from fake-atlassian.mjs, any other by echoing
-//                        the call. Any other unknown control request gets
+//                        the call (after FAKE_CLAUDE_MCP_CALL_DELAY_MS, if
+//                        set). Any other unknown control request gets
 //                        the real binary's error reply.
 //   FAKE_CLAUDE_TITLE_DELAY_MS - if set, delays the reply of a
 //                        `--output-format text` invocation (the title/
@@ -569,7 +570,9 @@ if (args[0] === "--version") {
         continue;
       }
       if (subtype === "mcp_call") {
-        answerMcpCall(message.request_id, message.request);
+        const delayMs = Number(process.env.FAKE_CLAUDE_MCP_CALL_DELAY_MS ?? 0);
+        if (delayMs > 0) setTimeout(() => answerMcpCall(message.request_id, message.request), delayMs);
+        else answerMcpCall(message.request_id, message.request);
         continue;
       }
       if (subtype !== "initialize") {

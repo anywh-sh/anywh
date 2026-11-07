@@ -84,7 +84,8 @@ export class RuntimeToolCaller implements McpToolCaller {
  * about which ones cannot be isolated): the next call starts afresh, with
  * whatever tokens the CLI has now. */
   reset(): void {
-    for (const pending of this.isolated.values()) void pending.then((isolated) => isolated && this.stopIsolated(isolated));
+    // A call already on its way still gets its answer.
+    for (const pending of this.isolated.values()) void pending.then((isolated) => isolated && this.stopIsolated(isolated, true));
     this.isolated.clear();
     this.notIsolated.clear();
   }
@@ -206,8 +207,14 @@ export class RuntimeToolCaller implements McpToolCaller {
     this.stopIsolated(isolated);
   }
 
-  private stopIsolated(isolated: Isolated): void {
+  /** `drain`: once it answered what it was asked (its folder goes when it
+   * exits). */
+  private stopIsolated(isolated: Isolated, drain = false): void {
     clearTimeout(isolated.idle);
+    if (drain) {
+      isolated.process.closeWhenIdle();
+      return;
+    }
     isolated.process.close();
     rmSync(isolated.dir, { recursive: true, force: true });
   }
