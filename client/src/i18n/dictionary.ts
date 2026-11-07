@@ -1810,6 +1810,51 @@ export interface Dictionary {
       needsAuthMany: string;
       connect: string;
     };
+    /** The pane's tickets: the "assigned to me" list and one ticket's
+     * screen. `{name}` is the provider. */
+    tickets: {
+      allMine: string;
+      /** Beside "All mine" in the dropdown. */
+      allProjects: string;
+      projects: string;
+      /** The dropdown's name. */
+      chooseProject: string;
+      /** `{ago}` is a relative time ("4 minutes ago"). */
+      updated: string;
+      /** The machine is unreachable: what is shown is its last answer. */
+      offline: string;
+      refresh: string;
+      /** `{duration}` until a refresh can read again. */
+      againIn: string;
+      loading: string;
+      empty: string;
+      /** `{project}`. */
+      emptyProject: string;
+      error: string;
+      retry: string;
+      needsAuth: string;
+      connect: string;
+      countOne: string;
+      /** `{count}`. */
+      count: string;
+      /** `{count}`, when more pages exist. */
+      countMore: string;
+      loadMore: string;
+      ticket: {
+        /** Back to the list; `{list}` is its name. */
+        back: string;
+        /** `{name}`. */
+        openIn: string;
+        priority: string;
+        status: string;
+        noDescription: string;
+        comments: string;
+        noComments: string;
+        loading: string;
+        error: string;
+        refresh: string;
+      };
+    };
     /** A sign-in link the app opened but could not hand to any relay. */
     oauthNotice: {
       /** No relay was waiting for this link. */

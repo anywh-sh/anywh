@@ -149,6 +149,7 @@ export function useTabPanelActions({
       onTogglePane: (tabId, kind) => onTogglePaneRef.current(tabId, kind),
       onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
       onToggleIntegration: (tabId, integrationId) => toggleIntegrationRef.current(tabId, integrationId),
+      onOpenTicket: (tabId, ticketKey) => sessionDock.setIntegrationTicket(tabId, ticketKey),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),

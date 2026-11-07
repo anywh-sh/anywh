@@ -13,7 +13,7 @@ import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { UsageCard } from "@/components/shell/UsageCard";
-import { REFRESH_CLICK_DEBOUNCE_MS } from "@/components/shell/UsageRefreshButton";
+import { REFRESH_CLICK_DEBOUNCE_MS } from "@/components/shell/RefreshControl";
 import { UsageIndicator } from "@/components/shell/UsageIndicator";
 import { groupByProfile } from "@/lib/planUsage/derive";
 import { Popover as PopoverPrimitive } from "radix-ui";

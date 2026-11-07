@@ -3,7 +3,8 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { UsageAccountBlock } from "@/components/shell/UsageAccountBlock";
 import { useDict, type Dictionary } from "@/i18n";
-import { RefreshIconButton, useRefreshControl } from "@/components/shell/UsageRefreshButton";
+import { RefreshIconButton } from "@/components/shell/RefreshControl";
+import { useUsageRefreshControl } from "@/components/shell/UsageRefreshButton";
 import { countAccounts, isReading, type ProfileGroup } from "@/lib/planUsage/derive";
 import { formatUpdatedAgo } from "@/lib/planUsage/format";
 import { profileColorClass } from "@/lib/profiles/profiles";
@@ -82,7 +83,7 @@ export function UsageCardBody({
   const now = useSecondClock();
   const card = strings.card;
   const accounts = countAccounts(groups);
-  const { age, again, reading, held, title, handleRefresh } = useRefreshControl(groups, now, onRefresh, strings);
+  const { age, again, reading, held, title, handleRefresh } = useUsageRefreshControl(groups, now, onRefresh, strings);
   const plural = (count: number, one: string, many: string) => (count === 1 ? one : many.replace("{count}", String(count)));
 
   return (

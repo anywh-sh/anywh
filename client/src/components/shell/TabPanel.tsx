@@ -57,6 +57,8 @@ export interface TabPanelActions {
   /** An integration's rail button: shows that integration in the pane, or
    * closes it when it is the one on screen. */
   onToggleIntegration: (tabId: string, integrationId: string) => void;
+  /** The integration pane opens one ticket (`null`: back to its list). */
+  onOpenTicket: (tabId: string, ticketKey: string | null) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -182,6 +184,8 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
           <IntegrationPanel
             profile={profile}
             integrationId={integrationId}
+            ticketKey={dock.ticketKey ?? null}
+            onOpenTicket={(key) => actions.onOpenTicket(tab.id, key)}
             maximized={dock.maximized === "integration"}
             onToggleMaximized={() => actions.onToggleMaximized(tab.id, "integration")}
             onClose={() => actions.onClosePane(tab.id, "integration")}
