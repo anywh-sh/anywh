@@ -7,7 +7,7 @@ import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } fr
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent, RoomCard } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
-import { withTicketLine } from "../protocol/ticketLine.js";
+import { withTicketLine, type TicketLine } from "../protocol/ticketLine.js";
 import type { TicketRef } from "../integrations/types.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
@@ -268,10 +268,11 @@ export interface SharedSessionOptions {
    * turn, which is refused while the room is full. */
   answerRefusal?: () => AnswerChoiceError | undefined;
   /** Asked once per turn a person sent, right before its prompt is built:
-   * the ticket the agent should be told it works on, if it has not been
-   * told yet. `start` is the ticket the session was started from, given on
-   * the session's first turn only. */
-  workTicketLine?: (start: TicketRef | undefined) => TicketRef | undefined;
+   * the ticket line the prompt starts with, if any (the ticket the agent
+   * works on and was not told about yet, or one a room's principal is
+   * handed to pass on). `start` is the ticket the person sent with the
+   * message; `firstTurn` whether it is the session's first turn. */
+  workTicketLine?: (start: TicketRef | undefined, firstTurn: boolean) => TicketLine | undefined;
 }
 
 /** Why a `choice_answer` was refused; the card stays open. */
@@ -1489,9 +1490,9 @@ export class SharedSession implements SessionDriverHost {
   /** A turn asked by another agent of the room (a delegated task, a message
    * from the principal) rather than typed by a person on a device: no
    * device has its bubble yet, so everyone connected gets it. */
-  submitAgentTurn(text: string, hooks?: TurnHooks, card?: RoomCard): void {
+  submitAgentTurn(text: string, hooks?: TurnHooks, card?: RoomCard, ticketLine?: TicketLine): void {
     this.clearSuggestion();
-    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks, undefined, undefined, card));
+    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks, undefined, undefined, card, undefined, ticketLine));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1569,9 +1570,11 @@ export class SharedSession implements SessionDriverHost {
     /** What the turn is shown as instead of a bubble (see `RoomCard`). Not a
      * kind of synthetic turn: a delegated first task still locks the cwd. */
     card?: RoomCard,
-    /** The ticket a person started the session from; honored on the
-     * session's first turn only. */
+    /** The ticket a person sent with the message (see `workTicketLine`). */
     startTicket?: TicketRef,
+    /** The ticket line the prompt starts with, decided by whoever queued an
+     * agent turn (a delegated task); never shown, like the card. */
+    ticketLine?: TicketLine,
   ): Promise<void> {
     // The conversation so far is read from the agent's own storage before
     // anything of this turn enters the log: a turn that starts before any
@@ -1696,8 +1699,8 @@ export class SharedSession implements SessionDriverHost {
       const effortId = this.effortForTurn();
       // Only a turn a person sent tells the agent its ticket: never a
       // wakeup, a job's report or another agent's message.
-      const ticket = origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(firstTurn ? startTicket : undefined) : undefined;
-      const body = ticket ? withTicketLine(text, ticket.key, ticket.provider) : text;
+      const ticket = ticketLine ?? (origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(startTicket, firstTurn) : undefined);
+      const body = ticket ? withTicketLine(text, ticket.key, ticket.provider, ticket.kind) : text;
       const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(body, card) : body);
       const ctx: TurnContext = {
         cwd: this.cwd,

@@ -110,6 +110,10 @@ export interface TicketLinksOptions {
   /** Whether a session exists; a link to one that does not is refused, and
    * dropped on load. Every session counts when absent. */
   readonly sessionExists?: (sessionId: string) => boolean;
+  /** Whether a session may have a ticket at all (a room's principal, which
+   * orchestrates several agents, may not): a link to one that may not is
+   * refused as a `conflict`. Every session may when absent. */
+  readonly mayHold?: (sessionId: string) => boolean;
   readonly now?: () => number;
 }
 
@@ -119,6 +123,7 @@ export interface LinkDetails {
   readonly evidence?: string;
   /** The person's next message tells the agent (see `takeDueLine`). */
   readonly lineDue?: boolean;
+  readonly place?: WorkTicketPlace;
 }
 
 export class TicketLinks {
@@ -158,11 +163,12 @@ export class TicketLinks {
   /** Gives `sessionId` its ticket, unless it already has one. */
   link(sessionId: string, ticket: TicketRef, origin: WorkTicketOrigin, details: LinkDetails = {}): TicketLinkResult {
     if (this.options.sessionExists && !this.options.sessionExists(sessionId)) return "no_session";
-    if (this.bySession.has(sessionId)) return "conflict";
+    if (this.bySession.has(sessionId) || (this.options.mayHold && !this.options.mayHold(sessionId))) return "conflict";
     const link: WorkTicket = {
       sessionId,
       ticket: { provider: ticket.provider, site: ticket.site, key: ticket.key, ...(ticket.id !== undefined ? { id: ticket.id } : {}) },
       origin,
+      ...(details.place ? { place: { ...details.place } } : {}),
       ...(details.evidence ? { evidence: details.evidence } : {}),
       linkedAt: this.now(),
       ...(details.title ? { title: details.title } : {}),
@@ -180,6 +186,18 @@ export class TicketLinks {
     this.persist();
     this.emit({ type: "work_ticket_removed", sessionId });
     return true;
+  }
+
+  /** Where the room agent of `sessionId` sits and how it is doing, for the
+   * ticket's screen; announced only when it changed. A session without a
+   * link is left alone. */
+  setPlace(sessionId: string, place: WorkTicketPlace | undefined): void {
+    const link = this.bySession.get(sessionId);
+    if (!link || JSON.stringify(link.place) === JSON.stringify(place)) return;
+    if (place) link.place = { ...place };
+    else delete link.place;
+    this.persist();
+    this.emit({ type: "work_ticket_upsert", link: copy(link) });
   }
 
   /** The ticket the agent of `sessionId` has not been told about yet, once:

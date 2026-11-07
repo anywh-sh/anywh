@@ -87,3 +87,28 @@ test("the file is read back field by field; another version or a bad entry is dr
   assert.equal(parseTicketLinksFile("not json"), undefined);
   assert.equal(ticketLinksPathFor("/x/pessoal.json"), "/x/pessoal-ticket-links.json");
 });
+
+test("a session that may not hold a ticket (a room's principal) is refused as a conflict", () => {
+  const links = new TicketLinks({ now: () => NOW, mayHold: (id) => id !== "principal" });
+  assert.equal(links.link("principal", ticket("NGL-9"), "manual"), "conflict");
+  assert.equal(links.get("principal"), undefined);
+  assert.equal(links.link("worker", ticket("NGL-9"), "delegate"), "ok");
+});
+
+test("a room agent's place is announced when it changes, and only then", () => {
+  const { links, store, events } = harness(["w1", "s2"]);
+  const place = { roomId: "r1", roomTitle: "Release", agentTitle: "Fixer", agentState: "queued" };
+  assert.equal(links.link("w1", ticket("NGL-9"), "delegate", { place }), "ok");
+  assert.deepEqual(links.get("w1")?.place, place);
+  events.length = 0;
+  links.setPlace("w1", { ...place });
+  assert.equal(events.length, 0, "unchanged: nothing announced");
+  links.setPlace("w1", { ...place, agentState: "working" });
+  assert.deepEqual(events.map((event) => event.type === "work_ticket_upsert" && event.link.place?.agentState), ["working"]);
+  assert.equal(store.saved?.w1?.place?.agentState, "working");
+  links.setPlace("w1", undefined);
+  assert.equal(links.get("w1")?.place, undefined);
+  // No link, nothing to place.
+  links.setPlace("s2", place);
+  assert.equal(links.get("s2"), undefined);
+});

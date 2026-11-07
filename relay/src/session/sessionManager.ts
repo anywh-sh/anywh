@@ -1,4 +1,5 @@
 import type { TicketRef, TicketTag } from "../integrations/types.js";
+import type { TicketLine } from "../protocol/ticketLine.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
@@ -92,10 +93,11 @@ export interface SessionWorkTickets {
   observe(sessionId: string, agentId: string, event: AgentEvent): void;
   /** The session was deleted. */
   forget(sessionId: string): void;
-  /** A person's turn is about to be sent: `start` (the ticket a new session
-   * was started from) becomes its ticket, and the ticket its agent has not
-   * been told about yet, if any, is returned — once. */
-  takeLine(sessionId: string, start: TicketRef | undefined): TicketRef | undefined;
+  /** A person's turn is about to be sent with `start` (the ticket they sent
+   * with it, if any; `firstTurn` whether it is the session's first): the
+   * line its prompt starts with, if any — the ticket its agent has not been
+   * told about yet (once), or one a room's principal is to pass on. */
+  takeLine(sessionId: string, start: TicketRef | undefined, firstTurn: boolean): TicketLine | undefined;
 }
 
 /** A notification-worthy moment in one session, as `server.ts` receives it. */
@@ -603,7 +605,7 @@ export class SessionManager {
       initialSuggestion: this.sessionStore.getSuggestion(id),
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
       onActivityStateChange: () => this.announceActivity(id),
-      workTicketLine: (start) => this.workTickets?.takeLine(id, start),
+      workTicketLine: (start, firstTurn) => this.workTickets?.takeLine(id, start, firstTurn),
       initialPendingChoice: this.sessionStore.getPendingChoice(id),
       onPendingChoiceChange: (choice) => this.sessionStore.setPendingChoice(id, choice),
       initialPendingApproval: this.sessionStore.getPendingApproval(id),

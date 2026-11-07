@@ -48,6 +48,7 @@ import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes
 import { createIntegrationService } from "./integrations/service.js";
 import { TicketLinks, createFileTicketLinksStore, ticketLinksPathFor } from "./integrations/ticketLinks.js";
 import { TicketObserver } from "./integrations/observer.js";
+import type { IntegrationProvider } from "./integrations/types.js";
 import { INTEGRATIONS_WATCH_PATH, handleIntegrationsConnection, handleIntegrationsRoutes } from "./routes/integrations.js";
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
@@ -189,7 +190,7 @@ const sessionManager = new SessionManager(
     onWorkerPrompted: (id, watched): void => roomManager.workerPrompted(id, watched),
     onMemberChanged: (id) => {
       const roomId = sessionStore.getRoom(id)?.roomId;
-      if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined) touchRoom(roomId);
     },
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
@@ -197,13 +198,13 @@ const sessionManager = new SessionManager(
     onActivity: (id, event): void => {
       if (!roomActivity.observe(id, event)) return;
       const roomId = sessionStore.getRoom(id)?.roomId;
-      if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined) touchRoom(roomId);
     },
     onTurnStarted: (id, startedAt, synthetic): void => roomManager.noteTurnStarted(id, startedAt, synthetic),
     onMcpServerUsed: (id, server): void => {
       roomManager.noteConnector(id, server);
       const roomId = sessionStore.getRoom(id)?.roomId;
-      if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined) touchRoom(roomId);
     },
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
@@ -226,6 +227,18 @@ const roomWorktrees = new RoomWorktrees({
   root: process.env.RELAY_WORKTREES_ROOT ?? join(HOME_OVERRIDE ?? homedir(), ".anywh", "worktrees"),
   agents: { facts: (id) => roomManager.worktreeAgentFacts(id) },
 });
+// Each session's work ticket (at most one), beside the sessions file. A
+// room's principal orchestrates several agents: it never has one.
+const ticketLinks = new TicketLinks({
+  store: createFileTicketLinksStore(ticketLinksPathFor(SESSIONS_FILE)),
+  sessionExists: (id) => sessionStore.has(id),
+  mayHold: (id) => sessionStore.getRoom(id)?.role !== "principal",
+});
+// The site of a tracker's tickets, for a key alone (a principal's
+// `delegate`): what a read found, else the site of a ticket a client sent.
+const sentTicketSites = new Map<string, string>();
+const ticketSite = (provider: IntegrationProvider): string | undefined =>
+  integrations.siteOf(provider)?.id ?? sentTicketSites.get(provider) ?? ticketLinks.list().find((link) => link.ticket.provider === provider)?.ticket.site;
 const roomManager: RoomManager = new RoomManager({
   worktrees: roomWorktrees,
   canvasAreas: (roomId) => roomCanvas.get(roomId).areas,
@@ -260,19 +273,33 @@ const roomManager: RoomManager = new RoomManager({
   getModelCatalog: (agentId) => modelCatalogs[agentId],
   context: roomContext,
   ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
+  tickets: {
+    resolve: (key) => {
+      const site = ticketSite("jira");
+      return site ? { provider: "jira", site, key } : undefined;
+    },
+    link: (agentId, ticket) => {
+      const title = integrations.ticketTitle(ticket.provider, ticket.key);
+      const place = roomManager.placeOf(agentId);
+      // Its task carries the ticket line (RoomManager.pump), not the
+      // person's next message.
+      ticketLinks.link(agentId, ticket, "delegate", { ...(title ? { title } : {}), ...(place ? { place } : {}) });
+    },
+    workTicketOf: (id) => {
+      const link = ticketLinks.get(id);
+      if (!link) return undefined;
+      const title = link.title ?? integrations.ticketTitle(link.ticket.provider, link.ticket.key);
+      return { provider: link.ticket.provider, key: link.ticket.key, ...(title ? { title } : {}) };
+    },
+    title: (key) => integrations.ticketTitle("jira", key),
+  },
 });
 roomBridge.attach(roomManager);
-// Each session's work ticket (at most one), beside the sessions file, and
-// what the agents' own calls to a tracker's MCP server tell about tickets.
-const ticketLinks = new TicketLinks({
-  store: createFileTicketLinksStore(ticketLinksPathFor(SESSIONS_FILE)),
-  sessionExists: (id) => sessionStore.has(id),
-});
+// What the agents' own calls to a tracker's MCP server tell about tickets.
 const ticketObserver = new TicketObserver({
   identify: (runtimeId, server) => integrations.identifyServer(runtimeId, server),
   ingest: (integrationId, observed) => integrations.observeTickets(integrationId, observed),
   links: ticketLinks,
-  // A room's principal orchestrates several agents: it never has a ticket.
   mayLink: (id) => sessionStore.getRoom(id)?.role !== "principal",
 });
 sessionManager.setWorkTickets({
@@ -282,16 +309,50 @@ sessionManager.setWorkTickets({
   },
   observe: (id, agentId, event) => ticketObserver.observe(id, agentId, event),
   forget: (id) => ticketLinks.unlink(id),
-  takeLine: (id, start) => {
-    // A session started from a ticket works on it (a principal never does).
-    if (start && sessionStore.getRoom(id)?.role !== "principal") {
+  takeLine: (id, start, firstTurn) => {
+    // A room's principal is handed a ticket, with any message, to pass on to
+    // the agent it delegates that work to; it never works on one itself.
+    if (sessionStore.getRoom(id)?.role === "principal") {
+      if (!start) return undefined;
+      sentTicketSites.set(start.provider, start.site);
+      return roomManager.carryTicket(id, start.key, start.provider);
+    }
+    // A session started from a ticket works on it.
+    if (start && firstTurn) {
       const title = integrations.ticketTitle(start.provider, start.key);
       ticketLinks.link(id, start, "start", { lineDue: true, ...(title ? { title } : {}) });
     }
-    return ticketLinks.takeDueLine(id);
+    const due = ticketLinks.takeDueLine(id);
+    return due && { provider: due.provider, key: due.key, kind: "work" };
   },
 });
-ticketLinks.subscribe((event) => sessionManager.announceWorkTicket(event.type === "work_ticket_upsert" ? event.link.sessionId : event.sessionId));
+// Where each room agent that works on a ticket stands, on its link, so the
+// ticket's screen shows it without the room open: brought up to date with
+// the room's changes, coalesced per room.
+const placeSyncs = new Map<string, NodeJS.Timeout>();
+const syncTicketPlaces = (roomId: string): void => {
+  if (placeSyncs.has(roomId)) return;
+  const timer = setTimeout(() => {
+    placeSyncs.delete(roomId);
+    for (const link of ticketLinks.list()) {
+      if (sessionStore.getRoom(link.sessionId)?.roomId === roomId) ticketLinks.setPlace(link.sessionId, roomManager.placeOf(link.sessionId));
+    }
+  }, 30);
+  timer.unref();
+  placeSyncs.set(roomId, timer);
+};
+/** Something about a room changed: its watchers and its tickets follow. */
+const touchRoom = (roomId: string): void => {
+  roomChannel.touch(roomId);
+  syncTicketPlaces(roomId);
+};
+ticketLinks.subscribe((event) => {
+  const sessionId = event.type === "work_ticket_upsert" ? event.link.sessionId : event.sessionId;
+  sessionManager.announceWorkTicket(sessionId);
+  // A room agent's card shows its ticket.
+  const roomId = sessionStore.getRoom(sessionId)?.roomId;
+  if (roomId !== undefined) touchRoom(roomId);
+});
 // Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
 const roomChannel = new RoomChannel({
   // What an agent has just been doing lives here, not in the room's store.
@@ -300,7 +361,7 @@ const roomChannel = new RoomChannel({
     return snapshot && { ...snapshot, agents: snapshot.agents.map((agent) => ({ ...agent, activity: roomActivity.recent(agent.agentId) })) };
   },
 });
-sessionStore.onRoomChange((_sessionId, roomId) => roomChannel.touch(roomId));
+sessionStore.onRoomChange((_sessionId, roomId) => touchRoom(roomId));
 // Removals that were waiting out their undo window when the relay stopped.
 roomManager.sweepRemoved();
 // At start, and then daily: finish what a crash interrupted, forget worktrees

@@ -124,7 +124,11 @@ relay/src/
                            keeps each session's work ticket (at most one),
                            and observer.ts watches the agents' own tracker
                            calls in every turn to refresh the cache and link
-                           the first ticket a session's agent opens
+                           the first ticket a session's agent opens. In a
+                           room the principal never has one: a ticket sent
+                           to it is carried (`RoomMembership.carriedTickets`)
+                           and handed on with `delegate`'s `ticket`, which
+                           links the agent it starts
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

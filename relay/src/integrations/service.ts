@@ -374,6 +374,14 @@ export class IntegrationService {
     this.notify();
   }
 
+  /** The site of the profile's `provider` tracker, once a read found it. */
+  siteOf(provider: IntegrationProvider): IntegrationSite | undefined {
+    for (const integration of this.integrations.values()) {
+      if (integration.definition.provider === provider && integration.site) return { ...integration.site };
+    }
+    return undefined;
+  }
+
   /** A ticket's title, if any cached read of its tracker has it. */
   ticketTitle(provider: IntegrationProvider, key: string): string | undefined {
     for (const integration of this.integrations.values()) {

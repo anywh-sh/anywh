@@ -16,6 +16,13 @@ const LABELS: Record<IntegrationProvider, string> = { jira: "Jira ticket", linea
 /** `work`: the session works on it; `delegate`: a principal passes it on. */
 export type TicketLineKind = "work" | "delegate";
 
+/** A ticket line a turn's prompt is to start with. */
+export interface TicketLine {
+  readonly provider: IntegrationProvider;
+  readonly key: string;
+  readonly kind: TicketLineKind;
+}
+
 const label = (provider: IntegrationProvider, kind: TicketLineKind): string => `${LABELS[provider]}${kind === "delegate" ? " to delegate" : ""}`;
 
 export function withTicketLine(text: string, key: string, provider: IntegrationProvider = "jira", kind: TicketLineKind = "work"): string {

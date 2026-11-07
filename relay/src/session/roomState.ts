@@ -149,6 +149,34 @@ export function summarizeRoom(agents: readonly RoomAgentView[]): RoomSummary {
   return { counts, needsYou, live, liveLimit: ROOM_MAX_LIVE_AGENTS };
 }
 
+/** The tickets of a room, for its About: one entry per ticket its agents
+ * work on (with them, in the agents' order), then each one the principal
+ * holds to pass on that no agent works on yet (`carried`). */
+export function roomTickets(agents: readonly RoomAgentView[], carried: readonly RoomAgentTicket[] = []): RoomTicketView[] {
+  const out: RoomTicketView[] = [];
+  const byTicket = new Map<string, RoomTicketView>();
+  const id = (ticket: RoomAgentTicket): string => `${ticket.provider}:${ticket.key}`;
+  for (const agent of agents) {
+    if (!agent.ticket || agent.role === "principal") continue;
+    const known = byTicket.get(id(agent.ticket));
+    if (known) {
+      known.agentIds.push(agent.agentId);
+      if (known.title === undefined && agent.ticket.title !== undefined) known.title = agent.ticket.title;
+      continue;
+    }
+    const view: RoomTicketView = { provider: agent.ticket.provider, key: agent.ticket.key, ...(agent.ticket.title !== undefined ? { title: agent.ticket.title } : {}), agentIds: [agent.agentId] };
+    byTicket.set(id(agent.ticket), view);
+    out.push(view);
+  }
+  for (const ticket of carried) {
+    if (byTicket.has(id(ticket))) continue;
+    const view: RoomTicketView = { provider: ticket.provider, key: ticket.key, ...(ticket.title !== undefined ? { title: ticket.title } : {}), agentIds: [], carried: true };
+    byTicket.set(id(ticket), view);
+    out.push(view);
+  }
+  return out;
+}
+
 export interface RoomSnapshot {
   roomId: string;
   agents: RoomAgentView[];

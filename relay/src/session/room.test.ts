@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ROOM_CONNECTORS_MAX, isConnectorServer, isDescendant, isRoomMembership, liveAncestorId, resolveAgentRef, roomAgentState, roomAreas, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
+import { ROOM_CARRIED_TICKETS_MAX, ROOM_CONNECTORS_MAX, isConnectorServer, withCarriedTicket, isDescendant, isRoomMembership, liveAncestorId, resolveAgentRef, roomAgentState, roomAreas, takesRoomPlace, titleFromTask, type RoomMembership } from "./room.js";
 
 const worker: RoomMembership = { roomId: "p", role: "worker", parentId: "p", createdBy: "agent", task: "count lines" };
 const principal: RoomMembership = { roomId: "p", role: "principal", createdBy: "user", task: "", undeliveredReports: [] };
@@ -167,4 +167,32 @@ test("roomAreas takes the canvas's areas, the empty ones the person drew include
   assert.equal(areaOf.get("c"), "Inbox", "matched by label whatever its case and spacing, as the client does");
   assert.equal(areaOf.has("b"), false);
   assert.equal(areaOf.has("e"), false, "an agent can be in no area");
+});
+
+test("a worker keeps the ticket it was delegated with, a principal the keys it holds to pass on; each only in its own role", () => {
+  const ticket = { provider: "jira", site: "cloud-1", key: "NGL-9" };
+  assert.equal(isRoomMembership({ ...worker, ticket }), true);
+  assert.equal(isRoomMembership({ ...worker, ticket: { ...ticket, id: "10009" } }), true);
+  assert.equal(isRoomMembership({ ...principal, carriedTickets: ["NGL-9", "ABC-1"] }), true);
+  const rejected: [string, unknown][] = [
+    ["ticket with a bad key", { ...worker, ticket: { ...ticket, key: "ngl-9" } }],
+    ["ticket without a site", { ...worker, ticket: { ...ticket, site: "" } }],
+    ["ticket of an unknown tracker", { ...worker, ticket: { ...ticket, provider: "trello" } }],
+    ["ticket as a bare key", { ...worker, ticket: "NGL-9" }],
+    ["principal with a ticket", { ...principal, ticket }],
+    ["worker carrying tickets", { ...worker, carriedTickets: ["NGL-9"] }],
+    ["carried key not a key", { ...principal, carriedTickets: ["NGL 9"] }],
+    ["carried keys not a list", { ...principal, carriedTickets: "NGL-9" }],
+    ["too many carried keys", { ...principal, carriedTickets: Array.from({ length: ROOM_CARRIED_TICKETS_MAX + 1 }, (_, n) => `NGL-${n + 1}`) }],
+  ];
+  for (const [what, value] of rejected) assert.equal(isRoomMembership(value), false, what);
+});
+
+test("a carried key is kept once, at the end, and only the newest are kept", () => {
+  assert.deepEqual(withCarriedTicket(undefined, "NGL-1"), ["NGL-1"]);
+  assert.deepEqual(withCarriedTicket(["NGL-1", "NGL-2"], "NGL-1"), ["NGL-2", "NGL-1"]);
+  const full = Array.from({ length: ROOM_CARRIED_TICKETS_MAX }, (_, n) => `NGL-${n + 1}`);
+  const next = withCarriedTicket(full, "ABC-1");
+  assert.equal(next.length, ROOM_CARRIED_TICKETS_MAX);
+  assert.deepEqual([next[0], next.at(-1)], ["NGL-2", "ABC-1"]);
 });

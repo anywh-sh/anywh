@@ -5,6 +5,7 @@
 // waits for another agent or for a person.
 //
 // Pure: no I/O.
+import { TICKET_KEY_PATTERN } from "../integrations/types.js";
 import type { RoomToolSpec } from "../runtimes/types.js";
 import { ROOM_AGENT_NAME_MAX, ROOM_AGENT_PURPOSE_MAX, ROOM_MAX_LIVE_AGENTS, ROOM_REPORT_ARTIFACTS_MAX, ROOM_REPORT_SUMMARY_MAX, ROOM_TASK_MAX, type RoomReportStatus, type RoomRole } from "./room.js";
 
@@ -32,6 +33,7 @@ export const DELEGATE_TOOL: RoomToolSpec = {
           "Optional area of the room's canvas for agents whose work adds up to one result: an existing one, by its name as " +
           "room_status lists it, or a new one named for that result. Leave it out for an agent that works alone.",
       },
+      ticket: { type: "string", description: "The ticket key (e.g. ABC-123) the agent works on, when a message handed you one to delegate. One per agent." },
     },
     required: ["name", "purpose", "task", "runtime", "model"],
   },
@@ -175,7 +177,9 @@ function principalBase(runtimes: readonly string[]): string {
     "on. Name an area for its result, put a new agent in an existing area only if it serves that same result, and leave an " +
     "agent that works alone outside any area.\n" +
     "- Delegate self-contained tasks, tell the person the plan, and end your turn. Reports arrive on their own; never wait " +
-    "or poll.\n\n" +
+    "or poll.\n" +
+    "- When a message starts with `Jira ticket to delegate: KEY`, pass `ticket: \"KEY\"` when you delegate the agent that " +
+    "does that work; one ticket per agent; tickets you only read are context.\n\n" +
     `Runtimes you can delegate to: ${runtimes.join(", ")}. At most ${ROOM_MAX_LIVE_AGENTS} agents of a room can be live at once.`
   );
 }
@@ -244,6 +248,17 @@ export interface DelegateArgs {
   /** The ticket key the delegated agent works on (a `TICKET_KEY_PATTERN`
    * key of the profile's tracker). */
   ticket?: string;
+  /** Why a `ticket` that was given was dropped: the agent is started
+   * without one, never refused for it. */
+  ticketWarning?: string;
+}
+
+/** A delegation's `ticket`: a key, or why it is ignored. */
+function delegateTicket(value: unknown): { ticket?: string; ticketWarning?: string } {
+  if (value === undefined || value === null || value === "") return {};
+  const key = typeof value === "string" ? value.trim().toUpperCase() : undefined;
+  if (key !== undefined && TICKET_KEY_PATTERN.test(key)) return { ticket: key };
+  return { ticketWarning: "ticket is not a ticket key (like ABC-123); the agent was started without a ticket." };
 }
 
 export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
@@ -264,6 +279,7 @@ export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
   if (!parentId.ok) return parentId;
   const area = optionalString(args, "area", 200);
   if (!area.ok) return area;
+  const ticket = delegateTicket(args.ticket);
   return {
     ok: true,
     value: {
@@ -275,6 +291,7 @@ export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {
       ...(effort.value ? { effort: effort.value } : {}),
       ...(parentId.value ? { parentId: parentId.value } : {}),
       ...(area.value ? { area: area.value } : {}),
+      ...ticket,
     },
   };
 }
