@@ -111,6 +111,10 @@ export interface RoomTickets {
   link(agentId: string, ticket: TicketRef): void;
   /** The ticket a session works on now, as a card shows it. */
   workTicketOf(sessionId: string): RoomAgentTicket | undefined;
+  /** The ticket a session works on, for the line in front of its first
+   * task: the line it was owed (a link the person made before that task
+   * started) is paid by it, so their next message does not repeat it. */
+  takeWorkLine(sessionId: string): RoomAgentTicket | undefined;
   /** A ticket's title, if the profile has read it. */
   title(key: string): string | undefined;
 }
@@ -916,7 +920,7 @@ export class RoomManager implements RoomToolHost {
     // The task of an agent delegated with a ticket tells it which, once: on
     // its first turn (again only if that one never started) — the ticket it
     // works on then, none if the person took it off meanwhile.
-    const ticket = room.startedAt === undefined ? this.options.tickets?.workTicketOf(sessionId) : undefined;
+    const ticket = room.startedAt === undefined ? this.options.tickets?.takeWorkLine(sessionId) : undefined;
     const line: TicketLine | undefined = ticket ? { provider: ticket.provider, key: ticket.key, kind: "work" } : undefined;
     const hooks: TurnHooks = {
       onDelivered: () => {

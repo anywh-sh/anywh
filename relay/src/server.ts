@@ -48,7 +48,7 @@ import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes
 import { createIntegrationService } from "./integrations/service.js";
 import { TicketLinks, createFileTicketLinksStore, ticketLinksPathFor } from "./integrations/ticketLinks.js";
 import { TicketObserver } from "./integrations/observer.js";
-import type { IntegrationProvider } from "./integrations/types.js";
+import type { IntegrationProvider, RoomAgentTicket } from "./integrations/types.js";
 import { INTEGRATIONS_WATCH_PATH, handleIntegrationsConnection, handleIntegrationsRoutes } from "./routes/integrations.js";
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
@@ -241,6 +241,13 @@ const ticketLinks = new TicketLinks({
 const sentTicketSites = new Map<string, string>();
 const ticketSite = (provider: IntegrationProvider): string | undefined =>
   integrations.siteOf(provider)?.id ?? sentTicketSites.get(provider) ?? ticketLinks.list().find((link) => link.ticket.provider === provider)?.ticket.site;
+/** The ticket a room's agent works on now, as its card shows it. */
+function roomWorkTicketOf(id: string): RoomAgentTicket | undefined {
+  const link = ticketLinks.get(id);
+  if (!link) return undefined;
+  const title = link.title ?? integrations.ticketTitle(link.ticket.provider, link.ticket.key);
+  return { provider: link.ticket.provider, key: link.ticket.key, ...(title ? { title } : {}) };
+}
 const roomManager: RoomManager = new RoomManager({
   worktrees: roomWorktrees,
   canvasAreas: (roomId) => roomCanvas.get(roomId).areas,
@@ -287,11 +294,10 @@ const roomManager: RoomManager = new RoomManager({
       // person's next message.
       ticketLinks.link(agentId, ticket, "delegate", { ...(title ? { title } : {}), ...(place ? { place } : {}) });
     },
-    workTicketOf: (id) => {
-      const link = ticketLinks.get(id);
-      if (!link) return undefined;
-      const title = link.title ?? integrations.ticketTitle(link.ticket.provider, link.ticket.key);
-      return { provider: link.ticket.provider, key: link.ticket.key, ...(title ? { title } : {}) };
+    workTicketOf: (id) => roomWorkTicketOf(id),
+    takeWorkLine: (id) => {
+      ticketLinks.takeDueLine(id);
+      return roomWorkTicketOf(id);
     },
     title: (key) => integrations.ticketTitle("jira", key),
   },

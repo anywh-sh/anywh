@@ -8,7 +8,7 @@
 // shows in a history rebuilt after a relay restart. Only the CLIs are faked.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type WebSocket from "ws";
@@ -60,7 +60,9 @@ before(async () => {
   // The agents' home is the relay's: a relay restarted on it reads their
   // transcripts.
   host = startHostProcess(work, env.HOME, { FAKE_CLAUDE_PROMPTS_FILE: promptsFile, FAKE_CLAUDE_TRANSCRIPT: "1" });
-  env = { ...env, ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_WORKTREES_ROOT: join(work, "worktrees") };
+  // A warm-up window (spawnRelay has none) lets a worker be linked by hand
+  // while it waits behind a sibling; a leader whose turn ends closes it.
+  env = { ...env, ANYWH_AGENT_HOST_SOCKET: host.socketPath, RELAY_WORKTREES_ROOT: join(work, "worktrees"), RELAY_ROOM_WARMUP_MS: "3000" };
   await startRelay();
   // Jira through claude.ai; one read of my tickets tells the relay its site.
   await watch.recorded.waitFor((message) => jiraOf(message)?.runtimes.some((runtime) => runtime.runtimeId === "claude" && runtime.status === "connected") === true, 0, 30_000);
@@ -243,6 +245,36 @@ test("an agent without a ticket works on the first one it opens; the principal o
   // Seen (the cache took it), not linked.
   await watch.recorded.waitFor((message) => jiraOf(message)?.queries.some((query) => query.query === "ticket" && query.param === "NGL-1" && query.source === "turn") === true, principalSince);
   assert.ok(!(await linksNow()).some((link) => link.sessionId === roomId));
+});
+
+test("a worker linked by hand before its first task starts is told once, by that task", async () => {
+  const room = await createRoom({ title: "Hand room" });
+  const principal = await chat(room);
+  // Two agents of the same model at once: the second waits behind the
+  // first one's cache warm-up (the first is held in its turn meanwhile),
+  // time enough to link it by hand.
+  const gate = join(work, "hand-room-gate");
+  const [, second] = await turn(
+    principal,
+    roomMarker("delegate", { name: "First", purpose: "goes first", task: `Lead the way [[gate:${gate}]] ${reported}`, runtime: "claude", model: "haiku" }) +
+      roomMarker("delegate", { name: "Second", purpose: "waits", task: `Follow along ${reported}`, runtime: "claude", model: "haiku" }),
+  );
+  assert.equal(second?.isError, false, second?.content);
+  const { agentId: secondId } = JSON.parse(second.content) as { agentId: string };
+  assert.equal(promptWith("Follow along"), undefined, "the second agent is still waiting");
+  const since = watch.recorded.mark();
+  watch.socket.send(JSON.stringify({ type: "work_ticket", sessionId: secondId, action: "link", ticket: ticket("NGL-5") }));
+  assert.deepEqual(await watch.recorded.waitFor((message) => message.type === "work_ticket_result" && message.sessionId === secondId, since), { type: "work_ticket_result", sessionId: secondId, ok: true });
+
+  writeFileSync(gate, "");
+  await waitFor(() => promptWith("Follow along") !== undefined, "the second agent's first prompt", 30_000);
+  assert.ok(promptWith("Follow along")!.startsWith("Jira ticket: NGL-5\n\nFollow along"), promptWith("Follow along"));
+  await waitFor(async () => (await linksNow()).find((link) => link.sessionId === secondId)?.lineDue === false, "the line paid by its task");
+  // The person's next message does not tell it again.
+  const worker = await chat(secondId);
+  await turn(worker, "anything else?");
+  await waitFor(() => promptWith("anything else?") !== undefined, "the person's message");
+  assert.ok(!promptWith("anything else?")!.includes("Jira ticket"), promptWith("anything else?"));
 });
 
 test("after a relay restart the principal's and the worker's histories show no ticket line", async () => {
