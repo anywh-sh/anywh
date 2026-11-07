@@ -45,6 +45,8 @@ import { SessionStore } from "./session/sessionStore.js";
 import { createPlanUsageService } from "./planUsage/service.js";
 import { planUsageCapture } from "./planUsage/capture.js";
 import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes } from "./routes/planUsage.js";
+import { createIntegrationService } from "./integrations/service.js";
+import { INTEGRATIONS_WATCH_PATH, handleIntegrationsConnection, handleIntegrationsRoutes } from "./routes/integrations.js";
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
 import { handleMcpLoginConnection } from "./ws/mcpLogin.js";
@@ -101,6 +103,15 @@ const planUsage = createPlanUsageService({
   log: (line) => console.log(line),
 });
 planUsage.start();
+// Which tracker integrations (Jira) this profile's agent CLIs have an MCP
+// server for, and the tickets read through them (integrations/service.ts).
+// Idle until a `/integrations/watch` client connects.
+const integrations = createIntegrationService({
+  defs: [claudeRuntimeDef, codexRuntimeDef],
+  homeOverride: HOME_OVERRIDE,
+  sessionsFile: SESSIONS_FILE,
+  log: (line) => console.log(line),
+});
 const roomActivity = new ActivityTrail();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
@@ -323,6 +334,7 @@ const routeContext: RouteContext = {
   roomContext,
   agentContext,
   planUsage,
+  integrations,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -339,6 +351,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleAgentCatalogRoutes,
   handleRoomRoutes,
   handlePlanUsageRoutes,
+  handleIntegrationsRoutes,
 ];
 
 /**
@@ -413,6 +426,7 @@ const refreshAgents = createAgentRefresher({
   publishSelectable: (agents) => {
     setSelectableAgents(agents);
     planUsage.setInstalledRuntimes(agents.map((agent) => agent.id));
+    integrations.setInstalledRuntimes(agents.map((agent) => agent.id));
   },
   publishRoomRuntimes: (ids) => {
     roomRuntimes = ids;
@@ -489,6 +503,9 @@ export const httpServer = createServer((req, res) => {
 // `--mcp-config` is what keeps the CLI itself from cutting a pending approval
 // (see `buildMcpSpawnConfig`).
 httpServer.requestTimeout = 0;
+// The integrations' control processes (a `claude`, a `codex app-server`)
+// end with the server, whoever closes it (a shutdown, a test's teardown).
+httpServer.on("close", () => integrations.close());
 
 export const wss = new WebSocketServer({ server: httpServer });
 
@@ -593,6 +610,11 @@ wss.on("connection", (socket: WebSocket, request) => {
     return;
   }
 
+  if (url.pathname === INTEGRATIONS_WATCH_PATH) {
+    handleIntegrationsConnection(socket, integrations);
+    return;
+  }
+
   if (url.pathname === "/sessions/watch") {
     sessionListWatchers.add(socket);
     // The whole list, first thing on every connection: a watcher that was
@@ -660,9 +682,11 @@ wss.on("connection", (socket: WebSocket, request) => {
 
 process.on("SIGTERM", () => {
   planUsage.stop();
+  integrations.close();
   void gracefulShutdown("SIGTERM", { httpServer, sessionManager });
 });
 process.on("SIGINT", () => {
   planUsage.stop();
+  integrations.close();
   void gracefulShutdown("SIGINT", { httpServer, sessionManager });
 });

@@ -112,7 +112,11 @@ relay/src/
                            scheduled by inventory/engine.ts); match.ts
                            picks the one an integration runs through;
                            claudeControl.ts and codexControl.ts are the
-                           turnless CLI processes everything here talks to
+                           turnless CLI processes everything here talks to;
+                           service.ts turns all that into what
+                           `/integrations/watch` (routes/integrations.ts)
+                           serves, and store.ts keeps it beside the
+                           sessions file
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

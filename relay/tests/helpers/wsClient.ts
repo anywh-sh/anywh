@@ -99,12 +99,30 @@ export function connectPlanUsageWatchAndCollectUntil(
   until: (message: Record<string, unknown>) => boolean,
   timeoutMs = 5000,
 ): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
+  return connectWatchAndCollectUntil(port, "/plan-usage/watch", until, timeoutMs);
+}
+
+/** The same for `/integrations/watch`. */
+export function connectIntegrationsWatchAndCollectUntil(
+  port: number,
+  until: (message: Record<string, unknown>) => boolean,
+  timeoutMs = 5000,
+): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
+  return connectWatchAndCollectUntil(port, "/integrations/watch", until, timeoutMs);
+}
+
+function connectWatchAndCollectUntil(
+  port: number,
+  path: string,
+  until: (message: Record<string, unknown>) => boolean,
+  timeoutMs: number,
+): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
   return new Promise((resolveConn, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/plan-usage/watch`);
+    const socket = new WebSocket(`ws://127.0.0.1:${port}${path}`);
     const collected: Record<string, unknown>[] = [];
     const timeout = setTimeout(() => {
       socket.off("message", onMessage);
-      reject(new Error(`connectPlanUsageWatchAndCollectUntil timed out after ${timeoutMs}ms, collected so far: ${JSON.stringify(collected)}`));
+      reject(new Error(`watch ${path} timed out after ${timeoutMs}ms, collected so far: ${JSON.stringify(collected)}`));
     }, timeoutMs);
 
     function onMessage(raw: Buffer): void {
