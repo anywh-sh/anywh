@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mineQuery, priorityLevel, projectOptions, queryCooldown, queryView, rowFromLists, ticketView, visibleRows } from "@/lib/integrations/tickets";
+import { groupByStatus, mineQuery, priorityLevel, projectOptions, queryCooldown, queryView, rowFromLists, ticketView, visibleRows } from "@/lib/integrations/tickets";
 import type { IntegrationState, QueryState, TicketRow } from "@/lib/integrations/model";
 
 function row(key: string, patch: Partial<TicketRow> = {}): TicketRow {
@@ -18,6 +18,24 @@ describe("tickets", () => {
     expect(visibleRows(mineQuery(integration, null)).map((item) => item.key)).toEqual(["A-1"]);
     expect(mineQuery(integration, "B")?.param).toBe("B");
     expect(mineQuery(integration, "C")).toBeUndefined();
+  });
+
+  it("groups rows by status, in progress before to do, keeping the list's order", () => {
+    const rows = [
+      row("A-1"),
+      row("A-2", { statusCategory: "doing", statusLabel: "In Review" }),
+      row("A-3", { statusCategory: "doing", statusLabel: "In Progress" }),
+      row("A-4", { statusLabel: "Backlog" }),
+      row("A-5", { statusCategory: "doing", statusLabel: "In Review" }),
+      row("A-6"),
+    ];
+    expect(groupByStatus(rows).map((group) => [group.label, group.rows.map((item) => item.key)])).toEqual([
+      ["In Review", ["A-2", "A-5"]],
+      ["In Progress", ["A-3"]],
+      ["To Do", ["A-1", "A-6"]],
+      ["Backlog", ["A-4"]],
+    ]);
+    expect(groupByStatus([])).toEqual([]);
   });
 
   it("offers every cached project plus the remembered one, sorted", () => {

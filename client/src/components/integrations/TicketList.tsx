@@ -1,8 +1,10 @@
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Equal, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDict, useLocale } from "@/i18n";
 import { formatCompactTime } from "@/lib/format/relativeTime";
-import { priorityLevel, type PriorityLevel } from "@/lib/integrations/tickets";
+import { groupByStatus, priorityLevel, type PriorityLevel } from "@/lib/integrations/tickets";
+import { GroupHeading, toggledIn } from "@/components/shell/GroupHeading";
 import type { TicketRow, WorkTicket } from "@/lib/integrations/model";
 import { SessionLinkChips } from "@/components/integrations/SessionLinkChips";
 import { cn } from "@/lib/utils";
@@ -51,36 +53,52 @@ interface TicketListProps {
   onLoadMore: () => void;
 }
 
-/** The tickets of the list, newest change first: title, then priority, key,
- * status, the sessions working on it and how long since it changed. A row
- * opens the ticket's screen. */
+/** The tickets of the list under a foldable heading per status, in progress
+ * first, newest change first inside each: title, then priority, key, status,
+ * the sessions working on it and how long since it changed. A row opens the
+ * ticket's screen. */
 export function TicketList({ rows, profileId, linksByKey, stale, hasMore, loadingMore, onOpen, onLoadMore }: TicketListProps) {
   const copy = useDict().integrations.tickets;
   const { locale } = useLocale();
+  const groups = useMemo(() => groupByStatus(rows), [rows]);
+  // Folded statuses, by label: in memory only, like the sidebar's groups.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const count = hasMore ? copy.countMore.replace("{count}", String(rows.length)) : rows.length === 1 ? copy.countOne : copy.count.replace("{count}", String(rows.length));
   return (
     <div className={cn("flex flex-col", stale && "opacity-60")}>
-      <ul data-testid="ticket-list" className="flex flex-col">
-        {rows.map((row) => (
-          <li key={row.key}>
-            <button
-              type="button"
-              onClick={() => onOpen(row.key)}
-              data-ticket={row.key}
-              className="flex w-full cursor-pointer flex-col gap-1 px-1 py-2 text-left transition-colors hover:bg-surface-hover"
-            >
-              <span className="line-clamp-2 text-[14px] leading-snug text-foreground">{row.title}</span>
-              <span className="flex min-w-0 items-center gap-2 font-mono text-[11.5px]">
-                <PriorityMark priority={row.priority} />
-                <span className="shrink-0 text-primary">{row.key}</span>
-                <span className="min-w-0 truncate text-text-faint">{row.statusLabel}</span>
-                <SessionLinkChips profileId={profileId} links={linksByKey.get(row.key) ?? []} />
-                <span className="ml-auto shrink-0 text-text-faint">{formatCompactTime(row.updatedAt, locale)}</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div data-testid="ticket-list" className="flex flex-col">
+        {groups.map((group) => {
+          const folded = collapsed.has(group.label);
+          return (
+            <section key={group.label} data-status-group={group.label} className="mt-3.5 first:mt-1">
+              <GroupHeading label={group.label} count={group.rows.length} collapsed={folded} onToggle={() => setCollapsed((current) => toggledIn(current, group.label))} />
+              {!folded && (
+                <ul className="flex flex-col">
+                  {group.rows.map((row) => (
+                    <li key={row.key}>
+                      <button
+                        type="button"
+                        onClick={() => onOpen(row.key)}
+                        data-ticket={row.key}
+                        className="flex w-full cursor-pointer flex-col gap-1 px-1 py-2 text-left transition-colors hover:bg-surface-hover"
+                      >
+                        <span className="line-clamp-2 text-[14px] leading-snug text-foreground">{row.title}</span>
+                        <span className="flex min-w-0 items-center gap-2 font-mono text-[11.5px]">
+                          <PriorityMark priority={row.priority} />
+                          <span className="shrink-0 text-primary">{row.key}</span>
+                          <span className="min-w-0 truncate text-text-faint">{row.statusLabel}</span>
+                          <SessionLinkChips profileId={profileId} links={linksByKey.get(row.key) ?? []} />
+                          <span className="ml-auto shrink-0 text-text-faint">{formatCompactTime(row.updatedAt, locale)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
+      </div>
       <div className="mt-2 flex items-center gap-3 px-1">
         <span className="font-mono text-[11px] text-text-faint">{count}</span>
         {hasMore && (

@@ -85,7 +85,7 @@ async function openPane(user: ReturnType<typeof userEvent.setup>): Promise<void>
   await screen.findByTestId("integration-panel-header");
 }
 
-const listedKeys = () => within(screen.getByTestId("ticket-list")).getAllByRole("button").map((button) => button.getAttribute("data-ticket"));
+const listedKeys = () => [...screen.getByTestId("ticket-list").querySelectorAll("[data-ticket]")].map((button) => button.getAttribute("data-ticket"));
 
 describe("my tickets in the integration's pane", () => {
   it("opens on All mine from the cache, without Done, and loads more pages", async () => {
@@ -110,6 +110,24 @@ describe("my tickets in the integration's pane", () => {
     await waitFor(() => expect(listedKeys()).toEqual(["NGL-1", "ANY-7", "NGL-2"]));
     expect(screen.queryByRole("button", { name: copy.loadMore })).toBeNull();
     expect(screen.getByText(copy.count.replace("{count}", "3"))).toBeInTheDocument();
+  });
+
+  it("groups the list under a foldable heading per status, in progress first", async () => {
+    const review = row("NGL-3", "Review the export", { statusCategory: "doing", statusLabel: "In Review" });
+    start(jira([mine(null, [ANY7, NGL1, review, NGL2])]));
+    const user = userEvent.setup();
+    await openPane(user);
+    await waitFor(() => expect(listedKeys()).toEqual(["NGL-1", "NGL-3", "ANY-7", "NGL-2"]));
+    const headings = within(screen.getByTestId("ticket-list")).getAllByRole("button", { expanded: true });
+    expect(headings.map((heading) => heading.textContent)).toEqual(["In Progress1", "In Review1", "To Do2"]);
+
+    // A folded status keeps its heading and count; its rows go.
+    await user.click(headings[2]);
+    expect(headings[2]).toHaveAttribute("aria-expanded", "false");
+    expect(headings[2]).toHaveTextContent("To Do2");
+    expect(listedKeys()).toEqual(["NGL-1", "NGL-3"]);
+    await user.click(headings[2]);
+    expect(listedKeys()).toEqual(["NGL-1", "NGL-3", "ANY-7", "NGL-2"]);
   });
 
   it("opens on the remembered project, and a new pick is remembered through the relay", async () => {

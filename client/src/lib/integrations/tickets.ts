@@ -25,6 +25,27 @@ export function visibleRows(query: MineQuery | undefined): TicketRow[] {
   return (query?.items ?? []).filter((row) => row.statusCategory !== "done");
 }
 
+/** One status's rows of a list, under its heading. */
+export interface StatusGroup {
+  label: string;
+  rows: TicketRow[];
+}
+
+const CATEGORY_ORDER: Record<TicketRow["statusCategory"], number> = { doing: 0, todo: 1, done: 2 };
+
+/** A list's rows by status, as its headings show them: what is in progress
+ * before what is still to do, and the statuses of one category in the order
+ * the list first meets them. Rows keep the list's order inside a group. */
+export function groupByStatus(rows: readonly TicketRow[]): StatusGroup[] {
+  const groups = new Map<string, StatusGroup & { category: number; first: number }>();
+  rows.forEach((row, index) => {
+    const group = groups.get(row.statusLabel);
+    if (group) group.rows.push(row);
+    else groups.set(row.statusLabel, { label: row.statusLabel, rows: [row], category: CATEGORY_ORDER[row.statusCategory], first: index });
+  });
+  return [...groups.values()].sort((a, b) => a.category - b.category || a.first - b.first).map(({ label, rows: grouped }) => ({ label, rows: grouped }));
+}
+
 /** The projects the dropdown offers: every project seen in any cached list,
  * plus the remembered one even when no list has it yet. Sorted, so the menu
  * does not reorder as pages arrive. */
