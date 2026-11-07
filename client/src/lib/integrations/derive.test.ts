@@ -41,6 +41,12 @@ describe("railIntegrations", () => {
     expect(railIntegrations(entry({ connection: "offline", integrations: [shown, gone] }))).toEqual([shown]);
     expect(railIntegrations(entry({ connection: "unsupported", integrations: [shown] }))).toEqual([]);
   });
+
+  it("leaves out an integration no CLI reads nor can sign in to", () => {
+    const signIn = jira([runtime({ status: "needs_auth" })]);
+    const broken = jira([runtime({ status: "failed" }), runtime({ runtimeId: "codex", status: "unknown" })], { id: "jira-2" });
+    expect(railIntegrations(entry({ connection: "live", integrations: [signIn, broken] }))).toEqual([signIn]);
+  });
 });
 
 describe("railBadge", () => {

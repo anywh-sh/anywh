@@ -58,12 +58,14 @@ export function integrationDataState(entry: ProfileIntegrations | undefined): In
   return entry.connection === "live" ? "live" : "stale";
 }
 
-/** The integrations a rail shows: those with a server in at least one CLI.
- * One whose last server went away is gone from the rail too. */
+/** The integrations a rail shows: those a CLI of the profile reads, or
+ * could once signed in. A server that only fails, or whose state is not
+ * known, is not one the profile has; one whose last server went away is
+ * gone from the rail too. */
 export function railIntegrations(entry: ProfileIntegrations | undefined): IntegrationState[] {
   const state = integrationDataState(entry);
   if (state === "none" || state === "unsupported" || !entry?.integrations) return [];
-  return entry.integrations.filter((integration) => integration.runtimes.length > 0);
+  return entry.integrations.filter((integration) => integration.runtimes.some((runtime) => runtime.status === "connected" || runtime.status === "needs_auth"));
 }
 
 /** The mark on an integration's rail button: amber when a CLI has to sign in,

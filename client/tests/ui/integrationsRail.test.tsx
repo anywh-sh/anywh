@@ -3,7 +3,8 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { installFakeRelay, type FakeIntegrations, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
-import { seedShellProfile } from "./helpers/seedProfile";
+import { SHELL_TEST_PROFILE, seedShellProfile } from "./helpers/seedProfile";
+import { setProfiles, type Profile } from "@/lib/profiles/profiles";
 import { en } from "@/i18n/en";
 import type { IntegrationRuntime, IntegrationState } from "@/lib/integrations/model";
 
@@ -71,13 +72,17 @@ describe("integrations on the side panel rail", () => {
     expect(button.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(button.querySelector('[data-rail-badge="needs_auth"]')).not.toBeNull();
 
-    // A connected Jira has no badge; a failed one is red.
+    // A connected Jira has no badge; one with another agent's server failed is red.
     relay.emitIntegrations(RELAY, [jira([runtime({})])]);
     const clean = await within(rail).findByRole("button", { name: "Jira" });
     expect(clean.querySelector("[data-rail-badge]")).toBeNull();
-    relay.emitIntegrations(RELAY, [jira([runtime({ status: "failed" })])]);
+    relay.emitIntegrations(RELAY, [jira([runtime({ status: "failed" }), runtime({ runtimeId: "codex" })])]);
     const failed = await within(rail).findByRole("button", { name: en.integrations.rail.failed.replace("{name}", "Jira") });
     expect(failed.querySelector('[data-rail-badge="failed"]')).not.toBeNull();
+
+    // A Jira no agent reads nor can sign in to is not one the profile has.
+    relay.emitIntegrations(RELAY, [jira([runtime({ status: "failed" }), runtime({ runtimeId: "codex", status: "unknown" })])]);
+    await waitFor(() => expect(rail.querySelector("[data-integration]")).toBeNull());
   });
 
   it("opens the integration's pane from its button and closes it again", async () => {
@@ -106,6 +111,37 @@ describe("integrations on the side panel rail", () => {
     relay.emitIntegrations(RELAY, []);
     await waitFor(() => expect(within(rail).queryByRole("button", { name: "Jira" })).toBeNull());
   });
+
+  it("shows Jira only on the tabs of a profile whose agents have it", async () => {
+    const other: Profile = { id: "pessoal", label: "Pessoal", host: "127.0.0.2", relayPort: 8766 };
+    setProfiles([{ ...SHELL_TEST_PROFILE, label: "Trabalho" }, other]);
+    relay = installFakeRelay("fake reply", {
+      integrations: {
+        [RELAY]: { integrations: [jira([runtime({})])] },
+        // What a profile without Jira can still report: a server that fails.
+        "127.0.0.2:8766": { integrations: [jira([runtime({ status: "failed" })])] },
+      },
+    });
+    const user = userEvent.setup();
+    const rail = await openConversation(user);
+    await within(rail).findByRole("button", { name: "Jira" });
+
+    const switchTo = async (label: RegExp) => {
+      await user.click(screen.getByRole("button", { name: en.shell.profiles.activeProfile }));
+      await user.click(await within(document.body).findByRole("menuitem", { name: label }));
+      await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    };
+    // Every open tab draws its own dock; the inactive ones sit `invisible`.
+    const activeRail = () => screen.getAllByTestId("dock-rail").find((element) => !element.closest(".invisible"))!;
+
+    await switchTo(/Pessoal/);
+    await waitFor(() => expect(relay.sockets.some((socket) => socket.url.includes("127.0.0.2:8766/integrations/watch"))).toBe(true));
+    await waitFor(() => expect(activeRail().querySelector("[data-integration]")).toBeNull());
+    expect(activeRail().querySelector("[data-rail-badge]")).toBeNull();
+
+    await switchTo(/Trabalho/);
+    await waitFor(() => expect(within(activeRail()).getByRole("button", { name: "Jira" })).toBeInTheDocument());
+  }, 30_000);
 
   it("shows nothing, and no error, on a relay without integrations", async () => {
     start("legacy");
