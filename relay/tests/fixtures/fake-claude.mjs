@@ -107,8 +107,14 @@
 //                        servers. FAKE_CLAUDE_MCP_PENDING_REPLIES=N makes the
 //                        first N replies of a process report every server
 //                        `pending`; FAKE_CLAUDE_MCP_STATUS_HANG=1 never
-//                        answers `mcp_status`. Any other unknown control
-//                        request gets the real binary's error reply.
+//                        answers `mcp_status`. With `--strict-mcp-config
+//                        --mcp-config <file>`, only that file's servers are
+//                        reported (FAKE_CLAUDE_MCP_ISOLATED_STATUS overrides
+//                        their status: an isolated server that does not come
+//                        up). `mcp_call` answers the official Atlassian
+//                        server from fake-atlassian.mjs, any other by echoing
+//                        the call. Any other unknown control request gets
+//                        the real binary's error reply.
 //   FAKE_CLAUDE_TITLE_DELAY_MS - if set, delays the reply of a
 //                        `--output-format text` invocation (the title/
 //                        suggestion probe, never a real turn) by this many
@@ -146,6 +152,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { answerAtlassianTool, isAtlassianServer } from "./fake-atlassian.mjs";
 
 const args = process.argv.slice(2);
 
@@ -386,16 +393,51 @@ if (args[0] === "--version") {
   // claudeControl.ts) is the same invocation: it also asks `mcp_status`,
   // answered from FAKE_CLAUDE_MCP_STATUS_FILE (see the header).
   let mcpStatusReplies = 0;
-  const answerMcpStatus = (requestId) => {
-    if (process.env.FAKE_CLAUDE_MCP_STATUS_HANG === "1") return;
+  // `--strict-mcp-config --mcp-config <file>`: only the file's servers, the
+  // way the real binary reports them (`source: "dynamic"`), each with the
+  // state and catalog the status file gives the server of the same name.
+  const mcpConfigFile = flagValue("--mcp-config");
+  const isolatedConfig = args.includes("--strict-mcp-config") && mcpConfigFile && existsSync(mcpConfigFile) ? JSON.parse(readFileSync(mcpConfigFile, "utf8")) : undefined;
+  const loadedServers = () => {
     const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
     const status = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] };
+    if (!isolatedConfig) return status.mcpServers;
+    return Object.entries(isolatedConfig.mcpServers ?? {}).map(([name, config]) => {
+      const known = status.mcpServers.find((server) => server.name === name);
+      return {
+        name,
+        status: process.env.FAKE_CLAUDE_MCP_ISOLATED_STATUS || known?.status || "connected",
+        config,
+        scope: "dynamic",
+        source: "dynamic",
+        ...(known?.serverInfo ? { serverInfo: known.serverInfo } : {}),
+        ...(known?.tools ? { tools: known.tools } : {}),
+      };
+    });
+  };
+  const answerMcpStatus = (requestId) => {
+    if (process.env.FAKE_CLAUDE_MCP_STATUS_HANG === "1") return;
+    const servers = loadedServers();
     const pendingReplies = Number(process.env.FAKE_CLAUDE_MCP_PENDING_REPLIES ?? 0);
     // Like a process that just started: every server still coming up, no
     // catalog yet.
     const starting = mcpStatusReplies++ < pendingReplies;
-    const mcpServers = starting ? status.mcpServers.map(({ name, config, scope, source }) => ({ name, status: "pending", config, scope, source })) : status.mcpServers;
+    const mcpServers = starting ? servers.map(({ name, config, scope, source }) => ({ name, status: "pending", config, scope, source })) : servers;
     emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response: { mcpServers } } });
+  };
+  // `mcp_call {tool: "mcp__<server>__<tool>", arguments}`: the server's raw
+  // `CallToolResult` (fake-atlassian.mjs for the official Atlassian server,
+  // an echo for any other). The error replies are SYNTHETIC.
+  const answerMcpCall = (requestId, request) => {
+    const fail = (error) => emit({ type: "control_response", response: { subtype: "error", request_id: requestId, error } });
+    const reply = (response) => emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response } });
+    const match = /^mcp__(.+?)__(.+)$/.exec(String(request?.tool ?? ""));
+    if (!match) return fail(`Invalid MCP tool name: ${request?.tool}`);
+    const server = loadedServers().find((candidate) => candidate.name.replace(/[^a-zA-Z0-9_-]/g, "_") === match[1]);
+    if (!server) return fail(`MCP server not found: ${match[1]}`);
+    if (server.status !== "connected") return fail(`MCP server "${server.name}" is not connected`);
+    if (isAtlassianServer(server)) return reply(answerAtlassianTool("claude", server.name, match[2], request.arguments, { isolated: isolatedConfig !== undefined }));
+    reply({ content: [{ type: "text", text: JSON.stringify({ server: server.name, tool: match[2], arguments: request.arguments ?? null }) }] });
   };
   process.stdin.setEncoding("utf8");
   let buffered = "";
@@ -415,6 +457,10 @@ if (args[0] === "--version") {
       const subtype = message.request?.subtype;
       if (subtype === "mcp_status") {
         answerMcpStatus(message.request_id);
+        continue;
+      }
+      if (subtype === "mcp_call") {
+        answerMcpCall(message.request_id, message.request);
         continue;
       }
       if (subtype !== "initialize") {

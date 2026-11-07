@@ -74,7 +74,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `quickPrompt` | how to run a short, isolated one-shot prompt for the relay's own probes (title/suggestion generation) — never a real turn | data + a pure function, or `{ kind: "none" }` |
 | `classifyFailure` | turns raw failure text/code into one of a fixed set of classes | a pure function |
 | `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category — absent when the CLI never reports enough to calibrate against | data, or absent |
-| `portability` | what has to be true to reproduce this runtime's setup somewhere else: which paths under its config home are the user's own, where its MCP servers are declared, and how a login is driven on a machine with no browser; plus `mcp.inventory`, how the relay asks the CLI itself which servers it would load (a control request, or a JSON listing plus a live read), with the CLI version its replies were recorded against and the config files whose change means a rescan | data + pure functions |
+| `portability` | what has to be true to reproduce this runtime's setup somewhere else: which paths under its config home are the user's own, where its MCP servers are declared, and how a login is driven on a machine with no browser; plus `mcp.inventory`, how the relay asks the CLI itself which servers it would load (a control request, or a JSON listing plus a live read), with the CLI version its replies were recorded against and the config files whose change means a rescan; and `mcp.toolCall`, how the relay calls one of those servers' tools itself with no turn (a control request with the tool's full name, optionally on a process isolated to that server, or an app-server method on its own thread) | data + pure functions |
 
 The def's own functions (`buildArgs`, the stream mappers, `thread.start`,
 `turn.start`, `handleServerRequest`, `classifyFailure`, a `models`/`auth`
@@ -354,6 +354,12 @@ CLI (version noted, §8) and run it through `assertToolContract`.
       (`integrations/inventory/fixtures.ts`) that the parsers' tests and the
       fakes share. A listing that starts every server is the expensive tier,
       not the one to watch files with.
+- [ ] `portability.mcp.toolCall`, when declared, was exercised against a
+      server **with no turn running** — the call must spend no model call —
+      and against one that needs a sign-in, so the reader knows what that
+      failure looks like (an error result, or the call itself failing). The
+      fakes answer it with the same redacted replies
+      (`tests/fixtures/fake-atlassian.mjs`).
 - [ ] Token storage was checked **without a keyring** (the state a headless
       box is in), with the exact CLI version noted — one CLI falls back to
       a file store silently, and assuming the other does too is how a

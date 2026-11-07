@@ -116,7 +116,11 @@ relay/src/
                            service.ts turns all that into what
                            `/integrations/watch` (routes/integrations.ts)
                            serves, and store.ts keeps it beside the
-                           sessions file
+                           sessions file; reader.ts reads a query through
+                           the picked server, the tracker's tools and
+                           result shapes in providers/ (jira.ts), the call
+                           itself in toolCaller.ts (the def's
+                           `mcp.toolCall` contract, no turn)
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

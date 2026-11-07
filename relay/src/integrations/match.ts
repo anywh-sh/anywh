@@ -77,7 +77,9 @@ function runsJiraPackage(entry: McpInventoryEntry): boolean {
   return (entry.transport.envKeys ?? []).some((key) => JIRA_ENV.test(key));
 }
 
-const isOfficialAtlassian = (entry: McpInventoryEntry): boolean => pointsAtAtlassian(entry) || entry.serverInfoName === "atlassian-mcp-server";
+/** Atlassian's own remote server (by where it points or what it calls
+ * itself), as opposed to a community Jira server. */
+export const isOfficialAtlassian = (entry: McpInventoryEntry): boolean => pointsAtAtlassian(entry) || entry.serverInfoName === "atlassian-mcp-server";
 const servesJiraTools = (entry: McpInventoryEntry): boolean => (entry.tools ?? []).some((tool) => JIRA_TOOL.test(tool.name));
 
 function recognizeJira(entry: McpInventoryEntry): MatchTier | undefined {

@@ -15,8 +15,13 @@
 // `getSnapshot`/`connectClient`/`refresh`/`loadMore`/`setPrefs`; nothing
 // here knows about sockets, processes or a tracker's tools — reading is the
 // `IntegrationReader`'s.
+import { tmpdir } from "node:os";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
+import { ClaudeControlPool, claudeControlArgs } from "./claudeControl.js";
+import { createCodexControl } from "./codexControl.js";
 import { McpInventory } from "./inventory/engine.js";
+import { createIntegrationReader } from "./reader.js";
+import { RuntimeToolCaller } from "./toolCaller.js";
 import { JIRA_RECOGNIZER, integrationRuntimes, pickIntegration, type IntegrationPick, type IntegrationRecognizer } from "./match.js";
 import { PROJECT_KEY_PATTERN, createFileIntegrationsStore, integrationsPathFor, type IntegrationsStore, type PersistedIntegration, type PersistedQuery } from "./store.js";
 import {
@@ -493,20 +498,47 @@ export interface CreateIntegrationServiceOptions {
   readonly log?: (line: string) => void;
 }
 
-/** The service with its real inventory and store. Nothing runs until a
- * client connects. */
+/** The service with its real inventory, reader and store. Nothing runs
+ * until a client connects. */
 export function createIntegrationService(options: CreateIntegrationServiceOptions): IntegrationService {
   const env = options.env ?? process.env;
   const store = createFileIntegrationsStore(integrationsPathFor(options.sessionsFile));
   const stored = store.load();
+  const neutralCwd = tmpdir();
+  // One set of control processes per profile, shared by listing servers and
+  // calling their tools.
+  const claudeDef = options.defs.find((def) => def.identity.id === "claude" && claudeControlArgs(def) !== undefined);
+  const codexDef = options.defs.find((def) => def.identity.id === "codex");
+  const claudePool = claudeDef ? new ClaudeControlPool({ def: claudeDef, homeOverride: options.homeOverride, neutralCwd }) : undefined;
+  const codexControl = codexDef ? createCodexControl({ def: codexDef, homeOverride: options.homeOverride, cwd: neutralCwd }) : undefined;
   const inventory = new McpInventory({
-    runtimes: options.defs.map((def) => ({ def })),
+    runtimes: options.defs.map((def) => ({ def, ...(def === claudeDef && claudePool ? { claudeControl: claudePool } : {}), ...(def === codexDef && codexControl ? { codexControl } : {}) })),
     ...(options.homeOverride !== undefined ? { homeOverride: options.homeOverride } : {}),
     env,
+    neutralCwd,
     initial: stored?.inventory ?? [],
   });
+  const caller = new RuntimeToolCaller({
+    defs: options.defs,
+    ...(options.homeOverride !== undefined ? { homeOverride: options.homeOverride } : {}),
+    ...(claudePool ? { claudePool } : {}),
+    ...(codexControl ? { codexControl } : {}),
+    neutralCwd,
+  });
+  const reader = createIntegrationReader(caller);
   return new IntegrationService({
-    inventory,
+    inventory: {
+      entries: () => inventory.entries(),
+      subscribe: (listener) => inventory.subscribe(listener),
+      scan: (scan) => inventory.scan(scan),
+      start: () => inventory.start(),
+      close: () => {
+        inventory.close();
+        claudePool?.close();
+        codexControl?.close();
+      },
+    },
+    reader,
     store,
     stored,
     forceFloorMs: integrationsForceFloorFromEnv(env),

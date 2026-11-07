@@ -726,6 +726,18 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
         // Read only for a project the person trusted.
         projectWatch: [{ dir: ".codex", file: "config.toml" }],
       },
+      // A tool called by the relay itself, on the control daemon's thread
+      // (the call needs one; `thread/start` is what starts the servers):
+      // the raw MCP `CallToolResult` back, no turn, no quota, no login of
+      // the account needed. A server that has no login answers with a
+      // JSON-RPC error; an Atlassian server with a bad token connects and
+      // answers a Jira tool with `isError` "Tool … not found".
+      toolCall: {
+        kind: "app-server",
+        recordedWith: "0.154.0",
+        method: "mcpServer/tool/call",
+        params: (threadId, server, tool, args) => ({ threadId, server, tool, arguments: args }),
+      },
       // Writing this file directly, then logging in, is the only automatable
       // order: `codex mcp add --url …` kicks off the OAuth flow itself and
       // blocks waiting for the callback, so any provisioning that shells out

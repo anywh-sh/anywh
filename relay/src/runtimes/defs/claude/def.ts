@@ -14,7 +14,8 @@ import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
-import { claudeJsonMcpSlice, parseClaudeMcpStatus } from "../../../integrations/inventory/claude.js";
+import { claudeJsonMcpSlice, normalizeMcpServerName, parseClaudeMcpStatus } from "../../../integrations/inventory/claude.js";
+import { mcpToolName } from "./roomSpec.js";
 import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
@@ -268,6 +269,24 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
           { dir: ".claude/plugins", dirEnv: { name: "CLAUDE_CONFIG_DIR", sub: "plugins" }, file: "installed_plugins.json" },
         ],
         projectWatch: [{ dir: "", file: ".mcp.json" }],
+      },
+      // A tool called by the relay itself, on the same turnless process:
+      // `mcp_call` with the tool's full name (the server and tool given
+      // apart are refused), answered with the server's raw `CallToolResult`
+      // and no model call. Not in the CLI's docs; recorded on 2.1.303. The
+      // isolated process (`--strict-mcp-config` with only the one server,
+      // its config as `mcp_status` reported it — a connector's `id` is no
+      // secret) starts in ~2 s instead of booting every server of the
+      // profile; whether the CLI's stored OAuth token still matches a
+      // server declared that way is not proven, so the caller falls back to
+      // the ordinary process.
+      toolCall: {
+        kind: "control-request",
+        recordedWith: "2.1.303",
+        subtype: "mcp_call",
+        payload: (server, tool, args) => ({ tool: mcpToolName(normalizeMcpServerName(server), tool), arguments: args }),
+        isolatedArgs: (configPath) => ["--strict-mcp-config", "--mcp-config", configPath],
+        isolatedConfig: (server, config) => ({ mcpServers: { [server]: config } }),
       },
       // `--no-browser`: "Print the authorization URL instead of opening a
       // browser (for SSH/headless sessions — paste the redirect URL back

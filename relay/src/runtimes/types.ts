@@ -733,6 +733,34 @@ export type McpInventoryContract =
       readonly projectWatch: readonly McpWatchedFile[];
     };
 
+/** How the relay calls one tool of one of this CLI's servers itself — no
+ * turn, no model call, the raw MCP `CallToolResult` back. Recorded against
+ * `recordedWith`, like the inventory: an unrecorded version may answer in
+ * another shape, which the caller turns into an error, never an exception. */
+export type McpToolCallContract =
+  | {
+      /** A control request on a turnless process of this CLI (the
+       * inventory's `processArgs`). */
+      readonly kind: "control-request";
+      readonly recordedWith: string;
+      readonly subtype: string;
+      /** The request's payload, besides `subtype`. */
+      readonly payload: (server: string, tool: string, args: Record<string, unknown>) => Record<string, unknown>;
+      /** Extra argv that makes the process load only one server, declared
+       * in the file at `configPath`... */
+      readonly isolatedArgs: (configPath: string) => readonly string[];
+      /** ...whose content is this, from the server's name and the config the
+       * inventory reported for it. */
+      readonly isolatedConfig: (server: string, config: unknown) => unknown;
+    }
+  | {
+      /** A request on the app-server's control thread. */
+      readonly kind: "app-server";
+      readonly recordedWith: string;
+      readonly method: string;
+      readonly params: (threadId: string, server: string, tool: string, args: Record<string, unknown>) => unknown;
+    };
+
 export type McpContract =
   | { readonly kind: "none" }
   | {
@@ -740,6 +768,8 @@ export type McpContract =
       readonly declaration: McpDeclaration;
       /** Absent: the relay has no way to list this CLI's servers. */
       readonly inventory?: McpInventoryContract;
+      /** Absent: the relay cannot call this CLI's MCP tools itself. */
+      readonly toolCall?: McpToolCallContract;
       /** Argv for this CLI's own login subcommand, per server. A pure
        * function returning args — nothing here runs it. */
       readonly loginArgs: (serverName: string) => readonly string[];

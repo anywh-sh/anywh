@@ -131,6 +131,13 @@ export function parseClaudeMcpStatus(response: unknown): McpServerReport[] | und
   return reports;
 }
 
+/** A server's name as the CLI spells it inside a tool's full name
+ * (`mcp__<server>__<tool>`): anything but a letter, a digit, `_` or `-`
+ * becomes `_` — `claude.ai Atlassian` is `claude_ai_Atlassian`. */
+export function normalizeMcpServerName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 /** The servers a turn's `system`/`init` event lists, `[{name, status}]`.
  * Only `needs-auth` is worth anything there: everything else is reported
  * `pending`, because the event is written before the servers finish

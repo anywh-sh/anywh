@@ -48,10 +48,15 @@
 // this process did not start gets the real "thread not found" error; once
 // FAKE_CODEX_FORGET_THREADS_FILE exists, the process forgets every thread
 // (and removes the file), like an app-server that lost them.
-// `mcpServer/tool/call` echoes its server, tool and arguments as the text of
-// a successful `CallToolResult`; `config/mcpServer/reload` answers `{}`.
+// `mcpServer/tool/call` answers the official Atlassian server (by its URL in
+// FAKE_CODEX_MCP_LIST_FILE or its `serverInfo` in FAKE_CODEX_MCP_STATUS_FILE)
+// from fake-atlassian.mjs, a server the status file says has no login with
+// the observed JSON-RPC error, and echoes any other call's server, tool and
+// arguments as the text of a successful `CallToolResult`;
+// `config/mcpServer/reload` answers `{}`.
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { answerAtlassianTool, isAtlassianServer } from "./fake-atlassian.mjs";
 
 if (process.argv[2] === "--version") {
   process.stdout.write("codex-cli 0.154.0\n");
@@ -255,8 +260,20 @@ process.stdin.on("data", (chunk) => {
       case "mcpServer/tool/call": {
         const { threadId, server, tool, arguments: args } = message.params ?? {};
         const error = threadError(threadId);
-        if (error) send({ id: message.id, error });
-        else send({ id: message.id, result: { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: args ?? null }) }], isError: false } });
+        if (error) {
+          send({ id: message.id, error });
+          break;
+        }
+        const declared = readJson(process.env.FAKE_CODEX_MCP_LIST_FILE, []).find((entry) => entry.name === server);
+        const live = readJson(process.env.FAKE_CODEX_MCP_STATUS_FILE, { data: [] }).data.find((entry) => entry.name === server);
+        if (live && (live.authStatus === "notLoggedIn" || live.runtimeStatus === "authenticationRequired")) {
+          // Observed against the official server with no login.
+          send({ id: message.id, error: { code: -32603, message: "failed to get client: MCP startup failed: handshaking with MCP server failed: Auth required, when send initialize request" } });
+        } else if (isAtlassianServer(declared) || isAtlassianServer(live)) {
+          send({ id: message.id, result: answerAtlassianTool("codex", server, tool, args) });
+        } else {
+          send({ id: message.id, result: { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: args ?? null }) }], isError: false } });
+        }
         break;
       }
       case "config/mcpServer/reload":
