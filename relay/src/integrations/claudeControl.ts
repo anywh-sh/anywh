@@ -343,8 +343,10 @@ export class ClaudeControlPool {
   private evictFor(): void {
     const projects = [...this.processes.entries()].filter(([key]) => key !== this.options.neutralCwd);
     if (projects.length < this.maxProjectProcesses) return;
-    projects.sort(([, a], [, b]) => a.usedAt - b.usedAt);
-    for (const [key] of projects.slice(0, projects.length - this.maxProjectProcesses + 1)) this.stop(key);
+    // An idle process first, the least recent first; one answering still
+    // finishes what it was asked before it ends.
+    projects.sort(([, a], [, b]) => Number(a.inFlight > 0) - Number(b.inFlight > 0) || a.usedAt - b.usedAt);
+    for (const [key] of projects.slice(0, projects.length - this.maxProjectProcesses + 1)) this.stop(key, true);
   }
 
   private stop(key: string, drain = false): void {

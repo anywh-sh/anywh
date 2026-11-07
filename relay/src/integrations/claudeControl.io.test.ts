@@ -156,3 +156,25 @@ test("pool: a fresh scan or a recycle lets the replaced process answer what it w
   await pool.request(undefined, "mcp_status");
   assert.equal(invocations().length, 3);
 });
+
+test("pool: past the cap an idle project process is stopped first, and a busy one still answers", async (t) => {
+  const { dir, def, invocations } = setup(t, { FAKE_CLAUDE_MCP_CALL_DELAY_MS: "400" });
+  const pool = new ClaudeControlPool({ def, neutralCwd: dir, maxProjectProcesses: 2 });
+  t.after(() => pool.close());
+  const [projectA, projectB, projectC, projectD] = ["a-", "b-", "c-", "d-"].map((prefix) => mkdtempSync(join(dir, prefix)));
+  const call = (cwd: string) => pool.request(cwd, "mcp_call", { tool: "mcp__sentry__whoami", arguments: {} }) as Promise<{ content: { text: string }[] }>;
+
+  // A is the least recent but busy; B, used after it, is idle.
+  const slow = call(projectA);
+  await waitFor(() => invocations().length === 1);
+  await pool.request(projectB, "mcp_status");
+  await pool.request(projectC, "mcp_status");
+  assert.deepEqual(pool.running().sort(), [projectA, projectC].sort());
+  // With every process busy the least recent goes, after it answered.
+  const slowC = call(projectC);
+  await waitFor(() => invocations().length === 3);
+  await pool.request(projectD, "mcp_status");
+  assert.deepEqual(pool.running().sort(), [projectC, projectD].sort());
+  assert.match((await slow).content[0].text, /"tool":"whoami"/);
+  assert.match((await slowC).content[0].text, /"tool":"whoami"/);
+});
