@@ -252,6 +252,8 @@ function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { r
   const copy = dict.integrations.connect;
   const agent = dict.chat.composer.agentNames[row.runtimeId];
   const flow = row.flow;
+  /** The app's link did not come back: the address goes in by hand. */
+  const [pasting, setPasting] = useState(false);
 
   let status: { text: string; tone?: "ok" | "error" };
   let trailing: ReactNode = null;
@@ -290,7 +292,7 @@ function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { r
       body = (
         <>
           <FlowError error={flow.error} />
-          <PasteForm flow={flow} onComplete={(url) => actions.complete(flow, url)} onCancel={() => actions.cancel(flow)} />
+          <PasteForm flow={flow} hint={copy.pasteHint} placeholder={copy.pastePlaceholder} withLinkRow onComplete={(url) => actions.complete(flow, url)} onCancel={() => actions.cancel(flow)} />
         </>
       );
     } else {
@@ -302,9 +304,13 @@ function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { r
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             {flow.authUrl && <TextAction onClick={() => void openUrl(flow.authUrl!).catch(() => {})}>{copy.reopen}</TextAction>}
             {flow.authUrl && <CopyLink url={flow.authUrl} />}
+            {!pasting && <TextAction onClick={() => setPasting(true)}>{copy.pasteInstead}</TextAction>}
             <TextAction onClick={() => actions.anotherDevice(row, flow)}>{copy.anotherDevice}</TextAction>
             <TextAction onClick={() => actions.cancel(flow)}>{copy.cancel}</TextAction>
           </div>
+          {pasting && (
+            <PasteForm flow={flow} hint={copy.deeplinkPasteHint} placeholder={copy.deeplinkPastePlaceholder} withLinkRow={false} onComplete={(url) => actions.complete(flow, url)} onCancel={() => actions.cancel(flow)} />
+          )}
         </>
       );
     }
@@ -397,9 +403,10 @@ function CopyLink({ url }: { url: string }) {
   );
 }
 
-/** The localhost mode's last step: the address the browser ended on, checked
- * before it goes to the relay. */
-function PasteForm({ flow, onComplete, onCancel }: { flow: McpAuthFlow; onComplete: (url: string) => void; onCancel: () => void }) {
+/** The address the browser ended on, checked before it goes to the relay:
+ * the localhost mode's last step, and the way out when the app's own link
+ * did not come back (`withLinkRow` off: that row already has the link). */
+function PasteForm({ flow, hint, placeholder, withLinkRow, onComplete, onCancel }: { flow: McpAuthFlow; hint: string; placeholder: string; withLinkRow: boolean; onComplete: (url: string) => void; onCancel: () => void }) {
   const copy = useDict().integrations.connect;
   const [value, setValue] = useState("");
   const [error, setError] = useState<CallbackPasteError | null>(null);
@@ -414,8 +421,8 @@ function PasteForm({ flow, onComplete, onCancel }: { flow: McpAuthFlow; onComple
   };
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground">{copy.pasteHint}</p>
-      {flow.authUrl && (
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      {withLinkRow && flow.authUrl && (
         <div className="flex items-center gap-4">
           <CopyLink url={flow.authUrl} />
           <TextAction onClick={onCancel}>{copy.cancel}</TextAction>
@@ -434,7 +441,7 @@ function PasteForm({ flow, onComplete, onCancel }: { flow: McpAuthFlow; onComple
             setValue(event.target.value);
             setError(null);
           }}
-          placeholder={copy.pastePlaceholder}
+          placeholder={placeholder}
           aria-label={copy.pasteLabel}
           aria-invalid={error !== null}
           className="min-w-0 flex-1 font-mono text-xs"

@@ -1286,6 +1286,9 @@ export const en: Dictionary = {
         missing_code: "This address has no sign-in code. Copy it from the browser's address bar.",
         state_mismatch: "This address belongs to another sign-in.",
       },
+      pasteInstead: "Paste the address",
+      deeplinkPasteHint: "If the browser did not come back to the app, paste the address it ended on.",
+      deeplinkPastePlaceholder: "anywh://mcp-oauth/callback?code=…",
       flowErrors: {
         timeout: "The sign-in took too long.",
         unknown_server: "This server is no longer configured.",

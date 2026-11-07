@@ -241,6 +241,22 @@ describe("connecting an integration", () => {
     expect(within(card).queryByTestId("connect-flow-error")).toBeNull();
   });
 
+  it("takes the address by hand when the app's own link did not come back", async () => {
+    start({ integrations: [jira([runtime({ status: "needs_auth" })])] });
+    const user = userEvent.setup();
+    const card = await openCardFromPane(user);
+    act(() => relay.emitOnIntegrations(RELAY, flow({ flowId: "f1", phase: "awaiting_user", authUrl: "https://auth.example/a?state=s1", state: "s1" })));
+    await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.awaiting));
+    expect(within(card).queryByLabelText(copy.pasteLabel)).toBeNull();
+
+    await user.click(within(card).getByRole("button", { name: copy.pasteInstead }));
+    const field = within(card).getByLabelText(copy.pasteLabel);
+    expect(field).toHaveAttribute("placeholder", copy.deeplinkPastePlaceholder);
+    await user.type(field, "anywh://mcp-oauth/callback?code=c&state=s1");
+    await user.click(within(card).getByRole("button", { name: copy.finish }));
+    expect(sentOfType("mcp_auth_complete")).toEqual([{ type: "mcp_auth_complete", flowId: "f1", callbackUrl: "anywh://mcp-oauth/callback?code=c&state=s1" }]);
+  });
+
   it("offers to connect from a failed call in the chat and above the composer", async () => {
     start({ integrations: [jira([runtime({ status: "connected" })])] });
     const user = userEvent.setup();

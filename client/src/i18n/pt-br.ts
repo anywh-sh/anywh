@@ -1286,6 +1286,9 @@ export const ptBr: Dictionary = {
         missing_code: "Este endereço não tem o código do login. Copie-o da barra de endereço do navegador.",
         state_mismatch: "Este endereço é de outro login.",
       },
+      pasteInstead: "Colar o endereço",
+      deeplinkPasteHint: "Se o navegador não voltou para o app, cole o endereço onde ele parou.",
+      deeplinkPastePlaceholder: "anywh://mcp-oauth/callback?code=…",
       flowErrors: {
         timeout: "O login demorou demais.",
         unknown_server: "Este servidor não está mais configurado.",
