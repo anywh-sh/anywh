@@ -134,3 +134,55 @@ test("parseClaudeMcpStatus: a credential in a server's URL query or arguments is
   assert.deepEqual(byReport("plain")?.claudeConfig, { type: "stdio", command: "uvx", args: ["mcp-atlassian", "--read-only"] });
   assert.deepEqual(argsWithoutSecrets(["-H", "x-api-key: k"]), { args: ["-H", REDACTED_ARG], redacted: true });
 });
+
+test("argsWithoutSecrets: any credential-named flag, variable or header, and a URL's password", () => {
+  const leaks: [string, string[], string[]][] = [
+    ["a prefixed token flag", ["--jira-token", "SECRET"], ["--jira-token", REDACTED_ARG]],
+    ["a prefixed token flag with =", ["--jira-personal-token=SECRET"], [`--jira-personal-token=${REDACTED_ARG}`]],
+    ["a personal access token", ["--personal-access-token", "SECRET"], ["--personal-access-token", REDACTED_ARG]],
+    ["a camelCase key flag", ["--apiKey", "SECRET"], ["--apiKey", REDACTED_ARG]],
+    ["a value-ish suffix", ["--password-value", "SECRET"], ["--password-value", REDACTED_ARG]],
+    ["docker's -e", ["run", "-e", "JIRA_API_TOKEN=SECRET", "image"], ["run", "-e", `JIRA_API_TOKEN=${REDACTED_ARG}`, "image"]],
+    ["--env=NAME=value", ["--env=CONFLUENCE_PERSONAL_TOKEN=SECRET"], [`--env=CONFLUENCE_PERSONAL_TOKEN=${REDACTED_ARG}`]],
+    ["an env wrapper", ["JIRA_API_TOKEN=SECRET", "uvx", "mcp-atlassian"], [`JIRA_API_TOKEN=${REDACTED_ARG}`, "uvx", "mcp-atlassian"]],
+    ["a bare api key header", ["x-api-key: SECRET"], [REDACTED_ARG]],
+    ["a header after -H", ["-H", "X-API-Key:SECRET"], ["-H", REDACTED_ARG]],
+    ["a cookie header", ["--header", "Cookie: session=SECRET"], ["--header", REDACTED_ARG]],
+    ["an authorization header", ["--header=Authorization: Bearer SECRET"], [`--header=${REDACTED_ARG}`]],
+    ["a Basic value", ["Basic SECRET"], [REDACTED_ARG]],
+    ["a URL's password", ["https://user:SECRET@jira.example.com/mcp"], ["https://jira.example.com/mcp"]],
+    ["a URL's query", ["https://jira.example.com/mcp?key=SECRET"], ["https://jira.example.com/mcp"]],
+    ["a URL in a variable", ["JIRA_URL=https://user:SECRET@jira.example.com"], ["JIRA_URL=https://jira.example.com"]],
+    ["a URL in a flag", ["--url=https://user:SECRET@jira.example.com"], ["--url=https://jira.example.com"]],
+  ];
+  for (const [what, args, expected] of leaks) {
+    const result = argsWithoutSecrets(args);
+    assert.deepEqual(result, { args: expected, redacted: true }, what);
+    assert.ok(!JSON.stringify(result).includes("SECRET"), what);
+  }
+  const kept: [string, string[]][] = [
+    ["a setting about auth", ["--auth-type", "oauth", "--auth-method", "pkce"]],
+    ["a token's file, not the token", ["--token-file", "/run/token"]],
+    ["-h is a host or help", ["-h", "jira.example.com"]],
+    ["a project key", ["--project", "KEY", "--project-key", "ENG"]],
+    ["a plain URL", ["https://mcp.atlassian.com/v1/sse", "http://localhost:8080/mcp"]],
+    ["a non-secret variable", ["-e", "JIRA_USERNAME=me", "READ_ONLY_MODE=true"]],
+    ["a non-secret header", ["--header", "Accept: application/json"]],
+    ["a credential flag with no value", ["--no-auth", "--read-only"]],
+  ];
+  for (const [what, args] of kept) assert.deepEqual(argsWithoutSecrets(args), { args, redacted: false }, what);
+});
+
+test("parseClaudeMcpStatus: a password in a server's URL is kept nowhere, nor its isolated config", () => {
+  const reports = parseClaudeMcpStatus({
+    mcpServers: [
+      { name: "userinfo", status: "connected", scope: "user", config: { type: "http", url: "https://user:SECRET@jira.example.com/mcp" } },
+      { name: "wrapped", status: "connected", scope: "user", config: { type: "stdio", command: "docker", args: ["run", "-e", "JIRA_API_TOKEN=SECRET", "mcp-atlassian", "--jira-token", "SECRET"] } },
+    ],
+  });
+  assert.ok(reports);
+  assert.ok(!JSON.stringify(reports).includes("SECRET"), "no credential anywhere in the inventory");
+  assert.equal(reports[0].transport.url, "https://jira.example.com/mcp");
+  assert.equal(reports[0].claudeConfig, undefined);
+  assert.equal(reports[1].claudeConfig, undefined);
+});

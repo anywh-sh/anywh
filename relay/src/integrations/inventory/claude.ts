@@ -48,46 +48,81 @@ function scopeOf(source: unknown, scope: unknown): McpScope {
   }
 }
 
-/** A URL without its query or fragment: some servers take a key there, and
- * nothing that reads the inventory needs it. */
+/** A URL without its userinfo (`user:pass@`), query or fragment: those are
+ * where a URL carries a credential, and nothing that reads the inventory
+ * needs them. Anything that is not `scheme://…` is returned as is. */
 export function urlWithoutQuery(url: string): string {
   const cut = url.search(/[?#]/);
-  return cut === -1 ? url : url.slice(0, cut);
+  const bare = cut === -1 ? url : url.slice(0, cut);
+  return bare.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]*@/i, "$1");
 }
 
-/** Flags whose value is a credential (`--header "Authorization: Bearer …"`,
- * `--api-key …`). */
-const SECRET_FLAG = /^--?(h|headers?|api[-_]?key|(access[-_]?)?token|auth(orization)?|bearer|password|secret|client[-_]?secret)$/i;
-const SECRET_VALUE = /\b(bearer|basic)\s+\S|authorization\s*:/i;
+const isUrl = (value: string): boolean => /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+
+/** Whether a name (a flag, an environment variable, a header) names a
+ * credential. The name is cut into word parts (`-`, `_`, `.`, camelCase) and
+ * only its LAST part counts, once value-ish suffixes (`--token-value`) are
+ * set aside: a credential flag names the thing it carries (`--jira-token`,
+ * `--personal-access-token`, `JIRA_API_TOKEN`, `x-api-key`), while a secret
+ * word followed by anything else names a setting about it (`--auth-type`,
+ * `--auth-method`, `--token-file`, `--password-env`). `key` alone is too
+ * common (`--project-key`) and counts only after a word that makes it one
+ * (`api`, `access`, `secret`…) or as the whole name. */
+const SECRET_PART = /^(\w*token|\w*secret|passw(or)?d|pwd|credentials?|bearer|pat|auth(orization)?|\w*apikey|cookie)$/;
+const KEY_QUALIFIER = /^(api|access|secret|private|client|auth|signing|session|master|subscription)$/;
+const VALUE_SUFFIX = /^(value|string|raw|b64|base64)$/;
+
+function isSecretName(name: string): boolean {
+  const parts = name
+    .replace(/^-+/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .split(/[-_.\s]+/)
+    .filter((part) => part !== "");
+  while (parts.length > 1 && VALUE_SUFFIX.test(parts[parts.length - 1])) parts.pop();
+  const last = parts[parts.length - 1];
+  if (last === undefined) return false;
+  if (SECRET_PART.test(last)) return true;
+  return last === "key" && (parts.length === 1 || KEY_QUALIFIER.test(parts[parts.length - 2]));
+}
+
+const SECRET_VALUE = /\b(bearer|basic)\s+\S/i;
 export const REDACTED_ARG = "<redacted>";
 
+/** One argument (or a flag's `=value`) with its credential taken out:
+ * `NAME=value` whose NAME is a credential, `name: value` (a header) whose
+ * name is one, a `Bearer`/`Basic` value, a URL's userinfo or query. */
+function valueWithoutSecrets(value: string): string {
+  const assignment = /^([A-Za-z_][\w.-]*)=(.*)$/s.exec(value);
+  if (assignment) return isSecretName(assignment[1]) ? `${assignment[1]}=${REDACTED_ARG}` : `${assignment[1]}=${valueWithoutSecrets(assignment[2])}`;
+  const header = /^([A-Za-z][\w-]*)\s*:(?!\/\/)/.exec(value);
+  if (header && isSecretName(header[1])) return REDACTED_ARG;
+  if (SECRET_VALUE.test(value)) return REDACTED_ARG;
+  if (isUrl(value)) return urlWithoutQuery(value);
+  return value;
+}
+
 /** A server's arguments with every credential in them replaced by
- * `REDACTED_ARG` and every URL without its query; `redacted` says whether
- * there was one. What is left still tells what the server runs. */
+ * `REDACTED_ARG` and every URL without its userinfo and query; `redacted`
+ * says whether anything was taken out. What is left still tells what the
+ * server runs. A flag is `--name value`, `--name=value` or `-n value`;
+ * whether its value is a credential is `isSecretName`'s call. */
 export function argsWithoutSecrets(args: readonly string[]): { args: string[]; redacted: boolean } {
-  let redacted = false;
   const out: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    const flag = /^(-[^=]+)=/.exec(arg)?.[1];
-    if (flag !== undefined && SECRET_FLAG.test(flag)) {
-      out.push(`${flag}=${REDACTED_ARG}`);
-      redacted = true;
-    } else if (SECRET_FLAG.test(arg) && index + 1 < args.length) {
+    const withValue = /^(-[^=]+)=(.*)$/s.exec(arg);
+    if (withValue) {
+      out.push(`${withValue[1]}=${isSecretName(withValue[1]) ? REDACTED_ARG : valueWithoutSecrets(withValue[2])}`);
+    } else if (/^--?[A-Za-z]/.test(arg) && isSecretName(arg) && index + 1 < args.length && !args[index + 1].startsWith("--")) {
+      // A next `--flag` is no value: `--no-auth --read-only` keeps both.
       out.push(arg, REDACTED_ARG);
       index += 1;
-      redacted = true;
-    } else if (SECRET_VALUE.test(arg)) {
-      out.push(REDACTED_ARG);
-      redacted = true;
-    } else if (/^https?:\/\//i.test(arg) && urlWithoutQuery(arg) !== arg) {
-      out.push(urlWithoutQuery(arg));
-      redacted = true;
     } else {
-      out.push(arg);
+      out.push(valueWithoutSecrets(arg));
     }
   }
-  return { args: out, redacted };
+  return { args: out, redacted: out.some((arg, index) => arg !== args[index]) };
 }
 
 const stringArgs = (raw: unknown[]): string[] => raw.filter((arg): arg is string => typeof arg === "string");
@@ -115,14 +150,19 @@ function authModeOf(type: McpTransport["type"]): McpAuthMode {
 /** The config to hand back to the CLI (`--mcp-config`) to start a process
  * with only this server: the keys that name the server, never its
  * environment, headers or URL query (where credentials live). A server
- * whose arguments carry one gets none: it would not start without it, and
+ * whose arguments or URL userinfo carry one gets none: it would not start without it, and
  * its calls go through the profile's own process instead. */
 function claudeConfigOf(config: Record<string, unknown>): Record<string, unknown> | undefined {
   const kept: Record<string, unknown> = {};
   for (const key of ["type", "id", "command"]) {
     if (config[key] !== undefined) kept[key] = config[key];
   }
-  if (typeof config.url === "string") kept.url = urlWithoutQuery(config.url);
+  if (typeof config.url === "string") {
+    // A password in the URL is a credential the isolated process would lack;
+    // a query alone (`?client=…`) is not worth losing the isolation over.
+    if (/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i.test(config.url)) return undefined;
+    kept.url = urlWithoutQuery(config.url);
+  }
   if (Array.isArray(config.args)) {
     const args = argsWithoutSecrets(stringArgs(config.args));
     if (args.redacted) return undefined;
