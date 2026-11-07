@@ -34,6 +34,9 @@ export interface Tab {
   /** With `pendingTicket`: the new-session screen opens on Room ("New room"
    * on a ticket's screen). */
   startsRoom?: true;
+  /** A room's agent opened in a tab of its own (from the room): it works on
+   * what its room hands it, never on a ticket picked beside it. */
+  roomAgent?: true;
 }
 
 /** One column of the split — up to `MAX_GROUPS` side by side (see the
@@ -66,6 +69,7 @@ interface PersistedTab {
   room?: boolean;
   pendingTicket?: unknown;
   startsRoom?: boolean;
+  roomAgent?: boolean;
 }
 
 interface PersistedTabs {
@@ -323,6 +327,7 @@ export function useTabs() {
       ...(tab.room ? { room: true } : {}),
       ...(tab.pendingTicket ? { pendingTicket: tab.pendingTicket } : {}),
       ...(tab.pendingTicket && tab.startsRoom ? { startsRoom: true } : {}),
+      ...(tab.roomAgent ? { roomAgent: true } : {}),
     }));
     localStorage.setItem(TABS_KEY, JSON.stringify(persistedTabs));
     const focusedGroup = state.groups.find((group) => group.id === state.focusedGroupId);
@@ -336,19 +341,20 @@ export function useTabs() {
     localStorage.setItem(TAB_LAYOUT_KEY, JSON.stringify(layout));
   }, [state]);
 
-  const openTab = useCallback((profileId: string, id: string, title: string | null = null, isNew = false, room = false) => {
+  const openTab = useCallback((profileId: string, id: string, title: string | null = null, isNew = false, room = false, roomAgent = false) => {
     hydratedRef.current = true;
     setState((prev) => {
       const existingGroup = findGroupOfTab(prev.groups, id);
       if (existingGroup) {
         return {
           ...prev,
+          tabs: roomAgent ? prev.tabs.map((tab) => (tab.id === id && !tab.roomAgent ? { ...tab, roomAgent: true as const } : tab)) : prev.tabs,
           groups: prev.groups.map((group) => (group.id === existingGroup.id ? { ...group, activeTabId: id } : group)),
           focusedGroupId: existingGroup.id,
         };
       }
 
-      const tabs = [...prev.tabs, { id, profileId, title, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew, ...(room ? { room: true } : {}) }];
+      const tabs = [...prev.tabs, { id, profileId, title, hasUnreadCompletion: false, isRunning: false, hasBackgroundJob: false, isNew, ...(room ? { room: true } : {}), ...(roomAgent ? { roomAgent: true as const } : {}) }];
       const groups = prev.groups.map((group) => (group.id === prev.focusedGroupId ? { ...group, tabIds: [...group.tabIds, id], activeTabId: id } : group));
       return normalize({ tabs, groups, focusedGroupId: prev.focusedGroupId });
     });
@@ -592,6 +598,7 @@ export function useTabs() {
         ...(persisted.room === true ? { room: true } : {}),
         // Validated, not trusted: it is sent to the relay as is.
         ...(isTicketRef(persisted.pendingTicket) ? { pendingTicket: persisted.pendingTicket, ...(persisted.startsRoom === true ? { startsRoom: true as const } : {}) } : {}),
+        ...(persisted.roomAgent === true ? { roomAgent: true as const } : {}),
       }));
       const layout = getPersistedLayout(persistedTabs, activeTabId ?? tabs[tabs.length - 1]?.id ?? null);
       return normalize({ tabs, groups: layout.groups, focusedGroupId: layout.focusedGroupId });

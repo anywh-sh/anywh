@@ -84,7 +84,8 @@ export interface TabPanelActions {
   onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string) => void;
   /** Opens (or focuses) another session of the profile as a tab: a room's
    * agent, from its panel. */
-  onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
+  /** `roomAgent`: the session is a room's agent, opened from its room. */
+  onOpenSession: (profile: Profile, sessionId: string, title: string | null, roomAgent?: boolean) => void;
 }
 
 interface TabChatProps {
@@ -120,7 +121,7 @@ const TabChat = memo(function TabChat({
   // Outside a room panel a card opens the agent as a tab. `actions` is stable
   // (see the note on `TabPanelActions`), so this is too.
   const cardActions = useMemo(
-    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null) }),
+    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null, true) }),
     [actions, profile],
   );
   return (
@@ -208,8 +209,9 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
             ticketKey={dock.ticketKey ?? null}
             onOpenTicket={(key) => actions.onOpenTicket(tab.id, key)}
             // The session beside the pane can take a ticket once it exists on
-            // the relay; a room's is its principal, which never works on one.
-            sessionId={tab.room || (tab.isNew && tab.title === null) ? null : tab.id}
+            // the relay; a room's is its principal, which never works on one,
+            // and a room's agent in its own tab gets its tickets from the room.
+            sessionId={tab.room || tab.roomAgent || (tab.isNew && tab.title === null) ? null : tab.id}
             onNewSession={(ticket) => actions.onNewTicketSession(profile, ticket, integrationId)}
             onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
             onWorkInRoom={(ticket, room) => actions.onWorkInRoom(profile, ticket, integrationId, room)}
@@ -335,7 +337,7 @@ export const TabPanel = memo(function TabPanel({
           onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
           onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
           onGone={() => actions.onDeleted(tab)}
-          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title, true)}
           pendingTicket={tab.pendingTicket ?? null}
           onClearPendingTicket={() => actions.onClearPendingTicket(tab.id)}
           // The ticket's screen lives in the dock, which only the desktop has.

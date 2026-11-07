@@ -250,4 +250,19 @@ describe("working on a ticket", () => {
     await waitFor(() => expect(chip()).toBeNull());
     expect(await screen.findByRole("button", { name: work.workHere })).toBeInTheDocument();
   }, LONG);
+
+  it("offers a room's agent in its own tab no way to work on a ticket here", async () => {
+    const worker = id("worker");
+    start([]);
+    localStorage.setItem("anywh:tabs", JSON.stringify([{ id: worker, profileId: "default", title: "worker", roomAgent: true }]));
+    localStorage.setItem("anywh:active-tab", worker);
+    const user = userEvent.setup();
+    renderApp();
+    await waitFor(() => expect(onScreen(screen.queryAllByLabelText(en.chat.composer.placeholder))).toHaveLength(1), SLOW);
+    await openJira(user);
+    await user.click(await screen.findByRole("button", { name: /Paginate the orders list/ }));
+    await screen.findByTestId("ticket-screen");
+    expect(within(screen.getByTestId("ticket-work-actions")).getByRole("button", { name: work.newSession })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: work.workHere })).toBeNull();
+  }, LONG);
 });

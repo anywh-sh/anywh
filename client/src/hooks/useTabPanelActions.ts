@@ -89,7 +89,7 @@ export function useTabPanelActions({
   return useMemo<TabPanelActions>(
     () => ({
       onTurnActiveChange: (tabId, active) => tabsState.setRunning(tabId, active),
-      onOpenSession: (profile, sessionId, title) => tabsState.openTab(profile.id, sessionId, title, false, false),
+      onOpenSession: (profile, sessionId, title, roomAgent) => tabsState.openTab(profile.id, sessionId, title, false, false, roomAgent === true),
       onBackgroundJobsChange: (tabId, jobs, failedJobs) => {
         tabsState.setHasBackgroundJob(tabId, jobs.length > 0);
         setBackgroundActivityByTab((prev) => ({ ...prev, [tabId]: { turn: prev[tabId]?.turn ?? null, jobs, failedJobs } }));

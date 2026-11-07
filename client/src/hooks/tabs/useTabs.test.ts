@@ -520,6 +520,22 @@ describe("useTabs — a new session started from a ticket", () => {
     expect(restored.result.current.tabs[0].startsRoom).toBeUndefined();
   });
 
+  it("remembers a room's agent opened in its own tab, even one already open", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => {
+      result.current.openTab("p1", "plain", "plain");
+      result.current.openTab("p1", "agent", "agent");
+      result.current.openTab("p1", "agent", null, false, false, true);
+      result.current.openTab("p1", "fresh", null, false, false, true);
+    });
+    expect(result.current.tabs.map((tab) => tab.roomAgent)).toEqual([undefined, true, true]);
+
+    const restored = renderHook(() => useTabs());
+    const persisted = restored.result.current.getPersistedTabs()!;
+    act(() => restored.result.current.restoreTabs(persisted.tabs, persisted.activeTabId));
+    expect(restored.result.current.tabs.map((tab) => tab.roomAgent)).toEqual([undefined, true, true]);
+  });
+
   it("drops a persisted pending ticket that is not a well-formed ticket", () => {
     localStorage.setItem(
       "anywh:tabs",
