@@ -97,8 +97,9 @@ export interface SessionWorkTickets {
   /** A person's turn is about to be sent with `start` (the ticket they sent
    * with it, if any; `firstTurn` whether it is the session's first): the
    * line its prompt starts with, if any — the ticket its agent has not been
-   * told about yet (once), or one a room's principal is to pass on. */
-  takeLine(sessionId: string, start: TicketRef | undefined, firstTurn: boolean): TicketLine | undefined;
+   * told about yet (once), or one a room's principal is to pass on. A slash
+   * command (`command`) gets no line and uses none up. */
+  takeLine(sessionId: string, start: TicketRef | undefined, firstTurn: boolean, command: boolean): TicketLine | undefined;
 }
 
 /** What a relay with tracker integrations knows about its sessions' MCP
@@ -640,7 +641,7 @@ export class SessionManager {
       initialSuggestion: this.sessionStore.getSuggestion(id),
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
       onActivityStateChange: () => this.announceActivity(id),
-      workTicketLine: (start, firstTurn) => this.workTickets?.takeLine(id, start, firstTurn),
+      workTicketLine: (start, firstTurn, command) => this.workTickets?.takeLine(id, start, firstTurn, command),
       mcpState: (agentId, sessionCwd) => this.mcpServers?.stateOf(agentId, sessionCwd),
       onMcpServersObserved: (agentId, servers, sessionCwd) => this.mcpServers?.observed(agentId, servers, sessionCwd),
       onMcpFailure: (agentId, failure, sessionCwd) => this.mcpServers?.failed(agentId, failure, sessionCwd),

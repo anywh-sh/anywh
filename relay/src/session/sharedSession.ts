@@ -284,8 +284,11 @@ export interface SharedSessionOptions {
    * the ticket line the prompt starts with, if any (the ticket the agent
    * works on and was not told about yet, or one a room's principal is
    * handed to pass on). `start` is the ticket the person sent with the
-   * message; `firstTurn` whether it is the session's first turn. */
-  workTicketLine?: (start: TicketRef | undefined, firstTurn: boolean) => TicketLine | undefined;
+   * message; `firstTurn` whether it is the session's first turn;
+   * `command` whether the message is a slash command, which a line in
+   * front of it would turn into plain chat: none is given then, and none
+   * is used up. */
+  workTicketLine?: (start: TicketRef | undefined, firstTurn: boolean, command: boolean) => TicketLine | undefined;
 }
 
 /** Why a `choice_answer` was refused; the card stays open. */
@@ -1715,7 +1718,7 @@ export class SharedSession implements SessionDriverHost {
       const effortId = this.effortForTurn();
       // Only a turn a person sent tells the agent its ticket: never a
       // wakeup, a job's report or another agent's message.
-      const ticket = ticketLine ?? (origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(startTicket, firstTurn) : undefined);
+      const ticket = ticketLine ?? (origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(startTicket, firstTurn, text.trim().startsWith("/")) : undefined);
       const body = ticket ? withTicketLine(text, ticket.key, ticket.provider, ticket.kind) : text;
       const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(body, card) : body);
       const ctx: TurnContext = {

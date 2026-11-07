@@ -174,6 +174,25 @@ test("Codex: the first turn of a session started from a ticket carries the line"
   assert.deepEqual(inputs, ["Jira ticket: NGL-5\n\ncodex start", "codex next"]);
 });
 
+test("a slash command goes out bare and leaves the line for the next message", async () => {
+  // Started from a ticket with a command: linked, the command untouched.
+  const started = await session("s-command-start");
+  await send(started, "/init", ticket("NGL-21"));
+  assert.equal(promptOf("/init"), "/init");
+  assert.deepEqual((await linksNow()).find((each) => each.sessionId === "s-command-start")?.lineDue, true);
+  await send(started, "now the real ask");
+  assert.equal(promptOf("now the real ask"), "Jira ticket: NGL-21\n\nnow the real ask");
+
+  const chat = await session("s-command");
+  await send(chat, "warm up");
+  await linkByHand("s-command", "NGL-22");
+  await send(chat, "  /review the branch");
+  assert.equal(promptOf("/review the branch"), "  /review the branch");
+  assert.equal((await linksNow()).find((each) => each.sessionId === "s-command")?.lineDue, true);
+  await send(chat, "after the command");
+  assert.equal(promptOf("after the command"), "Jira ticket: NGL-22\n\nafter the command");
+});
+
 test("after a relay restart the history rebuilt from each agent's own storage shows only the typed text", async () => {
   await stop();
   await start();

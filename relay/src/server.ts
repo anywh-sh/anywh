@@ -311,19 +311,23 @@ sessionManager.setWorkTickets({
   },
   observe: (id, agentId, event) => ticketObserver.observe(id, agentId, event),
   forget: (id) => ticketLinks.unlink(id),
-  takeLine: (id, start, firstTurn) => {
+  takeLine: (id, start, firstTurn, command) => {
     // A room's principal is handed a ticket, with any message, to pass on to
     // the agent it delegates that work to; it never works on one itself.
     if (sessionStore.getRoom(id)?.role === "principal") {
       if (!start) return undefined;
       sentTicketSites.set(start.provider, start.site);
-      return roomManager.carryTicket(id, start.key, start.provider);
+      const line = roomManager.carryTicket(id, start.key, start.provider);
+      return command ? undefined : line;
     }
     // A session started from a ticket works on it.
     if (start && firstTurn) {
       const title = integrations.ticketTitle(start.provider, start.key);
       ticketLinks.link(id, start, "start", { lineDue: true, ...(title ? { title } : {}) });
     }
+    // A slash command runs as one only without a line in front of it: the
+    // line waits for the next message.
+    if (command) return undefined;
     const due = ticketLinks.takeDueLine(id);
     return due && { provider: due.provider, key: due.key, kind: "work" };
   },
