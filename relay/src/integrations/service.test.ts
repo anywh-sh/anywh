@@ -7,6 +7,7 @@ import { CLAUDE_MCP_STATUS_SETTLED } from "./inventory/fixtures.js";
 import {
   INTEGRATIONS_FORCE_FLOOR_ENV,
   INTEGRATIONS_FORCE_FLOOR_MS,
+  MAX_CACHED_TICKETS,
   IntegrationService,
   integrationsForceFloorFromEnv,
   type IntegrationInventory,
@@ -422,4 +423,33 @@ test("a read that finds a server wants a sign-in signs it out in the inventory",
   await read;
   assert.equal(h.jira().runtimes[0]?.status, "needs_auth");
   assert.equal(h.query("mine", null)?.status, "needs_auth");
+});
+
+test("past the cap, the least recently read ticket screen goes, never the one just read", async () => {
+  const h = harness();
+  const keys = Array.from({ length: MAX_CACHED_TICKETS }, (_, index) => `NGL-${index + 1}`);
+  for (const key of keys) {
+    h.advance(1);
+    h.service.observeTickets("jira", { detail: { ...row(key), comments: [] } });
+  }
+  const tickets = () => h.jira().queries.filter((state) => state.query === "ticket").map((state) => state.param);
+  assert.equal(tickets().length, MAX_CACHED_TICKETS);
+
+  // The agent's 101st read stays; the oldest goes.
+  h.advance(1);
+  h.service.observeTickets("jira", { detail: { ...row("ABC-1"), comments: [] } });
+  assert.equal(tickets().length, MAX_CACHED_TICKETS);
+  assert.ok(tickets().includes("ABC-1"));
+  assert.ok(!tickets().includes("NGL-1"));
+  assert.ok(h.store.saved?.integrations.jira.queries.some((query) => query.query === "ticket" && query.param === "ABC-1"));
+
+  // So does a screen the panel opens.
+  h.advance(1);
+  const read = h.service.refresh({ id: "jira", query: "ticket", param: "ABC-2", force: false });
+  h.answer({ ok: true, runtimeId: "claude", detail: { ...row("ABC-2"), comments: [] } });
+  assert.equal(await read, "read");
+  const screen = h.query("ticket", "ABC-2");
+  assert.equal(screen?.query === "ticket" ? screen.detail?.key : undefined, "ABC-2");
+  assert.ok(!tickets().includes("NGL-2"));
+  assert.equal(tickets().length, MAX_CACHED_TICKETS);
 });

@@ -545,15 +545,18 @@ export class IntegrationService {
   private newSlot(integration: IntegrationSlot, query: IntegrationQueryKind, param: string | null): QuerySlot {
     const slot: QuerySlot = { query, param, status: "unknown" };
     integration.queries.set(slotKey(query, param), slot);
-    if (query === "ticket") this.evictTickets(integration);
+    if (query === "ticket") this.evictTickets(integration, slot);
     return slot;
   }
 
-  private evictTickets(integration: IntegrationSlot): void {
-    const tickets = [...integration.queries.entries()].filter(([, slot]) => slot.query === "ticket" && !slot.inFlight);
-    if (tickets.length <= MAX_CACHED_TICKETS) return;
+  /** Drops the least recently read ticket screens past the cap — never
+   * `keep`, the one just made: it has read nothing yet, so it would sort
+   * first. */
+  private evictTickets(integration: IntegrationSlot, keep: QuerySlot): void {
+    const tickets = [...integration.queries.entries()].filter(([, slot]) => slot.query === "ticket" && slot !== keep && !slot.inFlight);
+    if (tickets.length < MAX_CACHED_TICKETS) return;
     tickets.sort(([, a], [, b]) => (a.observedAt ?? 0) - (b.observedAt ?? 0));
-    for (const [key] of tickets.slice(0, tickets.length - MAX_CACHED_TICKETS)) integration.queries.delete(key);
+    for (const [key] of tickets.slice(0, tickets.length - MAX_CACHED_TICKETS + 1)) integration.queries.delete(key);
   }
 
   private read(integration: IntegrationSlot, slot: QuerySlot, source: IntegrationReadSource, pageToken: string | undefined): Promise<void> {
