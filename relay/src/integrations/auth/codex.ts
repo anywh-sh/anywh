@@ -74,6 +74,9 @@ export class CodexAuthDriver implements AuthDriver {
   }
 
   async begin(entry: McpInventoryEntry, mode: AuthStartMode): Promise<AuthSession> {
+    // The `-c` override names the server in a dotted key path: a name that
+    // is not a bare key there would silently override nothing.
+    if (!/^[A-Za-z0-9_-]+$/.test(entry.name)) throw new Error("unsupported");
     try {
       return await this.login(entry, mode);
     } catch (error) {

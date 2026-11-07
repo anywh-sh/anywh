@@ -4,7 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { McpAuthEngine, checkCallback, stateOfUrl, type AuthDriver, type AuthSession, type AuthStartMode } from "./engine.js";
 import { parseAuthenticateReply } from "./claude.js";
-import { isInvalidRedirect, localDelivery } from "./codex.js";
+import { CodexAuthDriver, isInvalidRedirect, localDelivery } from "./codex.js";
+import { codexRuntimeDef } from "../../runtimes/defs/codex.js";
 import { nameToAdd } from "../add.js";
 import type { McpAuthFlow, McpInventoryEntry, McpRuntimeId } from "../types.js";
 
@@ -291,4 +292,12 @@ test("once the callback is handed over, neither the flow's timer nor a cancel en
   await settle();
   assert.equal(h.latest(flow.flowId)?.phase, "done");
   assert.deepEqual(h.signedIn, ["claude/atlassian"]);
+});
+
+test("Codex: a server whose name is not a bare config key is refused before any daemon starts", async () => {
+  let spawned = 0;
+  const codex = new CodexAuthDriver({ def: codexRuntimeDef, cwd: "/tmp", spawnDaemon: () => (spawned++, Promise.reject(new Error("not here"))) });
+  await assert.rejects(codex.begin({ ...CODEX, name: "jira.work" }, "deeplink"), /^Error: unsupported$/);
+  assert.equal(spawned, 0);
+  await assert.rejects(codex.begin(CODEX, "deeplink"), /not here/, "a bare name goes on");
 });
