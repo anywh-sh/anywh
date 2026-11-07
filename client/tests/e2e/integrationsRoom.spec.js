@@ -186,6 +186,15 @@ describe("Jira tickets in a room", () => {
       return card.left >= viewport.left - 1 && card.right <= viewport.right + 1 && card.top >= viewport.top - 1 && card.bottom <= viewport.bottom + 1;
     }, workerId);
     if (!inView) throw new Error("the agent's card is not in view");
+    // Its action bar too, which is wider than the card.
+    const barInView = await browser.execute(() => {
+      const viewport = document.querySelector('[data-testid="sala-canvas"]').getBoundingClientRect();
+      const bar = document.querySelector('.sala-bar[role="toolbar"]')?.getBoundingClientRect();
+      return bar !== undefined && bar.left >= viewport.left - 1 && bar.right <= viewport.right + 1 && bar.top >= viewport.top - 1;
+    });
+    if (!barInView) throw new Error("the selected card's action bar is cut off by the canvas's edge");
+    // The bar fades in, and the webview paints it a beat later still.
+    await browser.pause(1000);
     await shot("jira-e2e-room-row-focus");
   });
 

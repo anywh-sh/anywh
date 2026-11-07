@@ -8,6 +8,7 @@ import {
   MINIMAP_W,
   boundsOf,
   cameraShows,
+  centerCamera,
   fitCamera,
   gridLayer,
   gridNeedsRedraw,
@@ -1114,8 +1115,10 @@ export function SalaCanvas(props: SalaCanvasProps) {
       // The principal is never selected: it has no bar.
       if (agent.role !== "principal") select(agentId);
       follow.current = false;
-      const next = revealCamera(cam().effective, card, vpSize.current);
-      if (next !== cam().effective) cam().animate(next, 440);
+      // To the middle, not just into view: the selected card's action bar is
+      // wider than the card, and a card only nudged inside an edge keeps it
+      // cut off there.
+      cam().animate(centerCamera(cam().effective, card.x + card.w / 2, card.y + card.h / 2, vpSize.current), 440);
     },
     [select],
   );
