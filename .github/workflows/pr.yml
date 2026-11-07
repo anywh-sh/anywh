@@ -61,6 +61,13 @@ jobs:
               # (relay/src/protocol/agent-event.ts vs.
               # client/src/lib/relay/agent-event.ts).
               - 'relay/src/protocol/agent-event.ts'
+              # Same reasoning, same job, for the plan-usage and integrations
+              # models (relay/src/planUsage/types.ts vs.
+              # client/src/lib/planUsage/model.ts,
+              # relay/src/integrations/types.ts vs.
+              # client/src/lib/integrations/model.ts).
+              - 'relay/src/planUsage/types.ts'
+              - 'relay/src/integrations/types.ts'
               # The installers are compile-time inputs to the client crate,
               # not loose scripts: relay_setup.rs `include_str!`s
               # install-relay.sh and infra/homebrew/app-install.sh, and its
