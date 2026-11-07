@@ -181,7 +181,16 @@ function hasDetailFields(issue: unknown): boolean {
   return hasRowFields(issue) && isRecord(issue) && isRecord(issue.fields) && "description" in issue.fields && "comment" in issue.fields;
 }
 
-const issueOf = (value: unknown): unknown => (isRecord(value) && isRecord(value.issue) && !isRecord(value.fields) ? value.issue : value);
+/** The issue a single-ticket tool answered with: bare, wrapped in `{issue}`,
+ * or — Atlassian's own server — in the search page's envelope
+ * (`{issues: {nodes: [issue]}, context}`). */
+function issueOf(value: unknown): unknown {
+  if (!isRecord(value) || isRecord(value.fields)) return value;
+  if (isRecord(value.issue)) return value.issue;
+  const nodes = isRecord(value.issues) ? value.issues.nodes : undefined;
+  if (Array.isArray(nodes) && nodes.length === 1) return nodes[0];
+  return value;
+}
 
 /** Text of an Atlassian Document Format node, for a server that answered in
  * ADF despite being asked for markdown. */
@@ -218,7 +227,7 @@ function commentsOf(raw: unknown): TicketComment[] {
   return comments.slice(-COMMENTS_KEPT);
 }
 
-/** `getJiraIssue`'s issue (also when wrapped in `{issue}`). */
+/** `getJiraIssue`'s issue (also when wrapped, see `issueOf`). */
 export function parseIssue(value: unknown, site: IntegrationSite): TicketDetail | undefined {
   const issue = issueOf(value);
   const row = rowOf(issue, site);

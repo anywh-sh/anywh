@@ -141,6 +141,47 @@ test("an issue keeps its description and the most recent comments, each cut to s
   assert.equal(parseIssue({ errorMessages: ["nope"] }, SITE), undefined);
 });
 
+test("getJiraIssue from Atlassian's own server: the issue inside the search page's envelope", () => {
+  // Redacted from a real answer (Claude's claude.ai connector): one node, plus
+  // a `context` the relay ignores.
+  const real = {
+    issues: {
+      nodes: [
+        {
+          expand: "renderedFields",
+          id: "10001",
+          self: `${SITE.url}/rest/api/3/issue/10001`,
+          key: "NGL-7",
+          fields: {
+            summary: "Redacted summary",
+            issuetype: { name: "Task" },
+            project: { self: "", id: "1", key: "NGL", name: "Redacted", projectTypeKey: "software", simplified: true, avatarUrls: {} },
+            description: "Redacted **markdown** body",
+            comment: { comments: [{ author: { displayName: "P" }, body: "Redacted comment", created: "2026-11-06T12:00:00.000-0300" }], self: "", maxResults: 1, total: 1, startAt: 0 },
+            priority: { self: "", iconUrl: "", name: "Medium", id: "3" },
+            updated: "2026-11-06T12:00:00.000-0300",
+            status: { self: "", description: "", iconUrl: "", name: "In Progress", id: "3", statusCategory: { self: "", id: 4, key: "indeterminate", colorName: "yellow", name: "In Progress" } },
+          },
+          descriptionEditable: true,
+          webUrl: `${SITE.url}/browse/NGL-7`,
+        },
+      ],
+    },
+    context: { cloudId: SITE.id, toolName: "getJiraIssue", featureFlags: {} },
+  };
+  const outcome = readCallToolResult({ content: [{ type: "text", text: JSON.stringify(real) }] });
+  assert.ok(outcome.ok);
+  const detail = parseIssue(outcome.value, SITE);
+  assert.equal(detail?.key, "NGL-7");
+  assert.equal(detail?.statusCategory, "doing");
+  assert.equal(detail?.descriptionMd, "Redacted **markdown** body");
+  assert.deepEqual(detail?.comments.map((comment) => comment.bodyMd), ["Redacted comment"]);
+  // The agent's own read of it gives its session the ticket screen too.
+  assert.equal(observeJiraCall("getJiraIssue", { issueIdOrKey: "NGL-7" }, outcome.value, SITE)?.detail?.key, "NGL-7");
+  // A page of several is not one issue.
+  assert.equal(parseIssue({ issues: { nodes: [real.issues.nodes[0], real.issues.nodes[0]] } }, SITE), undefined);
+});
+
 test("results: structuredContent first, else the text as JSON; errors keep their text, short", () => {
   assert.deepEqual(readCallToolResult({ content: [{ type: "text", text: "{}" }], structuredContent: { a: 1 } }), { ok: true, value: { a: 1 } });
   assert.deepEqual(readCallToolResult({ content: [{ type: "text", text: '[{"id":"x"}]' }] }), { ok: true, value: [{ id: "x" }] });
