@@ -9,8 +9,8 @@
 //
 // Everything a real CLI could be found through is cut off: `HOME` is a
 // throwaway folder (the relay looks for agent CLIs under `~/.local/bin` too,
-// where a developer's real `codex` lives), every PATH entry holding a `codex`
-// is dropped and `EXTRA_PATH_DIRS` is emptied.
+// where a developer's real `codex` lives), the fake `codex` comes first on
+// PATH, shadowing any real one, and `EXTRA_PATH_DIRS` is emptied.
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
