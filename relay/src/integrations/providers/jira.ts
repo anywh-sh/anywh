@@ -144,6 +144,13 @@ function rowOf(issue: unknown, site: IntegrationSite): TicketRow | undefined {
  * (`{issues: {nodes, pageInfo: {hasNextPage, endCursor}}}`), or Jira's REST
  * one (`{issues: [...], nextPageToken, isLast}`). `undefined` for neither. */
 export function parseSearch(value: unknown, site: IntegrationSite): { items: TicketRow[]; nextPageToken?: string } | undefined {
+  const page = searchPage(value);
+  if (!page) return undefined;
+  const items = page.nodes.map((node) => rowOf(node, site)).filter((row): row is TicketRow => row !== undefined);
+  return { items, ...(page.next ? { nextPageToken: page.next } : {}) };
+}
+
+function searchPage(value: unknown): { nodes: unknown[]; next?: string } | undefined {
   if (!isRecord(value)) return undefined;
   let nodes: unknown[];
   let next: string | undefined;
@@ -157,9 +164,24 @@ export function parseSearch(value: unknown, site: IntegrationSite): { items: Tic
   } else {
     return undefined;
   }
-  const items = nodes.map((node) => rowOf(node, site)).filter((row): row is TicketRow => row !== undefined);
-  return { items, ...(next ? { nextPageToken: next } : {}) };
+  return { nodes, ...(next ? { next } : {}) };
 }
+
+/** Whether an issue the agent read carries what a cached row shows — the
+ * agent picks its own `fields`, and a row built from fewer would show a
+ * done ticket as to do, untitled, never updated. */
+function hasRowFields(issue: unknown): boolean {
+  if (!isRecord(issue) || !isRecord(issue.fields)) return false;
+  const { fields } = issue;
+  return typeof fields.summary === "string" && isRecord(fields.status) && isRecord(fields.status.statusCategory) && timeOf(fields.updated) !== undefined;
+}
+
+/** Whether it also carries what a ticket screen shows. */
+function hasDetailFields(issue: unknown): boolean {
+  return hasRowFields(issue) && isRecord(issue) && isRecord(issue.fields) && "description" in issue.fields && "comment" in issue.fields;
+}
+
+const issueOf = (value: unknown): unknown => (isRecord(value) && isRecord(value.issue) && !isRecord(value.fields) ? value.issue : value);
 
 /** Text of an Atlassian Document Format node, for a server that answered in
  * ADF despite being asked for markdown. */
@@ -198,7 +220,7 @@ function commentsOf(raw: unknown): TicketComment[] {
 
 /** `getJiraIssue`'s issue (also when wrapped in `{issue}`). */
 export function parseIssue(value: unknown, site: IntegrationSite): TicketDetail | undefined {
-  const issue = isRecord(value) && isRecord(value.issue) && !isRecord(value.fields) ? value.issue : value;
+  const issue = issueOf(value);
   const row = rowOf(issue, site);
   if (!row || !isRecord(issue) || !isRecord(issue.fields)) return undefined;
   const description = markdownOf(issue.fields.description);
@@ -223,20 +245,25 @@ export interface JiraObservation {
   readonly rows?: TicketRow[];
 }
 
-/** `undefined` for a call that says nothing about tickets. */
+/** `undefined` for a call that says nothing about tickets. What the call
+ * read with fewer fields than the cache shows is left out of `rows` and
+ * `detail` (a ticket screen read without its description or comments
+ * refreshes only its row). */
 export function observeJiraCall(tool: string, input: Record<string, unknown>, value: unknown, site: IntegrationSite): JiraObservation | undefined {
   if (tool === JIRA_TOOLS.search) {
-    const page = parseSearch(value, site);
-    return page ? { rows: page.items } : undefined;
+    const page = searchPage(value);
+    if (!page) return undefined;
+    return { rows: page.nodes.filter(hasRowFields).map((node) => rowOf(node, site)).filter((row): row is TicketRow => row !== undefined) };
   }
   if (!SINGLE_TICKET_TOOLS.has(tool)) return undefined;
   const parsed = TICKET_RESULT_TOOLS.has(tool) ? parseIssue(value, site) : undefined;
+  const issue = issueOf(value);
   const asked = typeof input.issueIdOrKey === "string" && TICKET_KEY_PATTERN.test(input.issueIdOrKey) ? input.issueIdOrKey : undefined;
   // A numeric id in the input: the key comes from the result.
   const key = asked ?? parsed?.key;
   if (!key) return undefined;
-  if (!parsed || parsed.key !== key) return { key };
-  if (tool === JIRA_TOOLS.issue) return { key, detail: parsed };
+  if (!parsed || parsed.key !== key || !hasRowFields(issue)) return { key };
+  if (tool === JIRA_TOOLS.issue && hasDetailFields(issue)) return { key, detail: parsed };
   const { descriptionMd: _description, comments: _comments, ...row } = parsed;
   return { key, rows: [row] };
 }

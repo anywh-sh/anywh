@@ -15,7 +15,7 @@ function issue(key: string, summary = `Title of ${key}`) {
     id: `1${key.replace(/\D/g, "")}`,
     key,
     webUrl: `${SITE.url}/browse/${key}`,
-    fields: { summary, status: { name: "To Do", statusCategory: { key: "new" } }, project: { key: key.split("-")[0] }, updated: "2026-11-05T09:00:00.000-0300", comment: { comments: [] } },
+    fields: { summary, status: { name: "To Do", statusCategory: { key: "new" } }, project: { key: key.split("-")[0] }, updated: "2026-11-05T09:00:00.000-0300", description: null, comment: { comments: [] } },
   };
 }
 

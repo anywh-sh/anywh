@@ -82,8 +82,10 @@ export class TicketObserver {
     if (!observed) return;
     if (observed.detail || observed.rows) this.deps.ingest(call.integrationId, { ...(observed.detail ? { detail: observed.detail } : {}), ...(observed.rows ? { rows: observed.rows } : {}) });
     if (!observed.key || site.id === "" || this.deps.mayLink?.(sessionId) === false || this.deps.links.get(sessionId)) return;
-    const ticket: TicketRef = { provider: call.provider, site: site.id, key: observed.key, ...(observed.detail?.id ? { id: observed.detail.id } : {}) };
-    this.deps.links.link(sessionId, ticket, "mcp", { evidence: call.tool, ...(observed.detail?.title ? { title: observed.detail.title } : {}) });
+    const read = observed.detail ?? observed.rows?.find((row) => row.key === observed.key);
+    const ticket: TicketRef = { provider: call.provider, site: site.id, key: observed.key, ...(read?.id ? { id: read.id } : {}) };
+    const title = read?.title;
+    this.deps.links.link(sessionId, ticket, "mcp", { evidence: call.tool, ...(title ? { title } : {}) });
   }
 }
 

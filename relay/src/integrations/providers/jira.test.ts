@@ -14,6 +14,7 @@ import {
   classifyJiraFailure,
   issueArgs,
   mineJql,
+  observeJiraCall,
   parseIssue,
   parseResources,
   parseSearch,
@@ -177,4 +178,24 @@ test("other failures: a timeout is the network, a tool's own error is the tool's
   const unreadable = readCallToolResult({ content: [] });
   assert.ok(!unreadable.ok);
   assert.equal(classifyJiraFailure(unreadable, true).error.kind, "parse");
+});
+
+test("the agent's reads with fewer fields than the cache shows refresh nothing they lack", () => {
+  // A search for summaries only: no row, so no done ticket comes back as to do.
+  const summaries = { issues: { nodes: [{ id: "1", key: "NGL-1", fields: { summary: "About NGL-1" } }, node("NGL-2", "done")], pageInfo: { hasNextPage: false } } };
+  assert.deepEqual(
+    observeJiraCall("searchJiraIssuesUsingJql", { jql: "assignee = currentUser()", fields: ["summary"] }, summaries, SITE)?.rows?.map((row) => `${row.key}:${row.statusCategory}`),
+    ["NGL-2:done"],
+  );
+  // A ticket read without its description and comments: its row only, the
+  // cached screen keeps them; still the session's ticket.
+  const bare = observeJiraCall("getJiraIssue", { issueIdOrKey: "NGL-3", fields: ["summary", "status", "updated"] }, node("NGL-3", "indeterminate"), SITE);
+  assert.equal(bare?.key, "NGL-3");
+  assert.equal(bare?.detail, undefined);
+  assert.deepEqual(bare?.rows?.map((row) => row.statusCategory), ["doing"]);
+  // Fewer still: nothing but the key.
+  assert.deepEqual(observeJiraCall("getJiraIssue", { issueIdOrKey: "NGL-4", fields: ["summary"] }, { id: "4", key: "NGL-4", fields: { summary: "About NGL-4" } }, SITE), { key: "NGL-4" });
+  // Everything: the screen.
+  const full = observeJiraCall("getJiraIssue", { issueIdOrKey: "NGL-5" }, { ...node("NGL-5", "new"), fields: { ...node("NGL-5", "new").fields, description: null, comment: { comments: [] } } }, SITE);
+  assert.equal(full?.detail?.key, "NGL-5");
 });
