@@ -774,6 +774,50 @@ export interface McpFailureClassifier {
   readonly authMetaKeys?: readonly string[];
 }
 
+/** How the relay signs this CLI in to one of its MCP servers itself, with
+ * the CLI's own OAuth (the token goes where the CLI keeps it; the relay
+ * never sees it). Recorded against `recordedWith`: none of it is in either
+ * CLI's docs.
+ *
+ * `control-request`: a turnless process of this CLI (the inventory's
+ * `processArgs`) asked `authenticate {serverName, redirectUri?}` answers
+ * the URL to open and whether the browser comes back to its `redirectUri`
+ * or to a loopback listener of its own; the address the browser ended on is
+ * handed back with `submitCallback {serverName, callbackUrl}`, then
+ * `reconnect {serverName}` makes the process load the new token. The PKCE
+ * state lives in that process: it must outlive the flow.
+ *
+ * `app-server`: `login {name, timeoutSecs}` on an app-server started with
+ * `callbackArgs` (the per-process overrides of where the browser comes back
+ * and which local port answers it) answers the URL; the browser's address
+ * is delivered to that local port, and `completed` is pushed when the
+ * exchange is done. `reload` makes a running app-server load new tokens. */
+export type McpAuthContract =
+  | {
+      readonly kind: "control-request";
+      readonly recordedWith: string;
+      readonly authenticate: string;
+      readonly submitCallback: string;
+      readonly reconnect: string;
+    }
+  | {
+      readonly kind: "app-server";
+      readonly recordedWith: string;
+      readonly login: string;
+      readonly completed: string;
+      readonly reload: string;
+      /** Argv after `app-server`: `callbackUrl` absent keeps the CLI's own
+       * loopback redirect, on `port`. */
+      readonly callbackArgs: (serverName: string, port: number, callbackUrl: string | undefined) => readonly string[];
+    };
+
+/** How the relay declares a new MCP server for this CLI, through the CLI
+ * (which writes its own config file, with its own merge rules) — never by
+ * editing a shared config file itself. */
+export type McpAddContract =
+  | { readonly kind: "cli"; readonly args: (serverName: string, config: Readonly<Record<string, unknown>>) => readonly string[] }
+  | { readonly kind: "app-server"; readonly method: string; readonly params: (serverName: string, config: Readonly<Record<string, unknown>>) => unknown };
+
 export type McpContract =
   | { readonly kind: "none" }
   | {
@@ -785,6 +829,11 @@ export type McpContract =
       readonly toolCall?: McpToolCallContract;
       /** Absent: a failed MCP call carries no reason. */
       readonly failureClassifier?: McpFailureClassifier;
+      /** Absent: the relay cannot sign this CLI in to a server itself (the
+       * terminal login of `loginArgs` stays). */
+      readonly auth?: McpAuthContract;
+      /** Absent: the relay cannot add a server to this CLI. */
+      readonly add?: McpAddContract;
       /** Argv for this CLI's own login subcommand, per server. A pure
        * function returning args — nothing here runs it. */
       readonly loginArgs: (serverName: string) => readonly string[];

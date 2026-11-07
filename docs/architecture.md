@@ -135,7 +135,13 @@ relay/src/
                            `mcp.failureClassifier`); what a turn says about
                            a server (Claude's `init`, Codex's startup push)
                            and a call refused for want of a sign-in go back
-                           into the inventory
+                           into the inventory. auth/ signs a CLI in to a
+                           server with the CLI's own OAuth (the def's
+                           `mcp.auth`): engine.ts is the per-profile queue
+                           (one sign-in at a time, timeout, cancel) behind
+                           `mcp_auth_*`, claude.ts and codex.ts the two
+                           runtimes' flows; add.ts declares a new server
+                           through the CLI (`mcp.add`, `integration_add`)
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

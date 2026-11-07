@@ -742,6 +742,32 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
       // Why a call failed, from the item's error or the server's result
       // (see codexMcpFailure.ts).
       failureClassifier: CODEX_MCP_FAILURE_CLASSIFIER,
+      // The app-server's own MCP OAuth: `mcpServer/oauth/login` answers the
+      // URL at once (dynamic client registration included, on every login),
+      // `mcpServer/oauthLogin/completed` ends it. Where the browser comes
+      // back is the per-server `oauth.callback_url`/`callback_port`,
+      // overridden per process with `-c` so the person's config.toml is
+      // never written; with a custom scheme the listener still binds the
+      // port and answers the URL's path, which is where the relay delivers
+      // the address the browser ended on. A wrong `state` is never answered.
+      // A daemon that signed in reconnects its own thread; any other needs
+      // `config/mcpServer/reload`. Recorded on 0.154.0.
+      auth: {
+        kind: "app-server",
+        recordedWith: "0.154.0",
+        login: "mcpServer/oauth/login",
+        completed: "mcpServer/oauthLogin/completed",
+        reload: "config/mcpServer/reload",
+        callbackArgs: (serverName, port, callbackUrl) => [
+          ...(callbackUrl !== undefined ? ["-c", `mcp_servers.${serverName}.oauth.callback_url=${JSON.stringify(callbackUrl)}`] : []),
+          "-c",
+          `mcp_servers.${serverName}.oauth.callback_port=${port}`,
+        ],
+      },
+      // A per-key merge of config.toml that keeps its comments and layout
+      // (`config/value/write`), not `codex mcp add`, which blocks on the
+      // OAuth flow it starts itself.
+      add: { kind: "app-server", method: "config/value/write", params: (serverName, config) => ({ keyPath: `mcp_servers.${serverName}`, value: config, mergeStrategy: "upsert" }) },
       // Writing this file directly, then logging in, is the only automatable
       // order: `codex mcp add --url …` kicks off the OAuth flow itself and
       // blocks waiting for the callback, so any provisioning that shells out

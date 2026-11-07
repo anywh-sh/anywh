@@ -30,6 +30,6 @@ export {
 } from "./mcpSpawnConfig.js";
 export { grantRuleFor, grantsAllow, planDeferredGrants, resolveGrant, type GrantOutcome } from "./grantRules.js";
 export { ClaudeSessionDriver, reportInitMcpServers, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
-export { buildPersistentArgs, encodeInterrupt, encodeStopTask, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
+export { buildPersistentArgs, encodeInterrupt, encodeMcpReconnect, encodeStopTask, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
 export { writePersistentMcpConfig, type AgentWorkerMcpFile } from "./agentWorker.js";
 export { buildClaudeHostSpec, mcpToolName, type ClaudeHostSpec } from "./roomSpec.js";

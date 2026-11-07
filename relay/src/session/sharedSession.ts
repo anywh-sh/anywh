@@ -1905,6 +1905,12 @@ export class SharedSession implements SessionDriverHost {
     target.send(payload);
   }
 
+  /** The agent's MCP server `serverName` got signed in: a process of it that
+   * outlives a turn loads the token now. Never throws. */
+  reconnectMcp(serverName: string): void {
+    this.driver.reconnectMcp?.(serverName).catch((error: unknown) => console.error(`[relay] reconnecting an MCP server after a sign-in failed: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
   /** The servers may have changed (a scan, a sign-in, a failed call): the
    * session's devices get the new `mcp_state` if it differs from what they
    * were sent. */

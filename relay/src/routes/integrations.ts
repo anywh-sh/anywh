@@ -47,8 +47,13 @@ export function handleIntegrationsConnection(socket: WebSocket, service: Integra
   // Subscribed before the snapshots are sent, so no change can fall between.
   const unsubscribe = service.subscribe(send);
   const unsubscribeLinks = links.subscribe(send);
+  const auth = service.auth;
+  const unsubscribeAuth = auth?.subscribe((flow) => send({ type: "mcp_auth_flow", ...flow }));
   send(service.getSnapshot());
   send({ type: "work_tickets_state", links: links.list() });
+  // The sign-ins in progress (and the latest finished), so a device that
+  // connects mid-flow shows its card.
+  for (const flow of auth?.flows() ?? []) send({ type: "mcp_auth_flow", ...flow });
   const release = service.connectClient();
   console.log(`[integrations] watch opened (profile ${PROFILE}, clients ${service.connectedClients})`);
 
@@ -97,15 +102,34 @@ export function handleIntegrationsConnection(socket: WebSocket, service: Integra
       send(result === "ok" ? { type: "work_ticket_result", sessionId, ok: true } : { type: "work_ticket_result", sessionId, error: result });
       return;
     }
-    if (
-      isMcpAuthStartMessage(parsed) ||
-      isMcpAuthCompleteMessage(parsed) ||
-      isMcpAuthCancelMessage(parsed) ||
-      isMcpAuthRecheckMessage(parsed) ||
-      isIntegrationAddMessage(parsed)
-    ) {
-      // Part of the vocabulary, not served by this relay yet.
-      console.log(`[integrations] ${parsed.type} is not supported by this relay yet (profile ${PROFILE})`);
+    if (isMcpAuthStartMessage(parsed)) {
+      console.log(`[integrations] sign-in asked (profile ${PROFILE}, ${parsed.targets.map((target) => `${target.runtimeId}/${target.serverName}`).join(", ")})`);
+      auth?.start(parsed.targets, parsed.mode ?? "deeplink");
+      return;
+    }
+    if (isMcpAuthCompleteMessage(parsed)) {
+      const outcome = auth?.complete(parsed.flowId, parsed.callbackUrl) ?? "unknown_flow";
+      // A refused callback leaves the flow waiting; its card says why.
+      if (outcome !== "ok") console.log(`[integrations] sign-in callback refused (profile ${PROFILE}, ${outcome})`);
+      return;
+    }
+    if (isMcpAuthCancelMessage(parsed)) {
+      auth?.cancel(parsed.flowId);
+      return;
+    }
+    if (isMcpAuthRecheckMessage(parsed)) {
+      auth?.recheck(parsed.flowId);
+      return;
+    }
+    if (isIntegrationAddMessage(parsed)) {
+      console.log(`[integrations] add (profile ${PROFILE}, ${parsed.id} on ${parsed.runtimes.join(", ")})`);
+      service
+        .addIntegration(parsed.id, parsed.runtimes)
+        .then((result) => {
+          for (const failure of result.failures) console.log(`[integrations] add on ${failure.runtimeId} failed (profile ${PROFILE}): ${failure.error}`);
+        })
+        .catch((error: unknown) => console.error("[relay] integration add failed:", (error as Error).message))
+        .finally(() => send(service.getSnapshot()));
       return;
     }
     // Anything else is ignored: an unknown command from a newer client.
@@ -114,6 +138,7 @@ export function handleIntegrationsConnection(socket: WebSocket, service: Integra
   socket.on("close", () => {
     unsubscribe();
     unsubscribeLinks();
+    unsubscribeAuth?.();
     release();
     console.log(`[integrations] watch closed (profile ${PROFILE}, clients ${service.connectedClients})`);
   });

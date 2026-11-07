@@ -74,7 +74,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `quickPrompt` | how to run a short, isolated one-shot prompt for the relay's own probes (title/suggestion generation) — never a real turn | data + a pure function, or `{ kind: "none" }` |
 | `classifyFailure` | turns raw failure text/code into one of a fixed set of classes | a pure function |
 | `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category — absent when the CLI never reports enough to calibrate against | data, or absent |
-| `portability` | what has to be true to reproduce this runtime's setup somewhere else: which paths under its config home are the user's own, where its MCP servers are declared, and how a login is driven on a machine with no browser; plus `mcp.inventory`, how the relay asks the CLI itself which servers it would load (a control request, or a JSON listing plus a live read), with the CLI version its replies were recorded against and the config files whose change means a rescan; and `mcp.toolCall`, how the relay calls one of those servers' tools itself with no turn (a control request with the tool's full name, optionally on a process isolated to that server, or an app-server method on its own thread); and `mcp.failureClassifier`, how the CLI words a failed MCP call (rules over its error text, plus the result `_meta` keys that mean a sign-in), recorded against a CLI version | data + pure functions |
+| `portability` | what has to be true to reproduce this runtime's setup somewhere else: which paths under its config home are the user's own, where its MCP servers are declared, and how a login is driven on a machine with no browser; plus `mcp.inventory`, how the relay asks the CLI itself which servers it would load (a control request, or a JSON listing plus a live read), with the CLI version its replies were recorded against and the config files whose change means a rescan; and `mcp.toolCall`, how the relay calls one of those servers' tools itself with no turn (a control request with the tool's full name, optionally on a process isolated to that server, or an app-server method on its own thread); and `mcp.failureClassifier`, how the CLI words a failed MCP call (rules over its error text, plus the result `_meta` keys that mean a sign-in), recorded against a CLI version; `mcp.auth`, how the relay signs the CLI in to a server with the CLI's own OAuth and no terminal (control requests on a turnless process, or an app-server method with per-process callback overrides); and `mcp.add`, how a server is declared through the CLI itself | data + pure functions |
 
 The def's own functions (`buildArgs`, the stream mappers, `thread.start`,
 `turn.start`, `handleServerRequest`, `classifyFailure`, a `models`/`auth`
@@ -365,6 +365,11 @@ CLI (version noted, §8) and run it through `assertToolContract`.
       crash mid-call, a hang past the timeout, a closed port, a server's own
       error) and keeping the text it wrote; text no rule matches is
       `server_error`, which offers no sign-in — never guess a rule.
+- [ ] `portability.mcp.auth` and `portability.mcp.add`, when declared,
+      pass `relay/tests/conformance/` against the installed CLI (local fake
+      OAuth/MCP servers, a throwaway `$HOME`, no turn — see the tests
+      skill): the app's `anywh://` redirect, the loopback fallback for a
+      server that refuses it, and the token loaded afterwards.
 - [ ] Token storage was checked **without a keyring** (the state a headless
       box is in), with the exact CLI version noted — one CLI falls back to
       a file store silently, and assuming the other does too is how a

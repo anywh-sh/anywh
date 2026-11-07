@@ -100,6 +100,10 @@ export interface AgentSessionDriver {
   /** `fromTranscript`: the session has just read the turn so far from the
    * agent's own transcript. */
   followTurnInFlight?(onEvent: (event: AgentEvent) => void, options?: { readonly fromTranscript?: boolean }): Promise<DriverTurnResult>;
+  /** The agent's MCP server `serverName` got signed in: a process that
+   * outlives a turn loads the new token now. Absent for a driver whose
+   * process is per turn (the next turn starts with it). */
+  reconnectMcp?(serverName: string): Promise<void>;
   dispose(): void;
 }
 

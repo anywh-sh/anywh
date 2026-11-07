@@ -480,6 +480,14 @@ export class HostSessionDriver implements AgentSessionDriver {
     return "stopping";
   }
 
+  /** The agent outlives a turn in the host: it is told to load the new
+   * token (Claude's `mcp_reconnect`, the host's Codex app-server reloads). */
+  async reconnectMcp(serverName: string): Promise<void> {
+    const client = this.options.binding.client;
+    if (!client) return;
+    await client.request("mcp_reconnect", { agentId: this.agentId, serverName });
+  }
+
   private onRecord(record: EventMessage): void {
     this.options.binding.cursors?.set(this.agentId, { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc });
     const event = record.ev;

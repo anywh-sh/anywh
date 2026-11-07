@@ -20,6 +20,10 @@ import type { AgentRuntimeDef } from "../runtimes/types.js";
 import { ClaudeControlPool, claudeControlArgs } from "./claudeControl.js";
 import { createCodexControl } from "./codexControl.js";
 import { McpInventory } from "./inventory/engine.js";
+import { CodexAuthDriver } from "./auth/codex.js";
+import { ClaudeAuthDriver } from "./auth/claude.js";
+import { MCP_AUTH_RECHECK_WINDOW_ENV, MCP_AUTH_RECHECK_WINDOW_MS, MCP_AUTH_TIMEOUT_ENV, MCP_AUTH_TIMEOUT_MS, McpAuthEngine, msFromEnv, type AuthDriver } from "./auth/engine.js";
+import { addIntegration, type IntegrationAddResult } from "./add.js";
 import { createIntegrationReader } from "./reader.js";
 import { RuntimeToolCaller } from "./toolCaller.js";
 import { JIRA_RECOGNIZER, integrationRuntimes, pickIntegration, type IntegrationPick, type IntegrationRecognizer } from "./match.js";
@@ -117,7 +121,7 @@ export interface IntegrationReader {
 export interface IntegrationInventory {
   entries(): McpInventoryEntry[];
   subscribe(listener: (entries: McpInventoryEntry[]) => void): () => void;
-  scan(options?: { runtimeId?: McpRuntimeId }): Promise<unknown>;
+  scan(options?: { runtimeId?: McpRuntimeId; cwd?: string }): Promise<unknown>;
   /** See `McpInventory.noteInBand`. */
   noteInBand(runtimeId: McpRuntimeId, servers: readonly { name: string; status: McpServerStatus }[], cwd?: string): void;
   /** See `McpInventory.setStatus`. */
@@ -139,6 +143,12 @@ export interface IntegrationServiceDeps {
   readonly rescanAfterMs?: number;
   readonly definitions?: readonly IntegrationDefinition[];
   readonly log?: (line: string) => void;
+  /** Signs the profile's CLIs in to their servers (`mcp_auth_*`). */
+  readonly auth?: McpAuthEngine;
+  /** Declares an integration's server in the CLIs (`integration_add`). */
+  readonly add?: (id: string, provider: IntegrationProvider, runtimes: readonly McpRuntimeId[]) => Promise<IntegrationAddResult>;
+  /** Makes the service's own processes of a CLI load new tokens. */
+  readonly reloadMcp?: (runtimeId: McpRuntimeId) => Promise<unknown>;
 }
 
 export type IntegrationsStateMessage = Extract<IntegrationsServerMessage, { type: "integrations_state" }>;
@@ -348,6 +358,63 @@ export class IntegrationService {
     return undefined;
   }
 
+  // --- signing in ----------------------------------------------------------
+
+  get auth(): McpAuthEngine | undefined {
+    return this.deps.auth;
+  }
+
+  /** The inventory's entry for one CLI's server, the neutral folder's first. */
+  entryFor(runtimeId: McpRuntimeId, serverName: string): McpInventoryEntry | undefined {
+    const named = this.entries.filter((entry) => entry.runtimeId === runtimeId && entry.name === serverName);
+    return named.find((entry) => entry.cwd === undefined) ?? named[0];
+  }
+
+  /** Declares integration `id`'s server in each of `runtimes` and signs in
+   * to every one that is not signed in yet, in one queue. */
+  async addIntegration(id: string, runtimes: readonly McpRuntimeId[]): Promise<IntegrationAddResult> {
+    const integration = this.integrations.get(id);
+    if (!integration || !this.deps.add) return { targets: [], failures: runtimes.map((runtimeId) => ({ runtimeId, error: "unsupported" })) };
+    const result = await this.deps.add(id, integration.definition.provider, runtimes);
+    if (result.targets.length > 0) this.deps.auth?.start(result.targets);
+    return result;
+  }
+
+  /** The integration's server a CLI already has, if any. */
+  integrationServer(id: string, runtimeId: McpRuntimeId): McpInventoryEntry | undefined {
+    const integration = this.integrations.get(id);
+    return integration ? pickIntegration(this.entries, integration.definition.recognizer).find((pick) => pick.runtimeId === runtimeId)?.chosen : undefined;
+  }
+
+  /** Every server name a CLI has. */
+  serverNames(runtimeId: McpRuntimeId): string[] {
+    return this.entries.filter((entry) => entry.runtimeId === runtimeId).map((entry) => entry.name);
+  }
+
+  /** Rescans one CLI's servers now. */
+  rescanRuntime(runtimeId: McpRuntimeId, cwd?: string): Promise<unknown> {
+    this.lastScanAt = this.now();
+    return this.deps.inventory.scan({ runtimeId, ...(cwd !== undefined ? { cwd } : {}) }).catch((error: unknown) => this.deps.log?.(`[integrations] inventory scan failed: ${(error as Error).message}`));
+  }
+
+  /** A server got signed in: the service's own processes of that CLI load
+   * the token, the inventory says so, every client is sent the state again
+   * and the cached queries are read anew. */
+  async signedIn(entry: McpInventoryEntry): Promise<void> {
+    if (this.closed) return;
+    await this.deps.reloadMcp?.(entry.runtimeId).catch((error: unknown) => this.deps.log?.(`[integrations] reload after a sign-in failed: ${(error as Error).message}`));
+    await this.rescanRuntime(entry.runtimeId, entry.cwd);
+    this.notify();
+    for (const integration of this.integrations.values()) {
+      const slots = [...integration.queries.values()];
+      if (slots.length === 0) {
+        void this.refresh({ id: integration.definition.id, query: "mine", param: integration.prefs.project, force: false });
+        continue;
+      }
+      for (const slot of slots) void this.refresh({ id: integration.definition.id, query: slot.query, param: slot.param, force: true });
+    }
+  }
+
   // --- the sessions' servers ------------------------------------------------
 
   /** The servers of a known integration a session of `runtimeId` in `cwd`
@@ -467,6 +534,7 @@ export class IntegrationService {
   close(): void {
     this.closed = true;
     this.unsubscribeInventory();
+    this.deps.auth?.close();
     this.deps.inventory.close();
     this.deps.reader?.close?.();
     this.listeners.clear();
@@ -655,6 +723,8 @@ export interface CreateIntegrationServiceOptions {
   readonly sessionsFile: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly log?: (line: string) => void;
+  /** A server got signed in (after the service's own follow-up started). */
+  readonly onSignedIn?: (entry: McpInventoryEntry) => void;
 }
 
 /** The service with its real inventory, reader and store. Nothing runs
@@ -685,7 +755,42 @@ export function createIntegrationService(options: CreateIntegrationServiceOption
     neutralCwd,
   });
   const reader = createIntegrationReader(caller);
-  return new IntegrationService({
+  const drivers: Partial<Record<McpRuntimeId, AuthDriver>> = {};
+  if (claudeDef && claudeDef.portability.mcp.kind === "supported" && claudeDef.portability.mcp.auth?.kind === "control-request") {
+    drivers.claude = new ClaudeAuthDriver({ def: claudeDef, ...(options.homeOverride !== undefined ? { homeOverride: options.homeOverride } : {}), neutralCwd });
+  }
+  if (codexDef && codexDef.portability.mcp.kind === "supported" && codexDef.portability.mcp.auth?.kind === "app-server") {
+    drivers.codex = new CodexAuthDriver({ def: codexDef, ...(options.homeOverride !== undefined ? { homeOverride: options.homeOverride } : {}), cwd: neutralCwd });
+  }
+  // Built before the service it reports to; its callbacks run later.
+  const ref: { service?: IntegrationService } = {};
+  const auth = new McpAuthEngine({
+    drivers,
+    entryOf: (target) => ref.service?.entryFor(target.runtimeId, target.serverName),
+    onSignedIn: (entry) => {
+      void ref.service?.signedIn(entry);
+      options.onSignedIn?.(entry);
+    },
+    timeoutMs: msFromEnv(env, MCP_AUTH_TIMEOUT_ENV, MCP_AUTH_TIMEOUT_MS),
+    recheckWindowMs: msFromEnv(env, MCP_AUTH_RECHECK_WINDOW_ENV, MCP_AUTH_RECHECK_WINDOW_MS),
+    ...(options.log ? { log: options.log } : {}),
+  });
+  const add = (id: string, provider: IntegrationProvider, runtimes: readonly McpRuntimeId[]): Promise<IntegrationAddResult> =>
+    addIntegration(
+      {
+        defs: options.defs,
+        ...(options.homeOverride !== undefined ? { homeOverride: options.homeOverride } : {}),
+        neutralCwd,
+        existing: (runtimeId) => ref.service?.integrationServer(id, runtimeId),
+        names: (runtimeId) => ref.service?.serverNames(runtimeId) ?? [],
+        ...(codexControl ? { codexRequest: (method: string, params: unknown) => codexControl.request(method, params) } : {}),
+        rescan: (runtimeId) => ref.service?.rescanRuntime(runtimeId) ?? Promise.resolve(),
+        entry: (runtimeId, name) => ref.service?.entryFor(runtimeId, name),
+      },
+      provider,
+      runtimes,
+    );
+  const service = new IntegrationService({
     inventory: {
       entries: () => inventory.entries(),
       subscribe: (listener) => inventory.subscribe(listener),
@@ -704,5 +809,18 @@ export function createIntegrationService(options: CreateIntegrationServiceOption
     stored,
     forceFloorMs: integrationsForceFloorFromEnv(env),
     ...(options.log ? { log: options.log } : {}),
+    auth,
+    add,
+    reloadMcp: async (runtimeId) => {
+      // A Claude process loads tokens when it starts: the next one does.
+      if (runtimeId === "claude") {
+        claudePool?.close();
+        caller.reset();
+      } else {
+        await codexControl?.reload();
+      }
+    },
   });
+  ref.service = service;
+  return service;
 }

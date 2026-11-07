@@ -291,6 +291,20 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
       },
       // Why a call failed, from the `tool_result` text (see mcpFailure.ts).
       failureClassifier: CLAUDE_MCP_FAILURE_CLASSIFIER,
+      // Sign-in without a terminal, on the same turnless process (the SDK's
+      // `mcpAuthenticate`/`mcpSubmitOAuthCallbackUrl`). Given a
+      // `redirectUri` of the app's own scheme, the CLI registers it with the
+      // server (dynamic client registration) and answers `redirectScheme:
+      // "custom"`; a server that refuses it gets a loopback one instead
+      // (`"localhost"` with its `callbackPort`). A claude.ai connector
+      // answers `callbackExpected: false` and a claude.ai URL: it is
+      // authorized there, never locally. Submitting the callback stores the
+      // token but leaves the server `needs-auth` in that process until
+      // `mcp_reconnect`. Recorded on 2.1.303.
+      auth: { kind: "control-request", recordedWith: "2.1.303", authenticate: "mcp_authenticate", submitCallback: "mcp_oauth_callback_url", reconnect: "mcp_reconnect" },
+      // `add-json` writes the declaration the way `mcp add` does (tmp +
+      // rename, with a backup), from one JSON value instead of flags.
+      add: { kind: "cli", args: (serverName, config) => ["mcp", "add-json", "-s", "user", serverName, JSON.stringify(config)] },
       // `--no-browser`: "Print the authorization URL instead of opening a
       // browser (for SSH/headless sessions — paste the redirect URL back
       // when prompted)". That flag is what makes a remote instance's login

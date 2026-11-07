@@ -114,6 +114,8 @@ const integrations = createIntegrationService({
   homeOverride: HOME_OVERRIDE,
   sessionsFile: SESSIONS_FILE,
   log: (line) => console.log(line),
+  // The sessions' own processes of that CLI load the new token.
+  onSignedIn: (entry) => sessionManager.reconnectMcp(entry.runtimeId, entry.name),
 });
 const roomActivity = new ActivityTrail();
 // Always `127.0.0.1`, never `HOST`: this is the address the

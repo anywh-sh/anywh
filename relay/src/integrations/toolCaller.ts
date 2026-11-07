@@ -80,6 +80,15 @@ export class RuntimeToolCaller implements McpToolCaller {
     return this.callCodex(contract, server, tool, args);
   }
 
+  /** Drops the processes started for single servers (and what was learnt
+ * about which ones cannot be isolated): the next call starts afresh, with
+ * whatever tokens the CLI has now. */
+  reset(): void {
+    for (const pending of this.isolated.values()) void pending.then((isolated) => isolated && this.stopIsolated(isolated));
+    this.isolated.clear();
+    this.notIsolated.clear();
+  }
+
   close(): void {
     this.closed = true;
     for (const pending of this.isolated.values()) void pending.then((isolated) => isolated && this.stopIsolated(isolated));

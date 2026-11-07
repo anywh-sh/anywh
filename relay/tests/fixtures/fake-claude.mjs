@@ -157,6 +157,26 @@
 //                        `init` (2.1.303 shape: `[{name, status}]`, written
 //                        before the servers settle — `needs-auth` comes from
 //                        the CLI's own cache), read at each turn.
+//   Sign-in on the control process (the SDK's control requests, 2.1.303
+//                        shapes; error texts SYNTHETIC unless noted):
+//                        `mcp_authenticate {serverName, redirectUri?}`
+//                        answers a claude.ai connector (`claudeai-proxy`)
+//                        with a claude.ai URL and `callbackExpected: false`,
+//                        any other with an authorization URL carrying a new
+//                        `state` and the redirect: the app's own when given
+//                        one (`redirectScheme: "custom"`) unless
+//                        FAKE_CLAUDE_REJECT_CUSTOM_REDIRECT=1, else loopback
+//                        (`"localhost"`, `callbackPort`).
+//                        `mcp_oauth_callback_url {serverName, callbackUrl}`
+//                        checks `code` and `state` against that flow, then
+//                        marks the server `connected` in
+//                        FAKE_CLAUDE_MCP_STATUS_FILE (the token is stored) —
+//                        but this process keeps calling it `needs-auth`
+//                        until `mcp_reconnect`, as the real one does.
+//                        FAKE_CLAUDE_CONTROL_FILE gets one line per control
+//                        request `{subtype, serverName?}` (any process).
+//                        `mcp add-json -s <scope> <name> <json>` adds the
+//                        server to the status file, `needs-auth`.
 // A turn's own prompt can script it too: `[[mcp:<server>:<tool>:<args>]]`
 // makes the agent call an MCP tool, and `[[wakeup:<seconds>]]` makes it
 // call ScheduleWakeup (see those branches below).
@@ -354,6 +374,22 @@ if (args[0] === "--version") {
   // this fixture the same way it would against the real binary.
   process.stdout.write("2.1.0 (Claude Code)\n");
   process.exit(0);
+} else if (args[0] === "mcp" && args[1] === "add-json") {
+  // `mcp add-json -s user <name> <json>`: declared, not signed in yet.
+  const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
+  const [name, json] = args.slice(-2);
+  const scope = flagValue("-s") ?? "local";
+  if (file) {
+    const status = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] };
+    if (status.mcpServers.some((server) => server.name === name)) {
+      process.stderr.write(`MCP server ${name} already exists in ${scope} config\n`);
+      process.exit(1);
+    }
+    status.mcpServers.push({ name, status: "needs-auth", config: JSON.parse(json), scope, source: scope });
+    writeFileSync(file, JSON.stringify(status));
+  }
+  process.stdout.write(`Added http MCP server ${name} to ${scope} config\n`);
+  process.exit(0);
 } else if (args[0] === "mcp" && args[1] === "login") {
   // The `--no-browser` flow, in miniature and with no OAuth server: print
   // the authorization URL, wait for the redirect URL to be pasted back on
@@ -427,9 +463,13 @@ if (args[0] === "--version") {
       };
     });
   };
+  // Sign-ins this process started (name -> {state}), and servers it was
+  // given a token for but has not reconnected yet.
+  const signIns = new Map();
+  const notReconnected = new Set();
   const answerMcpStatus = (requestId) => {
     if (process.env.FAKE_CLAUDE_MCP_STATUS_HANG === "1") return;
-    const servers = loadedServers();
+    const servers = loadedServers().map((server) => (notReconnected.has(server.name) ? { ...server, status: "needs-auth" } : server));
     const pendingReplies = Number(process.env.FAKE_CLAUDE_MCP_PENDING_REPLIES ?? 0);
     // Like a process that just started: every server still coming up, no
     // catalog yet.
@@ -451,6 +491,58 @@ if (args[0] === "--version") {
     if (isAtlassianServer(server)) return reply(answerAtlassianTool("claude", server.name, match[2], request.arguments, { isolated: isolatedConfig !== undefined }));
     reply({ content: [{ type: "text", text: JSON.stringify({ server: server.name, tool: match[2], arguments: request.arguments ?? null }) }] });
   };
+  const statusFile = () => {
+    const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
+    return { file, status: file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] } };
+  };
+  const answerSignIn = (requestId, subtype, request) => {
+    const fail = (error) => emit({ type: "control_response", response: { subtype: "error", request_id: requestId, error } });
+    const reply = (response) => emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response } });
+    const name = request?.serverName;
+    const server = loadedServers().find((candidate) => candidate.name === name);
+    if (!server) return fail(`MCP server not found: ${name}`);
+    if (subtype === "mcp_authenticate") {
+      if (server.config?.type === "claudeai-proxy") {
+        return reply({ authUrl: `https://claude.ai/api/organizations/00000000-0000-4000-8000-00000000c1a0/mcp/start-auth/${server.config.id ?? "mcpsrv_fake"}?product_surface=sdk-cli`, requiresUserAction: true, callbackExpected: false });
+      }
+      const state = randomUUID();
+      const custom = typeof request.redirectUri === "string" && process.env.FAKE_CLAUDE_REJECT_CUSTOM_REDIRECT !== "1";
+      const callbackPort = 40000 + Math.floor(Math.random() * 20000);
+      const redirect = custom ? request.redirectUri : `http://localhost:${callbackPort}/callback`;
+      signIns.set(name, { state });
+      return reply({
+        authUrl: `https://auth.example.test/authorize?response_type=code&client_id=fake-client&code_challenge=fake&code_challenge_method=S256&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`,
+        requiresUserAction: true,
+        callbackExpected: true,
+        redirectScheme: custom ? "custom" : "localhost",
+        state,
+        ...(custom ? {} : { callbackPort }),
+      });
+    }
+    if (subtype === "mcp_oauth_callback_url") {
+      const flow = signIns.get(name);
+      if (!flow) return fail(`No OAuth flow in progress for ${name}`);
+      let url;
+      try {
+        url = new URL(request.callbackUrl);
+      } catch {
+        return fail("Invalid callback URL");
+      }
+      if (url.searchParams.get("error")) return fail(`OAuth error: ${url.searchParams.get("error")}`);
+      if (!url.searchParams.get("code")) return fail("Invalid callback URL: missing authorization code");
+      if (url.searchParams.get("state") !== flow.state) return fail("Callback URL not accepted");
+      signIns.delete(name);
+      const { file, status } = statusFile();
+      if (file) writeFileSync(file, JSON.stringify({ ...status, mcpServers: status.mcpServers.map((entry) => (entry.name === name ? { ...entry, status: "connected" } : entry)) }));
+      notReconnected.add(name);
+      return reply({});
+    }
+    // mcp_reconnect: word for word the real one before a sign-in.
+    const current = loadedServers().find((candidate) => candidate.name === name);
+    if (current?.status === "needs-auth") return fail("Server status: needs-auth");
+    notReconnected.delete(name);
+    return reply({});
+  };
   process.stdin.setEncoding("utf8");
   let buffered = "";
   process.stdin.on("data", (chunk) => {
@@ -467,6 +559,11 @@ if (args[0] === "--version") {
       }
       if (message.type !== "control_request") continue;
       const subtype = message.request?.subtype;
+      if (process.env.FAKE_CLAUDE_CONTROL_FILE) appendFileSync(process.env.FAKE_CLAUDE_CONTROL_FILE, `${JSON.stringify({ subtype, ...(message.request?.serverName ? { serverName: message.request.serverName } : {}) })}\n`);
+      if (subtype === "mcp_authenticate" || subtype === "mcp_oauth_callback_url" || subtype === "mcp_reconnect") {
+        answerSignIn(message.request_id, subtype, message.request);
+        continue;
+      }
       if (subtype === "mcp_status") {
         answerMcpStatus(message.request_id);
         continue;

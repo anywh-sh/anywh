@@ -295,6 +295,16 @@ export class CodexSessionDriver implements AgentSessionDriver {
     return true;
   }
 
+  /** A daemon that did not do the sign-in itself keeps failing a server
+   * until it reloads the MCP config (observed on 0.154.0). Nothing to do
+   * without a daemon: the next one starts with the token. */
+  async reconnectMcp(): Promise<void> {
+    const { mcp } = this.def.portability;
+    const method = mcp.kind === "supported" && mcp.auth?.kind === "app-server" ? mcp.auth.reload : undefined;
+    if (!method || !this.daemon || this.daemon.exited) return;
+    await this.daemon.request(method, {});
+  }
+
   /** Tears down the daemon process — called once, from `SharedSession.dispose()`,
    * never from `stop()` (invariant 3: killing a turn never destroys the
    * session). Idempotent: `CodexDaemon.kill()` already is. */

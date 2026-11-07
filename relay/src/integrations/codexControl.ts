@@ -62,7 +62,7 @@ export interface CodexControl {
 }
 
 /** It starts no turn, so no server request is expected; one is declined. */
-const DECLINING_HOST: TurnHost = {
+export const DECLINING_HOST: TurnHost = {
   requestApproval: (request) => Promise.resolve(request.safeDecisionId ?? "decline"),
   requestUserInput: () => Promise.resolve("deferred" as const),
 };

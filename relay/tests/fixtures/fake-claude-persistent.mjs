@@ -422,6 +422,7 @@ export async function runPersistent(args) {
         continue;
       }
       if (message.type === "control_request") {
+        if (process.env.FAKE_CLAUDE_CONTROL_FILE) appendFileSync(process.env.FAKE_CLAUDE_CONTROL_FILE, `${JSON.stringify({ subtype: message.request?.subtype, ...(message.request?.serverName ? { serverName: message.request.serverName } : {}), persistent: true })}\n`);
         if (message.request?.subtype === "stop_task") {
           const taskId = message.request.task_id;
           const toolUseId = subagents.get(taskId);

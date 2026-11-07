@@ -241,6 +241,14 @@ export class SessionManager {
     for (const session of this.sessions.values()) session.refreshMcpState();
   }
 
+  /** A server of agent CLI `agentId` got signed in: every live session of
+   * that agent whose process outlives a turn loads the token. */
+  reconnectMcp(agentId: string, serverName: string): void {
+    for (const [id, session] of this.sessions) {
+      if (this.sessionStore.getAgentId(id) === agentId) session.reconnectMcp(serverName);
+    }
+  }
+
   /** Wires each session's work ticket in (see `SessionWorkTickets`). */
   setWorkTickets(workTickets: SessionWorkTickets): void {
     this.workTickets = workTickets;
