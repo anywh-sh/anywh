@@ -276,3 +276,19 @@ test("a server is added under the provider's name unless the CLI has one by that
   assert.equal(nameToAdd("jira", ["atlassian", "atlassian-anywh"]), undefined);
   assert.equal(nameToAdd("linear", []), undefined);
 });
+
+test("once the callback is handed over, neither the flow's timer nor a cancel ends the sign-in", async () => {
+  const claude = driver();
+  const h = harness({ claude }, [CLAUDE]);
+  const [flow] = h.engine.start([{ runtimeId: "claude", serverName: "atlassian" }]);
+  await settle();
+  assert.equal(h.engine.complete(flow.flowId, "anywh://mcp-oauth/callback?code=c1&state=st-atlassian"), "ok");
+  assert.equal(h.engine.cancel(flow.flowId), false);
+  assert.throws(() => h.fire(1000), /armed/, "the flow's timer is gone");
+  assert.equal(h.latest(flow.flowId)?.phase, "completing");
+  assert.equal(claude.started[0].closed, false);
+  claude.started[0].settle?.();
+  await settle();
+  assert.equal(h.latest(flow.flowId)?.phase, "done");
+  assert.deepEqual(h.signedIn, ["claude/atlassian"]);
+});

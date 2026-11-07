@@ -178,6 +178,11 @@ export class McpAuthEngine {
       this.finish(slot, "failed", providerError);
       return "ok";
     }
+    // The CLI may have saved the token already: from here only its own
+    // answer (each driver bounds the wait) ends the flow, never the flow's
+    // timer nor a cancel — either would leave a signed-in server unreloaded.
+    if (slot.timer !== undefined) this.clearTimer(slot.timer);
+    slot.timer = undefined;
     this.update(slot, { phase: "completing", error: undefined });
     session.complete(callbackUrl.trim()).then(
       () => this.finish(slot, "done"),
@@ -223,9 +228,10 @@ export class McpAuthEngine {
     return true;
   }
 
+  /** `false` for a flow already over, or completing (see `complete`). */
   cancel(flowId: string): boolean {
     const slot = this.slots.get(flowId);
-    if (!slot || FINISHED.has(slot.flow.phase)) return false;
+    if (!slot || FINISHED.has(slot.flow.phase) || slot.flow.phase === "completing") return false;
     this.finish(slot, "cancelled");
     return true;
   }
