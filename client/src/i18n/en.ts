@@ -1233,6 +1233,22 @@ export const en: Dictionary = {
     },
   },
   integrations: {
+    providers: { jira: "Jira", linear: "Linear" },
+    rail: {
+      open: "{name}",
+      needsAuthOne: "{name} · 1 agent needs to connect",
+      needsAuthMany: "{name} · {count} agents need to connect",
+      failed: "{name} · server unavailable",
+    },
+    add: {
+      menuItem: "{name}",
+      title: "Add {name}",
+      description: "Adds the {name} MCP server to the agents you pick. You sign in to each of them next.",
+      agentsLabel: "Agents",
+      submit: "Add",
+      cancel: "Cancel",
+      unreachable: "The machine is not reachable right now.",
+    },
     oauthNotice: {
       unknown: "No sign-in is waiting for this link. Start it again from the app.",
       unreachable: "The sign-in could not be finished: its machine is not reachable.",

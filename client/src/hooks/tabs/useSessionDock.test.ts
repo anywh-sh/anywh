@@ -153,6 +153,42 @@ describe("useSessionDock — one view at a time", () => {
   });
 });
 
+describe("useSessionDock — integration pane", () => {
+  it("shows an integration, switches to another one at its list, and closes on its own button", () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ t1: { panes: ["integration"], width: 480, maximized: null, integrationId: "jira", ticketKey: "NGL-1" } }));
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePanel("t1"));
+    // Another integration replaces it, without the ticket the first had open.
+    act(() => result.current.toggleIntegration("t1", "linear"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["integration"], integrationId: "linear" });
+    expect(result.current.getDock("t1").ticketKey).toBeUndefined();
+    act(() => result.current.toggleIntegration("t1", "linear"));
+    expect(result.current.getDock("t1").panes).toEqual(["none"]);
+    // Closed, it is still the one the pane comes back to.
+    expect(result.current.getDock("t1").integrationId).toBe("linear");
+  });
+
+  it("gives the pane the room panes' minimum width", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.toggleIntegration("t1", "jira"));
+    act(() => result.current.setWidth("t1", 100));
+    expect(result.current.getDock("t1").width).toBe(385);
+  });
+
+  it("drops a stored integration id or ticket key that is not a string, and a ticket with no integration", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        t1: { panes: ["integration"], width: 480, maximized: null, integrationId: 7, ticketKey: "NGL-1" },
+        t2: { panes: ["integration"], width: 480, maximized: null, integrationId: "jira", ticketKey: "NGL-2" },
+      }),
+    );
+    const { result } = renderHook(() => useSessionDock());
+    expect(result.current.getDock("t1")).toEqual({ panes: ["integration"], width: 480, maximized: null });
+    expect(result.current.getDock("t2")).toEqual({ panes: ["integration"], width: 480, maximized: null, integrationId: "jira", ticketKey: "NGL-2" });
+  });
+});
+
 describe("useSessionDock — maximized", () => {
   it("toggleMaximized is a no-op until the dock has been created", () => {
     const { result } = renderHook(() => useSessionDock());

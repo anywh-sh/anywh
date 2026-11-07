@@ -1737,6 +1737,26 @@ export interface Dictionary {
   };
   /** Views of other platforms (an issue tracker) and signing in to them. */
   integrations: {
+    /** Product names, the same in every language. */
+    providers: { jira: string; linear: string };
+    /** An integration's rail button. `{name}`; `{count}` agents. */
+    rail: {
+      open: string;
+      needsAuthOne: string;
+      needsAuthMany: string;
+      failed: string;
+    };
+    /** The "+" menu and the dialog it opens. `{name}` is the provider. */
+    add: {
+      menuItem: string;
+      title: string;
+      description: string;
+      agentsLabel: string;
+      submit: string;
+      cancel: string;
+      /** The profile's relay could not be reached. */
+      unreachable: string;
+    };
     /** A sign-in link the app opened but could not hand to any relay. */
     oauthNotice: {
       /** No relay was waiting for this link. */

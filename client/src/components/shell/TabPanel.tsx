@@ -13,6 +13,8 @@ import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import { DockEmptyState } from "@/components/shell/DockEmptyState";
+import { IntegrationPanel } from "@/components/integrations/IntegrationPanel";
+import { IntegrationRail } from "@/components/integrations/IntegrationRailButtons";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
@@ -52,6 +54,9 @@ export interface TabPanelActions {
   /** Opens a pane without toggling it shut when it is already open. */
   onOpenPane: (tabId: string, kind: DockPaneKind) => void;
   onClosePane: (tabId: string, kind: DockPaneKind) => void;
+  /** An integration's rail button: shows that integration in the pane, or
+   * closes it when it is the one on screen. */
+  onToggleIntegration: (tabId: string, integrationId: string) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -160,17 +165,28 @@ interface TabDockProps {
  * shared by a conversation and a room, which differ in what sits beside it and
  * nothing else. */
 function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions, roomPanes, background = false }: TabDockProps) {
+  const integrationId = dock.panes.includes("integration") ? (dock.integrationId ?? null) : null;
   return (
     <SessionDock
       dock={dock}
       background={background}
       groupId={groupId}
+      railEnd={<IntegrationRail profile={profile} selectedId={integrationId} onToggle={(id) => actions.onToggleIntegration(tab.id, id)} />}
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
       onDragEnd={actions.onDockDragEnd}
       panes={{
         none: dock.panes.includes("none") ? <DockEmptyState /> : undefined,
         agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
         about: dock.panes.includes("about") ? roomPanes?.about : undefined,
+        integration: integrationId !== null ? (
+          <IntegrationPanel
+            profile={profile}
+            integrationId={integrationId}
+            maximized={dock.maximized === "integration"}
+            onToggleMaximized={() => actions.onToggleMaximized(tab.id, "integration")}
+            onClose={() => actions.onClosePane(tab.id, "integration")}
+          />
+        ) : undefined,
         terminal: dock.panes.includes("terminal") && !background ? (
           <TerminalPanelSlot
             profile={profile}

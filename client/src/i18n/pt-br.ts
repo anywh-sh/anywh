@@ -1233,6 +1233,22 @@ export const ptBr: Dictionary = {
     },
   },
   integrations: {
+    providers: { jira: "Jira", linear: "Linear" },
+    rail: {
+      open: "{name}",
+      needsAuthOne: "{name} · 1 agente precisa conectar",
+      needsAuthMany: "{name} · {count} agentes precisam conectar",
+      failed: "{name} · servidor indisponível",
+    },
+    add: {
+      menuItem: "{name}",
+      title: "Adicionar {name}",
+      description: "Adiciona o servidor MCP do {name} aos agentes que você escolher. Em seguida você entra em cada um deles.",
+      agentsLabel: "Agentes",
+      submit: "Adicionar",
+      cancel: "Cancelar",
+      unreachable: "A máquina não está acessível agora.",
+    },
     oauthNotice: {
       unknown: "Nenhum login está esperando por este link. Comece de novo pelo app.",
       unreachable: "Não foi possível concluir o login: a máquina dele não está acessível.",

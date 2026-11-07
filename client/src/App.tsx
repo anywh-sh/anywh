@@ -18,6 +18,7 @@ import { UsageIndicator } from "@/components/shell/UsageIndicator";
 import { groupByProfile } from "@/lib/planUsage/derive";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { usePlanUsage } from "@/hooks/relay/usePlanUsage";
+import { IntegrationsContext, useIntegrations } from "@/hooks/relay/useIntegrations";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
@@ -495,6 +496,16 @@ function AppShell() {
   // active profile. iOS has no status bar, so it opens no sockets at all.
   const usageProfileId = activeTab?.profileId ?? activeProfile.id;
   const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
+  // Integrations of every profile with a tab open — what the side panel's
+  // rail of each of those tabs shows. The dock is desktop only, so iOS opens
+  // no sockets.
+  const tabProfilesKey = [...new Set(tabsState.tabs.map((tab) => tab.profileId))].sort().join("\n");
+  const integrationProfiles = useMemo(() => {
+    if (isIOS()) return NO_PROFILES;
+    const wanted = new Set(tabProfilesKey.split("\n"));
+    return profiles.filter((profile) => wanted.has(profile.id));
+  }, [profiles, tabProfilesKey]);
+  const integrations = useIntegrations(integrationProfiles, activeTab?.profileId ?? null);
   const [usageCardOpen, setUsageCardOpen] = useState(false);
   const usageGroups = groupByProfile(
     profiles.map((profile) => profile.id),
@@ -753,6 +764,7 @@ function AppShell() {
   );
 
   return (
+    <IntegrationsContext.Provider value={integrations}>
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
@@ -919,5 +931,6 @@ function AppShell() {
         />
       </PopoverPrimitive.Root>
     </div>
+    </IntegrationsContext.Provider>
   );
 }

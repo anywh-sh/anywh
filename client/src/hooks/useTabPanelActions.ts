@@ -81,6 +81,9 @@ export function useTabPanelActions({
   onOpenPaneRef.current = onOpenPane;
   const onTogglePaneRef = useRef(onTogglePane);
   onTogglePaneRef.current = onTogglePane;
+  // Its identity follows the docks, like `togglePane`'s.
+  const toggleIntegrationRef = useRef(sessionDock.toggleIntegration);
+  toggleIntegrationRef.current = sessionDock.toggleIntegration;
 
   return useMemo<TabPanelActions>(
     () => ({
@@ -145,6 +148,7 @@ export function useTabPanelActions({
       // hidden, and the room can ask for a pane at any time.
       onTogglePane: (tabId, kind) => onTogglePaneRef.current(tabId, kind),
       onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
+      onToggleIntegration: (tabId, integrationId) => toggleIntegrationRef.current(tabId, integrationId),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),
