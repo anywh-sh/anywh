@@ -8,8 +8,8 @@
 // With `jira: true` the profile also has Jira, through the same fakes as
 // integrationsRelay.mjs (`claude.ai Atlassian` connected in the fake
 // `claude`, the fake `codex app-server` on the PATH). Either way no real CLI
-// can be found: `HOME` is a throwaway folder and every PATH entry holding a
-// `codex` is dropped — the relay looks for MCP servers in each agent CLI it
+// can be found: `HOME` is a throwaway folder and a failing `codex` shadows
+// any real one on the PATH — the relay looks for MCP servers in each agent CLI it
 // finds, and a real one would read the developer's own configuration.
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
