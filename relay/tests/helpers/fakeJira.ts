@@ -45,6 +45,8 @@ export function fakeJiraEnv(work: string): Record<string, string> {
     HOME: home,
     RELAY_HOME_OVERRIDE: home,
     RELAY_SESSIONS_FILE: join(work, "sessions.json"),
+    RELAY_WAKEUPS_FILE: join(work, "wakeups.json"),
+    RELAY_PUSH_DEVICES_FILE: join(work, "push-devices.json"),
     PATH: [binDir, ...inheritedPath].join(delimiter),
     EXTRA_PATH_DIRS: "",
     FAKE_CLAUDE_MCP_STATUS_FILE: files.claudeStatus,

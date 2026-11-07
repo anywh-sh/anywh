@@ -148,12 +148,17 @@
 //                        ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/OPENAI_API_KEY
 //                        reached the process. Lighter than
 //                        FAKE_CLAUDE_ENV_FILE, and safe to print on failure.
+//   FAKE_CLAUDE_TRANSCRIPT - if set, every turn appends its prompt and its
+//                        reply to the session's transcript under
+//                        $HOME/.claude/projects, where the real CLI keeps
+//                        it, so a relay restarted on it replays the session.
 // A turn's own prompt can script it too: `[[mcp:<server>:<tool>:<args>]]`
-// makes the agent call an MCP tool (see that branch below).
+// makes the agent call an MCP tool, and `[[wakeup:<seconds>]]` makes it
+// call ScheduleWakeup (see those branches below).
 
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { answerAtlassianTool, isAtlassianServer } from "./fake-atlassian.mjs";
 
 const args = process.argv.slice(2);
@@ -508,6 +513,7 @@ if (args[0] === "--version") {
   const outputFormat = flagValue("--output-format");
   const resumeId = flagValue("--resume");
   const sessionId = resumeId ?? randomUUID();
+  const turnPrompt = args[1] ?? "";
 
   // A turn that was handed `--effort` says so in its reply, so a test can
   // assert the flag reached the CLI without a side channel. No other
@@ -516,6 +522,15 @@ if (args[0] === "--version") {
   const replyText = `${process.env.FAKE_CLAUDE_REPLY ?? "ok"}${effortArg ? ` [effort=${effortArg}]` : ""}`;
   const errorMessage = process.env.FAKE_CLAUDE_ERROR;
   const model = "claude-fake-5";
+
+  // The folder name the real CLI derives from its real cwd (defs/claude/
+  // transcriptReader.ts `transcriptPath`).
+  if (process.env.FAKE_CLAUDE_TRANSCRIPT && outputFormat === "stream-json") {
+    const file = join(process.env.HOME ?? "", ".claude", "projects", realpathSync(process.cwd()).replace(/[^a-zA-Z0-9-]/g, "-"), `${sessionId}.jsonl`);
+    mkdirSync(dirname(file), { recursive: true });
+    const now = new Date().toISOString();
+    appendFileSync(file, `${JSON.stringify({ type: "user", timestamp: now, message: { content: turnPrompt } })}\n${JSON.stringify({ type: "assistant", timestamp: now, message: { content: [{ type: "text", text: replyText }] } })}\n`);
+  }
 
   // Gated on `--output-format stream-json` specifically (real turns only,
   // runtimes/defs/claude/session.ts's `sendTurn`), not just "any -p invocation": title
@@ -869,14 +884,24 @@ if (args[0] === "--version") {
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
     process.exit(0);
-  } else if (outputFormat === "stream-json" && /\[\[mcp:/.test(args[1] ?? "")) {
+  } else if (outputFormat === "stream-json" && /\[\[wakeup:[\d.]+\]\]/.test(turnPrompt)) {
+    // `[[wakeup:<seconds>]]`: the agent arms a wakeup whose prompt is
+    // "wakeup check", the way FAKE_CLAUDE_SCHEDULE_WAKEUP does for every turn.
+    const delaySeconds = Number(/\[\[wakeup:([\d.]+)\]\]/.exec(turnPrompt)[1]);
+    const toolUseId = "toolu_fake_wakeup_marker";
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "tool_use", id: toolUseId, name: "ScheduleWakeup", input: { delaySeconds, prompt: "wakeup check" } }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "user", session_id: sessionId, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Wakeup scheduled.", is_error: false }] } });
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: replyText }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "result", session_id: sessionId, is_error: false, result: replyText, modelUsage: { [model]: { contextWindow: 200000 } } });
+    process.exit(0);
+  } else if (outputFormat === "stream-json" && /\[\[mcp:/.test(turnPrompt)) {
     // `[[mcp:<server>:<tool>:<base64url JSON input>]]` in the prompt, any
     // number of times: the agent calls that MCP tool, in order. An Atlassian
     // server answers from fake-atlassian.mjs (its calls logged with `via:
     // "claude-turn"`), any other echoes its call. The result reaches the
     // stream as the real CLI writes an MCP result: the `CallToolResult`'s
     // content blocks.
-    const calls = [...args[1].matchAll(/\[\[mcp:([A-Za-z0-9_-]+):([A-Za-z0-9_]+):([A-Za-z0-9_-]*)\]\]/g)];
+    const calls = [...turnPrompt.matchAll(/\[\[mcp:([A-Za-z0-9_-]+):([A-Za-z0-9_]+):([A-Za-z0-9_-]*)\]\]/g)];
     for (const [index, [, server, tool, encoded]] of calls.entries()) {
       const input = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
       const toolUseId = `toolu_fake_mcp_${index}`;

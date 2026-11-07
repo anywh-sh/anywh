@@ -54,6 +54,10 @@
 // the observed JSON-RPC error, and echoes any other call's server, tool and
 // arguments as the text of a successful `CallToolResult`;
 // `config/mcpServer/reload` answers `{}`.
+// FAKE_CODEX_THREADS_DIR, if set, keeps each thread's completed turns there
+// (one JSON file per thread, the `thread/turns/list` item shapes of 0.154.0)
+// and answers `thread/turns/list` from it, so a relay restarted onto a new
+// app-server replays the session; thread ids then differ between processes.
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { answerAtlassianTool, isAtlassianServer } from "./fake-atlassian.mjs";
@@ -134,6 +138,24 @@ async function runToolTurn(threadId, turnId, calls) {
   complete(threadId, turnId, "completed", `tool: ${last}`);
 }
 
+const threadsDir = process.env.FAKE_CODEX_THREADS_DIR;
+const threadFile = (threadId) => join(threadsDir, `${threadId}.json`);
+function storeTurn(threadId, turnId, input, reply) {
+  if (!threadsDir) return;
+  const stored = readJson(threadFile(threadId), []);
+  stored.push({
+    id: turnId,
+    status: "completed",
+    startedAt: Math.floor(Date.now() / 1000),
+    durationMs: 1,
+    items: [
+      { type: "userMessage", id: `user-${turnId}`, content: [{ type: "text", text: input, text_elements: [] }] },
+      { type: "agentMessage", id: `item-${turnId}`, text: reply },
+    ],
+  });
+  writeFileSync(threadFile(threadId), JSON.stringify(stored));
+}
+
 function complete(threadId, turnId, status, text) {
   if (text !== undefined) {
     send({ method: "item/completed", params: { threadId, turnId, item: { type: "agentMessage", id: `item-${turnId}`, text } } });
@@ -185,8 +207,9 @@ process.stdin.on("data", (chunk) => {
           break;
         }
         threads++;
-        threadTools.set(`thr-${threads}`, (message.params?.dynamicTools ?? []).map((tool) => tool.name));
-        const answer = { id: message.id, result: { thread: { id: `thr-${threads}` }, model: "gpt-fake" } };
+        const threadId = threadsDir ? `thr-${process.pid}-${threads}` : `thr-${threads}`;
+        threadTools.set(threadId, (message.params?.dynamicTools ?? []).map((tool) => tool.name));
+        const answer = { id: message.id, result: { thread: { id: threadId }, model: "gpt-fake" } };
         // A thread that takes a while to start (a cold app-server).
         if (/slow-thread/.test(message.params?.cwd ?? "")) setTimeout(() => send(answer), 400);
         else send(answer);
@@ -230,10 +253,20 @@ process.stdin.on("data", (chunk) => {
           awaitingApproval.set(id, { threadId, turnId });
           send({ id, method: "item/commandExecution/requestApproval", params: { threadId, turnId, itemId: `cmd-${turns}`, command: "rm -rf build", reason: "outside the sandbox" } });
         } else {
-          complete(threadId, turnId, "completed", `echo: ${text}`);
+          // A moment after the `turn/start` answer, as a real turn ends: the
+          // client learns the turn's id from that answer, and a completion
+          // in the same read would reach it before it knows which turn ended.
+          setTimeout(() => {
+            complete(threadId, turnId, "completed", `echo: ${text}`);
+            storeTurn(threadId, turnId, text, `echo: ${text}`);
+          }, 20);
         }
         break;
       }
+      case "thread/turns/list":
+        if (threadsDir) send({ id: message.id, result: { data: readJson(threadFile(message.params?.threadId), []), nextCursor: null } });
+        else send({ id: message.id, error: { code: -32601, message: `method not found: ${message.method}` } });
+        break;
       case "account/read":
         send({ id: message.id, result: PLAN_USAGE.account.result });
         break;

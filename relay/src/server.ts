@@ -282,6 +282,14 @@ sessionManager.setWorkTickets({
   },
   observe: (id, agentId, event) => ticketObserver.observe(id, agentId, event),
   forget: (id) => ticketLinks.unlink(id),
+  takeLine: (id, start) => {
+    // A session started from a ticket works on it (a principal never does).
+    if (start && sessionStore.getRoom(id)?.role !== "principal") {
+      const title = integrations.ticketTitle(start.provider, start.key);
+      ticketLinks.link(id, start, "start", { lineDue: true, ...(title ? { title } : {}) });
+    }
+    return ticketLinks.takeDueLine(id);
+  },
 });
 ticketLinks.subscribe((event) => sessionManager.announceWorkTicket(event.type === "work_ticket_upsert" ? event.link.sessionId : event.sessionId));
 // Every room's state on one socket per watcher (`/rooms/:roomId/watch`).

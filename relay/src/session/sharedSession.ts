@@ -7,6 +7,8 @@ import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } fr
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
 import type { AgentEvent, RoomCard } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
+import { withTicketLine } from "../protocol/ticketLine.js";
+import type { TicketRef } from "../integrations/types.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
@@ -265,6 +267,11 @@ export interface SharedSessionOptions {
   /** Why answering a card must wait, for a room agent: the answer starts a
    * turn, which is refused while the room is full. */
   answerRefusal?: () => AnswerChoiceError | undefined;
+  /** Asked once per turn a person sent, right before its prompt is built:
+   * the ticket the agent should be told it works on, if it has not been
+   * told yet. `start` is the ticket the session was started from, given on
+   * the session's first turn only. */
+  workTicketLine?: (start: TicketRef | undefined) => TicketRef | undefined;
 }
 
 /** Why a `choice_answer` was refused; the card stays open. */
@@ -1185,7 +1192,7 @@ export class SharedSession implements SessionDriverHost {
    * already committed it optimistically before calling this) so it doesn't
    * get duplicated by the synthetic `user_message` that `runTurn` broadcasts
    * to the OTHER devices connected to the same session (see comment there). */
-  submitTurn(origin: WebSocket, text: string): void {
+  submitTurn(origin: WebSocket, text: string, startTicket?: TicketRef): void {
     // A previous turn's suggestion no longer applies once a new one starts —
     // clear it right away (don't wait for the turn to finish) so it doesn't
     // stay hanging around for the whole duration of the turn in progress.
@@ -1200,7 +1207,7 @@ export class SharedSession implements SessionDriverHost {
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note));
+    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note, undefined, startTicket));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1562,6 +1569,9 @@ export class SharedSession implements SessionDriverHost {
     /** What the turn is shown as instead of a bubble (see `RoomCard`). Not a
      * kind of synthetic turn: a delegated first task still locks the cwd. */
     card?: RoomCard,
+    /** The ticket a person started the session from; honored on the
+     * session's first turn only. */
+    startTicket?: TicketRef,
   ): Promise<void> {
     // The conversation so far is read from the agent's own storage before
     // anything of this turn enters the log: a turn that starts before any
@@ -1642,6 +1652,9 @@ export class SharedSession implements SessionDriverHost {
       }
     }
 
+    // Before the lock below: an unlocked folder and no conversation yet is
+    // what makes this the session's first turn.
+    const firstTurn = !this.locked && this.driver.getSessionId() === undefined;
     if (!synthetic && !follow) {
       // Locks the folder at the exact moment of the first real turn — not
       // at the WS connection (which already happens before any message)
@@ -1681,7 +1694,11 @@ export class SharedSession implements SessionDriverHost {
     const roomNote = follow ? undefined : this.options.roomTurnNote?.();
     try {
       const effortId = this.effortForTurn();
-      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(text, card) : text);
+      // Only a turn a person sent tells the agent its ticket: never a
+      // wakeup, a job's report or another agent's message.
+      const ticket = origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(firstTurn ? startTicket : undefined) : undefined;
+      const body = ticket ? withTicketLine(text, ticket.key, ticket.provider) : text;
+      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(body, card) : body);
       const ctx: TurnContext = {
         cwd: this.cwd,
         prompt,
