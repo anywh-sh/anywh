@@ -64,7 +64,7 @@ export function SessionLinkChips({ profileId, links }: { profileId: string; link
         const session = sessions.get(link.sessionId);
         return (
           <span key={link.sessionId} data-session-chip={link.sessionId} className="flex min-w-0 items-center gap-1.5">
-            <span className="max-w-[9rem] truncate">{session?.title ?? link.place?.agentTitle ?? dict.common.untitledSession}</span>
+            <span className="max-w-[9rem] truncate">{session?.title || link.place?.agentTitle || (link.place ? dict.sala.card.untitled : dict.common.untitledSession)}</span>
             <SessionActivityMark session={session ?? (link.place ? { activity: placeActivity(link.place.agentState) } : undefined)} />
           </span>
         );
