@@ -12,7 +12,7 @@
 // `codex` is dropped — the relay looks for MCP servers in each agent CLI it
 // finds, and a real one would read the developer's own configuration.
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
@@ -107,23 +107,19 @@ async function stopAll(started) {
 }
 
 /** No agent CLI but the fake `claude`: a throwaway `HOME`, and a PATH
- * without any `codex` (this node first, for the fake's `env node`). */
+ * whose first folder shadows any real `codex` with one that fails, which
+ * the relay reads as not installed (this node first too, for the fake's
+ * `env node`). The rest of PATH stays whole: git, tmux and the like may
+ * live in the same folder as a real `codex`. */
 function noRealAgentsEnv(dir) {
   const home = join(dir, "home");
   const bin = join(dir, "bin");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
   symlinkSync(process.execPath, join(bin, "node"));
-  const hasCodex = (entry) => {
-    try {
-      accessSync(join(entry, "codex"), constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const inherited = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !hasCodex(entry));
-  return { HOME: home, RELAY_HOME_OVERRIDE: home, PATH: [bin, ...inherited].join(delimiter), EXTRA_PATH_DIRS: "" };
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 127\n");
+  chmodSync(join(bin, "codex"), 0o755);
+  return { HOME: home, RELAY_HOME_OVERRIDE: home, PATH: [bin, process.env.PATH ?? ""].filter(Boolean).join(delimiter), EXTRA_PATH_DIRS: "" };
 }
 
 async function start(children, { digestWindowMs = 600000, jira = false, profile }) {

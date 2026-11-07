@@ -12,7 +12,7 @@
 // where a developer's real `codex` lives), every PATH entry holding a `codex`
 // is dropped and `EXTRA_PATH_DIRS` is emptied.
 import { spawn } from "node:child_process";
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -32,15 +32,6 @@ const WebSocket = createRequire(join(RELAY_ROOT, "package.json"))("ws");
 /** The Atlassian site the fakes answer for (fake-atlassian.mjs). */
 export const FAKE_JIRA_SITE = { id: "00000000-0000-4000-8000-0000000000a1", url: "https://example-team.atlassian.net", host: "example-team.atlassian.net" };
 
-const isExecutable = (path) => {
-  try {
-    accessSync(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /**
  * Writes the fakes' files under `dir` and returns the env that makes a relay
  * (and an agent host) see a profile with Jira: `claude.ai Atlassian`
@@ -53,8 +44,8 @@ export async function jiraFakeEnv(dir) {
   const bin = join(dir, "bin");
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
-  // The fake claude runs through `#!/usr/bin/env node`: this node goes
-  // first, since a folder that also holds a real `codex` is dropped below.
+  // First on PATH: this node (the fake claude runs through
+  // `#!/usr/bin/env node`) and the fake `codex`, which shadows a real one.
   symlinkSync(process.execPath, join(bin, "node"));
   writeFileSync(join(bin, "codex"), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_CODEX}" "$@"\n`);
   chmodSync(join(bin, "codex"), 0o755);
@@ -70,13 +61,12 @@ export async function jiraFakeEnv(dir) {
   // there (connected), and the profile would have nothing to connect.
   writeFileSync(files.codexList, JSON.stringify(JSON.parse(CODEX_MCP_LIST_STDOUT).filter((server) => server.name !== "jira-local")));
   writeFileSync(files.codexStatus, JSON.stringify({ ...CODEX_MCP_STATUS_LIST, data: CODEX_MCP_STATUS_LIST.data.filter((server) => server.name !== "jira-local") }));
-  const inherited = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !isExecutable(join(entry, "codex")));
   return {
     files,
     env: {
       HOME: home,
       RELAY_HOME_OVERRIDE: home,
-      PATH: [bin, ...inherited].join(delimiter),
+      PATH: [bin, process.env.PATH ?? ""].filter(Boolean).join(delimiter),
       EXTRA_PATH_DIRS: "",
       FAKE_CLAUDE_MCP_STATUS_FILE: files.claudeStatus,
       FAKE_CODEX_MCP_LIST_FILE: files.codexList,
