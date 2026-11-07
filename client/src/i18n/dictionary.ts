@@ -1855,6 +1855,26 @@ export interface Dictionary {
         refresh: string;
       };
     };
+    /** The ticket a session works on: the ticket screen's sessions and
+     * actions, the composer's chip, the sidebar's key. */
+    work: {
+      sessions: string;
+      noSessions: string;
+      /** Sessions past the ones a list row shows; `{count}`. */
+      moreSessions: string;
+      /** Attaches the ticket to the session of the tab beside the pane. */
+      workHere: string;
+      /** Always a new session, started on the ticket. */
+      newSession: string;
+      /** The composer's chip; `{key}`. */
+      openTicket: string;
+      /** ✕ on the chip of a session that works on the ticket; `{key}`. */
+      unlink: string;
+      /** ✕ on the chip of a new session, before its first message; `{key}`. */
+      dropPending: string;
+      /** The sidebar row's key; `{key}`. */
+      worksOn: string;
+    };
     /** A sign-in link the app opened but could not hand to any relay. */
     oauthNotice: {
       /** No relay was waiting for this link. */

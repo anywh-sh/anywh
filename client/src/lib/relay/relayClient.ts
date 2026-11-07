@@ -26,12 +26,13 @@ import type {
   SessionSummary,
   SetCwdErrorCode,
 } from "@/lib/relay/relay-types";
-import type { McpStateMessage } from "@/lib/integrations/model";
+import type { McpStateMessage, TicketRef } from "@/lib/integrations/model";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
 import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
 import { authHeaders } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
+import { withValidWorkTicket } from "@/lib/integrations/workTickets";
 
 export type {
   AgentEvent,
@@ -71,7 +72,7 @@ export async function fetchSessions(host: string, port: number, token?: string):
   // `lastActiveAt` is normalized rather than trusted: a relay older than the
   // release that added it sends `{id, title}` only, and an `undefined` behind
   // a `number` type reaches the sidebar as a timestamp nothing can format.
-  return (body.sessions ?? []).map((session) => ({
+  return (body.sessions ?? []).map((session) => withValidWorkTicket({
     ...session,
     lastActiveAt: typeof session.lastActiveAt === "number" ? session.lastActiveAt : null,
   }));
@@ -723,9 +724,12 @@ export class RelayClient {
     });
   }
 
-  sendMessage(text: string): void {
+  /** `startTicket`, on a new session's first message only: the relay links
+   * the session to it and tells the agent, in a line the person never sees
+   * (`text` stays exactly what they typed). */
+  sendMessage(text: string, startTicket?: TicketRef): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
-    this.socket.send(JSON.stringify({ type: "user_message", text }));
+    this.socket.send(JSON.stringify(startTicket ? { type: "user_message", text, startTicket } : { type: "user_message", text }));
   }
 
   stopTurn(): void {

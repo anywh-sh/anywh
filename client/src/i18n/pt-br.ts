@@ -1335,6 +1335,17 @@ export const ptBr: Dictionary = {
         refresh: "Atualizar ticket",
       },
     },
+    work: {
+      sessions: "Sessões",
+      noSessions: "Nenhuma sessão trabalha nele ainda.",
+      moreSessions: "+{count}",
+      workHere: "Trabalhar nisto na sessão atual",
+      newSession: "Nova sessão",
+      openTicket: "Abrir {key}",
+      unlink: "Parar de trabalhar em {key} nesta sessão",
+      dropPending: "Não começar por {key}",
+      worksOn: "Trabalha em {key}",
+    },
     oauthNotice: {
       unknown: "Nenhum login está esperando por este link. Comece de novo pelo app.",
       unreachable: "Não foi possível concluir o login: a máquina dele não está acessível.",

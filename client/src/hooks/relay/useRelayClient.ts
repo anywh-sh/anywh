@@ -22,7 +22,7 @@ import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profile
 import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
 import { BrokerRevokedError, fetchConnectGrant } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
-import type { McpStateMessage } from "@/lib/integrations/model";
+import type { McpStateMessage, TicketRef } from "@/lib/integrations/model";
 
 /** A received `compact_boundary`, with a timestamp — the timestamp guarantees a
  * fresh reference on every occurrence (even with repeated `trigger`/`preTokens`),
@@ -137,7 +137,7 @@ export interface UseRelayClientResult {
    * second after the composer is cleared (same spirit as the optimistic
    * update of `onActivity` in ChatPanel). */
   dismissSuggestion: () => void;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string, startTicket?: TicketRef) => void;
   stopTurn: () => void;
   setCwd: (path: string) => void;
   setAgent: (agentId: string) => void;
@@ -438,8 +438,8 @@ export function useRelayClient(
     clientRef.current?.setPresence(visible);
   }, []);
 
-  const sendMessage = useCallback((text: string) => {
-    clientRef.current?.sendMessage(text);
+  const sendMessage = useCallback((text: string, startTicket?: TicketRef) => {
+    clientRef.current?.sendMessage(text, startTicket);
   }, []);
 
   const stopTurn = useCallback(() => {

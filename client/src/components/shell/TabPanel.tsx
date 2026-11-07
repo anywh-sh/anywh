@@ -20,6 +20,7 @@ import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import type { Tab } from "@/hooks/tabs/useTabs";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { TicketRef } from "@/lib/integrations/model";
 import { isIOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 
@@ -59,6 +60,14 @@ export interface TabPanelActions {
   onToggleIntegration: (tabId: string, integrationId: string) => void;
   /** The integration pane opens one ticket (`null`: back to its list). */
   onOpenTicket: (tabId: string, ticketKey: string | null) => void;
+  /** Shows an integration's pane on one ticket, opening it if needed (a work
+   * ticket's chip). */
+  onShowTicket: (tabId: string, integrationId: string, ticketKey: string) => void;
+  /** "New session" on a ticket's screen: a new-session tab of the profile
+   * that starts on the ticket, with the integration's pane beside it. */
+  onNewTicketSession: (profile: Profile, ticket: TicketRef, integrationId: string) => void;
+  /** The new session will not start on a ticket after all. */
+  onClearPendingTicket: (tabId: string) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -128,6 +137,10 @@ const TabChat = memo(function TabChat({
       profile={profile}
       sessionId={tab.id}
       isNewConversation={tab.isNew}
+      pendingTicket={tab.pendingTicket ?? null}
+      onClearPendingTicket={() => actions.onClearPendingTicket(tab.id)}
+      // The ticket's screen lives in the dock, which only the desktop has.
+      onShowTicket={noPanes ? undefined : (ticket) => actions.onShowTicket(tab.id, ticket.provider, ticket.key)}
       onRoomCreated={(roomId, title) => actions.onRoomCreated(tab, profile, roomId, title)}
       onTurnActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
       onBackgroundJobsChange={(jobs, failedJobs) => actions.onBackgroundJobsChange(tab.id, jobs, failedJobs)}
@@ -186,6 +199,11 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
             integrationId={integrationId}
             ticketKey={dock.ticketKey ?? null}
             onOpenTicket={(key) => actions.onOpenTicket(tab.id, key)}
+            // The session beside the pane can take a ticket once it exists on
+            // the relay; a room's is its principal, which never works on one.
+            sessionId={tab.room || (tab.isNew && tab.title === null) ? null : tab.id}
+            onNewSession={(ticket) => actions.onNewTicketSession(profile, ticket, integrationId)}
+            onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
             maximized={dock.maximized === "integration"}
             onToggleMaximized={() => actions.onToggleMaximized(tab.id, "integration")}
             onClose={() => actions.onClosePane(tab.id, "integration")}

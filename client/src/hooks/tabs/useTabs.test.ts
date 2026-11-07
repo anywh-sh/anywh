@@ -480,3 +480,38 @@ describe("useTabs — a title still being generated", () => {
     expect(result.current.tabs[0].titlePending).toBe(false);
   });
 });
+
+describe("useTabs — a new session started from a ticket", () => {
+  const ticket = { provider: "jira" as const, site: "cloud-1", key: "NGL-1144" };
+
+  it("keeps the pending ticket across a restart, and clears it", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => {
+      result.current.openTab("p1", "s1", null, true);
+      result.current.setPendingTicket("s1", ticket);
+    });
+    expect(result.current.tabs[0].pendingTicket).toEqual(ticket);
+
+    const restored = renderHook(() => useTabs());
+    const persisted = restored.result.current.getPersistedTabs()!;
+    act(() => restored.result.current.restoreTabs(persisted.tabs, persisted.activeTabId));
+    expect(restored.result.current.tabs[0].pendingTicket).toEqual(ticket);
+
+    act(() => restored.result.current.setPendingTicket("s1", null));
+    expect(restored.result.current.tabs[0].pendingTicket).toBeUndefined();
+  });
+
+  it("drops a persisted pending ticket that is not a well-formed ticket", () => {
+    localStorage.setItem(
+      "anywh:tabs",
+      JSON.stringify([
+        { id: "s1", profileId: "p1", title: null, pendingTicket: { provider: "jira", site: "cloud-1", key: "not a key" } },
+        { id: "s2", profileId: "p1", title: null, pendingTicket: { provider: "github", site: "x", key: "NGL-1" } },
+      ]),
+    );
+    const { result } = renderHook(() => useTabs());
+    const persisted = result.current.getPersistedTabs()!;
+    act(() => result.current.restoreTabs(persisted.tabs, persisted.activeTabId));
+    expect(result.current.tabs.map((tab) => tab.pendingTicket)).toEqual([undefined, undefined]);
+  });
+});

@@ -1,4 +1,5 @@
 import type { IntegrationProvider, IntegrationState, McpAuthFlow, McpRuntimeId } from "@/lib/integrations/model";
+import type { WorkTicketMap } from "@/lib/integrations/workTickets";
 
 /**
  * What the integrations UI shows, derived from what each profile's relay last
@@ -27,6 +28,9 @@ export interface ProfileIntegrations {
   receivedAt: number | null;
   /** The relay's sign-ins as it last reported them, by `flowId`. */
   authFlows: Record<string, McpAuthFlow>;
+  /** Every session's work ticket, by session id, as the relay last said;
+   * `null` until it has. Kept across disconnects, like `integrations`. */
+  workTickets: WorkTicketMap | null;
 }
 
 export const EMPTY_PROFILE_INTEGRATIONS: ProfileIntegrations = {
@@ -34,6 +38,7 @@ export const EMPTY_PROFILE_INTEGRATIONS: ProfileIntegrations = {
   integrations: null,
   receivedAt: null,
   authFlows: {},
+  workTickets: null,
 };
 
 /**

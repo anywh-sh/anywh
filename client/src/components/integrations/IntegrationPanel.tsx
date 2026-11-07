@@ -11,8 +11,10 @@ import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
 import { useDict, useLocale } from "@/i18n";
 import { formatRelativeTime } from "@/lib/format/relativeTime";
 import { integrationDataState, pickFetchRuntime, runtimesNeedingAuth, siteHost } from "@/lib/integrations/derive";
-import type { IntegrationProvider, IntegrationState, IntegrationsClientMessage, QueryState } from "@/lib/integrations/model";
+import type { IntegrationProvider, IntegrationState, IntegrationsClientMessage, QueryState, TicketRef, WorkTicket } from "@/lib/integrations/model";
 import { mineQuery, projectOptions, queryCooldown, queryView, ticketQuery, ticketView, visibleRows } from "@/lib/integrations/tickets";
+import { canWorkHere, linksOnTicket, ticketRefFor, type WorkTicketMap } from "@/lib/integrations/workTickets";
+import { TicketSessions, TicketWorkActions } from "@/components/integrations/SessionLinkChips";
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface IntegrationPanelProps {
@@ -21,6 +23,13 @@ interface IntegrationPanelProps {
   /** The ticket on screen; `null` shows the list. */
   ticketKey: string | null;
   onOpenTicket: (ticketKey: string | null) => void;
+  /** The session of the tab beside the pane, when it can take a ticket (it
+   * exists on the relay and is not a room). */
+  sessionId: string | null;
+  /** "New session" on a ticket's screen. */
+  onNewSession: (ticket: TicketRef) => void;
+  /** A session listed on a ticket's screen. */
+  onOpenSession: (sessionId: string, title: string | null) => void;
   maximized: boolean;
   onToggleMaximized: () => void;
   onClose: () => void;
@@ -35,7 +44,7 @@ interface IntegrationPanelProps {
  * there; ↻ reads again. While an agent has to sign in, the pane says so
  * first and opens the connect card.
  */
-export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTicket, maximized, onToggleMaximized, onClose }: IntegrationPanelProps) {
+export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTicket, sessionId, onNewSession, onOpenSession, maximized, onToggleMaximized, onClose }: IntegrationPanelProps) {
   const dict = useDict();
   const integrations = useProfileIntegrations(profile.id);
   const integration = integrations?.entry.integrations?.find((entry) => entry.id === integrationId);
@@ -66,6 +75,10 @@ export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTick
             send={integrations.send}
             ticketKey={ticketKey}
             onOpenTicket={onOpenTicket}
+            links={integrations.entry.workTickets}
+            sessionId={sessionId}
+            onNewSession={onNewSession}
+            onOpenSession={onOpenSession}
           />
         )}
       </div>
@@ -83,9 +96,14 @@ interface BodyProps {
   send: (message: IntegrationsClientMessage) => boolean;
   ticketKey: string | null;
   onOpenTicket: (ticketKey: string | null) => void;
+  /** Every session's work ticket, `null` until the relay has said. */
+  links: WorkTicketMap | null;
+  sessionId: string | null;
+  onNewSession: (ticket: TicketRef) => void;
+  onOpenSession: (sessionId: string, title: string | null) => void;
 }
 
-function IntegrationBody({ profileId, integration, provider, stale, receivedAt, send, ticketKey, onOpenTicket }: BodyProps) {
+function IntegrationBody({ profileId, integration, provider, stale, receivedAt, send, ticketKey, onOpenTicket, links, sessionId, onNewSession, onOpenSession }: BodyProps) {
   const dict = useDict();
   const copy = dict.integrations.tickets;
   const canRead = !stale && pickFetchRuntime(integration) !== undefined;
@@ -135,6 +153,10 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
   if (ticketKey) {
     const { detail, row } = ticketView(integration, ticketKey);
     const view = queryView(query);
+    const ticket = ticketRefFor(integration, ticketKey);
+    const onTicket = linksOnTicket(links, { provider, key: ticketKey });
+    // Both need the ticket's site, which the relay learns on its first read.
+    const workHere = ticket !== null && !stale && canWorkHere(links, sessionId);
     return (
       <TicketScreen
         ticketKey={ticketKey}
@@ -147,6 +169,16 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
           <div className="flex flex-col gap-2">
             {view === "error" ? <p className="text-sm text-destructive">{copy.ticket.error}</p> : view === "needs_auth" ? <QueryNeedsAuth profileId={profileId} integration={integration} provider={provider} /> : <p className="text-sm text-text-faint">{copy.ticket.loading}</p>}
           </div>
+        }
+        sessions={links !== null && <TicketSessions profileId={profileId} links={onTicket} onOpen={onOpenSession} />}
+        footer={
+          <TicketWorkActions
+            workHere={workHere}
+            onWorkHere={() => {
+              if (ticket && sessionId) sendRef.current({ type: "work_ticket", sessionId, action: "link", ticket });
+            }}
+            onNewSession={ticket ? () => onNewSession(ticket) : null}
+          />
         }
         onBack={() => onOpenTicket(null)}
       />
@@ -189,6 +221,8 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
             <LoadingMoreList
               key={`${project ?? "*"}`}
               rows={rows}
+              profileId={profileId}
+              linksByKey={linksByKey(links, provider)}
               stale={stale}
               hasMore={mine?.nextPageToken !== undefined}
               reading={mine?.reading === true}
@@ -215,6 +249,8 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
  * with a state that is not reading any more. */
 function LoadingMoreList({
   rows,
+  profileId,
+  linksByKey,
   stale,
   hasMore,
   reading,
@@ -223,6 +259,8 @@ function LoadingMoreList({
   onLoadMore,
 }: {
   rows: Parameters<typeof TicketList>[0]["rows"];
+  profileId: string;
+  linksByKey: ReadonlyMap<string, WorkTicket[]>;
   stale: boolean;
   hasMore: boolean;
   reading: boolean;
@@ -237,6 +275,8 @@ function LoadingMoreList({
   return (
     <TicketList
       rows={rows}
+      profileId={profileId}
+      linksByKey={linksByKey}
       stale={stale}
       hasMore={hasMore}
       loadingMore={pendingSince !== null}
@@ -247,6 +287,17 @@ function LoadingMoreList({
       }}
     />
   );
+}
+
+/** The sessions working on each of the provider's tickets, by key. */
+function linksByKey(links: WorkTicketMap | null, provider: IntegrationProvider): Map<string, WorkTicket[]> {
+  const byKey = new Map<string, WorkTicket[]>();
+  for (const link of Object.values(links ?? {})) {
+    if (link.ticket.provider !== provider) continue;
+    byKey.set(link.ticket.key, [...(byKey.get(link.ticket.key) ?? []), link]);
+  }
+  for (const list of byKey.values()) list.sort((a, b) => b.linkedAt - a.linkedAt);
+  return byKey;
 }
 
 /** The clock of the pane: once a second while a refresh is held (the

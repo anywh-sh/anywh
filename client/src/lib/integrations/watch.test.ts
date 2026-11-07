@@ -57,6 +57,19 @@ describe("IntegrationsWatch", () => {
     expect(live.current.integrations).toEqual([]);
   });
 
+  it("keeps every session's work ticket through the relay's updates", async () => {
+    const link = (sessionId: string, key: string) => ({ sessionId, ticket: { provider: "jira" as const, site: "cloud-1", key }, origin: "manual" as const, linkedAt: 1, lineDue: false });
+    relay = installFakeRelay("", { integrations: { [RELAY]: { integrations: [JIRA], links: [link("s1", "NGL-1")] } } });
+    const live = startWatch();
+    expect(live.current.workTickets).toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(Object.keys(live.current.workTickets ?? {})).toEqual(["s1"]);
+
+    relay.emitOnIntegrations(RELAY, { type: "work_ticket_upsert", link: link("s2", "NGL-2") });
+    relay.emitOnIntegrations(RELAY, { type: "work_ticket_removed", sessionId: "s1" });
+    expect(live.current.workTickets).toEqual({ s2: link("s2", "NGL-2") });
+  });
+
   it("marks an older relay unsupported for good and never redials it", async () => {
     relay = installFakeRelay("", { integrations: { [RELAY]: "legacy" } });
     const old = startWatch();
@@ -120,10 +133,18 @@ describe("IntegrationsWatch", () => {
 });
 
 describe("parseServerMessage", () => {
+  it("keeps well-formed work tickets only", () => {
+    const good = { sessionId: "s1", ticket: { provider: "jira", site: "cloud-1", key: "NGL-1" }, origin: "start", linkedAt: 1, lineDue: false };
+    const raw = JSON.stringify({ type: "work_tickets_state", links: [good, { sessionId: "s2", ticket: { key: "bad" } }] });
+    expect(parseServerMessage(raw)).toEqual({ type: "work_tickets_state", links: [good] });
+    expect(parseServerMessage(JSON.stringify({ type: "work_ticket_upsert", link: { sessionId: "s3" } }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ type: "work_ticket_removed", sessionId: "s1" }))).toEqual({ type: "work_ticket_removed", sessionId: "s1" });
+  });
+
   it("keeps well-formed integrations only and ignores messages it does not know", () => {
     const raw = JSON.stringify({ type: "integrations_state", integrations: [JIRA, { id: "x" }, null] });
     expect(parseServerMessage(raw)).toEqual({ type: "integrations_state", integrations: [JIRA] });
-    expect(parseServerMessage(JSON.stringify({ type: "work_tickets_state", links: [] }))).toBeNull();
+    expect(parseServerMessage(JSON.stringify({ type: "work_ticket_result", sessionId: "s", ok: true }))).toBeNull();
     expect(parseServerMessage("nope")).toBeNull();
     expect(parseServerMessage(JSON.stringify({ type: "mcp_auth_flow", phase: "done" }))).toBeNull();
   });

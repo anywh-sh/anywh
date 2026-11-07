@@ -318,6 +318,20 @@ export function useSessionDock() {
     });
   }, []);
 
+  /** Shows an integration's pane on one of its tickets (`null`: its list),
+   * never closing it — a work ticket's chip, a session opened from a ticket. */
+  const showIntegration = useCallback((tabId: string, integrationId: string, ticketKey: string | null) => {
+    setPanelOpen(true);
+    setDocks((prev) => {
+      const dock = prev[tabId] ?? EMPTY_DOCK;
+      const next = dock.panes.includes("integration") ? { ...dock } : pushPane(dock, "integration");
+      const shown: DockState = { ...next, integrationId };
+      if (ticketKey === null) delete shown.ticketKey;
+      else shown.ticketKey = ticketKey;
+      return { ...prev, [tabId]: shown };
+    });
+  }, []);
+
   /** Ensures `kind` is present, without `togglePane`'s close-if-already-open
    * behavior — for actions that only ever mean "show me this pane" (the file
    * tree's "open in terminal"), never "close it". */
@@ -382,5 +396,5 @@ export function useSessionDock() {
     });
   }, []);
 
-  return { getDock, getVisibleDock, isPanelShown, togglePanel, togglePane, toggleIntegration, setIntegrationTicket, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
+  return { getDock, getVisibleDock, isPanelShown, togglePanel, togglePane, toggleIntegration, setIntegrationTicket, showIntegration, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSessions } from "@/lib/relay/relayClient";
+import { ticketTagOf, withValidWorkTicket } from "@/lib/integrations/workTickets";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
@@ -177,7 +178,7 @@ export function useSessionNames(profile: Profile): {
               return;
             }
             if (typeof parsed !== "object" || parsed === null) return;
-            const { type, id, title, lastActiveAt, sessions, room, titlePending, activity } = parsed as {
+            const { type, id, title, lastActiveAt, sessions, room, titlePending, activity, workTicket } = parsed as {
               type?: unknown;
               id?: unknown;
               title?: unknown;
@@ -186,6 +187,7 @@ export function useSessionNames(profile: Profile): {
               room?: unknown;
               titlePending?: unknown;
               activity?: unknown;
+              workTicket?: unknown;
             };
             if (type === "pong") {
               window.clearTimeout(pongTimer);
@@ -199,13 +201,13 @@ export function useSessionNames(profile: Profile): {
             // profile would spend on it).
             if (type === "session_list_snapshot" && Array.isArray(sessions)) {
               speaksProbe = true;
-              setCachedSessions(profileId, sessions.filter(isSessionSummary));
+              setCachedSessions(profileId, sessions.filter(isSessionSummary).map(withValidWorkTicket));
               markProfileVerified(profileId);
               return;
             }
             if (typeof id !== "string") return;
             if (type === "session_list_upsert" && typeof title === "string")
-              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true, titlePending === true, isSessionActivity(activity) ? activity : null);
+              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true, titlePending === true, isSessionActivity(activity) ? activity : null, ticketTagOf(workTicket) ?? null);
             else if (type === "session_list_removed") removeCachedSession(profileId, id);
           });
           ws.addEventListener("close", () => {

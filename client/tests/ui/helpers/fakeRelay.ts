@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
-import type { IntegrationState } from "@/lib/integrations/model";
+import type { IntegrationState, WorkTicket } from "@/lib/integrations/model";
 
 /**
  * Stands in for the relay over the network edge — the client-side
@@ -110,6 +110,8 @@ class FakeRelaySocket {
       return;
     }
     this.emitMessage({ type: "integrations_state", integrations: script.integrations });
+    // A relay that links sessions to tickets sends every link right after.
+    if (script.links) this.emitMessage({ type: "work_tickets_state", links: script.links });
   }
 
   addEventListener(type: string, handler: Listener): void {
@@ -208,7 +210,7 @@ export type FakePlanUsage =
  * `"legacy"` for a relay that predates the route (also what an unscripted
  * relay does), `"unreachable"` for a machine that can't be reached. */
 export type FakeIntegrations =
-  | { integrations: IntegrationState[] }
+  | { integrations: IntegrationState[]; links?: WorkTicket[] }
   | "legacy"
   | "unreachable"
   /** Opens and then says nothing at all. */
@@ -466,7 +468,8 @@ export function installFakeRelay(
     },
     integrations,
     emitIntegrations: (target, state) => {
-      integrations[target] = { integrations: state };
+      const previous = integrations[target];
+      integrations[target] = { integrations: state, ...(typeof previous === "object" && previous.links ? { links: previous.links } : {}) };
       for (const socket of sockets) {
         if (socket.readyState !== FakeRelaySocket.OPEN || !isIntegrationsSocket(socket) || hostPort(socket.url) !== target) continue;
         socket.emitMessage({ type: "integrations_state", integrations: state });

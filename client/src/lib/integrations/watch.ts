@@ -2,7 +2,8 @@ import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { EMPTY_PROFILE_INTEGRATIONS, type ProfileIntegrations } from "@/lib/integrations/derive";
-import { INTEGRATIONS_WATCH_PATH, type IntegrationState, type IntegrationsClientMessage, type McpAuthFlow } from "@/lib/integrations/model";
+import { INTEGRATIONS_WATCH_PATH, type IntegrationState, type IntegrationsClientMessage, type McpAuthFlow, type WorkTicket } from "@/lib/integrations/model";
+import { isWorkTicket, type WorkTicketMap } from "@/lib/integrations/workTickets";
 import { noteAuthFlow, registerIntegrationsSender } from "@/lib/integrations/oauthDeepLink";
 
 /** Backoff, liveness and handshake timings: the plan usage watch's, for the
@@ -33,6 +34,9 @@ export interface IntegrationsWatchOptions {
  * opens with `protocol_version`, which marks it `unsupported` for good; a
  * silent socket is found by `ping` → `pong` — without its refresh
  * bookkeeping, since a read here is answered by a pushed state.
+ *
+ * It also keeps every session's work ticket (`work_tickets_state`, then each
+ * `work_ticket_upsert`/`work_ticket_removed`).
  *
  * While live it is also the way `oauthDeepLink.ts` reaches this profile, and
  * it reports every `mcp_auth_flow` there, so a sign-in callback can be routed
@@ -201,6 +205,19 @@ export class IntegrationsWatch {
       window.clearTimeout(this.pongTimer);
       this.pongTimer = undefined;
       if (message.type === "pong") return;
+      if (message.type === "work_tickets_state") {
+        this.update({ workTickets: Object.fromEntries(message.links.map((link) => [link.sessionId, link])) });
+        return;
+      }
+      if (message.type === "work_ticket_upsert") {
+        this.update({ workTickets: { ...(this.state.workTickets ?? {}), [message.link.sessionId]: message.link } });
+        return;
+      }
+      if (message.type === "work_ticket_removed") {
+        const { [message.sessionId]: _removed, ...rest }: WorkTicketMap = this.state.workTickets ?? {};
+        this.update({ workTickets: rest });
+        return;
+      }
       if (message.type === "mcp_auth_flow") {
         noteAuthFlow(this.profile.id, message.flow);
         this.update({ authFlows: { ...this.state.authFlows, [message.flow.flowId]: message.flow } });
@@ -238,6 +255,9 @@ export class IntegrationsWatch {
 type ParsedServerMessage =
   | { type: "integrations_state"; integrations: IntegrationState[] }
   | { type: "mcp_auth_flow"; flow: McpAuthFlow }
+  | { type: "work_tickets_state"; links: WorkTicket[] }
+  | { type: "work_ticket_upsert"; link: WorkTicket }
+  | { type: "work_ticket_removed"; sessionId: string }
   | { type: "pong" }
   | { type: "protocol_version" };
 
@@ -249,8 +269,9 @@ function isIntegration(value: unknown): value is IntegrationState {
 
 /**
  * The messages this socket acts on, defensively: an integration without the
- * shape is dropped rather than drawn half-read, and every other message —
- * including those a later phase of the protocol adds — is `null`, ignored.
+ * shape is dropped rather than drawn half-read (a work ticket too), and every
+ * other message — `work_ticket_result` included: the upsert that follows a
+ * link is what the UI draws — is `null`, ignored.
  */
 export function parseServerMessage(raw: unknown): ParsedServerMessage | null {
   let parsed: unknown;
@@ -277,6 +298,13 @@ export function parseServerMessage(raw: unknown): ParsedServerMessage | null {
       if (typeof flow.flowId !== "string" || typeof flow.phase !== "string") return null;
       return { type: "mcp_auth_flow", flow: flow as unknown as McpAuthFlow };
     }
+    case "work_tickets_state":
+      if (!Array.isArray(message.links)) return null;
+      return { type: "work_tickets_state", links: message.links.filter(isWorkTicket) };
+    case "work_ticket_upsert":
+      return isWorkTicket(message.link) ? { type: "work_ticket_upsert", link: message.link } : null;
+    case "work_ticket_removed":
+      return typeof message.sessionId === "string" ? { type: "work_ticket_removed", sessionId: message.sessionId } : null;
     case "pong":
       return { type: "pong" };
     case "protocol_version":

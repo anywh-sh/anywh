@@ -1335,6 +1335,17 @@ export const en: Dictionary = {
         refresh: "Refresh ticket",
       },
     },
+    work: {
+      sessions: "Sessions",
+      noSessions: "No session works on this yet.",
+      moreSessions: "+{count}",
+      workHere: "Work on this in the current session",
+      newSession: "New session",
+      openTicket: "Open {key}",
+      unlink: "Stop working on {key} in this session",
+      dropPending: "Don't start on {key}",
+      worksOn: "Works on {key}",
+    },
     oauthNotice: {
       unknown: "No sign-in is waiting for this link. Start it again from the app.",
       unreachable: "The sign-in could not be finished: its machine is not reachable.",

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { useDict, useLocale } from "@/i18n";
 import { formatCompactTime } from "@/lib/format/relativeTime";
 import { priorityLevel, type PriorityLevel } from "@/lib/integrations/tickets";
-import type { TicketRow } from "@/lib/integrations/model";
+import type { TicketRow, WorkTicket } from "@/lib/integrations/model";
+import { SessionLinkChips } from "@/components/integrations/SessionLinkChips";
 import { cn } from "@/lib/utils";
 
 const PRIORITY_ICON: Record<PriorityLevel, typeof ChevronUp> = {
@@ -39,6 +40,9 @@ export function PriorityMark({ priority, className }: { priority: string | undef
 
 interface TicketListProps {
   rows: readonly TicketRow[];
+  profileId: string;
+  /** The sessions working on each ticket, by key. */
+  linksByKey: ReadonlyMap<string, WorkTicket[]>;
   /** The list is the relay's last answer while it cannot be reached. */
   stale: boolean;
   hasMore: boolean;
@@ -48,8 +52,9 @@ interface TicketListProps {
 }
 
 /** The tickets of the list, newest change first: title, then priority, key,
- * status and how long since it changed. A row opens the ticket's screen. */
-export function TicketList({ rows, stale, hasMore, loadingMore, onOpen, onLoadMore }: TicketListProps) {
+ * status, the sessions working on it and how long since it changed. A row
+ * opens the ticket's screen. */
+export function TicketList({ rows, profileId, linksByKey, stale, hasMore, loadingMore, onOpen, onLoadMore }: TicketListProps) {
   const copy = useDict().integrations.tickets;
   const { locale } = useLocale();
   const count = hasMore ? copy.countMore.replace("{count}", String(rows.length)) : rows.length === 1 ? copy.countOne : copy.count.replace("{count}", String(rows.length));
@@ -69,6 +74,7 @@ export function TicketList({ rows, stale, hasMore, loadingMore, onOpen, onLoadMo
                 <PriorityMark priority={row.priority} />
                 <span className="shrink-0 text-primary">{row.key}</span>
                 <span className="min-w-0 truncate text-text-faint">{row.statusLabel}</span>
+                <SessionLinkChips profileId={profileId} links={linksByKey.get(row.key) ?? []} />
                 <span className="ml-auto shrink-0 text-text-faint">{formatCompactTime(row.updatedAt, locale)}</span>
               </span>
             </button>

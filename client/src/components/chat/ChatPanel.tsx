@@ -42,6 +42,8 @@ import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
 import { McpConnectContext, McpNeedsAuthChip, useMcpConnectResolver } from "@/components/integrations/McpConnect";
 import { agentName } from "@/components/chat/AgentModelEffortButton";
+import { SessionWorkTicket } from "@/components/chat/WorkTicketChip";
+import type { TicketRef, TicketTag } from "@/lib/integrations/model";
 
 /** See `ChatPanelProps.onBackgroundActionsReady`. */
 export interface BackgroundJobActions {
@@ -84,6 +86,13 @@ interface ChatPanelProps {
   /** Tab opened via "new conversation" — shows the idle state instead of the
    * loading skeleton while the log is still empty. */
   isNewConversation?: boolean;
+  /** The ticket the first message starts this new session on ("New session"
+   * on a ticket's screen), shown as a chip beside the folder. */
+  pendingTicket?: TicketRef | null;
+  /** The pending ticket was sent, or the person let go of it. */
+  onClearPendingTicket?: () => void;
+  /** The work ticket's chip opens its screen (desktop: the dock). */
+  onShowTicket?: (ticket: TicketTag) => void;
   /** A new-session tab opened a room instead of a conversation: `roomId` is
    * the room's id. */
   onRoomCreated?: (roomId: string, title: string) => void;
@@ -220,6 +229,9 @@ export function ChatPanel({
   profile,
   sessionId,
   isNewConversation,
+  pendingTicket = null,
+  onClearPendingTicket,
+  onShowTicket,
   onRoomCreated,
   onTurnComplete,
   onTurnActiveChange,
@@ -865,6 +877,23 @@ export function ChatPanel({
     );
   };
 
+  // The ticket the first message was sent with, shown until the relay says
+  // whether the session works on it.
+  const [startedTicket, setStartedTicket] = useState<TicketRef | null>(null);
+  const settleStartedTicket = useCallback(() => setStartedTicket(null), []);
+  const workTicketChip = renderComposer ? null : (
+    <SessionWorkTicket
+      profileId={profile.id}
+      sessionId={sessionId}
+      pendingTicket={pendingTicket}
+      onClearPending={() => onClearPendingTicket?.()}
+      startedTicket={startedTicket}
+      onStartedSettled={settleStartedTicket}
+      turnInFlight={turnInFlight}
+      onShowTicket={onShowTicket}
+    />
+  );
+
   const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
     // Editing via composer (iOS) — the normal send (slash
     // commands, `addUserMessage`+`sendMessage`) doesn't apply here:
@@ -902,7 +931,13 @@ export function ChatPanel({
       return;
     }
     log.addUserMessage(text, sentImages);
-    sendMessage(buildWireMessage(text, sentImages));
+    // A session started from a ticket: the relay links it and tells the
+    // agent in a line of its own; the bubble keeps only what was typed.
+    sendMessage(buildWireMessage(text, sentImages), pendingTicket ?? undefined);
+    if (pendingTicket) {
+      setStartedTicket(pendingTicket);
+      onClearPendingTicket?.();
+    }
     images.clearWithoutRevoke();
     setTurnStartedAt(Date.now());
     dismissSuggestion();
@@ -1001,6 +1036,7 @@ export function ChatPanel({
                 onSetCwd={setCwd}
                 onFocusComposer={() => composerRef.current?.focus()}
               />
+              {workTicketChip}
               <BackgroundJobIndicator jobs={backgroundJobs} onCancel={cancelBackgroundJob} />
             </div>
           </div>
@@ -1098,15 +1134,18 @@ export function ChatPanel({
                 className={showingIdle ? "shadow-lift" : undefined}
                 placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
-                  <WorkingDirectoryButton
-                    profile={profile}
-                    cwd={cwd}
-                    locked={cwdLocked}
-                    connected={connected}
-                    isNewConversation={isNewConversation}
-                    onSetCwd={setCwd}
-                    onFocusComposer={() => composerRef.current?.focus()}
-                  />
+                  <>
+                    <WorkingDirectoryButton
+                      profile={profile}
+                      cwd={cwd}
+                      locked={cwdLocked}
+                      connected={connected}
+                      isNewConversation={isNewConversation}
+                      onSetCwd={setCwd}
+                      onFocusComposer={() => composerRef.current?.focus()}
+                    />
+                    {workTicketChip}
+                  </>
                 }
               />
             )}

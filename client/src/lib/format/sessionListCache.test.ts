@@ -249,4 +249,15 @@ describe("sessionListCache", () => {
     cache.upsertCachedSession("work", "s", "S renamed", 200, false, false, null);
     expect(cache.getCachedSessions("work").sessions[0].activity).toBeUndefined();
   });
+
+  it("takes a row's work ticket from the relay's upserts, keeps it through a local update, and drops it when the relay does", async () => {
+    const cache = await freshModule();
+    cache.setCachedSessions("work", [{ id: "s", title: "S", lastActiveAt: 100 }]);
+    cache.upsertCachedSession("work", "s", "S", 100, false, false, null, { provider: "jira", key: "NGL-7" });
+    expect(cache.getCachedSessions("work").sessions[0].workTicket).toEqual({ provider: "jira", key: "NGL-7" });
+    cache.upsertCachedSession("work", "s", "S renamed");
+    expect(cache.getCachedSessions("work").sessions[0]).toMatchObject({ title: "S renamed", workTicket: { key: "NGL-7" } });
+    cache.upsertCachedSession("work", "s", "S renamed", 100, false, false, null, null);
+    expect(cache.getCachedSessions("work").sessions[0].workTicket).toBeUndefined();
+  });
 });

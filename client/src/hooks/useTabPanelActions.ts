@@ -150,6 +150,16 @@ export function useTabPanelActions({
       onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
       onToggleIntegration: (tabId, integrationId) => toggleIntegrationRef.current(tabId, integrationId),
       onOpenTicket: (tabId, ticketKey) => sessionDock.setIntegrationTicket(tabId, ticketKey),
+      onShowTicket: (tabId, integrationId, ticketKey) => sessionDock.showIntegration(tabId, integrationId, ticketKey),
+      onNewTicketSession: (profile, ticket, integrationId) => {
+        // The existing new-session screen, of the ticket's profile, with the
+        // ticket as a chip beside the folder; the list stays beside it.
+        const id = crypto.randomUUID();
+        tabsState.openTab(profile.id, id, null, true);
+        tabsState.setPendingTicket(id, ticket);
+        sessionDock.showIntegration(id, integrationId, null);
+      },
+      onClearPendingTicket: (tabId) => tabsState.setPendingTicket(tabId, null),
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),
@@ -181,7 +191,11 @@ export function useTabPanelActions({
       tabsState.setUnread,
       tabsState.setTabTitle,
       tabsState.closeTab,
+      tabsState.openTab,
+      tabsState.setPendingTicket,
       sessionDock.removeSession,
+      sessionDock.setIntegrationTicket,
+      sessionDock.showIntegration,
       sessionDock.togglePane,
       sessionDock.closePane,
       sessionDock.toggleMaximized,
