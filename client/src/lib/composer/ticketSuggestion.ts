@@ -83,11 +83,11 @@ function matchesTicket(item: { key: string; title: string }, needle: string): bo
 }
 
 /**
- * Whether Enter takes the menu's selected item rather than sending the
- * message. Never "Connect" (Enter after a lone `#` sends it); and after a
- * number alone only once the person moved the selection with the arrows, so
- * a GitHub-style `#12` + Enter still sends `#12`. Tab and a click always
- * pick. Pure.
+ * Whether Enter (or Tab) takes the menu's selected item rather than sending
+ * the message, and so whether that item is drawn as selected. Never
+ * "Connect" (Enter after a lone `#` sends it); and after a number alone only
+ * once the person moved the selection with the arrows, so a GitHub-style
+ * `#12` + Enter still sends `#12`. A click always picks. Pure.
  */
 export function enterPicks(items: TicketPickItem[], selectedIndex: number, query: string, selectionMoved: boolean): boolean {
   const item = items[selectedIndex] as TicketPickItem | undefined;

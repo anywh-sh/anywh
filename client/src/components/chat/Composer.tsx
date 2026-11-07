@@ -588,8 +588,10 @@ function createTicketExtension(activeRef: MutableRefObject<boolean>, sourceRef: 
                 moveSelection((selectedIndex - 1 + currentItems.length) % currentItems.length);
                 return true;
               }
-              if (props.event.key === "Enter" && !enterPicks(currentItems, selectedIndex, currentQuery, selectionMoved)) return false;
               if (props.event.key === "Enter" || props.event.key === "Tab") {
+                // Only the row drawn as selected is taken. With none, Enter
+                // sends the message and Tab does nothing (focus stays here).
+                if (!enterPicks(currentItems, selectedIndex, currentQuery, selectionMoved)) return props.event.key === "Tab";
                 currentCommand?.(currentItems[selectedIndex]);
                 return true;
               }

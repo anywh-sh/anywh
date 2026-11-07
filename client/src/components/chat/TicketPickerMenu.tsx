@@ -7,7 +7,7 @@ interface TicketPickerMenuProps {
   items: TicketPickItem[];
   query: string;
   selectedIndex: number;
-  /** Enter takes the selected row (see `enterPicks`); when it would send
+  /** Enter and Tab take the selected row (see `enterPicks`); when Enter would send
    * the message instead, no row is drawn as selected. */
   armed: boolean;
   onHover: (index: number) => void;

@@ -188,8 +188,11 @@ describe("# in the composer", () => {
     await waitFor(() => expect(field.textContent).toBe(""));
     await user.keyboard("see #12");
     await waitFor(() => expect(options()).toEqual(["NGL-12"]));
-    // Nothing drawn as selected while Enter would send.
+    // Nothing drawn as selected while Enter would send, and Tab takes nothing.
     expect(within(picker()!).getByRole("option")).toHaveAttribute("aria-selected", "false");
+    await user.keyboard("{Tab}");
+    expect(chipsIn(field)).toEqual([]);
+    expect(field).toHaveFocus();
     await user.keyboard("{ArrowDown}");
     await waitFor(() => expect(within(picker()!).getByRole("option")).toHaveAttribute("aria-selected", "true"));
     await user.keyboard("{Enter}");
