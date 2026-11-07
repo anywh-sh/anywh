@@ -100,6 +100,15 @@
 //                        mid-turn (e.g. right after an `ExitPlanMode`
 //                        approval), confirmed against it
 //                        (sharedSession.ts's `applyPermissionModeFromCli`).
+//   FAKE_CLAUDE_MCP_STATUS_FILE - a JSON file holding the `response` of an
+//                        `mcp_status` control request (`{mcpServers: [...]}`,
+//                        Claude Code 2.1.303 shapes), read at each request so
+//                        a test can change it between scans; none: no
+//                        servers. FAKE_CLAUDE_MCP_PENDING_REPLIES=N makes the
+//                        first N replies of a process report every server
+//                        `pending`; FAKE_CLAUDE_MCP_STATUS_HANG=1 never
+//                        answers `mcp_status`. Any other unknown control
+//                        request gets the real binary's error reply.
 //   FAKE_CLAUDE_TITLE_DELAY_MS - if set, delays the reply of a
 //                        `--output-format text` invocation (the title/
 //                        suggestion probe, never a real turn) by this many
@@ -373,7 +382,21 @@ if (args[0] === "--version") {
   // The model catalog probe (defs/claude/modelCatalog.ts): answers the
   // `initialize` control_request with the same shape the real binary
   // does (Claude Code 2.1.284), a `default` pseudo-entry first, and exits
-  // on stdin EOF like it.
+  // on stdin EOF like it. The MCP control process (integrations/
+  // claudeControl.ts) is the same invocation: it also asks `mcp_status`,
+  // answered from FAKE_CLAUDE_MCP_STATUS_FILE (see the header).
+  let mcpStatusReplies = 0;
+  const answerMcpStatus = (requestId) => {
+    if (process.env.FAKE_CLAUDE_MCP_STATUS_HANG === "1") return;
+    const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
+    const status = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] };
+    const pendingReplies = Number(process.env.FAKE_CLAUDE_MCP_PENDING_REPLIES ?? 0);
+    // Like a process that just started: every server still coming up, no
+    // catalog yet.
+    const starting = mcpStatusReplies++ < pendingReplies;
+    const mcpServers = starting ? status.mcpServers.map(({ name, config, scope, source }) => ({ name, status: "pending", config, scope, source })) : status.mcpServers;
+    emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response: { mcpServers } } });
+  };
   process.stdin.setEncoding("utf8");
   let buffered = "";
   process.stdin.on("data", (chunk) => {
@@ -388,7 +411,17 @@ if (args[0] === "--version") {
       } catch {
         continue;
       }
-      if (message.type !== "control_request" || message.request?.subtype !== "initialize") continue;
+      if (message.type !== "control_request") continue;
+      const subtype = message.request?.subtype;
+      if (subtype === "mcp_status") {
+        answerMcpStatus(message.request_id);
+        continue;
+      }
+      if (subtype !== "initialize") {
+        // Word for word what Claude Code 2.1.303 answers.
+        emit({ type: "control_response", response: { subtype: "error", request_id: message.request_id, error: `Unsupported control request subtype: ${subtype}` } });
+        continue;
+      }
       emit({
         type: "control_response",
         response: {

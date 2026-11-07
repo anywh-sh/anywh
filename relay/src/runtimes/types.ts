@@ -319,6 +319,7 @@ export interface TurnHost {
 // 7) is that real vocabulary now, so `StreamMapper` is defined against it
 // directly instead of carrying its own stand-in.
 import type { AgentEvent } from "../protocol/agent-event.js";
+import type { McpAuthMode, McpInventoryEntry, McpServerStatus, McpToolInfo } from "../integrations/types.js";
 export type { AgentEvent };
 
 export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => readonly AgentEvent[];
@@ -661,11 +662,84 @@ export type McpNeedsAuthSignal =
     }
   | { readonly kind: "in-band" };
 
+/** One server a CLI reported, normalized to the relay's vocabulary — the
+ * part of an `McpInventoryEntry` that comes from the CLI itself (which CLI,
+ * which project folder and when are the caller's to add). */
+export type McpServerReport = Omit<McpInventoryEntry, "runtimeId" | "cwd" | "scannedAt">;
+
+/** What a live status read says about one server already known from the
+ * declaration (`McpServerReport`), matched by name. */
+export interface McpLiveReport {
+  readonly name: string;
+  readonly status: McpServerStatus;
+  readonly authMode?: McpAuthMode;
+  readonly serverInfoName?: string;
+  readonly tools?: McpToolInfo[];
+}
+
+/** A file whose change can change what the inventory lists. `dir` is
+ * relative to the profile's `$HOME`; `dirEnv` names the variable that moves
+ * it (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`) — when set, the directory is
+ * `$<name>/<sub>` instead. */
+export interface McpWatchedFile {
+  readonly dir: string;
+  readonly dirEnv?: { readonly name: string; readonly sub: string };
+  readonly file: string;
+  /** The part of the file that matters, for a file written far more often
+   * than its servers change (Claude's `.claude.json`). A change outside it
+   * is no reason to rescan. Absent: the whole text. */
+  readonly slice?: (text: string) => unknown;
+}
+
+/** How the relay lists the MCP servers this CLI would load — always through
+ * the CLI itself, never by re-merging its config files (a file this CLI
+ * does not read would show servers it never loads, and connectors kept on
+ * an account exist in no file at all). Every request and reply here was
+ * recorded against `recordedWith`; an unrecorded version may answer in
+ * another shape, which the parsers turn into "nothing known", never an
+ * exception. */
+export type McpInventoryContract =
+  | {
+      /** A control request on a stdin-driven process of this CLI that runs
+       * no turn (so spends no model call) and answers with every server and
+       * its live state. */
+      readonly kind: "control-request";
+      readonly recordedWith: string;
+      /** Argv of that process. Never isolating MCP config: the point is to
+       * see what a session would load. */
+      readonly processArgs: readonly string[];
+      readonly subtype: string;
+      /** Servers report `pending` while they start; the request is repeated
+       * until none is, or this long has passed since the first. */
+      readonly settleMs: number;
+      readonly parse: (response: unknown) => McpServerReport[] | undefined;
+      /** Files to watch in the profile's home, and in a project folder. */
+      readonly watch: readonly McpWatchedFile[];
+      readonly projectWatch: readonly McpWatchedFile[];
+    }
+  | {
+      /** A one-shot CLI call printing the declared servers as JSON, without
+       * starting any of them, plus a live read through the app-server. */
+      readonly kind: "cli-json";
+      readonly recordedWith: string;
+      readonly args: readonly string[];
+      readonly parse: (stdout: string) => McpServerReport[] | undefined;
+      readonly live: {
+        readonly method: string;
+        readonly params: (threadId: string, cursor: string | undefined) => unknown;
+        readonly parse: (result: unknown) => { readonly servers: McpLiveReport[]; readonly nextCursor?: string } | undefined;
+      };
+      readonly watch: readonly McpWatchedFile[];
+      readonly projectWatch: readonly McpWatchedFile[];
+    };
+
 export type McpContract =
   | { readonly kind: "none" }
   | {
       readonly kind: "supported";
       readonly declaration: McpDeclaration;
+      /** Absent: the relay has no way to list this CLI's servers. */
+      readonly inventory?: McpInventoryContract;
       /** Argv for this CLI's own login subcommand, per server. A pure
        * function returning args — nothing here runs it. */
       readonly loginArgs: (serverName: string) => readonly string[];

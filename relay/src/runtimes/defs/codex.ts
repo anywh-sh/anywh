@@ -46,6 +46,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
+import { parseCodexMcpList, parseCodexMcpServerStatusList } from "../../integrations/inventory/codex.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
  * against generated bindings (`v2/AskForApproval.ts`). The `granular` object
@@ -703,6 +704,27 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
         format: "toml",
         serversKey: "mcp_servers",
         portableKeys: ["model", "model_reasoning_effort", "mcp_servers"],
+      },
+      // Two tiers. `mcp list --json` is stable JSON, ~1 s cold and ~30 ms
+      // warm, and starts no server: the declared servers and whether one has
+      // no login yet. The app-server's `mcpServerStatus/list` starts them
+      // (on the thread named, the same way a session's thread does) and
+      // says what each serves and whether it really signed in — an
+      // Atlassian server with a bad token connects and serves a catalog
+      // without any Jira tool. `toolsAndAuthOnly` skips resources.
+      inventory: {
+        kind: "cli-json",
+        recordedWith: "0.154.0",
+        args: ["mcp", "list", "--json"],
+        parse: parseCodexMcpList,
+        live: {
+          method: "mcpServerStatus/list",
+          params: (threadId, cursor) => ({ detail: "toolsAndAuthOnly", threadId, ...(cursor ? { cursor } : {}) }),
+          parse: parseCodexMcpServerStatusList,
+        },
+        watch: [{ dir: ".codex", dirEnv: { name: "CODEX_HOME", sub: "" }, file: "config.toml" }],
+        // Read only for a project the person trusted.
+        projectWatch: [{ dir: ".codex", file: "config.toml" }],
       },
       // Writing this file directly, then logging in, is the only automatable
       // order: `codex mcp add --url …` kicks off the OAuth flow itself and

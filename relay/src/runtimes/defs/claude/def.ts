@@ -14,6 +14,7 @@ import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
+import { claudeJsonMcpSlice, parseClaudeMcpStatus } from "../../../integrations/inventory/claude.js";
 import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
@@ -74,6 +75,20 @@ function classifyFailure(failure: RuntimeFailure): FailureClass {
   // Everything else (an overloaded API, a network hiccup, ...) is the safe
   // default: none of it says the session itself is invalid.
   return "transient";
+}
+
+/** Server names in `.claude/mcp-needs-auth-cache.json`, an object keyed by
+ * name, e.g. {"plugin:serena:serena":{"timestamp":…,"id":…}}. */
+function parseNeedsAuthCache(text: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    // A file that hasn't been written yet, or was written by a version with
+    // a different shape, means "nothing needs auth" — never an exception
+    // thrown at whoever polls this.
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? Object.keys(parsed) : [];
+  } catch {
+    return [];
+  }
 }
 
 const CLAUDE_PERMISSION_MODES: readonly ClaudePermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
@@ -224,6 +239,36 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
       // Copying the file would move all of that; merging one key moves the
       // servers.
       declaration: { kind: "shared", path: ".claude.json", format: "json", serversKey: "mcpServers", portableKeys: ["mcpServers"] },
+      // Through the CLI, not its files: the servers of a claude.ai account
+      // (connectors) exist in no local file, plugins and projects add their
+      // own, and a file the CLI does not read would show servers it never
+      // loads. `mcp_status` on a stdin-driven process that runs no turn
+      // reports every one of them — scope, config, live status, the
+      // server's own name and its tools — without a model call, ~0.6 s for
+      // a first answer and 3–8 s until the servers stop being `pending`.
+      // Not `claude mcp list`: text only, ~19 s, and it rewrites the
+      // needs-auth cache. No `--strict-mcp-config` here, unlike the probes:
+      // that would hide the connectors and plugins this is meant to find.
+      inventory: {
+        kind: "control-request",
+        recordedWith: "2.1.303",
+        processArgs: ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--tools", ""],
+        subtype: "mcp_status",
+        settleMs: 8000,
+        parse: parseClaudeMcpStatus,
+        // The CLI writes these by tmp+rename, so the directory is what can
+        // be watched. `.claude.json` changes all the time for reasons that
+        // have nothing to do with servers, hence the slice.
+        watch: [
+          { dir: "", dirEnv: { name: "CLAUDE_CONFIG_DIR", sub: "" }, file: ".claude.json", slice: claudeJsonMcpSlice },
+          { dir: ".claude", dirEnv: { name: "CLAUDE_CONFIG_DIR", sub: "" }, file: "settings.json" },
+          // Rewritten (timestamps) by every health check, this inventory's
+          // own included: only the names count.
+          { dir: ".claude", dirEnv: { name: "CLAUDE_CONFIG_DIR", sub: "" }, file: "mcp-needs-auth-cache.json", slice: (text) => parseNeedsAuthCache(text).sort() },
+          { dir: ".claude/plugins", dirEnv: { name: "CLAUDE_CONFIG_DIR", sub: "plugins" }, file: "installed_plugins.json" },
+        ],
+        projectWatch: [{ dir: "", file: ".mcp.json" }],
+      },
       // `--no-browser`: "Print the authorization URL instead of opening a
       // browser (for SSH/headless sessions — paste the redirect URL back
       // when prompted)". That flag is what makes a remote instance's login
@@ -240,17 +285,7 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
         // a server that needs re-authenticating — object keyed by server
         // name, e.g. {"plugin:serena:serena":{"timestamp":…,"id":…}}.
         path: ".claude/mcp-needs-auth-cache.json",
-        parse: (text) => {
-          try {
-            const parsed: unknown = JSON.parse(text);
-            // A file that hasn't been written yet, or was written by a
-            // version with a different shape, means "nothing needs auth" —
-            // never an exception thrown at whoever polls this.
-            return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? Object.keys(parsed) : [];
-          } catch {
-            return [];
-          }
-        },
+        parse: parseNeedsAuthCache,
       },
     },
   },

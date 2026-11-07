@@ -105,7 +105,14 @@ relay/src/
                            a profile's agent CLIs already have (Jira today):
                            types.ts is the wire contract, mirrored on the
                            client (lib/integrations/model.ts) and held
-                           identical by a parity test
+                           identical by a parity test; inventory/ lists
+                           every server each CLI would load by asking the
+                           CLI itself (the def's `mcp.inventory` contract,
+                           parsed by inventory/claude.ts and codex.ts,
+                           scheduled by inventory/engine.ts); match.ts
+                           picks the one an integration runs through;
+                           claudeControl.ts and codexControl.ts are the
+                           turnless CLI processes everything here talks to
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

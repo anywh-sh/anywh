@@ -39,7 +39,18 @@
 // FAKE_CODEX_INIT_HANG=1 never answers `initialize` (the handshake that hung
 // in a CODEX_HOME without a login); FAKE_CODEX_PID_FILE gets this process's
 // pid, so a test can check it was stopped.
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+// MCP inventory: `codex mcp list --json` prints FAKE_CODEX_MCP_LIST_FILE
+// (none: `[]`); the app-server's `mcpServerStatus/list` answers
+// FAKE_CODEX_MCP_STATUS_FILE (a `ListMcpServerStatusResponse`; none: no
+// servers), both read at each call so a test can change them between scans.
+// FAKE_CODEX_MCP_PENDING_REPLIES=N reports every server `starting` in the
+// first N replies; FAKE_CODEX_MCP_STATUS_HANG=1 never answers. A `threadId`
+// this process did not start gets the real "thread not found" error; once
+// FAKE_CODEX_FORGET_THREADS_FILE exists, the process forgets every thread
+// (and removes the file), like an app-server that lost them.
+// `mcpServer/tool/call` echoes its server, tool and arguments as the text of
+// a successful `CallToolResult`; `config/mcpServer/reload` answers `{}`.
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 if (process.argv[2] === "--version") {
@@ -47,6 +58,11 @@ if (process.argv[2] === "--version") {
   process.exit(0);
 }
 if (process.env.FAKE_CODEX_PID_FILE) appendFileSync(process.env.FAKE_CODEX_PID_FILE, `${process.pid}\n`);
+if (process.argv[2] === "mcp" && process.argv[3] === "list" && process.argv.includes("--json")) {
+  const file = process.env.FAKE_CODEX_MCP_LIST_FILE;
+  process.stdout.write(file && existsSync(file) ? readFileSync(file, "utf8") : "[]\n");
+  process.exit(0);
+}
 if (process.argv[2] !== "app-server") {
   process.stderr.write(`fake codex: unsupported invocation ${process.argv.slice(2).join(" ")}\n`);
   process.exit(2);
@@ -70,6 +86,18 @@ const pushRateLimits = () => {
   if (PLAN_USAGE.update) send({ method: "account/rateLimits/updated", params: PLAN_USAGE.update.params });
 };
 let threads = 0;
+let mcpStatusReplies = 0;
+const readJson = (file, fallback) => (file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : fallback);
+/** The real app-server's answer to an unknown or missing `threadId`. */
+function threadError(threadId) {
+  const forget = process.env.FAKE_CODEX_FORGET_THREADS_FILE;
+  if (forget && existsSync(forget)) {
+    threadTools.clear();
+    rmSync(forget);
+  }
+  if (threadId === null || threadId === undefined) return { code: -32600, message: "Invalid request: invalid type: null, expected a string" };
+  return threadTools.has(threadId) ? undefined : { code: -32600, message: `thread not found: ${threadId}` };
+}
 let turns = 0;
 const hanging = new Map(); // turnId -> threadId
 const awaitingApproval = new Map(); // server request id -> { threadId, turnId }
@@ -209,6 +237,30 @@ process.stdin.on("data", (chunk) => {
         if (PLAN_USAGE.limits.error) send({ id: message.id, error: PLAN_USAGE.limits.error });
         else send({ id: message.id, result: PLAN_USAGE.limits.result });
         if (process.env.FAKE_CODEX_PUSH_AFTER_READ === "1") pushRateLimits();
+        break;
+      case "mcpServerStatus/list": {
+        if (process.env.FAKE_CODEX_MCP_STATUS_HANG === "1") break;
+        const threadId = message.params?.threadId;
+        const error = threadId === undefined ? undefined : threadError(threadId);
+        if (error) {
+          send({ id: message.id, error });
+          break;
+        }
+        const status = readJson(process.env.FAKE_CODEX_MCP_STATUS_FILE, { data: [], nextCursor: null });
+        const starting = mcpStatusReplies++ < Number(process.env.FAKE_CODEX_MCP_PENDING_REPLIES ?? 0);
+        const data = starting ? status.data.map((server) => ({ ...server, runtimeStatus: "starting", tools: {}, toolsError: null, serverInfo: null })) : status.data;
+        send({ id: message.id, result: { ...status, data } });
+        break;
+      }
+      case "mcpServer/tool/call": {
+        const { threadId, server, tool, arguments: args } = message.params ?? {};
+        const error = threadError(threadId);
+        if (error) send({ id: message.id, error });
+        else send({ id: message.id, result: { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: args ?? null }) }], isError: false } });
+        break;
+      }
+      case "config/mcpServer/reload":
+        send({ id: message.id, result: {} });
         break;
       case "turn/interrupt": {
         const { threadId, turnId } = message.params;
