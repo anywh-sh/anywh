@@ -156,4 +156,44 @@ describe("# in the composer", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(field.textContent).toBe("");
   }, LONG);
+
+  it("sends #123 on Enter on a profile without Jira, without opening the connect card", async () => {
+    start({ integrations: [] });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    const field = await composer();
+
+    await user.type(field, "fix #");
+    await waitFor(() => expect(options()).toEqual(["connect"]));
+    await user.keyboard("123{Enter}");
+    await waitFor(() => expect(sentOfType("user_message")).toHaveLength(1));
+    expect(sentOfType("user_message")[0].message).toEqual({ type: "user_message", text: "fix #123" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  }, LONG);
+
+  it("sends a GitHub-style #12 on Enter even when NGL-12 is a ticket; the arrows make Enter pick", async () => {
+    start({ integrations: [jira()], links: [] });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    const field = await composer();
+
+    await user.type(field, "see #1");
+    await waitFor(() => expect(options()).toEqual(["NGL-12"]));
+    await user.keyboard("2{Enter}");
+    await waitFor(() => expect(sentOfType("user_message")).toHaveLength(1));
+    expect(sentOfType("user_message")[0].message).toEqual({ type: "user_message", text: "see #12" });
+
+    await waitFor(() => expect(field.textContent).toBe(""));
+    await user.keyboard("see #12");
+    await waitFor(() => expect(options()).toEqual(["NGL-12"]));
+    // Nothing drawn as selected while Enter would send.
+    expect(within(picker()!).getByRole("option")).toHaveAttribute("aria-selected", "false");
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(within(picker()!).getByRole("option")).toHaveAttribute("aria-selected", "true"));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(chipsIn(field)).toEqual(["NGL-12"]));
+    expect(sentOfType("user_message")).toHaveLength(1);
+  }, LONG);
 });

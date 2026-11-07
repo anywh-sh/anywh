@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_PROFILE_INTEGRATIONS, type ProfileIntegrations } from "@/lib/integrations/derive";
 import type { IntegrationState, TicketRow } from "@/lib/integrations/model";
-import { TICKET_PICK_LIMIT, ticketPickItems, type TicketPickSource } from "./ticketSuggestion";
+import { TICKET_PICK_LIMIT, enterPicks, ticketPickItems, type TicketPickSource } from "./ticketSuggestion";
 
 function row(key: string, title: string, statusCategory: TicketRow["statusCategory"] = "todo"): TicketRow {
   return { key, id: key, title, statusCategory, statusLabel: "To Do", priority: "Medium", project: "NGL", updatedAt: 0, url: "" };
@@ -55,8 +55,42 @@ describe("ticketPickItems", () => {
     expect(ticketPickItems(source([], { canConnect: false }), "")).toEqual([]);
   });
 
+  it("offers Connect only after the bare #, so #123 stays text", () => {
+    expect(ticketPickItems(source([]), "123")).toEqual([]);
+    expect(ticketPickItems(source([]), "fix")).toEqual([]);
+  });
+
+  it("offers Connect only once the relay said so live, never while connecting, offline or without a socket", () => {
+    expect(ticketPickItems(source(null, {}, "connecting"), "")).toEqual([]);
+    expect(ticketPickItems(source([], {}, "offline"), "")).toEqual([]);
+    expect(ticketPickItems(source(null, {}, "offline"), "")).toEqual([]);
+  });
+
+  it("matches a number alone against the start of the key's number, not inside it or the title", () => {
+    const numbered = [row("NGL-12", "Filter by date"), row("NGL-120", "Orders"), row("NGL-312", "Version 12"), row("ABC-1", "Other")];
+    expect(keys(ticketPickItems(source([jira(numbered)]), "12"))).toEqual(["NGL-12", "NGL-120"]);
+    expect(keys(ticketPickItems(source([jira(numbered)]), "1"))).toEqual(["NGL-12", "NGL-120", "ABC-1"]);
+    expect(keys(ticketPickItems(source([jira(numbered)]), "gl-31"))).toEqual(["NGL-312"]);
+  });
+
   it("offers nothing on a relay that does not know integrations", () => {
     expect(ticketPickItems(source(null, {}, "unsupported"), "")).toEqual([]);
     expect(ticketPickItems({ entry: undefined, workTicket: undefined, canConnect: true }, "")).toEqual([]);
+  });
+});
+
+describe("enterPicks", () => {
+  const ticket = { kind: "ticket" as const, provider: "jira" as const, site: "s", key: "NGL-12", title: "t" };
+  const connect = { kind: "connect" as const, provider: "jira" as const };
+
+  it("never lets Connect take Enter", () => {
+    expect(enterPicks([connect], 0, "", true)).toBe(false);
+  });
+
+  it("takes Enter for a ticket after text, and after a number only once the selection moved", () => {
+    expect(enterPicks([ticket], 0, "filter", false)).toBe(true);
+    expect(enterPicks([ticket], 0, "12", false)).toBe(false);
+    expect(enterPicks([ticket], 0, "12", true)).toBe(true);
+    expect(enterPicks([], 0, "", false)).toBe(false);
   });
 });

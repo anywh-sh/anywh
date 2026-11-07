@@ -38,7 +38,7 @@ import { useConnectCard } from "@/components/integrations/ConnectCardProvider";
 import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
 import { useSessionListCache } from "@/hooks/tabs/useMergedSessions";
 import { sessionTicket } from "@/lib/integrations/workTickets";
-import { TICKET_ALLOWED_PREFIXES, TicketChipNode, ticketPickItems, type TicketPickItem, type TicketPickSource } from "@/lib/composer/ticketSuggestion";
+import { TICKET_ALLOWED_PREFIXES, TicketChipNode, enterPicks, ticketPickItems, type TicketPickItem, type TicketPickSource } from "@/lib/composer/ticketSuggestion";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { ATTACHMENT_ACCEPT, attachmentKindFor } from "@/lib/composer/attachmentTypes";
@@ -502,13 +502,25 @@ function createTicketExtension(activeRef: MutableRefObject<boolean>, sourceRef: 
       let currentItems: TicketPickItem[] = [];
       let currentQuery = "";
       let currentCommand: ((item: TicketPickItem) => void) | null = null;
+      // Moved with the arrows since the query last changed (see `enterPicks`).
+      let selectionMoved = false;
 
+      // `activeRef` is what keeps Enter from sending: true only when Enter
+      // would pick an item.
+      function syncActive() {
+        activeRef.current = enterPicks(currentItems, selectedIndex, currentQuery, selectionMoved);
+      }
       function render() {
-        component?.updateProps({ items: currentItems, query: currentQuery, selectedIndex, onHover: applySelection, onPick: currentCommand });
+        syncActive();
+        component?.updateProps({ items: currentItems, query: currentQuery, selectedIndex, armed: activeRef.current, onHover: applySelection, onPick: currentCommand });
       }
       function applySelection(index: number) {
         selectedIndex = index;
         render();
+      }
+      function moveSelection(index: number) {
+        selectionMoved = true;
+        applySelection(index);
       }
       function close() {
         activeRef.current = false;
@@ -546,10 +558,11 @@ function createTicketExtension(activeRef: MutableRefObject<boolean>, sourceRef: 
               currentQuery = props.query;
               currentCommand = props.command;
               selectedIndex = 0;
-              activeRef.current = currentItems.length > 0;
+              selectionMoved = false;
+              syncActive();
               component = new ReactRenderer(TicketPickerMenu, {
                 editor: props.editor,
-                props: { items: currentItems, query: currentQuery, selectedIndex, onHover: applySelection, onPick: currentCommand },
+                props: { items: currentItems, query: currentQuery, selectedIndex, armed: activeRef.current, onHover: applySelection, onPick: currentCommand },
               });
               unmount = props.mount(component.element);
             },
@@ -558,7 +571,7 @@ function createTicketExtension(activeRef: MutableRefObject<boolean>, sourceRef: 
               currentQuery = props.query;
               currentCommand = props.command;
               selectedIndex = 0;
-              activeRef.current = currentItems.length > 0;
+              selectionMoved = false;
               render();
             },
             onKeyDown: (props) => {
@@ -568,13 +581,14 @@ function createTicketExtension(activeRef: MutableRefObject<boolean>, sourceRef: 
               }
               if (currentItems.length === 0) return false;
               if (props.event.key === "ArrowDown") {
-                applySelection((selectedIndex + 1) % currentItems.length);
+                moveSelection((selectedIndex + 1) % currentItems.length);
                 return true;
               }
               if (props.event.key === "ArrowUp") {
-                applySelection((selectedIndex - 1 + currentItems.length) % currentItems.length);
+                moveSelection((selectedIndex - 1 + currentItems.length) % currentItems.length);
                 return true;
               }
+              if (props.event.key === "Enter" && !enterPicks(currentItems, selectedIndex, currentQuery, selectionMoved)) return false;
               if (props.event.key === "Enter" || props.event.key === "Tab") {
                 currentCommand?.(currentItems[selectedIndex]);
                 return true;

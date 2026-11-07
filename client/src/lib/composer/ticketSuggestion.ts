@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import type { IntegrationProvider, IntegrationState, TicketTag } from "@/lib/integrations/model";
-import { pickFetchRuntime, railIntegrations } from "@/lib/integrations/derive";
+import { integrationDataState, pickFetchRuntime, railIntegrations } from "@/lib/integrations/derive";
 import type { ProfileIntegrations } from "@/lib/integrations/derive";
 import { mineQuery, ticketView, visibleRows } from "@/lib/integrations/tickets";
 import { HARD_BREAK_ANCHOR } from "@/lib/composer/composerLinks";
@@ -36,9 +36,13 @@ export interface TicketPickSource {
 /**
  * The menu's items for a query: with none, the session's work ticket first,
  * then the person's open tickets as the cache has them ("All mine"); with
- * one, those whose key or title has it. A profile where no agent can read
- * the tracker and nothing is cached gets "Connect" instead; a relay that
- * does not know integrations gets nothing (no menu). Pure.
+ * one, those whose key or title has it — a number alone (`#12`) only the
+ * keys whose number starts with it, never a title or another key's middle.
+ * A profile the relay says no agent can read the tracker of, with nothing
+ * cached, gets "Connect" — and only right after the bare `#`, so `#123`
+ * stays text there; while the state is not live (connecting, offline,
+ * no socket at all) nothing is offered. A relay that does not know
+ * integrations gets nothing (no menu). Pure.
  */
 export function ticketPickItems(source: TicketPickSource, query: string): TicketPickItem[] {
   const { entry } = source;
@@ -61,10 +65,34 @@ export function ticketPickItems(source: TicketPickSource, query: string): Ticket
     for (const row of visibleRows(mineQuery(integration, null))) add(row.key, row.title, row.statusLabel);
   }
   const canRead = integration !== undefined && pickFetchRuntime(integration) !== undefined;
-  if (tickets.length === 0 && !canRead) return source.canConnect ? [{ kind: "connect", provider: PICK_PROVIDER }] : [];
   const needle = query.trim().toLowerCase();
-  const matching = needle === "" ? tickets : tickets.filter((item) => item.kind === "ticket" && (item.key.toLowerCase().includes(needle) || item.title.toLowerCase().includes(needle)));
+  if (tickets.length === 0 && !canRead) {
+    const offerConnect = source.canConnect && needle === "" && integrationDataState(entry) === "live";
+    return offerConnect ? [{ kind: "connect", provider: PICK_PROVIDER }] : [];
+  }
+  const matching = needle === "" ? tickets : tickets.filter((item) => item.kind === "ticket" && matchesTicket(item, needle));
   return matching.slice(0, TICKET_PICK_LIMIT);
+}
+
+/** A number alone, as in GitHub's `#12`. */
+const NUMBER_ONLY = /^\d+$/;
+
+function matchesTicket(item: { key: string; title: string }, needle: string): boolean {
+  if (NUMBER_ONLY.test(needle)) return (item.key.split("-").pop() ?? "").startsWith(needle);
+  return item.key.toLowerCase().includes(needle) || item.title.toLowerCase().includes(needle);
+}
+
+/**
+ * Whether Enter takes the menu's selected item rather than sending the
+ * message. Never "Connect" (Enter after a lone `#` sends it); and after a
+ * number alone only once the person moved the selection with the arrows, so
+ * a GitHub-style `#12` + Enter still sends `#12`. Tab and a click always
+ * pick. Pure.
+ */
+export function enterPicks(items: TicketPickItem[], selectedIndex: number, query: string, selectionMoved: boolean): boolean {
+  const item = items[selectedIndex] as TicketPickItem | undefined;
+  if (item?.kind !== "ticket") return false;
+  return selectionMoved || !NUMBER_ONLY.test(query.trim());
 }
 
 /** What may stand right before `#` for it to open the menu: a space, or

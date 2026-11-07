@@ -7,6 +7,9 @@ interface TicketPickerMenuProps {
   items: TicketPickItem[];
   query: string;
   selectedIndex: number;
+  /** Enter takes the selected row (see `enterPicks`); when it would send
+   * the message instead, no row is drawn as selected. */
+  armed: boolean;
   onHover: (index: number) => void;
   onPick: (item: TicketPickItem) => void;
 }
@@ -17,7 +20,7 @@ interface TicketPickerMenuProps {
  * key, title, where it stands — or, with no tracker to read, the way to
  * connect one.
  */
-export function TicketPickerMenu({ items, query, selectedIndex, onHover, onPick }: TicketPickerMenuProps) {
+export function TicketPickerMenu({ items, query, selectedIndex, armed, onHover, onPick }: TicketPickerMenuProps) {
   const dict = useDict();
   const copy = dict.chat.composer.tickets;
   if (items.length === 0) return null;
@@ -36,7 +39,7 @@ export function TicketPickerMenu({ items, query, selectedIndex, onHover, onPick 
             <button
               type="button"
               role="option"
-              aria-selected={index === selectedIndex}
+              aria-selected={armed && index === selectedIndex}
               data-ticket-option={item.kind === "ticket" ? item.key : "connect"}
               onMouseEnter={() => onHover(index)}
               // Keeps the editor's focus (and the suggestion) through the click.
@@ -44,7 +47,7 @@ export function TicketPickerMenu({ items, query, selectedIndex, onHover, onPick 
               onClick={() => onPick(item)}
               className={cn(
                 "flex w-full cursor-pointer items-center gap-3 px-2 py-1.5 text-left text-[13px] transition-colors",
-                index === selectedIndex ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-surface-hover",
+                armed && index === selectedIndex ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-surface-hover",
               )}
             >
               {item.kind === "ticket" ? (
