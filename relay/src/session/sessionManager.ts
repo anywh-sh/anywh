@@ -4,7 +4,7 @@ import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { PushNotificationDraft } from "../push/events.js";
 import { SharedSession, type TurnOutcome } from "./sharedSession.js";
-import type { SessionStore, TitledSession } from "./sessionStore.js";
+import type { SessionActivity, SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
 import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
@@ -70,7 +70,7 @@ export interface SessionManagerRoomOptions {
  * never opened this session as a tab — e.g. a session created on mobile,
  * appearing live in the desktop sidebar. */
 export type SessionListEvent =
-  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true }
+  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true; activity?: SessionActivity }
   | { type: "remove"; id: string };
 
 /** What makes a session different from one a person types into. */
@@ -201,11 +201,27 @@ export class SessionManager {
       this.onListChanged?.(event);
       return;
     }
+    const activity = this.sessions.get(event.id)?.activity();
+    this.announcedActivity.set(event.id, activity ?? "idle");
     this.onListChanged?.({
       ...event,
       ...(this.sessionStore.getRoom(event.id)?.role === "principal" ? { room: true as const } : {}),
       ...(this.sessionStore.isTitlePending(event.id) ? { titlePending: true as const } : {}),
+      ...(activity ? { activity } : {}),
     });
+  }
+
+  /** The activity each session's last upsert carried, so a turn or a
+   * question that changes nothing the list shows sends nothing. */
+  private readonly announcedActivity = new Map<string, SessionActivity | "idle">();
+
+  /** Tells the list a session's activity changed. An untitled session isn't
+   * listed yet; its title upsert carries the activity when it comes. */
+  private announceActivity(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (this.announcedActivity.get(id) === (session.activity() ?? "idle")) return;
+    this.announceTitle(id);
   }
 
   /** Called by `BackgroundJobTracker` when a job finishes.
@@ -252,7 +268,10 @@ export class SessionManager {
   }
 
   listTitled(): TitledSession[] {
-    return this.sessionStore.listTitled();
+    return this.sessionStore.listTitled().map((row) => {
+      const activity = this.sessions.get(row.id)?.activity();
+      return activity ? { ...row, activity } : row;
+    });
   }
 
   /** The timestamp to stamp an `upsert` event with. Read back from the store
@@ -480,6 +499,7 @@ export class SessionManager {
     this.wakeups.cancelForSession(id);
     const existedInStore = this.sessionStore.deleteEntry(id);
     const existed = existedInStore || session !== undefined;
+    this.announcedActivity.delete(id);
     if (existed) this.announce({ type: "remove", id });
     return existed;
   }
@@ -548,6 +568,7 @@ export class SessionManager {
       onDraftChange: (text) => this.sessionStore.setDraft(id, text),
       initialSuggestion: this.sessionStore.getSuggestion(id),
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
+      onActivityStateChange: () => this.announceActivity(id),
       initialPendingChoice: this.sessionStore.getPendingChoice(id),
       onPendingChoiceChange: (choice) => this.sessionStore.setPendingChoice(id, choice),
       initialPendingApproval: this.sessionStore.getPendingApproval(id),

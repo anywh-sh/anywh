@@ -7,7 +7,7 @@ import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/l
 import { markProfileVerified } from "@/lib/profiles/profiles";
 import { useForegroundSync } from "@/hooks/relay/useForegroundSync";
 import type { Profile } from "@/lib/profiles/profiles";
-import type { SessionSummary } from "@/lib/relay/relay-types";
+import type { SessionActivity, SessionSummary } from "@/lib/relay/relay-types";
 
 // A broker that answered 429 is telling this account to stop asking — the
 // watch loop's usual 2s retry is the one thing that makes that worse, and
@@ -177,7 +177,7 @@ export function useSessionNames(profile: Profile): {
               return;
             }
             if (typeof parsed !== "object" || parsed === null) return;
-            const { type, id, title, lastActiveAt, sessions, room, titlePending } = parsed as {
+            const { type, id, title, lastActiveAt, sessions, room, titlePending, activity } = parsed as {
               type?: unknown;
               id?: unknown;
               title?: unknown;
@@ -185,6 +185,7 @@ export function useSessionNames(profile: Profile): {
               sessions?: unknown;
               room?: unknown;
               titlePending?: unknown;
+              activity?: unknown;
             };
             if (type === "pong") {
               window.clearTimeout(pongTimer);
@@ -204,7 +205,7 @@ export function useSessionNames(profile: Profile): {
             }
             if (typeof id !== "string") return;
             if (type === "session_list_upsert" && typeof title === "string")
-              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true, titlePending === true);
+              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true, titlePending === true, isSessionActivity(activity) ? activity : null);
             else if (type === "session_list_removed") removeCachedSession(profileId, id);
           });
           ws.addEventListener("close", () => {
@@ -309,4 +310,8 @@ function isSessionSummary(value: unknown): value is SessionSummary {
     typeof entry.title === "string" &&
     (entry.lastActiveAt === null || typeof entry.lastActiveAt === "number")
   );
+}
+
+function isSessionActivity(value: unknown): value is SessionActivity {
+  return value === "running" || value === "awaiting";
 }

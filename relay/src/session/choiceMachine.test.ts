@@ -546,3 +546,54 @@ test("markWithdrawn records an approval the model was not told about", () => {
   machine.markWithdrawn();
   assert.deepEqual(storedWithdrawn, [true]);
 });
+
+function pendingWatch(): { machine: ChoiceMachine; flips: boolean[]; lastPromptId: () => string } {
+  const flips: boolean[] = [];
+  const client = fakeSocket();
+  const machine: ChoiceMachine = new ChoiceMachine(new Set([client]), undefined, undefined, undefined, Date.now, {}, () => flips.push(machine.hasPending()));
+  const lastPromptId = (): string => (client.sent.filter((m) => (m as { type: string }).type === "choice_prompt").at(-1) as { promptId: string }).promptId;
+  return { machine, flips, lastPromptId };
+}
+
+test("hasPending/onPendingChange: a blocking approval opens and closes once, whether answered or cancelled", async () => {
+  const { machine, flips, lastPromptId } = pendingWatch();
+  assert.equal(machine.hasPending(), false);
+  const answered = machine.presentApprovalChoice([question()]);
+  assert.equal(machine.hasPending(), true);
+  machine.answerChoice(lastPromptId(), []);
+  await answered;
+  const cancelled = machine.presentApprovalChoice([question()]);
+  machine.cancelPendingApproval();
+  await cancelled;
+  assert.deepEqual(flips, [true, false, true, false]);
+});
+
+test("hasPending/onPendingChange: a deferred question stays pending past its turn and clears when the person moves on", () => {
+  const { machine, flips } = pendingWatch();
+  machine.presentChoice([question()]);
+  // A second slot opening while one is already pending is no flip.
+  void machine.presentApprovalChoice([question("approve?")]);
+  machine.cancelPendingApproval();
+  assert.equal(machine.hasPending(), true);
+  machine.discardStaleChoice(1);
+  assert.equal(machine.hasPending(), false);
+  assert.deepEqual(flips, [true, false]);
+});
+
+test("hasPending/onPendingChange: a deferred approval counts from the card's flush to its answer, not while only staged", () => {
+  const { machine, flips, lastPromptId } = pendingWatch();
+  machine.deferApproval(WRITE, question("write?"), 1);
+  assert.equal(machine.hasPending(), false);
+  machine.flushDeferredApprovals(1);
+  assert.deepEqual(flips, [true]);
+  assert.equal(machine.answerChoice(lastPromptId(), []).kind, "deferredApproval");
+  assert.deepEqual(flips, [true, false]);
+});
+
+test("hasPending: a question rehydrated from the store is pending from the start, and dropping it reports the flip", () => {
+  const flips: boolean[] = [];
+  const machine: ChoiceMachine = new ChoiceMachine(new Set(), undefined, { promptId: "p", questions: [question()], askedAt: 1 }, undefined, Date.now, {}, () => flips.push(machine.hasPending()));
+  assert.equal(machine.hasPending(), true);
+  machine.dropRehydrated();
+  assert.deepEqual(flips, [false]);
+});

@@ -237,4 +237,16 @@ describe("sessionListCache", () => {
     expect(row.title).toBe("Login flow");
     expect(row.titlePending).toBeUndefined();
   });
+
+  it("takes a row's activity from the relay's upserts, and keeps it through an update made locally", async () => {
+    const cache = await freshModule();
+    cache.setCachedSessions("work", [{ id: "s", title: "S", lastActiveAt: 100 }]);
+    cache.upsertCachedSession("work", "s", "S", 100, false, false, "awaiting");
+    expect(cache.getCachedSessions("work").sessions[0].activity).toBe("awaiting");
+    // A rename on this device says nothing about the session's turn.
+    cache.upsertCachedSession("work", "s", "S renamed");
+    expect(cache.getCachedSessions("work").sessions[0]).toMatchObject({ title: "S renamed", activity: "awaiting" });
+    cache.upsertCachedSession("work", "s", "S renamed", 200, false, false, null);
+    expect(cache.getCachedSessions("work").sessions[0].activity).toBeUndefined();
+  });
 });

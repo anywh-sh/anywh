@@ -150,7 +150,7 @@ const sessionManager = new SessionManager(
   (event) => {
     const payload = JSON.stringify(
       event.type === "upsert"
-        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}) }
+        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}), ...(event.activity ? { activity: event.activity } : {}) }
         : { type: "session_list_removed", id: event.id },
     );
     for (const watcher of sessionListWatchers) {

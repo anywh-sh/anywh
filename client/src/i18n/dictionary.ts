@@ -1115,6 +1115,7 @@ export interface Dictionary {
       olderInSearch: string;
       /** A room row's tooltips; each takes `{count}`. */
       roomNeedsYou: string;
+      sessionNeedsYou: string;
       roomWorking: string;
       roomFailed: string;
       groups: {

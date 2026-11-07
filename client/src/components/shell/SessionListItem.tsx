@@ -53,7 +53,10 @@ export const SessionListItem = memo(function SessionListItem({
   const dict = useDict();
   const { locale } = useLocale();
   const menu = useContextMenu();
-  const running = turnRunning || (roomStatus?.working ?? 0) > 0;
+  // The relay's word covers every session, open in a tab or not; the tab's
+  // own turn state still counts, since it can be ahead of the list.
+  const awaiting = session.activity === "awaiting";
+  const running = turnRunning || session.activity === "running" || (roomStatus?.working ?? 0) > 0;
   const indicatorLabel = running ? dict.shell.sidebar.agentWorking : dict.shell.sidebar.backgroundJob;
   // A relay too old to report when the session was last used leaves the row
   // without a time rather than with a made-up one — the meta line is then
@@ -117,6 +120,8 @@ export const SessionListItem = memo(function SessionListItem({
             aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
             className="size-1.5 shrink-0 rounded-full bg-primary"
           />
+        ) : awaiting ? (
+          <span title={dict.shell.sidebar.sessionNeedsYou} role="img" aria-label={dict.shell.sidebar.sessionNeedsYou} className="size-1.5 shrink-0 rounded-full bg-primary" />
         ) : roomStatus && roomStatus.failed > 0 && !running ? (
           <span
             title={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}

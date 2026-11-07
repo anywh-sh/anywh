@@ -444,6 +444,7 @@ export const ptBr: Dictionary = {
       clearCompletedTitle: "Mover as concluídas para Recentes",
       olderInSearch: "Mais antigas na busca",
       roomNeedsYou: "{count} precisam de você",
+      sessionNeedsYou: "Esperando sua resposta",
       roomWorking: "{count} em execução",
       roomFailed: "{count} com falha",
       agentWorking: "Agente trabalhando nesta sessão",

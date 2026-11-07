@@ -444,6 +444,7 @@ export const en: Dictionary = {
       clearCompletedTitle: "Move the completed sessions to Recent",
       olderInSearch: "Older ones in search",
       roomNeedsYou: "{count} need you",
+      sessionNeedsYou: "Waiting for your answer",
       roomWorking: "{count} running",
       roomFailed: "{count} failed",
       agentWorking: "Agent working in this session",

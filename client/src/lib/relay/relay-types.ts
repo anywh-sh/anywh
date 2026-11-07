@@ -304,7 +304,15 @@ export interface SessionSummary {
    * is on its way (a room's principal, titled from its first message): the
    * row draws a placeholder instead. Absent from a relay older than that. */
   titlePending?: true;
+  /** What the session is doing right now, reported by the relay for every
+   * session, whether or not this device has it open. Absent when idle, and
+   * from a relay older than this field. */
+  activity?: SessionActivity;
 }
+
+/** `"running"` while a turn runs, `"awaiting"` while a question or approval
+ * waits for the person. */
+export type SessionActivity = "running" | "awaiting";
 
 /** A profile as the relay's control API exposes it on `GET /control/profiles`
  * — one entry per `.env` file it finds on that host, live-probed for

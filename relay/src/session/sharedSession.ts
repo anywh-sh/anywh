@@ -21,7 +21,7 @@ import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offers
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
-import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice, SessionActivity } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import {
@@ -249,6 +249,9 @@ export interface SharedSessionOptions {
   onTurnSettled?: (outcome: TurnOutcome) => void;
   /** Called whenever a turn starts or ends (what `turn_state` tells clients). */
   onTurnStateChange?: () => void;
+  /** Called whenever `activity()` may have changed: a turn started or
+   * ended, or a question for the person opened or closed. */
+  onActivityStateChange?: () => void;
   /** Every event of every turn, for a room agent's usage tally. */
   onUsage?: (event: AgentEvent) => void;
   /** A turn began (`startedAt` in epoch ms); `synthetic` is what started it
@@ -506,6 +509,7 @@ export class SharedSession implements SessionDriverHost {
         initialWithdrawn: options.initialWithdrawnApproval,
         onWithdrawnChange: options.onWithdrawnApprovalChange,
       },
+      () => this.options.onActivityStateChange?.(),
     );
     // A rehydrated question belongs to a conversation; with no session_id
     // left for the active agent (cleared, lost, never created) answering it
@@ -1451,6 +1455,15 @@ export class SharedSession implements SessionDriverHost {
     return this.turnStartedAt !== null;
   }
 
+  /** What the session list shows for this session: `"awaiting"` while a
+   * question or approval waits for the person (even mid-turn — a turn
+   * blocked on an approval is waiting, not working), `"running"` while a
+   * turn runs, `undefined` when idle. */
+  activity(): SessionActivity | undefined {
+    if (this.choiceMachine.hasPending()) return "awaiting";
+    return this.isTurnInFlight() ? "running" : undefined;
+  }
+
   /** Whether this session's agent lives in the agent host, outside the
    * relay process. */
   runsOutsideRelay(): boolean {
@@ -1852,6 +1865,7 @@ export class SharedSession implements SessionDriverHost {
 
   private broadcastTurnState(): void {
     this.options.onTurnStateChange?.();
+    this.options.onActivityStateChange?.();
     broadcastTurnState(this.clients, this.turnStartedAt);
   }
 
