@@ -534,11 +534,12 @@ export class RoomManager implements RoomToolHost {
   }
 
   /** Where a worker sits and how it is doing, for the screen of the ticket
-   * it works on; `undefined` for anyone else. */
+   * it works on; `undefined` for anyone else. An untitled room or agent is
+   * named `""`: the client names it in the person's language. */
   placeOf(agentId: string): WorkTicketPlace | undefined {
     const room = this.store.getRoom(agentId);
     if (room?.role !== "worker") return undefined;
-    return { roomId: room.roomId, roomTitle: this.store.getTitle(room.roomId) ?? "Room", agentTitle: this.store.getTitle(agentId) ?? "Agent", agentState: this.stateOf(agentId, room) };
+    return { roomId: room.roomId, roomTitle: this.store.getTitle(room.roomId) ?? "", agentTitle: this.store.getTitle(agentId) ?? "", agentState: this.stateOf(agentId, room) };
   }
 
   /** A member called a tool of MCP server `server`: remembered as a
