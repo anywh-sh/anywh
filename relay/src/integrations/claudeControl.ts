@@ -242,6 +242,9 @@ interface Pooled {
  * a few project folders. Each stops after `idleMs` without a request. */
 export class ClaudeControlPool {
   private readonly processes = new Map<string, Pooled>();
+  /** Replaced or evicted, finishing what they were asked: `close` still
+   * ends them. */
+  private readonly draining = new Set<ClaudeControlProcess>();
   private readonly args: readonly string[];
   private readonly maxProjectProcesses: number;
   private readonly idleMs: number;
@@ -287,6 +290,8 @@ export class ClaudeControlPool {
 
   close(): void {
     for (const key of [...this.processes.keys()]) this.stop(key);
+    for (const process of this.draining) process.close();
+    this.draining.clear();
   }
 
   /** Every next request starts a new process (one that loads new tokens);
@@ -310,6 +315,7 @@ export class ClaudeControlPool {
       homeOverride: this.options.homeOverride,
       onMessage: (message) => this.options.onMessage?.(key, message),
       onExit: () => {
+        this.draining.delete(started);
         const current = this.processes.get(key);
         if (current?.process === started) {
           clearTimeout(current.idle);
@@ -354,7 +360,9 @@ export class ClaudeControlPool {
     if (!pooled) return;
     this.processes.delete(key);
     clearTimeout(pooled.idle);
-    if (drain) pooled.process.closeWhenIdle();
-    else pooled.process.close();
+    if (drain && !pooled.process.exited) {
+      this.draining.add(pooled.process);
+      pooled.process.closeWhenIdle();
+    } else pooled.process.close();
   }
 }

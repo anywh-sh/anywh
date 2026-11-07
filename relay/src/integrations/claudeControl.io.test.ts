@@ -178,3 +178,16 @@ test("pool: past the cap an idle project process is stopped first, and a busy on
   assert.match((await slow).content[0].text, /"tool":"whoami"/);
   assert.match((await slowC).content[0].text, /"tool":"whoami"/);
 });
+
+test("pool: closing it also ends a process still finishing what it was asked", async (t) => {
+  const { dir, def, invocations } = setup(t, { FAKE_CLAUDE_MCP_CALL_DELAY_MS: "2000" });
+  const pool = new ClaudeControlPool({ def, neutralCwd: dir });
+  t.after(() => pool.close());
+  const slow = pool.request(undefined, "mcp_call", { tool: "mcp__sentry__whoami", arguments: {} });
+  await waitFor(() => invocations().length === 1);
+  pool.recycle();
+  const started = Date.now();
+  pool.close();
+  await assert.rejects(slow);
+  assert.ok(Date.now() - started < 1500, "ended at once, not after its answer");
+});
