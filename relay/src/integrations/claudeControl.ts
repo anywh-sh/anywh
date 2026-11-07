@@ -232,7 +232,9 @@ export interface ClaudeControlPoolOptions {
 
 interface Pooled {
   readonly process: ClaudeControlProcess;
-  idle: NodeJS.Timeout;
+  /** Armed only while `inFlight` is 0. */
+  idle: NodeJS.Timeout | undefined;
+  inFlight: number;
   usedAt: number;
 }
 
@@ -266,7 +268,16 @@ export class ClaudeControlPool {
   request(cwd: string | undefined, subtype: string, payload?: Record<string, unknown>, options: { timeoutMs?: number; fresh?: boolean } = {}): Promise<unknown> {
     const key = cwd ?? this.options.neutralCwd;
     if (options.fresh) this.stop(key, true);
-    return this.acquire(key).request(subtype, payload, options.timeoutMs);
+    const control = this.acquire(key);
+    const pooled = this.processes.get(key);
+    // The idle clock runs only while nothing is asked: a request slower
+    // than `idleMs` (a cold start under load, a slow tool call) is never
+    // cut by it, and the wait restarts from the last answer.
+    if (pooled) this.busy(key, pooled, 1);
+    return control.request(subtype, payload, options.timeoutMs).finally(() => {
+      const current = this.processes.get(key);
+      if (current?.process === control) this.busy(key, current, -1);
+    });
   }
 
   /** Folders with a running process. */
@@ -306,15 +317,21 @@ export class ClaudeControlPool {
         }
       },
     });
-    const pooled: Pooled = { process: started, idle: this.idleTimer(key), usedAt: ++this.uses };
+    const pooled: Pooled = { process: started, idle: this.idleTimer(key), inFlight: 0, usedAt: ++this.uses };
     this.processes.set(key, pooled);
     return started;
   }
 
   private touch(key: string, pooled: Pooled): void {
     clearTimeout(pooled.idle);
-    pooled.idle = this.idleTimer(key);
+    pooled.idle = pooled.inFlight === 0 ? this.idleTimer(key) : undefined;
     pooled.usedAt = ++this.uses;
+  }
+
+  private busy(key: string, pooled: Pooled, delta: 1 | -1): void {
+    pooled.inFlight += delta;
+    clearTimeout(pooled.idle);
+    pooled.idle = pooled.inFlight === 0 ? this.idleTimer(key) : undefined;
   }
 
   private idleTimer(key: string): NodeJS.Timeout {

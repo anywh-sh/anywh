@@ -123,6 +123,17 @@ test("pool: a process with no request for `idleMs` is stopped; the next request 
   assert.equal(invocations().length, 2);
 });
 
+test("pool: a request slower than `idleMs` is not cut by the idle stop, which counts from its answer", async (t) => {
+  const { dir, def, invocations } = setup(t, { FAKE_CLAUDE_MCP_CALL_DELAY_MS: "300" });
+  const pool = new ClaudeControlPool({ def, neutralCwd: dir, idleMs: 50 });
+  t.after(() => pool.close());
+  const reply = (await pool.request(undefined, "mcp_call", { tool: "mcp__sentry__whoami", arguments: {} })) as { content: { text: string }[] };
+  assert.match(reply.content[0].text, /"tool":"whoami"/);
+  assert.deepEqual(pool.running(), [dir], "the answer re-arms the idle clock instead of finding it run out");
+  await waitFor(() => pool.running().length === 0);
+  assert.equal(invocations().length, 1);
+});
+
 test("pool: a fresh scan or a recycle lets the replaced process answer what it was asked before it ends", async (t) => {
   const { dir, def, invocations } = setup(t, { FAKE_CLAUDE_MCP_CALL_DELAY_MS: "400" });
   const pool = new ClaudeControlPool({ def, neutralCwd: dir });
@@ -130,7 +141,9 @@ test("pool: a fresh scan or a recycle lets the replaced process answer what it w
   const call = () => pool.request(undefined, "mcp_call", { tool: "mcp__sentry__whoami", arguments: {} }) as Promise<{ content: { text: string }[] }>;
 
   const slow = call();
-  await waitFor(() => pool.running().length === 1);
+  // Started, not just pooled: under load the first process may record
+  // itself after the replacement does.
+  await waitFor(() => invocations().length === 1);
   await pool.request(undefined, "mcp_status", {}, { fresh: true });
   assert.equal(invocations().length, 2, "the scan ran on a new process");
   assert.match((await slow).content[0].text, /"tool":"whoami"/);
