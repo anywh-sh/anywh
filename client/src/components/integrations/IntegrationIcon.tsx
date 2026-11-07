@@ -1,31 +1,20 @@
 import type { IntegrationProvider } from "@/lib/integrations/model";
 import { cn } from "@/lib/utils";
 
-/**
- * An integration's mark, in the rail's own line style (`currentColor`, the
- * stroke of the lucide icons beside it) rather than the provider's logo: a
- * diamond with a dot for Jira, a slanted square for Linear.
- */
+/** The providers' official marks, from simple-icons (CC0 1.0,
+ * https://simpleicons.org), on a 24x24 box. */
+const MARK: Record<IntegrationProvider, string> = {
+  jira: "M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z",
+  linear:
+    "M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z",
+};
+
+/** An integration's mark, monochrome (`currentColor`) like the lucide icons
+ * beside it in the rail. */
 export function IntegrationIcon({ provider, className }: { provider: IntegrationProvider; className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinejoin="round"
-      aria-hidden="true"
-      data-integration-icon={provider}
-      className={cn("size-4", className)}
-    >
-      {provider === "jira" ? (
-        <>
-          <path d="M12 3 21 12 12 21 3 12Z" />
-          <path d="M12 9.5 14.5 12 12 14.5 9.5 12Z" fill="currentColor" />
-        </>
-      ) : (
-        <path d="M5 8 16 3l3 13-11 5Z" />
-      )}
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" data-integration-icon={provider} className={cn("size-4", className)}>
+      <path d={MARK[provider]} />
     </svg>
   );
 }
