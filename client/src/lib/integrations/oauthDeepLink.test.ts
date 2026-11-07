@@ -4,6 +4,7 @@ import {
   CALLBACK_GRACE_MS,
   DELIVERED_TTL_MS,
   __resetMcpOAuthForTests,
+  forgetProfileFlows,
   getMcpOAuthNotice,
   isMcpOAuthLink,
   noteAuthFlow,
@@ -91,6 +92,21 @@ describe("routeMcpOAuthCallback", () => {
     routeMcpOAuthCallback(CODEX_LINK);
     vi.advanceTimersByTime(CALLBACK_GRACE_MS);
     expect(getMcpOAuthNotice()?.kind).toBe("unknown");
+  });
+
+  it("sends a repeat again once the relay it went to reconnected (the first copy may have died with the socket)", () => {
+    const home = recorder();
+    registerIntegrationsSender("home", home.send);
+    noteAuthFlow("home", flow({ flowId: "h1", runtimeId: "codex", state: "s-codex" }));
+    routeMcpOAuthCallback(CODEX_LINK);
+    // The socket dropped before the relay read it; the relay re-announces.
+    forgetProfileFlows("home");
+    noteAuthFlow("home", flow({ flowId: "h1", runtimeId: "codex", state: "s-codex" }));
+    routeMcpOAuthCallback(CODEX_LINK);
+    expect(home.sent).toEqual([
+      { type: "mcp_auth_complete", flowId: "h1", callbackUrl: CODEX_LINK },
+      { type: "mcp_auth_complete", flowId: "h1", callbackUrl: CODEX_LINK },
+    ]);
   });
 
   it("leaves links that are not MCP sign-ins to other listeners", () => {

@@ -97,9 +97,10 @@ export const DELIVERED_TTL_MS = 60_000;
 const flowsByState = new Map<string, PendingFlow>();
 const senders = new Map<string, IntegrationsSender>();
 const held: HeldCallback[] = [];
-/** Links forwarded, by the whole link, with when they stop counting as
- * repeats. The same `state` with another code (a retry) is not a repeat. */
-const delivered = new Map<string, number>();
+/** Links forwarded, by the whole link, with the profile they went to and
+ * when they stop counting as repeats. The same `state` with another code (a
+ * retry) is not a repeat. */
+const delivered = new Map<string, { profileId: string; until: number }>();
 let notice: McpOAuthNotice | null = null;
 let noticeSeq = 0;
 const noticeListeners = new Set<() => void>();
@@ -118,7 +119,7 @@ function tryDeliver(callback: McpOAuthCallback): boolean {
   // One callback ends a flow: a second copy of the same link (the cold
   // launch and the running app can both report it) has nowhere to go.
   flowsByState.delete(callback.state);
-  delivered.set(callback.url, Date.now() + DELIVERED_TTL_MS);
+  delivered.set(callback.url, { profileId: flow.profileId, until: Date.now() + DELIVERED_TTL_MS });
   return true;
 }
 
@@ -146,7 +147,7 @@ export function routeMcpOAuthCallback(url: string): boolean {
   // A repeat of a link already forwarded: neither sent again (the relay
   // would refuse it) nor held into a false "nobody was waiting".
   const now = Date.now();
-  for (const [link, until] of delivered) if (until <= now) delivered.delete(link);
+  for (const [link, { until }] of delivered) if (until <= now) delivered.delete(link);
   if (delivered.has(url)) return true;
   if (tryDeliver(callback)) return true;
   const entry: HeldCallback = {
@@ -183,10 +184,14 @@ export function noteAuthFlow(profileId: string, flow: McpAuthFlow): void {
 /** A profile's relay (re)connected: it announces the flows it still has
  * right after, so every state it announced before stops routing until it
  * does again — a relay that restarted mid sign-in forgot its flow, and a
- * link for it is someone else's link now. */
+ * link for it is someone else's link now. A link sent to it before may
+ * have died with the old socket: a repeat of it is sent again. */
 export function forgetProfileFlows(profileId: string): void {
   for (const [state, pending] of flowsByState) {
     if (pending.profileId === profileId) flowsByState.delete(state);
+  }
+  for (const [link, sent] of delivered) {
+    if (sent.profileId === profileId) delivered.delete(link);
   }
 }
 
