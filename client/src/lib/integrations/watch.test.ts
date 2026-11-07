@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProfileIntegrations } from "@/lib/integrations/derive";
 import type { IntegrationState } from "@/lib/integrations/model";
-import { __resetMcpOAuthForTests, routeMcpOAuthCallback } from "@/lib/integrations/oauthDeepLink";
+import { CALLBACK_GRACE_MS, __resetMcpOAuthForTests, getMcpOAuthNotice, routeMcpOAuthCallback } from "@/lib/integrations/oauthDeepLink";
 import { HANDSHAKE_TIMEOUT_MS, IntegrationsWatch, parseServerMessage } from "@/lib/integrations/watch";
 import type { Profile } from "@/lib/profiles/profiles";
 import { installFakeRelay, type FakeRelay } from "../../../tests/ui/helpers/fakeRelay";
@@ -129,6 +129,30 @@ describe("IntegrationsWatch", () => {
       flowId: "f9",
       callbackUrl: "anywh://mcp-oauth/callback?code=c&state=st-9",
     });
+  });
+
+  it("replaces its sign-ins with the ones a reconnected relay announces", async () => {
+    relay = installFakeRelay("", { integrations: { [RELAY]: { integrations: [JIRA] } } });
+    const live = startWatch();
+    await vi.advanceTimersByTimeAsync(0);
+    const flow = (flowId: string, state: string) => ({ type: "mcp_auth_flow", flowId, runtimeId: "claude", serverName: "atlassian", phase: "awaiting_user", mode: "deeplink", state });
+    watchSockets()[0].emitMessage(flow("f1", "st-1"));
+    expect(Object.keys(live.current.authFlows)).toEqual(["f1"]);
+
+    // The relay restarts mid sign-in: it forgot f1 and has a new f2.
+    watchSockets()[0].close();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(live.current.connection).toBe("live");
+    expect(live.current.authFlows).toEqual({});
+    watchSockets()[1].emitMessage(flow("f2", "st-2"));
+    expect(Object.keys(live.current.authFlows)).toEqual(["f2"]);
+
+    // A late link for the forgotten flow goes nowhere and tells the person.
+    const sentBefore = relay.sent.length;
+    routeMcpOAuthCallback("anywh://mcp-oauth/callback?code=c&state=st-1");
+    await vi.advanceTimersByTimeAsync(CALLBACK_GRACE_MS);
+    expect(relay.sent.slice(sentBefore).map((entry) => entry.message.type)).not.toContain("mcp_auth_complete");
+    expect(getMcpOAuthNotice()?.kind).toBe("unknown");
   });
 });
 

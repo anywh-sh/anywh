@@ -4,7 +4,7 @@ import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/l
 import { EMPTY_PROFILE_INTEGRATIONS, type ProfileIntegrations } from "@/lib/integrations/derive";
 import { INTEGRATIONS_WATCH_PATH, type IntegrationState, type IntegrationsClientMessage, type McpAuthFlow, type WorkTicket } from "@/lib/integrations/model";
 import { isWorkTicket, type WorkTicketMap } from "@/lib/integrations/workTickets";
-import { noteAuthFlow, registerIntegrationsSender } from "@/lib/integrations/oauthDeepLink";
+import { forgetProfileFlows, noteAuthFlow, registerIntegrationsSender } from "@/lib/integrations/oauthDeepLink";
 
 /** Backoff, liveness and handshake timings: the plan usage watch's, for the
  * same reasons (see `planUsage/watch.ts`). */
@@ -230,8 +230,15 @@ export class IntegrationsWatch {
         this.handshakeTimer = undefined;
         this.failures = 0;
         this.startPeriodicPing();
+        // The relay keeps sign-ins in memory and announces the ones it has
+        // right after this first state: what an earlier socket reported is
+        // replaced, not merged into, or a flow a restarted relay forgot
+        // would wait forever on its card.
+        forgetProfileFlows(this.profile.id);
+        this.update({ connection: "live", integrations: message.integrations, receivedAt: this.now(), authFlows: {} });
+      } else {
+        this.update({ connection: "live", integrations: message.integrations, receivedAt: this.now() });
       }
-      this.update({ connection: "live", integrations: message.integrations, receivedAt: this.now() });
       if (!this.unregisterSender) this.unregisterSender = registerIntegrationsSender(this.profile.id, (outgoing) => this.send(outgoing));
     });
     ws.addEventListener("close", () => {

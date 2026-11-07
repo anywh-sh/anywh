@@ -167,6 +167,16 @@ export function noteAuthFlow(profileId: string, flow: McpAuthFlow): void {
   retryHeld();
 }
 
+/** A profile's relay (re)connected: it announces the flows it still has
+ * right after, so every state it announced before stops routing until it
+ * does again — a relay that restarted mid sign-in forgot its flow, and a
+ * link for it is someone else's link now. */
+export function forgetProfileFlows(profileId: string): void {
+  for (const [state, pending] of flowsByState) {
+    if (pending.profileId === profileId) flowsByState.delete(state);
+  }
+}
+
 /** A profile's integrations socket is open: links for its flows go to
  * `send`. Returns the unregistration, which only removes this same sender. */
 export function registerIntegrationsSender(profileId: string, send: IntegrationsSender): () => void {
