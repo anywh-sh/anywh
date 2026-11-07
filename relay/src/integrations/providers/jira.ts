@@ -10,7 +10,7 @@
 // itself mark read-only is refused before the call is made.
 //
 // Pure.
-import type { McpToolInfo, IntegrationQueryError, IntegrationSite, TicketComment, TicketDetail, TicketRow, TicketStatusCategory } from "../types.js";
+import { TICKET_KEY_PATTERN, type McpToolInfo, type IntegrationQueryError, type IntegrationSite, type TicketComment, type TicketDetail, type TicketRow, type TicketStatusCategory } from "../types.js";
 import { PROJECT_KEY_PATTERN } from "../store.js";
 import type { ToolCallOutcome } from "../toolResult.js";
 
@@ -203,6 +203,42 @@ export function parseIssue(value: unknown, site: IntegrationSite): TicketDetail 
   if (!row || !isRecord(issue) || !isRecord(issue.fields)) return undefined;
   const description = markdownOf(issue.fields.description);
   return { ...row, ...(description ? { descriptionMd: truncate(description, DESCRIPTION_LIMIT) } : {}), comments: commentsOf(issue.fields.comment) };
+}
+
+// --- the agent's own calls -----------------------------------------------------
+
+/** The agent's calls about one ticket: the first that succeeds in a session
+ * with no ticket gives the session that ticket. */
+const SINGLE_TICKET_TOOLS: ReadonlySet<string> = new Set(["getJiraIssue", "editJiraIssue", "transitionJiraIssue", "addCommentToJiraIssue", "addWorklogToJiraIssue"]);
+/** Of those, the ones whose result is the ticket itself. */
+const TICKET_RESULT_TOOLS: ReadonlySet<string> = new Set(["getJiraIssue", "editJiraIssue", "transitionJiraIssue"]);
+
+/** What a successful call the agent made tells about tickets. */
+export interface JiraObservation {
+  /** The call was about this one ticket. */
+  readonly key?: string;
+  /** The ticket screen as read (`getJiraIssue`). */
+  readonly detail?: TicketDetail;
+  /** Rows to refresh where they are already cached; never new ones. */
+  readonly rows?: TicketRow[];
+}
+
+/** `undefined` for a call that says nothing about tickets. */
+export function observeJiraCall(tool: string, input: Record<string, unknown>, value: unknown, site: IntegrationSite): JiraObservation | undefined {
+  if (tool === JIRA_TOOLS.search) {
+    const page = parseSearch(value, site);
+    return page ? { rows: page.items } : undefined;
+  }
+  if (!SINGLE_TICKET_TOOLS.has(tool)) return undefined;
+  const parsed = TICKET_RESULT_TOOLS.has(tool) ? parseIssue(value, site) : undefined;
+  const asked = typeof input.issueIdOrKey === "string" && TICKET_KEY_PATTERN.test(input.issueIdOrKey) ? input.issueIdOrKey : undefined;
+  // A numeric id in the input: the key comes from the result.
+  const key = asked ?? parsed?.key;
+  if (!key) return undefined;
+  if (!parsed || parsed.key !== key) return { key };
+  if (tool === JIRA_TOOLS.issue) return { key, detail: parsed };
+  const { descriptionMd: _description, comments: _comments, ...row } = parsed;
+  return { key, rows: [row] };
 }
 
 // --- failures ----------------------------------------------------------------

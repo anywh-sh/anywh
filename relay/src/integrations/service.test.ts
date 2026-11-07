@@ -327,3 +327,47 @@ test("the force floor is overridable by env", () => {
   assert.equal(integrationsForceFloorFromEnv({ [INTEGRATIONS_FORCE_FLOOR_ENV]: "0" }), 0);
   assert.equal(integrationsForceFloorFromEnv({ [INTEGRATIONS_FORCE_FLOOR_ENV]: "-5" }), INTEGRATIONS_FORCE_FLOOR_MS);
 });
+
+// --- the agent's own calls -----------------------------------------------------
+
+test("identifyServer knows a Jira server by what it is, under the name the turn spells", () => {
+  const { service } = harness();
+  // `claude.ai Atlassian` as a Claude tool name spells it.
+  assert.deepEqual(service.identifyServer("claude", "claude_ai_Atlassian"), { integrationId: "jira", provider: "jira" });
+  assert.deepEqual(service.identifyServer("claude", "claude.ai Atlassian"), { integrationId: "jira", provider: "jira" });
+  // Not another CLI's server, not another server, not a name alone.
+  assert.equal(service.identifyServer("codex", "claude_ai_Atlassian"), undefined);
+  assert.equal(service.identifyServer("claude", "sentry"), undefined);
+  const named: McpInventoryEntry = { runtimeId: "claude", name: "my-jira", scope: "user", transport: { type: "stdio", command: "./run.sh" }, status: "connected", authMode: "none", scannedAt: NOW };
+  const { service: byName } = harness({ entries: [named] });
+  assert.equal(byName.identifyServer("claude", "my-jira"), undefined);
+});
+
+test("observeTickets caches a ticket screen read by the agent and refreshes only rows already listed", async () => {
+  const h = harness();
+  void h.service.refresh({ id: "jira", query: "mine", param: null, force: false });
+  h.answer({ ok: true, runtimeId: "claude", site: SITE, items: [row("NGL-1"), row("NGL-2")] });
+  await new Promise((resolve) => setImmediate(resolve));
+  h.advance(1000);
+
+  h.service.observeTickets("jira", { detail: { ...row("NGL-1", { title: "Renamed by the agent" }), comments: [] } });
+  const screen = h.query("ticket", "NGL-1");
+  assert.equal(screen?.status, "ok");
+  assert.equal(screen?.source, "turn");
+  assert.equal(screen?.query === "ticket" ? screen.detail?.title : undefined, "Renamed by the agent");
+  const mine = () => (h.query("mine", null) as Extract<QueryState, { query: "mine" }>).items?.map((item) => `${item.key}:${item.title}`);
+  assert.deepEqual(mine(), ["NGL-1:Renamed by the agent", "NGL-2:Title of NGL-2"]);
+
+  // A search the agent ran: a row it did not list before stays out.
+  h.service.observeTickets("jira", { rows: [row("ABC-7"), row("NGL-2", { title: "Seen in a search" })] });
+  assert.deepEqual(mine(), ["NGL-1:Renamed by the agent", "NGL-2:Seen in a search"]);
+  assert.equal(h.query("ticket", "ABC-7"), undefined);
+  assert.equal(h.service.ticketTitle("jira", "NGL-2"), "Seen in a search");
+
+  // Done leaves the list; the ticket screen follows the row.
+  h.service.observeTickets("jira", { rows: [row("NGL-1", { statusCategory: "done", statusLabel: "Done" })] });
+  assert.deepEqual(mine(), ["NGL-2:Seen in a search"]);
+  const done = h.query("ticket", "NGL-1");
+  assert.equal(done?.query === "ticket" ? done.detail?.statusCategory : undefined, "done");
+  assert.ok(h.store.saved?.integrations.jira.queries.some((query) => query.query === "ticket" && query.param === "NGL-1" && query.source === "turn"));
+});

@@ -46,6 +46,8 @@ import { createPlanUsageService } from "./planUsage/service.js";
 import { planUsageCapture } from "./planUsage/capture.js";
 import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes } from "./routes/planUsage.js";
 import { createIntegrationService } from "./integrations/service.js";
+import { TicketLinks, createFileTicketLinksStore, ticketLinksPathFor } from "./integrations/ticketLinks.js";
+import { TicketObserver } from "./integrations/observer.js";
 import { INTEGRATIONS_WATCH_PATH, handleIntegrationsConnection, handleIntegrationsRoutes } from "./routes/integrations.js";
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
@@ -161,7 +163,7 @@ const sessionManager = new SessionManager(
   (event) => {
     const payload = JSON.stringify(
       event.type === "upsert"
-        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}), ...(event.activity ? { activity: event.activity } : {}) }
+        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}), ...(event.activity ? { activity: event.activity } : {}), ...(event.workTicket ? { workTicket: event.workTicket } : {}) }
         : { type: "session_list_removed", id: event.id },
     );
     for (const watcher of sessionListWatchers) {
@@ -260,6 +262,28 @@ const roomManager: RoomManager = new RoomManager({
   ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
 });
 roomBridge.attach(roomManager);
+// Each session's work ticket (at most one), beside the sessions file, and
+// what the agents' own calls to a tracker's MCP server tell about tickets.
+const ticketLinks = new TicketLinks({
+  store: createFileTicketLinksStore(ticketLinksPathFor(SESSIONS_FILE)),
+  sessionExists: (id) => sessionStore.has(id),
+});
+const ticketObserver = new TicketObserver({
+  identify: (runtimeId, server) => integrations.identifyServer(runtimeId, server),
+  ingest: (integrationId, observed) => integrations.observeTickets(integrationId, observed),
+  links: ticketLinks,
+  // A room's principal orchestrates several agents: it never has a ticket.
+  mayLink: (id) => sessionStore.getRoom(id)?.role !== "principal",
+});
+sessionManager.setWorkTickets({
+  workTicketOf: (id) => {
+    const link = ticketLinks.get(id);
+    return link && { provider: link.ticket.provider, key: link.ticket.key };
+  },
+  observe: (id, agentId, event) => ticketObserver.observe(id, agentId, event),
+  forget: (id) => ticketLinks.unlink(id),
+});
+ticketLinks.subscribe((event) => sessionManager.announceWorkTicket(event.type === "work_ticket_upsert" ? event.link.sessionId : event.sessionId));
 // Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
 const roomChannel = new RoomChannel({
   // What an agent has just been doing lives here, not in the room's store.
@@ -611,7 +635,7 @@ wss.on("connection", (socket: WebSocket, request) => {
   }
 
   if (url.pathname === INTEGRATIONS_WATCH_PATH) {
-    handleIntegrationsConnection(socket, integrations);
+    handleIntegrationsConnection(socket, integrations, ticketLinks);
     return;
   }
 

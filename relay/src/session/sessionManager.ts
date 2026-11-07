@@ -82,6 +82,18 @@ export interface SessionTraits {
   deferredApproval?: boolean;
 }
 
+/** What a relay with tracker integrations adds to its sessions: each
+ * session's work ticket, and a look at every event of its turns. */
+export interface SessionWorkTickets {
+  /** The ticket the session works on, as the list shows it. */
+  workTicketOf(sessionId: string): TicketTag | undefined;
+  /** Every event of the session's turns; `agentId` is its agent's. Must not
+   * throw. */
+  observe(sessionId: string, agentId: string, event: AgentEvent): void;
+  /** The session was deleted. */
+  forget(sessionId: string): void;
+}
+
 /** A notification-worthy moment in one session, as `server.ts` receives it. */
 export type SessionPushEvent = PushNotificationDraft & { sessionId: string; ts: number; watched: boolean };
 
@@ -106,6 +118,9 @@ export class SessionManager {
    * there's no reason to keep N independent instances of the mechanism that
    * arms/persists it. */
   private readonly wakeups: WakeupScheduler;
+  /** Set once at boot, after construction (it needs the sessions to exist
+   * first); read at call time. */
+  private workTickets: SessionWorkTickets | undefined;
 
   constructor(
     private readonly homeOverride: string | undefined,
@@ -193,6 +208,16 @@ export class SessionManager {
     });
   }
 
+  /** Wires each session's work ticket in (see `SessionWorkTickets`). */
+  setWorkTickets(workTickets: SessionWorkTickets): void {
+    this.workTickets = workTickets;
+  }
+
+  /** Tells the list a session's work ticket changed. */
+  announceWorkTicket(id: string): void {
+    this.announceTitle(id);
+  }
+
   /** Reports a sidebar list change, except for a room's workers: they are
    * reached through their room and never listed on their own (the store's
    * `listTitled` leaves them out the same way). */
@@ -204,11 +229,13 @@ export class SessionManager {
     }
     const activity = this.sessions.get(event.id)?.activity();
     this.announcedActivity.set(event.id, activity ?? "idle");
+    const workTicket = this.workTickets?.workTicketOf(event.id);
     this.onListChanged?.({
       ...event,
       ...(this.sessionStore.getRoom(event.id)?.role === "principal" ? { room: true as const } : {}),
       ...(this.sessionStore.isTitlePending(event.id) ? { titlePending: true as const } : {}),
       ...(activity ? { activity } : {}),
+      ...(workTicket ? { workTicket } : {}),
     });
   }
 
@@ -271,7 +298,8 @@ export class SessionManager {
   listTitled(): TitledSession[] {
     return this.sessionStore.listTitled().map((row) => {
       const activity = this.sessions.get(row.id)?.activity();
-      return activity ? { ...row, activity } : row;
+      const workTicket = this.workTickets?.workTicketOf(row.id);
+      return activity || workTicket ? { ...row, ...(activity ? { activity } : {}), ...(workTicket ? { workTicket } : {}) } : row;
     });
   }
 
@@ -501,6 +529,7 @@ export class SessionManager {
     const existedInStore = this.sessionStore.deleteEntry(id);
     const existed = existedInStore || session !== undefined;
     this.announcedActivity.delete(id);
+    this.workTickets?.forget(id);
     if (existed) this.announce({ type: "remove", id });
     return existed;
   }
@@ -604,6 +633,7 @@ export class SessionManager {
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);
         this.wakeups.observeEvent(id, event);
+        this.workTickets?.observe(id, this.sessionStore.getAgentId(id), event);
         if (room) this.rooms.onActivity?.(id, event);
       },
       onCancelBackgroundJob: (jobId) => {

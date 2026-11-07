@@ -1,7 +1,8 @@
 // Integrations on the wire: the `/integrations/watch` WebSocket the client
 // keeps open per profile, and `GET /integrations`, the same snapshot over
 // HTTP for debugging and the e2e tier. Everything else lives in
-// integrations/service.ts.
+// integrations/service.ts, and each session's work ticket in
+// integrations/ticketLinks.ts.
 //
 // Like `/plan-usage/watch`, the socket never sends `protocol_version`: an
 // older relay has no such path and hands the socket to the chat handler,
@@ -11,6 +12,7 @@
 import type { WebSocket } from "ws";
 import { INTEGRATIONS_WATCH_PATH } from "../integrations/types.js";
 import type { IntegrationService } from "../integrations/service.js";
+import type { TicketLinks } from "../integrations/ticketLinks.js";
 import {
   isIntegrationAddMessage,
   isIntegrationLoadMoreMessage,
@@ -38,13 +40,15 @@ export const handleIntegrationsRoutes: RouteHandler = (req, res, ctx) => {
   return Promise.resolve(true);
 };
 
-export function handleIntegrationsConnection(socket: WebSocket, service: IntegrationService): void {
+export function handleIntegrationsConnection(socket: WebSocket, service: IntegrationService, links: TicketLinks): void {
   const send = (message: unknown) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message));
   };
-  // Subscribed before the snapshot is sent, so no change can fall between.
+  // Subscribed before the snapshots are sent, so no change can fall between.
   const unsubscribe = service.subscribe(send);
+  const unsubscribeLinks = links.subscribe(send);
   send(service.getSnapshot());
+  send({ type: "work_tickets_state", links: links.list() });
   const release = service.connectClient();
   console.log(`[integrations] watch opened (profile ${PROFILE}, clients ${service.connectedClients})`);
 
@@ -78,8 +82,22 @@ export function handleIntegrationsConnection(socket: WebSocket, service: Integra
       if (!service.setPrefs(parsed.id, parsed.prefs)) send(service.getSnapshot());
       return;
     }
+    if (isWorkTicketMessage(parsed)) {
+      const { sessionId } = parsed;
+      if (parsed.action === "unlink") {
+        // Without a link there is nothing to undo: still ok.
+        links.unlink(sessionId);
+        send({ type: "work_ticket_result", sessionId, ok: true });
+        return;
+      }
+      const title = service.ticketTitle(parsed.ticket.provider, parsed.ticket.key);
+      // The person attached it: their next message tells the agent.
+      const result = links.link(sessionId, parsed.ticket, "manual", { lineDue: true, ...(title ? { title } : {}) });
+      console.log(`[integrations] work ticket link (profile ${PROFILE}, ${result})`);
+      send(result === "ok" ? { type: "work_ticket_result", sessionId, ok: true } : { type: "work_ticket_result", sessionId, error: result });
+      return;
+    }
     if (
-      isWorkTicketMessage(parsed) ||
       isMcpAuthStartMessage(parsed) ||
       isMcpAuthCompleteMessage(parsed) ||
       isMcpAuthCancelMessage(parsed) ||
@@ -95,6 +113,7 @@ export function handleIntegrationsConnection(socket: WebSocket, service: Integra
 
   socket.on("close", () => {
     unsubscribe();
+    unsubscribeLinks();
     release();
     console.log(`[integrations] watch closed (profile ${PROFILE}, clients ${service.connectedClients})`);
   });

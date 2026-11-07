@@ -120,7 +120,11 @@ relay/src/
                            the picked server, the tracker's tools and
                            result shapes in providers/ (jira.ts), the call
                            itself in toolCaller.ts (the def's
-                           `mcp.toolCall` contract, no turn)
+                           `mcp.toolCall` contract, no turn); ticketLinks.ts
+                           keeps each session's work ticket (at most one),
+                           and observer.ts watches the agents' own tracker
+                           calls in every turn to refresh the cache and link
+                           the first ticket a session's agent opens
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

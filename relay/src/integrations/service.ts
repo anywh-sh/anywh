@@ -23,6 +23,7 @@ import { McpInventory } from "./inventory/engine.js";
 import { createIntegrationReader } from "./reader.js";
 import { RuntimeToolCaller } from "./toolCaller.js";
 import { JIRA_RECOGNIZER, integrationRuntimes, pickIntegration, type IntegrationPick, type IntegrationRecognizer } from "./match.js";
+import { normalizeMcpServerName } from "./inventory/claude.js";
 import { PROJECT_KEY_PATTERN, createFileIntegrationsStore, integrationsPathFor, type IntegrationsStore, type PersistedIntegration, type PersistedQuery } from "./store.js";
 import {
   TICKET_KEY_PATTERN,
@@ -316,6 +317,77 @@ export class IntegrationService {
     return this.read(integration, slot, slot.source ?? "open", slot.nextPageToken).then(() => "read" as const);
   }
 
+  // --- the agent's own calls ----------------------------------------------
+
+  /** The integration an MCP server of an agent's turn belongs to, when the
+   * inventory knows that server for what it is — never by its name alone.
+   * `server` is the name as the turn reported it, which a CLI may have
+   * normalized (`claude.ai Atlassian` is `claude_ai_Atlassian` inside a
+   * Claude tool name). */
+  identifyServer(runtimeId: string, server: string): { integrationId: string; provider: IntegrationProvider; site?: IntegrationSite } | undefined {
+    for (const integration of this.integrations.values()) {
+      const { recognizer } = integration.definition;
+      const known = this.entries.some((entry) => {
+        if (entry.runtimeId !== runtimeId || (entry.name !== server && normalizeMcpServerName(entry.name) !== server)) return false;
+        const tier = recognizer.recognize(entry);
+        return tier !== undefined && tier !== "name";
+      });
+      if (known) return { integrationId: integration.definition.id, provider: integration.definition.provider, ...(integration.site ? { site: { ...integration.site } } : {}) };
+    }
+    return undefined;
+  }
+
+  /** What an agent's own successful call showed: a ticket screen it read
+   * (cached as such) and rows refreshed where they are already cached — a
+   * row is never added to a list here, and one that is done leaves it. */
+  observeTickets(integrationId: string, observed: { detail?: TicketDetail; rows?: readonly TicketRow[] }): void {
+    const integration = this.integrations.get(integrationId);
+    if (!integration || this.closed) return;
+    let changed = false;
+    const now = this.now();
+    if (observed.detail) {
+      const { detail } = observed;
+      const slot = integration.queries.get(slotKey("ticket", detail.key)) ?? this.newSlot(integration, "ticket", detail.key);
+      slot.detail = detail;
+      slot.status = "ok";
+      delete slot.error;
+      slot.source = "turn";
+      slot.observedAt = now;
+      // A read the panel started before this finishes later and is dropped.
+      slot.appliedFrom = now;
+      changed = true;
+    }
+    const rows = [...(observed.rows ?? []), ...(observed.detail ? [rowOfDetail(observed.detail)] : [])];
+    for (const row of rows) {
+      for (const slot of integration.queries.values()) {
+        if (slot.query === "mine" && slot.items?.some((item) => item.key === row.key)) {
+          slot.items = row.statusCategory === "done" ? slot.items.filter((item) => item.key !== row.key) : slot.items.map((item) => (item.key === row.key ? { ...row } : item));
+          changed = true;
+        } else if (slot.query === "ticket" && slot.detail?.key === row.key && slot.detail !== observed.detail) {
+          slot.detail = { ...slot.detail, ...row };
+          changed = true;
+        }
+      }
+    }
+    if (!changed) return;
+    this.persist();
+    this.notify();
+  }
+
+  /** A ticket's title, if any cached read of its tracker has it. */
+  ticketTitle(provider: IntegrationProvider, key: string): string | undefined {
+    for (const integration of this.integrations.values()) {
+      if (integration.definition.provider !== provider) continue;
+      const detail = integration.queries.get(slotKey("ticket", key))?.detail;
+      if (detail) return detail.title;
+      for (const slot of integration.queries.values()) {
+        const row = slot.items?.find((item) => item.key === key);
+        if (row) return row.title;
+      }
+    }
+    return undefined;
+  }
+
   close(): void {
     this.closed = true;
     this.unsubscribeInventory();
@@ -465,6 +537,11 @@ export class IntegrationService {
       console.error("[relay] could not save the integrations state:", (error as Error).message);
     }
   }
+}
+
+function rowOfDetail(detail: TicketDetail): TicketRow {
+  const { descriptionMd: _description, comments: _comments, ...row } = detail;
+  return row;
 }
 
 function restoredSlot(query: PersistedQuery): QuerySlot {

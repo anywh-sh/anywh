@@ -148,6 +148,8 @@
 //                        ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/OPENAI_API_KEY
 //                        reached the process. Lighter than
 //                        FAKE_CLAUDE_ENV_FILE, and safe to print on failure.
+// A turn's own prompt can script it too: `[[mcp:<server>:<tool>:<args>]]`
+// makes the agent call an MCP tool (see that branch below).
 
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -866,6 +868,28 @@ if (args[0] === "--version") {
       result: replyText,
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
+    process.exit(0);
+  } else if (outputFormat === "stream-json" && /\[\[mcp:/.test(args[1] ?? "")) {
+    // `[[mcp:<server>:<tool>:<base64url JSON input>]]` in the prompt, any
+    // number of times: the agent calls that MCP tool, in order. An Atlassian
+    // server answers from fake-atlassian.mjs (its calls logged with `via:
+    // "claude-turn"`), any other echoes its call. The result reaches the
+    // stream as the real CLI writes an MCP result: the `CallToolResult`'s
+    // content blocks.
+    const calls = [...args[1].matchAll(/\[\[mcp:([A-Za-z0-9_-]+):([A-Za-z0-9_]+):([A-Za-z0-9_-]*)\]\]/g)];
+    for (const [index, [, server, tool, encoded]] of calls.entries()) {
+      const input = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
+      const toolUseId = `toolu_fake_mcp_${index}`;
+      emit({
+        type: "assistant",
+        session_id: sessionId,
+        message: { content: [{ type: "tool_use", id: toolUseId, name: `mcp__${server}__${tool}`, input }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      });
+      const answer = /atlassian/i.test(server) ? answerAtlassianTool("claude-turn", server, tool, input) : { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: input }) }], isError: false };
+      emit({ type: "user", session_id: sessionId, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: answer.content, is_error: answer.isError === true }] } });
+    }
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: replyText }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "result", session_id: sessionId, is_error: false, result: replyText, modelUsage: { [model]: { contextWindow: 200000 } } });
     process.exit(0);
   } else if (outputFormat === "text") {
     // title/suggestion probe (titleGenerator.ts/suggestionGenerator.ts,

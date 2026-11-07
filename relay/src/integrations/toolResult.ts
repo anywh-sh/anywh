@@ -63,3 +63,22 @@ export function transportFailure(error: unknown): ToolCallOutcome {
   const unreachable = /Timeout|Exited/.test(name) || /timed out|exited|ECONNREFUSED|ENOENT/i.test(message);
   return { ok: false, kind: "transport", message: cut(message), ...(unreachable ? { unreachable } : {}) };
 }
+
+/** The value of a call the agent made, from the plain text its CLI reported
+ * (`tool_ended.content`): Codex hands over the whole `CallToolResult` as
+ * JSON, Claude the result's text, which a JSON-speaking server fills with
+ * the value itself. `undefined` for anything else. */
+export function observedToolValue(text: string): unknown {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const blocks = isRecord(parsed) ? parsed.content : undefined;
+  if (Array.isArray(blocks) && blocks.every((block) => isRecord(block) && typeof block.type === "string")) {
+    const outcome = readCallToolResult(parsed);
+    return outcome.ok ? outcome.value : undefined;
+  }
+  return parsed;
+}
