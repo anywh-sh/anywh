@@ -37,8 +37,8 @@ export function useProfileRooms(profileId: string): TicketRoomChoice[] {
 }
 
 /** What a session is doing, in the sidebar's own glyphs: the orange dot
- * while it waits for the person, the spinner while a turn runs, a quiet
- * square otherwise. */
+ * while it waits for the person, the spinner while a turn runs, nothing
+ * otherwise. */
 export function SessionActivityMark({ session }: { session: Pick<SessionSummary, "activity"> | undefined }) {
   const dict = useDict();
   if (session?.activity === "awaiting") {
@@ -47,7 +47,7 @@ export function SessionActivityMark({ session }: { session: Pick<SessionSummary,
   if (session?.activity === "running") {
     return <Loader2 role="img" aria-label={dict.shell.sidebar.agentWorking} data-activity="running" className="size-3 shrink-0 animate-spin text-foreground" />;
   }
-  return <span aria-hidden data-activity="idle" className="size-1.5 shrink-0 border border-text-faint" />;
+  return null;
 }
 
 /** The sessions on a ticket's list row: the first two by name (a room's

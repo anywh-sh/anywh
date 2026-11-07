@@ -105,8 +105,7 @@ export const SessionListItem = memo(function SessionListItem({
         >
           {session.titlePending === true ? <TitleSkeleton /> : session.title}
         </span>
-        {/* The ticket the session works on, as a quiet key: where the time
-         * would go, which it replaces (the key says more about the row). */}
+        {/* The ticket the session works on, as a quiet key after the title. */}
         {session.workTicket && (
           <span
             data-testid="session-work-ticket"
@@ -153,8 +152,7 @@ export const SessionListItem = memo(function SessionListItem({
           <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
         ) : (
           lastActive !== null &&
-          !bare &&
-          !session.workTicket && (
+          !bare && (
             <span
               title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
               className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
