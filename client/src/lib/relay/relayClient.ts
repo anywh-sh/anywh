@@ -26,7 +26,7 @@ import type {
   SessionSummary,
   SetCwdErrorCode,
 } from "@/lib/relay/relay-types";
-import type { McpStateMessage, TicketRef } from "@/lib/integrations/model";
+import type { TicketRef } from "@/lib/integrations/model";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
 import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
 import { authHeaders } from "@/lib/profiles/connectionResolver";
@@ -446,9 +446,6 @@ export interface RelayClientCallbacks {
    * changes, from any device. `failedJobs` carries jobs that finished with a
    * non-zero exit code, kept by the relay until dismissed. */
   onBackgroundJobState?: (jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
-  /** The session's agent's MCP servers that belong to a known integration
-   * (`mcp_state`) — current state, sent again on every connection. */
-  onMcpState?: (state: McpStateMessage) => void;
   /** Message edit — arrives only on the OTHER devices
    * connected to the session, syncing the cut point before the
    * edited turn starts streaming. Same handling as `onReconnecting` +
@@ -707,9 +704,6 @@ export class RelayClient {
         // that version skew from crashing every consumer downstream instead
         // of just showing no failed jobs.
         this.callbacks.onBackgroundJobState?.(parsed.jobs, parsed.failedJobs ?? []);
-      } else if (parsed.type === "mcp_state") {
-        // Defensive: a malformed list draws as no servers, never a crash.
-        this.callbacks.onMcpState?.({ ...parsed, servers: Array.isArray(parsed.servers) ? parsed.servers : [] });
       } else if (parsed.type === "history_truncated") {
         this.callbacks.onHistoryTruncated?.(parsed);
       } else if (parsed.type === "edit_message_error") {

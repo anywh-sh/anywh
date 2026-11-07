@@ -1,6 +1,6 @@
 import { useMemo, useReducer } from "react";
 import type { AgentEvent, HistoryMessage, HistoryPageMessage, PlanTodo, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/relay-types";
-import type { McpFailure, RoomCard, SubagentStatus } from "@/lib/relay/agent-event";
+import type { RoomCard, SubagentStatus } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 
 export type LogEntry =
@@ -53,9 +53,6 @@ export interface ToolCallEntry {
   /** Set on a plan/todo-list update, which is drawn as a checklist card
    * rather than as an activity row. */
   plan?: PlanTodo[];
-  /** Why an MCP server's call failed, when it was the server's doing (see
-   * `McpFailure`) — an `auth` one offers to connect. */
-  mcpFailure?: McpFailure;
 }
 
 interface StreamingTextBlock {
@@ -396,7 +393,6 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
         isError: event.isError,
         ...(event.outcome ? { outcome: event.outcome } : {}),
         ...(event.endedAt !== undefined ? { endedAt: event.endedAt } : {}),
-        ...(event.mcpFailure ? { mcpFailure: event.mcpFailure } : {}),
       };
       return { ...state, entries };
     }

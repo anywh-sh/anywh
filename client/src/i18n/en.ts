@@ -1308,11 +1308,6 @@ export const en: Dictionary = {
       retry: "Try again",
       unreachable: "The machine is not reachable right now.",
     },
-    chat: {
-      agentNotConnected: "{agent} is not connected to {name}",
-      notConnected: "Not connected to {name}",
-      connect: "Connect",
-    },
     panel: {
       noneConnected: "No agent of this profile is connected to {name}",
       needsAuthOne: "1 agent needs to connect to {name}",

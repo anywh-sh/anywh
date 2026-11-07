@@ -1818,12 +1818,6 @@ export interface Dictionary {
       retry: string;
       unreachable: string;
     };
-    /** The chat's ways into the connect card. `{agent}`, `{name}`. */
-    chat: {
-      agentNotConnected: string;
-      notConnected: string;
-      connect: string;
-    };
     /** The integration's pane while agents have to sign in. `{name}`,
      * `{count}`. */
     panel: {

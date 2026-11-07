@@ -40,8 +40,6 @@ import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
-import { McpConnectContext, McpNeedsAuthChip, useMcpConnectResolver } from "@/components/integrations/McpConnect";
-import { agentName } from "@/components/chat/AgentModelEffortButton";
 import { SessionWorkTicket } from "@/components/chat/WorkTicketChip";
 import type { TicketRef, TicketTag } from "@/lib/integrations/model";
 
@@ -473,7 +471,6 @@ export function ChatPanel({
     setDraft,
     setPresence,
     choicePrompt,
-    mcpState,
     answerChoice,
   } = useRelayClient(profile, sessionId, {
     onEvent: (event) => logRef.current.handleEvent(event),
@@ -671,10 +668,6 @@ export function ChatPanel({
   useEffect(() => {
     onBackgroundJobsChangeRef.current?.(backgroundJobs, failedBackgroundJobs);
   }, [backgroundJobs, failedBackgroundJobs]);
-
-  // A failed MCP call or the chip above the composer opens the connect card
-  // of the integration the server belongs to.
-  const mcpConnect = useMcpConnectResolver(profile.id, agentId, agentId ? agentName(dict.chat.composer.agentNames, agentId) : null, mcpState);
 
   // Only the latest call, and only as a string: the effect below then fires
   // once per tool call rather than once per log append, so a busy turn in a
@@ -956,7 +949,6 @@ export function ChatPanel({
   };
 
   return (
-    <McpConnectContext.Provider value={mcpConnect}>
     <div ref={containerRef} className={cn("relative flex h-full flex-col", showingIdle && !isIOS() && "justify-center")}>
       {showingIdle && !isIOS() && <div aria-hidden="true" className="idle-grid pointer-events-none absolute inset-0 -z-10" />}
       {protocolMismatch !== null && (
@@ -1067,8 +1059,6 @@ export function ChatPanel({
                 onAnswer={answerChoice}
               />
             )}
-
-            <McpNeedsAuthChip mcpState={mcpState} />
 
             {renderComposer ? (
               renderComposer({
@@ -1182,6 +1172,5 @@ export function ChatPanel({
           )
         : null}
     </div>
-    </McpConnectContext.Provider>
   );
 }

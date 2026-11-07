@@ -257,64 +257,6 @@ describe("connecting an integration", () => {
     expect(sentOfType("mcp_auth_complete")).toEqual([{ type: "mcp_auth_complete", flowId: "f1", callbackUrl: "anywh://mcp-oauth/callback?code=c&state=s1" }]);
   });
 
-  it("offers to connect from a failed call in the chat and above the composer", async () => {
-    start({ integrations: [jira([runtime({ status: "connected" })])] });
-    const user = userEvent.setup();
-    await openConversation(user);
-    expect(screen.queryByTestId("mcp-needs-auth")).toBeNull();
-
-    // The agent's call fails because its server wants a new sign-in.
-    act(() => {
-      relay.emit({ type: "agent_event", event: { type: "tool_started", toolUseId: "t1", name: "mcp__atlassian__searchJiraIssuesUsingJql", kind: "other", input: {}, subject: { kind: "mcp", server: "atlassian", tool: "searchJiraIssuesUsingJql" } } });
-      relay.emit({ type: "agent_event", event: { type: "tool_ended", toolUseId: "t1", content: "session expired", isError: true, mcpFailure: { server: "atlassian", reason: "auth" } } });
-      relay.emit({ type: "mcp_state", runtimeId: "claude", servers: [{ name: "atlassian", status: "needs_auth", integrationId: "jira", canLogin: true }] });
-    });
-    const sentence = en.integrations.chat.agentNotConnected.replace("{agent}", "Claude Code").replace("{name}", "Jira");
-    const notices = await screen.findAllByText(sentence);
-    expect(notices.length).toBe(2);
-
-    const chip = await screen.findByTestId("mcp-needs-auth");
-    await user.click(within(chip).getByRole("button", { name: en.integrations.chat.connect }));
-    const card = await screen.findByTestId("connect-card");
-    expect(within(card).getByText(copy.title.replace("{name}", "Jira"))).toBeInTheDocument();
-    await user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByTestId("connect-card")).toBeNull());
-
-    // The failed call's own notice opens the same card.
-    const inline = notices.find((element) => !chip.contains(element))!.closest("[data-mcp-connect]") as HTMLElement;
-    await user.click(within(inline).getByRole("button", { name: en.integrations.chat.connect }));
-    await screen.findByTestId("connect-card");
-
-    // Once connected, the chip goes away.
-    act(() => relay.emit({ type: "mcp_state", runtimeId: "claude", servers: [{ name: "atlassian", status: "connected", integrationId: "jira", canLogin: true }] }));
-    await waitFor(() => expect(screen.queryByTestId("mcp-needs-auth")).toBeNull());
-  });
-
-  it("offers no sign-in under a failed call whose server has none the relay can run", async () => {
-    start({ integrations: [jira([runtime({ status: "connected", authMode: "none" })])] });
-    const user = userEvent.setup();
-    await openConversation(user);
-    act(() => {
-      relay.emit({ type: "agent_event", event: { type: "tool_started", toolUseId: "t1", name: "mcp__atlassian__getJiraIssue", kind: "other", input: {}, subject: { kind: "mcp", server: "atlassian", tool: "getJiraIssue" } } });
-      relay.emit({ type: "agent_event", event: { type: "tool_ended", toolUseId: "t1", content: "unauthorized", isError: true, mcpFailure: { server: "atlassian", reason: "auth" } } });
-    });
-    await screen.findByText("unauthorized");
-    expect(document.querySelector("[data-mcp-connect]")).toBeNull();
-  });
-
-  it("says nothing above the composer while another of the agent's servers reads the same tracker", async () => {
-    start({ integrations: [jira([runtime({ serverName: "claude.ai Atlassian", status: "connected" })])] });
-    const user = userEvent.setup();
-    await openConversation(user);
-    const signedOut = { name: "claude.ai Atlassian MCP", status: "needs_auth" as const, integrationId: "jira", canLogin: true };
-    // Alone, the signed-out copy is a tracker the agent cannot read.
-    act(() => relay.emit({ type: "mcp_state", runtimeId: "claude", servers: [signedOut] }));
-    await screen.findByTestId("mcp-needs-auth");
-    // Next to a connected one, it is not.
-    act(() => relay.emit({ type: "mcp_state", runtimeId: "claude", servers: [{ name: "claude.ai Atlassian", status: "connected", integrationId: "jira", canLogin: true }, signedOut] }));
-    await waitFor(() => expect(screen.queryByTestId("mcp-needs-auth")).toBeNull());
-  });
-
   it("follows the sign-ins of an integration added from the +", async () => {
     start({ integrations: [] });
     const user = userEvent.setup();

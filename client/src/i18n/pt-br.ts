@@ -1308,11 +1308,6 @@ export const ptBr: Dictionary = {
       retry: "Tentar de novo",
       unreachable: "A máquina não está acessível agora.",
     },
-    chat: {
-      agentNotConnected: "O {agent} não está conectado ao {name}",
-      notConnected: "Sem conexão com o {name}",
-      connect: "Conectar",
-    },
     panel: {
       noneConnected: "Nenhum agente deste perfil está conectado ao {name}",
       needsAuthOne: "1 agente precisa conectar ao {name}",
