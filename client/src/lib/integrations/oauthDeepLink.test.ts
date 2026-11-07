@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IntegrationsClientMessage, McpAuthFlow } from "@/lib/integrations/model";
 import {
   CALLBACK_GRACE_MS,
+  DELIVERED_TTL_MS,
   __resetMcpOAuthForTests,
   getMcpOAuthNotice,
   isMcpOAuthLink,
@@ -63,6 +64,33 @@ describe("routeMcpOAuthCallback", () => {
 
     expect(home.sent).toEqual([{ type: "mcp_auth_complete", flowId: "h1", callbackUrl: CODEX_LINK }]);
     expect(work.sent).toEqual([]);
+  });
+
+  it("takes a repeat of a forwarded link quietly, even once its flow is announced again or ended", () => {
+    const home = recorder();
+    registerIntegrationsSender("home", home.send);
+    noteAuthFlow("home", flow({ flowId: "h1", runtimeId: "codex", state: "s-codex" }));
+    routeMcpOAuthCallback(CODEX_LINK);
+
+    // The relay reports the flow finishing (still not terminal), then done.
+    noteAuthFlow("home", flow({ flowId: "h1", runtimeId: "codex", phase: "completing", state: "s-codex" }));
+    routeMcpOAuthCallback(CODEX_LINK);
+    noteAuthFlow("home", flow({ flowId: "h1", runtimeId: "codex", phase: "done", state: "s-codex" }));
+    routeMcpOAuthCallback(CODEX_LINK);
+    vi.advanceTimersByTime(CALLBACK_GRACE_MS);
+    expect(home.sent).toHaveLength(1);
+    expect(getMcpOAuthNotice()).toBeNull();
+
+    // A retry with a new code for the same sign-in is no repeat.
+    noteAuthFlow("home", flow({ flowId: "h1", runtimeId: "codex", state: "s-codex" }));
+    routeMcpOAuthCallback("anywh://mcp-oauth/callback/7?code=c3&state=s-codex");
+    expect(home.sent).toHaveLength(2);
+
+    // Long after, the old link is just a link nobody waits for.
+    vi.advanceTimersByTime(DELIVERED_TTL_MS);
+    routeMcpOAuthCallback(CODEX_LINK);
+    vi.advanceTimersByTime(CALLBACK_GRACE_MS);
+    expect(getMcpOAuthNotice()?.kind).toBe("unknown");
   });
 
   it("leaves links that are not MCP sign-ins to other listeners", () => {

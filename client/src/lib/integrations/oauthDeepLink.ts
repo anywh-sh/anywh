@@ -90,9 +90,16 @@ interface HeldCallback {
 
 const TERMINAL_PHASES = new Set<McpAuthFlow["phase"]>(["done", "failed", "cancelled"]);
 
+/** How long a link already forwarded is recognized as a repeat: the cold
+ * launch and the running app can both report one, a little apart. */
+export const DELIVERED_TTL_MS = 60_000;
+
 const flowsByState = new Map<string, PendingFlow>();
 const senders = new Map<string, IntegrationsSender>();
 const held: HeldCallback[] = [];
+/** Links forwarded, by the whole link, with when they stop counting as
+ * repeats. The same `state` with another code (a retry) is not a repeat. */
+const delivered = new Map<string, number>();
 let notice: McpOAuthNotice | null = null;
 let noticeSeq = 0;
 const noticeListeners = new Set<() => void>();
@@ -111,6 +118,7 @@ function tryDeliver(callback: McpOAuthCallback): boolean {
   // One callback ends a flow: a second copy of the same link (the cold
   // launch and the running app can both report it) has nowhere to go.
   flowsByState.delete(callback.state);
+  delivered.set(callback.url, Date.now() + DELIVERED_TTL_MS);
   return true;
 }
 
@@ -135,6 +143,11 @@ export function routeMcpOAuthCallback(url: string): boolean {
     return true;
   }
   if (held.some((entry) => entry.callback.url === url)) return true;
+  // A repeat of a link already forwarded: neither sent again (the relay
+  // would refuse it) nor held into a false "nobody was waiting".
+  const now = Date.now();
+  for (const [link, until] of delivered) if (until <= now) delivered.delete(link);
+  if (delivered.has(url)) return true;
   if (tryDeliver(callback)) return true;
   const entry: HeldCallback = {
     callback,
@@ -206,5 +219,6 @@ export function __resetMcpOAuthForTests(): void {
   held.length = 0;
   flowsByState.clear();
   senders.clear();
+  delivered.clear();
   notice = null;
 }
