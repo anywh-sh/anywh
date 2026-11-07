@@ -813,7 +813,16 @@ describe("anywh room canvas", () => {
   it("completes a room whose agents are all done, keeps the work nobody integrated, and asks before discarding it", async () => {
     const repo = join(stack.dir, "repo");
     mkdirSync(repo, { recursive: true });
-    const git = (...args) => execFileSync("git", ["-c", "user.email=e2e@anywh.test", "-c", "user.name=e2e", ...args], { cwd: repo, stdio: "pipe" });
+    // A failed spawn throws an error that refers to itself, which the test
+    // runner cannot print: it is rethrown as one that says what failed.
+    const gitIn = (cwd, ...args) => {
+      try {
+        execFileSync("git", ["-c", "user.email=e2e@anywh.test", "-c", "user.name=e2e", ...args], { cwd, stdio: "pipe" });
+      } catch (error) {
+        throw new Error(`git ${args.join(" ")} in ${cwd} failed: ${error.message}${error.stderr?.length ? `\n${error.stderr}` : ""}`);
+      }
+    };
+    const git = (...args) => gitIn(repo, ...args);
     git("init", "-q", "-b", "main");
     git("commit", "-q", "--allow-empty", "-m", "init");
     const created = await fetch(`${stack.base}/rooms`, {
@@ -830,17 +839,19 @@ describe("anywh room canvas", () => {
         roomMarker("delegate", { task: `Spike the avatar crop\n${roomMarker("worktree_create", { repo })}${done("spike done")}`, runtime: "claude", model: "haiku" }),
       ].join(" "),
     );
-    // The spike's worktree gets a commit nobody integrates.
+    // The spike's worktree gets a commit nobody integrates. It is listed from
+    // the moment it is recorded, before git made its folder: wait for it to
+    // be created.
     let worktree;
     await browser.waitUntil(
       async () => {
         const { worktrees } = await (await fetch(`${stack.base}/rooms/${finished}/worktrees`)).json();
         worktree = worktrees[0];
-        return worktree !== undefined;
+        return worktree?.state === "created";
       },
       { timeout: 60000, timeoutMsg: "the spike never made a worktree" },
     );
-    execFileSync("git", ["-c", "user.email=e2e@anywh.test", "-c", "user.name=e2e", "commit", "-q", "--allow-empty", "-m", "crop"], { cwd: worktree.path, stdio: "pipe" });
+    gitIn(worktree.path, "commit", "-q", "--allow-empty", "-m", "crop");
     await openRoomTab(finished, "Polish the profile");
     await browser.waitUntil(async () => (await cards()).length === 3, { timeout: 60000 });
     const strip = await $(".sala-done");
