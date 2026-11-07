@@ -1535,11 +1535,6 @@ export class SharedSession implements SessionDriverHost {
    * left tying the next turn to the old folder (see the comment about the
    * lock in `runTurn`), so the session can pick another one again, just
    * like a new session. */
-  private ticketLineLost(): void {
-    this.ticketLineAt = undefined;
-    this.options.onTicketLineLost?.();
-  }
-
   clearConversation(): void {
     // A fresh conversation: nothing left that the model could be waiting for.
     this.discardAndNote();
@@ -1573,6 +1568,12 @@ export class SharedSession implements SessionDriverHost {
       this.clearSuggestion();
       this.broadcastConversationReset();
     });
+  }
+
+  /** The agent no longer holds its ticket line: the next message tells it again. */
+  private ticketLineLost(): void {
+    this.ticketLineAt = undefined;
+    this.options.onTicketLineLost?.();
   }
 
   /** `origin` is `undefined` only for a synthetic turn — `submitBackgroundJobResult`
