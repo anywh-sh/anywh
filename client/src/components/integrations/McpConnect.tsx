@@ -74,12 +74,14 @@ export function McpConnectNotice({ target, className }: { target: McpConnectTarg
 /**
  * Above the composer: the session's agent has a server of a known
  * integration that has to sign in, and the relay can run that sign-in. One
- * line per integration, quiet until the person acts on it.
+ * line per integration, quiet until the person acts on it — and silent for
+ * an integration the agent already reads through another of its servers
+ * (a second, signed-out copy of the same tracker is not a missing one).
  */
 export function McpNeedsAuthChip({ mcpState }: { mcpState: McpStateMessage | null }) {
   const resolve = useContext(McpConnectContext);
   if (!mcpState || !resolve) return null;
-  const seen = new Set<string>();
+  const seen = new Set(mcpState.servers.flatMap((server) => (server.status === "connected" && server.integrationId ? [server.integrationId] : [])));
   const targets: McpConnectTarget[] = [];
   for (const server of mcpState.servers) {
     if (server.status !== "needs_auth" || !server.canLogin || !server.integrationId || seen.has(server.integrationId)) continue;

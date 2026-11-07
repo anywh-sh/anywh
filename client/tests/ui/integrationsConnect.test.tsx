@@ -225,6 +225,19 @@ describe("connecting an integration", () => {
     await waitFor(() => expect(screen.queryByTestId("mcp-needs-auth")).toBeNull());
   });
 
+  it("says nothing above the composer while another of the agent's servers reads the same tracker", async () => {
+    start({ integrations: [jira([runtime({ serverName: "claude.ai Atlassian", status: "connected" })])] });
+    const user = userEvent.setup();
+    await openConversation(user);
+    const signedOut = { name: "claude.ai Atlassian MCP", status: "needs_auth" as const, integrationId: "jira", canLogin: true };
+    // Alone, the signed-out copy is a tracker the agent cannot read.
+    act(() => relay.emit({ type: "mcp_state", runtimeId: "claude", servers: [signedOut] }));
+    await screen.findByTestId("mcp-needs-auth");
+    // Next to a connected one, it is not.
+    act(() => relay.emit({ type: "mcp_state", runtimeId: "claude", servers: [{ name: "claude.ai Atlassian", status: "connected", integrationId: "jira", canLogin: true }, signedOut] }));
+    await waitFor(() => expect(screen.queryByTestId("mcp-needs-auth")).toBeNull());
+  });
+
   it("follows the sign-ins of an integration added from the +", async () => {
     start({ integrations: [] });
     const user = userEvent.setup();
