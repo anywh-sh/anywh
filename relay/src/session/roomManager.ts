@@ -914,8 +914,10 @@ export class RoomManager implements RoomToolHost {
     // every instruction to the same worker reads differently.
     const card: RoomCard | undefined = next.fromAgent ? { kind: "instruction", title: titleFromTask(next.text) } : undefined;
     // The task of an agent delegated with a ticket tells it which, once: on
-    // its first turn (again only if that one never started).
-    const line: TicketLine | undefined = room.ticket && room.startedAt === undefined ? { provider: room.ticket.provider, key: room.ticket.key, kind: "work" } : undefined;
+    // its first turn (again only if that one never started) — the ticket it
+    // works on then, none if the person took it off meanwhile.
+    const ticket = room.startedAt === undefined ? this.options.tickets?.workTicketOf(sessionId) : undefined;
+    const line: TicketLine | undefined = ticket ? { provider: ticket.provider, key: ticket.key, kind: "work" } : undefined;
     const hooks: TurnHooks = {
       onDelivered: () => {
         sending.delivered = true;
