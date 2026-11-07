@@ -20,6 +20,8 @@ const HARD_BREAK_ANCHOR_REGEX = new RegExp(HARD_BREAK_ANCHOR, "g");
 
 function serializeInline(node: JSONContent): string {
   if (node.type === "hardBreak") return "\n";
+  // A `#` ticket goes out as its key and nothing else.
+  if (node.type === "ticketChip") return typeof node.attrs?.key === "string" ? node.attrs.key : "";
   if (node.type !== "text") return "";
   const text = (node.text ?? "").replace(HARD_BREAK_ANCHOR_REGEX, "");
   const linkMark = node.marks?.find((mark) => mark.type === "link");
@@ -32,8 +34,8 @@ function serializeBlock(node: JSONContent): string {
   return node.content.map(serializeInline).join("");
 }
 
-/** Serializes the Tiptap doc (only paragraph(s) with text/hardBreak/link,
- * given the composer's restricted schema) into the plain text sent over the
+/** Serializes the Tiptap doc (only paragraph(s) with text/hardBreak/link and
+ * ticket chips, given the composer's restricted schema) into the plain text sent over the
  * wire. A link goes out as markdown, `[text](url)`, which the sent message's
  * bubble renders back into a link (`MarkdownContent`). */
 export function serializeEditorContent(doc: JSONContent): string {

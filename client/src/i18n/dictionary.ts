@@ -694,6 +694,15 @@ export interface Dictionary {
      */
     composer: {
       placeholder: string;
+      /** The `#` menu of the person's tickets. */
+      tickets: {
+        /** The menu's accessible name. */
+        label: string;
+        /** Beside what was typed after `#`: where the list comes from. */
+        yours: string;
+        /** The item a profile with no tracker to read gets; `{name}`. */
+        connect: string;
+      };
       /** The desktop field's prompt — the iOS native composer keeps `placeholder`. */
       placeholderTask: string;
       /** Shown instead of `placeholderTask` while a turn runs: a message sent now waits its turn. */

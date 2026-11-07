@@ -195,6 +195,7 @@ export const en: Dictionary = {
     },
     composer: {
       placeholder: "Write a message…",
+      tickets: { label: "Tickets", yours: "your tickets", connect: "Connect {name}" },
       placeholderTask: "Describe the task, @ for context, / for commands",
       placeholderQueue: "Write the next request, it joins the queue",
       attach: "Attach image or video",

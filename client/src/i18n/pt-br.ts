@@ -195,6 +195,7 @@ export const ptBr: Dictionary = {
     },
     composer: {
       placeholder: "Escreva uma mensagem…",
+      tickets: { label: "Tickets", yours: "seus tickets", connect: "Conectar {name}" },
       placeholderTask: "Descreva a tarefa, @ para contexto, / para comandos",
       placeholderQueue: "Escreva o próximo pedido, ele entra na fila",
       attach: "Anexar imagem ou vídeo",

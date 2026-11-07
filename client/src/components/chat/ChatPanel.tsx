@@ -1117,6 +1117,7 @@ export function ChatPanel({
               <Composer
                 ref={composerRef}
                 profile={profile}
+                sessionId={sessionId}
                 disabled={!connected}
                 turnInFlight={turnInFlight}
                 turnStartedAt={turnStartedAt}
