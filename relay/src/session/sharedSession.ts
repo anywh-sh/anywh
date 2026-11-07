@@ -3,12 +3,12 @@ import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, 
 import { compactToolInput } from "./approvalInput.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
-import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
+import type { AgentSessionDriver, ObservedMcpServer, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
-import type { AgentEvent, RoomCard } from "../protocol/agent-event.js";
+import type { AgentEvent, McpFailure, RoomCard } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
 import { withTicketLine, type TicketLine } from "../protocol/ticketLine.js";
-import type { TicketRef } from "../integrations/types.js";
+import type { McpStateMessage, TicketRef } from "../integrations/types.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
@@ -261,6 +261,19 @@ export interface SharedSessionOptions {
   onTurnStarted?: (startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
   /** The agent called a tool of the MCP server `server`. */
   onMcpServerUsed?: (server: string) => void;
+  /** The session's agent's MCP servers of a known integration, as its
+   * `mcp_state` says them (`agentId` the session's agent, `cwd` its
+   * folder); `undefined`: nothing to say. Read on every connection and on
+   * `refreshMcpState`. */
+  mcpState?: (agentId: string, cwd: string) => McpStateMessage | undefined;
+  /** What the agent's CLI said about some of its servers while it ran. */
+  onMcpServersObserved?: (agentId: string, servers: readonly ObservedMcpServer[], cwd: string) => void;
+  /** A call to an MCP server's tool failed, for `failure.reason`. */
+  onMcpFailure?: (agentId: string, failure: McpFailure, cwd: string) => void;
+  /** The name the profile knows an agent's MCP server by, for a name its
+   * CLI spells otherwise (Claude normalizes it inside a tool name);
+   * `undefined` when it knows none. */
+  mcpServerName?: (agentId: string, server: string) => string | undefined;
   /** A room agent's note for the model alone on its next turn (news of the
    * room's context), and what to run once that turn went through. */
   roomTurnNote?: () => { text: string; commit: () => void } | undefined;
@@ -547,6 +560,7 @@ export class SharedSession implements SessionDriverHost {
       host: this,
       ...(this.options.hostAgent ? { hostAgent: this.options.hostAgent } : {}),
       agentWorker: this.options.agentWorker,
+      onMcpServers: (servers) => this.options.onMcpServersObserved?.(this.def.identity.id, servers, this.cwd),
       claudeMcp:
         this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
           ? {
@@ -621,6 +635,7 @@ export class SharedSession implements SessionDriverHost {
     this.broadcastPermissionMode();
     this.broadcastModelState();
     this.broadcastEffortState();
+    this.refreshMcpState();
   }
 
   getPermissionMode(): PermissionMode {
@@ -1063,6 +1078,7 @@ export class SharedSession implements SessionDriverHost {
     this.sendSuggestion(socket);
     this.sendTurnState(socket);
     this.sendBackgroundJobs(socket);
+    this.sendMcpState(socket);
     this.choiceMachine.sendPendingTo(socket);
 
     const loading = this.ensureHistoryLoaded();
@@ -1185,7 +1201,7 @@ export class SharedSession implements SessionDriverHost {
     const filter = new BridgeToolFilter();
     // Anything broadcast while this was reading is already in `history` and
     // happened after what was read — the recovered part goes in front of it.
-    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event })));
+    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event: this.withMcpServerName(event) })));
   }
 
   /** `origin` is the socket that sent this message — used only to know who
@@ -1713,7 +1729,8 @@ export class SharedSession implements SessionDriverHost {
       const onDriverEvent = (rawEvent: AgentEvent): void => {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
-        const agentEvent = clock.stamp(rawEvent);
+        const agentEvent = this.withMcpServerName(clock.stamp(rawEvent));
+        if (agentEvent.type === "tool_ended" && agentEvent.mcpFailure) this.options.onMcpFailure?.(this.def.identity.id, agentEvent.mcpFailure, this.cwd);
         if (agentEvent.type === "tool_started" && agentEvent.toolUseId !== undefined && agentEvent.parentToolUseId !== undefined) {
           this.parentToolUse.set(agentEvent.toolUseId, agentEvent.parentToolUseId);
         }
@@ -1869,6 +1886,49 @@ export class SharedSession implements SessionDriverHost {
       const questions = parsePlanChoiceMarkers(planChoiceText);
       if (questions.length > 0) this.presentChoice(questions);
     }
+  }
+
+  /** The `mcp_state` this session's devices were last sent, as sent. */
+  private sentMcpState: string | undefined;
+
+  private mcpStateMessage(): McpStateMessage | undefined {
+    return this.options.mcpState?.(this.def.identity.id, this.cwd);
+  }
+
+  /** Sent on connecting only when there is a server to show: an agent with
+   * none of an integration's servers looks the same either way. */
+  private sendMcpState(target: WebSocket): void {
+    const message = this.mcpStateMessage();
+    if (!message || message.servers.length === 0) return;
+    const payload = JSON.stringify(message);
+    this.sentMcpState = payload;
+    target.send(payload);
+  }
+
+  /** The servers may have changed (a scan, a sign-in, a failed call): the
+   * session's devices get the new `mcp_state` if it differs from what they
+   * were sent. */
+  refreshMcpState(): void {
+    if (this.clients.size === 0) {
+      this.sentMcpState = undefined;
+      return;
+    }
+    const message = this.mcpStateMessage();
+    const payload = message ? JSON.stringify(message) : undefined;
+    if (payload === this.sentMcpState) return;
+    // Nothing shown and nothing to show.
+    if (this.sentMcpState === undefined && (!message || message.servers.length === 0)) return;
+    this.sentMcpState = payload;
+    if (!payload) return;
+    for (const client of this.clients) client.send(payload);
+  }
+
+  /** A failed MCP call names its server as the profile knows it, so the
+   * chat can find that server's integration. */
+  private withMcpServerName(event: AgentEvent): AgentEvent {
+    if (event.type !== "tool_ended" || !event.mcpFailure) return event;
+    const name = this.options.mcpServerName?.(this.def.identity.id, event.mcpFailure.server);
+    return name === undefined || name === event.mcpFailure.server ? event : { ...event, mcpFailure: { ...event.mcpFailure, server: name } };
   }
 
   private sendBackgroundJobs(target: WebSocket): void {

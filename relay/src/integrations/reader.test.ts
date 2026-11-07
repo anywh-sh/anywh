@@ -90,6 +90,9 @@ test("Codex is read first; a sign-in it lacks sends the read to Claude", async (
   assert.ok(fallback.ok);
   assert.equal(fallback.runtimeId, "claude");
   assert.deepEqual(badToken.calls.map((call) => call.runtimeId), ["codex", "claude"]);
+  // ...and names the server that wants a sign-in, for the inventory.
+  assert.deepEqual(fallback.needsAuth?.map((entry) => [entry.runtimeId, entry.name]), [["codex", "atlassian"]]);
+  assert.equal(first.needsAuth, undefined);
 
   // A plain error does not move to the other CLI.
   const broken = caller((server, tool) => (server.runtimeId === "codex" ? { ok: false, kind: "tool", message: "Issue does not exist" } : atlassian(server, tool)));

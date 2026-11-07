@@ -326,6 +326,16 @@ sessionManager.setWorkTickets({
     return due && { provider: due.provider, key: due.key, kind: "work" };
   },
 });
+// Each session's MCP servers of a known integration (its `mcp_state`), and
+// what its turns say back about them: a server a turn found signed out is
+// signed out for the whole profile.
+sessionManager.setMcpServers({
+  stateOf: (agentId, cwd) => integrations.sessionMcpState(agentId, cwd),
+  observed: (agentId, servers, cwd) => integrations.noteSessionMcp(agentId, servers, cwd),
+  failed: (agentId, failure, cwd) => integrations.noteMcpFailure(agentId, failure, cwd),
+  serverName: (agentId, server) => integrations.serverName(agentId, server),
+});
+integrations.subscribe(() => sessionManager.refreshMcpState());
 // Where each room agent that works on a ticket stands, on its link, so the
 // ticket's screen shows it without the room open: brought up to date with
 // the room's changes, coalesced per room.

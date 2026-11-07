@@ -43,16 +43,20 @@ export function createIntegrationReader(caller: McpToolCaller): IntegrationReade
       }
       let site = context.site;
       let last: Failure | undefined;
+      // Servers that turned out to want a sign-in, for the inventory.
+      const needsAuth: McpInventoryEntry[] = [];
+      const signedOut = () => (needsAuth.length > 0 ? { needsAuth } : {});
       for (const pick of candidates) {
         const result = await readJira(caller, pick.chosen, request, site);
-        if (result.ok) return result;
+        if (result.ok) return { ...result, ...signedOut() };
+        if (result.status === "needs_auth") needsAuth.push(pick.chosen);
         if (result.site) site = result.site;
         last = result;
         if (!result.tryNext) break;
       }
       const { tryNext: _tryNext, ...failure } = last as Failure;
       // A site found on the way is worth keeping even if the read failed.
-      return { ...failure, ...(site && site !== context.site && !failure.site ? { site } : {}) };
+      return { ...failure, ...(site && site !== context.site && !failure.site ? { site } : {}), ...signedOut() };
     },
     close() {
       caller.close();

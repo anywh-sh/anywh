@@ -130,6 +130,11 @@ export function parseCodexMcpServerStatusList(result: unknown): { servers: McpLi
   return nextCursor ? { servers, nextCursor } : { servers };
 }
 
+/** The app-server's push of one server's startup status (codex-cli
+ * 0.154.0): `{threadId, name, status: starting|ready|failed, error,
+ * failureReason}`. */
+export const CODEX_MCP_STARTUP_STATUS_METHOD = "mcpServer/startupStatus/updated";
+
 /** `mcpServer/startupStatus/updated` `{threadId, name, status, error,
  * failureReason}` as a status for that server, or `undefined`. The not
  * logged in case comes as a plain `failed` whose `error` says so. */

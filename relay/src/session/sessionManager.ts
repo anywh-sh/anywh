@@ -1,6 +1,7 @@
-import type { TicketRef, TicketTag } from "../integrations/types.js";
+import type { McpStateMessage, TicketRef, TicketTag } from "../integrations/types.js";
 import type { TicketLine } from "../protocol/ticketLine.js";
-import type { AgentEvent } from "../protocol/agent-event.js";
+import type { AgentEvent, McpFailure } from "../protocol/agent-event.js";
+import type { ObservedMcpServer } from "../runtimes/sessionDriver.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
@@ -100,6 +101,19 @@ export interface SessionWorkTickets {
   takeLine(sessionId: string, start: TicketRef | undefined, firstTurn: boolean): TicketLine | undefined;
 }
 
+/** What a relay with tracker integrations knows about its sessions' MCP
+ * servers: what each session's `mcp_state` says, and what the sessions'
+ * turns tell it back. `agentId` is the session's agent, `cwd` its folder. */
+export interface SessionMcpServers {
+  stateOf(agentId: string, cwd: string): McpStateMessage | undefined;
+  /** What the agent's CLI said about some of its servers. Must not throw. */
+  observed(agentId: string, servers: readonly ObservedMcpServer[], cwd: string): void;
+  /** A call to one of its servers' tools failed. Must not throw. */
+  failed(agentId: string, failure: McpFailure, cwd: string): void;
+  /** The profile's name for a server its CLI spelled `server`. */
+  serverName(agentId: string, server: string): string | undefined;
+}
+
 /** A notification-worthy moment in one session, as `server.ts` receives it. */
 export type SessionPushEvent = PushNotificationDraft & { sessionId: string; ts: number; watched: boolean };
 
@@ -127,6 +141,8 @@ export class SessionManager {
   /** Set once at boot, after construction (it needs the sessions to exist
    * first); read at call time. */
   private workTickets: SessionWorkTickets | undefined;
+  /** Set once at boot, like `workTickets`. */
+  private mcpServers: SessionMcpServers | undefined;
 
   constructor(
     private readonly homeOverride: string | undefined,
@@ -212,6 +228,17 @@ export class SessionManager {
       onFire: (sessionId, prompt) => this.handleWakeupFired(sessionId, prompt),
       persistPath: wakeupsFilePath,
     });
+  }
+
+  /** Wires the sessions' MCP servers in (see `SessionMcpServers`). */
+  setMcpServers(mcpServers: SessionMcpServers): void {
+    this.mcpServers = mcpServers;
+  }
+
+  /** The servers may have changed: every live session with a device
+   * connected re-sends its `mcp_state` if it differs. */
+  refreshMcpState(): void {
+    for (const session of this.sessions.values()) session.refreshMcpState();
   }
 
   /** Wires each session's work ticket in (see `SessionWorkTickets`). */
@@ -606,6 +633,10 @@ export class SessionManager {
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
       onActivityStateChange: () => this.announceActivity(id),
       workTicketLine: (start, firstTurn) => this.workTickets?.takeLine(id, start, firstTurn),
+      mcpState: (agentId, sessionCwd) => this.mcpServers?.stateOf(agentId, sessionCwd),
+      onMcpServersObserved: (agentId, servers, sessionCwd) => this.mcpServers?.observed(agentId, servers, sessionCwd),
+      onMcpFailure: (agentId, failure, sessionCwd) => this.mcpServers?.failed(agentId, failure, sessionCwd),
+      mcpServerName: (agentId, server) => this.mcpServers?.serverName(agentId, server),
       initialPendingChoice: this.sessionStore.getPendingChoice(id),
       onPendingChoiceChange: (choice) => this.sessionStore.setPendingChoice(id, choice),
       initialPendingApproval: this.sessionStore.getPendingApproval(id),

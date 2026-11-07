@@ -1,4 +1,6 @@
-import type { AgentEvent, ToolInput } from "../../protocol/agent-event.js";
+import type { AgentEvent, McpFailure, ToolInput } from "../../protocol/agent-event.js";
+import { CODEX_MCP_FAILURE_CLASSIFIER } from "../defs/codexMcpFailure.js";
+import { classifyMcpFailure } from "../mcpFailure.js";
 import {
   commandOutcome,
   commandSubject,
@@ -327,13 +329,18 @@ function mapItemCompleted(params: ItemLifecycleParams): AgentEvent[] {
     case "mcpToolCall": {
       const mcpItem = item as McpToolCallItem;
       const content = JSON.stringify(mcpItem.error ?? mcpItem.result ?? null);
+      // A server's own error result fails the call too, whatever the item's
+      // status says.
+      const isError = mcpItem.status !== "completed" || resultIsError(mcpItem.result);
+      const mcpFailure = isError ? codexMcpFailure(mcpItem) : undefined;
       return [
         {
           type: "tool_ended",
           toolUseId: mcpItem.id,
           content,
-          isError: mcpItem.status !== "completed",
+          isError,
           outcome: { kind: "payload", request: JSON.stringify(mcpItem.arguments ?? {}, null, 2), response: content },
+          ...(mcpFailure ? { mcpFailure } : {}),
           ...endedAt,
         },
       ];
@@ -370,6 +377,24 @@ function mapItemCompleted(params: ItemLifecycleParams): AgentEvent[] {
       logUnrecognizedOnce(`item:${item.type}`);
       return [];
   }
+}
+
+function resultIsError(result: unknown): boolean {
+  return result !== null && typeof result === "object" && (result as { isError?: unknown }).isError === true;
+}
+
+/** Why a failed `mcpToolCall` failed (`CODEX_MCP_FAILURE_CLASSIFIER`): the
+ * item's error message, else the text and `_meta` of the server's own error
+ * result. The relay's own servers (`anywh-*`) are left out. */
+function codexMcpFailure(item: McpToolCallItem): McpFailure | undefined {
+  if (typeof item.server !== "string" || item.server.startsWith("anywh-")) return undefined;
+  const error = item.error !== null && typeof item.error === "object" ? (item.error as { message?: unknown }) : undefined;
+  const result = item.result !== null && typeof item.result === "object" ? (item.result as { content?: unknown; _meta?: unknown }) : undefined;
+  const resultText = Array.isArray(result?.content)
+    ? result.content.map((part: unknown) => (part !== null && typeof part === "object" && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")).join("\n")
+    : "";
+  const text = typeof error?.message === "string" ? error.message : resultText;
+  return { server: item.server, reason: classifyMcpFailure(CODEX_MCP_FAILURE_CLASSIFIER, { text, meta: result?._meta }) };
 }
 
 function toolInputFrom(value: unknown): ToolInput {

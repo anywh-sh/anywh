@@ -181,6 +181,27 @@ test("user: tool_result with is_error true is reported as an error result", () =
   assert.deepEqual(mapClaudeEvent(event), [{ type: "tool_ended", toolUseId: "t1", content: "boom", isError: true }]);
 });
 
+test("user: a failed MCP tool call says why its server failed it, by the call it answers", () => {
+  const memos = new Map();
+  mapClaudeEvent({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "mcp__claude_ai_Atlassian__getJiraIssue", input: { issueIdOrKey: "NGL-1" } }] } }, memos);
+  const result = (content: string, isError: boolean): ClaudeEvent => ({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content, is_error: isError }] } });
+  const [expired] = mapClaudeEvent(result('MCP server "claude.ai Atlassian" session expired', true), memos);
+  assert.deepEqual(expired?.type === "tool_ended" && expired.mcpFailure, { server: "claude_ai_Atlassian", reason: "auth" });
+  const [closed] = mapClaudeEvent(result("Connection closed", true), memos);
+  assert.deepEqual(closed?.type === "tool_ended" && closed.mcpFailure, { server: "claude_ai_Atlassian", reason: "crashed" });
+  const [ok] = mapClaudeEvent(result("{}", false), memos);
+  assert.equal(ok?.type === "tool_ended" && ok.mcpFailure, undefined);
+});
+
+test("user: a failed call of a tool that is no MCP server's, or the relay's own, carries no failure", () => {
+  const memos = new Map();
+  mapClaudeEvent({ type: "assistant", message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "false" } }, { type: "tool_use", id: "r1", name: "mcp__anywh-room__delegate", input: {} }] } }, memos);
+  for (const id of ["b1", "r1"]) {
+    const [ended] = mapClaudeEvent({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: "session expired", is_error: true }] } }, memos);
+    assert.equal(ended?.type === "tool_ended" && ended.mcpFailure, undefined, id);
+  }
+});
+
 test("user: tool_result's diff comes from the event's tool_use_result, not the block itself", () => {
   const patch = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }];
   const event: ClaudeEvent = {

@@ -49,6 +49,12 @@ class TestInventory implements IntegrationInventory {
     this.scans += 1;
     return Promise.resolve([]);
   }
+  noteInBand(runtimeId: string, servers: readonly { name: string; status: McpInventoryEntry["status"] }[]) {
+    this.set(this.list.map((entry) => ({ ...entry, ...(entry.runtimeId === runtimeId ? { status: servers.find((server) => server.name === entry.name && server.status !== "pending")?.status ?? entry.status } : {}) })));
+  }
+  setStatus(runtimeId: string, name: string, status: McpInventoryEntry["status"], cwd?: string) {
+    this.set(this.list.map((entry) => (entry.runtimeId === runtimeId && entry.name === name && entry.cwd === cwd ? { ...entry, status } : entry)));
+  }
   start() {
     this.started += 1;
   }
@@ -370,4 +376,50 @@ test("observeTickets caches a ticket screen read by the agent and refreshes only
   const done = h.query("ticket", "NGL-1");
   assert.equal(done?.query === "ticket" ? done.detail?.statusCategory : undefined, "done");
   assert.ok(h.store.saved?.integrations.jira.queries.some((query) => query.query === "ticket" && query.param === "NGL-1" && query.source === "turn"));
+});
+
+// --- the sessions' servers ---------------------------------------------------
+
+test("a session's mcp_state lists only the servers recognized as an integration's, signed-in state first", () => {
+  const h = harness();
+  const state = h.service.sessionMcpState("claude", "/work/repo");
+  assert.equal(state?.type, "mcp_state");
+  assert.equal(state?.runtimeId, "claude");
+  const names = state?.servers.map((server) => server.name) ?? [];
+  assert.ok(names.includes("claude.ai Atlassian") && names.includes("claude.ai Atlassian MCP"));
+  assert.ok(!names.includes("claude.ai Notion") && !names.includes("sentry"), "servers of no integration stay out");
+  assert.deepEqual(
+    state?.servers.find((server) => server.name === "claude.ai Atlassian MCP"),
+    { name: "claude.ai Atlassian MCP", status: "needs_auth", integrationId: "jira", canLogin: true },
+  );
+  assert.equal(h.service.sessionMcpState("gemini", "/work/repo"), undefined, "an agent the integrations do not cover");
+});
+
+test("a failed call for want of a sign-in signs the server out, by the name its CLI spelled", () => {
+  const h = harness();
+  h.service.noteMcpFailure("claude", { server: "claude_ai_Atlassian", reason: "crashed" }, "/work");
+  assert.equal(h.jira().runtimes[0]?.status, "connected", "only a sign-in failure counts");
+  h.service.noteMcpFailure("claude", { server: "claude_ai_Atlassian", reason: "auth" }, "/work");
+  assert.equal(h.inventory.entries().find((entry) => entry.name === "claude.ai Atlassian")?.status, "needs_auth");
+  assert.equal(h.service.sessionMcpState("claude", "/work")?.servers.find((server) => server.name === "claude.ai Atlassian")?.status, "needs_auth");
+  assert.equal(h.service.serverName("claude", "claude_ai_Atlassian"), "claude.ai Atlassian");
+  assert.equal(h.service.serverName("claude", "nobody"), undefined);
+});
+
+test("a turn's word on its servers applies to the servers the inventory knows, and never makes it scan", () => {
+  const h = harness();
+  h.service.noteSessionMcp("claude", [{ name: "claude.ai Atlassian", status: "needs_auth" }, { name: "brand new", status: "needs_auth" }], "/work");
+  assert.equal(h.inventory.entries().find((entry) => entry.name === "claude.ai Atlassian")?.status, "needs_auth");
+  assert.equal(h.inventory.scans, 0);
+});
+
+test("a read that finds a server wants a sign-in signs it out in the inventory", async () => {
+  const h = harness();
+  const read = h.service.refresh({ id: "jira", query: "mine", param: null, force: false });
+  const chosen = h.inventory.entries().find((entry) => entry.name === "claude.ai Atlassian");
+  assert.ok(chosen);
+  h.answer({ ok: false, status: "needs_auth", error: { kind: "tool", message: "the server needs a sign-in" }, needsAuth: [chosen] } as IntegrationReadResult);
+  await read;
+  assert.equal(h.jira().runtimes[0]?.status, "needs_auth");
+  assert.equal(h.query("mine", null)?.status, "needs_auth");
 });

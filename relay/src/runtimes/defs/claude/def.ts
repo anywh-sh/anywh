@@ -16,6 +16,7 @@ import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
 import { claudeJsonMcpSlice, normalizeMcpServerName, parseClaudeMcpStatus } from "../../../integrations/inventory/claude.js";
 import { mcpToolName } from "./roomSpec.js";
+import { CLAUDE_MCP_FAILURE_CLASSIFIER } from "./mcpFailure.js";
 import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
@@ -288,6 +289,8 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
         isolatedArgs: (configPath) => ["--strict-mcp-config", "--mcp-config", configPath],
         isolatedConfig: (server, config) => ({ mcpServers: { [server]: config } }),
       },
+      // Why a call failed, from the `tool_result` text (see mcpFailure.ts).
+      failureClassifier: CLAUDE_MCP_FAILURE_CLASSIFIER,
       // `--no-browser`: "Print the authorization URL instead of opening a
       // browser (for SSH/headless sessions — paste the redirect URL back
       // when prompted)". That flag is what makes a remote instance's login

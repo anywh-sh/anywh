@@ -7,8 +7,19 @@
 // before one existed to check it against.
 import type { AgentEvent, TurnContext, TurnHost } from "./types.js";
 import type { ContextUsage } from "../session/sessionStore.js";
+import type { McpServerStatus } from "../integrations/types.js";
 import type { ChoiceHost } from "../bridges/mcpBridge.js";
 import type { PermissionCheckHost } from "../bridges/permissionBridge.js";
+
+/** What the agent's CLI said, on its own, about some of its MCP servers
+ * while it ran (Claude's `system`/`init`, Codex's startup status push).
+ * Only verdicts it can be trusted on are passed. */
+export interface ObservedMcpServer {
+  readonly name: string;
+  readonly status: McpServerStatus;
+}
+
+export type McpServersObserver = (servers: readonly ObservedMcpServer[]) => void;
 
 export interface TurnHooks {
   /** The message reached the agent (for an agent in the agent host: the

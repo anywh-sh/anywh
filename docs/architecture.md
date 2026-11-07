@@ -128,7 +128,14 @@ relay/src/
                            room the principal never has one: a ticket sent
                            to it is carried (`RoomMembership.carriedTickets`)
                            and handed on with `delegate`'s `ticket`, which
-                           links the agent it starts
+                           links the agent it starts. Each session's chat is
+                           sent `mcp_state` (its agent's servers of a known
+                           integration, from the inventory) and a failed MCP
+                           call's `tool_ended.mcpFailure` (the def's
+                           `mcp.failureClassifier`); what a turn says about
+                           a server (Claude's `init`, Codex's startup push)
+                           and a call refused for want of a sign-in go back
+                           into the inventory
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

@@ -16,6 +16,7 @@ export {
 export { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
 export { forkTruncatedTranscript } from "./transcriptFork.js";
 export { claudeRuntimeDef } from "./def.js";
+export { CLAUDE_MCP_FAILURE_CLASSIFIER } from "./mcpFailure.js";
 export {
   APPROVE_OPTION_ID,
   DENY_OPTION_ID,
@@ -28,7 +29,7 @@ export {
   isApprovedAt,
 } from "./mcpSpawnConfig.js";
 export { grantRuleFor, grantsAllow, planDeferredGrants, resolveGrant, type GrantOutcome } from "./grantRules.js";
-export { ClaudeSessionDriver, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
+export { ClaudeSessionDriver, reportInitMcpServers, type ClaudeMcpWiring, type ClaudeSessionDriverOptions } from "./driver.js";
 export { buildPersistentArgs, encodeInterrupt, encodeStopTask, encodeUserMessage, persistentEnvOverrides, type PersistentClaudeSpec } from "./persistent.js";
 export { writePersistentMcpConfig, type AgentWorkerMcpFile } from "./agentWorker.js";
 export { buildClaudeHostSpec, mcpToolName, type ClaudeHostSpec } from "./roomSpec.js";

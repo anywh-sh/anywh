@@ -47,6 +47,7 @@ import { resolve } from "node:path";
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 import { parseCodexMcpList, parseCodexMcpServerStatusList } from "../../integrations/inventory/codex.js";
+import { CODEX_MCP_FAILURE_CLASSIFIER } from "./codexMcpFailure.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
  * against generated bindings (`v2/AskForApproval.ts`). The `granular` object
@@ -738,6 +739,9 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
         method: "mcpServer/tool/call",
         params: (threadId, server, tool, args) => ({ threadId, server, tool, arguments: args }),
       },
+      // Why a call failed, from the item's error or the server's result
+      // (see codexMcpFailure.ts).
+      failureClassifier: CODEX_MCP_FAILURE_CLASSIFIER,
       // Writing this file directly, then logging in, is the only automatable
       // order: `codex mcp add --url …` kicks off the OAuth flow itself and
       // blocks waiting for the callback, so any provisioning that shells out

@@ -38,7 +38,10 @@ import {
   type IntegrationsServerMessage,
   type McpInventoryEntry,
   type McpRuntimeId,
+  type McpServerStatus,
+  type McpStateMessage,
   type QueryState,
+  type SessionMcpServer,
   type TicketDetail,
   type TicketRow,
 } from "./types.js";
@@ -100,9 +103,13 @@ export type IntegrationReadResult =
     }
   | { readonly ok: false; readonly status: "needs_auth" | "error"; readonly error: IntegrationQueryError; readonly site?: IntegrationSite };
 
+/** Servers a read found wanting a sign-in on the way, whatever its result
+ * (another CLI may have answered): the inventory is told. */
+export type IntegrationReadOutcome = IntegrationReadResult & { readonly needsAuth?: readonly McpInventoryEntry[] };
+
 export interface IntegrationReader {
   /** Never rejects: a failure is a result. */
-  read(request: IntegrationReadRequest, context: IntegrationReadContext): Promise<IntegrationReadResult>;
+  read(request: IntegrationReadRequest, context: IntegrationReadContext): Promise<IntegrationReadOutcome>;
   close?(): void;
 }
 
@@ -111,6 +118,10 @@ export interface IntegrationInventory {
   entries(): McpInventoryEntry[];
   subscribe(listener: (entries: McpInventoryEntry[]) => void): () => void;
   scan(options?: { runtimeId?: McpRuntimeId }): Promise<unknown>;
+  /** See `McpInventory.noteInBand`. */
+  noteInBand(runtimeId: McpRuntimeId, servers: readonly { name: string; status: McpServerStatus }[], cwd?: string): void;
+  /** See `McpInventory.setStatus`. */
+  setStatus(runtimeId: McpRuntimeId, name: string, status: McpServerStatus, cwd?: string): void;
   start(): void;
   close(): void;
 }
@@ -337,6 +348,63 @@ export class IntegrationService {
     return undefined;
   }
 
+  // --- the sessions' servers ------------------------------------------------
+
+  /** The servers of a known integration a session of `runtimeId` in `cwd`
+   * has, as its chat shows them (`mcp_state`); `undefined` for an agent CLI
+   * the integrations do not cover. A server is listed only when recognized
+   * for what it is — the dozens of other servers a profile may have stay
+   * out of the chat. */
+  sessionMcpState(runtimeId: string, cwd: string): McpStateMessage | undefined {
+    if (!isMcpRuntime(runtimeId)) return undefined;
+    const servers: SessionMcpServer[] = [];
+    for (const entry of this.entries) {
+      if (entry.runtimeId !== runtimeId || (entry.cwd !== undefined && entry.cwd !== cwd)) continue;
+      const integration = [...this.integrations.values()].find(({ definition }) => {
+        const tier = definition.recognizer.recognize(entry);
+        return tier !== undefined && tier !== "name";
+      });
+      if (!integration) continue;
+      servers.push({
+        name: entry.name,
+        // Stricter than the CLI where the recognizer knows better (a server
+        // that answers without its tools is not signed in).
+        status: entry.status === "pending" ? "pending" : integration.definition.recognizer.status(entry),
+        integrationId: integration.definition.id,
+        canLogin: entry.authMode !== "none",
+      });
+    }
+    return { type: "mcp_state", runtimeId, servers };
+  }
+
+  /** What a session's agent said about its servers while it ran. Only
+   * servers the inventory already has are applied: a turn never makes it
+   * start a scan (its control process boots every server of the profile). */
+  noteSessionMcp(runtimeId: string, servers: readonly { name: string; status: McpServerStatus }[], cwd: string): void {
+    if (!isMcpRuntime(runtimeId) || this.closed) return;
+    const known = servers.filter((server) => this.entries.some((entry) => entry.runtimeId === runtimeId && entry.name === server.name));
+    if (known.length > 0) this.deps.inventory.noteInBand(runtimeId, known, cwd);
+  }
+
+  /** A call of a session's agent to one of its servers' tools failed. For
+   * want of a sign-in, the server needs one from now on — the CLI itself
+   * may still call it connected (Claude, after a 401 mid-session). */
+  noteMcpFailure(runtimeId: string, failure: { server: string; reason: string }, cwd: string): void {
+    if (failure.reason !== "auth" || !isMcpRuntime(runtimeId) || this.closed) return;
+    const entry = this.entryNamed(runtimeId, failure.server, cwd);
+    if (entry && entry.status !== "needs_auth") this.deps.inventory.setStatus(runtimeId, entry.name, "needs_auth", entry.cwd);
+  }
+
+  /** The inventory's name for a server an agent's CLI spelled `server`. */
+  serverName(runtimeId: string, server: string): string | undefined {
+    return this.entryNamed(runtimeId, server, undefined)?.name;
+  }
+
+  private entryNamed(runtimeId: string, server: string, cwd: string | undefined): McpInventoryEntry | undefined {
+    const candidates = this.entries.filter((entry) => entry.runtimeId === runtimeId && (entry.name === server || normalizeMcpServerName(entry.name) === server));
+    return candidates.find((entry) => entry.name === server && (entry.cwd === undefined || entry.cwd === cwd)) ?? candidates.find((entry) => entry.cwd === undefined || entry.cwd === cwd) ?? candidates[0];
+  }
+
   /** What an agent's own successful call showed: a ticket screen it read
    * (cached as such) and rows refreshed where they are already cached — a
    * row is never added to a list here, and one that is done leaves it. */
@@ -438,11 +506,15 @@ export class IntegrationService {
     const context: IntegrationReadContext = { picks: this.picks(integration), ...(integration.site ? { site: integration.site } : {}) };
     const run = reader
       .read(request, context)
-      .catch((error: unknown): IntegrationReadResult => ({ ok: false, status: "error", error: { kind: "tool", message: (error as Error).message } }))
+      .catch((error: unknown): IntegrationReadOutcome => ({ ok: false, status: "error", error: { kind: "tool", message: (error as Error).message } }))
       .then((result) => {
         slot.inFlight = undefined;
         slot.readingSince = undefined;
         if (this.closed) return;
+        // Before the snapshot below, so it already shows them signed out.
+        for (const entry of result.needsAuth ?? []) {
+          if (entry.status !== "needs_auth") this.deps.inventory.setStatus(entry.runtimeId, entry.name, "needs_auth", entry.cwd);
+        }
         this.ingest(integration, slot, result, { startedAt, source, append: pageToken !== undefined });
         this.persist();
         this.notify();
@@ -547,6 +619,8 @@ export class IntegrationService {
   }
 }
 
+const isMcpRuntime = (runtimeId: string): runtimeId is McpRuntimeId => runtimeId === "claude" || runtimeId === "codex";
+
 function rowOfDetail(detail: TicketDetail): TicketRow {
   const { descriptionMd: _description, comments: _comments, ...row } = detail;
   return row;
@@ -616,6 +690,8 @@ export function createIntegrationService(options: CreateIntegrationServiceOption
       entries: () => inventory.entries(),
       subscribe: (listener) => inventory.subscribe(listener),
       scan: (scan) => inventory.scan(scan),
+      noteInBand: (runtimeId, servers, cwd) => inventory.noteInBand(runtimeId, servers, cwd),
+      setStatus: (runtimeId, name, status, cwd) => inventory.setStatus(runtimeId, name, status, cwd),
       start: () => inventory.start(),
       close: () => {
         inventory.close();

@@ -152,6 +152,11 @@
 //                        reply to the session's transcript under
 //                        $HOME/.claude/projects, where the real CLI keeps
 //                        it, so a relay restarted on it replays the session.
+//   FAKE_CLAUDE_INIT_MCP_SERVERS_FILE - a JSON file holding an array put as
+//                        `mcp_servers` on a stream-json turn's `system`/
+//                        `init` (2.1.303 shape: `[{name, status}]`, written
+//                        before the servers settle — `needs-auth` comes from
+//                        the CLI's own cache), read at each turn.
 // A turn's own prompt can script it too: `[[mcp:<server>:<tool>:<args>]]`
 // makes the agent call an MCP tool, and `[[wakeup:<seconds>]]` makes it
 // call ScheduleWakeup (see those branches below).
@@ -580,7 +585,9 @@ if (args[0] === "--version") {
   // `system`/`init` line — matching what `runQuickPrompt`'s `extractReply`
   // actually gets from the real CLI (it just trims raw stdout).
   if (outputFormat !== "text") {
-    emit({ type: "system", subtype: "init", session_id: sessionId, model });
+    const initFile = process.env.FAKE_CLAUDE_INIT_MCP_SERVERS_FILE;
+    const initMcpServers = initFile && outputFormat === "stream-json" && existsSync(initFile) ? { mcp_servers: JSON.parse(readFileSync(initFile, "utf8")) } : {};
+    emit({ type: "system", subtype: "init", session_id: sessionId, model, ...initMcpServers });
   }
 
   if (process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE && outputFormat === "stream-json") {
@@ -911,7 +918,13 @@ if (args[0] === "--version") {
         message: { content: [{ type: "tool_use", id: toolUseId, name: `mcp__${server}__${tool}`, input }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
       });
       const answer = /atlassian/i.test(server) ? answerAtlassianTool("claude-turn", server, tool, input) : { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: input }) }], isError: false };
-      emit({ type: "user", session_id: sessionId, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: answer.content, is_error: answer.isError === true }] } });
+      // A 401 on the call (the token expired during the session) is not
+      // passed on as the server's result: the CLI writes its own error, as
+      // observed on 2.1.303 (with the server's real name, which the tool
+      // name only spells normalized).
+      const expired = answer._meta?.["mcp/www_authenticate"] !== undefined;
+      const content = expired ? `MCP server "${server}" session expired` : answer.content;
+      emit({ type: "user", session_id: sessionId, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content, is_error: expired || answer.isError === true }] } });
     }
     emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: replyText }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
     emit({ type: "result", session_id: sessionId, is_error: false, result: replyText, modelUsage: { [model]: { contextWindow: 200000 } } });

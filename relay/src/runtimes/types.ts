@@ -318,7 +318,7 @@ export interface TurnHost {
 // union's shape, not the event vocabulary. `protocol/agent-event.ts` (Phase
 // 7) is that real vocabulary now, so `StreamMapper` is defined against it
 // directly instead of carrying its own stand-in.
-import type { AgentEvent } from "../protocol/agent-event.js";
+import type { AgentEvent, McpFailureReason } from "../protocol/agent-event.js";
 import type { McpAuthMode, McpInventoryEntry, McpServerStatus, McpToolInfo } from "../integrations/types.js";
 export type { AgentEvent };
 
@@ -761,6 +761,19 @@ export type McpToolCallContract =
       readonly params: (threadId: string, server: string, tool: string, args: Record<string, unknown>) => unknown;
     };
 
+/** How this CLI words the failure of a call to one of its MCP servers'
+ * tools, so the relay can say why it failed (`AgentEvent`'s `mcpFailure`):
+ * the first rule whose pattern matches the error text wins, and a result
+ * carrying one of `authMetaKeys` in its `_meta` is an `auth` failure
+ * whatever its text. Text no rule matches is `server_error`, which offers
+ * nothing: missing a sign-in is acceptable, offering one for a crash is
+ * not. The strings are no contract — recorded against `recordedWith`. */
+export interface McpFailureClassifier {
+  readonly recordedWith: string;
+  readonly rules: readonly { readonly reason: McpFailureReason; readonly pattern: RegExp }[];
+  readonly authMetaKeys?: readonly string[];
+}
+
 export type McpContract =
   | { readonly kind: "none" }
   | {
@@ -770,6 +783,8 @@ export type McpContract =
       readonly inventory?: McpInventoryContract;
       /** Absent: the relay cannot call this CLI's MCP tools itself. */
       readonly toolCall?: McpToolCallContract;
+      /** Absent: a failed MCP call carries no reason. */
+      readonly failureClassifier?: McpFailureClassifier;
       /** Argv for this CLI's own login subcommand, per server. A pure
        * function returning args — nothing here runs it. */
       readonly loginArgs: (serverName: string) => readonly string[];

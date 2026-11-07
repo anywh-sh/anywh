@@ -53,7 +53,12 @@
 // from fake-atlassian.mjs, a server the status file says has no login with
 // the observed JSON-RPC error, and echoes any other call's server, tool and
 // arguments as the text of a successful `CallToolResult`;
-// `config/mcpServer/reload` answers `{}`.
+// `config/mcpServer/reload` answers `{}`. A turn's `[[mcp:<server>:<tool>:
+// <base64url JSON args>]]` makes the agent call that tool the same way, as an
+// `mcpToolCall` item (repeatable, in order). FAKE_CODEX_STARTUP_STATUS=1
+// pushes `mcpServer/startupStatus/updated` for each server of the status
+// file on `thread/start` (and on `config/mcpServer/reload`): `ready`, or
+// `failed` with the observed "not logged in" error for one without a login.
 // FAKE_CODEX_THREADS_DIR, if set, keeps each thread's completed turns there
 // (one JSON file per thread, the `thread/turns/list` item shapes of 0.154.0)
 // and answers `thread/turns/list` from it, so a relay restarted onto a new
@@ -156,6 +161,47 @@ function storeTurn(threadId, turnId, input, reply) {
   writeFileSync(threadFile(threadId), JSON.stringify(stored));
 }
 
+/** What `mcpServer/tool/call` answers for one tool: `{result}` or `{error}`. */
+function answerMcpCall(via, server, tool, args) {
+  const declared = readJson(process.env.FAKE_CODEX_MCP_LIST_FILE, []).find((entry) => entry.name === server);
+  const live = readJson(process.env.FAKE_CODEX_MCP_STATUS_FILE, { data: [] }).data.find((entry) => entry.name === server);
+  if (live && (live.authStatus === "notLoggedIn" || live.runtimeStatus === "authenticationRequired")) {
+    // Observed against the official server with no login.
+    return { error: { code: -32603, message: "failed to get client: MCP startup failed: handshaking with MCP server failed: Auth required, when send initialize request" } };
+  }
+  if (isAtlassianServer(declared) || isAtlassianServer(live)) return { result: answerAtlassianTool(via, server, tool, args) };
+  return { result: { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: args ?? null }) }], isError: false } };
+}
+
+/** The agent calling MCP tools in a turn: an `mcpToolCall` item per call. A
+ * JSON-RPC error fails the item with its message; a result, even an error
+ * one, completes it (the item shape of 0.154.0's bindings). */
+function runMcpTurn(threadId, turnId, calls) {
+  for (const [index, [, server, tool, encoded]] of calls.entries()) {
+    const args = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
+    const item = { type: "mcpToolCall", id: `mcp-${turnId}-${index}`, server, tool, status: "inProgress", arguments: args, result: null, error: null, durationMs: null };
+    send({ method: "item/started", params: { threadId, turnId, item } });
+    const answer = answerMcpCall("codex-turn", server, tool, args);
+    const done = answer.error ? { ...item, status: "failed", error: { message: answer.error.message } } : { ...item, status: "completed", result: answer.result };
+    send({ method: "item/completed", params: { threadId, turnId, item: done } });
+  }
+  setTimeout(() => complete(threadId, turnId, "completed", "mcp done"), 20);
+}
+
+/** Every server of the status file, as the app-server pushes its startup. */
+function pushStartupStatus(threadId) {
+  if (process.env.FAKE_CODEX_STARTUP_STATUS !== "1") return;
+  for (const server of readJson(process.env.FAKE_CODEX_MCP_STATUS_FILE, { data: [] }).data) {
+    const signedOut = server.authStatus === "notLoggedIn" || server.runtimeStatus === "authenticationRequired";
+    send({
+      method: "mcpServer/startupStatus/updated",
+      params: signedOut
+        ? { threadId, name: server.name, status: "failed", error: `The ${server.name} MCP server is not logged in. Run \`codex mcp login ${server.name}\`.`, failureReason: null }
+        : { threadId, name: server.name, status: "ready", error: null, failureReason: null },
+    });
+  }
+}
+
 function complete(threadId, turnId, status, text) {
   if (text !== undefined) {
     send({ method: "item/completed", params: { threadId, turnId, item: { type: "agentMessage", id: `item-${turnId}`, text } } });
@@ -213,6 +259,7 @@ process.stdin.on("data", (chunk) => {
         // A thread that takes a while to start (a cold app-server).
         if (/slow-thread/.test(message.params?.cwd ?? "")) setTimeout(() => send(answer), 400);
         else send(answer);
+        pushStartupStatus(threadId);
         break;
       }
       case "thread/resume": {
@@ -246,6 +293,8 @@ process.stdin.on("data", (chunk) => {
           process.stdout.write("", () => process.exit(1));
         } else if (text.includes("[[hang]]")) {
           hanging.set(turnId, threadId);
+        } else if (/\[\[mcp:/.test(text)) {
+          runMcpTurn(threadId, turnId, [...text.matchAll(/\[\[mcp:([A-Za-z0-9_.-]+):([A-Za-z0-9_]+):([A-Za-z0-9_-]*)\]\]/g)]);
         } else if (/\[\[tool:/.test(text)) {
           void runToolTurn(threadId, turnId, [...text.matchAll(/\[\[tool:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)]);
         } else if (text.includes("[[approval]]")) {
@@ -297,20 +346,12 @@ process.stdin.on("data", (chunk) => {
           send({ id: message.id, error });
           break;
         }
-        const declared = readJson(process.env.FAKE_CODEX_MCP_LIST_FILE, []).find((entry) => entry.name === server);
-        const live = readJson(process.env.FAKE_CODEX_MCP_STATUS_FILE, { data: [] }).data.find((entry) => entry.name === server);
-        if (live && (live.authStatus === "notLoggedIn" || live.runtimeStatus === "authenticationRequired")) {
-          // Observed against the official server with no login.
-          send({ id: message.id, error: { code: -32603, message: "failed to get client: MCP startup failed: handshaking with MCP server failed: Auth required, when send initialize request" } });
-        } else if (isAtlassianServer(declared) || isAtlassianServer(live)) {
-          send({ id: message.id, result: answerAtlassianTool("codex", server, tool, args) });
-        } else {
-          send({ id: message.id, result: { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: args ?? null }) }], isError: false } });
-        }
+        send({ id: message.id, ...answerMcpCall("codex", server, tool, args) });
         break;
       }
       case "config/mcpServer/reload":
         send({ id: message.id, result: {} });
+        for (const threadId of threadTools.keys()) pushStartupStatus(threadId);
         break;
       case "turn/interrupt": {
         const { threadId, turnId } = message.params;
