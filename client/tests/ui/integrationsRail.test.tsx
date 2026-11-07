@@ -136,6 +136,10 @@ describe("integrations on the side panel rail", () => {
     await user.click(within(dialog).getByRole("checkbox", { name: en.chat.composer.agentNames.codex }));
     await user.click(within(dialog).getByRole("button", { name: en.integrations.add.submit }));
 
+    // The connect card takes the dialog's place, to follow the sign-ins.
+    await screen.findByTestId("connect-card");
+    expect(screen.queryByText(en.integrations.add.title.replace("{name}", "Jira"))).toBeNull();
+    await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const sent = relay.sent.filter((entry) => entry.message.type === "integration_add");
     expect(sent).toHaveLength(1);

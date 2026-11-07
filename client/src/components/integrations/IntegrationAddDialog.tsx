@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IntegrationIcon } from "@/components/integrations/IntegrationIcon";
+import { useConnectCard } from "@/components/integrations/ConnectCardProvider";
 import { useDict } from "@/i18n";
 import type { IntegrationProvider, IntegrationsClientMessage, McpRuntimeId } from "@/lib/integrations/model";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -21,7 +22,8 @@ interface IntegrationAddDialogProps {
 /**
  * The "+" → provider dialog: which of the profile's agents get the provider's
  * MCP server, all of them by default. Adding sends `integration_add`; the
- * relay declares the server in each CLI and starts their sign-ins.
+ * relay declares the server in each CLI and starts their sign-ins, which the
+ * connect card, opened next, follows.
  */
 export function IntegrationAddDialog({ provider, profile, onOpenChange, send }: IntegrationAddDialogProps) {
   const dict = useDict();
@@ -30,6 +32,7 @@ export function IntegrationAddDialog({ provider, profile, onOpenChange, send }: 
   const [available, setAvailable] = useState<McpRuntimeId[]>([...MCP_RUNTIMES]);
   const [picked, setPicked] = useState<Set<McpRuntimeId>>(new Set(MCP_RUNTIMES));
   const [unreachable, setUnreachable] = useState(false);
+  const openConnectCard = useConnectCard();
 
   // The agents installed on the machine; both when it cannot say.
   useEffect(() => {
@@ -72,6 +75,8 @@ export function IntegrationAddDialog({ provider, profile, onOpenChange, send }: 
       return;
     }
     onOpenChange(false);
+    // The relay signs the new servers in next: the card follows it.
+    openConnectCard?.(profile.id, provider);
   };
 
   return (

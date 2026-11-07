@@ -1757,6 +1757,59 @@ export interface Dictionary {
       /** The profile's relay could not be reached. */
       unreachable: string;
     };
+    /** The card that signs the profile's agents in to an integration.
+     * `{name}` is the provider, `{host}` its site. */
+    connect: {
+      title: string;
+      /** `{connected}` of `{total}` agents. */
+      progress: string;
+      noAgents: string;
+      /** An agent's line, by the state of its server. */
+      state: { connected: string; needsAuth: string; failed: string; unknown: string; missing: string };
+      connectedTo: string;
+      connect: string;
+      connectAll: string;
+      /** Adds the server to an agent that has none. */
+      add: string;
+      queued: string;
+      awaiting: string;
+      completing: string;
+      reopen: string;
+      copyLink: string;
+      copied: string;
+      anotherDevice: string;
+      cancel: string;
+      /** The relay waits for the address the browser ended on. */
+      paste: string;
+      /** Same, after the person moved the sign-in to another device. */
+      elsewhere: string;
+      pasteHint: string;
+      pasteLabel: string;
+      pastePlaceholder: string;
+      finish: string;
+      pasteErrors: { not_url: string; missing_code: string; state_mismatch: string };
+      claudeai: string;
+      claudeaiHint: string;
+      recheck: string;
+      openClaudeai: string;
+      failed: string;
+      retry: string;
+      unreachable: string;
+    };
+    /** The chat's ways into the connect card. `{agent}`, `{name}`. */
+    chat: {
+      agentNotConnected: string;
+      notConnected: string;
+      connect: string;
+    };
+    /** The integration's pane while agents have to sign in. `{name}`,
+     * `{count}`. */
+    panel: {
+      noneConnected: string;
+      needsAuthOne: string;
+      needsAuthMany: string;
+      connect: string;
+    };
     /** A sign-in link the app opened but could not hand to any relay. */
     oauthNotice: {
       /** No relay was waiting for this link. */

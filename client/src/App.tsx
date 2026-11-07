@@ -56,6 +56,7 @@ import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/profiles/useProfileImport";
 import { useMcpOAuthDeepLink } from "@/hooks/integrations/useMcpOAuthDeepLink";
 import { McpOAuthNotice } from "@/components/integrations/McpOAuthNotice";
+import { ConnectCardProvider } from "@/components/integrations/ConnectCardProvider";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
 import { getPendingAgentsProfileId } from "@/lib/install/pendingAgents";
@@ -765,6 +766,7 @@ function AppShell() {
 
   return (
     <IntegrationsContext.Provider value={integrations}>
+    <ConnectCardProvider profiles={profiles}>
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
@@ -931,6 +933,7 @@ function AppShell() {
         />
       </PopoverPrimitive.Root>
     </div>
+    </ConnectCardProvider>
     </IntegrationsContext.Provider>
   );
 }

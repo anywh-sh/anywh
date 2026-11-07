@@ -247,6 +247,9 @@ export interface FakeRelay {
   /** Pushes an `integrations_state` to one relay's open integrations sockets
    * (and keeps it as that relay's state for later connections). */
   emitIntegrations: (hostPort: string, integrations: IntegrationState[]) => void;
+  /** Pushes any other message (`mcp_auth_flow`, ...) to one relay's open
+   * integrations sockets. */
+  emitOnIntegrations: (hostPort: string, message: unknown) => void;
   /** Everything the app has sent, in order, whether or not the fake answers it. */
   sent: SentMessage[];
   /** Pushes a relay message to every open socket (only the mounted tab reacts). */
@@ -467,6 +470,12 @@ export function installFakeRelay(
       for (const socket of sockets) {
         if (socket.readyState !== FakeRelaySocket.OPEN || !isIntegrationsSocket(socket) || hostPort(socket.url) !== target) continue;
         socket.emitMessage({ type: "integrations_state", integrations: state });
+      }
+    },
+    emitOnIntegrations: (target, message) => {
+      for (const socket of sockets) {
+        if (socket.readyState !== FakeRelaySocket.OPEN || !isIntegrationsSocket(socket) || hostPort(socket.url) !== target) continue;
+        socket.emitMessage(message);
       }
     },
     control,

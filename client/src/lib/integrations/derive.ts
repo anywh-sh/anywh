@@ -99,3 +99,15 @@ export function addableProviders(entry: ProfileIntegrations | undefined): Integr
   const present = new Set(railIntegrations(entry).map((integration) => integration.provider));
   return ADDABLE_PROVIDERS.filter((provider) => !present.has(provider));
 }
+
+/** The host of the site an integration reads from ("acme.atlassian.net"),
+ * `null` until the relay knows it. */
+export function siteHost(integration: IntegrationState | undefined): string | null {
+  const url = integration?.site?.url;
+  if (!url) return null;
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
