@@ -103,15 +103,19 @@ export function createCodexControl(options: CodexControlOptions = {}): CodexCont
     if (starting) return starting;
     const mine = generation;
     const abortInit = new AbortController();
+    let self: CodexDaemon | undefined;
     const spawned = spawnDaemon({
       def,
       cwd,
       homeOverride: options.homeOverride,
       host: DECLINING_HOST,
       onNotification: (method, params) => options.onNotification?.(method, params),
+      // Only this daemon's own end: one stopped a moment ago may exit after
+      // its successor started.
       onExit: () => {
+        if (daemon !== undefined && daemon !== self) return;
         daemon = undefined;
-        thread = undefined;
+        if (thread === undefined || thread.daemon === self) thread = undefined;
       },
       idleTimeoutMs: options.idleTimeoutMs ?? CODEX_CONTROL_IDLE_MS,
       initSignal: abortInit.signal,
@@ -119,6 +123,7 @@ export function createCodexControl(options: CodexControlOptions = {}): CodexCont
     let abandoned = false;
     void spawned.then(
       (started) => {
+        self = started;
         if (abandoned || mine !== generation) started.kill();
       },
       () => {},

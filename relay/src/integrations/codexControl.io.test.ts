@@ -11,6 +11,7 @@ import { codexRuntimeDef } from "../runtimes/defs/codex.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
 import { CodexControlTimeout, createCodexControl } from "./codexControl.js";
 import { CODEX_MCP_STATUS_LIST } from "./inventory/fixtures.js";
+import { spawnCodexDaemon } from "../runtimes/transports/codexDaemon.js";
 
 const FAKE_CODEX = resolve(import.meta.dirname, "../../tests/fixtures/fake-codex-app-server.mjs");
 
@@ -93,4 +94,26 @@ test("reload goes to a running daemon and is a no-op without one", async (t) => 
   await control.request("mcpServerStatus/list", {});
   await control.reload();
   assert.ok(methods().includes("config/mcpServer/reload"));
+});
+
+test("a stopped daemon that exits after its successor started leaves the successor in use", async (t) => {
+  const { dir, def, methods } = setup(t, { FAKE_CODEX_MCP_STATUS_HANG: "1" });
+  let spawns = 0;
+  const control = createCodexControl({
+    def,
+    cwd: dir,
+    requestTimeoutMs: 300,
+    // The first daemon's exit is reported late, as a slow SIGTERM would be.
+    spawnDaemon: (options) => {
+      const late = spawns++ === 0;
+      return spawnCodexDaemon({ ...options, onExit: (reason) => (late ? setTimeout(() => options.onExit(reason), 400) : options.onExit(reason)) });
+    },
+  });
+  t.after(() => control.close());
+  await assert.rejects(control.request("mcpServerStatus/list", {}), CodexControlTimeout);
+  await control.request("config/mcpServer/reload", {});
+  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(control.running, true, "still the second daemon");
+  await control.request("config/mcpServer/reload", {});
+  assert.equal(methods().filter((method) => method === "initialize").length, 2);
 });
