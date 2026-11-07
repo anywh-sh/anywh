@@ -9,7 +9,8 @@ import { IntegrationIcon } from "@/components/integrations/IntegrationIcon";
 import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
 import { siteHost } from "@/lib/integrations/derive";
 import { useDict } from "@/i18n";
-import { checkCallbackPaste, connectProgress, connectRows, CONNECT_RUNTIMES, isActiveFlow, pendingTargets, type CallbackPasteError, type ConnectRow } from "@/lib/integrations/connect";
+import type { Dictionary } from "@/i18n/dictionary";
+import { checkCallbackPaste, connectProgress, connectRows, CONNECT_RUNTIMES, flowErrorKey, isActiveFlow, pendingTargets, type CallbackPasteError, type ConnectRow } from "@/lib/integrations/connect";
 import type { IntegrationProvider, IntegrationsClientMessage, McpAuthFlow, McpRuntimeId } from "@/lib/integrations/model";
 import type { Profile } from "@/lib/profiles/profiles";
 import { getHostInfo } from "@/lib/relay/filesClient";
@@ -47,6 +48,17 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
    * opened here. */
   const [elsewhere, setElsewhere] = useState<ReadonlySet<McpRuntimeId>>(new Set());
   const openedFlows = useRef(new Set<string>());
+  /** claude.ai rechecks asked from here, by flow, with the flow as it was
+   * when asked: the relay reports no "checking" state of its own, so the
+   * row is busy until the flow comes back with an answer. */
+  const [rechecks, setRechecks] = useState<Readonly<Record<string, McpAuthFlow>>>({});
+  const recheckTimers = useRef(new Set<number>());
+  useEffect(() => {
+    const timers = recheckTimers.current;
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -90,11 +102,30 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   const claudeaiKey = waitingClaudeai.map((flow) => flow.flowId).join(",");
   const sendRef = useRef(integrations?.send);
   sendRef.current = integrations?.send;
+  const askRecheck = (flowId: string): boolean => {
+    const flow = flows[flowId] as McpAuthFlow | undefined;
+    if (!flow || !sendRef.current?.({ type: "mcp_auth_recheck", flowId })) return false;
+    setRechecks((prev) => ({ ...prev, [flowId]: flow }));
+    // A recheck the relay turned down sends nothing back: stop waiting
+    // after its window.
+    const timer = window.setTimeout(() => {
+      recheckTimers.current.delete(timer);
+      setRechecks((prev) => {
+        if (prev[flowId] !== flow) return prev;
+        const { [flowId]: _gone, ...rest } = prev;
+        return rest;
+      });
+    }, RECHECK_WAIT_MS);
+    recheckTimers.current.add(timer);
+    return true;
+  };
+  const askRecheckRef = useRef(askRecheck);
+  askRecheckRef.current = askRecheck;
   useEffect(() => {
     if (!open || claudeaiKey === "") return;
     const ids = claudeaiKey.split(",");
     const onFocus = () => {
-      for (const flowId of ids) sendRef.current?.({ type: "mcp_auth_recheck", flowId });
+      for (const flowId of ids) askRecheckRef.current(flowId);
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -135,7 +166,7 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
       send({ type: "mcp_auth_start", targets: [{ runtimeId: row.runtimeId, serverName: row.runtime.serverName }], mode: "localhost" });
     },
     complete: (flow, url) => send({ type: "mcp_auth_complete", flowId: flow.flowId, callbackUrl: url }),
-    recheck: (flow) => send({ type: "mcp_auth_recheck", flowId: flow.flowId }),
+    recheck: (flow) => setUnreachable(!askRecheck(flow.flowId)),
   };
 
   return (
@@ -160,7 +191,7 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {rows.length === 0 && <p className="px-4 py-4 text-sm text-muted-foreground">{copy.noAgents.replace("{name}", name)}</p>}
           {rows.map((row) => (
-            <ConnectRowView key={row.runtimeId} row={row} name={name} host={host} elsewhere={elsewhere.has(row.runtimeId)} actions={actions} />
+            <ConnectRowView key={row.runtimeId} row={row} name={name} host={host} elsewhere={elsewhere.has(row.runtimeId)} rechecking={row.flow ? isRechecking(row.flow, rechecks[row.flow.flowId]) : false} actions={actions} />
           ))}
         </div>
         {(queue.length > 1 || unreachable) && (
@@ -178,6 +209,35 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   );
 }
 
+/** How long a recheck asked from here may go unanswered: the relay's own
+ * window, with room to spare. */
+const RECHECK_WAIT_MS = 150_000;
+
+/** Whether the relay is still looking on claude.ai for `flow`, asked as
+ * `asked`: nothing came back yet, or what came back is the recheck starting
+ * (an awaiting flow with no error) rather than its answer. */
+function isRechecking(flow: McpAuthFlow, asked: McpAuthFlow | undefined): boolean {
+  if (!asked || flow.mode !== "claudeai" || flow.phase !== "awaiting_user") return false;
+  return flow === asked || flow.error === undefined;
+}
+
+/** A sign-in's reported reason in the person's language. The raw text
+ * (a CLI's own message, say) is only ever a tooltip. */
+function flowErrorText(copy: Dictionary["integrations"]["connect"], error: string): string {
+  const key = flowErrorKey(error);
+  return key === "not_url" || key === "missing_code" || key === "state_mismatch" ? copy.pasteErrors[key] : copy.flowErrors[key];
+}
+
+function FlowError({ error }: { error: string | undefined }) {
+  const copy = useDict().integrations.connect;
+  if (!error) return null;
+  return (
+    <p data-testid="connect-flow-error" title={error} className="text-xs text-destructive">
+      {flowErrorText(copy, error)}
+    </p>
+  );
+}
+
 interface RowActions {
   connect: (row: ConnectRow) => void;
   add: (row: ConnectRow) => void;
@@ -187,7 +247,7 @@ interface RowActions {
   recheck: (flow: McpAuthFlow) => void;
 }
 
-function ConnectRowView({ row, name, host, elsewhere, actions }: { row: ConnectRow; name: string; host: string | null; elsewhere: boolean; actions: RowActions }) {
+function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { row: ConnectRow; name: string; host: string | null; elsewhere: boolean; rechecking: boolean; actions: RowActions }) {
   const dict = useDict();
   const copy = dict.integrations.connect;
   const agent = dict.chat.composer.agentNames[row.runtimeId];
@@ -205,12 +265,14 @@ function ConnectRowView({ row, name, host, elsewhere, actions }: { row: ConnectR
       status = { text: copy.completing };
       trailing = <Spinner />;
     } else if (flow.mode === "claudeai") {
-      status = { text: copy.claudeai };
+      status = { text: rechecking ? copy.rechecking : copy.claudeai };
+      if (rechecking) trailing = <Spinner />;
       body = (
         <>
           <p className="text-xs text-muted-foreground">{copy.claudeaiHint}</p>
+          {!rechecking && <FlowError error={flow.error} />}
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => actions.recheck(flow)}>
+            <Button type="button" size="sm" variant="outline" disabled={rechecking} onClick={() => actions.recheck(flow)}>
               {copy.recheck}
             </Button>
             {flow.authUrl && (
@@ -225,30 +287,41 @@ function ConnectRowView({ row, name, host, elsewhere, actions }: { row: ConnectR
       );
     } else if (flow.mode === "localhost") {
       status = { text: elsewhere ? copy.elsewhere : copy.paste };
-      body = <PasteForm flow={flow} onComplete={(url) => actions.complete(flow, url)} onCancel={() => actions.cancel(flow)} />;
+      body = (
+        <>
+          <FlowError error={flow.error} />
+          <PasteForm flow={flow} onComplete={(url) => actions.complete(flow, url)} onCancel={() => actions.cancel(flow)} />
+        </>
+      );
     } else {
       status = { text: copy.awaiting };
       trailing = <Spinner />;
       body = (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {flow.authUrl && <TextAction onClick={() => void openUrl(flow.authUrl!).catch(() => {})}>{copy.reopen}</TextAction>}
-          {flow.authUrl && <CopyLink url={flow.authUrl} />}
-          <TextAction onClick={() => actions.anotherDevice(row, flow)}>{copy.anotherDevice}</TextAction>
-          <TextAction onClick={() => actions.cancel(flow)}>{copy.cancel}</TextAction>
-        </div>
+        <>
+          <FlowError error={flow.error} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {flow.authUrl && <TextAction onClick={() => void openUrl(flow.authUrl!).catch(() => {})}>{copy.reopen}</TextAction>}
+            {flow.authUrl && <CopyLink url={flow.authUrl} />}
+            <TextAction onClick={() => actions.anotherDevice(row, flow)}>{copy.anotherDevice}</TextAction>
+            <TextAction onClick={() => actions.cancel(flow)}>{copy.cancel}</TextAction>
+          </div>
+        </>
       );
     }
   } else if (row.state === "connected") {
     status = { text: host ? copy.connectedTo.replace("{host}", host) : copy.state.connected, tone: "ok" };
     trailing = <Check className="size-4 text-diff-add" strokeWidth={2.5} aria-label={copy.state.connected} />;
   } else if (flow?.phase === "failed") {
-    status = { text: flow.error ? `${copy.failed} · ${flow.error}` : copy.failed, tone: "error" };
+    status = { text: copy.failed, tone: "error" };
     body = (
-      <div>
-        <Button type="button" size="sm" variant="outline" onClick={() => actions.connect(row)}>
-          {copy.retry}
-        </Button>
-      </div>
+      <>
+        <FlowError error={flow.error} />
+        <div>
+          <Button type="button" size="sm" variant="outline" onClick={() => actions.connect(row)}>
+            {copy.retry}
+          </Button>
+        </div>
+      </>
     );
   } else if (row.state === "needs_auth") {
     status = { text: copy.state.needsAuth };

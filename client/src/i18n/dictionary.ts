@@ -1801,8 +1801,13 @@ export interface Dictionary {
       pastePlaceholder: string;
       finish: string;
       pasteErrors: { not_url: string; missing_code: string; state_mismatch: string };
+      /** A sign-in's reported reason (`flowErrorKey`); the paste codes use
+       * `pasteErrors`. */
+      flowErrors: { timeout: string; unknown_server: string; unsupported: string; access_denied: string; not_authorized: string; unknown_flow: string; not_waiting: string; generic: string };
       claudeai: string;
       claudeaiHint: string;
+      /** While the relay looks again on claude.ai. */
+      rechecking: string;
       recheck: string;
       openClaudeai: string;
       failed: string;

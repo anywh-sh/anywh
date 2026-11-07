@@ -192,6 +192,55 @@ describe("connecting an integration", () => {
     expect(sentOfType("mcp_auth_start")).toHaveLength(2);
   });
 
+  it("says why a sign-in failed in the person's language, keeping the raw text as a tooltip", async () => {
+    start({ integrations: [jira([runtime({ status: "needs_auth" }), runtime({ runtimeId: "codex", status: "needs_auth" })])] });
+    const user = userEvent.setup();
+    const card = await openCardFromPane(user);
+
+    act(() => {
+      relay.emitOnIntegrations(RELAY, flow({ flowId: "f1", phase: "failed", error: "timeout" }));
+      relay.emitOnIntegrations(RELAY, flow({ flowId: "f2", runtimeId: "codex", phase: "failed", error: "Address in use (os error 98)" }));
+    });
+    const row = (runtimeId: string) => card.querySelector(`[data-connect-row="${runtimeId}"]`) as HTMLElement;
+    await waitFor(() => expect(within(row("claude")).getByTestId("connect-flow-error")).toHaveTextContent(copy.flowErrors.timeout));
+    expect(status(card, "claude")).toHaveTextContent(copy.failed);
+    expect(status(card, "claude")).not.toHaveTextContent("timeout");
+    const generic = within(row("codex")).getByTestId("connect-flow-error");
+    expect(generic).toHaveTextContent(copy.flowErrors.generic);
+    expect(generic).toHaveAttribute("title", "Address in use (os error 98)");
+    expect(card).not.toHaveTextContent("os error 98");
+
+    // A callback the relay turned down leaves the flow waiting, saying why.
+    act(() => relay.emitOnIntegrations(RELAY, flow({ flowId: "f3", phase: "awaiting_user", authUrl: "https://auth.example/a?state=s3", state: "s3", error: "state_mismatch" })));
+    await waitFor(() => expect(within(row("claude")).getByTestId("connect-flow-error")).toHaveTextContent(copy.pasteErrors.state_mismatch));
+  });
+
+  it("shows a claude.ai recheck as busy until the relay answers, then says it is still not authorized", async () => {
+    start({ integrations: [jira([runtime({ scope: "claudeai", authMode: "claudeai", status: "needs_auth", serverName: "claude.ai Atlassian" })])] });
+    const user = userEvent.setup();
+    const card = await openCardFromPane(user);
+    const waiting = (patch: Partial<McpAuthFlow> = {}) => flow({ flowId: "f1", phase: "awaiting_user", mode: "claudeai", serverName: "claude.ai Atlassian", authUrl: "https://claude.ai/x", ...patch });
+    act(() => relay.emitOnIntegrations(RELAY, waiting()));
+    await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.claudeai));
+
+    await user.click(within(card).getByRole("button", { name: copy.recheck }));
+    await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.rechecking));
+    expect(within(card).getByRole("button", { name: copy.recheck })).toBeDisabled();
+    // The relay starts looking (the flow comes back with no error): still busy.
+    act(() => relay.emitOnIntegrations(RELAY, waiting()));
+    expect(status(card, "claude")).toHaveTextContent(copy.rechecking);
+
+    act(() => relay.emitOnIntegrations(RELAY, waiting({ error: "not_authorized" })));
+    await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.claudeai));
+    expect(within(card).getByTestId("connect-flow-error")).toHaveTextContent(copy.flowErrors.not_authorized);
+    expect(within(card).getByRole("button", { name: copy.recheck })).toBeEnabled();
+
+    // Asked again: busy again, the old answer hidden.
+    await user.click(within(card).getByRole("button", { name: copy.recheck }));
+    await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.rechecking));
+    expect(within(card).queryByTestId("connect-flow-error")).toBeNull();
+  });
+
   it("offers to connect from a failed call in the chat and above the composer", async () => {
     start({ integrations: [jira([runtime({ status: "connected" })])] });
     const user = userEvent.setup();

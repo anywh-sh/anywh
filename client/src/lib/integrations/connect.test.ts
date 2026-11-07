@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkCallbackPaste, connectProgress, connectRows, integrationForServer, pendingTargets } from "@/lib/integrations/connect";
+import { checkCallbackPaste, connectProgress, connectRows, flowErrorKey, integrationForServer, pendingTargets } from "@/lib/integrations/connect";
 import type { IntegrationRuntime, IntegrationState, McpAuthFlow } from "@/lib/integrations/model";
 
 function runtime(patch: Partial<IntegrationRuntime>): IntegrationRuntime {
@@ -67,5 +67,16 @@ describe("integrationForServer", () => {
     expect(integrationForServer(integrations, "codex", "atlassian")?.id).toBe("jira");
     expect(integrationForServer(integrations, "claude", "atlassian")).toBeUndefined();
     expect(integrationForServer(null, "claude", "atlassian")).toBeUndefined();
+  });
+});
+
+describe("flowErrorKey", () => {
+  it("names the relay's codes, the provider's refusal and a refused callback, and nothing else", () => {
+    expect(flowErrorKey("timeout")).toBe("timeout");
+    expect(flowErrorKey("access_denied")).toBe("access_denied");
+    expect(flowErrorKey("not_authorized")).toBe("not_authorized");
+    expect(flowErrorKey("state_mismatch")).toBe("state_mismatch");
+    expect(flowErrorKey("Address in use (os error 98)")).toBe("generic");
+    expect(flowErrorKey("")).toBe("generic");
   });
 });

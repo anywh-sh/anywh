@@ -86,6 +86,19 @@ export function pendingTargets(rows: readonly ConnectRow[]): McpAuthTarget[] {
 /** Why a pasted address cannot finish a sign-in. */
 export type CallbackPasteError = "not_url" | "missing_code" | "state_mismatch";
 
+/** The reasons a sign-in reports (`McpAuthFlow.error`) the card has words
+ * for: the relay's own codes, the provider's refusal, and a callback the
+ * relay turned down. Anything else — a CLI's own text — is `generic`. */
+export type FlowErrorKey = CallbackPasteError | "timeout" | "unknown_server" | "unsupported" | "access_denied" | "not_authorized" | "unknown_flow" | "not_waiting" | "generic";
+
+const FLOW_ERROR_KEYS: ReadonlySet<string> = new Set<FlowErrorKey>(["not_url", "missing_code", "state_mismatch", "timeout", "unknown_server", "unsupported", "access_denied", "not_authorized", "unknown_flow", "not_waiting"]);
+
+/** Which of the card's messages a flow's `error` reads as. Pure. */
+export function flowErrorKey(error: string): FlowErrorKey {
+  const code = error.trim();
+  return FLOW_ERROR_KEYS.has(code) ? (code as FlowErrorKey) : "generic";
+}
+
 /**
  * Checks the address the browser ended on before it is sent: a URL that
  * carries the authorization `code` (or the server's `error`) and the
