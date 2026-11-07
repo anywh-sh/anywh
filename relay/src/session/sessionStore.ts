@@ -1,3 +1,4 @@
+import type { TicketTag } from "../integrations/types.js";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
@@ -282,6 +283,8 @@ export interface TitledSession {
   /** See `SessionActivity`. Live state, never persisted: `SessionManager`
    * fills it in from the session in memory. */
   activity?: SessionActivity;
+  /** The ticket the session works on, if any. */
+  workTicket?: TicketTag;
 }
 
 /** Shape prior to this change: id -> { session_id, cwd/lock }, without

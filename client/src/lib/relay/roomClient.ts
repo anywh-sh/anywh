@@ -1,4 +1,5 @@
 import type { Profile } from "@/lib/profiles/profiles";
+import type { RoomAgentTicket, RoomTicketView } from "@/lib/integrations/model";
 import { authHeaders, resolveConnection } from "@/lib/profiles/connectionResolver";
 
 // Client for a room's HTTP surface and its channel (see the relay's
@@ -70,6 +71,8 @@ export interface RoomAgent {
   /** Its latest actions, oldest first; absent from a relay that does not
    * send them. */
   activity?: RoomAction[];
+  /** The ticket it works on. Never set on the principal. */
+  ticket?: RoomAgentTicket;
 }
 
 /** One native subagent of an agent as the room channel sends it: one line
@@ -98,6 +101,9 @@ export interface RoomSummary {
   needsYou: number;
   live: number;
   liveLimit: number;
+  /** The tickets its agents work on, and those the principal holds to
+   * delegate; absent when there are none (and from an older relay). */
+  tickets?: RoomTicketView[];
 }
 
 export type RoomChannelMessage =
@@ -155,6 +161,9 @@ export interface CreateRoomInput {
   /** Delivered to the principal by the relay itself, so it is not lost
    * between two sockets. */
   firstMessage?: string;
+  /** A ticket key handed to the principal with `firstMessage`, for the agent
+   * it delegates that work to. */
+  ticket?: string;
 }
 
 async function call(profile: Profile, path: string, init?: { method?: string; body?: unknown }): Promise<Response> {
@@ -327,6 +336,8 @@ export interface LaunchAgentInput {
   model?: string;
   effort?: string;
   parentId?: string;
+  /** The ticket key the agent works on. */
+  ticket?: string;
 }
 
 /** The person starts a worker of the room; resolves with its id. */

@@ -29,6 +29,18 @@ import {
   isTerminalScrollMessage,
   isPlanUsageRefreshMessage,
   isPingMessage,
+  isTicketKey,
+  isTicketRef,
+  startTicketOf,
+  isIntegrationRefreshMessage,
+  isIntegrationLoadMoreMessage,
+  isIntegrationPrefsMessage,
+  isWorkTicketMessage,
+  isMcpAuthStartMessage,
+  isMcpAuthCompleteMessage,
+  isMcpAuthCancelMessage,
+  isMcpAuthRecheckMessage,
+  isIntegrationAddMessage,
 } from "./guards.js";
 
 // Every guard here is the validation surface for a WS message or an HTTP
@@ -278,4 +290,98 @@ test("isPingMessage", () => {
   assert.ok(isPingMessage({ type: "ping" }));
   assert.ok(!isPingMessage({ type: "pong" }));
   assert.ok(!isPingMessage(null));
+});
+
+const TICKET = { provider: "jira", site: "cloud-1", key: "NGL-1144" } as const;
+
+test("isTicketKey: a project key, a dash and a number, nothing around them", () => {
+  for (const key of ["NGL-1144", "AB-1", "A2B-9999999", "ENG-12"]) assert.equal(isTicketKey(key), true, key);
+  for (const key of ["ngl-1", "N-1", "NGL-", "NGL-12345678", "ABCDEFGHIJK-1", " NGL-1", "NGL-1 ", "NGL_1", 12]) assert.equal(isTicketKey(key), false, String(key));
+});
+
+test("isTicketRef", () => {
+  assert.equal(isTicketRef(TICKET), true);
+  assert.equal(isTicketRef({ ...TICKET, provider: "linear", id: "10042" }), true);
+  assert.equal(isTicketRef({ ...TICKET, provider: "github" }), false, "unknown provider");
+  assert.equal(isTicketRef({ ...TICKET, site: "" }), false, "empty site");
+  assert.equal(isTicketRef({ ...TICKET, key: "not a key" }), false, "malformed key");
+  assert.equal(isTicketRef({ ...TICKET, id: 10042 }), false, "non-string id");
+  for (const value of NON_OBJECTS) assert.equal(isTicketRef(value), false);
+});
+
+test("startTicketOf: a malformed startTicket is ignored, and never makes the message itself invalid", () => {
+  assert.deepEqual(startTicketOf({ type: "user_message", text: "go", startTicket: TICKET }), TICKET);
+  assert.equal(startTicketOf({ type: "user_message", text: "go" }), undefined);
+  const malformed = { type: "user_message", text: "go", startTicket: { provider: "jira", key: "NGL-1" } };
+  assert.equal(isUserMessage(malformed), true);
+  assert.equal(isUserMessage(malformed) && startTicketOf(malformed), undefined);
+});
+
+test("isIntegrationRefreshMessage: param is a project (or null) for mine, a ticket key for ticket", () => {
+  const base = { type: "integration_refresh", id: "jira", force: false };
+  assert.equal(isIntegrationRefreshMessage({ ...base, query: "mine", param: null }), true);
+  assert.equal(isIntegrationRefreshMessage({ ...base, query: "mine", param: "NGL" }), true);
+  assert.equal(isIntegrationRefreshMessage({ ...base, query: "ticket", param: "NGL-1" }), true);
+  assert.equal(isIntegrationRefreshMessage({ ...base, query: "ticket", param: null }), false);
+  assert.equal(isIntegrationRefreshMessage({ ...base, query: "mine", param: "" }), false);
+  assert.equal(isIntegrationRefreshMessage({ ...base, query: "search", param: null }), false);
+  assert.equal(isIntegrationRefreshMessage({ ...base, force: "yes", query: "mine", param: null }), false);
+  assert.equal(isIntegrationRefreshMessage({ ...base, id: "", query: "mine", param: null }), false);
+  for (const value of NON_OBJECTS) assert.equal(isIntegrationRefreshMessage(value), false);
+});
+
+test("isIntegrationLoadMoreMessage: only the mine list pages", () => {
+  assert.equal(isIntegrationLoadMoreMessage({ type: "integration_load_more", id: "jira", query: "mine", param: null }), true);
+  assert.equal(isIntegrationLoadMoreMessage({ type: "integration_load_more", id: "jira", query: "ticket", param: "NGL-1" }), false);
+  for (const value of NON_OBJECTS) assert.equal(isIntegrationLoadMoreMessage(value), false);
+});
+
+test("isIntegrationPrefsMessage", () => {
+  assert.equal(isIntegrationPrefsMessage({ type: "integration_prefs", id: "jira", prefs: { project: null } }), true);
+  assert.equal(isIntegrationPrefsMessage({ type: "integration_prefs", id: "jira", prefs: { project: "NGL" } }), true);
+  assert.equal(isIntegrationPrefsMessage({ type: "integration_prefs", id: "jira", prefs: {} }), false, "project left out");
+  assert.equal(isIntegrationPrefsMessage({ type: "integration_prefs", id: "jira" }), false);
+  for (const value of NON_OBJECTS) assert.equal(isIntegrationPrefsMessage(value), false);
+});
+
+test("isWorkTicketMessage: link needs a well-formed ticket, unlink none", () => {
+  assert.equal(isWorkTicketMessage({ type: "work_ticket", sessionId: "s1", action: "link", ticket: TICKET }), true);
+  assert.equal(isWorkTicketMessage({ type: "work_ticket", sessionId: "s1", action: "unlink" }), true);
+  assert.equal(isWorkTicketMessage({ type: "work_ticket", sessionId: "s1", action: "link" }), false);
+  assert.equal(isWorkTicketMessage({ type: "work_ticket", sessionId: "s1", action: "link", ticket: { ...TICKET, key: "x" } }), false);
+  assert.equal(isWorkTicketMessage({ type: "work_ticket", sessionId: "", action: "unlink" }), false);
+  assert.equal(isWorkTicketMessage({ type: "work_ticket", sessionId: "s1", action: "swap" }), false);
+  for (const value of NON_OBJECTS) assert.equal(isWorkTicketMessage(value), false);
+});
+
+test("isMcpAuthStartMessage: at least one target, each a known runtime and a server name", () => {
+  const target = { runtimeId: "claude", serverName: "atlassian" };
+  assert.equal(isMcpAuthStartMessage({ type: "mcp_auth_start", targets: [target, { runtimeId: "codex", serverName: "atlassian" }] }), true);
+  assert.equal(isMcpAuthStartMessage({ type: "mcp_auth_start", targets: [target], mode: "localhost" }), true);
+  assert.equal(isMcpAuthStartMessage({ type: "mcp_auth_start", targets: [target], mode: "claudeai" }), false, "claudeai is the relay's call, not the client's");
+  assert.equal(isMcpAuthStartMessage({ type: "mcp_auth_start", targets: [] }), false);
+  assert.equal(isMcpAuthStartMessage({ type: "mcp_auth_start", targets: [{ runtimeId: "gemini", serverName: "atlassian" }] }), false);
+  for (const value of NON_OBJECTS) assert.equal(isMcpAuthStartMessage(value), false);
+});
+
+test("isMcpAuthCompleteMessage / isMcpAuthCancelMessage / isMcpAuthRecheckMessage", () => {
+  assert.equal(isMcpAuthCompleteMessage({ type: "mcp_auth_complete", flowId: "f1", callbackUrl: "anywh://mcp-oauth/callback?code=a&state=b" }), true);
+  assert.equal(isMcpAuthCompleteMessage({ type: "mcp_auth_complete", flowId: "f1" }), false);
+  assert.equal(isMcpAuthCancelMessage({ type: "mcp_auth_cancel", flowId: "f1" }), true);
+  assert.equal(isMcpAuthCancelMessage({ type: "mcp_auth_cancel", flowId: "" }), false);
+  assert.equal(isMcpAuthRecheckMessage({ type: "mcp_auth_recheck", flowId: "f1" }), true);
+  assert.equal(isMcpAuthRecheckMessage({ type: "mcp_auth_cancel", flowId: "f1" }), false);
+  for (const value of NON_OBJECTS) {
+    assert.equal(isMcpAuthCompleteMessage(value), false);
+    assert.equal(isMcpAuthCancelMessage(value), false);
+    assert.equal(isMcpAuthRecheckMessage(value), false);
+  }
+});
+
+test("isIntegrationAddMessage", () => {
+  assert.equal(isIntegrationAddMessage({ type: "integration_add", id: "jira", provider: "jira", runtimes: ["claude", "codex"] }), true);
+  assert.equal(isIntegrationAddMessage({ type: "integration_add", id: "jira", provider: "jira", runtimes: [] }), false);
+  assert.equal(isIntegrationAddMessage({ type: "integration_add", id: "jira", provider: "trello", runtimes: ["claude"] }), false);
+  assert.equal(isIntegrationAddMessage({ type: "integration_add", id: "jira", runtimes: ["claude"] }), false);
+  for (const value of NON_OBJECTS) assert.equal(isIntegrationAddMessage(value), false);
 });

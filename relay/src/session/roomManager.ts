@@ -172,6 +172,9 @@ export interface CreateRoomInput {
   cwd?: unknown;
   title?: unknown;
   firstMessage?: unknown;
+  /** A ticket key the principal is handed with `firstMessage`, to pass on
+   * to the agent it delegates that work to. */
+  ticket?: unknown;
 }
 
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };

@@ -1,10 +1,15 @@
 import type { ModelChoice, PermissionMode } from "../session/sessionStore.js";
 import { isAgentPreference, type AgentPreference } from "../host/profileRegistry.js";
 import type { ChoiceAnswer } from "../bridges/mcpBridge.js";
+import { TICKET_KEY_PATTERN, type IntegrationProvider, type IntegrationsClientMessage, type McpAuthTarget, type McpRuntimeId, type TicketRef } from "../integrations/types.js";
 
 interface UserMessage {
   type: "user_message";
   text: string;
+  /** The ticket a new session is started from. Read through
+   * `startTicketOf`: `isUserMessage` does not look at it, so a malformed one
+   * never costs the message. */
+  startTicket?: unknown;
 }
 
 export function isUserMessage(value: unknown): value is UserMessage {
@@ -322,4 +327,89 @@ export function isTerminalScrollMessage(value: unknown): value is { type: "scrol
     (value as { type?: unknown }).type === "scroll" &&
     typeof (value as { lines?: unknown }).lines === "number"
   );
+}
+
+// The integrations socket (`/integrations/watch`, integrations/types.ts
+// `IntegrationsClientMessage`) and the ticket a `user_message` can carry.
+
+const INTEGRATION_PROVIDERS: readonly IntegrationProvider[] = ["jira", "linear"];
+const MCP_RUNTIMES: readonly McpRuntimeId[] = ["claude", "codex"];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
+function isMcpRuntimeId(value: unknown): value is McpRuntimeId {
+  return MCP_RUNTIMES.includes(value as McpRuntimeId);
+}
+
+export function isTicketKey(value: unknown): value is string {
+  return typeof value === "string" && TICKET_KEY_PATTERN.test(value);
+}
+
+export function isTicketRef(value: unknown): value is TicketRef {
+  if (!isRecord(value)) return false;
+  const { provider, site, key, id } = value;
+  return INTEGRATION_PROVIDERS.includes(provider as IntegrationProvider) && isNonEmptyString(site) && isTicketKey(key) && (id === undefined || typeof id === "string");
+}
+
+/** A `user_message`'s `startTicket`, if it is a well-formed ticket. */
+export function startTicketOf(message: UserMessage): TicketRef | undefined {
+  return isTicketRef(message.startTicket) ? message.startTicket : undefined;
+}
+
+type ClientMessage<T extends IntegrationsClientMessage["type"]> = Extract<IntegrationsClientMessage, { type: T }>;
+
+/** `param` is the project key (or `null`) for `mine`, the ticket key for
+ * `ticket`. */
+export function isIntegrationRefreshMessage(value: unknown): value is ClientMessage<"integration_refresh"> {
+  if (!isRecord(value) || value.type !== "integration_refresh" || !isNonEmptyString(value.id) || typeof value.force !== "boolean") return false;
+  if (value.query === "mine") return value.param === null || isNonEmptyString(value.param);
+  return value.query === "ticket" && isTicketKey(value.param);
+}
+
+export function isIntegrationLoadMoreMessage(value: unknown): value is ClientMessage<"integration_load_more"> {
+  return isRecord(value) && value.type === "integration_load_more" && isNonEmptyString(value.id) && value.query === "mine" && (value.param === null || isNonEmptyString(value.param));
+}
+
+export function isIntegrationPrefsMessage(value: unknown): value is ClientMessage<"integration_prefs"> {
+  if (!isRecord(value) || value.type !== "integration_prefs" || !isNonEmptyString(value.id) || !isRecord(value.prefs)) return false;
+  return value.prefs.project === null || isNonEmptyString(value.prefs.project);
+}
+
+export function isWorkTicketMessage(value: unknown): value is ClientMessage<"work_ticket"> {
+  if (!isRecord(value) || value.type !== "work_ticket" || !isNonEmptyString(value.sessionId)) return false;
+  return value.action === "unlink" || (value.action === "link" && isTicketRef(value.ticket));
+}
+
+function isMcpAuthTarget(value: unknown): value is McpAuthTarget {
+  return isRecord(value) && isMcpRuntimeId(value.runtimeId) && isNonEmptyString(value.serverName);
+}
+
+export function isMcpAuthStartMessage(value: unknown): value is ClientMessage<"mcp_auth_start"> {
+  if (!isRecord(value) || value.type !== "mcp_auth_start") return false;
+  const { targets, mode } = value;
+  return Array.isArray(targets) && targets.length > 0 && targets.every(isMcpAuthTarget) && (mode === undefined || mode === "deeplink" || mode === "localhost");
+}
+
+export function isMcpAuthCompleteMessage(value: unknown): value is ClientMessage<"mcp_auth_complete"> {
+  return isRecord(value) && value.type === "mcp_auth_complete" && isNonEmptyString(value.flowId) && isNonEmptyString(value.callbackUrl);
+}
+
+export function isMcpAuthCancelMessage(value: unknown): value is ClientMessage<"mcp_auth_cancel"> {
+  return isRecord(value) && value.type === "mcp_auth_cancel" && isNonEmptyString(value.flowId);
+}
+
+export function isMcpAuthRecheckMessage(value: unknown): value is ClientMessage<"mcp_auth_recheck"> {
+  return isRecord(value) && value.type === "mcp_auth_recheck" && isNonEmptyString(value.flowId);
+}
+
+export function isIntegrationAddMessage(value: unknown): value is ClientMessage<"integration_add"> {
+  if (!isRecord(value) || value.type !== "integration_add" || !isNonEmptyString(value.id)) return false;
+  const { provider, runtimes } = value;
+  return INTEGRATION_PROVIDERS.includes(provider as IntegrationProvider) && Array.isArray(runtimes) && runtimes.length > 0 && runtimes.every(isMcpRuntimeId);
 }

@@ -241,6 +241,9 @@ export interface DelegateArgs {
   effort?: string;
   parentId?: string;
   area?: string;
+  /** The ticket key the delegated agent works on (a `TICKET_KEY_PATTERN`
+   * key of the profile's tracker). */
+  ticket?: string;
 }
 
 export function parseDelegateArgs(raw: unknown): Parsed<DelegateArgs> {

@@ -115,6 +115,19 @@ export type ToolOutcome =
   | { kind: "payload"; request: string; response: string }
   | { kind: "text" };
 
+/** Why a call to an MCP server's tool failed, when the failure is the
+ * server's rather than the tool's: it wants a new sign-in (`auth`), could
+ * not be reached or started, went away mid-call, did not answer in time,
+ * or answered with an error of its own. A def that cannot tell leaves
+ * `mcpFailure` out rather than guess. */
+export type McpFailureReason = "auth" | "unreachable" | "crashed" | "timeout" | "server_error";
+
+export interface McpFailure {
+  /** The server's name as the agent's CLI knows it. */
+  server: string;
+  reason: McpFailureReason;
+}
+
 /** One item of a `TodoWrite`-shaped plan. `activeForm` is optional because
  * it only makes sense for the item currently `"in_progress"`. */
 export interface PlanTodo {
@@ -227,6 +240,8 @@ export type AgentEvent =
       outcome?: ToolOutcome;
       endedAt?: number;
       parentToolUseId?: string;
+      /** Set when an MCP tool call failed because of its server. */
+      mcpFailure?: McpFailure;
     }
   /** A plan/todo-list update (`TodoWrite` on Claude) — carries structured
    * `todos` instead of opaque `input` because, unlike an arbitrary tool call,

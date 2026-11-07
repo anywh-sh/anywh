@@ -101,6 +101,11 @@ relay/src/
                            one is rooted at the session's cwd by
                            construction and cannot reach a config home at
                            all
+  integrations/            ticket trackers reached through the MCP servers
+                           a profile's agent CLIs already have (Jira today):
+                           types.ts is the wire contract, mirrored on the
+                           client (lib/integrations/model.ts) and held
+                           identical by a parity test
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

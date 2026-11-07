@@ -1,3 +1,4 @@
+import type { TicketTag } from "../integrations/types.js";
 import type { AgentEvent } from "../protocol/agent-event.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
@@ -70,7 +71,7 @@ export interface SessionManagerRoomOptions {
  * never opened this session as a tab — e.g. a session created on mobile,
  * appearing live in the desktop sidebar. */
 export type SessionListEvent =
-  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true; activity?: SessionActivity }
+  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true; activity?: SessionActivity; workTicket?: TicketTag }
   | { type: "remove"; id: string };
 
 /** What makes a session different from one a person types into. */

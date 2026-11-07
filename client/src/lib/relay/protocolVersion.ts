@@ -21,5 +21,9 @@
  * 3 -> 4: the `room` card on `user_message` (digests and agent
  * instructions) — see the relay's copy for why an old client still needs
  * the bump.
+ *
+ * 4 -> 5: `mcpFailure` on `tool_ended`, `activity` on the session list and
+ * the new `mcp_state` message — see the relay's copy for why an old client
+ * still needs the bump.
  */
-export const WS_PROTOCOL_VERSION = 4;
+export const WS_PROTOCOL_VERSION = 5;

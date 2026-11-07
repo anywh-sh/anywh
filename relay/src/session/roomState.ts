@@ -2,6 +2,7 @@
 // waiting for the person, and the totals a room's header needs. Built from
 // what is persisted plus whether an agent has a turn running, so it reads the
 // same whether an agent's process is awake or hibernated. Pure.
+import type { RoomAgentTicket, RoomTicketView } from "../integrations/types.js";
 import type { RoomAction } from "./roomActivity.js";
 import type { SubtaskInfo } from "../runtimes/sessionDriver.js";
 import { ROOM_MAX_LIVE_AGENTS, takesRoomPlace, type RoomAgentState, type RoomReport, type RoomRole } from "./room.js";
@@ -116,6 +117,8 @@ export interface RoomAgentView {
    * for the card's log. Not kept with the room: it is added when the state
    * is sent. */
   activity?: RoomAction[];
+  /** The ticket it works on. Never set on the principal. */
+  ticket?: RoomAgentTicket;
 }
 
 export interface RoomSummary {
@@ -127,6 +130,9 @@ export interface RoomSummary {
   /** Agents holding a place under the room's cap. */
   live: number;
   liveLimit: number;
+  /** The tickets its agents work on, and those the principal holds to
+   * delegate; absent when there are none. */
+  tickets?: RoomTicketView[];
 }
 
 const STATES: readonly RoomAgentState[] = ["working", "awaiting_user", "queued", "waiting", "done", "blocked", "failed", "stopped"];
