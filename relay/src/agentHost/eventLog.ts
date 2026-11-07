@@ -487,7 +487,13 @@ export class LogReader {
       let target = first;
       for (const segment of segments) if (segment.base <= offset) target = segment;
       try {
-        this.handle = await open(target.path, "r");
+        const handle = await open(target.path, "r");
+        // Closed while the file was being opened: nobody will close it later.
+        if (this.closed) {
+          await handle.close().catch(() => {});
+          return { kind: "end" };
+        }
+        this.handle = handle;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; // retention raced us
         throw error;
