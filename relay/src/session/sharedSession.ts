@@ -289,6 +289,9 @@ export interface SharedSessionOptions {
    * front of it would turn into plain chat: none is given then, and none
    * is used up. */
   workTicketLine?: (start: TicketRef | undefined, firstTurn: boolean, command: boolean) => TicketLine | undefined;
+  /** The conversation that was told its ticket is gone (`/clear`, or an
+   * edit back to before that turn): the next person's turn tells it again. */
+  onTicketLineLost?: () => void;
 }
 
 /** Why a `choice_answer` was refused; the card stays open. */
@@ -443,6 +446,9 @@ export class SharedSession implements SessionDriverHost {
    * after the clear (its normal guard only looks at `history.length`,
    * which we deliberately zero out on clear). */
   private historyCleared = false;
+  /** Where in `history` the turn that told the agent its work ticket
+   * starts, while this process has seen it. */
+  private ticketLineAt: number | undefined;
   /** Set once history recovery starts, so a session with nothing to recover
    * is not asked again on every connection (for Codex, each ask is a daemon
    * round trip). */
@@ -1379,6 +1385,11 @@ export class SharedSession implements SessionDriverHost {
       return;
     }
 
+    // Back to before the turn that told the agent its ticket (or to before
+    // the first turn: a new conversation), the next one tells it again.
+    // Where that turn was is known only in this process; after a restart a
+    // rewind keeps the agent's word for it.
+    if (target.turnsBefore === 0 || (this.ticketLineAt !== undefined && target.cutIndex <= this.ticketLineAt)) this.ticketLineLost();
     this.history.length = target.cutIndex;
     this.contextUsage = undefined;
     if (target.turnsBefore > 0) {
@@ -1524,6 +1535,11 @@ export class SharedSession implements SessionDriverHost {
    * left tying the next turn to the old folder (see the comment about the
    * lock in `runTurn`), so the session can pick another one again, just
    * like a new session. */
+  private ticketLineLost(): void {
+    this.ticketLineAt = undefined;
+    this.options.onTicketLineLost?.();
+  }
+
   clearConversation(): void {
     // A fresh conversation: nothing left that the model could be waiting for.
     this.discardAndNote();
@@ -1539,6 +1555,7 @@ export class SharedSession implements SessionDriverHost {
       // conversation and gets its own `baseline`.
       this.attributor = new ContextAttributor({ hasPriorConversation: false });
       this.options.onSessionIdClear?.();
+      this.ticketLineLost();
       // Same reasoning as the session_id/history reset above: the title
       // described the conversation that no longer exists. Also rearms
       // `onFirstPrompt` so the next real message gets a fresh one
@@ -1644,6 +1661,8 @@ export class SharedSession implements SessionDriverHost {
       for (const message of hold.buffer.splice(0)) this.broadcast(message);
     };
     let silenced = false;
+    // Where this turn starts in `history` (an edit cuts there).
+    const turnStart = this.history.length;
     emit({ type: "agent_event", event: clock.turnStarted() });
 
     // Syncs the question to the OTHER devices connected to this same
@@ -1720,6 +1739,7 @@ export class SharedSession implements SessionDriverHost {
       // wakeup, a job's report or another agent's message.
       const ticket = ticketLine ?? (origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(startTicket, firstTurn, text.trim().startsWith("/")) : undefined);
       const body = ticket ? withTicketLine(text, ticket.key, ticket.provider, ticket.kind) : text;
+      if (ticket?.kind === "work") this.ticketLineAt = turnStart;
       const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(body, card) : body);
       const ctx: TurnContext = {
         cwd: this.cwd,

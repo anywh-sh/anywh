@@ -211,6 +211,16 @@ export class TicketLinks {
     return { ...link.ticket };
   }
 
+  /** The agent of `sessionId` lost what it was told (its conversation was
+   * cleared or rewound): the person's next message tells it again. */
+  rearmLine(sessionId: string): void {
+    const link = this.bySession.get(sessionId);
+    if (!link || link.lineDue) return;
+    link.lineDue = true;
+    this.persist();
+    this.emit({ type: "work_ticket_upsert", link: copy(link) });
+  }
+
   private emit(event: TicketLinkEvent): void {
     for (const listener of this.listeners) {
       try {

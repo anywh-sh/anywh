@@ -311,6 +311,7 @@ sessionManager.setWorkTickets({
   },
   observe: (id, agentId, event) => ticketObserver.observe(id, agentId, event),
   forget: (id) => ticketLinks.unlink(id),
+  lineLost: (id) => ticketLinks.rearmLine(id),
   takeLine: (id, start, firstTurn, command) => {
     // A room's principal is handed a ticket, with any message, to pass on to
     // the agent it delegates that work to; it never works on one itself.

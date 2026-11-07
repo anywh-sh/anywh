@@ -100,6 +100,9 @@ export interface SessionWorkTickets {
    * told about yet (once), or one a room's principal is to pass on. A slash
    * command (`command`) gets no line and uses none up. */
   takeLine(sessionId: string, start: TicketRef | undefined, firstTurn: boolean, command: boolean): TicketLine | undefined;
+  /** The session's conversation no longer knows its ticket: the next
+   * person's turn tells it again. */
+  lineLost(sessionId: string): void;
 }
 
 /** What a relay with tracker integrations knows about its sessions' MCP
@@ -642,6 +645,7 @@ export class SessionManager {
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
       onActivityStateChange: () => this.announceActivity(id),
       workTicketLine: (start, firstTurn, command) => this.workTickets?.takeLine(id, start, firstTurn, command),
+      onTicketLineLost: () => this.workTickets?.lineLost(id),
       mcpState: (agentId, sessionCwd) => this.mcpServers?.stateOf(agentId, sessionCwd),
       onMcpServersObserved: (agentId, servers, sessionCwd) => this.mcpServers?.observed(agentId, servers, sessionCwd),
       onMcpFailure: (agentId, failure, sessionCwd) => this.mcpServers?.failed(agentId, failure, sessionCwd),

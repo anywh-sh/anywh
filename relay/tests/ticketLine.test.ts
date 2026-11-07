@@ -193,6 +193,35 @@ test("a slash command goes out bare and leaves the line for the next message", a
   assert.equal(promptOf("after the command"), "Jira ticket: NGL-22\n\nafter the command");
 });
 
+test("/clear and an edit back to before the told turn tell the agent again; a later edit does not", async () => {
+  const chat = await session("s-clear");
+  await send(chat, "before clear", ticket("NGL-23"));
+  assert.equal(promptOf("before clear"), "Jira ticket: NGL-23\n\nbefore clear");
+  const since = chat.recorded.mark();
+  chat.socket.send(JSON.stringify({ type: "clear_conversation" }));
+  await chat.recorded.waitFor((message) => message.type === "conversation_reset", since);
+  assert.equal((await linksNow()).find((each) => each.sessionId === "s-clear")?.lineDue, true);
+  await send(chat, "after clear");
+  assert.equal(promptOf("after clear"), "Jira ticket: NGL-23\n\nafter clear");
+
+  const edited = await session("s-edit");
+  await send(edited, "edit one");
+  await linkByHand("s-edit", "NGL-24");
+  await send(edited, "edit two");
+  await send(edited, "edit three");
+  assert.equal(promptOf("edit two"), "Jira ticket: NGL-24\n\nedit two");
+  // A turn after the told one: the agent still knows.
+  let mark = edited.recorded.mark();
+  edited.socket.send(JSON.stringify({ type: "edit_message", fromEnd: 1, text: "edit three again" }));
+  await edited.recorded.waitFor(isTurnEnded, mark, 15_000);
+  assert.equal(promptOf("edit three again"), "edit three again");
+  // The told turn itself.
+  mark = edited.recorded.mark();
+  edited.socket.send(JSON.stringify({ type: "edit_message", fromEnd: 2, text: "edit two again" }));
+  await edited.recorded.waitFor(isTurnEnded, mark, 15_000);
+  assert.equal(promptOf("edit two again"), "Jira ticket: NGL-24\n\nedit two again");
+});
+
 test("after a relay restart the history rebuilt from each agent's own storage shows only the typed text", async () => {
   await stop();
   await start();
