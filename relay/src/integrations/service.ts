@@ -62,6 +62,11 @@ export const INTEGRATIONS_RESCAN_AFTER_MS = 60_000;
 /** Ticket screens kept in the cache (and on disk); the least recently read
  * goes first. */
 export const MAX_CACHED_TICKETS = 100;
+/** After a sign-in, the ticket screens asked for this recently (at most
+ * this many, the latest first) are read again with the list: likely still
+ * on someone's screen. The rest wait for their next open. */
+export const SIGN_IN_TICKETS_WINDOW_MS = 10 * 60_000;
+export const SIGN_IN_TICKETS_MAX = 5;
 
 /** The force floor, overridable by its env var (a non-negative integer of
  * ms; anything else keeps the default). */
@@ -175,6 +180,8 @@ interface QuerySlot {
   /** When the read whose data is shown started: an older one finishing
    * later is dropped. */
   appliedFrom?: number;
+  /** When a client last asked for it (a ticket screen opened). */
+  askedAt?: number;
 }
 
 interface IntegrationSlot {
@@ -309,8 +316,9 @@ export class IntegrationService {
     if (!integration || !validParam(request.query, request.param)) return Promise.resolve("unavailable");
     const key = slotKey(request.query, request.param);
     const existing = integration.queries.get(key);
-    if (existing?.inFlight) return existing.inFlight.then(() => "joined" as const);
     const now = this.now();
+    if (existing) existing.askedAt = now;
+    if (existing?.inFlight) return existing.inFlight.then(() => "joined" as const);
     const hasData = existing?.observedAt !== undefined;
     const floor = existing?.lastCallAt !== undefined ? existing.lastCallAt + this.forceFloorMs : undefined;
     if (request.force) {
@@ -324,6 +332,7 @@ export class IntegrationService {
     }
     if (!this.deps.reader) return Promise.resolve("unavailable");
     const slot = existing ?? this.newSlot(integration, request.query, request.param);
+    slot.askedAt = now;
     return this.read(integration, slot, request.force ? "manual" : "open", undefined).then(() => "read" as const);
   }
 
@@ -399,19 +408,27 @@ export class IntegrationService {
 
   /** A server got signed in: the service's own processes of that CLI load
    * the token, the inventory says so, every client is sent the state again
-   * and the cached queries are read anew. */
+   * and what is likely on screen is read anew — the list the person
+   * chose, and the ticket screens asked for a moment ago. Every other
+   * cached query stays as it is until it is opened: reading them all at
+   * once would be a burst of calls on one process. The floor does not
+   * apply: the last reads failed for want of this sign-in. */
   async signedIn(entry: McpInventoryEntry): Promise<void> {
     if (this.closed) return;
     await this.deps.reloadMcp?.(entry.runtimeId).catch((error: unknown) => this.deps.log?.(`[integrations] reload after a sign-in failed: ${(error as Error).message}`));
     await this.rescanRuntime(entry.runtimeId, entry.cwd);
     this.notify();
+    if (!this.deps.reader || this.closed) return;
+    const now = this.now();
     for (const integration of this.integrations.values()) {
-      const slots = [...integration.queries.values()];
-      if (slots.length === 0) {
-        void this.refresh({ id: integration.definition.id, query: "mine", param: integration.prefs.project, force: false });
-        continue;
+      const tickets = [...integration.queries.values()]
+        .filter((slot) => slot.query === "ticket" && slot.askedAt !== undefined && now - slot.askedAt <= SIGN_IN_TICKETS_WINDOW_MS)
+        .sort((a, b) => (b.askedAt ?? 0) - (a.askedAt ?? 0))
+        .slice(0, SIGN_IN_TICKETS_MAX);
+      const mine = integration.queries.get(slotKey("mine", integration.prefs.project)) ?? this.newSlot(integration, "mine", integration.prefs.project);
+      for (const slot of [mine, ...tickets]) {
+        if (!slot.inFlight) void this.read(integration, slot, "manual", undefined);
       }
-      for (const slot of slots) void this.refresh({ id: integration.definition.id, query: slot.query, param: slot.param, force: true });
     }
   }
 

@@ -8,6 +8,7 @@ import {
   INTEGRATIONS_FORCE_FLOOR_ENV,
   INTEGRATIONS_FORCE_FLOOR_MS,
   MAX_CACHED_TICKETS,
+  SIGN_IN_TICKETS_WINDOW_MS,
   IntegrationService,
   integrationsForceFloorFromEnv,
   type IntegrationInventory,
@@ -452,4 +453,35 @@ test("past the cap, the least recently read ticket screen goes, never the one ju
   assert.equal(screen?.query === "ticket" ? screen.detail?.key : undefined, "ABC-2");
   assert.ok(!tickets().includes("NGL-2"));
   assert.equal(tickets().length, MAX_CACHED_TICKETS);
+});
+
+test("a sign-in reads again the chosen list and the ticket screens asked a moment ago, nothing else", async () => {
+  const h = harness();
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // A list of another project and a screen asked long ago, both cached.
+  void h.service.refresh({ id: "jira", query: "mine", param: "ABC", force: false });
+  h.answer({ ok: true, runtimeId: "claude", site: SITE, items: [row("ABC-1")] });
+  void h.service.refresh({ id: "jira", query: "ticket", param: "ABC-1", force: false });
+  h.answer({ ok: true, runtimeId: "claude", detail: { ...row("ABC-1"), comments: [] } });
+  await settle();
+  h.advance(SIGN_IN_TICKETS_WINDOW_MS + 1);
+  // Screens the agent read, never asked for by a client.
+  for (const key of ["NGL-7", "NGL-8"]) h.service.observeTickets("jira", { detail: { ...row(key), comments: [] } });
+  // The chosen list and a screen just opened, both failing for want of a sign-in.
+  assert.ok(h.service.setPrefs("jira", { project: "NGL" }));
+  void h.service.refresh({ id: "jira", query: "mine", param: "NGL", force: false });
+  h.answer({ ok: false, status: "needs_auth", error: { kind: "tool", message: "sign in" } });
+  void h.service.refresh({ id: "jira", query: "ticket", param: "NGL-1", force: false });
+  h.answer({ ok: false, status: "needs_auth", error: { kind: "tool", message: "sign in" } });
+  await settle();
+  const before = h.requests.length;
+
+  const entry = h.inventory.entries().find((each) => each.name === "claude.ai Atlassian");
+  assert.ok(entry);
+  await h.service.signedIn(entry);
+  assert.deepEqual(
+    h.requests.slice(before).map((request) => `${request.query}:${request.param}`),
+    ["mine:NGL", "ticket:NGL-1"],
+    "inside the floor too",
+  );
 });
