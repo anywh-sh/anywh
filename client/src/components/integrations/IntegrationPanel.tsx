@@ -14,7 +14,7 @@ import { integrationDataState, pickFetchRuntime, runtimesNeedingAuth, siteHost }
 import type { IntegrationProvider, IntegrationState, IntegrationsClientMessage, QueryState, TicketRef, WorkTicket } from "@/lib/integrations/model";
 import { mineQuery, projectOptions, queryCooldown, queryView, ticketQuery, ticketView, visibleRows } from "@/lib/integrations/tickets";
 import { canWorkHere, linksOnTicket, ticketRefFor, type WorkTicketMap } from "@/lib/integrations/workTickets";
-import { TicketSessions, TicketWorkActions } from "@/components/integrations/SessionLinkChips";
+import { TicketSessions, TicketWorkActions, useProfileRooms, type TicketRoomChoice } from "@/components/integrations/SessionLinkChips";
 import type { Profile } from "@/lib/profiles/profiles";
 
 interface IntegrationPanelProps {
@@ -30,6 +30,10 @@ interface IntegrationPanelProps {
   onNewSession: (ticket: TicketRef) => void;
   /** A session listed on a ticket's screen. */
   onOpenSession: (sessionId: string, title: string | null) => void;
+  /** "Work on it in a room…": one of the profile's rooms, or a new one. */
+  onWorkInRoom: (ticket: TicketRef, room: TicketRoomChoice | null) => void;
+  /** A room's agent listed on a ticket's screen. */
+  onOpenRoomAgent: (roomId: string, roomTitle: string | null, agentId: string) => void;
   maximized: boolean;
   onToggleMaximized: () => void;
   onClose: () => void;
@@ -44,7 +48,7 @@ interface IntegrationPanelProps {
  * there; ↻ reads again. While an agent has to sign in, the pane says so
  * first and opens the connect card.
  */
-export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTicket, sessionId, onNewSession, onOpenSession, maximized, onToggleMaximized, onClose }: IntegrationPanelProps) {
+export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTicket, sessionId, onNewSession, onOpenSession, onWorkInRoom, onOpenRoomAgent, maximized, onToggleMaximized, onClose }: IntegrationPanelProps) {
   const dict = useDict();
   const integrations = useProfileIntegrations(profile.id);
   const integration = integrations?.entry.integrations?.find((entry) => entry.id === integrationId);
@@ -79,6 +83,8 @@ export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTick
             sessionId={sessionId}
             onNewSession={onNewSession}
             onOpenSession={onOpenSession}
+            onWorkInRoom={onWorkInRoom}
+            onOpenRoomAgent={onOpenRoomAgent}
           />
         )}
       </div>
@@ -101,12 +107,15 @@ interface BodyProps {
   sessionId: string | null;
   onNewSession: (ticket: TicketRef) => void;
   onOpenSession: (sessionId: string, title: string | null) => void;
+  onWorkInRoom: (ticket: TicketRef, room: TicketRoomChoice | null) => void;
+  onOpenRoomAgent: (roomId: string, roomTitle: string | null, agentId: string) => void;
 }
 
-function IntegrationBody({ profileId, integration, provider, stale, receivedAt, send, ticketKey, onOpenTicket, links, sessionId, onNewSession, onOpenSession }: BodyProps) {
+function IntegrationBody({ profileId, integration, provider, stale, receivedAt, send, ticketKey, onOpenTicket, links, sessionId, onNewSession, onOpenSession, onWorkInRoom, onOpenRoomAgent }: BodyProps) {
   const dict = useDict();
   const copy = dict.integrations.tickets;
   const canRead = !stale && pickFetchRuntime(integration) !== undefined;
+  const rooms = useProfileRooms(profileId);
   // `send` changes with every state the relay pushes; the effects below
   // must fire on what they read, not on that.
   const sendRef = useRef(send);
@@ -170,7 +179,7 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
             {view === "error" ? <p className="text-sm text-destructive">{copy.ticket.error}</p> : view === "needs_auth" ? <QueryNeedsAuth profileId={profileId} integration={integration} provider={provider} /> : <p className="text-sm text-text-faint">{copy.ticket.loading}</p>}
           </div>
         }
-        sessions={links !== null && <TicketSessions profileId={profileId} links={onTicket} onOpen={onOpenSession} />}
+        sessions={links !== null && <TicketSessions profileId={profileId} links={onTicket} onOpen={onOpenSession} onOpenRoomAgent={onOpenRoomAgent} />}
         footer={
           <TicketWorkActions
             workHere={workHere}
@@ -178,6 +187,8 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
               if (ticket && sessionId) sendRef.current({ type: "work_ticket", sessionId, action: "link", ticket });
             }}
             onNewSession={ticket ? () => onNewSession(ticket) : null}
+            rooms={rooms}
+            onWorkInRoom={ticket ? (room) => onWorkInRoom(ticket, room) : null}
           />
         }
         onBack={() => onOpenTicket(null)}

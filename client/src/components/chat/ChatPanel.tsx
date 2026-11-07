@@ -93,6 +93,12 @@ interface ChatPanelProps {
   onClearPendingTicket?: () => void;
   /** The work ticket's chip opens its screen (desktop: the dock). */
   onShowTicket?: (ticket: TicketTag) => void;
+  /** A room's principal: `pendingTicket` is carried to the agent it
+   * delegates, on any message, and never becomes this session's own — the
+   * chip goes with the message. */
+  carriesTicket?: boolean;
+  /** The new-session screen opens on Room ("New room" on a ticket's screen). */
+  startsRoom?: boolean;
   /** A new-session tab opened a room instead of a conversation: `roomId` is
    * the room's id. */
   onRoomCreated?: (roomId: string, title: string) => void;
@@ -232,6 +238,8 @@ export function ChatPanel({
   pendingTicket = null,
   onClearPendingTicket,
   onShowTicket,
+  carriesTicket = false,
+  startsRoom = false,
   onRoomCreated,
   onTurnComplete,
   onTurnActiveChange,
@@ -833,7 +841,7 @@ export function ChatPanel({
   const showingIdle = (isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0;
   // The new-session screen's type choice: a room is opened from the same
   // composer, whose agent/model/effort become its principal.
-  const [sessionType, setSessionType] = useState<SessionType>("conversation");
+  const [sessionType, setSessionType] = useState<SessionType>(startsRoom ? "room" : "conversation");
   // Only before the conversation has had a turn: a tab that was emptied with
   // /clear is still the same session, and a room cannot be made out of it.
   const canChooseType = Boolean(isNewConversation) && showingIdle && !isIOS() && !cwdLocked;
@@ -861,6 +869,9 @@ export function ChatPanel({
       permissionMode: permissionMode ?? undefined,
       cwd: cwd ?? undefined,
       title: title === "" ? undefined : title,
+      // Handed to the principal with the first message, for the agent it
+      // delegates that work to.
+      ...(pendingTicket ? { ticket: pendingTicket.key } : {}),
     }).then(
       (roomId) => {
         images.clearWithoutRevoke();
@@ -935,7 +946,7 @@ export function ChatPanel({
     // agent in a line of its own; the bubble keeps only what was typed.
     sendMessage(buildWireMessage(text, sentImages), pendingTicket ?? undefined);
     if (pendingTicket) {
-      setStartedTicket(pendingTicket);
+      if (!carriesTicket) setStartedTicket(pendingTicket);
       onClearPendingTicket?.();
     }
     images.clearWithoutRevoke();

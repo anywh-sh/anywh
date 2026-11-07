@@ -12,6 +12,7 @@ import { markSessionCompleted } from "@/lib/format/sessionCompletion";
 import { notifyTurnComplete } from "@/lib/platform/notifications";
 import type { Profile } from "@/lib/profiles/profiles";
 import { discardBlankSession } from "@/lib/sala/firstMessage";
+import { requestRoomFocus } from "@/lib/sala/roomFocus";
 
 interface UseTabPanelActionsArgs {
   dict: Dictionary;
@@ -160,6 +161,25 @@ export function useTabPanelActions({
         sessionDock.showIntegration(id, integrationId, null);
       },
       onClearPendingTicket: (tabId) => tabsState.setPendingTicket(tabId, null),
+      onWorkInRoom: (profile, ticket, integrationId, room) => {
+        if (room === null) {
+          // The new-session screen on Room, the ticket beside the folder.
+          const id = crypto.randomUUID();
+          tabsState.openTab(profile.id, id, null, true);
+          tabsState.setPendingTicket(id, ticket, true);
+          sessionDock.showIntegration(id, integrationId, null);
+          return;
+        }
+        // The room's principal gets the ticket as a chip in its composer;
+        // nothing is sent until the person sends.
+        tabsState.openTab(profile.id, room.id, room.title, false, true);
+        tabsState.setPendingTicket(room.id, ticket);
+        requestRoomFocus(room.id, null);
+      },
+      onOpenRoomAgent: (profile, roomId, roomTitle, agentId) => {
+        tabsState.openTab(profile.id, roomId, roomTitle, false, true);
+        requestRoomFocus(roomId, agentId);
+      },
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),

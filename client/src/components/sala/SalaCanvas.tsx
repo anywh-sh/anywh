@@ -89,6 +89,8 @@ export interface SalaCanvasHandle {
   removeAgent: (agentId: string) => void;
   /** Selects a subtask's mini-card, its bar open, and brings it into view. */
   selectSubtask: (agentId: string, taskId: string) => void;
+  /** Selects an agent's card and brings it into view. */
+  focusAgent: (agentId: string) => void;
 }
 
 interface Toast {
@@ -1104,7 +1106,20 @@ export function SalaCanvas(props: SalaCanvasProps) {
     },
     [select],
   );
-  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne, selectSubtask }), [askRemoveOne, selectSubtask]);
+  const focusAgent = useCallback(
+    (agentId: string): void => {
+      const agent = latest.current.agents.find((a) => a.agentId === agentId);
+      const card = cardRects(latest.current.agents, latest.current.canvas.positions).get(agentId);
+      if (!agent || !card) return;
+      // The principal is never selected: it has no bar.
+      if (agent.role !== "principal") select(agentId);
+      follow.current = false;
+      const next = revealCamera(cam().effective, card, vpSize.current);
+      if (next !== cam().effective) cam().animate(next, 440);
+    },
+    [select],
+  );
+  useImperativeHandle(props.handleRef, () => ({ removeAgent: askRemoveOne, selectSubtask, focusAgent }), [askRemoveOne, selectSubtask, focusAgent]);
 
   const confirmView = ((): SalaConfirmView | null => {
     if (!confirm) return null;

@@ -31,6 +31,9 @@ export interface Tab {
    * ticket its first message starts it on. Cleared on that send, or by the
    * person. */
   pendingTicket?: TicketRef;
+  /** With `pendingTicket`: the new-session screen opens on Room ("New room"
+   * on a ticket's screen). */
+  startsRoom?: true;
 }
 
 /** One column of the split — up to `MAX_GROUPS` side by side (see the
@@ -62,6 +65,7 @@ interface PersistedTab {
   title: string | null;
   room?: boolean;
   pendingTicket?: unknown;
+  startsRoom?: boolean;
 }
 
 interface PersistedTabs {
@@ -151,11 +155,17 @@ function initialState(): TabsState {
 }
 
 /** The state with tab `tabId` renamed `roomId` and turned into a room tab,
- * wherever it sits (pool, group order, active marker). Unchanged when there
- * is no such tab. Pure. */
+ * wherever it sits (pool, group order, active marker), without the ticket it
+ * was to start on. Unchanged when there is no such tab. Pure. */
 export function replaceTabWithRoom(state: TabsState, tabId: string, roomId: string, title: string | null): TabsState {
   if (!state.tabs.some((tab) => tab.id === tabId)) return state;
-  const tabs = state.tabs.map((tab) => (tab.id === tabId ? { ...tab, id: roomId, title, isNew: false, room: true, ...(title !== null ? { titlePending: true } : {}) } : tab));
+  const tabs = state.tabs.map((tab) => {
+    if (tab.id !== tabId) return tab;
+    // A new session's ticket went to the room with its first message: the
+    // room's principal does not carry it again.
+    const { pendingTicket: _sent, startsRoom: _room, ...rest } = tab;
+    return { ...rest, id: roomId, title, isNew: false, room: true as const, ...(title !== null ? { titlePending: true } : {}) };
+  });
   const groups = state.groups.map((group) => ({
     ...group,
     tabIds: group.tabIds.map((id) => (id === tabId ? roomId : id)),
@@ -312,6 +322,7 @@ export function useTabs() {
       title: tab.title,
       ...(tab.room ? { room: true } : {}),
       ...(tab.pendingTicket ? { pendingTicket: tab.pendingTicket } : {}),
+      ...(tab.pendingTicket && tab.startsRoom ? { startsRoom: true } : {}),
     }));
     localStorage.setItem(TABS_KEY, JSON.stringify(persistedTabs));
     const focusedGroup = state.groups.find((group) => group.id === state.focusedGroupId);
@@ -537,7 +548,7 @@ export function useTabs() {
   /** The ticket a new session starts on (`null`: none). No `stateRef` guard:
    * it is set in the same batch as the `openTab` that creates the tab, before
    * that tab is committed. */
-  const setPendingTicket = useCallback((tabId: string, ticket: TicketRef | null) => {
+  const setPendingTicket = useCallback((tabId: string, ticket: TicketRef | null, startsRoom = false) => {
     setState((prev) => {
       const tab = prev.tabs.find((t) => t.id === tabId);
       if (!tab || (ticket === null && !tab.pendingTicket)) return prev;
@@ -545,9 +556,9 @@ export function useTabs() {
         ...prev,
         tabs: prev.tabs.map((t) => {
           if (t.id !== tabId) return t;
-          if (ticket) return { ...t, pendingTicket: ticket };
-          const { pendingTicket: _cleared, ...rest } = t;
-          return rest;
+          const { pendingTicket: _cleared, startsRoom: _room, ...rest } = t;
+          if (!ticket) return rest;
+          return { ...rest, pendingTicket: ticket, ...(startsRoom ? { startsRoom: true as const } : {}) };
         }),
       };
     });
@@ -580,7 +591,7 @@ export function useTabs() {
         isNew: false,
         ...(persisted.room === true ? { room: true } : {}),
         // Validated, not trusted: it is sent to the relay as is.
-        ...(isTicketRef(persisted.pendingTicket) ? { pendingTicket: persisted.pendingTicket } : {}),
+        ...(isTicketRef(persisted.pendingTicket) ? { pendingTicket: persisted.pendingTicket, ...(persisted.startsRoom === true ? { startsRoom: true as const } : {}) } : {}),
       }));
       const layout = getPersistedLayout(persistedTabs, activeTabId ?? tabs[tabs.length - 1]?.id ?? null);
       return normalize({ tabs, groups: layout.groups, focusedGroupId: layout.focusedGroupId });

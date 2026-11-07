@@ -68,6 +68,13 @@ export interface TabPanelActions {
   onNewTicketSession: (profile: Profile, ticket: TicketRef, integrationId: string) => void;
   /** The new session will not start on a ticket after all. */
   onClearPendingTicket: (tabId: string) => void;
+  /** "Work on it in a room…" on a ticket's screen: an existing room's tab
+   * with the ticket for its principal to delegate, or (`room` null) a
+   * new-session tab on Room that starts on the ticket. */
+  onWorkInRoom: (profile: Profile, ticket: TicketRef, integrationId: string, room: { id: string; title: string | null } | null) => void;
+  /** A room's agent listed on a ticket's screen: the room's tab, the agent
+   * in view and its conversation open. */
+  onOpenRoomAgent: (profile: Profile, roomId: string, roomTitle: string | null, agentId: string) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -138,6 +145,7 @@ const TabChat = memo(function TabChat({
       sessionId={tab.id}
       isNewConversation={tab.isNew}
       pendingTicket={tab.pendingTicket ?? null}
+      startsRoom={tab.startsRoom === true}
       onClearPendingTicket={() => actions.onClearPendingTicket(tab.id)}
       // The ticket's screen lives in the dock, which only the desktop has.
       onShowTicket={noPanes ? undefined : (ticket) => actions.onShowTicket(tab.id, ticket.provider, ticket.key)}
@@ -204,6 +212,8 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
             sessionId={tab.room || (tab.isNew && tab.title === null) ? null : tab.id}
             onNewSession={(ticket) => actions.onNewTicketSession(profile, ticket, integrationId)}
             onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+            onWorkInRoom={(ticket, room) => actions.onWorkInRoom(profile, ticket, integrationId, room)}
+            onOpenRoomAgent={(roomId, roomTitle, agentId) => actions.onOpenRoomAgent(profile, roomId, roomTitle, agentId)}
             maximized={dock.maximized === "integration"}
             onToggleMaximized={() => actions.onToggleMaximized(tab.id, "integration")}
             onClose={() => actions.onClosePane(tab.id, "integration")}
@@ -326,6 +336,10 @@ export const TabPanel = memo(function TabPanel({
           onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
           onGone={() => actions.onDeleted(tab)}
           onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+          pendingTicket={tab.pendingTicket ?? null}
+          onClearPendingTicket={() => actions.onClearPendingTicket(tab.id)}
+          // The ticket's screen lives in the dock, which only the desktop has.
+          onShowTicket={roomDock ? (ticket) => actions.onShowTicket(tab.id, ticket.provider, ticket.key) : null}
           dock={roomDock}
         />
       </>

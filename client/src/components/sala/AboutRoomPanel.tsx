@@ -11,6 +11,9 @@ import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { formatBytes, formatTokens, retainedWorktrees, roomCounts, usageRows } from "@/lib/sala/roomFigures";
 import { isRoomCompleted } from "@/lib/sala/roomStatus";
 import { profileColorVar, type Profile } from "@/lib/profiles/profiles";
+import type { RoomTicketView, TicketTag } from "@/lib/integrations/model";
+import { IntegrationIcon } from "@/components/integrations/IntegrationIcon";
+import { TicketStatusDot, useCachedTicket } from "@/components/integrations/RoomTicketChip";
 
 interface AboutRoomPanelProps {
   profile: Profile;
@@ -19,6 +22,10 @@ interface AboutRoomPanelProps {
   /** The room's title is still the provisional text. */
   titlePending?: boolean;
   agents: readonly RoomAgent[];
+  /** The tickets the room works on, as the relay gathers them. */
+  tickets: readonly RoomTicketView[];
+  /** Opens a ticket's screen; absent where there is no pane for it. */
+  onShowTicket?: (ticket: TicketTag) => void;
   /** Changes whenever something an agent reports could have changed what the panel shows. */
   refreshKey: string;
   shell: RoomPaneShell;
@@ -34,13 +41,42 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** One ticket the room works on: key, title (its own or the cache's), where
+ * it stands, and who works on it — or that the principal still holds it. */
+function RoomTicketRow({ profileId, ticket, who, onOpen }: { profileId: string; ticket: RoomTicketView; who: string; onOpen?: () => void }) {
+  const cached = useCachedTicket(profileId, ticket);
+  const name = ticket.title ?? cached.title;
+  const content = (
+    <>
+      <IntegrationIcon provider={ticket.provider} className="size-3.5 shrink-0 text-primary" />
+      <span className="mono">{ticket.key}</span>
+      {cached.statusCategory && <TicketStatusDot category={cached.statusCategory} label={cached.statusLabel} />}
+      <span className="grow trunc" title={name}>
+        {name ?? ""}
+      </span>
+      <span className="mono dim trunc sala-ticket-who" title={who}>
+        {who}
+      </span>
+    </>
+  );
+  return onOpen ? (
+    <button type="button" className="sala-side-row sala-ticket-row" data-room-ticket={ticket.key} onClick={onOpen}>
+      {content}
+    </button>
+  ) : (
+    <div className="sala-side-row" data-room-ticket={ticket.key}>
+      {content}
+    </div>
+  );
+}
+
 /**
  * "About this room": the headline numbers, where it runs, its areas, what
  * each agent has used, the connectors the agents called, the shared context
  * and the worktrees they made. Read from the relay when it opens and again
  * when the room's agents report something new.
  */
-export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, refreshKey, shell, onClose }: AboutRoomPanelProps) {
+export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, tickets, onShowTicket, refreshKey, shell, onClose }: AboutRoomPanelProps) {
   const dict = useDict().sala.panel.aboutRoom;
   const [members, setMembers] = useState<RoomMemberInfo[]>([]);
   const [context, setContext] = useState<RoomContextItem[] | null>(null);
@@ -139,6 +175,20 @@ export function AboutRoomPanel({ profile, roomId, title, titlePending, agents, r
           ))}
           {usage.length > 0 && <p className="sala-side-fine">{dict.usageNote}</p>}
         </Section>
+
+        {tickets.length > 0 && (
+          <Section title={dict.tickets}>
+            {tickets.map((ticket) => (
+              <RoomTicketRow
+                key={`${ticket.provider}:${ticket.key}`}
+                profileId={profile.id}
+                ticket={ticket}
+                who={ticket.agentIds.length > 0 ? ticket.agentIds.map(titleOf).join(", ") : dict.withPrincipal}
+                onOpen={onShowTicket && (() => onShowTicket(ticket))}
+              />
+            ))}
+          </Section>
+        )}
 
         <Section title={dict.connectors}>
           {connectors.length === 0 && <p className="sala-side-empty">{dict.connectorsEmpty}</p>}

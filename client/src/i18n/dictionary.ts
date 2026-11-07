@@ -1591,6 +1591,10 @@ export interface Dictionary {
         tokens: string;
         connectors: string;
         connectorsEmpty: string;
+        /** The tickets the room's agents work on. */
+        tickets: string;
+        /** A ticket handed to the principal that no agent works on yet. */
+        withPrincipal: string;
         context: string;
         contextBody: string;
         contextEmpty: string;
@@ -1874,6 +1878,18 @@ export interface Dictionary {
       dropPending: string;
       /** The sidebar row's key; `{key}`. */
       worksOn: string;
+      /** ✕ on a room agent's chip; `{key}`. */
+      unlinkAgent: string;
+      /** Menu of the profile's rooms (and a new one) to hand the ticket to. */
+      workInRoom: string;
+      /** The menu's last item: a new room started on the ticket. */
+      newRoom: string;
+      /** A room without a title yet. */
+      untitledRoom: string;
+      /** A room's agent on a ticket's screen: `{room} › {agent}`. */
+      roomAgent: string;
+      /** A room agent's state, as its card names it. */
+      agentStates: Record<"working" | "awaiting_user" | "queued" | "waiting" | "done" | "blocked" | "failed" | "stopped", string>;
     };
     /** A sign-in link the app opened but could not hand to any relay. */
     oauthNotice: {

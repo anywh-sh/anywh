@@ -501,6 +501,25 @@ describe("useTabs — a new session started from a ticket", () => {
     expect(restored.result.current.tabs[0].pendingTicket).toBeUndefined();
   });
 
+  it("keeps whether a new session starts as a room, and lets go of the ticket once the tab is the room", () => {
+    const { result } = renderHook(() => useTabs());
+    act(() => {
+      result.current.openTab("p1", "s1", null, true);
+      result.current.setPendingTicket("s1", ticket, true);
+    });
+    expect(result.current.tabs[0]).toMatchObject({ pendingTicket: ticket, startsRoom: true });
+
+    const restored = renderHook(() => useTabs());
+    const persisted = restored.result.current.getPersistedTabs()!;
+    act(() => restored.result.current.restoreTabs(persisted.tabs, persisted.activeTabId));
+    expect(restored.result.current.tabs[0]).toMatchObject({ pendingTicket: ticket, startsRoom: true });
+
+    // The ticket went to the room with its first message.
+    act(() => restored.result.current.convertToRoom("s1", "room-1", "Fix it"));
+    expect(restored.result.current.tabs[0].pendingTicket).toBeUndefined();
+    expect(restored.result.current.tabs[0].startsRoom).toBeUndefined();
+  });
+
   it("drops a persisted pending ticket that is not a well-formed ticket", () => {
     localStorage.setItem(
       "anywh:tabs",
