@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { inTauri } from "@/lib/platform/tauri";
+import { isMcpOAuthLink } from "@/lib/integrations/oauthDeepLink";
 import { parseImportProfileUrl } from "@/lib/profiles/profileImport";
 import { enqueueProfileSetup } from "@/lib/profiles/profileSetup";
 
@@ -32,6 +33,9 @@ export function useProfileImport(): void {
 
     function handle(urls: string[]): void {
       for (const url of urls) {
+        // An MCP sign-in's callback is `useMcpOAuthDeepLink`'s, not a
+        // malformed import.
+        if (isMcpOAuthLink(url)) continue;
         const params = parseImportProfileUrl(url);
         if (!params) {
           console.error(`useProfileImport: ignoring unrecognized deep link: ${url}`);

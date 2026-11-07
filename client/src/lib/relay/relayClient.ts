@@ -26,11 +26,13 @@ import type {
   SessionSummary,
   SetCwdErrorCode,
 } from "@/lib/relay/relay-types";
+import type { McpStateMessage, TicketRef } from "@/lib/integrations/model";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
 import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
 import { authHeaders } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { WS_PROTOCOL_VERSION } from "@/lib/relay/protocolVersion";
+import { withValidWorkTicket } from "@/lib/integrations/workTickets";
 
 export type {
   AgentEvent,
@@ -70,7 +72,7 @@ export async function fetchSessions(host: string, port: number, token?: string):
   // `lastActiveAt` is normalized rather than trusted: a relay older than the
   // release that added it sends `{id, title}` only, and an `undefined` behind
   // a `number` type reaches the sidebar as a timestamp nothing can format.
-  return (body.sessions ?? []).map((session) => ({
+  return (body.sessions ?? []).map((session) => withValidWorkTicket({
     ...session,
     lastActiveAt: typeof session.lastActiveAt === "number" ? session.lastActiveAt : null,
   }));
@@ -444,6 +446,9 @@ export interface RelayClientCallbacks {
    * changes, from any device. `failedJobs` carries jobs that finished with a
    * non-zero exit code, kept by the relay until dismissed. */
   onBackgroundJobState?: (jobs: BackgroundJobSummary[], failedJobs: FailedBackgroundJobSummary[]) => void;
+  /** The session's agent's MCP servers that belong to a known integration
+   * (`mcp_state`) — current state, sent again on every connection. */
+  onMcpState?: (state: McpStateMessage) => void;
   /** Message edit — arrives only on the OTHER devices
    * connected to the session, syncing the cut point before the
    * edited turn starts streaming. Same handling as `onReconnecting` +
@@ -702,6 +707,9 @@ export class RelayClient {
         // that version skew from crashing every consumer downstream instead
         // of just showing no failed jobs.
         this.callbacks.onBackgroundJobState?.(parsed.jobs, parsed.failedJobs ?? []);
+      } else if (parsed.type === "mcp_state") {
+        // Defensive: a malformed list draws as no servers, never a crash.
+        this.callbacks.onMcpState?.({ ...parsed, servers: Array.isArray(parsed.servers) ? parsed.servers : [] });
       } else if (parsed.type === "history_truncated") {
         this.callbacks.onHistoryTruncated?.(parsed);
       } else if (parsed.type === "edit_message_error") {
@@ -716,9 +724,12 @@ export class RelayClient {
     });
   }
 
-  sendMessage(text: string): void {
+  /** `startTicket`, on a new session's first message only: the relay links
+   * the session to it and tells the agent, in a line the person never sees
+   * (`text` stays exactly what they typed). */
+  sendMessage(text: string, startTicket?: TicketRef): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
-    this.socket.send(JSON.stringify({ type: "user_message", text }));
+    this.socket.send(JSON.stringify(startTicket ? { type: "user_message", text, startTicket } : { type: "user_message", text }));
   }
 
   stopTurn(): void {

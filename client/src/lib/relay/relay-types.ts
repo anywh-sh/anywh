@@ -3,6 +3,7 @@
 // verbatim from the relay — this file is everything else: the other message
 // types, and the wrappers that carry an AgentEvent around.
 import type { AgentEvent } from "@/lib/relay/agent-event";
+import type { McpStateMessage, TicketTag } from "@/lib/integrations/model";
 export type { AgentEvent, PlanTodo, StructuredPatchHunk, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/agent-event";
 
 /** Mirrors the relay's `PermissionMode` (relay/src/session/sessionStore.ts)
@@ -187,6 +188,9 @@ export type RelayMessage =
    * by the relay until dismissed (`dismiss_failed_background_job`) instead
    * of vanishing the instant they stop being watched. */
   | { type: "background_job_state"; jobs: BackgroundJobSummary[]; failedJobs: FailedBackgroundJobSummary[] }
+  /** The session's agent's MCP servers that belong to a known integration —
+   * current state, sent again on every new connection. */
+  | McpStateMessage
   /** Message editing — sent only to the OTHER devices connected to
    * the session (whoever edited already self-truncated optimistically, like
    * a normal send); syncs the cut-off point before the new turn starts
@@ -304,7 +308,17 @@ export interface SessionSummary {
    * is on its way (a room's principal, titled from its first message): the
    * row draws a placeholder instead. Absent from a relay older than that. */
   titlePending?: true;
+  /** What the session is doing right now, reported by the relay for every
+   * session, whether or not this device has it open. Absent when idle, and
+   * from a relay older than this field. */
+  activity?: SessionActivity;
+  /** The ticket the session works on, if any. */
+  workTicket?: TicketTag;
 }
+
+/** `"running"` while a turn runs, `"awaiting"` while a question or approval
+ * waits for the person. */
+export type SessionActivity = "running" | "awaiting";
 
 /** A profile as the relay's control API exposes it on `GET /control/profiles`
  * — one entry per `.env` file it finds on that host, live-probed for

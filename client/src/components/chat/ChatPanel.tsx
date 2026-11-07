@@ -40,6 +40,10 @@ import type { Profile } from "@/lib/profiles/profiles";
 import { useDict } from "@/i18n";
 import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
+import { McpConnectContext, McpNeedsAuthChip, useMcpConnectResolver } from "@/components/integrations/McpConnect";
+import { agentName } from "@/components/chat/AgentModelEffortButton";
+import { SessionWorkTicket } from "@/components/chat/WorkTicketChip";
+import type { TicketRef, TicketTag } from "@/lib/integrations/model";
 
 /** See `ChatPanelProps.onBackgroundActionsReady`. */
 export interface BackgroundJobActions {
@@ -82,6 +86,19 @@ interface ChatPanelProps {
   /** Tab opened via "new conversation" — shows the idle state instead of the
    * loading skeleton while the log is still empty. */
   isNewConversation?: boolean;
+  /** The ticket the first message starts this new session on ("New session"
+   * on a ticket's screen), shown as a chip beside the folder. */
+  pendingTicket?: TicketRef | null;
+  /** The pending ticket was sent, or the person let go of it. */
+  onClearPendingTicket?: () => void;
+  /** The work ticket's chip opens its screen (desktop: the dock). */
+  onShowTicket?: (ticket: TicketTag) => void;
+  /** A room's principal: `pendingTicket` is carried to the agent it
+   * delegates, on any message, and never becomes this session's own — the
+   * chip goes with the message. */
+  carriesTicket?: boolean;
+  /** The new-session screen opens on Room ("New room" on a ticket's screen). */
+  startsRoom?: boolean;
   /** A new-session tab opened a room instead of a conversation: `roomId` is
    * the room's id. */
   onRoomCreated?: (roomId: string, title: string) => void;
@@ -218,6 +235,11 @@ export function ChatPanel({
   profile,
   sessionId,
   isNewConversation,
+  pendingTicket = null,
+  onClearPendingTicket,
+  onShowTicket,
+  carriesTicket = false,
+  startsRoom = false,
   onRoomCreated,
   onTurnComplete,
   onTurnActiveChange,
@@ -451,6 +473,7 @@ export function ChatPanel({
     setDraft,
     setPresence,
     choicePrompt,
+    mcpState,
     answerChoice,
   } = useRelayClient(profile, sessionId, {
     onEvent: (event) => logRef.current.handleEvent(event),
@@ -649,6 +672,10 @@ export function ChatPanel({
     onBackgroundJobsChangeRef.current?.(backgroundJobs, failedBackgroundJobs);
   }, [backgroundJobs, failedBackgroundJobs]);
 
+  // A failed MCP call or the chip above the composer opens the connect card
+  // of the integration the server belongs to.
+  const mcpConnect = useMcpConnectResolver(profile.id, agentId, agentId ? agentName(dict.chat.composer.agentNames, agentId) : null, mcpState);
+
   // Only the latest call, and only as a string: the effect below then fires
   // once per tool call rather than once per log append, so a busy turn in a
   // background tab doesn't re-render `App` more than the tray needs.
@@ -814,7 +841,7 @@ export function ChatPanel({
   const showingIdle = (isNewConversation || ready) && log.entries.length === 0 && log.streamingEntries.length === 0;
   // The new-session screen's type choice: a room is opened from the same
   // composer, whose agent/model/effort become its principal.
-  const [sessionType, setSessionType] = useState<SessionType>("conversation");
+  const [sessionType, setSessionType] = useState<SessionType>(startsRoom ? "room" : "conversation");
   // Only before the conversation has had a turn: a tab that was emptied with
   // /clear is still the same session, and a room cannot be made out of it.
   const canChooseType = Boolean(isNewConversation) && showingIdle && !isIOS() && !cwdLocked;
@@ -842,6 +869,9 @@ export function ChatPanel({
       permissionMode: permissionMode ?? undefined,
       cwd: cwd ?? undefined,
       title: title === "" ? undefined : title,
+      // Handed to the principal with the first message, for the agent it
+      // delegates that work to.
+      ...(pendingTicket ? { ticket: pendingTicket.key } : {}),
     }).then(
       (roomId) => {
         images.clearWithoutRevoke();
@@ -857,6 +887,23 @@ export function ChatPanel({
       },
     );
   };
+
+  // The ticket the first message was sent with, shown until the relay says
+  // whether the session works on it.
+  const [startedTicket, setStartedTicket] = useState<TicketRef | null>(null);
+  const settleStartedTicket = useCallback(() => setStartedTicket(null), []);
+  const workTicketChip = renderComposer ? null : (
+    <SessionWorkTicket
+      profileId={profile.id}
+      sessionId={sessionId}
+      pendingTicket={pendingTicket}
+      onClearPending={() => onClearPendingTicket?.()}
+      startedTicket={startedTicket}
+      onStartedSettled={settleStartedTicket}
+      turnInFlight={turnInFlight}
+      onShowTicket={onShowTicket}
+    />
+  );
 
   const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
     // Editing via composer (iOS) — the normal send (slash
@@ -895,7 +942,13 @@ export function ChatPanel({
       return;
     }
     log.addUserMessage(text, sentImages);
-    sendMessage(buildWireMessage(text, sentImages));
+    // A session started from a ticket: the relay links it and tells the
+    // agent in a line of its own; the bubble keeps only what was typed.
+    sendMessage(buildWireMessage(text, sentImages), pendingTicket ?? undefined);
+    if (pendingTicket) {
+      if (!carriesTicket) setStartedTicket(pendingTicket);
+      onClearPendingTicket?.();
+    }
     images.clearWithoutRevoke();
     setTurnStartedAt(Date.now());
     dismissSuggestion();
@@ -903,6 +956,7 @@ export function ChatPanel({
   };
 
   return (
+    <McpConnectContext.Provider value={mcpConnect}>
     <div ref={containerRef} className={cn("relative flex h-full flex-col", showingIdle && !isIOS() && "justify-center")}>
       {showingIdle && !isIOS() && <div aria-hidden="true" className="idle-grid pointer-events-none absolute inset-0 -z-10" />}
       {protocolMismatch !== null && (
@@ -993,6 +1047,7 @@ export function ChatPanel({
                 onSetCwd={setCwd}
                 onFocusComposer={() => composerRef.current?.focus()}
               />
+              {workTicketChip}
               <BackgroundJobIndicator jobs={backgroundJobs} onCancel={cancelBackgroundJob} />
             </div>
           </div>
@@ -1012,6 +1067,8 @@ export function ChatPanel({
                 onAnswer={answerChoice}
               />
             )}
+
+            <McpNeedsAuthChip mcpState={mcpState} />
 
             {renderComposer ? (
               renderComposer({
@@ -1060,6 +1117,7 @@ export function ChatPanel({
               <Composer
                 ref={composerRef}
                 profile={profile}
+                sessionId={sessionId}
                 disabled={!connected}
                 turnInFlight={turnInFlight}
                 turnStartedAt={turnStartedAt}
@@ -1088,15 +1146,18 @@ export function ChatPanel({
                 className={showingIdle ? "shadow-lift" : undefined}
                 placeholder={roomMode ? dict.sala.newSession.placeholderRoom : undefined}
                 infoStart={
-                  <WorkingDirectoryButton
-                    profile={profile}
-                    cwd={cwd}
-                    locked={cwdLocked}
-                    connected={connected}
-                    isNewConversation={isNewConversation}
-                    onSetCwd={setCwd}
-                    onFocusComposer={() => composerRef.current?.focus()}
-                  />
+                  <>
+                    <WorkingDirectoryButton
+                      profile={profile}
+                      cwd={cwd}
+                      locked={cwdLocked}
+                      connected={connected}
+                      isNewConversation={isNewConversation}
+                      onSetCwd={setCwd}
+                      onFocusComposer={() => composerRef.current?.focus()}
+                    />
+                    {workTicketChip}
+                  </>
                 }
               />
             )}
@@ -1121,5 +1182,6 @@ export function ChatPanel({
           )
         : null}
     </div>
+    </McpConnectContext.Provider>
   );
 }

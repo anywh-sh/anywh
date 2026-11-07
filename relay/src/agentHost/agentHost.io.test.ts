@@ -198,6 +198,23 @@ test("interrupt ends the turn in flight and keeps the process for the next one",
   }
 });
 
+test("a server signed in elsewhere is reconnected in a running agent's process, and nothing is sent without one", async () => {
+  const h = await harness();
+  try {
+    const control = h.file("control.jsonl");
+    assert.deepEqual(await h.client.request("mcp_reconnect", { agentId: "a0", serverName: "atlassian" }).catch((error: Error) => error.message), "no agent a0");
+    await h.client.request("spawn", { agentId: "a1", spec: spec(h, { env: { FAKE_CLAUDE_CONTROL_FILE: control } }), message: "hello" });
+    const events = h.watch("a1");
+    await waitFor(() => results(events).length === 1, 5000, "first turn");
+    assert.deepEqual(await h.client.request("mcp_reconnect", { agentId: "a1", serverName: "atlassian" }), { sent: true });
+    await waitFor(() => existsSync(control) && readFileSync(control, "utf8").includes("mcp_reconnect"), 5000, "the reconnect reached the CLI");
+    assert.deepEqual(JSON.parse(readFileSync(control, "utf8").trim().split("\n").at(-1) ?? "{}"), { subtype: "mcp_reconnect", serverName: "atlassian", persistent: true });
+    await assert.rejects(h.client.request("mcp_reconnect", { agentId: "a1" }), /serverName/);
+  } finally {
+    await h.cleanup();
+  }
+});
+
 for (const variant of ["cooperative", "ignores SIGTERM"] as const) {
   test(`stopping an agent whose tools have children leaves no process alive (${variant})`, async () => {
     const h = await harness({ stopGraceMs: variant === "cooperative" ? 3000 : 300 });

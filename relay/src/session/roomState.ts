@@ -2,6 +2,7 @@
 // waiting for the person, and the totals a room's header needs. Built from
 // what is persisted plus whether an agent has a turn running, so it reads the
 // same whether an agent's process is awake or hibernated. Pure.
+import type { RoomAgentTicket, RoomTicketView } from "../integrations/types.js";
 import type { RoomAction } from "./roomActivity.js";
 import type { SubtaskInfo } from "../runtimes/sessionDriver.js";
 import { ROOM_MAX_LIVE_AGENTS, takesRoomPlace, type RoomAgentState, type RoomReport, type RoomRole } from "./room.js";
@@ -116,6 +117,8 @@ export interface RoomAgentView {
    * for the card's log. Not kept with the room: it is added when the state
    * is sent. */
   activity?: RoomAction[];
+  /** The ticket it works on. Never set on the principal. */
+  ticket?: RoomAgentTicket;
 }
 
 export interface RoomSummary {
@@ -127,6 +130,9 @@ export interface RoomSummary {
   /** Agents holding a place under the room's cap. */
   live: number;
   liveLimit: number;
+  /** The tickets its agents work on, and those the principal holds to
+   * delegate; absent when there are none. */
+  tickets?: RoomTicketView[];
 }
 
 const STATES: readonly RoomAgentState[] = ["working", "awaiting_user", "queued", "waiting", "done", "blocked", "failed", "stopped"];
@@ -141,6 +147,34 @@ export function summarizeRoom(agents: readonly RoomAgentView[]): RoomSummary {
     if (takesRoomPlace(agent.state)) live += 1;
   }
   return { counts, needsYou, live, liveLimit: ROOM_MAX_LIVE_AGENTS };
+}
+
+/** The tickets of a room, for its About: one entry per ticket its agents
+ * work on (with them, in the agents' order), then each one the principal
+ * holds to pass on that no agent works on yet (`carried`). */
+export function roomTickets(agents: readonly RoomAgentView[], carried: readonly RoomAgentTicket[] = []): RoomTicketView[] {
+  const out: RoomTicketView[] = [];
+  const byTicket = new Map<string, RoomTicketView>();
+  const id = (ticket: RoomAgentTicket): string => `${ticket.provider}:${ticket.key}`;
+  for (const agent of agents) {
+    if (!agent.ticket || agent.role === "principal") continue;
+    const known = byTicket.get(id(agent.ticket));
+    if (known) {
+      known.agentIds.push(agent.agentId);
+      if (known.title === undefined && agent.ticket.title !== undefined) known.title = agent.ticket.title;
+      continue;
+    }
+    const view: RoomTicketView = { provider: agent.ticket.provider, key: agent.ticket.key, ...(agent.ticket.title !== undefined ? { title: agent.ticket.title } : {}), agentIds: [agent.agentId] };
+    byTicket.set(id(agent.ticket), view);
+    out.push(view);
+  }
+  for (const ticket of carried) {
+    if (byTicket.has(id(ticket))) continue;
+    const view: RoomTicketView = { provider: ticket.provider, key: ticket.key, ...(ticket.title !== undefined ? { title: ticket.title } : {}), agentIds: [], carried: true };
+    byTicket.set(id(ticket), view);
+    out.push(view);
+  }
+  return out;
 }
 
 export interface RoomSnapshot {

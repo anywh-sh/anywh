@@ -7,6 +7,7 @@ import type { AgentEvent } from "../../../protocol/agent-event.js";
 import { isNoReply, markSilent, promptOffersSilence, ROOM_DIGEST_PREFIX } from "../../../protocol/silentEvents.js";
 import { stripRelayNote } from "../../../protocol/relayNote.js";
 import { splitRoomCard } from "../../../protocol/roomCard.js";
+import { stripTicketLine } from "../../../protocol/ticketLine.js";
 
 /** Same shape as `session/broadcast.ts`'s `BroadcastMessage` — defined here
  * independently (rather than imported) so this file has no reason to reach
@@ -220,9 +221,9 @@ export function readHistoryFromTranscript(home: string, cwd: string, sessionId: 
     const rawHumanText = extractHumanText(line);
     // The relay's own note to the model is not part of what the person said.
     // Then the room card riding at the end of the prompt, shown as a card
-    // instead of text.
+    // instead of text, and the ticket line at its start.
     const split = rawHumanText === undefined ? undefined : splitRoomCard(stripRelayNote(rawHumanText));
-    const humanText = split?.text;
+    const humanText = split && stripTicketLine(split.text);
     const card = split?.card;
     if (humanText !== undefined) {
       // Closes the previous turn (if one was open) before opening this one

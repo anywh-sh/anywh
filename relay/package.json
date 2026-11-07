@@ -20,6 +20,7 @@
     "test": "bash -O globstar -c 'tsx --test --test-timeout=30000 src/**/*.test.ts'",
     "test:integration": "tsx --test --test-timeout=30000 tests/*.test.ts",
     "test:all": "npm run test && npm run test:integration && npm run lint",
+    "test:conformance": "tsx --test --test-timeout=200000 tests/conformance/*.test.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

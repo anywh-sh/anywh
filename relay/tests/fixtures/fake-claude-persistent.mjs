@@ -88,9 +88,18 @@
 //                        a background-triggered turn's result were still in
 //                        the pipe when the host wrote it), then wait until
 //                        <path> exists before starting that message's turn
+//   [[mcp:<server>:<tool>:<base64url JSON input>]] call that MCP tool first,
+//                        repeatable, in order (as fake-claude.mjs does: an
+//                        Atlassian server answers from fake-atlassian.mjs);
+//                        the turn then goes on with the other markers
+// FAKE_CLAUDE_TRANSCRIPT: every turn appends its prompt and its reply to the
+// session's transcript under $HOME/.claude/projects, as the real CLI keeps
+// it, so a relay restarted on that home replays the conversation.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { answerAtlassianTool } from "./fake-atlassian.mjs";
 
 // What `[[subagents:<spec>]]` names its subagents and says they are doing.
 const SUBAGENT_TITLES = ["Map the room channel", "Read the layout tests", "Survey the canvas CSS", "Check the i18n keys", "Trace the drag code", "Audit the session store", "List the fixtures", "Time the test suite"];
@@ -114,6 +123,12 @@ export async function runPersistent(args) {
   const subagents = new Map(); // task id -> tool use id, still running
 
   const emit = (event) => process.stdout.write(`${JSON.stringify({ ...event, session_id: sessionId })}\n`);
+  const transcribe = (line) => {
+    if (!process.env.FAKE_CLAUDE_TRANSCRIPT) return;
+    const file = join(process.env.HOME ?? "", ".claude", "projects", realpathSync(process.cwd()).replace(/[^a-zA-Z0-9-]/g, "-"), `${sessionId}.jsonl`);
+    mkdirSync(dirname(file), { recursive: true });
+    appendFileSync(file, `${JSON.stringify({ ...line, timestamp: new Date().toISOString() })}\n`);
+  };
   const waitForFile = (path) =>
     new Promise((resolve) => {
       const check = () => (existsSync(path) ? resolve() : setTimeout(check, 20));
@@ -139,6 +154,7 @@ export async function runPersistent(args) {
     const absorbed = turn?.absorbed ?? [];
     const full = absorbed.length > 0 ? `${text} (absorbed: ${absorbed.join(" | ")})` : text;
     if (!error) {
+      transcribe({ type: "assistant", message: { content: [{ type: "text", text: full }] } });
       emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "text", text: full }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: Number(process.env.FAKE_CLAUDE_CACHE_READ_TOKENS ?? 0) } } });
     }
     emit({
@@ -190,6 +206,7 @@ export async function runPersistent(args) {
   async function runTurn(prompt) {
     // FAKE_CLAUDE_PROMPTS_FILE: every prompt received, as one JSON line.
     if (process.env.FAKE_CLAUDE_PROMPTS_FILE) appendFileSync(process.env.FAKE_CLAUDE_PROMPTS_FILE, `${JSON.stringify(prompt)}\n`);
+    transcribe({ type: "user", message: { content: prompt } });
     // The room card line repeats a title that may itself hold a marker; the
     // markers to act on are the ones in the prompt's own text.
     const text = prompt.replace(/\n\n\[anywh-card\] [^\n]*/, "");
@@ -301,6 +318,13 @@ export async function runPersistent(args) {
       finish(`asked: ${reported.text}`);
       return;
     }
+    for (const [index, [, server, tool, encoded]] of [...text.matchAll(/\[\[mcp:([A-Za-z0-9_-]+):([A-Za-z0-9_]+):([A-Za-z0-9_-]*)\]\]/g)].entries()) {
+      const input = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
+      const id = `toolu_mcp_${turns}_${index}`;
+      emit({ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", model, content: [{ type: "tool_use", id, name: `mcp__${server}__${tool}`, input }] } });
+      const answer = /atlassian/i.test(server) ? answerAtlassianTool("claude-turn", server, tool, input) : { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: input }) }], isError: false };
+      emit({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: answer.content, is_error: answer.isError === true }] } });
+    }
     const roomCalls = [...text.matchAll(/\[\[room:([a-z_]+):([A-Za-z0-9_-]*)\]\]/g)];
     if (roomCalls.length > 0) {
       // With a gate as well: the turn is in flight, waiting, before any call.
@@ -398,6 +422,7 @@ export async function runPersistent(args) {
         continue;
       }
       if (message.type === "control_request") {
+        if (process.env.FAKE_CLAUDE_CONTROL_FILE) appendFileSync(process.env.FAKE_CLAUDE_CONTROL_FILE, `${JSON.stringify({ subtype: message.request?.subtype, ...(message.request?.serverName ? { serverName: message.request.serverName } : {}), persistent: true })}\n`);
         if (message.request?.subtype === "stop_task") {
           const taskId = message.request.task_id;
           const toolUseId = subagents.get(taskId);

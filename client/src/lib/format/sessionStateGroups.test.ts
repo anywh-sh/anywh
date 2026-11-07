@@ -35,4 +35,13 @@ describe("groupByState", () => {
     expect(groups.running.map((s) => s.id)).toEqual(["again"]);
     expect(groups.rest.map((s) => s.id)).toEqual(["opened"]);
   });
+  it("files a session by the relay's activity even with no tab open, waiting before running", () => {
+    const groups = groupByState(
+      [{ ...session("asks"), activity: "awaiting" }, { ...session("works"), activity: "running" }, { ...session("asks-mid-turn"), activity: "awaiting" }],
+      new Set(["asks-mid-turn"]),
+      new Map(),
+    );
+    expect(groups.needsYou.map((s) => s.id)).toEqual(["asks", "asks-mid-turn"]);
+    expect(groups.running.map((s) => s.id)).toEqual(["works"]);
+  });
 });

@@ -3,10 +3,12 @@ import { buildApprovalQuestion, buildDeferredDecision, buildPermissionDecision, 
 import { compactToolInput } from "./approvalInput.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js";
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
-import type { AgentSessionDriver, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
+import type { AgentSessionDriver, ObservedMcpServer, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
-import type { AgentEvent, RoomCard } from "../protocol/agent-event.js";
+import type { AgentEvent, McpFailure, RoomCard } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
+import { withTicketLine, type TicketLine } from "../protocol/ticketLine.js";
+import type { McpStateMessage, TicketRef } from "../integrations/types.js";
 import type { AgentRuntimeDef, ApprovalRequest, ModelCatalog, ModelOption, ToolGrant, TurnContext, UserInputAnswer, UserInputQuestion } from "../runtimes/types.js";
 import { checkDirectory, type FsError } from "../fs/fsBrowse.js";
 import { type ChoiceAnswer, type ChoiceQuestion, type McpChoiceBridge } from "../bridges/mcpBridge.js";
@@ -21,7 +23,7 @@ import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offers
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
-import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
+import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice, SessionActivity } from "./sessionStore.js";
 import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import {
@@ -249,6 +251,9 @@ export interface SharedSessionOptions {
   onTurnSettled?: (outcome: TurnOutcome) => void;
   /** Called whenever a turn starts or ends (what `turn_state` tells clients). */
   onTurnStateChange?: () => void;
+  /** Called whenever `activity()` may have changed: a turn started or
+   * ended, or a question for the person opened or closed. */
+  onActivityStateChange?: () => void;
   /** Every event of every turn, for a room agent's usage tally. */
   onUsage?: (event: AgentEvent) => void;
   /** A turn began (`startedAt` in epoch ms); `synthetic` is what started it
@@ -256,12 +261,31 @@ export interface SharedSessionOptions {
   onTurnStarted?: (startedAt: number, synthetic?: "background_job" | "wakeup" | "approval" | "room_digest") => void;
   /** The agent called a tool of the MCP server `server`. */
   onMcpServerUsed?: (server: string) => void;
+  /** The session's agent's MCP servers of a known integration, as its
+   * `mcp_state` says them (`agentId` the session's agent, `cwd` its
+   * folder); `undefined`: nothing to say. Read on every connection and on
+   * `refreshMcpState`. */
+  mcpState?: (agentId: string, cwd: string) => McpStateMessage | undefined;
+  /** What the agent's CLI said about some of its servers while it ran. */
+  onMcpServersObserved?: (agentId: string, servers: readonly ObservedMcpServer[], cwd: string) => void;
+  /** A call to an MCP server's tool failed, for `failure.reason`. */
+  onMcpFailure?: (agentId: string, failure: McpFailure, cwd: string) => void;
+  /** The name the profile knows an agent's MCP server by, for a name its
+   * CLI spells otherwise (Claude normalizes it inside a tool name);
+   * `undefined` when it knows none. */
+  mcpServerName?: (agentId: string, server: string) => string | undefined;
   /** A room agent's note for the model alone on its next turn (news of the
    * room's context), and what to run once that turn went through. */
   roomTurnNote?: () => { text: string; commit: () => void } | undefined;
   /** Why answering a card must wait, for a room agent: the answer starts a
    * turn, which is refused while the room is full. */
   answerRefusal?: () => AnswerChoiceError | undefined;
+  /** Asked once per turn a person sent, right before its prompt is built:
+   * the ticket line the prompt starts with, if any (the ticket the agent
+   * works on and was not told about yet, or one a room's principal is
+   * handed to pass on). `start` is the ticket the person sent with the
+   * message; `firstTurn` whether it is the session's first turn. */
+  workTicketLine?: (start: TicketRef | undefined, firstTurn: boolean) => TicketLine | undefined;
 }
 
 /** Why a `choice_answer` was refused; the card stays open. */
@@ -506,6 +530,7 @@ export class SharedSession implements SessionDriverHost {
         initialWithdrawn: options.initialWithdrawnApproval,
         onWithdrawnChange: options.onWithdrawnApprovalChange,
       },
+      () => this.options.onActivityStateChange?.(),
     );
     // A rehydrated question belongs to a conversation; with no session_id
     // left for the active agent (cleared, lost, never created) answering it
@@ -535,6 +560,7 @@ export class SharedSession implements SessionDriverHost {
       host: this,
       ...(this.options.hostAgent ? { hostAgent: this.options.hostAgent } : {}),
       agentWorker: this.options.agentWorker,
+      onMcpServers: (servers) => this.options.onMcpServersObserved?.(this.def.identity.id, servers, this.cwd),
       claudeMcp:
         this.options.mcpChoiceBridge || this.options.mcpPermissionBridge
           ? {
@@ -609,6 +635,7 @@ export class SharedSession implements SessionDriverHost {
     this.broadcastPermissionMode();
     this.broadcastModelState();
     this.broadcastEffortState();
+    this.refreshMcpState();
   }
 
   getPermissionMode(): PermissionMode {
@@ -1051,6 +1078,7 @@ export class SharedSession implements SessionDriverHost {
     this.sendSuggestion(socket);
     this.sendTurnState(socket);
     this.sendBackgroundJobs(socket);
+    this.sendMcpState(socket);
     this.choiceMachine.sendPendingTo(socket);
 
     const loading = this.ensureHistoryLoaded();
@@ -1173,7 +1201,7 @@ export class SharedSession implements SessionDriverHost {
     const filter = new BridgeToolFilter();
     // Anything broadcast while this was reading is already in `history` and
     // happened after what was read — the recovered part goes in front of it.
-    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event })));
+    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event: this.withMcpServerName(event) })));
   }
 
   /** `origin` is the socket that sent this message — used only to know who
@@ -1181,7 +1209,7 @@ export class SharedSession implements SessionDriverHost {
    * already committed it optimistically before calling this) so it doesn't
    * get duplicated by the synthetic `user_message` that `runTurn` broadcasts
    * to the OTHER devices connected to the same session (see comment there). */
-  submitTurn(origin: WebSocket, text: string): void {
+  submitTurn(origin: WebSocket, text: string, startTicket?: TicketRef): void {
     // A previous turn's suggestion no longer applies once a new one starts —
     // clear it right away (don't wait for the turn to finish) so it doesn't
     // stay hanging around for the whole duration of the turn in progress.
@@ -1196,7 +1224,7 @@ export class SharedSession implements SessionDriverHost {
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note));
+    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note, undefined, startTicket));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1451,6 +1479,15 @@ export class SharedSession implements SessionDriverHost {
     return this.turnStartedAt !== null;
   }
 
+  /** What the session list shows for this session: `"awaiting"` while a
+   * question or approval waits for the person (even mid-turn — a turn
+   * blocked on an approval is waiting, not working), `"running"` while a
+   * turn runs, `undefined` when idle. */
+  activity(): SessionActivity | undefined {
+    if (this.choiceMachine.hasPending()) return "awaiting";
+    return this.isTurnInFlight() ? "running" : undefined;
+  }
+
   /** Whether this session's agent lives in the agent host, outside the
    * relay process. */
   runsOutsideRelay(): boolean {
@@ -1469,9 +1506,9 @@ export class SharedSession implements SessionDriverHost {
   /** A turn asked by another agent of the room (a delegated task, a message
    * from the principal) rather than typed by a person on a device: no
    * device has its bubble yet, so everyone connected gets it. */
-  submitAgentTurn(text: string, hooks?: TurnHooks, card?: RoomCard): void {
+  submitAgentTurn(text: string, hooks?: TurnHooks, card?: RoomCard, ticketLine?: TicketLine): void {
     this.clearSuggestion();
-    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks, undefined, undefined, card));
+    this.enqueue(() => this.runTurn(undefined, text, undefined, false, hooks, undefined, undefined, card, undefined, ticketLine));
   }
 
   /** `/clear` — same queue as real turns (`turnQueue`), so it
@@ -1549,6 +1586,11 @@ export class SharedSession implements SessionDriverHost {
     /** What the turn is shown as instead of a bubble (see `RoomCard`). Not a
      * kind of synthetic turn: a delegated first task still locks the cwd. */
     card?: RoomCard,
+    /** The ticket a person sent with the message (see `workTicketLine`). */
+    startTicket?: TicketRef,
+    /** The ticket line the prompt starts with, decided by whoever queued an
+     * agent turn (a delegated task); never shown, like the card. */
+    ticketLine?: TicketLine,
   ): Promise<void> {
     // The conversation so far is read from the agent's own storage before
     // anything of this turn enters the log: a turn that starts before any
@@ -1629,6 +1671,9 @@ export class SharedSession implements SessionDriverHost {
       }
     }
 
+    // Before the lock below: an unlocked folder and no conversation yet is
+    // what makes this the session's first turn.
+    const firstTurn = !this.locked && this.driver.getSessionId() === undefined;
     if (!synthetic && !follow) {
       // Locks the folder at the exact moment of the first real turn — not
       // at the WS connection (which already happens before any message)
@@ -1668,7 +1713,11 @@ export class SharedSession implements SessionDriverHost {
     const roomNote = follow ? undefined : this.options.roomTurnNote?.();
     try {
       const effortId = this.effortForTurn();
-      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(text, card) : text);
+      // Only a turn a person sent tells the agent its ticket: never a
+      // wakeup, a job's report or another agent's message.
+      const ticket = ticketLine ?? (origin !== undefined && !synthetic && !follow ? this.options.workTicketLine?.(startTicket, firstTurn) : undefined);
+      const body = ticket ? withTicketLine(text, ticket.key, ticket.provider, ticket.kind) : text;
+      const prompt = [note, roomNote?.text].reduce<string>((acc, each) => (each === undefined ? acc : withRelayNote(acc, each)), card ? withRoomCard(body, card) : body);
       const ctx: TurnContext = {
         cwd: this.cwd,
         prompt,
@@ -1680,7 +1729,8 @@ export class SharedSession implements SessionDriverHost {
       const onDriverEvent = (rawEvent: AgentEvent): void => {
         // Timing first, so every consumer below (the log, the job tracker)
         // sees the same stamped event — see `ActivityClock`.
-        const agentEvent = clock.stamp(rawEvent);
+        const agentEvent = this.withMcpServerName(clock.stamp(rawEvent));
+        if (agentEvent.type === "tool_ended" && agentEvent.mcpFailure) this.options.onMcpFailure?.(this.def.identity.id, agentEvent.mcpFailure, this.cwd);
         if (agentEvent.type === "tool_started" && agentEvent.toolUseId !== undefined && agentEvent.parentToolUseId !== undefined) {
           this.parentToolUse.set(agentEvent.toolUseId, agentEvent.parentToolUseId);
         }
@@ -1838,6 +1888,55 @@ export class SharedSession implements SessionDriverHost {
     }
   }
 
+  /** The `mcp_state` this session's devices were last sent, as sent. */
+  private sentMcpState: string | undefined;
+
+  private mcpStateMessage(): McpStateMessage | undefined {
+    return this.options.mcpState?.(this.def.identity.id, this.cwd);
+  }
+
+  /** Sent on connecting only when there is a server to show: an agent with
+   * none of an integration's servers looks the same either way. */
+  private sendMcpState(target: WebSocket): void {
+    const message = this.mcpStateMessage();
+    if (!message || message.servers.length === 0) return;
+    const payload = JSON.stringify(message);
+    this.sentMcpState = payload;
+    target.send(payload);
+  }
+
+  /** The agent's MCP server `serverName` got signed in: a process of it that
+   * outlives a turn loads the token now. Never throws. */
+  reconnectMcp(serverName: string): void {
+    this.driver.reconnectMcp?.(serverName).catch((error: unknown) => console.error(`[relay] reconnecting an MCP server after a sign-in failed: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  /** The servers may have changed (a scan, a sign-in, a failed call): the
+   * session's devices get the new `mcp_state` if it differs from what they
+   * were sent. */
+  refreshMcpState(): void {
+    if (this.clients.size === 0) {
+      this.sentMcpState = undefined;
+      return;
+    }
+    const message = this.mcpStateMessage();
+    const payload = message ? JSON.stringify(message) : undefined;
+    if (payload === this.sentMcpState) return;
+    // Nothing shown and nothing to show.
+    if (this.sentMcpState === undefined && (!message || message.servers.length === 0)) return;
+    this.sentMcpState = payload;
+    if (!payload) return;
+    for (const client of this.clients) client.send(payload);
+  }
+
+  /** A failed MCP call names its server as the profile knows it, so the
+   * chat can find that server's integration. */
+  private withMcpServerName(event: AgentEvent): AgentEvent {
+    if (event.type !== "tool_ended" || !event.mcpFailure) return event;
+    const name = this.options.mcpServerName?.(this.def.identity.id, event.mcpFailure.server);
+    return name === undefined || name === event.mcpFailure.server ? event : { ...event, mcpFailure: { ...event.mcpFailure, server: name } };
+  }
+
   private sendBackgroundJobs(target: WebSocket): void {
     sendBackgroundJobs(target, this.backgroundJobs, this.failedBackgroundJobs);
   }
@@ -1852,6 +1951,7 @@ export class SharedSession implements SessionDriverHost {
 
   private broadcastTurnState(): void {
     this.options.onTurnStateChange?.();
+    this.options.onActivityStateChange?.();
     broadcastTurnState(this.clients, this.turnStartedAt);
   }
 

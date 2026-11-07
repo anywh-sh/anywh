@@ -53,7 +53,10 @@ export const SessionListItem = memo(function SessionListItem({
   const dict = useDict();
   const { locale } = useLocale();
   const menu = useContextMenu();
-  const running = turnRunning || (roomStatus?.working ?? 0) > 0;
+  // The relay's word covers every session, open in a tab or not; the tab's
+  // own turn state still counts, since it can be ahead of the list.
+  const awaiting = session.activity === "awaiting";
+  const running = turnRunning || session.activity === "running" || (roomStatus?.working ?? 0) > 0;
   const indicatorLabel = running ? dict.shell.sidebar.agentWorking : dict.shell.sidebar.backgroundJob;
   // A relay too old to report when the session was last used leaves the row
   // without a time rather than with a made-up one — the meta line is then
@@ -102,6 +105,17 @@ export const SessionListItem = memo(function SessionListItem({
         >
           {session.titlePending === true ? <TitleSkeleton /> : session.title}
         </span>
+        {/* The ticket the session works on, as a quiet key: where the time
+         * would go, which it replaces (the key says more about the row). */}
+        {session.workTicket && (
+          <span
+            data-testid="session-work-ticket"
+            title={dict.integrations.work.worksOn.replace("{key}", session.workTicket.key)}
+            className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"
+          >
+            {session.workTicket.key}
+          </span>
+        )}
         {/* Status lives on the right, where the row's meta is: nothing sits
          * between the profile bar and the title, so titles start at the same
          * x whatever the row's state. The glyphs are the tabs' own — orange
@@ -117,6 +131,8 @@ export const SessionListItem = memo(function SessionListItem({
             aria-label={dict.shell.sidebar.roomNeedsYou.replace("{count}", String(roomStatus.needsYou))}
             className="size-1.5 shrink-0 rounded-full bg-primary"
           />
+        ) : awaiting ? (
+          <span title={dict.shell.sidebar.sessionNeedsYou} role="img" aria-label={dict.shell.sidebar.sessionNeedsYou} className="size-1.5 shrink-0 rounded-full bg-primary" />
         ) : roomStatus && roomStatus.failed > 0 && !running ? (
           <span
             title={dict.shell.sidebar.roomFailed.replace("{count}", String(roomStatus.failed))}
@@ -137,7 +153,8 @@ export const SessionListItem = memo(function SessionListItem({
           <SquareTerminal aria-label={indicatorLabel} className="size-3 shrink-0 animate-pulse text-muted-foreground" />
         ) : (
           lastActive !== null &&
-          !bare && (
+          !bare &&
+          !session.workTicket && (
             <span
               title={formatAbsoluteTime(session.lastActiveAt ?? 0, locale)}
               className="shrink-0 font-mono text-[length:calc(11px*var(--chrome-scale))] text-text-faint"

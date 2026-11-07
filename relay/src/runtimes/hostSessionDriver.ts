@@ -24,12 +24,14 @@ import {
   isSessionInvalidError,
   isToolResultOnly,
   readHistoryFromTranscript,
+  reportInitMcpServers,
   type ClaudeEvent,
 } from "./defs/claude/index.js";
 import { mapClaudeEvent } from "./streams/claudeStreamJson.js";
 import { ClaudeSubtaskTracker } from "./streams/claudeSubtasks.js";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
-import type { AgentSessionDriver, DriverTurnResult, SubtaskInfo, TurnHooks } from "./sessionDriver.js";
+import type { AgentSessionDriver, DriverTurnResult, McpServersObserver, SubtaskInfo, TurnHooks } from "./sessionDriver.js";
+import { CODEX_MCP_STARTUP_STATUS_METHOD, parseCodexStartupStatus } from "../integrations/inventory/codex.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, RoomAgentSetup, TurnContext } from "./types.js";
 import { planUsageCapture, planUsageRuntimeOf, type PlanUsageCapture } from "../planUsage/index.js";
 
@@ -64,6 +66,8 @@ export interface HostSessionDriverOptions {
   /** Where the turn's rate limit readings and its start/end go; the relay's
    * shared capture unless a test passes its own. */
   readonly planUsage?: PlanUsageCapture;
+  /** Told what the agent's CLI reports about its MCP servers. */
+  readonly onMcpServers?: McpServersObserver;
 }
 
 interface ResultUsage {
@@ -476,6 +480,14 @@ export class HostSessionDriver implements AgentSessionDriver {
     return "stopping";
   }
 
+  /** The agent outlives a turn in the host: it is told to load the new
+   * token (Claude's `mcp_reconnect`, the host's Codex app-server reloads). */
+  async reconnectMcp(serverName: string): Promise<void> {
+    const client = this.options.binding.client;
+    if (!client) return;
+    await client.request("mcp_reconnect", { agentId: this.agentId, serverName });
+  }
+
   private onRecord(record: EventMessage): void {
     this.options.binding.cursors?.set(this.agentId, { nextOffset: record.next, lastSeq: record.seq, incarnation: record.inc });
     const event = record.ev;
@@ -527,6 +539,7 @@ export class HostSessionDriver implements AgentSessionDriver {
     // the CLI's own synthetic noise (skill bodies, reminders).
     if (event.type === "user" && !isToolResultOnly((event.message as { content?: unknown } | undefined)?.content)) return;
     if (event.type === "system" && event.subtype === "init" && typeof event.model === "string") turn.lastModel = event.model;
+    if (event.type === "system" && event.subtype === "init") reportInitMcpServers(event, this.options.onMcpServers);
     if (event.type === "assistant" && isMainThreadEvent(event)) {
       const message = event.message as { usage?: ResultUsage; content?: { type?: string; text?: string }[] } | undefined;
       if (message?.usage) turn.lastMainThreadUsage = message.usage;
@@ -559,6 +572,11 @@ export class HostSessionDriver implements AgentSessionDriver {
     // plan usage capture only, never for the chat mapper.
     if (this.planUsage.codexNotification(method, params)) return;
     if (method === "turn/started") return;
+    if (method === CODEX_MCP_STARTUP_STATUS_METHOD) {
+      const server = parseCodexStartupStatus(params);
+      if (server) this.options.onMcpServers?.([server]);
+      return;
+    }
     if (method === "turn/completed") {
       const info = isRecord(params) && isRecord(params.turn) ? params.turn : {};
       const status = info.status;

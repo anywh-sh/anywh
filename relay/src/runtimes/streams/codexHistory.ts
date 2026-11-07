@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../../protocol/agent-event.js";
 import { splitRoomCard } from "../../protocol/roomCard.js";
 import { stripRelayNote } from "../../protocol/relayNote.js";
+import { stripTicketLine } from "../../protocol/ticketLine.js";
 import { mapCodexNotification } from "./codexAppServer.js";
 
 /**
@@ -45,7 +46,9 @@ export function codexTurnsToEvents(turns: StoredTurn[]): AgentEvent[] {
       const item = raw as { type?: string; content?: unknown };
       if (!item || typeof item !== "object") continue;
       if (item.type === "userMessage") {
-        const { text, card } = splitRoomCard(stripRelayNote(userText(item)));
+        const split = splitRoomCard(stripRelayNote(userText(item)));
+        const text = stripTicketLine(split.text);
+        const { card } = split;
         if (text) {
           events.push({ type: "user_message", text, ...(card ? { room: card } : {}), ...(card?.kind === "reports" ? { synthetic: "room_digest" as const } : {}), ...(startedAtMs !== undefined ? { timestamp: new Date(startedAtMs).toISOString() } : {}) });
         }

@@ -109,6 +109,8 @@ export class ChoiceMachine {
    * appears when this one is resolved (the client shows one card at a time,
    * so a second would hide the first until a reconnect). */
   private active: "choice" | "approval" | undefined;
+  /** `hasPending()` as last reported through `onPendingChange`. */
+  private wasPending: boolean;
 
   /** `onPromptShown` fires once each time a prompt is published, so the
    * session can tell a person who isn't looking that one is waiting. */
@@ -123,6 +125,9 @@ export class ChoiceMachine {
     /** Injectable clock (epoch ms) for `askedAt`. */
     private readonly now: () => number = Date.now,
     private readonly deferredStorage: DeferredApprovalStorage = {},
+    /** Fires whenever `hasPending()` flips, so the session can tell the
+     * session list that it is (or no longer is) waiting for a person. */
+    private readonly onPendingChange?: () => void,
   ) {
     this.pendingChoice = initialChoice;
     this.deferredApproval = deferredStorage.initial;
@@ -139,6 +144,23 @@ export class ChoiceMachine {
       this.mirrorQueued(undefined);
     }
     this.active = initialChoice ? "choice" : this.deferredApproval ? "approval" : undefined;
+    this.wasPending = this.hasPending();
+  }
+
+  /** Whether a person is being asked something right now: a call the
+   * running turn is blocked on, or a deferred question or approval that
+   * waits for an answer (on screen or queued behind the one that is). */
+  hasPending(): boolean {
+    return this.pendingApproval !== undefined || this.pendingChoice !== undefined || this.deferredApproval !== undefined;
+  }
+
+  /** Reports a flip of `hasPending()`; called after every transition that
+   * can open or close a slot. */
+  private notePending(): void {
+    const pending = this.hasPending();
+    if (pending === this.wasPending) return;
+    this.wasPending = pending;
+    this.onPendingChange?.();
   }
 
   /** Mirrors a deferred slot into the store. Always runs AFTER the
@@ -210,6 +232,7 @@ export class ChoiceMachine {
     }
     this.setWithdrawn(false);
     this.active = undefined;
+    this.notePending();
   }
 
   /** Called by the MCP bridge
@@ -243,6 +266,7 @@ export class ChoiceMachine {
     this.pendingChoice = { promptId, questions, askedAt: this.now() };
     this.mirror(this.pendingChoice);
     this.publishNext();
+    this.notePending();
     return true;
   }
 
@@ -284,6 +308,7 @@ export class ChoiceMachine {
       this.pendingApproval = { promptId, questions, askedAt: this.now(), resolve };
       broadcastChoicePrompt(this.clients, this.pendingApproval, "approval");
       this.onPromptShown?.("approval", questions);
+      this.notePending();
     });
   }
 
@@ -333,6 +358,7 @@ export class ChoiceMachine {
     this.deferredApproval = add(this.deferredApproval);
     this.mirrorApproval(this.deferredApproval);
     this.publishNext();
+    this.notePending();
   }
 
   /** A stopped turn's refusals are not worth asking about: the person
@@ -396,6 +422,7 @@ export class ChoiceMachine {
     const pending = this.pendingApproval;
     this.pendingApproval = undefined;
     broadcastChoiceResolved(this.clients, pending.promptId);
+    this.notePending();
     pending.resolve([]);
   }
 
@@ -436,6 +463,7 @@ export class ChoiceMachine {
       this.mirrorApproval(undefined);
     }
     this.active = undefined;
+    this.notePending();
     return withdrawn;
   }
 
@@ -462,6 +490,7 @@ export class ChoiceMachine {
       const pending = this.pendingApproval;
       this.pendingApproval = undefined;
       broadcastChoiceResolved(this.clients, promptId);
+      this.notePending();
       pending.resolve(answers);
       return { kind: "approval" };
     }
@@ -471,6 +500,7 @@ export class ChoiceMachine {
       broadcastChoiceResolved(this.clients, promptId);
       this.mirror(undefined);
       this.publishNext();
+      this.notePending();
       return { kind: "choice", answers };
     }
     if (this.deferredApproval?.promptId === promptId && this.active === "approval") {
@@ -481,6 +511,7 @@ export class ChoiceMachine {
       broadcastChoiceResolved(this.clients, promptId);
       this.mirrorApproval(undefined);
       this.publishNext();
+      this.notePending();
       return { kind: "deferredApproval", calls, questions, answers, waiting };
     }
     return { kind: "not_found" };

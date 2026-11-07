@@ -1,4 +1,5 @@
-import type { SessionSummary } from "@/lib/relay/relay-types";
+import type { SessionActivity, SessionSummary } from "@/lib/relay/relay-types";
+import type { TicketTag } from "@/lib/integrations/model";
 
 /**
  * The session list of every profile this device has ever synced, in one
@@ -113,25 +114,42 @@ export function setCachedSessions(profileId: string, sessions: SessionSummary[])
  * a rename carries the session's existing timestamp (renaming isn't
  * activity), so it stays put, while a new turn carries a later one and
  * takes the row back up to where that timestamp belongs.
+ *
+ * `activity` and `workTicket` come from the relay with every one of its
+ * upserts (`null`: idle, no ticket); an update made here, with no word from
+ * the relay, passes nothing and keeps whatever the row had.
  */
-export function upsertCachedSession(profileId: string, id: string, title: string, lastActiveAt?: number, room?: boolean, titlePending?: boolean): void {
+export function upsertCachedSession(
+  profileId: string,
+  id: string,
+  title: string,
+  lastActiveAt?: number,
+  room?: boolean,
+  titlePending?: boolean,
+  activity?: SessionActivity | null,
+  workTicket?: TicketTag | null,
+): void {
   const existing = cache[profileId] ?? EMPTY;
   const index = existing.sessions.findIndex((session) => session.id === id);
   const pending = titlePending === true;
   if (index === -1) {
-    const sessions: SessionSummary[] = [{ id, title, lastActiveAt: lastActiveAt ?? Date.now(), ...(room ? { room: true as const } : {}), ...(pending ? { titlePending: true as const } : {}) }, ...existing.sessions];
+    const sessions: SessionSummary[] = [{ id, title, lastActiveAt: lastActiveAt ?? Date.now(), ...(room ? { room: true as const } : {}), ...(pending ? { titlePending: true as const } : {}), ...(activity ? { activity } : {}), ...(workTicket ? { workTicket } : {}) }, ...existing.sessions];
     commit({ ...cache, [profileId]: { ...existing, sessions } });
     return;
   }
   const row = existing.sessions[index];
   // Whether the title is still the provisional one always comes with the
   // title itself, so it is replaced, never merged.
-  const { titlePending: _was, ...rest } = row;
+  const { titlePending: _was, activity: _did, workTicket: _had, ...rest } = row;
   const base: SessionSummary = room && !row.room ? { ...rest, room: true as const } : rest;
-  const current: SessionSummary = pending ? { ...base, titlePending: true as const } : base;
+  const nextActivity = activity === undefined ? row.activity : (activity ?? undefined);
+  const nextTicket = workTicket === undefined ? row.workTicket : (workTicket ?? undefined);
+  const withTicket: SessionSummary = nextTicket ? { ...base, workTicket: nextTicket } : base;
+  const withActivity: SessionSummary = nextActivity ? { ...withTicket, activity: nextActivity } : withTicket;
+  const current: SessionSummary = pending ? { ...withActivity, titlePending: true as const } : withActivity;
   const moved = lastActiveAt !== undefined && (current.lastActiveAt === null || lastActiveAt > current.lastActiveAt);
   if (!moved) {
-    if (current.title === title && (current.titlePending === true) === (row.titlePending === true) && current.room === row.room) return;
+    if (current.title === title && (current.titlePending === true) === (row.titlePending === true) && current.room === row.room && current.activity === row.activity && sameTag(current.workTicket, row.workTicket)) return;
     const sessions = existing.sessions.map((session, i) => (i === index ? { ...current, title } : session));
     commit({ ...cache, [profileId]: { ...existing, sessions } });
     return;
@@ -140,6 +158,10 @@ export function upsertCachedSession(profileId: string, id: string, title: string
   const at = sessions.findIndex((session) => session.lastActiveAt === null || session.lastActiveAt < lastActiveAt);
   sessions.splice(at === -1 ? sessions.length : at, 0, { ...current, title, lastActiveAt });
   commit({ ...cache, [profileId]: { ...existing, sessions } });
+}
+
+function sameTag(a: TicketTag | undefined, b: TicketTag | undefined): boolean {
+  return a === b || (a !== undefined && b !== undefined && a.provider === b.provider && a.key === b.key);
 }
 
 export function removeCachedSession(profileId: string, id: string): void {

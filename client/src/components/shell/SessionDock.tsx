@@ -33,6 +33,9 @@ interface SessionDockProps {
   /** The tab's group, whose pane buttons the rail is the slot for (see
    * `panelTogglesSlot.ts`). */
   groupId: string | null;
+  /** What goes under the rail's divider: the profile's integrations and the
+   * "+" that adds them. The "+" alone when absent. */
+  railEnd?: ReactNode;
 }
 
 /**
@@ -51,14 +54,15 @@ interface SessionDockProps {
  * `SessionPanel` has no `onStartDrag`.
  *
  * Down its right edge runs the rail: the buttons that open each of its panes,
- * one under the other, under the strip's panel toggle, then a divider and the
- * button that will add views from other platforms. The rail stays when the panel
+ * one under the other, under the strip's panel toggle, then a divider, the
+ * views from other platforms the profile has (`railEnd`) and the button that
+ * adds them. The rail stays when the panel
  * closes — it is what is left of the column, so the panes are one click away
  * whether the panel is showing or not — and only the panel beside it opens
  * and closes. The buttons are portaled in by whoever owns their state (a
  * conversation's `ChatPanel`, a room's `TabPanel`) through the rail's slot.
  */
-export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background = false, groupId }: SessionDockProps) {
+export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background = false, groupId, railEnd }: SessionDockProps) {
   const dict = useDict();
   const rootRef = useRef<HTMLDivElement>(null);
   const open = dock.panes.length > 0;
@@ -178,7 +182,7 @@ export function SessionDock({ dock, onWidthChange, onDragEnd, panes, background 
         <div ref={slotRef} className="contents" />
         {/* The panes' own buttons end here; what is under the divider adds to them. */}
         <div aria-hidden="true" className="mx-auto my-1 h-px w-5 shrink-0 bg-border" />
-        <RailAddButton />
+        {railEnd ?? <RailAddButton />}
       </div>
     </div>
   );

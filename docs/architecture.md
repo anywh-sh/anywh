@@ -101,6 +101,47 @@ relay/src/
                            one is rooted at the session's cwd by
                            construction and cannot reach a config home at
                            all
+  integrations/            ticket trackers reached through the MCP servers
+                           a profile's agent CLIs already have (Jira today):
+                           types.ts is the wire contract, mirrored on the
+                           client (lib/integrations/model.ts) and held
+                           identical by a parity test; inventory/ lists
+                           every server each CLI would load by asking the
+                           CLI itself (the def's `mcp.inventory` contract,
+                           parsed by inventory/claude.ts and codex.ts,
+                           scheduled by inventory/engine.ts); match.ts
+                           picks the one an integration runs through;
+                           claudeControl.ts and codexControl.ts are the
+                           turnless CLI processes everything here talks to;
+                           service.ts turns all that into what
+                           `/integrations/watch` (routes/integrations.ts)
+                           serves, and store.ts keeps it beside the
+                           sessions file; reader.ts reads a query through
+                           the picked server, the tracker's tools and
+                           result shapes in providers/ (jira.ts), the call
+                           itself in toolCaller.ts (the def's
+                           `mcp.toolCall` contract, no turn); ticketLinks.ts
+                           keeps each session's work ticket (at most one),
+                           and observer.ts watches the agents' own tracker
+                           calls in every turn to refresh the cache and link
+                           the first ticket a session's agent opens. In a
+                           room the principal never has one: a ticket sent
+                           to it is carried (`RoomMembership.carriedTickets`)
+                           and handed on with `delegate`'s `ticket`, which
+                           links the agent it starts. Each session's chat is
+                           sent `mcp_state` (its agent's servers of a known
+                           integration, from the inventory) and a failed MCP
+                           call's `tool_ended.mcpFailure` (the def's
+                           `mcp.failureClassifier`); what a turn says about
+                           a server (Claude's `init`, Codex's startup push)
+                           and a call refused for want of a sign-in go back
+                           into the inventory. auth/ signs a CLI in to a
+                           server with the CLI's own OAuth (the def's
+                           `mcp.auth`): engine.ts is the per-profile queue
+                           (one sign-in at a time, timeout, cancel) behind
+                           `mcp_auth_*`, claude.ts and codex.ts the two
+                           runtimes' flows; add.ts declares a new server
+                           through the CLI (`mcp.add`, `integration_add`)
   host/                    machine-local concerns: paths, the embedded
                            terminal, profile registry, theme validation,
                            git status, background-job tracking

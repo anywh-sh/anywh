@@ -8,7 +8,8 @@ import { defaultCwd } from "../../../host/paths.js";
 import type { McpChoiceBridge } from "../../../bridges/mcpBridge.js";
 import type { McpPermissionBridge } from "../../../bridges/permissionBridge.js";
 import type { AgentEvent } from "../../../protocol/agent-event.js";
-import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../../sessionDriver.js";
+import type { AgentSessionDriver, DriverTurnResult, McpServersObserver, SessionDriverHost } from "../../sessionDriver.js";
+import { parseClaudeInitMcpServers } from "../../../integrations/inventory/claude.js";
 import type { TurnContext } from "../../types.js";
 import { ClaudeSession, toClaudeMode } from "./session.js";
 import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js";
@@ -41,6 +42,17 @@ export interface ClaudeSessionDriverOptions {
   /** Where the turn's `rate_limit_event` and its start/end go; the relay's
    * shared capture unless a test passes its own. */
   readonly planUsage?: PlanUsageCapture;
+  /** Told the servers each turn's `system`/`init` says need a sign-in. */
+  readonly onMcpServers?: McpServersObserver;
+}
+
+/** A turn's `system`/`init` lists its MCP servers, but it is written before
+ * they finish starting: only `needs-auth` (which the CLI decides from its
+ * own cache, without connecting) is a verdict there. */
+export function reportInitMcpServers(event: unknown, observer: McpServersObserver | undefined): void {
+  if (!observer) return;
+  const servers = parseClaudeInitMcpServers(event);
+  if (servers.length > 0) observer(servers);
 }
 
 export class ClaudeSessionDriver implements AgentSessionDriver {
@@ -49,8 +61,10 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
   private readonly host: SessionDriverHost;
   private readonly mcp: ClaudeMcpWiring | undefined;
   private readonly planUsage: PlanUsageCapture;
+  private readonly onMcpServers: McpServersObserver | undefined;
 
   constructor(options: ClaudeSessionDriverOptions) {
+    this.onMcpServers = options.onMcpServers;
     this.claudeSession = new ClaudeSession({ homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, agentWorker: options.agentWorker });
     this.homeOverride = options.homeOverride;
     this.host = options.host;
@@ -139,6 +153,7 @@ export class ClaudeSessionDriver implements AgentSessionDriver {
           // Read on the side: the event still goes to the mapper, which
           // drops it as before.
           if (event.type === "rate_limit_event") this.planUsage.claudeEvent(event);
+          if (event.type === "system" && event.subtype === "init") reportInitMcpServers(event, this.onMcpServers);
           for (const agentEvent of mapClaudeEvent(event, memos)) onEvent(agentEvent);
         },
         mcpConfig,

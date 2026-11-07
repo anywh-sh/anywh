@@ -694,6 +694,15 @@ export interface Dictionary {
      */
     composer: {
       placeholder: string;
+      /** The `#` menu of the person's tickets. */
+      tickets: {
+        /** The menu's accessible name. */
+        label: string;
+        /** Beside what was typed after `#`: where the list comes from. */
+        yours: string;
+        /** The item a profile with no tracker to read gets; `{name}`. */
+        connect: string;
+      };
       /** The desktop field's prompt — the iOS native composer keeps `placeholder`. */
       placeholderTask: string;
       /** Shown instead of `placeholderTask` while a turn runs: a message sent now waits its turn. */
@@ -1115,6 +1124,7 @@ export interface Dictionary {
       olderInSearch: string;
       /** A room row's tooltips; each takes `{count}`. */
       roomNeedsYou: string;
+      sessionNeedsYou: string;
       roomWorking: string;
       roomFailed: string;
       groups: {
@@ -1590,6 +1600,10 @@ export interface Dictionary {
         tokens: string;
         connectors: string;
         connectorsEmpty: string;
+        /** The tickets the room's agents work on. */
+        tickets: string;
+        /** A ticket handed to the principal that no agent works on yet. */
+        withPrincipal: string;
         context: string;
         contextBody: string;
         contextEmpty: string;
@@ -1732,6 +1746,167 @@ export interface Dictionary {
       attached: string;
       attachFailed: string;
       saveFailed: string;
+    };
+  };
+  /** Views of other platforms (an issue tracker) and signing in to them. */
+  integrations: {
+    /** Product names, the same in every language. */
+    providers: { jira: string; linear: string };
+    /** An integration's rail button. `{name}`; `{count}` agents. */
+    rail: {
+      open: string;
+      needsAuthOne: string;
+      needsAuthMany: string;
+      failed: string;
+    };
+    /** The "+" menu and the dialog it opens. `{name}` is the provider. */
+    add: {
+      menuItem: string;
+      title: string;
+      description: string;
+      agentsLabel: string;
+      submit: string;
+      cancel: string;
+      /** The profile's relay could not be reached. */
+      unreachable: string;
+    };
+    /** The card that signs the profile's agents in to an integration.
+     * `{name}` is the provider, `{host}` its site. */
+    connect: {
+      title: string;
+      /** `{connected}` of `{total}` agents. */
+      progress: string;
+      noAgents: string;
+      /** An agent's line, by the state of its server. */
+      state: { connected: string; needsAuth: string; failed: string; unknown: string; missing: string };
+      connectedTo: string;
+      connect: string;
+      connectAll: string;
+      /** Adds the server to an agent that has none. */
+      add: string;
+      queued: string;
+      awaiting: string;
+      completing: string;
+      reopen: string;
+      copyLink: string;
+      copied: string;
+      anotherDevice: string;
+      cancel: string;
+      /** The relay waits for the address the browser ended on. */
+      paste: string;
+      /** Same, after the person moved the sign-in to another device. */
+      elsewhere: string;
+      pasteHint: string;
+      pasteLabel: string;
+      pastePlaceholder: string;
+      finish: string;
+      pasteErrors: { not_url: string; missing_code: string; state_mismatch: string };
+      claudeai: string;
+      claudeaiHint: string;
+      recheck: string;
+      openClaudeai: string;
+      failed: string;
+      retry: string;
+      unreachable: string;
+    };
+    /** The chat's ways into the connect card. `{agent}`, `{name}`. */
+    chat: {
+      agentNotConnected: string;
+      notConnected: string;
+      connect: string;
+    };
+    /** The integration's pane while agents have to sign in. `{name}`,
+     * `{count}`. */
+    panel: {
+      noneConnected: string;
+      needsAuthOne: string;
+      needsAuthMany: string;
+      connect: string;
+    };
+    /** The pane's tickets: the "assigned to me" list and one ticket's
+     * screen. `{name}` is the provider. */
+    tickets: {
+      allMine: string;
+      /** Beside "All mine" in the dropdown. */
+      allProjects: string;
+      projects: string;
+      /** The dropdown's name. */
+      chooseProject: string;
+      /** `{ago}` is a relative time ("4 minutes ago"). */
+      updated: string;
+      /** The machine is unreachable: what is shown is its last answer. */
+      offline: string;
+      refresh: string;
+      /** `{duration}` until a refresh can read again. */
+      againIn: string;
+      loading: string;
+      empty: string;
+      /** `{project}`. */
+      emptyProject: string;
+      error: string;
+      retry: string;
+      needsAuth: string;
+      connect: string;
+      countOne: string;
+      /** `{count}`. */
+      count: string;
+      /** `{count}`, when more pages exist. */
+      countMore: string;
+      loadMore: string;
+      ticket: {
+        /** Back to the list; `{list}` is its name. */
+        back: string;
+        /** `{name}`. */
+        openIn: string;
+        priority: string;
+        status: string;
+        noDescription: string;
+        comments: string;
+        noComments: string;
+        loading: string;
+        error: string;
+        refresh: string;
+      };
+    };
+    /** The ticket a session works on: the ticket screen's sessions and
+     * actions, the composer's chip, the sidebar's key. */
+    work: {
+      sessions: string;
+      noSessions: string;
+      /** Sessions past the ones a list row shows; `{count}`. */
+      moreSessions: string;
+      /** Attaches the ticket to the session of the tab beside the pane. */
+      workHere: string;
+      /** Always a new session, started on the ticket. */
+      newSession: string;
+      /** The composer's chip; `{key}`. */
+      openTicket: string;
+      /** ✕ on the chip of a session that works on the ticket; `{key}`. */
+      unlink: string;
+      /** ✕ on the chip of a new session, before its first message; `{key}`. */
+      dropPending: string;
+      /** The sidebar row's key; `{key}`. */
+      worksOn: string;
+      /** ✕ on a room agent's chip; `{key}`. */
+      unlinkAgent: string;
+      /** Menu of the profile's rooms (and a new one) to hand the ticket to. */
+      workInRoom: string;
+      /** The menu's last item: a new room started on the ticket. */
+      newRoom: string;
+      /** A room without a title yet. */
+      untitledRoom: string;
+      /** A room's agent on a ticket's screen: `{room} › {agent}`. */
+      roomAgent: string;
+      /** A room agent's state, as its card names it. */
+      agentStates: Record<"working" | "awaiting_user" | "queued" | "waiting" | "done" | "blocked" | "failed" | "stopped", string>;
+    };
+    /** A sign-in link the app opened but could not hand to any relay. */
+    oauthNotice: {
+      /** No relay was waiting for this link. */
+      unknown: string;
+      /** The relay waiting for it could not be reached. */
+      unreachable: string;
+      dismiss: string;
     };
   };
 }

@@ -12,6 +12,7 @@ import { markSessionCompleted } from "@/lib/format/sessionCompletion";
 import { notifyTurnComplete } from "@/lib/platform/notifications";
 import type { Profile } from "@/lib/profiles/profiles";
 import { discardBlankSession } from "@/lib/sala/firstMessage";
+import { requestRoomFocus } from "@/lib/sala/roomFocus";
 
 interface UseTabPanelActionsArgs {
   dict: Dictionary;
@@ -81,6 +82,9 @@ export function useTabPanelActions({
   onOpenPaneRef.current = onOpenPane;
   const onTogglePaneRef = useRef(onTogglePane);
   onTogglePaneRef.current = onTogglePane;
+  // Its identity follows the docks, like `togglePane`'s.
+  const toggleIntegrationRef = useRef(sessionDock.toggleIntegration);
+  toggleIntegrationRef.current = sessionDock.toggleIntegration;
 
   return useMemo<TabPanelActions>(
     () => ({
@@ -145,6 +149,37 @@ export function useTabPanelActions({
       // hidden, and the room can ask for a pane at any time.
       onTogglePane: (tabId, kind) => onTogglePaneRef.current(tabId, kind),
       onOpenPane: (tabId, kind) => onOpenPaneRef.current(tabId, kind),
+      onToggleIntegration: (tabId, integrationId) => toggleIntegrationRef.current(tabId, integrationId),
+      onOpenTicket: (tabId, ticketKey) => sessionDock.setIntegrationTicket(tabId, ticketKey),
+      onShowTicket: (tabId, integrationId, ticketKey) => sessionDock.showIntegration(tabId, integrationId, ticketKey),
+      onNewTicketSession: (profile, ticket, integrationId) => {
+        // The existing new-session screen, of the ticket's profile, with the
+        // ticket as a chip beside the folder; the list stays beside it.
+        const id = crypto.randomUUID();
+        tabsState.openTab(profile.id, id, null, true);
+        tabsState.setPendingTicket(id, ticket);
+        sessionDock.showIntegration(id, integrationId, null);
+      },
+      onClearPendingTicket: (tabId) => tabsState.setPendingTicket(tabId, null),
+      onWorkInRoom: (profile, ticket, integrationId, room) => {
+        if (room === null) {
+          // The new-session screen on Room, the ticket beside the folder.
+          const id = crypto.randomUUID();
+          tabsState.openTab(profile.id, id, null, true);
+          tabsState.setPendingTicket(id, ticket, true);
+          sessionDock.showIntegration(id, integrationId, null);
+          return;
+        }
+        // The room's principal gets the ticket as a chip in its composer;
+        // nothing is sent until the person sends.
+        tabsState.openTab(profile.id, room.id, room.title, false, true);
+        tabsState.setPendingTicket(room.id, ticket);
+        requestRoomFocus(room.id, null);
+      },
+      onOpenRoomAgent: (profile, roomId, roomTitle, agentId) => {
+        tabsState.openTab(profile.id, roomId, roomTitle, false, true);
+        requestRoomFocus(roomId, agentId);
+      },
       onClosePane: (tabId, kind) => sessionDock.closePane(tabId, kind),
       onToggleMaximized: (tabId, kind) => sessionDock.toggleMaximized(tabId, kind),
       onOpenPath: (profile, tabId, path) => onOpenFilePathRef.current(profile, tabId, path),
@@ -176,7 +211,11 @@ export function useTabPanelActions({
       tabsState.setUnread,
       tabsState.setTabTitle,
       tabsState.closeTab,
+      tabsState.openTab,
+      tabsState.setPendingTicket,
       sessionDock.removeSession,
+      sessionDock.setIntegrationTicket,
+      sessionDock.showIntegration,
       sessionDock.togglePane,
       sessionDock.closePane,
       sessionDock.toggleMaximized,

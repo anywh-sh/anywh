@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { HostClient } from "../agentHost/hostClient.js";
+import type { IntegrationService } from "../integrations/service.js";
 import type { PlanUsageService } from "../planUsage/service.js";
 import type { PushStore } from "../push/pushStore.js";
 import type { AgentDetection } from "../runtimes/detection.js";
@@ -48,6 +49,9 @@ export interface RouteContext {
   readonly agentContext: ContextTally;
   /** How much of each installed agent's plan is spent (`/plan-usage`). */
   readonly planUsage: PlanUsageService;
+  /** The profile's integrations and the tickets read through them
+   * (`/integrations`). */
+  readonly integrations: IntegrationService;
 }
 
 /** Every HTTP route handler has this shape — returns `true` if it handled

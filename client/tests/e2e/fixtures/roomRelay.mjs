@@ -4,11 +4,19 @@
 // agent: its behaviour is scripted by markers in the messages it is sent (the
 // host drives it in the persistent mode of relay/tests/fixtures/fake-claude.mjs,
 // whose markers are listed in fake-claude-persistent.mjs).
+//
+// With `jira: true` the profile also has Jira, through the same fakes as
+// integrationsRelay.mjs (`claude.ai Atlassian` connected in the fake
+// `claude`, the fake `codex app-server` on the PATH). Either way no real CLI
+// can be found: `HOME` is a throwaway folder and every PATH entry holding a
+// `codex` is dropped — the relay looks for MCP servers in each agent CLI it
+// finds, and a real one would read the developer's own configuration.
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, connect } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
+import { jiraFakeEnv } from "./integrationsRelay.mjs";
 
 const RELAY_ROOT = resolve(import.meta.dirname, "../../../../relay");
 // The compiled relay, as it runs in production. Not `tsx`: on the CI runner
@@ -62,7 +70,9 @@ function waitForPort(port, children, output, timeoutMs = 60_000) {
   });
 }
 
-/** Starts the stack. `stop()` ends exactly the processes started here. */
+/** Starts the stack (`options`: `digestWindowMs`, `jira`, and `profile`
+ * `{id, label}` — the registry entry the relay knows itself by). `stop()`
+ * ends exactly the processes started here. */
 export async function startRoomRelay(options = {}) {
   // The port is free when picked, not when the relay binds it: one that lost
   // it to another process exits on EADDRINUSE, and gets a new one.
@@ -96,14 +106,34 @@ async function stopAll(started) {
   );
 }
 
-async function start(children, { digestWindowMs = 600000 }) {
+/** No agent CLI but the fake `claude`: a throwaway `HOME`, and a PATH
+ * without any `codex` (this node first, for the fake's `env node`). */
+function noRealAgentsEnv(dir) {
+  const home = join(dir, "home");
+  const bin = join(dir, "bin");
+  mkdirSync(home, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  symlinkSync(process.execPath, join(bin, "node"));
+  const hasCodex = (entry) => {
+    try {
+      accessSync(join(entry, "codex"), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const inherited = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !hasCodex(entry));
+  return { HOME: home, RELAY_HOME_OVERRIDE: home, PATH: [bin, ...inherited].join(delimiter), EXTRA_PATH_DIRS: "" };
+}
+
+async function start(children, { digestWindowMs = 600000, jira = false, profile }) {
   if (!existsSync(SERVER) || !existsSync(HOST)) throw new Error("the relay is not built: run `npm run build` in relay/ first");
   const dir = mkdtempSync(join(tmpdir(), "anywh-e2e-room-"));
-  const home = join(dir, "home");
-  mkdirSync(home, { recursive: true });
+  const agents = jira ? (await jiraFakeEnv(dir)).env : noRealAgentsEnv(dir);
+  const home = agents.HOME;
   const output = [];
   const run = (args, env) => {
-    const child = spawn(process.execPath, args, { cwd: RELAY_ROOT, env: { ...process.env, NODE_OPTIONS: "", ...env } });
+    const child = spawn(process.execPath, args, { cwd: RELAY_ROOT, env: { ...process.env, NODE_OPTIONS: "", ...agents, ...env } });
     child.stdout.on("data", (chunk) => output.push(chunk.toString()));
     child.stderr.on("data", (chunk) => output.push(chunk.toString()));
     children.push(child);
@@ -116,6 +146,14 @@ async function start(children, { digestWindowMs = 600000 }) {
     { ANYWH_AGENT_HOST_DRAIN_GRACE_MS: "500", ANYWH_AGENT_HOST_HIBERNATE: "off", RELAY_HOME_OVERRIDE: home, AGENT_BIN: FAKE_AGENT },
   );
   const port = await freePort();
+  // The relay names itself after the registry entry that holds its port, and
+  // the app syncs its profile list from that: an app profile the relay does
+  // not know would give way to the relay's own "default".
+  if (profile) {
+    mkdirSync(join(dir, "env"), { recursive: true });
+    writeFileSync(join(dir, "profiles.json"), JSON.stringify({ version: 1, profiles: [{ id: profile.id, label: profile.label, colorIndex: 0 }] }));
+    writeFileSync(join(dir, "env", `${profile.id}.env`), `RELAY_PORT=${String(port)}\nRELAY_HOST=127.0.0.1\nRELAY_HOME_OVERRIDE=${home}\n`);
+  }
   run([SERVER], {
     RELAY_PORT: String(port),
     RELAY_HOST: "127.0.0.1",

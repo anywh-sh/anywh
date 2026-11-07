@@ -318,7 +318,8 @@ export interface TurnHost {
 // union's shape, not the event vocabulary. `protocol/agent-event.ts` (Phase
 // 7) is that real vocabulary now, so `StreamMapper` is defined against it
 // directly instead of carrying its own stand-in.
-import type { AgentEvent } from "../protocol/agent-event.js";
+import type { AgentEvent, McpFailureReason } from "../protocol/agent-event.js";
+import type { McpAuthMode, McpInventoryEntry, McpServerStatus, McpToolInfo } from "../integrations/types.js";
 export type { AgentEvent };
 
 export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => readonly AgentEvent[];
@@ -661,11 +662,178 @@ export type McpNeedsAuthSignal =
     }
   | { readonly kind: "in-band" };
 
+/** One server a CLI reported, normalized to the relay's vocabulary — the
+ * part of an `McpInventoryEntry` that comes from the CLI itself (which CLI,
+ * which project folder and when are the caller's to add). */
+export type McpServerReport = Omit<McpInventoryEntry, "runtimeId" | "cwd" | "scannedAt">;
+
+/** What a live status read says about one server already known from the
+ * declaration (`McpServerReport`), matched by name. */
+export interface McpLiveReport {
+  readonly name: string;
+  readonly status: McpServerStatus;
+  readonly authMode?: McpAuthMode;
+  readonly serverInfoName?: string;
+  readonly tools?: McpToolInfo[];
+}
+
+/** A file whose change can change what the inventory lists. `dir` is
+ * relative to the profile's `$HOME`; `dirEnv` names the variable that moves
+ * it (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`) — when set, the directory is
+ * `$<name>/<sub>` instead. */
+export interface McpWatchedFile {
+  readonly dir: string;
+  readonly dirEnv?: { readonly name: string; readonly sub: string };
+  readonly file: string;
+  /** The part of the file that matters, for a file written far more often
+   * than its servers change (Claude's `.claude.json`). A change outside it
+   * is no reason to rescan. Absent: the whole text. */
+  readonly slice?: (text: string) => unknown;
+}
+
+/** How the relay lists the MCP servers this CLI would load — always through
+ * the CLI itself, never by re-merging its config files (a file this CLI
+ * does not read would show servers it never loads, and connectors kept on
+ * an account exist in no file at all). Every request and reply here was
+ * recorded against `recordedWith`; an unrecorded version may answer in
+ * another shape, which the parsers turn into "nothing known", never an
+ * exception. */
+export type McpInventoryContract =
+  | {
+      /** A control request on a stdin-driven process of this CLI that runs
+       * no turn (so spends no model call) and answers with every server and
+       * its live state. */
+      readonly kind: "control-request";
+      readonly recordedWith: string;
+      /** Argv of that process. Never isolating MCP config: the point is to
+       * see what a session would load. */
+      readonly processArgs: readonly string[];
+      readonly subtype: string;
+      /** Servers report `pending` while they start; the request is repeated
+       * until none is, or this long has passed since the first. */
+      readonly settleMs: number;
+      readonly parse: (response: unknown) => McpServerReport[] | undefined;
+      /** Files to watch in the profile's home, and in a project folder. */
+      readonly watch: readonly McpWatchedFile[];
+      readonly projectWatch: readonly McpWatchedFile[];
+    }
+  | {
+      /** A one-shot CLI call printing the declared servers as JSON, without
+       * starting any of them, plus a live read through the app-server. */
+      readonly kind: "cli-json";
+      readonly recordedWith: string;
+      readonly args: readonly string[];
+      readonly parse: (stdout: string) => McpServerReport[] | undefined;
+      readonly live: {
+        readonly method: string;
+        readonly params: (threadId: string, cursor: string | undefined) => unknown;
+        readonly parse: (result: unknown) => { readonly servers: McpLiveReport[]; readonly nextCursor?: string } | undefined;
+      };
+      readonly watch: readonly McpWatchedFile[];
+      readonly projectWatch: readonly McpWatchedFile[];
+    };
+
+/** How the relay calls one tool of one of this CLI's servers itself — no
+ * turn, no model call, the raw MCP `CallToolResult` back. Recorded against
+ * `recordedWith`, like the inventory: an unrecorded version may answer in
+ * another shape, which the caller turns into an error, never an exception. */
+export type McpToolCallContract =
+  | {
+      /** A control request on a turnless process of this CLI (the
+       * inventory's `processArgs`). */
+      readonly kind: "control-request";
+      readonly recordedWith: string;
+      readonly subtype: string;
+      /** The request's payload, besides `subtype`. */
+      readonly payload: (server: string, tool: string, args: Record<string, unknown>) => Record<string, unknown>;
+      /** Extra argv that makes the process load only one server, declared
+       * in the file at `configPath`... */
+      readonly isolatedArgs: (configPath: string) => readonly string[];
+      /** ...whose content is this, from the server's name and the config the
+       * inventory reported for it. */
+      readonly isolatedConfig: (server: string, config: unknown) => unknown;
+    }
+  | {
+      /** A request on the app-server's control thread. */
+      readonly kind: "app-server";
+      readonly recordedWith: string;
+      readonly method: string;
+      readonly params: (threadId: string, server: string, tool: string, args: Record<string, unknown>) => unknown;
+    };
+
+/** How this CLI words the failure of a call to one of its MCP servers'
+ * tools, so the relay can say why it failed (`AgentEvent`'s `mcpFailure`):
+ * the first rule whose pattern matches the error text wins, and a result
+ * carrying one of `authMetaKeys` in its `_meta` is an `auth` failure
+ * whatever its text. Text no rule matches is `server_error`, which offers
+ * nothing: missing a sign-in is acceptable, offering one for a crash is
+ * not. The strings are no contract — recorded against `recordedWith`. */
+export interface McpFailureClassifier {
+  readonly recordedWith: string;
+  readonly rules: readonly { readonly reason: McpFailureReason; readonly pattern: RegExp }[];
+  readonly authMetaKeys?: readonly string[];
+}
+
+/** How the relay signs this CLI in to one of its MCP servers itself, with
+ * the CLI's own OAuth (the token goes where the CLI keeps it; the relay
+ * never sees it). Recorded against `recordedWith`: none of it is in either
+ * CLI's docs.
+ *
+ * `control-request`: a turnless process of this CLI (the inventory's
+ * `processArgs`) asked `authenticate {serverName, redirectUri?}` answers
+ * the URL to open and whether the browser comes back to its `redirectUri`
+ * or to a loopback listener of its own; the address the browser ended on is
+ * handed back with `submitCallback {serverName, callbackUrl}`, then
+ * `reconnect {serverName}` makes the process load the new token. The PKCE
+ * state lives in that process: it must outlive the flow.
+ *
+ * `app-server`: `login {name, timeoutSecs}` on an app-server started with
+ * `callbackArgs` (the per-process overrides of where the browser comes back
+ * and which local port answers it) answers the URL; the browser's address
+ * is delivered to that local port, and `completed` is pushed when the
+ * exchange is done. `reload` makes a running app-server load new tokens. */
+export type McpAuthContract =
+  | {
+      readonly kind: "control-request";
+      readonly recordedWith: string;
+      readonly authenticate: string;
+      readonly submitCallback: string;
+      readonly reconnect: string;
+    }
+  | {
+      readonly kind: "app-server";
+      readonly recordedWith: string;
+      readonly login: string;
+      readonly completed: string;
+      readonly reload: string;
+      /** Argv after `app-server`: `callbackUrl` absent keeps the CLI's own
+       * loopback redirect, on `port`. */
+      readonly callbackArgs: (serverName: string, port: number, callbackUrl: string | undefined) => readonly string[];
+    };
+
+/** How the relay declares a new MCP server for this CLI, through the CLI
+ * (which writes its own config file, with its own merge rules) — never by
+ * editing a shared config file itself. */
+export type McpAddContract =
+  | { readonly kind: "cli"; readonly args: (serverName: string, config: Readonly<Record<string, unknown>>) => readonly string[] }
+  | { readonly kind: "app-server"; readonly method: string; readonly params: (serverName: string, config: Readonly<Record<string, unknown>>) => unknown };
+
 export type McpContract =
   | { readonly kind: "none" }
   | {
       readonly kind: "supported";
       readonly declaration: McpDeclaration;
+      /** Absent: the relay has no way to list this CLI's servers. */
+      readonly inventory?: McpInventoryContract;
+      /** Absent: the relay cannot call this CLI's MCP tools itself. */
+      readonly toolCall?: McpToolCallContract;
+      /** Absent: a failed MCP call carries no reason. */
+      readonly failureClassifier?: McpFailureClassifier;
+      /** Absent: the relay cannot sign this CLI in to a server itself (the
+       * terminal login of `loginArgs` stays). */
+      readonly auth?: McpAuthContract;
+      /** Absent: the relay cannot add a server to this CLI. */
+      readonly add?: McpAddContract;
       /** Argv for this CLI's own login subcommand, per server. A pure
        * function returning args — nothing here runs it. */
       readonly loginArgs: (serverName: string) => readonly string[];

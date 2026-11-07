@@ -5,6 +5,7 @@ import { Shimmer } from "@/components/chat/Shimmer";
 import { TargetChips } from "@/components/chat/activity/TargetChips";
 import { ToolCallRow } from "@/components/chat/activity/ToolCallRow";
 import { ToolIcon } from "@/components/chat/activity/ToolIcon";
+import { McpConnectNotice, useMcpConnectTarget } from "@/components/integrations/McpConnect";
 import { callMeta, callTargetChip, failureLine, type WorkStep } from "@/lib/format/activity";
 import { useOpen } from "@/lib/format/openState";
 import { useDict } from "@/i18n";
@@ -70,6 +71,7 @@ export const WorkStepRow = memo(function WorkStepRow({ step, connected, current,
             onOpenPath={onOpenPath}
           />
           <FailureLine step={step} />
+          <McpAuthConnect step={step} />
           {detailOpen && (
             <div className="mt-1.5 flex flex-col gap-px border border-border bg-border-soft">
               {step.calls.map((call) => (
@@ -129,6 +131,15 @@ function StepMeta({ step }: { step: Extract<WorkStep, { kind: "tool" }> }) {
 }
 
 /** The first useful line of why a step failed, under its chips. */
+/** A step whose MCP call failed because its server wants a new sign-in
+ * offers that sign-in right under the failure, once per server. */
+function McpAuthConnect({ step }: { step: Extract<WorkStep, { kind: "tool" }> }) {
+  const server = step.calls.find((call) => call.mcpFailure?.reason === "auth")?.mcpFailure?.server;
+  const target = useMcpConnectTarget(server);
+  if (!target) return null;
+  return <McpConnectNotice target={target} className="mt-1.5" />;
+}
+
 function FailureLine({ step }: { step: Extract<WorkStep, { kind: "tool" }> }) {
   const line = step.calls.map(failureLine).find((text) => text !== "");
   if (!step.failed || !line) return null;

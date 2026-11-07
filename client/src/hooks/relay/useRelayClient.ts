@@ -22,6 +22,7 @@ import { isBrokeredProfile, isTailnetProfile, type Profile } from "@/lib/profile
 import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
 import { BrokerRevokedError, fetchConnectGrant } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
+import type { McpStateMessage, TicketRef } from "@/lib/integrations/model";
 
 /** A received `compact_boundary`, with a timestamp — the timestamp guarantees a
  * fresh reference on every occurrence (even with repeated `trigger`/`preTokens`),
@@ -136,7 +137,7 @@ export interface UseRelayClientResult {
    * second after the composer is cleared (same spirit as the optimistic
    * update of `onActivity` in ChatPanel). */
   dismissSuggestion: () => void;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string, startTicket?: TicketRef) => void;
   stopTurn: () => void;
   setCwd: (path: string) => void;
   setAgent: (agentId: string) => void;
@@ -179,6 +180,10 @@ export interface UseRelayClientResult {
   /** A `present_choice` prompt currently blocked waiting for an
    * answer, `null` when there's none. */
   choicePrompt: PendingChoice | null;
+  /** The session's agent's MCP servers of a known integration, as the relay
+   * last said (`mcp_state`); `null` until it does — always, on an older
+   * relay. */
+  mcpState: McpStateMessage | null;
   /** Answers the current `choicePrompt` — a no-op if it's already `null`
    * (e.g. the turn ended and resolved it right as the user was answering). */
   answerChoice: (answers: ChoiceAnswer[]) => void;
@@ -214,6 +219,7 @@ export function useRelayClient(
   const [failedBackgroundJobs, setFailedBackgroundJobs] = useState<FailedBackgroundJobSummary[]>([]);
   const [draft, setDraftState] = useState<string | null>(null);
   const [choicePrompt, setChoicePrompt] = useState<PendingChoice | null>(null);
+  const [mcpState, setMcpState] = useState<McpStateMessage | null>(null);
   const clientRef = useRef<RelayClient | null>(null);
   /** The latest "is this session on screen" value, kept so a client created
    * after it was set (a reconnection to a new profile or session) starts out
@@ -244,6 +250,7 @@ export function useRelayClient(
     setFailedBackgroundJobs([]);
     setDraftState(null);
     setChoicePrompt(null);
+    setMcpState(null);
 
     const tailnetMode = isTailnetProfile(profile);
     setConnectingTailnet(tailnetMode);
@@ -304,6 +311,7 @@ export function useRelayClient(
       onEditMessageError: (message) => optionsRef.current.onEditMessageError?.(message),
       onChoiceAnswerError: (code) => optionsRef.current.onChoiceAnswerError?.(code),
       onDraftState: setDraftState,
+      onMcpState: setMcpState,
       onChoicePrompt: (promptId, questions, kind) => setChoicePrompt({ promptId, questions, kind }),
       // Only clears local state if it's still the SAME prompt — a new one
       // could in principle already be pending by the time this arrives
@@ -430,8 +438,8 @@ export function useRelayClient(
     clientRef.current?.setPresence(visible);
   }, []);
 
-  const sendMessage = useCallback((text: string) => {
-    clientRef.current?.sendMessage(text);
+  const sendMessage = useCallback((text: string, startTicket?: TicketRef) => {
+    clientRef.current?.sendMessage(text, startTicket);
   }, []);
 
   const stopTurn = useCallback(() => {
@@ -535,6 +543,7 @@ export function useRelayClient(
     draft,
     setDraft,
     choicePrompt,
+    mcpState,
     answerChoice,
   };
 }

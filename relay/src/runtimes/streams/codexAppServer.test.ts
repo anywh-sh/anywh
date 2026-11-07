@@ -250,6 +250,28 @@ test("item/completed: mcpToolCall reports its error over its result, isError tru
   assert.equal(ended?.type === "tool_ended" && ended.isError, true);
 });
 
+test("item/completed: a failed mcpToolCall says why its server failed it", () => {
+  const failed = (error: string) => ({ item: { type: "mcpToolCall", id: "item-1", server: "atlassian", tool: "getJiraIssue", status: "failed", arguments: {}, result: null, error: { message: error } } });
+  const [auth] = mapCodexNotification("item/completed", failed("failed to get client: MCP startup failed: handshaking with MCP server failed: Auth required, when send initialize request"));
+  assert.deepEqual(auth?.type === "tool_ended" && auth.mcpFailure, { server: "atlassian", reason: "auth" });
+  const [crash] = mapCodexNotification("item/completed", failed("tool call failed for `atlassian/getJiraIssue`: Transport closed"));
+  assert.deepEqual(crash?.type === "tool_ended" && crash.mcpFailure, { server: "atlassian", reason: "crashed" });
+});
+
+test("item/completed: a server's 401 result fails the mcpToolCall as a sign-in, whatever the item's status", () => {
+  const result = { content: [{ type: "text", text: "Authentication required" }], isError: true, _meta: { "mcp/www_authenticate": ['Bearer error="invalid_token"'] } };
+  const [ended] = mapCodexNotification("item/completed", { item: { type: "mcpToolCall", id: "item-1", server: "atlassian", tool: "getJiraIssue", status: "completed", arguments: {}, result, error: null } });
+  assert.equal(ended?.type === "tool_ended" && ended.isError, true);
+  assert.deepEqual(ended?.type === "tool_ended" && ended.mcpFailure, { server: "atlassian", reason: "auth" });
+});
+
+test("item/completed: a successful mcpToolCall, or one of the relay's own servers, carries no failure", () => {
+  const [ok] = mapCodexNotification("item/completed", { item: { type: "mcpToolCall", id: "item-1", server: "atlassian", tool: "getJiraIssue", status: "completed", arguments: {}, result: { content: [], isError: false }, error: null } });
+  assert.equal(ok?.type === "tool_ended" && ok.mcpFailure, undefined);
+  const [own] = mapCodexNotification("item/completed", { item: { type: "mcpToolCall", id: "item-1", server: "anywh-room", tool: "delegate", status: "failed", arguments: {}, result: null, error: { message: "Transport closed" } } });
+  assert.equal(own?.type === "tool_ended" && own.mcpFailure, undefined);
+});
+
 test("item/completed: webSearch links come from whatever url-carrying objects its opaque results hold, text when none", () => {
   const withLinks = { item: { type: "webSearch", id: "w", query: "q", action: null, results: [{ title: "One", url: "https://one.dev" }, { nested: [{ url: "https://two.dev" }] }] } };
   const without = { item: { type: "webSearch", id: "w", query: "q", action: null, results: null } };

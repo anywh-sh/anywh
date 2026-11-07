@@ -13,11 +13,12 @@ import type { BackgroundJobActions } from "@/components/chat/ChatPanel";
 import { TitleBar } from "@/components/shell/TitleBar";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { UsageCard } from "@/components/shell/UsageCard";
-import { REFRESH_CLICK_DEBOUNCE_MS } from "@/components/shell/UsageRefreshButton";
+import { REFRESH_CLICK_DEBOUNCE_MS } from "@/components/shell/RefreshControl";
 import { UsageIndicator } from "@/components/shell/UsageIndicator";
 import { groupByProfile } from "@/lib/planUsage/derive";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { usePlanUsage } from "@/hooks/relay/usePlanUsage";
+import { IntegrationsContext, useIntegrations } from "@/hooks/relay/useIntegrations";
 import type { Profile } from "@/lib/profiles/profiles";
 import { useSessionCompletionTracking } from "@/hooks/useSessionCompletionTracking";
 import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
@@ -53,6 +54,9 @@ import { usePushRegistration } from "@/hooks/platform/usePushRegistration";
 import { useVisibleSession } from "@/hooks/platform/useVisibleSession";
 import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/profiles/useProfileImport";
+import { useMcpOAuthDeepLink } from "@/hooks/integrations/useMcpOAuthDeepLink";
+import { McpOAuthNotice } from "@/components/integrations/McpOAuthNotice";
+import { ConnectCardProvider } from "@/components/integrations/ConnectCardProvider";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
 import { getPendingAgentsProfileId } from "@/lib/install/pendingAgents";
@@ -112,6 +116,10 @@ export default function App() {
   // there is no profile yet — the pairing flow's whole point — and a
   // listener inside the shell would be unmounted at that exact moment.
   useProfileImport();
+  // An MCP server's sign-in ending on `anywh://mcp-oauth/callback` — see
+  // useMcpOAuthDeepLink.ts. Up here for the same reason: a link can arrive
+  // on a cold launch, before the shell is mounted.
+  useMcpOAuthDeepLink();
   const profiles = useProfiles();
   const firstRun = useFirstRun();
   const soleUnverified = profiles.length === 1 && profiles[0].unverified === true;
@@ -489,6 +497,16 @@ function AppShell() {
   // active profile. iOS has no status bar, so it opens no sockets at all.
   const usageProfileId = activeTab?.profileId ?? activeProfile.id;
   const planUsage = usePlanUsage(isIOS() ? NO_PROFILES : profiles, usageProfileId);
+  // Integrations of every profile with a tab open — what the side panel's
+  // rail of each of those tabs shows. The dock is desktop only, so iOS opens
+  // no sockets.
+  const tabProfilesKey = [...new Set(tabsState.tabs.map((tab) => tab.profileId))].sort().join("\n");
+  const integrationProfiles = useMemo(() => {
+    if (isIOS()) return NO_PROFILES;
+    const wanted = new Set(tabProfilesKey.split("\n"));
+    return profiles.filter((profile) => wanted.has(profile.id));
+  }, [profiles, tabProfilesKey]);
+  const integrations = useIntegrations(integrationProfiles, activeTab?.profileId ?? null);
   const [usageCardOpen, setUsageCardOpen] = useState(false);
   const usageGroups = groupByProfile(
     profiles.map((profile) => profile.id),
@@ -747,9 +765,12 @@ function AppShell() {
   );
 
   return (
+    <IntegrationsContext.Provider value={integrations}>
+    <ConnectCardProvider profiles={profiles}>
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
+      <McpOAuthNotice />
 
       <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
       <SettingsDialog
@@ -912,5 +933,7 @@ function AppShell() {
         />
       </PopoverPrimitive.Root>
     </div>
+    </ConnectCardProvider>
+    </IntegrationsContext.Provider>
   );
 }

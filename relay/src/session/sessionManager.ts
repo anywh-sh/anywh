@@ -1,10 +1,13 @@
-import type { AgentEvent } from "../protocol/agent-event.js";
+import type { McpStateMessage, TicketRef, TicketTag } from "../integrations/types.js";
+import type { TicketLine } from "../protocol/ticketLine.js";
+import type { AgentEvent, McpFailure } from "../protocol/agent-event.js";
+import type { ObservedMcpServer } from "../runtimes/sessionDriver.js";
 import { generateTitle } from "../runtimes/probes/titleGenerator.js";
 import { claudeRuntimeDef } from "../runtimes/defs/claude/index.js";
 import type { Registry } from "../runtimes/registry.js";
 import type { PushNotificationDraft } from "../push/events.js";
 import { SharedSession, type TurnOutcome } from "./sharedSession.js";
-import type { SessionStore, TitledSession } from "./sessionStore.js";
+import type { SessionActivity, SessionStore, TitledSession } from "./sessionStore.js";
 import { BackgroundJobTracker, type FinishedBackgroundJob } from "../host/backgroundJobs.js";
 import { WakeupScheduler } from "../host/wakeupScheduler.js";
 import type { McpChoiceBridge } from "../bridges/mcpBridge.js";
@@ -70,7 +73,7 @@ export interface SessionManagerRoomOptions {
  * never opened this session as a tab — e.g. a session created on mobile,
  * appearing live in the desktop sidebar. */
 export type SessionListEvent =
-  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true }
+  | { type: "upsert"; id: string; title: string; lastActiveAt: number; room?: true; titlePending?: true; activity?: SessionActivity; workTicket?: TicketTag }
   | { type: "remove"; id: string };
 
 /** What makes a session different from one a person types into. */
@@ -79,6 +82,36 @@ export interface SessionTraits {
   agentWorker?: boolean;
   /** See `SharedSessionOptions.deferredApproval`. */
   deferredApproval?: boolean;
+}
+
+/** What a relay with tracker integrations adds to its sessions: each
+ * session's work ticket, and a look at every event of its turns. */
+export interface SessionWorkTickets {
+  /** The ticket the session works on, as the list shows it. */
+  workTicketOf(sessionId: string): TicketTag | undefined;
+  /** Every event of the session's turns; `agentId` is its agent's. Must not
+   * throw. */
+  observe(sessionId: string, agentId: string, event: AgentEvent): void;
+  /** The session was deleted. */
+  forget(sessionId: string): void;
+  /** A person's turn is about to be sent with `start` (the ticket they sent
+   * with it, if any; `firstTurn` whether it is the session's first): the
+   * line its prompt starts with, if any — the ticket its agent has not been
+   * told about yet (once), or one a room's principal is to pass on. */
+  takeLine(sessionId: string, start: TicketRef | undefined, firstTurn: boolean): TicketLine | undefined;
+}
+
+/** What a relay with tracker integrations knows about its sessions' MCP
+ * servers: what each session's `mcp_state` says, and what the sessions'
+ * turns tell it back. `agentId` is the session's agent, `cwd` its folder. */
+export interface SessionMcpServers {
+  stateOf(agentId: string, cwd: string): McpStateMessage | undefined;
+  /** What the agent's CLI said about some of its servers. Must not throw. */
+  observed(agentId: string, servers: readonly ObservedMcpServer[], cwd: string): void;
+  /** A call to one of its servers' tools failed. Must not throw. */
+  failed(agentId: string, failure: McpFailure, cwd: string): void;
+  /** The profile's name for a server its CLI spelled `server`. */
+  serverName(agentId: string, server: string): string | undefined;
 }
 
 /** A notification-worthy moment in one session, as `server.ts` receives it. */
@@ -105,6 +138,11 @@ export class SessionManager {
    * there's no reason to keep N independent instances of the mechanism that
    * arms/persists it. */
   private readonly wakeups: WakeupScheduler;
+  /** Set once at boot, after construction (it needs the sessions to exist
+   * first); read at call time. */
+  private workTickets: SessionWorkTickets | undefined;
+  /** Set once at boot, like `workTickets`. */
+  private mcpServers: SessionMcpServers | undefined;
 
   constructor(
     private readonly homeOverride: string | undefined,
@@ -192,6 +230,35 @@ export class SessionManager {
     });
   }
 
+  /** Wires the sessions' MCP servers in (see `SessionMcpServers`). */
+  setMcpServers(mcpServers: SessionMcpServers): void {
+    this.mcpServers = mcpServers;
+  }
+
+  /** The servers may have changed: every live session with a device
+   * connected re-sends its `mcp_state` if it differs. */
+  refreshMcpState(): void {
+    for (const session of this.sessions.values()) session.refreshMcpState();
+  }
+
+  /** A server of agent CLI `agentId` got signed in: every live session of
+   * that agent whose process outlives a turn loads the token. */
+  reconnectMcp(agentId: string, serverName: string): void {
+    for (const [id, session] of this.sessions) {
+      if (this.sessionStore.getAgentId(id) === agentId) session.reconnectMcp(serverName);
+    }
+  }
+
+  /** Wires each session's work ticket in (see `SessionWorkTickets`). */
+  setWorkTickets(workTickets: SessionWorkTickets): void {
+    this.workTickets = workTickets;
+  }
+
+  /** Tells the list a session's work ticket changed. */
+  announceWorkTicket(id: string): void {
+    this.announceTitle(id);
+  }
+
   /** Reports a sidebar list change, except for a room's workers: they are
    * reached through their room and never listed on their own (the store's
    * `listTitled` leaves them out the same way). */
@@ -201,11 +268,29 @@ export class SessionManager {
       this.onListChanged?.(event);
       return;
     }
+    const activity = this.sessions.get(event.id)?.activity();
+    this.announcedActivity.set(event.id, activity ?? "idle");
+    const workTicket = this.workTickets?.workTicketOf(event.id);
     this.onListChanged?.({
       ...event,
       ...(this.sessionStore.getRoom(event.id)?.role === "principal" ? { room: true as const } : {}),
       ...(this.sessionStore.isTitlePending(event.id) ? { titlePending: true as const } : {}),
+      ...(activity ? { activity } : {}),
+      ...(workTicket ? { workTicket } : {}),
     });
+  }
+
+  /** The activity each session's last upsert carried, so a turn or a
+   * question that changes nothing the list shows sends nothing. */
+  private readonly announcedActivity = new Map<string, SessionActivity | "idle">();
+
+  /** Tells the list a session's activity changed. An untitled session isn't
+   * listed yet; its title upsert carries the activity when it comes. */
+  private announceActivity(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (this.announcedActivity.get(id) === (session.activity() ?? "idle")) return;
+    this.announceTitle(id);
   }
 
   /** Called by `BackgroundJobTracker` when a job finishes.
@@ -252,7 +337,11 @@ export class SessionManager {
   }
 
   listTitled(): TitledSession[] {
-    return this.sessionStore.listTitled();
+    return this.sessionStore.listTitled().map((row) => {
+      const activity = this.sessions.get(row.id)?.activity();
+      const workTicket = this.workTickets?.workTicketOf(row.id);
+      return activity || workTicket ? { ...row, ...(activity ? { activity } : {}), ...(workTicket ? { workTicket } : {}) } : row;
+    });
   }
 
   /** The timestamp to stamp an `upsert` event with. Read back from the store
@@ -480,6 +569,8 @@ export class SessionManager {
     this.wakeups.cancelForSession(id);
     const existedInStore = this.sessionStore.deleteEntry(id);
     const existed = existedInStore || session !== undefined;
+    this.announcedActivity.delete(id);
+    this.workTickets?.forget(id);
     if (existed) this.announce({ type: "remove", id });
     return existed;
   }
@@ -548,6 +639,12 @@ export class SessionManager {
       onDraftChange: (text) => this.sessionStore.setDraft(id, text),
       initialSuggestion: this.sessionStore.getSuggestion(id),
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
+      onActivityStateChange: () => this.announceActivity(id),
+      workTicketLine: (start, firstTurn) => this.workTickets?.takeLine(id, start, firstTurn),
+      mcpState: (agentId, sessionCwd) => this.mcpServers?.stateOf(agentId, sessionCwd),
+      onMcpServersObserved: (agentId, servers, sessionCwd) => this.mcpServers?.observed(agentId, servers, sessionCwd),
+      onMcpFailure: (agentId, failure, sessionCwd) => this.mcpServers?.failed(agentId, failure, sessionCwd),
+      mcpServerName: (agentId, server) => this.mcpServers?.serverName(agentId, server),
       initialPendingChoice: this.sessionStore.getPendingChoice(id),
       onPendingChoiceChange: (choice) => this.sessionStore.setPendingChoice(id, choice),
       initialPendingApproval: this.sessionStore.getPendingApproval(id),
@@ -582,6 +679,7 @@ export class SessionManager {
       onEvent: (event) => {
         this.backgroundJobs.observeEvent(id, event);
         this.wakeups.observeEvent(id, event);
+        this.workTickets?.observe(id, this.sessionStore.getAgentId(id), event);
         if (room) this.rooms.onActivity?.(id, event);
       },
       onCancelBackgroundJob: (jobId) => {

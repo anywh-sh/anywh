@@ -19,6 +19,10 @@ import { connectorLabel } from "@/lib/sala/connectorMarks";
 import { agentWork, formatBytes, formatTokens, windowPercent, type AgentWork } from "@/lib/sala/roomFigures";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/lib/profiles/profiles";
+import { WorkTicketChip } from "@/components/chat/WorkTicketChip";
+import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
+import { integrationDataState } from "@/lib/integrations/derive";
+import type { TicketRef, TicketTag } from "@/lib/integrations/model";
 
 interface AgentPanelProps {
   profile: Profile;
@@ -38,6 +42,12 @@ interface AgentPanelProps {
   onStop: (agentId: string) => void;
   onResume: (agentId: string) => void;
   onRemove: (agentId: string) => void;
+  /** The ticket the room's tab carries to the principal ("Work on it in a
+   * room…"): a chip in its composer, sent with the next message. */
+  pendingTicket?: TicketRef | null;
+  onClearPendingTicket?: () => void;
+  /** Opens a ticket's screen; absent where there is no pane for it. */
+  onShowTicket?: (ticket: TicketTag) => void;
 }
 
 function Tile({ runtime }: { runtime: string }) {
@@ -63,7 +73,17 @@ export function AgentPanel(props: AgentPanelProps) {
     return (
       <RoomPaneFrame shell={props.shell} mark={<Tile runtime={agent.runtime} />} title={dict.sala.orchestrator} subtitle={subtitle} kind="principal" onClose={props.onClose}>
         <div className="sala-side-chat">
-          <ChatPanel key={agent.agentId} profile={props.profile} sessionId={agent.agentId} isActiveTab={false} besideRoom />
+          <ChatPanel
+            key={agent.agentId}
+            profile={props.profile}
+            sessionId={agent.agentId}
+            isActiveTab={false}
+            besideRoom
+            pendingTicket={props.pendingTicket ?? null}
+            onClearPendingTicket={props.onClearPendingTicket}
+            carriesTicket
+            onShowTicket={props.onShowTicket}
+          />
         </div>
       </RoomPaneFrame>
     );
@@ -71,7 +91,7 @@ export function AgentPanel(props: AgentPanelProps) {
   return <WorkerPanel key={agent.agentId} {...props} title={agent.title ?? dict.sala.card.untitled} subtitle={subtitle} />;
 }
 
-function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, onSelectSubtask, title, subtitle, shell, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove }: AgentPanelProps & { title: string; subtitle: string }) {
+function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees, onSelectSubtask, title, subtitle, shell, onClose, onOpenInTab, onDelegate, onStop, onResume, onRemove, onShowTicket }: AgentPanelProps & { title: string; subtitle: string }) {
   const dict = useDict();
   const text = dict.sala.panel.agent;
   const status = cardStatus(agent, 0);
@@ -137,6 +157,7 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
           {delegatedBy}
         </span>
         {work.length > 0 && <WorktreeMark work={work} text={text} />}
+        {agent.ticket && <AgentTicket profileId={profile.id} agentId={agent.agentId} ticket={agent.ticket} onShowTicket={onShowTicket} />}
       </div>
 
       {status.tone === "fail" && (
@@ -191,6 +212,25 @@ function WorkerPanel({ profile, roomId, agent, parent, observedSince, worktrees,
         <ChatPanel key={agent.agentId} profile={profile} sessionId={agent.agentId} isActiveTab={false} besideRoom renderComposer={(session) => <WorkerComposer session={session} text={text} />} />
       </div>
     </RoomPaneFrame>
+  );
+}
+
+/**
+ * The ticket a worker works on, beside who delegated it: the composer's chip,
+ * opening the ticket's screen; its ✕ lets the agent go of the ticket (through
+ * the profile's integrations socket, so only while that is live).
+ */
+function AgentTicket({ profileId, agentId, ticket, onShowTicket }: { profileId: string; agentId: string; ticket: TicketTag & { title?: string }; onShowTicket?: (ticket: TicketTag) => void }) {
+  const copy = useDict().integrations.work;
+  const integrations = useProfileIntegrations(profileId);
+  const canUnlink = integrations !== null && integrations.entry.workTickets !== null && integrationDataState(integrations.entry) === "live";
+  return (
+    <WorkTicketChip
+      ticket={ticket}
+      onOpen={onShowTicket && (() => onShowTicket(ticket))}
+      onRemove={canUnlink ? () => integrations.send({ type: "work_ticket", sessionId: agentId, action: "unlink" }) : undefined}
+      removeLabel={copy.unlinkAgent.replace("{key}", ticket.key)}
+    />
   );
 }
 

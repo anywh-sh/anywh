@@ -33,5 +33,11 @@
  * prompt and the instruction as a plain bubble — it looks fine while
  * showing the wrong thing, exactly the skew this number exists to surface
  * as "update the app".
+ *
+ * 4 -> 5: `tool_ended` carries `mcpFailure`, the session list carries each
+ * session's `activity`, and a session's socket has a new `mcp_state`
+ * current-state message. An older client would not crash, but it would show
+ * a failed MCP call with no way to connect and every session as idle — it
+ * looks fine while missing what the relay sent.
  */
-export const WS_PROTOCOL_VERSION = 4;
+export const WS_PROTOCOL_VERSION = 5;

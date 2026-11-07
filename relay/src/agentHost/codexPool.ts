@@ -148,6 +148,15 @@ export class CodexPool {
     await this.daemon.request(spec.method, spec.params);
   }
 
+  /** Makes the app-server load MCP config and tokens again; nothing to do
+   * when it is not running. */
+  async reloadMcp(): Promise<void> {
+    if (!this.daemon || this.daemon.exited) return;
+    const { mcp } = this.def.portability;
+    const method = mcp.kind === "supported" && mcp.auth?.kind === "app-server" ? mcp.auth.reload : undefined;
+    if (method) await this.daemon.request(method, {});
+  }
+
   get running(): boolean {
     return this.daemon !== undefined && !this.daemon.exited;
   }

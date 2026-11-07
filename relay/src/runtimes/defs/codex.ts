@@ -46,6 +46,8 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
+import { parseCodexMcpList, parseCodexMcpServerStatusList } from "../../integrations/inventory/codex.js";
+import { CODEX_MCP_FAILURE_CLASSIFIER } from "./codexMcpFailure.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
  * against generated bindings (`v2/AskForApproval.ts`). The `granular` object
@@ -704,6 +706,68 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
         serversKey: "mcp_servers",
         portableKeys: ["model", "model_reasoning_effort", "mcp_servers"],
       },
+      // Two tiers. `mcp list --json` is stable JSON, ~1 s cold and ~30 ms
+      // warm, and starts no server: the declared servers and whether one has
+      // no login yet. The app-server's `mcpServerStatus/list` starts them
+      // (on the thread named, the same way a session's thread does) and
+      // says what each serves and whether it really signed in — an
+      // Atlassian server with a bad token connects and serves a catalog
+      // without any Jira tool. `toolsAndAuthOnly` skips resources.
+      inventory: {
+        kind: "cli-json",
+        recordedWith: "0.154.0",
+        args: ["mcp", "list", "--json"],
+        parse: parseCodexMcpList,
+        live: {
+          method: "mcpServerStatus/list",
+          params: (threadId, cursor) => ({ detail: "toolsAndAuthOnly", threadId, ...(cursor ? { cursor } : {}) }),
+          parse: parseCodexMcpServerStatusList,
+        },
+        watch: [{ dir: ".codex", dirEnv: { name: "CODEX_HOME", sub: "" }, file: "config.toml" }],
+        // Read only for a project the person trusted.
+        projectWatch: [{ dir: ".codex", file: "config.toml" }],
+      },
+      // A tool called by the relay itself, on the control daemon's thread
+      // (the call needs one; `thread/start` is what starts the servers):
+      // the raw MCP `CallToolResult` back, no turn, no quota, no login of
+      // the account needed. A server that has no login answers with a
+      // JSON-RPC error; an Atlassian server with a bad token connects and
+      // answers a Jira tool with `isError` "Tool … not found".
+      toolCall: {
+        kind: "app-server",
+        recordedWith: "0.154.0",
+        method: "mcpServer/tool/call",
+        params: (threadId, server, tool, args) => ({ threadId, server, tool, arguments: args }),
+      },
+      // Why a call failed, from the item's error or the server's result
+      // (see codexMcpFailure.ts).
+      failureClassifier: CODEX_MCP_FAILURE_CLASSIFIER,
+      // The app-server's own MCP OAuth: `mcpServer/oauth/login` answers the
+      // URL at once (dynamic client registration included, on every login),
+      // `mcpServer/oauthLogin/completed` ends it. Where the browser comes
+      // back is the per-server `oauth.callback_url`/`callback_port`,
+      // overridden per process with `-c` so the person's config.toml is
+      // never written; with a custom scheme the listener still binds the
+      // port and answers the URL's path, which is where the relay delivers
+      // the address the browser ended on. A wrong `state` is never answered.
+      // A daemon that signed in reconnects its own thread; any other needs
+      // `config/mcpServer/reload`. Recorded on 0.154.0.
+      auth: {
+        kind: "app-server",
+        recordedWith: "0.154.0",
+        login: "mcpServer/oauth/login",
+        completed: "mcpServer/oauthLogin/completed",
+        reload: "config/mcpServer/reload",
+        callbackArgs: (serverName, port, callbackUrl) => [
+          ...(callbackUrl !== undefined ? ["-c", `mcp_servers.${serverName}.oauth.callback_url=${JSON.stringify(callbackUrl)}`] : []),
+          "-c",
+          `mcp_servers.${serverName}.oauth.callback_port=${port}`,
+        ],
+      },
+      // A per-key merge of config.toml that keeps its comments and layout
+      // (`config/value/write`), not `codex mcp add`, which blocks on the
+      // OAuth flow it starts itself.
+      add: { kind: "app-server", method: "config/value/write", params: (serverName, config) => ({ keyPath: `mcp_servers.${serverName}`, value: config, mergeStrategy: "upsert" }) },
       // Writing this file directly, then logging in, is the only automatable
       // order: `codex mcp add --url …` kicks off the OAuth flow itself and
       // blocks waiting for the callback, so any provisioning that shells out

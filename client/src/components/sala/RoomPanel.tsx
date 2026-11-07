@@ -34,6 +34,9 @@ import { retainedWorktrees } from "@/lib/sala/roomFigures";
 import type { Profile } from "@/lib/profiles/profiles";
 import type { Camera } from "@/lib/sala/camera";
 import { cn } from "@/lib/utils";
+import type { TicketRef, TicketTag } from "@/lib/integrations/model";
+import { takeRoomFocus, useRoomFocusRequest } from "@/lib/sala/roomFocus";
+import { RoomTicketsContext } from "@/components/sala/roomTickets";
 
 interface RoomPanelProps {
   profile: Profile;
@@ -52,6 +55,11 @@ interface RoomPanelProps {
   /** The tab's dock, where the room's panes open; `null` where there is none
    * (compact windows, iOS) and the room keeps a panel of its own. */
   dock: RoomDock | null;
+  /** The ticket the tab carries to the principal ("Work on it in a room…"). */
+  pendingTicket?: TicketRef | null;
+  onClearPendingTicket?: () => void;
+  /** Opens a ticket's screen in the dock; `null` where there is no dock. */
+  onShowTicket?: ((ticket: TicketTag) => void) | null;
 }
 
 /** Esc pressed in the terminal or the file viewer is theirs, not the room's. */
@@ -63,7 +71,7 @@ const NOT_THE_ROOMS = '[data-dock-pane="terminal"], [data-dock-pane="files"]';
  * goes through the relay and comes back over the channel — it keeps no copy
  * of an agent's state of its own.
  */
-export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnectedChange, onGone, onOpenSession, dock }: RoomPanelProps) {
+export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnectedChange, onGone, onOpenSession, dock, pendingTicket = null, onClearPendingTicket, onShowTicket = null }: RoomPanelProps) {
   const dict = useDict().sala;
   const channel = useRoomChannel(profile, roomId);
   const ready = channel.summary !== null;
@@ -82,6 +90,7 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
   );
   // Stable so the chats under the provider don't re-render with the panel.
   const cardActions = useMemo(() => ({ openAgent }), [openAgent]);
+  const roomTickets = useMemo(() => ({ profileId: profile.id, openTicket: onShowTicket }), [profile.id, onShowTicket]);
   const [launcher, setLauncher] = useState<{ open: boolean; parentId: string | undefined }>({ open: false, parentId: undefined });
   const canvasHandle = useRef<SalaCanvasHandle>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -94,6 +103,21 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       onGone();
     }
   }, [gone, onGone]);
+
+  // Asked from outside (a ticket's screen): one agent's conversation in the
+  // pane and, for a worker, its card in view — once the room is drawn.
+  const focusRequest = useRoomFocusRequest(roomId);
+  const drawn = ready && layout.status === "ready";
+  const openPane = panes.open;
+  useEffect(() => {
+    if (!focusRequest || !drawn) return;
+    takeRoomFocus(roomId, focusRequest);
+    const target = focusRequest.agentId === null ? undefined : channel.agents.find((a) => a.agentId === focusRequest.agentId);
+    setFocusedAgentId(target?.agentId ?? null);
+    openPane("agent");
+    // The canvas mounts with this render; it moves on the next frame.
+    if (target) requestAnimationFrame(() => canvasHandle.current?.focusAgent(target.agentId));
+  }, [focusRequest, drawn, roomId, channel.agents, openPane]);
 
   const principal = channel.agents.find((a) => a.role === "principal");
   const principalTitle = principal?.title ?? null;
@@ -255,11 +279,13 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     if (!dock) return room;
     return (
       <RoomCardActionsContext.Provider value={cardActions}>
+        <RoomTicketsContext.Provider value={roomTickets}>
         <div className="relative flex h-full min-w-0">
           {/* Out of the flow, not shrunk, while a pane is maximized: the canvas keeps its size. */}
           <div className={cn("min-w-0 flex-1", dock.maximized !== null && "invisible absolute inset-0")}>{room}</div>
           {dock.render(panesContent)}
         </div>
+        </RoomTicketsContext.Provider>
       </RoomCardActionsContext.Provider>
     );
   };
@@ -287,6 +313,8 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       title={principalTitle ?? dict.card.untitled}
       titlePending={principalTitlePending}
       agents={channel.agents}
+      tickets={channel.summary?.tickets ?? []}
+      onShowTicket={onShowTicket ?? undefined}
       refreshKey={refreshKey}
       shell={shellOf("about")}
       onClose={() => panes.close("about")}
@@ -310,6 +338,9 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
       onStop={(agentId) => void onStopAgent(agentId)}
       onResume={onResumeAgent}
       onRemove={(agentId) => canvasHandle.current?.removeAgent(agentId)}
+      pendingTicket={pendingTicket}
+      onClearPendingTicket={onClearPendingTicket}
+      onShowTicket={onShowTicket ?? undefined}
     />
   );
 
@@ -376,5 +407,9 @@ export function RoomPanel({ profile, roomId, onTitle, onActiveChange, onConnecte
     </div>
   );
   if (dock) return withDock(room, { about: aboutPane || undefined, agent: agentPane || undefined });
-  return <RoomCardActionsContext.Provider value={cardActions}>{room}</RoomCardActionsContext.Provider>;
+  return (
+    <RoomCardActionsContext.Provider value={cardActions}>
+      <RoomTicketsContext.Provider value={roomTickets}>{room}</RoomTicketsContext.Provider>
+    </RoomCardActionsContext.Provider>
+  );
 }

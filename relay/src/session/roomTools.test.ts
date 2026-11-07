@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DELEGATE_TOOL, parseDelegateArgs, parseMessageAgentArgs, parseStopAgentArgs, parseReportArgs, parseWorktreeCreateArgs, roomToolsFor } from "./roomTools.js";
+import { DELEGATE_TOOL, parseDelegateArgs, principalInstructions, parseMessageAgentArgs, parseStopAgentArgs, parseReportArgs, parseWorktreeCreateArgs, roomToolsFor } from "./roomTools.js";
 
 test("only a worker is offered worktree_create; the principal, who changes nothing, is not", () => {
   assert.deepEqual(roomToolsFor("worker").map((tool) => tool.name), ["report", "worktree_create"]);
@@ -39,4 +39,25 @@ test("the principal is offered stop_agent beside message_agent; it takes the age
   assert.deepEqual(parseStopAgentArgs({ agent: " Slack " }), { ok: true, value: { agent: "Slack" } });
   assert.deepEqual(parseStopAgentArgs({ agentId: "5aac1c53" }), { ok: true, value: { agent: "5aac1c53" } });
   assert.equal(parseStopAgentArgs({}).ok, false);
+});
+
+test("delegate takes a ticket key, and one that is not a key is dropped with a warning instead of failing the delegation", () => {
+  assert.equal((DELEGATE_TOOL.inputSchema.properties as Record<string, { type: string }>).ticket?.type, "string");
+  assert.ok(!(DELEGATE_TOOL.inputSchema.required as string[]).includes("ticket"));
+  const base = { task: "fix it", runtime: "claude", model: "haiku" };
+  assert.deepEqual(parseDelegateArgs({ ...base, ticket: "NGL-9" }), { ok: true, value: { ...base, ticket: "NGL-9" } });
+  // As a model may write it: surrounding space, lower case.
+  assert.deepEqual(parseDelegateArgs({ ...base, ticket: " ngl-9 " }), { ok: true, value: { ...base, ticket: "NGL-9" } });
+  assert.deepEqual(parseDelegateArgs({ ...base, ticket: "" }), { ok: true, value: base });
+  for (const bad of ["NGL", "NGL-", "the login bug", "NGL-12345678", 9, { key: "NGL-9" }]) {
+    const parsed = parseDelegateArgs({ ...base, ticket: bad });
+    assert.equal(parsed.ok, true, JSON.stringify(bad));
+    if (!parsed.ok) continue;
+    assert.equal(parsed.value.ticket, undefined);
+    assert.match(parsed.value.ticketWarning ?? "", /not a ticket key/);
+  }
+});
+
+test("the principal is told how a ticket handed to it reaches the agent it delegates", () => {
+  assert.match(principalInstructions(["claude"]), /When a message starts with `Jira ticket to delegate: KEY`, pass `ticket: "KEY"`/);
 });

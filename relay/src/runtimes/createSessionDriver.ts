@@ -3,7 +3,7 @@
 // picks a concrete AgentSessionDriver for a def, so SharedSession never has
 // to know `exec.kind` exists at all.
 import type { AgentRuntimeDef } from "./types.js";
-import type { AgentSessionDriver, SessionDriverHost } from "./sessionDriver.js";
+import type { AgentSessionDriver, McpServersObserver, SessionDriverHost } from "./sessionDriver.js";
 import { ClaudeSessionDriver, type ClaudeMcpWiring } from "./defs/claude/index.js";
 import { CodexSessionDriver } from "./defs/codexDriver.js";
 import { HostSessionDriver, type HostAgentBinding } from "./hostSessionDriver.js";
@@ -21,11 +21,13 @@ export interface CreateSessionDriverOptions {
   readonly hostAgent?: HostAgentBinding;
   /** Claude only: the session is driven on behalf of another agent. */
   readonly agentWorker?: boolean;
+  /** Told what the agent's CLI reports about its MCP servers. */
+  readonly onMcpServers?: McpServersObserver;
 }
 
 export function createSessionDriver(def: AgentRuntimeDef, options: CreateSessionDriverOptions): AgentSessionDriver {
   if (options.hostAgent) {
-    return new HostSessionDriver(def, { homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, binding: options.hostAgent });
+    return new HostSessionDriver(def, { homeOverride: options.homeOverride, initialSessionId: options.initialSessionId, binding: options.hostAgent, onMcpServers: options.onMcpServers });
   }
   switch (def.exec.kind) {
     case "spawnPerTurn":
@@ -41,6 +43,7 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
         host: options.host,
         mcp: options.claudeMcp,
         agentWorker: options.agentWorker,
+        onMcpServers: options.onMcpServers,
       });
     case "jsonRpcDaemon":
       // CodexSessionDriver is the only driver of this shape today — same
@@ -50,6 +53,7 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
         homeOverride: options.homeOverride,
         initialSessionId: options.initialSessionId,
         host: options.host,
+        onMcpServers: options.onMcpServers,
       });
     case "custom":
       throw new Error(`no session driver for exec.kind "custom" (def "${def.identity.id}")`);

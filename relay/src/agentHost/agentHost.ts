@@ -418,6 +418,8 @@ export class AgentHost {
         return Promise.resolve(this.markAwaiting(this.agentParam(params), params.awaiting === true));
       case "activity":
         return Promise.resolve({ agents: this.activity() });
+      case "mcp_reconnect":
+        return this.reconnectMcp(this.agentParam(params), params.serverName);
       default:
         return Promise.reject(new HostError("unknown_method", `unknown method ${method}`));
     }
@@ -569,6 +571,20 @@ export class AgentHost {
     if (!agent.proc || agent.proc.hasExited) throw new HostError("not_running", `agent ${agent.agentId} has no process`);
     this.record(agent, { type: "host_stop_task", taskId });
     agent.proc.writeStopTask(taskId);
+    return { sent: true };
+  }
+
+  /** One of the agent's MCP servers got signed in: its process loads the
+   * token now instead of failing the server until it restarts. */
+  private async reconnectMcp(agent: Agent, serverName: unknown): Promise<{ sent: boolean }> {
+    if (typeof serverName !== "string" || serverName === "" || serverName.length > 256) throw new HostError("bad_request", "serverName is missing or invalid");
+    if (agent.runtime === "codex") {
+      if (!this.codexPool?.running) return { sent: false };
+      await this.codexPool.reloadMcp();
+      return { sent: true };
+    }
+    if (!agent.proc || agent.proc.hasExited) return { sent: false };
+    agent.proc.writeMcpReconnect(serverName);
     return { sent: true };
   }
 

@@ -1,3 +1,4 @@
+import type { TicketTag } from "../integrations/types.js";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ContextBreakdown } from "../context/breakdown.js";
@@ -259,6 +260,11 @@ function isPersistedApproval(value: unknown): value is PersistedApproval {
 
 export type SessionRecord = Record<string, SessionEntry>;
 
+/** What a session is doing right now, as the session list reports it:
+ * `"running"` while a turn runs, `"awaiting"` while a question or approval
+ * waits for the person. Absent when idle. */
+export type SessionActivity = "running" | "awaiting";
+
 /** One row of `GET /sessions` — the already-titled sessions the sidebar
  * lists, newest interaction first. `lastActiveAt` travels with the row
  * because the client groups the list by recency ("today" / "yesterday" /
@@ -274,6 +280,11 @@ export interface TitledSession {
    * and `title` is only the provisional text it was given: a client draws a
    * placeholder instead of that text. */
   titlePending?: true;
+  /** See `SessionActivity`. Live state, never persisted: `SessionManager`
+   * fills it in from the session in memory. */
+  activity?: SessionActivity;
+  /** The ticket the session works on, if any. */
+  workTicket?: TicketTag;
 }
 
 /** Shape prior to this change: id -> { session_id, cwd/lock }, without
