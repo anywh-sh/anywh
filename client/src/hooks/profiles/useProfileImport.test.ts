@@ -90,4 +90,17 @@ describe("useProfileImport", () => {
     expect(claimTailnetBundleMock).toHaveBeenCalledTimes(1);
     expect(getProfileSetupState().queuedCount).toBe(0);
   });
+
+  it("leaves an MCP sign-in callback alone instead of reporting it as a broken import", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    getCurrentMock.mockResolvedValueOnce([]);
+    renderHook(() => {
+      useProfileImport();
+    });
+    await vi.runAllTimersAsync();
+    openUrlHandler?.(["anywh://mcp-oauth/callback?code=c&state=s"]);
+    expect(enqueueProfileSetupSpy).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
 });

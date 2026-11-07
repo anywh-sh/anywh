@@ -1735,4 +1735,15 @@ export interface Dictionary {
       saveFailed: string;
     };
   };
+  /** Views of other platforms (an issue tracker) and signing in to them. */
+  integrations: {
+    /** A sign-in link the app opened but could not hand to any relay. */
+    oauthNotice: {
+      /** No relay was waiting for this link. */
+      unknown: string;
+      /** The relay waiting for it could not be reached. */
+      unreachable: string;
+      dismiss: string;
+    };
+  };
 }

@@ -53,6 +53,8 @@ import { usePushRegistration } from "@/hooks/platform/usePushRegistration";
 import { useVisibleSession } from "@/hooks/platform/useVisibleSession";
 import { useContextMenuGuard } from "@/hooks/platform/useContextMenuGuard";
 import { useProfileImport } from "@/hooks/profiles/useProfileImport";
+import { useMcpOAuthDeepLink } from "@/hooks/integrations/useMcpOAuthDeepLink";
+import { McpOAuthNotice } from "@/components/integrations/McpOAuthNotice";
 import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useFirstRun } from "@/hooks/useFirstRun";
 import { getPendingAgentsProfileId } from "@/lib/install/pendingAgents";
@@ -112,6 +114,10 @@ export default function App() {
   // there is no profile yet — the pairing flow's whole point — and a
   // listener inside the shell would be unmounted at that exact moment.
   useProfileImport();
+  // An MCP server's sign-in ending on `anywh://mcp-oauth/callback` — see
+  // useMcpOAuthDeepLink.ts. Up here for the same reason: a link can arrive
+  // on a cold launch, before the shell is mounted.
+  useMcpOAuthDeepLink();
   const profiles = useProfiles();
   const firstRun = useFirstRun();
   const soleUnverified = profiles.length === 1 && profiles[0].unverified === true;
@@ -750,6 +756,7 @@ function AppShell() {
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
+      <McpOAuthNotice />
 
       <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
       <SettingsDialog

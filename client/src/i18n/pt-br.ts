@@ -1232,4 +1232,11 @@ export const ptBr: Dictionary = {
       saveFailed: "Não foi possível salvar o layout.",
     },
   },
+  integrations: {
+    oauthNotice: {
+      unknown: "Nenhum login está esperando por este link. Comece de novo pelo app.",
+      unreachable: "Não foi possível concluir o login: a máquina dele não está acessível.",
+      dismiss: "Dispensar",
+    },
+  },
 };

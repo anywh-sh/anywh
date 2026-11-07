@@ -1232,4 +1232,11 @@ export const en: Dictionary = {
       saveFailed: "The layout could not be saved.",
     },
   },
+  integrations: {
+    oauthNotice: {
+      unknown: "No sign-in is waiting for this link. Start it again from the app.",
+      unreachable: "The sign-in could not be finished: its machine is not reachable.",
+      dismiss: "Dismiss",
+    },
+  },
 };
