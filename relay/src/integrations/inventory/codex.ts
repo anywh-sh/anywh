@@ -7,7 +7,7 @@
 // Pure: the processes are engine.ts's and codexControl.ts's.
 import type { McpLiveReport, McpServerReport } from "../../runtimes/types.js";
 import type { McpAuthMode, McpServerStatus, McpTransport } from "../types.js";
-import { toolsOf, urlWithoutQuery } from "./claude.js";
+import { argsWithoutSecrets, toolsOf, urlWithoutQuery } from "./claude.js";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const stringOf = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
@@ -22,7 +22,7 @@ function transportOf(raw: unknown): McpTransport | undefined {
   const command = stringOf(raw.command);
   if (!command) return undefined;
   const transport: McpTransport = { type: "stdio", command };
-  if (Array.isArray(raw.args)) transport.args = raw.args.filter((arg): arg is string => typeof arg === "string");
+  if (Array.isArray(raw.args)) transport.args = argsWithoutSecrets(raw.args.filter((arg): arg is string => typeof arg === "string")).args;
   // Names only: `env` holds values, `env_vars` names variables passed through.
   const envKeys = [
     ...(Array.isArray(raw.env_vars) ? raw.env_vars.filter((name): name is string => typeof name === "string") : []),

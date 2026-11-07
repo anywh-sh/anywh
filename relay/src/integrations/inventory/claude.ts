@@ -55,6 +55,43 @@ export function urlWithoutQuery(url: string): string {
   return cut === -1 ? url : url.slice(0, cut);
 }
 
+/** Flags whose value is a credential (`--header "Authorization: Bearer …"`,
+ * `--api-key …`). */
+const SECRET_FLAG = /^--?(h|headers?|api[-_]?key|(access[-_]?)?token|auth(orization)?|bearer|password|secret|client[-_]?secret)$/i;
+const SECRET_VALUE = /\b(bearer|basic)\s+\S|authorization\s*:/i;
+export const REDACTED_ARG = "<redacted>";
+
+/** A server's arguments with every credential in them replaced by
+ * `REDACTED_ARG` and every URL without its query; `redacted` says whether
+ * there was one. What is left still tells what the server runs. */
+export function argsWithoutSecrets(args: readonly string[]): { args: string[]; redacted: boolean } {
+  let redacted = false;
+  const out: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const flag = /^(-[^=]+)=/.exec(arg)?.[1];
+    if (flag !== undefined && SECRET_FLAG.test(flag)) {
+      out.push(`${flag}=${REDACTED_ARG}`);
+      redacted = true;
+    } else if (SECRET_FLAG.test(arg) && index + 1 < args.length) {
+      out.push(arg, REDACTED_ARG);
+      index += 1;
+      redacted = true;
+    } else if (SECRET_VALUE.test(arg)) {
+      out.push(REDACTED_ARG);
+      redacted = true;
+    } else if (/^https?:\/\//i.test(arg) && urlWithoutQuery(arg) !== arg) {
+      out.push(urlWithoutQuery(arg));
+      redacted = true;
+    } else {
+      out.push(arg);
+    }
+  }
+  return { args: out, redacted };
+}
+
+const stringArgs = (raw: unknown[]): string[] => raw.filter((arg): arg is string => typeof arg === "string");
+
 function transportOf(config: Record<string, unknown>): McpTransport | undefined {
   const type = config.type ?? (typeof config.command === "string" ? "stdio" : undefined);
   if (type !== "stdio" && type !== "http" && type !== "sse" && type !== "claudeai-proxy") return undefined;
@@ -63,7 +100,7 @@ function transportOf(config: Record<string, unknown>): McpTransport | undefined 
   if (url) transport.url = urlWithoutQuery(url);
   const command = stringOf(config.command);
   if (command) transport.command = command;
-  if (Array.isArray(config.args)) transport.args = config.args.filter((arg): arg is string => typeof arg === "string");
+  if (Array.isArray(config.args)) transport.args = argsWithoutSecrets(stringArgs(config.args)).args;
   if (isRecord(config.env)) transport.envKeys = Object.keys(config.env);
   return transport;
 }
@@ -77,11 +114,19 @@ function authModeOf(type: McpTransport["type"]): McpAuthMode {
 
 /** The config to hand back to the CLI (`--mcp-config`) to start a process
  * with only this server: the keys that name the server, never its
- * environment or headers (where credentials live). */
-function claudeConfigOf(config: Record<string, unknown>): Record<string, unknown> {
+ * environment, headers or URL query (where credentials live). A server
+ * whose arguments carry one gets none: it would not start without it, and
+ * its calls go through the profile's own process instead. */
+function claudeConfigOf(config: Record<string, unknown>): Record<string, unknown> | undefined {
   const kept: Record<string, unknown> = {};
-  for (const key of ["type", "url", "id", "command", "args"]) {
+  for (const key of ["type", "id", "command"]) {
     if (config[key] !== undefined) kept[key] = config[key];
+  }
+  if (typeof config.url === "string") kept.url = urlWithoutQuery(config.url);
+  if (Array.isArray(config.args)) {
+    const args = argsWithoutSecrets(stringArgs(config.args));
+    if (args.redacted) return undefined;
+    kept.args = args.args;
   }
   return kept;
 }
@@ -120,8 +165,9 @@ export function parseClaudeMcpStatus(response: unknown): McpServerReport[] | und
       transport,
       status,
       authMode: authModeOf(transport.type),
-      claudeConfig: claudeConfigOf(server.config),
     };
+    const claudeConfig = claudeConfigOf(server.config);
+    if (claudeConfig) report.claudeConfig = claudeConfig;
     const serverInfoName = isRecord(server.serverInfo) ? stringOf(server.serverInfo.name) : undefined;
     if (serverInfoName) report.serverInfoName = serverInfoName;
     const tools = toolsOf(server.tools);

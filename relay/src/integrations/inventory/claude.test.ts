@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { claudeRuntimeDef } from "../../runtimes/defs/claude/index.js";
-import { claudeJsonMcpSlice, parseClaudeInitMcpServers, parseClaudeMcpStatus } from "./claude.js";
+import { REDACTED_ARG, argsWithoutSecrets, claudeJsonMcpSlice, parseClaudeInitMcpServers, parseClaudeMcpStatus } from "./claude.js";
 import { CLAUDE_INIT_EVENT, CLAUDE_MCP_STATUS_SETTLED, CLAUDE_MCP_STATUS_STARTING, CLAUDE_RECORDED_WITH } from "./fixtures.js";
 
 const byName = (name: string) => parseClaudeMcpStatus(CLAUDE_MCP_STATUS_SETTLED)?.find((report) => report.name === name);
@@ -110,4 +110,27 @@ test("claudeJsonMcpSlice: ignores counters and caches, sees servers and approval
   assert.notEqual(slice(base), slice({ ...base, projects: { "/p": { ...base.projects["/p"], enabledMcpjsonServers: ["atlassian"] } } }));
   assert.notEqual(slice(base), slice({ ...base, mcpServers: {} }));
   assert.equal(claudeJsonMcpSlice("{ half-written"), undefined);
+});
+
+test("parseClaudeMcpStatus: a credential in a server's URL query or arguments is kept nowhere", () => {
+  const reports = parseClaudeMcpStatus({
+    mcpServers: [
+      { name: "keyed", status: "connected", scope: "user", config: { type: "http", url: "https://mcp.example.com/mcp?api_key=SECRET1", headers: { Authorization: "Bearer SECRET2" } } },
+      { name: "bridge", status: "connected", scope: "user", config: { type: "stdio", command: "npx", args: ["-y", "mcp-remote", "https://mcp.atlassian.com/v1/sse?token=SECRET3", "--header", "Authorization: Bearer SECRET4"], env: { KEY: "SECRET5" } } },
+      { name: "flagged", status: "connected", scope: "user", config: { type: "stdio", command: "jira-mcp", args: ["--api-key=SECRET6", "--token", "SECRET7"] } },
+      { name: "plain", status: "connected", scope: "user", config: { type: "stdio", command: "uvx", args: ["mcp-atlassian", "--read-only"] } },
+    ],
+  });
+  assert.ok(reports);
+  assert.ok(!JSON.stringify(reports).includes("SECRET"), "no credential anywhere in the inventory");
+  const byReport = (name: string) => reports.find((report) => report.name === name);
+  assert.deepEqual(byReport("keyed")?.claudeConfig, { type: "http", url: "https://mcp.example.com/mcp" });
+  // Without its credential it would not start: no isolated process for it.
+  assert.equal(byReport("bridge")?.claudeConfig, undefined);
+  assert.equal(byReport("flagged")?.claudeConfig, undefined);
+  // What it runs is still told, for recognizing it.
+  assert.deepEqual(byReport("bridge")?.transport.args, ["-y", "mcp-remote", "https://mcp.atlassian.com/v1/sse", "--header", REDACTED_ARG]);
+  assert.deepEqual(byReport("flagged")?.transport.args, [`--api-key=${REDACTED_ARG}`, "--token", REDACTED_ARG]);
+  assert.deepEqual(byReport("plain")?.claudeConfig, { type: "stdio", command: "uvx", args: ["mcp-atlassian", "--read-only"] });
+  assert.deepEqual(argsWithoutSecrets(["-H", "x-api-key: k"]), { args: ["-H", REDACTED_ARG], redacted: true });
 });
