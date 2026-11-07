@@ -207,10 +207,11 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
             provider={provider}
             value={project}
             projects={projectOptions(integration)}
+            disabled={stale}
             onChange={(next) => {
               if (next === project) return;
-              setPicked({ project: next });
-              sendRef.current({ type: "integration_prefs", id: integration.id, prefs: { project: next } });
+              // Switched only once the relay has the choice to save.
+              if (sendRef.current({ type: "integration_prefs", id: integration.id, prefs: { project: next } })) setPicked({ project: next });
             }}
           />
           {refreshButton}
@@ -277,7 +278,8 @@ function LoadingMoreList({
   reading: boolean;
   receivedAt: number | null;
   onOpen: (key: string) => void;
-  onLoadMore: () => void;
+  /** False when the ask never left (the socket is not open). */
+  onLoadMore: () => boolean;
 }) {
   const [pendingSince, setPendingSince] = useState<number | null>(null);
   useEffect(() => {
@@ -293,8 +295,8 @@ function LoadingMoreList({
       loadingMore={pendingSince !== null}
       onOpen={onOpen}
       onLoadMore={() => {
-        setPendingSince(Date.now());
-        onLoadMore();
+        const since = Date.now();
+        if (onLoadMore()) setPendingSince(since);
       }}
     />
   );

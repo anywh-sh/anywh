@@ -213,5 +213,27 @@ describe("my tickets in the integration's pane", () => {
     await waitFor(() => expect(screen.getByTestId("integration-freshness")).toHaveTextContent(copy.offline));
     expect(screen.getByTestId("ticket-list").parentElement).toHaveClass("opacity-60");
     expect(screen.queryByRole("button", { name: copy.refresh })).toBeNull();
+    // No project to pick that the relay could not save.
+    expect(screen.getByTestId("project-dropdown")).toBeDisabled();
+  });
+
+  it("neither switches project nor spins Load more when the ask never left", async () => {
+    start(jira([mine(null, [NGL1, ANY7], { nextPageToken: "p2" }), mine("NGL", [NGL1])]));
+    const user = userEvent.setup();
+    await openPane(user);
+    await waitFor(() => expect(listedKeys()).toEqual(["NGL-1", "ANY-7"]));
+
+    // The socket died; its close has not been seen yet, so the pane is live.
+    for (const socket of relay.sockets) if (new URL(socket.url).pathname === "/integrations/watch") socket.readyState = 3;
+
+    await user.click(screen.getByRole("button", { name: copy.loadMore }));
+    expect(sentOfType("integration_load_more")).toEqual([]);
+    expect(screen.getByRole("button", { name: copy.loadMore })).not.toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: copy.loadMore })).toBeEnabled();
+
+    await user.click(screen.getByTestId("project-dropdown"));
+    await user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "NGL" }));
+    expect(sentOfType("integration_prefs")).toEqual([]);
+    expect(screen.getByTestId("project-dropdown")).toHaveTextContent(copy.allMine);
   });
 });
