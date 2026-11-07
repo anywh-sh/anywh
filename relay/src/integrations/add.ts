@@ -77,7 +77,7 @@ export async function addIntegration(deps: IntegrationAddDeps, provider: Integra
       continue;
     }
     try {
-      await declare(deps, def, contract, name, server.config(runtimeId));
+      await declareMcpServer(deps, def, contract, name, server.config(runtimeId));
       await deps.rescan(runtimeId);
       if (deps.entry(runtimeId, name)?.status === "connected") continue;
       result.targets.push({ runtimeId, serverName: name });
@@ -88,7 +88,15 @@ export async function addIntegration(deps: IntegrationAddDeps, provider: Integra
   return result;
 }
 
-function declare(deps: IntegrationAddDeps, def: AgentRuntimeDef, contract: McpAddContract, name: string, config: Record<string, unknown>): Promise<unknown> {
+/** Declares server `name` with `config` (in the CLI's own terms) through
+ * the CLI, as the def's `mcp.add` says. */
+export function declareMcpServer(
+  deps: Pick<IntegrationAddDeps, "homeOverride" | "neutralCwd" | "codexRequest">,
+  def: AgentRuntimeDef,
+  contract: McpAddContract,
+  name: string,
+  config: Record<string, unknown>,
+): Promise<unknown> {
   if (contract.kind === "app-server") {
     if (!deps.codexRequest) return Promise.reject(new Error("no app-server to write the declaration with"));
     return deps.codexRequest(contract.method, contract.params(name, config));

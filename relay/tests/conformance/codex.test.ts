@@ -3,14 +3,18 @@
 // driven by the relay's own code (auth/codex.ts, codexControl.ts): the
 // per-process `-c …oauth.callback_url/callback_port` override, the app's
 // link registered and the callback delivered to the CLI's listener, the
-// loopback fallback, a tool called with no turn, and how a failed call is
-// worded (the def's `failureClassifier`). No turn, no account login.
+// loopback fallback, a tool called with no turn, how a failed call is
+// worded (the def's `failureClassifier`), and `config/value/write` (the
+// def's `mcp.add`) declaring a server the daemon loads. No turn, no account
+// login.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { codexRuntimeDef } from "../../src/runtimes/defs/codex.js";
+import { declareMcpServer } from "../../src/integrations/add.js";
 import { CodexAuthDriver } from "../../src/integrations/auth/codex.js";
+import { parseCodexMcpServerStatusList } from "../../src/integrations/inventory/codex.js";
 import { createCodexControl } from "../../src/integrations/codexControl.js";
 import { classifyMcpFailure } from "../../src/runtimes/mcpFailure.js";
 import type { McpFailureClassifier } from "../../src/runtimes/types.js";
@@ -87,6 +91,16 @@ test("Codex signs in through the app's link and through loopback, calls a tool w
     );
     t.diagnostic(`crash: ${crash}`);
     assert.equal(classifyMcpFailure(classifier, { text: crash }), "crashed");
+
+    // A server declared through the app-server, as "+ Add" does: in the
+    // config file, and listed (signed out) by the daemon after a reload.
+    assert.ok(mcp.kind === "supported" && mcp.add);
+    await declareMcpServer({ homeOverride: home, neutralCwd: home, codexRequest: (method, params) => control.request(method, params) }, codexRuntimeDef, mcp.add, "added", { url: lenient.url });
+    assert.match(readFileSync(join(home, ".codex", "config.toml"), "utf8"), /\[mcp_servers\.added\][^[]*url = "http:\/\/127\.0\.0\.1:\d+/);
+    await control.reload();
+    const listed = parseCodexMcpServerStatusList(await control.request("mcpServerStatus/list", {}));
+    t.diagnostic(`added: ${JSON.stringify(listed?.servers.find((server) => server.name === "added"))}`);
+    assert.equal(listed?.servers.find((server) => server.name === "added")?.status, "needs_auth");
   } finally {
     control.close();
     await cleanup();

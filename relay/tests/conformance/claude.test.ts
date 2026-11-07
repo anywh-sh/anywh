@@ -3,14 +3,16 @@
 // (auth/claude.ts, claudeControl.ts) — the undocumented control requests
 // the def records (`mcp_status`, `mcp_authenticate`, `mcp_oauth_callback_url`,
 // `mcp_reconnect`, `mcp_call`) still answering in the shapes the fakes of
-// the CI tiers reproduce. No turn is run: no model call, no account login.
+// the CI tiers reproduce, and `mcp add-json` (the def's `mcp.add`) declaring
+// a server the next process loads. No turn is run: no model call, no account login.
 // A failed call's text (the def's `failureClassifier`) only shows in a
 // turn's `tool_result`, so it is not checked here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeRuntimeDef } from "../../src/runtimes/defs/claude/index.js";
+import { declareMcpServer } from "../../src/integrations/add.js";
 import { ClaudeAuthDriver, statusIn } from "../../src/integrations/auth/claude.js";
 import { claudeControlArgs, startClaudeControl } from "../../src/integrations/claudeControl.js";
 import type { McpInventoryEntry } from "../../src/integrations/types.js";
@@ -84,6 +86,15 @@ test("Claude signs in through the app's link and through loopback, and calls a t
     }
     assert.equal(await status("strict"), "connected");
     assert.ok(strict.registrations.some((uris) => uris.some((uri) => uri.startsWith("anywh://"))), "the app's link was tried first");
+
+    // A server declared through the CLI, as "+ Add" does: in the user's
+    // config, and loaded (signed out) by the next process.
+    const { mcp } = claudeRuntimeDef.portability;
+    assert.ok(mcp.kind === "supported" && mcp.add);
+    await declareMcpServer({ homeOverride: home, neutralCwd: home }, claudeRuntimeDef, mcp.add, "added", { type: "http", url: lenient.url });
+    const declared = (JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")) as { mcpServers?: Record<string, { url?: string }> }).mcpServers?.added;
+    assert.equal(declared?.url, lenient.url);
+    assert.equal(await status("added"), "needs_auth");
   } finally {
     await cleanup();
     await lenient.close();
