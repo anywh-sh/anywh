@@ -130,16 +130,17 @@ function StepMeta({ step }: { step: Extract<WorkStep, { kind: "tool" }> }) {
   return meta?.kind === "text" ? <span className="whitespace-nowrap font-mono text-xs text-text-faint">{meta.text}</span> : null;
 }
 
-/** The first useful line of why a step failed, under its chips. */
 /** A step whose MCP call failed because its server wants a new sign-in
- * offers that sign-in right under the failure, once per server. */
+ * offers that sign-in right under the failure, once per server — when the
+ * relay can run one for that server. */
 function McpAuthConnect({ step }: { step: Extract<WorkStep, { kind: "tool" }> }) {
   const server = step.calls.find((call) => call.mcpFailure?.reason === "auth")?.mcpFailure?.server;
   const target = useMcpConnectTarget(server);
-  if (!target) return null;
+  if (!target?.canLogin) return null;
   return <McpConnectNotice target={target} className="mt-1.5" />;
 }
 
+/** The first useful line of why a step failed, under its chips. */
 function FailureLine({ step }: { step: Extract<WorkStep, { kind: "tool" }> }) {
   const line = step.calls.map(failureLine).find((text) => text !== "");
   if (!step.failed || !line) return null;

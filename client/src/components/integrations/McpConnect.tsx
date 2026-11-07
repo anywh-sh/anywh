@@ -14,6 +14,8 @@ export interface McpConnectTarget {
   provider: IntegrationProvider;
   /** The chat's agent, as the person knows it ("Claude Code"). */
   agentName: string | null;
+  /** The relay can run this server's sign-in (it has one at all). */
+  canLogin: boolean;
   open: () => void;
 }
 
@@ -46,7 +48,10 @@ export function useMcpConnectResolver(profileId: string, agentId: string | null,
         integrationForServer(list, agentId, server) ??
         list?.find((entry) => entry.id === mcpState?.servers.find((candidate) => candidate.name === server)?.integrationId);
       if (!integration) return null;
-      return { provider: integration.provider, agentName, open: () => openCard(profileId, integration.id) };
+      const reported = mcpState?.servers.find((candidate) => candidate.name === server);
+      const runtime = integration.runtimes.find((entry) => entry.serverName === server && (agentId === null || entry.runtimeId === agentId));
+      const canLogin = reported ? reported.canLogin : runtime?.authMode !== "none";
+      return { provider: integration.provider, agentName, canLogin, open: () => openCard(profileId, integration.id) };
     },
     [openCard, list, agentId, agentName, mcpState, profileId],
   );

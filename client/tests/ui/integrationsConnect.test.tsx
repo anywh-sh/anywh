@@ -290,6 +290,18 @@ describe("connecting an integration", () => {
     await waitFor(() => expect(screen.queryByTestId("mcp-needs-auth")).toBeNull());
   });
 
+  it("offers no sign-in under a failed call whose server has none the relay can run", async () => {
+    start({ integrations: [jira([runtime({ status: "connected", authMode: "none" })])] });
+    const user = userEvent.setup();
+    await openConversation(user);
+    act(() => {
+      relay.emit({ type: "agent_event", event: { type: "tool_started", toolUseId: "t1", name: "mcp__atlassian__getJiraIssue", kind: "other", input: {}, subject: { kind: "mcp", server: "atlassian", tool: "getJiraIssue" } } });
+      relay.emit({ type: "agent_event", event: { type: "tool_ended", toolUseId: "t1", content: "unauthorized", isError: true, mcpFailure: { server: "atlassian", reason: "auth" } } });
+    });
+    await screen.findByText("unauthorized");
+    expect(document.querySelector("[data-mcp-connect]")).toBeNull();
+  });
+
   it("says nothing above the composer while another of the agent's servers reads the same tracker", async () => {
     start({ integrations: [jira([runtime({ serverName: "claude.ai Atlassian", status: "connected" })])] });
     const user = userEvent.setup();
