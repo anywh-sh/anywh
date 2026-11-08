@@ -71,6 +71,7 @@ import { dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSe
 import { ensureNotificationPermission } from "@/lib/platform/notifications";
 import { isIOS, isMacOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
+import { PANEL_MOTION } from "@/lib/motion";
 import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
@@ -799,7 +800,7 @@ function AppShell() {
           <div
             className={cn(
               "relative flex shrink-0 flex-col overflow-hidden bg-bg-sidebar",
-              !resizable.isDragging && "transition-[width] duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+              !resizable.isDragging && cn("transition-[width]", PANEL_MOTION),
             )}
             style={{ width: resizable.width, contain: "layout paint" }}
           >
@@ -808,7 +809,8 @@ function AppShell() {
              * it comes and goes. */}
             <div
               className={cn(
-                "relative flex h-full flex-col transition-opacity duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none",
+                "relative flex h-full flex-col transition-opacity",
+                PANEL_MOTION,
                 resizable.collapsed ? "opacity-0" : "opacity-100 delay-(--motion-fast)",
               )}
               style={{ width: resizable.expandedWidth }}

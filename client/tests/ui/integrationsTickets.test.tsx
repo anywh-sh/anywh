@@ -138,11 +138,13 @@ describe("my tickets in the integration's pane", () => {
     await user.click(within(screen.getByTestId("ticket-list")).getByRole("button", { name: /^To Do/ }));
     expect(listedKeys()).toEqual(["NGL-1"]);
 
-    // Leaving the list unmounts it; the fold is still there on the way back.
-    await user.click(screen.getByRole("button", { name: /Export orders as CSV/ }));
-    const ticket = await screen.findByTestId("ticket-screen");
-    await user.click(within(ticket).getByRole("button", { name: copy.allMine }));
-    await waitFor(() => expect(screen.queryByTestId("ticket-screen")).toBeNull());
+    // The pane unmounts (closed here, or another session's dock); the fold
+    // is still there when it mounts again.
+    const jiraButton = within(screen.getByTestId("dock-rail")).getByRole("button", { name: "Jira" });
+    await user.click(jiraButton);
+    await waitFor(() => expect(screen.queryByTestId("ticket-list")).toBeNull());
+    await user.click(jiraButton);
+    await waitFor(() => expect(screen.getByTestId("ticket-list")).toBeInTheDocument());
     expect(within(screen.getByTestId("ticket-list")).getByRole("button", { name: /^To Do/ })).toHaveAttribute("aria-expanded", "false");
     expect(listedKeys()).toEqual(["NGL-1"]);
   });
@@ -206,8 +208,17 @@ describe("my tickets in the integration's pane", () => {
     await user.click(within(ticket).getByRole("button", { name: copy.ticket.openIn.replace("{name}", "Jira") }));
     expect(opened).toEqual(["https://acme.atlassian.net/browse/NGL-2"]);
 
+    // It slid in over the list, which stays mounted under it, out of reach.
+    const layer = ticket.closest("[data-ticket-layer]")!;
+    expect(layer).toHaveAttribute("data-ticket-layer", "open");
+    expect(screen.getByTestId("ticket-list").closest("[inert]")).not.toBeNull();
+
     await user.click(within(ticket).getByRole("button", { name: copy.allMine }));
+    // It slides back out before it goes: still drawn, already leaving.
+    expect(layer).toHaveAttribute("data-ticket-layer", "closed");
+    expect(screen.getByTestId("ticket-screen")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByTestId("ticket-screen")).toBeNull());
+    expect(screen.getByTestId("ticket-list").closest("[inert]")).toBeNull();
     expect(listedKeys()).toEqual(["NGL-1", "NGL-2"]);
   });
 

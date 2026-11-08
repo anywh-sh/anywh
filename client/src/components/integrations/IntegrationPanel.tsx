@@ -8,14 +8,17 @@ import { ProjectDropdown } from "@/components/integrations/ProjectDropdown";
 import { TicketList } from "@/components/integrations/TicketList";
 import { TicketScreen } from "@/components/integrations/TicketScreen";
 import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
+import { usePanelTransition } from "@/hooks/usePanelTransition";
 import { useDict, useLocale } from "@/i18n";
 import { formatRelativeTime } from "@/lib/format/relativeTime";
+import { PANEL_MOTION } from "@/lib/motion";
 import { integrationDataState, pickFetchRuntime, runtimesNeedingAuth, siteHost } from "@/lib/integrations/derive";
 import type { IntegrationProvider, IntegrationState, IntegrationsClientMessage, QueryState, TicketRef, WorkTicket } from "@/lib/integrations/model";
 import { mineQuery, projectOptions, queryCooldown, queryView, ticketQuery, ticketView, visibleRows } from "@/lib/integrations/tickets";
 import { canWorkHere, linksOnTicket, ticketRefFor, type WorkTicketMap } from "@/lib/integrations/workTickets";
 import { TicketSessions, TicketWorkActions, useProfileRooms, type TicketRoomChoice } from "@/components/integrations/SessionLinkChips";
 import type { Profile } from "@/lib/profiles/profiles";
+import { cn } from "@/lib/utils";
 
 interface IntegrationPanelProps {
   profile: Profile;
@@ -54,6 +57,31 @@ export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTick
   const integration = integrations?.entry.integrations?.find((entry) => entry.id === integrationId);
   const provider = integration?.provider ?? (integrationId === "linear" ? "linear" : "jira");
   const host = siteHost(integration);
+  // The ticket screen slides in over the list and back out, on the
+  // sidebar's timing. The list stays mounted under it; the screen keeps the
+  // last ticket while it leaves.
+  const ticketMotion = usePanelTransition(ticketKey !== null);
+  const [shownKey, setShownKey] = useState(ticketKey);
+  if (ticketKey !== null && ticketKey !== shownKey) setShownKey(ticketKey);
+  const screenKey = ticketKey ?? (ticketMotion.present ? shownKey : null);
+  const body: Omit<BodyProps, "ticketKey"> | null =
+    integration && integrations
+      ? {
+          profileId: profile.id,
+          integration,
+          provider,
+          stale: integrationDataState(integrations.entry) !== "live",
+          receivedAt: integrations.entry.receivedAt,
+          send: integrations.send,
+          onOpenTicket,
+          links: integrations.entry.workTickets,
+          sessionId,
+          onNewSession,
+          onOpenSession,
+          onWorkInRoom,
+          onOpenRoomAgent,
+        }
+      : null;
 
   return (
     <SessionPanel
@@ -68,24 +96,28 @@ export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTick
         </div>
       }
     >
-      <div className="flex h-full min-h-0 flex-col bg-bg-chrome">
-        {integration && integrations && (
-          <IntegrationBody
-            profileId={profile.id}
-            integration={integration}
-            provider={provider}
-            stale={integrationDataState(integrations.entry) !== "live"}
-            receivedAt={integrations.entry.receivedAt}
-            send={integrations.send}
-            ticketKey={ticketKey}
-            onOpenTicket={onOpenTicket}
-            links={integrations.entry.workTickets}
-            sessionId={sessionId}
-            onNewSession={onNewSession}
-            onOpenSession={onOpenSession}
-            onWorkInRoom={onWorkInRoom}
-            onOpenRoomAgent={onOpenRoomAgent}
-          />
+      <div className="relative flex h-full min-h-0 flex-col bg-bg-chrome">
+        {body && (
+          <>
+            <div inert={ticketKey !== null} aria-hidden={ticketKey !== null || undefined} className="flex min-h-0 flex-1 flex-col">
+              <IntegrationBody {...body} ticketKey={null} />
+            </div>
+            {/* Always here, so the slide has an element already drawn at the
+             * other end to run from; only the screen in it comes and goes. */}
+            <div
+              inert={ticketKey === null}
+              data-ticket-layer={ticketKey !== null ? "open" : "closed"}
+              className={cn(
+                "absolute inset-0 flex flex-col bg-bg-chrome transition-[opacity,translate]",
+                PANEL_MOTION,
+                ticketKey !== null ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-4 opacity-0",
+              )}
+            >
+              {screenKey !== null && (
+                <IntegrationBody {...body} ticketKey={screenKey} />
+              )}
+            </div>
+          </>
         )}
       </div>
     </SessionPanel>
