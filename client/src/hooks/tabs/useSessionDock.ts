@@ -145,10 +145,12 @@ function withoutPane(dock: DockState, kind: DockPaneKind): DockState {
 /** `kind` added to the end of the stack, closing the oldest pane when the
  * column is already full. The width is clamped here too: it is
  * otherwise only clamped when dragged, so a dock left at the terminal's
- * minimum would stay that narrow when the wider files pane joined it. */
+ * minimum would stay that narrow when the wider files pane joined it.
+ * Switching away from an expanded pane hands the expansion to the one that
+ * replaces it: expanding is the column's state, not one view's. */
 function pushPane(dock: DockState, kind: DockPaneKind): DockState {
   const panes = [...dock.panes, kind].slice(-MAX_DOCK_PANES);
-  const maximized = dock.maximized !== null && panes.includes(dock.maximized) ? dock.maximized : null;
+  const maximized = dock.maximized === null ? null : panes.includes(dock.maximized) ? dock.maximized : kind;
   return { ...dock, panes, maximized, width: clampWidth(dock.width, panes), last: kind };
 }
 

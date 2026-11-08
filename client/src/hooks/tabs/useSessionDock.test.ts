@@ -48,6 +48,23 @@ describe("useSessionDock — panes", () => {
     expect(result.current.getDock("t1").maximized).toBeNull();
   });
 
+  it("switching from an expanded pane keeps the column expanded on the new one", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "agent"));
+    act(() => result.current.toggleMaximized("t1", "agent"));
+    act(() => result.current.togglePane("t1", "about"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["about"], maximized: "about" });
+    act(() => result.current.openPane("t1", "files"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["files"], maximized: "files" });
+  });
+
+  it("switching panes leaves a column that was not expanded as it was", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "agent"));
+    act(() => result.current.togglePane("t1", "about"));
+    expect(result.current.getDock("t1").maximized).toBeNull();
+  });
+
   it("openPane adds a pane without closing it if already open", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.openPane("t1", "files"));
@@ -124,14 +141,6 @@ describe("useSessionDock — one view at a time", () => {
     act(() => result.current.togglePane("t1", "agent"));
     act(() => result.current.openPane("t1", "about"));
     expect(result.current.getDock("t1")).toMatchObject({ panes: ["about"], last: "about" });
-  });
-
-  it("clears the maximized pane when it is the one that was switched away from", () => {
-    const { result } = renderHook(() => useSessionDock());
-    act(() => result.current.togglePane("t1", "terminal"));
-    act(() => result.current.toggleMaximized("t1", "terminal"));
-    act(() => result.current.openPane("t1", "files"));
-    expect(result.current.getDock("t1")).toMatchObject({ panes: ["files"], maximized: null });
   });
 
   it("gives a room pane its own minimum width", () => {
