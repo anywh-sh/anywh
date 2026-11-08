@@ -77,9 +77,23 @@ function runsJiraPackage(entry: McpInventoryEntry): boolean {
   return (entry.transport.envKeys ?? []).some((key) => JIRA_ENV.test(key));
 }
 
+/** Atlassian runs other products' servers too (Trello's, at
+ * `mcp.trello.com`), and they call themselves `atlassian-mcp-server` as
+ * well. So that name counts as Jira only when the server is not one of
+ * those: one whose URL is another host and whose catalog has tools but no
+ * Jira one. A proxy in front of Atlassian's server (another host, Jira's
+ * tools) still counts. */
+function anotherAtlassianProduct(entry: McpInventoryEntry): boolean {
+  const host = entry.transport.url ? hostOf(entry.transport.url) : undefined;
+  if (host === undefined || isAtlassianHost(host)) return false;
+  if (host === "trello.com" || host.endsWith(".trello.com")) return true;
+  return (entry.tools?.length ?? 0) > 0 && !servesJiraTools(entry);
+}
+
 /** Atlassian's own remote server (by where it points or what it calls
  * itself), as opposed to a community Jira server. */
-export const isOfficialAtlassian = (entry: McpInventoryEntry): boolean => pointsAtAtlassian(entry) || entry.serverInfoName === "atlassian-mcp-server";
+export const isOfficialAtlassian = (entry: McpInventoryEntry): boolean =>
+  pointsAtAtlassian(entry) || (entry.serverInfoName === "atlassian-mcp-server" && !anotherAtlassianProduct(entry));
 const servesJiraTools = (entry: McpInventoryEntry): boolean => (entry.tools ?? []).some((tool) => JIRA_TOOL.test(tool.name));
 
 function recognizeJira(entry: McpInventoryEntry): MatchTier | undefined {
@@ -88,7 +102,7 @@ function recognizeJira(entry: McpInventoryEntry): MatchTier | undefined {
   // which serves a reduced catalog when its token is bad (see `jiraStatus`).
   if (!official && entry.tools && entry.tools.length > 0 && !servesJiraTools(entry)) return undefined;
   if (pointsAtAtlassian(entry)) return "host";
-  if (entry.serverInfoName === "atlassian-mcp-server") return "serverInfo";
+  if (official) return "serverInfo";
   if (runsJiraPackage(entry)) return "package";
   if (servesJiraTools(entry)) return "tools";
   if (/jira|atlassian/i.test(entry.name)) return "name";

@@ -127,3 +127,22 @@ test("same status: user/claude.ai over plugin over project; pending counts as un
 test("nothing that matches: no pick", () => {
   assert.deepEqual(pickIntegration([entry({ name: "sentry" })], JIRA_RECOGNIZER), []);
 });
+
+test("Trello's claude.ai connector, also served by Atlassian, is not Jira", () => {
+  // Recorded shape (redacted): a claude.ai connector for Trello reports the
+  // same serverInfo name as Atlassian's Jira server, at its own host, with
+  // Trello's tools only.
+  const trello = entry({
+    name: "claude.ai Trello",
+    scope: "claudeai",
+    authMode: "claudeai",
+    transport: { type: "claudeai-proxy", url: "https://mcp.trello.com/v1" },
+    serverInfoName: "atlassian-mcp-server",
+    tools: [{ name: "trelloReadCard", readOnly: true }, { name: "trelloReadBoard", readOnly: true }],
+  });
+  assert.equal(JIRA_RECOGNIZER.recognize(trello), undefined);
+  assert.deepEqual(pickIntegration([trello], JIRA_RECOGNIZER), []);
+  // Signed out, with no catalog to tell it by, its host still does.
+  const signedOut = { ...trello, status: "needs_auth" as const, tools: [] };
+  assert.equal(JIRA_RECOGNIZER.recognize(signedOut), undefined);
+});
