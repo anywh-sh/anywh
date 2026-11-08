@@ -375,7 +375,7 @@ function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { r
 
   return (
     <div data-connect-row={row.runtimeId} className="flex gap-3 border-b border-border px-4 py-3.5 last:border-b-0">
-      <span className="flex size-7 shrink-0 items-center justify-center border border-border bg-bg-chrome">
+      <span className="flex size-7 shrink-0 items-center justify-center">
         <AgentMark runtime={row.runtimeId} />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
