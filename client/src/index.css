@@ -652,6 +652,22 @@ body {
   cursor: text;
 }
 
+/* A ticket picked with `#`: one atomic chip in the text, the key in mono
+ * with the tracker's color; it goes out as just the key. */
+.composer-ticket-chip {
+  display: inline-block;
+  padding: 0 5px;
+  margin: 0 1px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.35;
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  white-space: nowrap;
+  user-select: all;
+}
+
 /* `/model haiku` and friends, recognized in the composer — the slash is
  * dimmed and the command name takes the full primary color; the argument,
  * when there is one, gets no decoration at all, deliberately. */

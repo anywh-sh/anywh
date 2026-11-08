@@ -205,6 +205,22 @@ test("a reader started in the middle of a record skips to the next record instea
   }
 });
 
+test("a reader closed while it opens a segment closes that file too, and reads nothing more", async () => {
+  const dir = tempDir();
+  try {
+    const log = AgentEventLog.open(dir);
+    log.append({ type: "a" });
+    const reader = new LogReader(log, 0);
+    const step = reader.step();
+    await reader.close();
+    assert.equal((await step).kind, "end");
+    assert.equal((reader as unknown as { handle: unknown }).handle, undefined, "no file handle is left for the garbage collector");
+    log.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a truncated record keeps every field a consumer relies on; only the big texts become previews", () => {
   const dir = tempDir();
   try {

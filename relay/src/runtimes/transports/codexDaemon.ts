@@ -107,6 +107,8 @@ export interface SpawnCodexDaemonOptions {
    * without this a handshake that never answers leaves the process running
    * for good. No effect once the daemon is handed out. */
   readonly initSignal?: AbortSignal;
+  /** Argv after `app-server` (per-process `-c` config overrides). */
+  readonly extraArgs?: readonly string[];
 }
 
 function isJsonRpcDaemonPlan(def: AgentRuntimeDef): def is AgentRuntimeDef & { exec: JsonRpcDaemonPlan } {
@@ -171,7 +173,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
 
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(bin, ["app-server"], { env, cwd: options.cwd });
+    child = spawn(bin, ["app-server", ...(options.extraArgs ?? [])], { env, cwd: options.cwd });
   } catch (error) {
     return Promise.reject(toError(error));
   }

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { withRoomCard } from "../../protocol/roomCard.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../protocol/relayNote.js";
+import { withTicketLine } from "../../protocol/ticketLine.js";
 import { codexTurnsToEvents } from "./codexHistory.js";
 
 // A real turn from `thread/turns/list` (codex-cli 0.154.0, itemsView "full"),
@@ -95,4 +96,17 @@ test("a reports card from Codex history is marked room_digest", () => {
   const card = { kind: "reports" as const, reports: [{ agentId: "a", title: null, status: "failed" as const, at: 5 }] };
   const events = codexTurnsToEvents([{ status: "completed", items: [{ type: "userMessage", content: [{ type: "text", text: withRoomCard("digest", card) }] }] }]);
   assert.deepEqual(events[1], { type: "user_message", text: "digest", room: card, synthetic: "room_digest" });
+});
+
+test("the ticket line the relay put before a message is not part of it on replay, in any message", () => {
+  const card = { kind: "instruction" as const, title: "Do it" };
+  const events = codexTurnsToEvents([
+    { status: "completed", items: [{ type: "userMessage", content: [{ type: "text", text: withTicketLine("fix the login", "NGL-1144") }] }] },
+    { status: "completed", items: [{ type: "userMessage", content: [{ type: "text", text: withRelayNote(withRoomCard(withTicketLine("Do the thing", "NGL-9"), card), WITHDRAWN_APPROVAL_NOTE) }] }] },
+  ]);
+  const users = events.filter((event) => event.type === "user_message");
+  assert.deepEqual(users, [
+    { type: "user_message", text: "fix the login" },
+    { type: "user_message", text: "Do the thing", room: card },
+  ]);
 });

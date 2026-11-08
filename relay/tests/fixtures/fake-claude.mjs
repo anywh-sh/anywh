@@ -100,6 +100,22 @@
 //                        mid-turn (e.g. right after an `ExitPlanMode`
 //                        approval), confirmed against it
 //                        (sharedSession.ts's `applyPermissionModeFromCli`).
+//   FAKE_CLAUDE_MCP_STATUS_FILE - a JSON file holding the `response` of an
+//                        `mcp_status` control request (`{mcpServers: [...]}`,
+//                        Claude Code 2.1.303 shapes), read at each request so
+//                        a test can change it between scans; none: no
+//                        servers. FAKE_CLAUDE_MCP_PENDING_REPLIES=N makes the
+//                        first N replies of a process report every server
+//                        `pending`; FAKE_CLAUDE_MCP_STATUS_HANG=1 never
+//                        answers `mcp_status`. With `--strict-mcp-config
+//                        --mcp-config <file>`, only that file's servers are
+//                        reported (FAKE_CLAUDE_MCP_ISOLATED_STATUS overrides
+//                        their status: an isolated server that does not come
+//                        up). `mcp_call` answers the official Atlassian
+//                        server from fake-atlassian.mjs, any other by echoing
+//                        the call (after FAKE_CLAUDE_MCP_CALL_DELAY_MS, if
+//                        set). Any other unknown control request gets
+//                        the real binary's error reply.
 //   FAKE_CLAUDE_TITLE_DELAY_MS - if set, delays the reply of a
 //                        `--output-format text` invocation (the title/
 //                        suggestion probe, never a real turn) by this many
@@ -133,10 +149,43 @@
 //                        ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN/OPENAI_API_KEY
 //                        reached the process. Lighter than
 //                        FAKE_CLAUDE_ENV_FILE, and safe to print on failure.
+//   FAKE_CLAUDE_TRANSCRIPT - if set, every turn appends its prompt and its
+//                        reply to the session's transcript under
+//                        $HOME/.claude/projects, where the real CLI keeps
+//                        it, so a relay restarted on it replays the session.
+//   FAKE_CLAUDE_INIT_MCP_SERVERS_FILE - a JSON file holding an array put as
+//                        `mcp_servers` on a stream-json turn's `system`/
+//                        `init` (2.1.303 shape: `[{name, status}]`, written
+//                        before the servers settle — `needs-auth` comes from
+//                        the CLI's own cache), read at each turn.
+//   Sign-in on the control process (the SDK's control requests, 2.1.303
+//                        shapes; error texts SYNTHETIC unless noted):
+//                        `mcp_authenticate {serverName, redirectUri?}`
+//                        answers a claude.ai connector (`claudeai-proxy`)
+//                        with a claude.ai URL and `callbackExpected: false`,
+//                        any other with an authorization URL carrying a new
+//                        `state` and the redirect: the app's own when given
+//                        one (`redirectScheme: "custom"`) unless
+//                        FAKE_CLAUDE_REJECT_CUSTOM_REDIRECT=1, else loopback
+//                        (`"localhost"`, `callbackPort`).
+//                        `mcp_oauth_callback_url {serverName, callbackUrl}`
+//                        checks `code` and `state` against that flow, then
+//                        marks the server `connected` in
+//                        FAKE_CLAUDE_MCP_STATUS_FILE (the token is stored) —
+//                        but this process keeps calling it `needs-auth`
+//                        until `mcp_reconnect`, as the real one does.
+//                        FAKE_CLAUDE_CONTROL_FILE gets one line per control
+//                        request `{subtype, serverName?}` (any process).
+//                        `mcp add-json -s <scope> <name> <json>` adds the
+//                        server to the status file, `needs-auth`.
+// A turn's own prompt can script it too: `[[mcp:<server>:<tool>:<args>]]`
+// makes the agent call an MCP tool, and `[[wakeup:<seconds>]]` makes it
+// call ScheduleWakeup (see those branches below).
 
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { answerAtlassianTool, isAtlassianServer } from "./fake-atlassian.mjs";
 
 const args = process.argv.slice(2);
 
@@ -326,6 +375,22 @@ if (args[0] === "--version") {
   // this fixture the same way it would against the real binary.
   process.stdout.write("2.1.0 (Claude Code)\n");
   process.exit(0);
+} else if (args[0] === "mcp" && args[1] === "add-json") {
+  // `mcp add-json -s user <name> <json>`: declared, not signed in yet.
+  const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
+  const [name, json] = args.slice(-2);
+  const scope = flagValue("-s") ?? "local";
+  if (file) {
+    const status = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] };
+    if (status.mcpServers.some((server) => server.name === name)) {
+      process.stderr.write(`MCP server ${name} already exists in ${scope} config\n`);
+      process.exit(1);
+    }
+    status.mcpServers.push({ name, status: "needs-auth", config: JSON.parse(json), scope, source: scope });
+    writeFileSync(file, JSON.stringify(status));
+  }
+  process.stdout.write(`Added http MCP server ${name} to ${scope} config\n`);
+  process.exit(0);
 } else if (args[0] === "mcp" && args[1] === "login") {
   // The `--no-browser` flow, in miniature and with no OAuth server: print
   // the authorization URL, wait for the redirect URL to be pasted back on
@@ -373,7 +438,112 @@ if (args[0] === "--version") {
   // The model catalog probe (defs/claude/modelCatalog.ts): answers the
   // `initialize` control_request with the same shape the real binary
   // does (Claude Code 2.1.284), a `default` pseudo-entry first, and exits
-  // on stdin EOF like it.
+  // on stdin EOF like it. The MCP control process (integrations/
+  // claudeControl.ts) is the same invocation: it also asks `mcp_status`,
+  // answered from FAKE_CLAUDE_MCP_STATUS_FILE (see the header).
+  let mcpStatusReplies = 0;
+  // `--strict-mcp-config --mcp-config <file>`: only the file's servers, the
+  // way the real binary reports them (`source: "dynamic"`), each with the
+  // state and catalog the status file gives the server of the same name.
+  const mcpConfigFile = flagValue("--mcp-config");
+  const isolatedConfig = args.includes("--strict-mcp-config") && mcpConfigFile && existsSync(mcpConfigFile) ? JSON.parse(readFileSync(mcpConfigFile, "utf8")) : undefined;
+  const loadedServers = () => {
+    const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
+    const status = file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] };
+    if (!isolatedConfig) return status.mcpServers;
+    return Object.entries(isolatedConfig.mcpServers ?? {}).map(([name, config]) => {
+      const known = status.mcpServers.find((server) => server.name === name);
+      return {
+        name,
+        status: process.env.FAKE_CLAUDE_MCP_ISOLATED_STATUS || known?.status || "connected",
+        config,
+        scope: "dynamic",
+        source: "dynamic",
+        ...(known?.serverInfo ? { serverInfo: known.serverInfo } : {}),
+        ...(known?.tools ? { tools: known.tools } : {}),
+      };
+    });
+  };
+  // Sign-ins this process started (name -> {state}), and servers it was
+  // given a token for but has not reconnected yet.
+  const signIns = new Map();
+  const notReconnected = new Set();
+  const answerMcpStatus = (requestId) => {
+    if (process.env.FAKE_CLAUDE_MCP_STATUS_HANG === "1") return;
+    const servers = loadedServers().map((server) => (notReconnected.has(server.name) ? { ...server, status: "needs-auth" } : server));
+    const pendingReplies = Number(process.env.FAKE_CLAUDE_MCP_PENDING_REPLIES ?? 0);
+    // Like a process that just started: every server still coming up, no
+    // catalog yet.
+    const starting = mcpStatusReplies++ < pendingReplies;
+    const mcpServers = starting ? servers.map(({ name, config, scope, source }) => ({ name, status: "pending", config, scope, source })) : servers;
+    emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response: { mcpServers } } });
+  };
+  // `mcp_call {tool: "mcp__<server>__<tool>", arguments}`: the server's raw
+  // `CallToolResult` (fake-atlassian.mjs for the official Atlassian server,
+  // an echo for any other). The error replies are SYNTHETIC.
+  const answerMcpCall = (requestId, request) => {
+    const fail = (error) => emit({ type: "control_response", response: { subtype: "error", request_id: requestId, error } });
+    const reply = (response) => emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response } });
+    const match = /^mcp__(.+?)__(.+)$/.exec(String(request?.tool ?? ""));
+    if (!match) return fail(`Invalid MCP tool name: ${request?.tool}`);
+    const server = loadedServers().find((candidate) => candidate.name.replace(/[^a-zA-Z0-9_-]/g, "_") === match[1]);
+    if (!server) return fail(`MCP server not found: ${match[1]}`);
+    if (server.status !== "connected") return fail(`MCP server "${server.name}" is not connected`);
+    if (isAtlassianServer(server)) return reply(answerAtlassianTool("claude", server.name, match[2], request.arguments, { isolated: isolatedConfig !== undefined }));
+    reply({ content: [{ type: "text", text: JSON.stringify({ server: server.name, tool: match[2], arguments: request.arguments ?? null }) }] });
+  };
+  const statusFile = () => {
+    const file = process.env.FAKE_CLAUDE_MCP_STATUS_FILE;
+    return { file, status: file && existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { mcpServers: [] } };
+  };
+  const answerSignIn = (requestId, subtype, request) => {
+    const fail = (error) => emit({ type: "control_response", response: { subtype: "error", request_id: requestId, error } });
+    const reply = (response) => emit({ type: "control_response", response: { subtype: "success", request_id: requestId, response } });
+    const name = request?.serverName;
+    const server = loadedServers().find((candidate) => candidate.name === name);
+    if (!server) return fail(`MCP server not found: ${name}`);
+    if (subtype === "mcp_authenticate") {
+      if (server.config?.type === "claudeai-proxy") {
+        return reply({ authUrl: `https://claude.ai/api/organizations/00000000-0000-4000-8000-00000000c1a0/mcp/start-auth/${server.config.id ?? "mcpsrv_fake"}?product_surface=sdk-cli`, requiresUserAction: true, callbackExpected: false });
+      }
+      const state = randomUUID();
+      const custom = typeof request.redirectUri === "string" && process.env.FAKE_CLAUDE_REJECT_CUSTOM_REDIRECT !== "1";
+      const callbackPort = 40000 + Math.floor(Math.random() * 20000);
+      const redirect = custom ? request.redirectUri : `http://localhost:${callbackPort}/callback`;
+      signIns.set(name, { state });
+      return reply({
+        authUrl: `https://auth.example.test/authorize?response_type=code&client_id=fake-client&code_challenge=fake&code_challenge_method=S256&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`,
+        requiresUserAction: true,
+        callbackExpected: true,
+        redirectScheme: custom ? "custom" : "localhost",
+        state,
+        ...(custom ? {} : { callbackPort }),
+      });
+    }
+    if (subtype === "mcp_oauth_callback_url") {
+      const flow = signIns.get(name);
+      if (!flow) return fail(`No OAuth flow in progress for ${name}`);
+      let url;
+      try {
+        url = new URL(request.callbackUrl);
+      } catch {
+        return fail("Invalid callback URL");
+      }
+      if (url.searchParams.get("error")) return fail(`OAuth error: ${url.searchParams.get("error")}`);
+      if (!url.searchParams.get("code")) return fail("Invalid callback URL: missing authorization code");
+      if (url.searchParams.get("state") !== flow.state) return fail("Callback URL not accepted");
+      signIns.delete(name);
+      const { file, status } = statusFile();
+      if (file) writeFileSync(file, JSON.stringify({ ...status, mcpServers: status.mcpServers.map((entry) => (entry.name === name ? { ...entry, status: "connected" } : entry)) }));
+      notReconnected.add(name);
+      return reply({});
+    }
+    // mcp_reconnect: word for word the real one before a sign-in.
+    const current = loadedServers().find((candidate) => candidate.name === name);
+    if (current?.status === "needs-auth") return fail("Server status: needs-auth");
+    notReconnected.delete(name);
+    return reply({});
+  };
   process.stdin.setEncoding("utf8");
   let buffered = "";
   process.stdin.on("data", (chunk) => {
@@ -388,7 +558,28 @@ if (args[0] === "--version") {
       } catch {
         continue;
       }
-      if (message.type !== "control_request" || message.request?.subtype !== "initialize") continue;
+      if (message.type !== "control_request") continue;
+      const subtype = message.request?.subtype;
+      if (process.env.FAKE_CLAUDE_CONTROL_FILE) appendFileSync(process.env.FAKE_CLAUDE_CONTROL_FILE, `${JSON.stringify({ subtype, ...(message.request?.serverName ? { serverName: message.request.serverName } : {}) })}\n`);
+      if (subtype === "mcp_authenticate" || subtype === "mcp_oauth_callback_url" || subtype === "mcp_reconnect") {
+        answerSignIn(message.request_id, subtype, message.request);
+        continue;
+      }
+      if (subtype === "mcp_status") {
+        answerMcpStatus(message.request_id);
+        continue;
+      }
+      if (subtype === "mcp_call") {
+        const delayMs = Number(process.env.FAKE_CLAUDE_MCP_CALL_DELAY_MS ?? 0);
+        if (delayMs > 0) setTimeout(() => answerMcpCall(message.request_id, message.request), delayMs);
+        else answerMcpCall(message.request_id, message.request);
+        continue;
+      }
+      if (subtype !== "initialize") {
+        // Word for word what Claude Code 2.1.303 answers.
+        emit({ type: "control_response", response: { subtype: "error", request_id: message.request_id, error: `Unsupported control request subtype: ${subtype}` } });
+        continue;
+      }
       emit({
         type: "control_response",
         response: {
@@ -427,6 +618,7 @@ if (args[0] === "--version") {
   const outputFormat = flagValue("--output-format");
   const resumeId = flagValue("--resume");
   const sessionId = resumeId ?? randomUUID();
+  const turnPrompt = args[1] ?? "";
 
   // A turn that was handed `--effort` says so in its reply, so a test can
   // assert the flag reached the CLI without a side channel. No other
@@ -435,6 +627,15 @@ if (args[0] === "--version") {
   const replyText = `${process.env.FAKE_CLAUDE_REPLY ?? "ok"}${effortArg ? ` [effort=${effortArg}]` : ""}`;
   const errorMessage = process.env.FAKE_CLAUDE_ERROR;
   const model = "claude-fake-5";
+
+  // The folder name the real CLI derives from its real cwd (defs/claude/
+  // transcriptReader.ts `transcriptPath`).
+  if (process.env.FAKE_CLAUDE_TRANSCRIPT && outputFormat === "stream-json") {
+    const file = join(process.env.HOME ?? "", ".claude", "projects", realpathSync(process.cwd()).replace(/[^a-zA-Z0-9-]/g, "-"), `${sessionId}.jsonl`);
+    mkdirSync(dirname(file), { recursive: true });
+    const now = new Date().toISOString();
+    appendFileSync(file, `${JSON.stringify({ type: "user", timestamp: now, message: { content: turnPrompt } })}\n${JSON.stringify({ type: "assistant", timestamp: now, message: { content: [{ type: "text", text: replyText }] } })}\n`);
+  }
 
   // Gated on `--output-format stream-json` specifically (real turns only,
   // runtimes/defs/claude/session.ts's `sendTurn`), not just "any -p invocation": title
@@ -484,7 +685,9 @@ if (args[0] === "--version") {
   // `system`/`init` line — matching what `runQuickPrompt`'s `extractReply`
   // actually gets from the real CLI (it just trims raw stdout).
   if (outputFormat !== "text") {
-    emit({ type: "system", subtype: "init", session_id: sessionId, model });
+    const initFile = process.env.FAKE_CLAUDE_INIT_MCP_SERVERS_FILE;
+    const initMcpServers = initFile && outputFormat === "stream-json" && existsSync(initFile) ? { mcp_servers: JSON.parse(readFileSync(initFile, "utf8")) } : {};
+    emit({ type: "system", subtype: "init", session_id: sessionId, model, ...initMcpServers });
   }
 
   if (process.env.FAKE_CLAUDE_STATUS_PERMISSION_MODE && outputFormat === "stream-json") {
@@ -787,6 +990,44 @@ if (args[0] === "--version") {
       result: replyText,
       modelUsage: { [model]: { contextWindow: 200000 } },
     });
+    process.exit(0);
+  } else if (outputFormat === "stream-json" && /\[\[wakeup:[\d.]+\]\]/.test(turnPrompt)) {
+    // `[[wakeup:<seconds>]]`: the agent arms a wakeup whose prompt is
+    // "wakeup check", the way FAKE_CLAUDE_SCHEDULE_WAKEUP does for every turn.
+    const delaySeconds = Number(/\[\[wakeup:([\d.]+)\]\]/.exec(turnPrompt)[1]);
+    const toolUseId = "toolu_fake_wakeup_marker";
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "tool_use", id: toolUseId, name: "ScheduleWakeup", input: { delaySeconds, prompt: "wakeup check" } }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "user", session_id: sessionId, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content: "Wakeup scheduled.", is_error: false }] } });
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: replyText }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "result", session_id: sessionId, is_error: false, result: replyText, modelUsage: { [model]: { contextWindow: 200000 } } });
+    process.exit(0);
+  } else if (outputFormat === "stream-json" && /\[\[mcp:/.test(turnPrompt)) {
+    // `[[mcp:<server>:<tool>:<base64url JSON input>]]` in the prompt, any
+    // number of times: the agent calls that MCP tool, in order. An Atlassian
+    // server answers from fake-atlassian.mjs (its calls logged with `via:
+    // "claude-turn"`), any other echoes its call. The result reaches the
+    // stream as the real CLI writes an MCP result: the `CallToolResult`'s
+    // content blocks.
+    const calls = [...turnPrompt.matchAll(/\[\[mcp:([A-Za-z0-9_-]+):([A-Za-z0-9_]+):([A-Za-z0-9_-]*)\]\]/g)];
+    for (const [index, [, server, tool, encoded]] of calls.entries()) {
+      const input = encoded ? JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) : {};
+      const toolUseId = `toolu_fake_mcp_${index}`;
+      emit({
+        type: "assistant",
+        session_id: sessionId,
+        message: { content: [{ type: "tool_use", id: toolUseId, name: `mcp__${server}__${tool}`, input }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      });
+      const answer = /atlassian/i.test(server) ? answerAtlassianTool("claude-turn", server, tool, input) : { content: [{ type: "text", text: JSON.stringify({ server, tool, arguments: input }) }], isError: false };
+      // A 401 on the call (the token expired during the session) is not
+      // passed on as the server's result: the CLI writes its own error, as
+      // observed on 2.1.303 (with the server's real name, which the tool
+      // name only spells normalized).
+      const expired = answer._meta?.["mcp/www_authenticate"] !== undefined;
+      const content = expired ? `MCP server "${server}" session expired` : answer.content;
+      emit({ type: "user", session_id: sessionId, message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content, is_error: expired || answer.isError === true }] } });
+    }
+    emit({ type: "assistant", session_id: sessionId, message: { content: [{ type: "text", text: replyText }], usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+    emit({ type: "result", session_id: sessionId, is_error: false, result: replyText, modelUsage: { [model]: { contextWindow: 200000 } } });
     process.exit(0);
   } else if (outputFormat === "text") {
     // title/suggestion probe (titleGenerator.ts/suggestionGenerator.ts,

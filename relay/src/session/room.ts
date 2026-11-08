@@ -11,6 +11,7 @@
 // working or waiting is live state, derived elsewhere, never stored.
 //
 // Pure: no I/O, so the validation and the tree rules are testable as tables.
+import { TICKET_KEY_PATTERN, type TicketRef } from "../integrations/types.js";
 
 export type RoomRole = "principal" | "worker";
 
@@ -86,6 +87,12 @@ export interface RoomMembership {
    * has agents under it). Persisted so a restart between a report and the
    * turn that delivers it loses nothing. */
   undeliveredReports?: string[];
+  /** Worker only: the ticket it was delegated with. Whether it still works
+   * on it is its session's work ticket, which the person can remove. */
+  ticket?: TicketRef;
+  /** Principal only: ticket keys it was handed to pass on and has not
+   * delegated yet, oldest first. Never a ticket it works on. */
+  carriedTickets?: string[];
 }
 
 /** Longest summary `report` accepts: the principal reads every one of them,
@@ -98,6 +105,8 @@ export const ROOM_AGENT_NAME_MAX = 60;
 export const ROOM_AGENT_PURPOSE_MAX = 300;
 /** Most connectors remembered per agent. */
 export const ROOM_CONNECTORS_MAX = 30;
+/** Most tickets a principal holds to pass on (the oldest go first). */
+export const ROOM_CARRIED_TICKETS_MAX = 20;
 /** MCP servers that are the relay's own plumbing, not connectors. */
 const OWN_MCP_SERVERS: ReadonlySet<string> = new Set(["anywh-choice", "anywh-room", "anywh-permission"]);
 
@@ -129,6 +138,18 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isTicketRef(value: unknown): value is TicketRef {
+  if (!isRecord(value)) return false;
+  const { provider, site, key, id } = value;
+  return (provider === "jira" || provider === "linear") && typeof site === "string" && site !== "" && typeof key === "string" && TICKET_KEY_PATTERN.test(key) && (id === undefined || typeof id === "string");
+}
+
+/** `keys` plus `key` at the end, once, keeping the newest
+ * `ROOM_CARRIED_TICKETS_MAX`. */
+export function withCarriedTicket(keys: readonly string[] | undefined, key: string): string[] {
+  return [...(keys ?? []).filter((each) => each !== key), key].slice(-ROOM_CARRIED_TICKETS_MAX);
+}
+
 export function isRoomReport(value: unknown): value is RoomReport {
   if (!isRecord(value)) return false;
   return (
@@ -145,7 +166,7 @@ export function isRoomReport(value: unknown): value is RoomReport {
  * truncated or future-schema record must never reach the room logic. */
 export function isRoomMembership(value: unknown): value is RoomMembership {
   if (!isRecord(value)) return false;
-  const { roomId, role, parentId, createdBy, task, area, purpose, report, stopped, undeliveredReports, queuedMessages, contextSeenAt, startedAt, connectors } = value;
+  const { roomId, role, parentId, createdBy, task, area, purpose, report, stopped, undeliveredReports, queuedMessages, contextSeenAt, startedAt, connectors, ticket, carriedTickets } = value;
   if (typeof roomId !== "string" || roomId === "") return false;
   if (typeof role !== "string" || !ROLES.has(role)) return false;
   if (createdBy !== "user" && createdBy !== "agent") return false;
@@ -160,6 +181,8 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
   if (role === "worker") {
     if (typeof parentId !== "string" || parentId === "") return false;
     if (undeliveredReports !== undefined && !isStringList(undeliveredReports)) return false;
+    if (ticket !== undefined && !isTicketRef(ticket)) return false;
+    if (carriedTickets !== undefined) return false;
     if (
       queuedMessages !== undefined &&
       !(Array.isArray(queuedMessages) && queuedMessages.length <= ROOM_QUEUE_PER_AGENT_MAX + 1 && queuedMessages.every((m) => isRecord(m) && typeof m.text === "string" && isTimestamp(m.at) && (m.reminder === undefined || m.reminder === true) && (m.fromAgent === undefined || m.fromAgent === true)))
@@ -167,8 +190,9 @@ export function isRoomMembership(value: unknown): value is RoomMembership {
       return false;
     }
   } else {
-    if (parentId !== undefined || queuedMessages !== undefined) return false;
+    if (parentId !== undefined || queuedMessages !== undefined || ticket !== undefined) return false;
     if (undeliveredReports !== undefined && !isStringList(undeliveredReports)) return false;
+    if (carriedTickets !== undefined && !(isStringList(carriedTickets) && carriedTickets.length <= ROOM_CARRIED_TICKETS_MAX && carriedTickets.every((key) => TICKET_KEY_PATTERN.test(key)))) return false;
   }
   return true;
 }

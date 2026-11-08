@@ -14,10 +14,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * in it yet, so it draws an empty state that asks for a choice. It is what a
  * non-room tab's panel shows the first time it opens, and the place future
  * views (integrations, ...) are chosen from.
+ *
+ * `integration` is a view of another platform (an issue tracker) the tab's
+ * profile has; which one is `DockState.integrationId`.
  */
-export type DockPaneKind = "none" | "terminal" | "files" | "agent" | "about";
+export type DockPaneKind = "none" | "terminal" | "files" | "agent" | "about" | "integration";
 
-const PANE_KINDS: readonly DockPaneKind[] = ["none", "terminal", "files", "agent", "about"];
+const PANE_KINDS: readonly DockPaneKind[] = ["none", "terminal", "files", "agent", "about", "integration"];
 /** How many panes the column holds at once: one view, and opening another
  * switches to it. */
 export const MAX_DOCK_PANES = 1;
@@ -34,6 +37,11 @@ export interface DockState {
    * showing a side panel that has nothing open brings up. Absent on a tab
    * that never opened one. */
   last?: DockPaneKind;
+  /** The integration the `integration` pane shows, kept after it closes so
+   * opening it again brings the same one back. */
+  integrationId?: string;
+  /** The ticket the `integration` pane has open, instead of its list. */
+  ticketKey?: string;
 }
 
 const MIN_WIDTH = 320;
@@ -85,7 +93,7 @@ function loadOpen(): boolean {
 export function dockWidthBounds(panes: readonly DockPaneKind[]): { min: number; max: number } {
   const min = panes.includes("files")
     ? MIN_WIDTH_WITH_FILES
-    : panes.includes("agent") || panes.includes("about")
+    : panes.includes("agent") || panes.includes("about") || panes.includes("integration")
       ? MIN_WIDTH_ROOM_PANE
       : MIN_WIDTH;
   return { min, max: MAX_WIDTH };
@@ -114,6 +122,8 @@ function sanitizeDocks(docks: DockMap): DockMap {
       last: known(dock.last) ? dock.last : undefined,
     };
     if (result[tabId].last === undefined) delete result[tabId].last;
+    if (typeof dock.integrationId !== "string" || dock.integrationId === "") delete result[tabId].integrationId;
+    if (typeof dock.ticketKey !== "string" || dock.ticketKey === "" || result[tabId].integrationId === undefined) delete result[tabId].ticketKey;
   }
   return result;
 }
@@ -275,6 +285,53 @@ export function useSessionDock() {
     [docks, panelOpen],
   );
 
+  /** The rail button of an integration: shows it, or closes it when it is the
+   * view on screen. Switching to another integration starts at its list. */
+  const toggleIntegration = useCallback(
+    (tabId: string, integrationId: string) => {
+      const existing = docks[tabId] ?? EMPTY_DOCK;
+      const closing = panelOpen && existing.panes.includes("integration") && existing.integrationId === integrationId;
+      if (!closing) setPanelOpen(true);
+      setDocks((prev) => {
+        const dock = prev[tabId] ?? EMPTY_DOCK;
+        if (closing) return { ...prev, [tabId]: withoutPane(dock, "integration") };
+        const same = dock.integrationId === integrationId;
+        const next = pushPane({ ...dock, panes: dock.panes.filter((kind) => kind !== "integration") }, "integration");
+        const shown: DockState = { ...next, integrationId };
+        if (!same) delete shown.ticketKey;
+        return { ...prev, [tabId]: shown };
+      });
+    },
+    [docks, panelOpen],
+  );
+
+  /** The integration pane's ticket screen: opens one ticket of the
+   * integration on screen in place of its list, or goes back (`null`). */
+  const setIntegrationTicket = useCallback((tabId: string, ticketKey: string | null) => {
+    setDocks((prev) => {
+      const dock = prev[tabId];
+      if (!dock?.integrationId || (dock.ticketKey ?? null) === ticketKey) return prev;
+      const next: DockState = { ...dock };
+      if (ticketKey === null) delete next.ticketKey;
+      else next.ticketKey = ticketKey;
+      return { ...prev, [tabId]: next };
+    });
+  }, []);
+
+  /** Shows an integration's pane on one of its tickets (`null`: its list),
+   * never closing it — a work ticket's chip, a session opened from a ticket. */
+  const showIntegration = useCallback((tabId: string, integrationId: string, ticketKey: string | null) => {
+    setPanelOpen(true);
+    setDocks((prev) => {
+      const dock = prev[tabId] ?? EMPTY_DOCK;
+      const next = dock.panes.includes("integration") ? { ...dock } : pushPane(dock, "integration");
+      const shown: DockState = { ...next, integrationId };
+      if (ticketKey === null) delete shown.ticketKey;
+      else shown.ticketKey = ticketKey;
+      return { ...prev, [tabId]: shown };
+    });
+  }, []);
+
   /** Ensures `kind` is present, without `togglePane`'s close-if-already-open
    * behavior — for actions that only ever mean "show me this pane" (the file
    * tree's "open in terminal"), never "close it". */
@@ -339,5 +396,5 @@ export function useSessionDock() {
     });
   }, []);
 
-  return { getDock, getVisibleDock, isPanelShown, togglePanel, togglePane, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
+  return { getDock, getVisibleDock, isPanelShown, togglePanel, togglePane, toggleIntegration, setIntegrationTicket, showIntegration, openPane, closePane, setWidth, commitDock, toggleMaximized, removeSession };
 }

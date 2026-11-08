@@ -11,6 +11,8 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { RoomBridge, RoomToolHost, RoomToolResult } from "../bridges/roomBridge.js";
+import { TICKET_KEY_PATTERN, type RoomAgentTicket, type TicketRef, type WorkTicketPlace } from "../integrations/types.js";
+import type { TicketLine } from "../protocol/ticketLine.js";
 import { checkDirectory } from "../fs/fsBrowse.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import type { Registry } from "../runtimes/registry.js";
@@ -31,11 +33,12 @@ import {
   resolveAgentRef,
   roomAreas,
   titleFromTask,
+  withCarriedTicket,
   type RoomAgentState,
   type RoomMembership,
 } from "./room.js";
 import { roomPromptsDraft, type PushNotificationDraft, type RoomPromptEntry } from "../push/events.js";
-import { subtaskViews, summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
+import { roomTickets, subtaskViews, summarizeRoom, type NeedsYou, type RoomAgentView, type RoomSnapshot } from "./roomState.js";
 import { buildRoomDigest, isUrgent, reportCard, type DigestEntry } from "./roomDigest.js";
 import type { RoomCard } from "../protocol/agent-event.js";
 import {
@@ -98,6 +101,24 @@ export interface RoomSessions {
   generateTitle(id: string, text: string): void;
 }
 
+/** What a relay with a tracker integration gives its rooms: the principal
+ * passes tickets on, a delegated agent works on one. */
+export interface RoomTickets {
+  /** The ticket a key names on the profile's tracker; `undefined` while its
+   * site is not known. */
+  resolve(key: string): TicketRef | undefined;
+  /** Gives a delegated agent its work ticket. */
+  link(agentId: string, ticket: TicketRef): void;
+  /** The ticket a session works on now, as a card shows it. */
+  workTicketOf(sessionId: string): RoomAgentTicket | undefined;
+  /** The ticket a session works on, for the line in front of its first
+   * task: the line it was owed (a link the person made before that task
+   * started) is paid by it, so their next message does not repeat it. */
+  takeWorkLine(sessionId: string): RoomAgentTicket | undefined;
+  /** A ticket's title, if the profile has read it. */
+  title(key: string): string | undefined;
+}
+
 /** Aliases the Claude CLI takes beyond the ids its own picker lists. */
 const CLAUDE_MODEL_ALIAS = /^(default|best|haiku|sonnet|opus|opusplan)(\[1m\])?$|^claude-[a-z0-9.-]+$/;
 
@@ -155,6 +176,8 @@ export interface RoomManagerOptions {
   /** Runs `fn` after `ms`; returns how to cancel it. Replaceable so a test
    * steps time by hand. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
+  /** Tickets; without it a `ticket` is ignored. */
+  readonly tickets?: RoomTickets;
 }
 
 /** What the model's cache needs to be written once before siblings can read
@@ -172,6 +195,9 @@ export interface CreateRoomInput {
   cwd?: unknown;
   title?: unknown;
   firstMessage?: unknown;
+  /** A ticket key the principal is handed with `firstMessage`, to pass on
+   * to the agent it delegates that work to. */
+  ticket?: unknown;
 }
 
 export type CreateRoomResult = { ok: true; roomId: string } | { ok: false; error: string };
@@ -354,6 +380,9 @@ export class RoomManager implements RoomToolHost {
     if (input.firstMessage !== undefined && !(typeof input.firstMessage === "string" && input.firstMessage.trim() !== "" && input.firstMessage.length <= ROOM_TASK_MAX)) {
       return { ok: false, error: "firstMessage must be a non-empty string" };
     }
+    if (input.ticket !== undefined && !(typeof input.ticket === "string" && TICKET_KEY_PATTERN.test(input.ticket) && input.firstMessage !== undefined)) {
+      return { ok: false, error: "ticket must be a ticket key (like ABC-123), sent with firstMessage" };
+    }
     const roomId = randomUUID();
     this.store.recordId(roomId);
     this.store.setAgentId(roomId, agentId);
@@ -374,7 +403,10 @@ export class RoomManager implements RoomToolHost {
       // The given title (the client sends the message's first line) holds
       // only until a short one is generated from the message.
       this.options.sessions.generateTitle(roomId, input.firstMessage);
-      this.options.sessions.getOrCreate(roomId).submitAgentTurn(input.firstMessage);
+      // A ticket the person opens the room with is the principal's to pass
+      // on, as one sent with a message in its chat.
+      const line = typeof input.ticket === "string" ? this.carryTicket(roomId, input.ticket) : undefined;
+      this.options.sessions.getOrCreate(roomId).submitAgentTurn(input.firstMessage, undefined, undefined, line);
     }
     return { ok: true, roomId };
   }
@@ -496,6 +528,24 @@ export class RoomManager implements RoomToolHost {
     this.store.setRoom(id, { ...awake, startedAt });
   }
 
+  /** The principal `roomId` is handed ticket `key` to pass on: kept with
+   * it until it delegates an agent with that ticket. Returns the line its
+   * prompt starts with. */
+  carryTicket(roomId: string, key: string, provider: TicketRef["provider"] = "jira"): TicketLine {
+    const room = this.store.getRoom(roomId);
+    if (room?.role === "principal") this.store.setRoom(roomId, { ...room, carriedTickets: withCarriedTicket(room.carriedTickets, key) });
+    return { provider, key, kind: "delegate" };
+  }
+
+  /** Where a worker sits and how it is doing, for the screen of the ticket
+   * it works on; `undefined` for anyone else. An untitled room or agent is
+   * named `""`: the client names it in the person's language. */
+  placeOf(agentId: string): WorkTicketPlace | undefined {
+    const room = this.store.getRoom(agentId);
+    if (room?.role !== "worker") return undefined;
+    return { roomId: room.roomId, roomTitle: this.store.getTitle(room.roomId) ?? "", agentTitle: this.store.getTitle(agentId) ?? "", agentState: this.stateOf(agentId, room) };
+  }
+
   /** A member called a tool of MCP server `server`: remembered as a
    * connector it used, unless the server is one of the relay's own bridges. */
   noteConnector(id: string, server: string): void {
@@ -529,6 +579,7 @@ export class RoomManager implements RoomToolHost {
     const subtasks = this.options.sessions.peek(id)?.listSubtasks() ?? [];
     // Which subtasks the pending approval's calls came from.
     const askedBy = new Set(needsYou.some((asked) => asked.kind === "approval") ? (this.store.getPendingApproval(id)?.calls ?? []).flatMap((call) => (call.agentId ? [call.agentId] : [])) : []);
+    const ticket = room.role === "worker" ? this.options.tickets?.workTicketOf(id) : undefined;
     return {
       agentId: id,
       role: room.role,
@@ -549,6 +600,7 @@ export class RoomManager implements RoomToolHost {
       needsYou,
       subtasksRunning: subtasks.filter((task) => task.status === "running").length,
       ...(subtasks.length > 0 ? { subtasks: subtaskViews(subtasks, askedBy) } : {}),
+      ...(ticket ? { ticket } : {}),
     };
   }
 
@@ -561,7 +613,12 @@ export class RoomManager implements RoomToolHost {
       .filter(({ room }) => room.stopped?.reason !== "removed")
       .sort((a, b) => (a.room.role === b.room.role ? 0 : a.room.role === "principal" ? -1 : 1))
       .map(({ id, room }) => this.agentView(id, room));
-    return { roomId, agents, summary: summarizeRoom(agents) };
+    const carried = (this.store.getRoom(roomId)?.carriedTickets ?? []).map((key): RoomAgentTicket => {
+      const title = this.options.tickets?.title(key);
+      return { provider: "jira", key, ...(title ? { title } : {}) };
+    });
+    const tickets = roomTickets(agents, carried);
+    return { roomId, agents, summary: { ...summarizeRoom(agents), ...(tickets.length > 0 ? { tickets } : {}) } };
   }
 
   /** `agentId` and every agent below it, in the room. */
@@ -860,6 +917,11 @@ export class RoomManager implements RoomToolHost {
     // The card names what was said this time (the message's first line), so
     // every instruction to the same worker reads differently.
     const card: RoomCard | undefined = next.fromAgent ? { kind: "instruction", title: titleFromTask(next.text) } : undefined;
+    // The task of an agent delegated with a ticket tells it which, once: on
+    // its first turn (again only if that one never started) — the ticket it
+    // works on then, none if the person took it off meanwhile.
+    const ticket = room.startedAt === undefined ? this.options.tickets?.takeWorkLine(sessionId) : undefined;
+    const line: TicketLine | undefined = ticket ? { provider: ticket.provider, key: ticket.key, kind: "work" } : undefined;
     const hooks: TurnHooks = {
       onDelivered: () => {
         sending.delivered = true;
@@ -872,7 +934,7 @@ export class RoomManager implements RoomToolHost {
         }
       },
     };
-    session.submitAgentTurn(next.text, hooks, card);
+    session.submitAgentTurn(next.text, hooks, card, line);
   }
 
   /** Whether `sessionId`, about to start its very first turn on a Claude
@@ -1274,6 +1336,15 @@ export class RoomManager implements RoomToolHost {
     const inherited = this.store.getPermissionMode(roomId, principalAgent, principalDef?.permissions.defaultModeId ?? def.permissions.defaultModeId);
     const mode = isOfferedMode(availableModes(def, toHostPlatform()), inherited) ? inherited : def.permissions.defaultModeId;
 
+    // The ticket needs the tracker's site; without one known yet the agent
+    // starts without it, and is told so.
+    let ticket: TicketRef | undefined;
+    let ticketWarning = args.ticketWarning;
+    if (args.ticket !== undefined) {
+      ticket = this.options.tickets?.resolve(args.ticket);
+      if (!ticket) ticketWarning = `ticket ${args.ticket} was not given to the agent: this machine has not read its tracker yet.`;
+    }
+
     const workerId = randomUUID();
     this.store.recordId(workerId);
     this.store.setAgentId(workerId, args.runtime);
@@ -1289,6 +1360,7 @@ export class RoomManager implements RoomToolHost {
       task: args.task,
       ...(args.area ? { area: args.area } : {}),
       ...(args.purpose ? { purpose: args.purpose } : {}),
+      ...(ticket ? { ticket } : {}),
       // Persisted until it is delivered: a relay restart loses no task.
       queuedMessages: [{ text: args.task, at: this.now(), ...(createdBy === "agent" ? { fromAgent: true as const } : {}) }],
     });
@@ -1302,8 +1374,19 @@ export class RoomManager implements RoomToolHost {
       this.store.setTitle(workerId, titleFromTask(args.task));
       this.options.sessions.generateTitle(workerId, args.task);
     }
+    if (ticket) {
+      this.options.tickets?.link(workerId, ticket);
+      // Delegated: no longer only with the principal.
+      const principal = this.store.getRoom(roomId);
+      if (principal?.carriedTickets?.includes(ticket.key)) {
+        const rest = principal.carriedTickets.filter((key) => key !== ticket.key);
+        const { carriedTickets: _old, ...kept } = principal;
+        void _old;
+        this.store.setRoom(roomId, rest.length > 0 ? { ...kept, carriedTickets: rest } : kept);
+      }
+    }
     this.pump(workerId);
-    return ok(JSON.stringify({ agentId: workerId, name: this.nameOf(workerId), ...(args.area ? { area: args.area } : {}) }));
+    return ok(JSON.stringify({ agentId: workerId, name: this.nameOf(workerId), ...(args.area ? { area: args.area } : {}), ...(ticket ? { ticket: ticket.key } : {}), ...(ticketWarning ? { warning: ticketWarning } : {}) }));
   }
 
   private report(callerId: string, caller: RoomMembership, rawArgs: unknown): RoomToolResult {

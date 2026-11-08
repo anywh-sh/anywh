@@ -33,6 +33,7 @@ const EVERYTHING_BUT_DEFS = [
   "src/runtimes/streams/**",
   "src/agentHost/**",
   "src/planUsage/**",
+  "src/integrations/**",
 ];
 
 // `except` globs are matched against the resolved *absolute* import path

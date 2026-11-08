@@ -100,6 +100,12 @@ export function encodeInterrupt(requestId: string): string {
   return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "interrupt" } })}\n`;
 }
 
+/** Makes the process load an MCP server again — after a sign-in, the only
+ * way a running process uses the new token (observed on 2.1.303). */
+export function encodeMcpReconnect(requestId: string, serverName: string): string {
+  return `${JSON.stringify({ type: "control_request", request_id: requestId, request: { subtype: "mcp_reconnect", serverName } })}\n`;
+}
+
 /** Stops one native subagent (`task_id` from its `task_started`), leaving
  * the turn and the other subagents running. */
 export function encodeStopTask(requestId: string, taskId: string): string {

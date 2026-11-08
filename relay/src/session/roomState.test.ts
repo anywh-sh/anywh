@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RoomAgentState } from "./room.js";
 import type { SubtaskInfo } from "../runtimes/sessionDriver.js";
-import { ROOM_SUBTASKS_SENT, subtaskViews, summarizeRoom, type RoomAgentView } from "./roomState.js";
+import { ROOM_SUBTASKS_SENT, roomTickets, subtaskViews, summarizeRoom, type RoomAgentView } from "./roomState.js";
 
 const view = (state: RoomAgentState, needsYou: RoomAgentView["needsYou"] = []): RoomAgentView => ({
   agentId: `a-${Math.random()}`,
@@ -61,4 +61,26 @@ test("each text goes out as one line: the activity while running, the summary's 
 test("the subtask a pending approval came from is marked, by its task id or its Agent call's id; a finished one never is", () => {
   const views = subtaskViews([subtask("a", 1), subtask("b", 2), subtask("c", 3, { status: "stopped", endedAt: 4 }), subtask("d", 4)], new Set(["a", "tu-b", "c"]));
   assert.deepEqual(views.map((view) => view.needsYou ?? false), [true, true, false, false]);
+});
+
+test("a room's tickets: one per ticket its agents work on, with them, then those only the principal holds", () => {
+  const agent = (agentId: string, key?: string, role: RoomAgentView["role"] = "worker", title?: string): RoomAgentView => ({
+    ...view("working"),
+    agentId,
+    role,
+    ...(key ? { ticket: { provider: "jira" as const, key, ...(title ? { title } : {}) } } : {}),
+  });
+  const agents = [agent("p", "NGL-0", "principal"), agent("a", "NGL-9"), agent("b"), agent("c", "NGL-9", "worker", "Fix the login"), agent("d", "ABC-1")];
+  assert.deepEqual(
+    roomTickets(agents, [
+      { provider: "jira", key: "NGL-9" },
+      { provider: "jira", key: "NGL-4", title: "Release notes" },
+    ]),
+    [
+      { provider: "jira", key: "NGL-9", title: "Fix the login", agentIds: ["a", "c"] },
+      { provider: "jira", key: "ABC-1", agentIds: ["d"] },
+      { provider: "jira", key: "NGL-4", title: "Release notes", agentIds: [], carried: true },
+    ],
+  );
+  assert.deepEqual(roomTickets([agent("b")]), []);
 });

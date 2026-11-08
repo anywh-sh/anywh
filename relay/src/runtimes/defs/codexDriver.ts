@@ -21,7 +21,8 @@
 import { spawnCodexDaemon, type CodexDaemon } from "../transports/codexDaemon.js";
 import type { AgentEvent, AgentRuntimeDef, JsonRpcDaemonPlan, TurnContext } from "../types.js";
 import { codexTurnsToEvents } from "../streams/codexHistory.js";
-import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../sessionDriver.js";
+import type { AgentSessionDriver, DriverTurnResult, McpServersObserver, SessionDriverHost } from "../sessionDriver.js";
+import { CODEX_MCP_STARTUP_STATUS_METHOD, parseCodexStartupStatus } from "../../integrations/inventory/codex.js";
 // Same known reverse-direction dependency `defs/claude/session.ts` already
 // has on this file for the same three types — see its own comment on why
 // (a def reaching into session/ for a type it should describe itself).
@@ -36,6 +37,8 @@ export interface CodexSessionDriverOptions {
   /** Where the daemon's `account/rateLimits/updated` pushes and the turn's
    * start/end go; the relay's shared capture unless a test passes its own. */
   readonly planUsage?: PlanUsageCapture;
+  /** Told each server's startup status the daemon pushes. */
+  readonly onMcpServers?: McpServersObserver;
 }
 
 // Locally-typed subset of the real generated bindings this file consumes —
@@ -128,6 +131,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
   /** Set for the duration of `sendTurn` — `handleNotification` forwards
    * every non-lifecycle notification here, mapped to `AgentEvent`s. */
   private pendingOnEvent: ((event: AgentEvent) => void) | undefined;
+  private readonly onMcpServers: McpServersObserver | undefined;
 
   constructor(def: AgentRuntimeDef, options: CodexSessionDriverOptions) {
     if (!isJsonRpcDaemonPlan(def)) throw new Error(`CodexSessionDriver: def "${def.identity.id}" has no jsonRpcDaemon exec plan`);
@@ -136,6 +140,7 @@ export class CodexSessionDriver implements AgentSessionDriver {
     this.host = options.host;
     this.planUsage = options.planUsage ?? planUsageCapture;
     this.threadId = options.initialSessionId;
+    this.onMcpServers = options.onMcpServers;
   }
 
   getSessionId(): string | undefined {
@@ -188,6 +193,13 @@ export class CodexSessionDriver implements AgentSessionDriver {
       return;
     }
     if (TURN_LIFECYCLE_METHODS.has(method)) return;
+    // Pushed for each server as a thread starts it (and again after a
+    // reload), turn or not: about the server, never part of the chat.
+    if (method === CODEX_MCP_STARTUP_STATUS_METHOD) {
+      const server = parseCodexStartupStatus(params);
+      if (server) this.onMcpServers?.([server]);
+      return;
+    }
     // Account-wide, not part of the turn (it may also land between turns):
     // goes to the plan usage capture only, never to the chat mapper.
     if (this.planUsage.codexNotification(method, params)) return;
@@ -281,6 +293,16 @@ export class CodexSessionDriver implements AgentSessionDriver {
     const spec = this.def.exec.turn.interrupt(this.threadId, this.inFlightTurnId);
     void this.daemon.request(spec.method, spec.params).catch(() => {});
     return true;
+  }
+
+  /** A daemon that did not do the sign-in itself keeps failing a server
+   * until it reloads the MCP config (observed on 0.154.0). Nothing to do
+   * without a daemon: the next one starts with the token. */
+  async reconnectMcp(): Promise<void> {
+    const { mcp } = this.def.portability;
+    const method = mcp.kind === "supported" && mcp.auth?.kind === "app-server" ? mcp.auth.reload : undefined;
+    if (!method || !this.daemon || this.daemon.exited) return;
+    await this.daemon.request(method, {});
   }
 
   /** Tears down the daemon process — called once, from `SharedSession.dispose()`,

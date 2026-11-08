@@ -10,6 +10,8 @@ import { useSecondTick } from "@/components/sala/useSecondTick";
 import { prefersReducedMotion } from "@/components/sala/useArrivals";
 import { SalaSubtaskCard } from "@/components/sala/SalaSubtaskCard";
 import { MINI_H, MINI_W, subtaskBand, subtaskRects, visibleSubtasks } from "@/lib/sala/subtasks";
+import { RoomTicketChip } from "@/components/integrations/RoomTicketChip";
+import { useRoomTickets } from "@/components/sala/roomTickets";
 
 export interface SalaCardProps {
   agent: RoomAgent;
@@ -107,6 +109,8 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
   const { agent, x, y, w, h, selected, hasParent, hasKids, modelLabel, workers, liveWorkers, observedSince } = props;
   const fullDict = useDict();
   const dict = fullDict.sala.card;
+  const tickets = useRoomTickets();
+  const ticket = agent.role === "worker" ? agent.ticket : undefined;
   const chatWork = fullDict.chat.activity.work;
   const status = cardStatus(agent, liveWorkers);
   const activity = cardActivity(agent, workers, liveWorkers);
@@ -176,6 +180,7 @@ export const SalaCard = memo(function SalaCard(props: SalaCardProps) {
           <span className="sala-title" title={titlePending ? undefined : title}>
             {titlePending ? <TitleSkeleton className="h-[1em] w-2/3" /> : title}
           </span>
+          {ticket && tickets && <RoomTicketChip profileId={tickets.profileId} ticket={ticket} onOpen={tickets.openTicket ? () => tickets.openTicket?.(ticket) : undefined} />}
         </div>
         <div className="sala-node-body">
           {lines.map((line, i) => (

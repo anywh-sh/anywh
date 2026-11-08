@@ -7,6 +7,7 @@ import { readHistoryFromTranscript, transcriptPath } from "./transcriptReader.js
 import { isSilentEvent } from "../../../protocol/silentEvents.js";
 import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../../../protocol/relayNote.js";
 import { withRoomCard } from "../../../protocol/roomCard.js";
+import { withTicketLine } from "../../../protocol/ticketLine.js";
 import type { RoomCard } from "../../../protocol/agent-event.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 
@@ -388,5 +389,15 @@ test("a person's text that merely contains the card marker is left alone", () =>
     const user = readHistoryFromTranscript(home, home, "rc5").map((m) => m.event)[1];
     assert.ok(user.type === "user_message" && user.room === undefined);
     assert.equal(user.text, "see [anywh-card] {not json}\nmore");
+  });
+});
+
+test("the ticket line the relay put before a message does not show up in the rebuilt history, in any message", () => {
+  withFixture("s-ticket", [userLine("hello"), assistantText("hi"), userLine(withTicketLine("now this one", "NGL-7")), assistantText("ok"), userLine("Jira ticket: NGL-7\nnot the relay's line")], (home) => {
+    const users = readHistoryFromTranscript(home, home, "s-ticket")
+      .map((m) => m.event)
+      .filter((event) => event.type === "user_message")
+      .map((event) => (event.type === "user_message" ? event.text : ""));
+    assert.deepEqual(users, ["hello", "now this one", "Jira ticket: NGL-7\nnot the relay's line"]);
   });
 });

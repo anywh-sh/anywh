@@ -209,6 +209,29 @@ describe("unified session list", () => {
     expect(screen.getByRole("button", { name: en.shell.sidebar.newConversation })).toBeInTheDocument();
   });
 
+  // The relay reports every session's activity on the list socket, so a
+  // session no tab has open still shows that it works or waits for an answer.
+  it("shows a session's activity from the relay's list, with no tab open", async () => {
+    setProfiles(freshProfiles());
+    renderApp();
+    await screen.findByText("Conversa da A");
+    await vi.waitFor(() => expect(relay.sockets.some((socket) => socket.url.includes("1.2.3.4:8001/sessions/watch") && socket.readyState === WebSocket.OPEN)).toBe(true));
+    const row = { type: "session_list_upsert", id: "s-a", title: "Conversa da A", lastActiveAt: now - 60_000 };
+
+    relay.emit({ ...row, activity: "running" });
+    expect(await screen.findByLabelText(en.shell.sidebar.agentWorking)).toBeInTheDocument();
+    expect(screen.getByText(en.shell.sidebar.running)).toBeInTheDocument();
+
+    relay.emit({ ...row, activity: "awaiting" });
+    expect(await screen.findByRole("img", { name: en.shell.sidebar.sessionNeedsYou })).toBeInTheDocument();
+    expect(screen.getByText(en.shell.sidebar.needsYou)).toBeInTheDocument();
+    expect(screen.queryByLabelText(en.shell.sidebar.agentWorking)).not.toBeInTheDocument();
+
+    relay.emit(row);
+    await vi.waitFor(() => expect(screen.queryByRole("img", { name: en.shell.sidebar.sessionNeedsYou })).not.toBeInTheDocument());
+    expect(screen.queryByText(en.shell.sidebar.needsYou)).not.toBeInTheDocument();
+  });
+
   it("shows the skeleton only when there is nothing cached to show", async () => {
     setProfiles(freshProfiles());
     vi.stubGlobal(

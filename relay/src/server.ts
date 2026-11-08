@@ -45,6 +45,11 @@ import { SessionStore } from "./session/sessionStore.js";
 import { createPlanUsageService } from "./planUsage/service.js";
 import { planUsageCapture } from "./planUsage/capture.js";
 import { PLAN_USAGE_WATCH_PATH, handlePlanUsageConnection, handlePlanUsageRoutes } from "./routes/planUsage.js";
+import { createIntegrationService } from "./integrations/service.js";
+import { TicketLinks, createFileTicketLinksStore, ticketLinksPathFor } from "./integrations/ticketLinks.js";
+import { TicketObserver } from "./integrations/observer.js";
+import type { IntegrationProvider, RoomAgentTicket } from "./integrations/types.js";
+import { INTEGRATIONS_WATCH_PATH, handleIntegrationsConnection, handleIntegrationsRoutes } from "./routes/integrations.js";
 import { dispatchChatMessage } from "./ws/chat.js";
 import { handleFilesConnection } from "./ws/files.js";
 import { handleMcpLoginConnection } from "./ws/mcpLogin.js";
@@ -101,6 +106,17 @@ const planUsage = createPlanUsageService({
   log: (line) => console.log(line),
 });
 planUsage.start();
+// Which tracker integrations (Jira) this profile's agent CLIs have an MCP
+// server for, and the tickets read through them (integrations/service.ts).
+// Idle until a `/integrations/watch` client connects.
+const integrations = createIntegrationService({
+  defs: [claudeRuntimeDef, codexRuntimeDef],
+  homeOverride: HOME_OVERRIDE,
+  sessionsFile: SESSIONS_FILE,
+  log: (line) => console.log(line),
+  // The sessions' own processes of that CLI load the new token.
+  onSignedIn: (entry) => sessionManager.reconnectMcp(entry.runtimeId, entry.name),
+});
 const roomActivity = new ActivityTrail();
 // Always `127.0.0.1`, never `HOST`: this is the address the
 // relay's OWN `claude` child processes reach it at, always local to this
@@ -150,7 +166,7 @@ const sessionManager = new SessionManager(
   (event) => {
     const payload = JSON.stringify(
       event.type === "upsert"
-        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}) }
+        ? { type: "session_list_upsert", id: event.id, title: event.title, lastActiveAt: event.lastActiveAt, ...(event.room ? { room: true } : {}), ...(event.titlePending ? { titlePending: true } : {}), ...(event.activity ? { activity: event.activity } : {}), ...(event.workTicket ? { workTicket: event.workTicket } : {}) }
         : { type: "session_list_removed", id: event.id },
     );
     for (const watcher of sessionListWatchers) {
@@ -176,7 +192,7 @@ const sessionManager = new SessionManager(
     onWorkerPrompted: (id, watched): void => roomManager.workerPrompted(id, watched),
     onMemberChanged: (id) => {
       const roomId = sessionStore.getRoom(id)?.roomId;
-      if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined) touchRoom(roomId);
     },
     turnNote: (id) => roomManager.turnNote(id),
     answerRefusal: (id) => roomManager.answerRefusal(id),
@@ -184,13 +200,13 @@ const sessionManager = new SessionManager(
     onActivity: (id, event): void => {
       if (!roomActivity.observe(id, event)) return;
       const roomId = sessionStore.getRoom(id)?.roomId;
-      if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined) touchRoom(roomId);
     },
     onTurnStarted: (id, startedAt, synthetic): void => roomManager.noteTurnStarted(id, startedAt, synthetic),
     onMcpServerUsed: (id, server): void => {
       roomManager.noteConnector(id, server);
       const roomId = sessionStore.getRoom(id)?.roomId;
-      if (roomId !== undefined) roomChannel.touch(roomId);
+      if (roomId !== undefined) touchRoom(roomId);
     },
     // How far each room agent's log was read: a turn in flight across a
     // relay restart is picked up from there.
@@ -213,6 +229,25 @@ const roomWorktrees = new RoomWorktrees({
   root: process.env.RELAY_WORKTREES_ROOT ?? join(HOME_OVERRIDE ?? homedir(), ".anywh", "worktrees"),
   agents: { facts: (id) => roomManager.worktreeAgentFacts(id) },
 });
+// Each session's work ticket (at most one), beside the sessions file. A
+// room's principal orchestrates several agents: it never has one.
+const ticketLinks = new TicketLinks({
+  store: createFileTicketLinksStore(ticketLinksPathFor(SESSIONS_FILE)),
+  sessionExists: (id) => sessionStore.has(id),
+  mayHold: (id) => sessionStore.getRoom(id)?.role !== "principal",
+});
+// The site of a tracker's tickets, for a key alone (a principal's
+// `delegate`): what a read found, else the site of a ticket a client sent.
+const sentTicketSites = new Map<string, string>();
+const ticketSite = (provider: IntegrationProvider): string | undefined =>
+  integrations.siteOf(provider)?.id ?? sentTicketSites.get(provider) ?? ticketLinks.list().find((link) => link.ticket.provider === provider)?.ticket.site;
+/** The ticket a room's agent works on now, as its card shows it. */
+function roomWorkTicketOf(id: string): RoomAgentTicket | undefined {
+  const link = ticketLinks.get(id);
+  if (!link) return undefined;
+  const title = link.title ?? integrations.ticketTitle(link.ticket.provider, link.ticket.key);
+  return { provider: link.ticket.provider, key: link.ticket.key, ...(title ? { title } : {}) };
+}
 const roomManager: RoomManager = new RoomManager({
   worktrees: roomWorktrees,
   canvasAreas: (roomId) => roomCanvas.get(roomId).areas,
@@ -247,8 +282,100 @@ const roomManager: RoomManager = new RoomManager({
   getModelCatalog: (agentId) => modelCatalogs[agentId],
   context: roomContext,
   ...(process.env.RELAY_ROOM_WARMUP_MS ? { warmUpMs: Number(process.env.RELAY_ROOM_WARMUP_MS) } : {}),
+  tickets: {
+    resolve: (key) => {
+      const site = ticketSite("jira");
+      return site ? { provider: "jira", site, key } : undefined;
+    },
+    link: (agentId, ticket) => {
+      const title = integrations.ticketTitle(ticket.provider, ticket.key);
+      const place = roomManager.placeOf(agentId);
+      // Its task carries the ticket line (RoomManager.pump), not the
+      // person's next message.
+      ticketLinks.link(agentId, ticket, "delegate", { ...(title ? { title } : {}), ...(place ? { place } : {}) });
+    },
+    workTicketOf: (id) => roomWorkTicketOf(id),
+    takeWorkLine: (id) => {
+      ticketLinks.takeDueLine(id);
+      return roomWorkTicketOf(id);
+    },
+    title: (key) => integrations.ticketTitle("jira", key),
+  },
 });
 roomBridge.attach(roomManager);
+// What the agents' own calls to a tracker's MCP server tell about tickets.
+const ticketObserver = new TicketObserver({
+  identify: (runtimeId, server) => integrations.identifyServer(runtimeId, server),
+  ingest: (integrationId, observed) => integrations.observeTickets(integrationId, observed),
+  links: ticketLinks,
+  mayLink: (id) => sessionStore.getRoom(id)?.role !== "principal",
+});
+sessionManager.setWorkTickets({
+  workTicketOf: (id) => {
+    const link = ticketLinks.get(id);
+    return link && { provider: link.ticket.provider, key: link.ticket.key };
+  },
+  observe: (id, agentId, event) => ticketObserver.observe(id, agentId, event),
+  forget: (id) => ticketLinks.unlink(id),
+  lineLost: (id) => ticketLinks.rearmLine(id),
+  takeLine: (id, start, firstTurn, command) => {
+    // A room's principal is handed a ticket, with any message, to pass on to
+    // the agent it delegates that work to; it never works on one itself.
+    if (sessionStore.getRoom(id)?.role === "principal") {
+      if (!start) return undefined;
+      sentTicketSites.set(start.provider, start.site);
+      const line = roomManager.carryTicket(id, start.key, start.provider);
+      return command ? undefined : line;
+    }
+    // A session started from a ticket works on it.
+    if (start && firstTurn) {
+      const title = integrations.ticketTitle(start.provider, start.key);
+      ticketLinks.link(id, start, "start", { lineDue: true, ...(title ? { title } : {}) });
+    }
+    // A slash command runs as one only without a line in front of it: the
+    // line waits for the next message.
+    if (command) return undefined;
+    const due = ticketLinks.takeDueLine(id);
+    return due && { provider: due.provider, key: due.key, kind: "work" };
+  },
+});
+// Each session's MCP servers of a known integration (its `mcp_state`), and
+// what its turns say back about them: a server a turn found signed out is
+// signed out for the whole profile.
+sessionManager.setMcpServers({
+  stateOf: (agentId, cwd) => integrations.sessionMcpState(agentId, cwd),
+  observed: (agentId, servers, cwd) => integrations.noteSessionMcp(agentId, servers, cwd),
+  failed: (agentId, failure, cwd) => integrations.noteMcpFailure(agentId, failure, cwd),
+  serverName: (agentId, server) => integrations.serverName(agentId, server),
+});
+integrations.subscribe(() => sessionManager.refreshMcpState());
+// Where each room agent that works on a ticket stands, on its link, so the
+// ticket's screen shows it without the room open: brought up to date with
+// the room's changes, coalesced per room.
+const placeSyncs = new Map<string, NodeJS.Timeout>();
+const syncTicketPlaces = (roomId: string): void => {
+  if (placeSyncs.has(roomId)) return;
+  const timer = setTimeout(() => {
+    placeSyncs.delete(roomId);
+    for (const link of ticketLinks.list()) {
+      if (sessionStore.getRoom(link.sessionId)?.roomId === roomId) ticketLinks.setPlace(link.sessionId, roomManager.placeOf(link.sessionId));
+    }
+  }, 30);
+  timer.unref();
+  placeSyncs.set(roomId, timer);
+};
+/** Something about a room changed: its watchers and its tickets follow. */
+const touchRoom = (roomId: string): void => {
+  roomChannel.touch(roomId);
+  syncTicketPlaces(roomId);
+};
+ticketLinks.subscribe((event) => {
+  const sessionId = event.type === "work_ticket_upsert" ? event.link.sessionId : event.sessionId;
+  sessionManager.announceWorkTicket(sessionId);
+  // A room agent's card shows its ticket.
+  const roomId = sessionStore.getRoom(sessionId)?.roomId;
+  if (roomId !== undefined) touchRoom(roomId);
+});
 // Every room's state on one socket per watcher (`/rooms/:roomId/watch`).
 const roomChannel = new RoomChannel({
   // What an agent has just been doing lives here, not in the room's store.
@@ -257,7 +384,7 @@ const roomChannel = new RoomChannel({
     return snapshot && { ...snapshot, agents: snapshot.agents.map((agent) => ({ ...agent, activity: roomActivity.recent(agent.agentId) })) };
   },
 });
-sessionStore.onRoomChange((_sessionId, roomId) => roomChannel.touch(roomId));
+sessionStore.onRoomChange((_sessionId, roomId) => touchRoom(roomId));
 // Removals that were waiting out their undo window when the relay stopped.
 roomManager.sweepRemoved();
 // At start, and then daily: finish what a crash interrupted, forget worktrees
@@ -323,6 +450,7 @@ const routeContext: RouteContext = {
   roomContext,
   agentContext,
   planUsage,
+  integrations,
 };
 
 // Tried in this order, but order only matters within a group — no two
@@ -339,6 +467,7 @@ const routeHandlers: readonly RouteHandler[] = [
   handleAgentCatalogRoutes,
   handleRoomRoutes,
   handlePlanUsageRoutes,
+  handleIntegrationsRoutes,
 ];
 
 /**
@@ -413,6 +542,7 @@ const refreshAgents = createAgentRefresher({
   publishSelectable: (agents) => {
     setSelectableAgents(agents);
     planUsage.setInstalledRuntimes(agents.map((agent) => agent.id));
+    integrations.setInstalledRuntimes(agents.map((agent) => agent.id));
   },
   publishRoomRuntimes: (ids) => {
     roomRuntimes = ids;
@@ -489,6 +619,9 @@ export const httpServer = createServer((req, res) => {
 // `--mcp-config` is what keeps the CLI itself from cutting a pending approval
 // (see `buildMcpSpawnConfig`).
 httpServer.requestTimeout = 0;
+// The integrations' control processes (a `claude`, a `codex app-server`)
+// end with the server, whoever closes it (a shutdown, a test's teardown).
+httpServer.on("close", () => integrations.close());
 
 export const wss = new WebSocketServer({ server: httpServer });
 
@@ -593,6 +726,11 @@ wss.on("connection", (socket: WebSocket, request) => {
     return;
   }
 
+  if (url.pathname === INTEGRATIONS_WATCH_PATH) {
+    handleIntegrationsConnection(socket, integrations, ticketLinks);
+    return;
+  }
+
   if (url.pathname === "/sessions/watch") {
     sessionListWatchers.add(socket);
     // The whole list, first thing on every connection: a watcher that was
@@ -660,9 +798,11 @@ wss.on("connection", (socket: WebSocket, request) => {
 
 process.on("SIGTERM", () => {
   planUsage.stop();
+  integrations.close();
   void gracefulShutdown("SIGTERM", { httpServer, sessionManager });
 });
 process.on("SIGINT", () => {
   planUsage.stop();
+  integrations.close();
   void gracefulShutdown("SIGINT", { httpServer, sessionManager });
 });

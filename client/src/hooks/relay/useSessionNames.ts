@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchSessions } from "@/lib/relay/relayClient";
+import { ticketTagOf, withValidWorkTicket } from "@/lib/integrations/workTickets";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { markProfileRevoked } from "@/lib/profiles/profileRevocation";
@@ -7,7 +8,7 @@ import { removeCachedSession, setCachedSessions, upsertCachedSession } from "@/l
 import { markProfileVerified } from "@/lib/profiles/profiles";
 import { useForegroundSync } from "@/hooks/relay/useForegroundSync";
 import type { Profile } from "@/lib/profiles/profiles";
-import type { SessionSummary } from "@/lib/relay/relay-types";
+import type { SessionActivity, SessionSummary } from "@/lib/relay/relay-types";
 
 // A broker that answered 429 is telling this account to stop asking — the
 // watch loop's usual 2s retry is the one thing that makes that worse, and
@@ -177,7 +178,7 @@ export function useSessionNames(profile: Profile): {
               return;
             }
             if (typeof parsed !== "object" || parsed === null) return;
-            const { type, id, title, lastActiveAt, sessions, room, titlePending } = parsed as {
+            const { type, id, title, lastActiveAt, sessions, room, titlePending, activity, workTicket } = parsed as {
               type?: unknown;
               id?: unknown;
               title?: unknown;
@@ -185,6 +186,8 @@ export function useSessionNames(profile: Profile): {
               sessions?: unknown;
               room?: unknown;
               titlePending?: unknown;
+              activity?: unknown;
+              workTicket?: unknown;
             };
             if (type === "pong") {
               window.clearTimeout(pongTimer);
@@ -198,13 +201,13 @@ export function useSessionNames(profile: Profile): {
             // profile would spend on it).
             if (type === "session_list_snapshot" && Array.isArray(sessions)) {
               speaksProbe = true;
-              setCachedSessions(profileId, sessions.filter(isSessionSummary));
+              setCachedSessions(profileId, sessions.filter(isSessionSummary).map(withValidWorkTicket));
               markProfileVerified(profileId);
               return;
             }
             if (typeof id !== "string") return;
             if (type === "session_list_upsert" && typeof title === "string")
-              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true, titlePending === true);
+              upsertCachedSession(profileId, id, title, typeof lastActiveAt === "number" ? lastActiveAt : undefined, room === true, titlePending === true, isSessionActivity(activity) ? activity : null, ticketTagOf(workTicket) ?? null);
             else if (type === "session_list_removed") removeCachedSession(profileId, id);
           });
           ws.addEventListener("close", () => {
@@ -309,4 +312,8 @@ function isSessionSummary(value: unknown): value is SessionSummary {
     typeof entry.title === "string" &&
     (entry.lastActiveAt === null || typeof entry.lastActiveAt === "number")
   );
+}
+
+function isSessionActivity(value: unknown): value is SessionActivity {
+  return value === "running" || value === "awaiting";
 }

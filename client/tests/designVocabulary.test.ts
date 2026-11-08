@@ -164,7 +164,9 @@ describe("color and type", () => {
           file.path === "components/shell/AnywhLogo.tsx" ||
           // Claude's mark keeps its fixed brand orange for the same reason:
           // it identifies a vendor's product and must not follow the theme.
-          file.path === "components/chat/AgentLogo.tsx",
+          file.path === "components/chat/AgentLogo.tsx" ||
+          // Jira's mark keeps its brand blue, likewise a vendor's identity.
+          file.path === "components/integrations/IntegrationIcon.tsx",
       ),
     ).toEqual([]);
   });

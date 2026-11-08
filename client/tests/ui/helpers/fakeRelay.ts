@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import type { RuntimePlanUsage } from "@/lib/planUsage/model";
+import type { IntegrationState, WorkTicket } from "@/lib/integrations/model";
 
 /**
  * Stands in for the relay over the network edge — the client-side
@@ -34,10 +35,15 @@ class FakeRelaySocket {
     private readonly onSend: (socket: FakeRelaySocket, data: string) => void,
     options: FakeRelayOptions = {},
     planUsage?: () => FakePlanUsage | undefined,
+    integrations?: () => FakeIntegrations | undefined,
   ) {
     const parsed = new URL(url);
     if (parsed.pathname === "/plan-usage/watch" && planUsage) {
       queueMicrotask(() => this.openPlanUsage(planUsage()));
+      return;
+    }
+    if (parsed.pathname === "/integrations/watch") {
+      queueMicrotask(() => this.openIntegrations(integrations?.()));
       return;
     }
     queueMicrotask(() => {
@@ -83,6 +89,29 @@ class FakeRelaySocket {
       return;
     }
     this.emitMessage({ type: "plan_usage_state", runtimes: script.runtimes, observedAt: script.observedAt ?? Date.now() });
+  }
+
+  /** `/integrations/watch`. Unscripted, it answers as a relay without the
+   * route does — as a chat socket — so a test that does not care about
+   * integrations sees none and no socket keeps redialing. */
+  private openIntegrations(script: FakeIntegrations | undefined): void {
+    if (this.readyState === FakeRelaySocket.CLOSED) return;
+    if (script === "unreachable") {
+      this.readyState = FakeRelaySocket.CLOSED;
+      this.dispatch("close", {});
+      return;
+    }
+    this.readyState = FakeRelaySocket.OPEN;
+    this.dispatch("open", {});
+    if (script === "mute") return;
+    if (script === undefined || script === "legacy") {
+      this.emitMessage({ type: "protocol_version", version: 4 });
+      this.emitMessage({ type: "caught_up" });
+      return;
+    }
+    this.emitMessage({ type: "integrations_state", integrations: script.integrations });
+    // A relay that links sessions to tickets sends every link right after.
+    if (script.links) this.emitMessage({ type: "work_tickets_state", links: script.links });
   }
 
   addEventListener(type: string, handler: Listener): void {
@@ -177,7 +206,20 @@ export type FakePlanUsage =
   /** Never even opens: the socket stays CONNECTING. */
   | "hang";
 
+/** How a relay answers `/integrations/watch`: its state (sent on connect),
+ * `"legacy"` for a relay that predates the route (also what an unscripted
+ * relay does), `"unreachable"` for a machine that can't be reached. */
+export type FakeIntegrations =
+  | { integrations: IntegrationState[]; links?: WorkTicket[] }
+  | "legacy"
+  | "unreachable"
+  /** Opens and then says nothing at all. */
+  | "mute";
+
 export interface FakeRelayOptions {
+  /** `/integrations/watch` per relay, keyed `host:port`. Mutable through
+   * `FakeRelay.integrations`, read on every connection. */
+  integrations?: Record<string, FakeIntegrations>;
   /** `/plan-usage/watch` per relay, keyed `host:port`. Absent = the route is
    * not scripted and the socket behaves like any other. Mutable through
    * `FakeRelay.planUsage`, read on every connection. */
@@ -202,6 +244,14 @@ export interface FakeRelay {
   forcedRefreshes: () => { received: number; read: number };
   /** Pushes a `plan_usage_state` to the open plan usage sockets of one relay. */
   emitPlanUsage: (hostPort: string, runtimes: RuntimePlanUsage[], observedAt?: number) => void;
+  /** The scripted `/integrations/watch` answers (a copy of `options.integrations`). */
+  integrations: Record<string, FakeIntegrations>;
+  /** Pushes an `integrations_state` to one relay's open integrations sockets
+   * (and keeps it as that relay's state for later connections). */
+  emitIntegrations: (hostPort: string, integrations: IntegrationState[]) => void;
+  /** Pushes any other message (`mcp_auth_flow`, ...) to one relay's open
+   * integrations sockets. */
+  emitOnIntegrations: (hostPort: string, message: unknown) => void;
   /** Everything the app has sent, in order, whether or not the fake answers it. */
   sent: SentMessage[];
   /** Pushes a relay message to every open socket (only the mounted tab reacts). */
@@ -233,6 +283,8 @@ export function installFakeRelay(
   let realReads = 0;
   const hostPort = (url: string): string => new URL(url).host;
   const isPlanUsageSocket = (socket: FakeRelaySocket): boolean => new URL(socket.url).pathname === "/plan-usage/watch";
+  const integrations: Record<string, FakeIntegrations> = { ...options.integrations };
+  const isIntegrationsSocket = (socket: FakeRelaySocket): boolean => new URL(socket.url).pathname === "/integrations/watch";
 
   function onSend(socket: FakeRelaySocket, raw: string): void {
     const message = JSON.parse(raw) as { type?: string; text?: string };
@@ -241,6 +293,12 @@ export function installFakeRelay(
       // The relay's liveness answer — unless the test made this relay go
       // silent (`silentPlanUsage`), the way a dead connection looks.
       if (!deadSockets.has(socket)) queueMicrotask(() => socket.emitMessage({ type: "pong" }));
+      return;
+    }
+    if (isIntegrationsSocket(socket)) {
+      // Everything else sent here is only recorded (`sent`), for the test to
+      // read; the state changes it causes are pushed by the test.
+      if (message.type === "ping") queueMicrotask(() => socket.emitMessage({ type: "pong" }));
       return;
     }
     if (message.type === "plan_usage_refresh" && planUsage) {
@@ -291,7 +349,7 @@ export function installFakeRelay(
     "WebSocket",
     class extends FakeRelaySocket {
       constructor(url: string) {
-        super(url, onSend, options, planUsage ? () => planUsage[hostPort(url)] : undefined);
+        super(url, onSend, options, planUsage ? () => planUsage[hostPort(url)] : undefined, () => integrations[hostPort(url)]);
         sockets.push(this);
       }
     },
@@ -406,6 +464,21 @@ export function installFakeRelay(
       for (const socket of sockets) {
         if (socket.readyState !== FakeRelaySocket.OPEN || !isPlanUsageSocket(socket) || hostPort(socket.url) !== target || deadSockets.has(socket)) continue;
         socket.emitMessage({ type: "plan_usage_state", runtimes, observedAt: observedAt ?? Date.now() });
+      }
+    },
+    integrations,
+    emitIntegrations: (target, state) => {
+      const previous = integrations[target];
+      integrations[target] = { integrations: state, ...(typeof previous === "object" && previous.links ? { links: previous.links } : {}) };
+      for (const socket of sockets) {
+        if (socket.readyState !== FakeRelaySocket.OPEN || !isIntegrationsSocket(socket) || hostPort(socket.url) !== target) continue;
+        socket.emitMessage({ type: "integrations_state", integrations: state });
+      }
+    },
+    emitOnIntegrations: (target, message) => {
+      for (const socket of sockets) {
+        if (socket.readyState !== FakeRelaySocket.OPEN || !isIntegrationsSocket(socket) || hostPort(socket.url) !== target) continue;
+        socket.emitMessage(message);
       }
     },
     control,

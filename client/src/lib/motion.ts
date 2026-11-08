@@ -12,3 +12,9 @@ function motionMs(token: string, fallback: number): number {
 
 export const motionFastMs = (): number => motionMs("--motion-fast", 120);
 export const motionMediumMs = (): number => motionMs("--motion-medium", 200);
+
+/** The timing of a panel opening and closing — the sidebar's, and whatever
+ * moves the way it does: the medium duration on the shared easing, and no
+ * transition under reduced motion. Pair it with the `transition-*` of the
+ * properties that move. */
+export const PANEL_MOTION = "duration-(--motion-medium) ease-(--motion-ease) motion-reduce:transition-none";

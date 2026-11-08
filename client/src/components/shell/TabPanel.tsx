@@ -13,11 +13,14 @@ import { FilesPanelSlot } from "@/components/files/FilesPanelSlot";
 import { TerminalPanelSlot } from "@/components/terminal/TerminalPanelSlot";
 import type { BackgroundJobSummary, FailedBackgroundJobSummary } from "@/lib/relay/relayClient";
 import { DockEmptyState } from "@/components/shell/DockEmptyState";
+import { IntegrationPanel } from "@/components/integrations/IntegrationPanel";
+import { IntegrationRail } from "@/components/integrations/IntegrationRailButtons";
 import type { DockPaneKind, DockState } from "@/hooks/tabs/useSessionDock";
 import type { useFileTabs } from "@/hooks/tabs/useFileTabs";
 import type { useTerminalTabs } from "@/hooks/tabs/useTerminalTabs";
 import type { Tab } from "@/hooks/tabs/useTabs";
 import type { Profile } from "@/lib/profiles/profiles";
+import type { TicketRef } from "@/lib/integrations/model";
 import { isIOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +55,26 @@ export interface TabPanelActions {
   /** Opens a pane without toggling it shut when it is already open. */
   onOpenPane: (tabId: string, kind: DockPaneKind) => void;
   onClosePane: (tabId: string, kind: DockPaneKind) => void;
+  /** An integration's rail button: shows that integration in the pane, or
+   * closes it when it is the one on screen. */
+  onToggleIntegration: (tabId: string, integrationId: string) => void;
+  /** The integration pane opens one ticket (`null`: back to its list). */
+  onOpenTicket: (tabId: string, ticketKey: string | null) => void;
+  /** Shows an integration's pane on one ticket, opening it if needed (a work
+   * ticket's chip). */
+  onShowTicket: (tabId: string, integrationId: string, ticketKey: string) => void;
+  /** "New session" on a ticket's screen: a new-session tab of the profile
+   * that starts on the ticket, with the integration's pane beside it. */
+  onNewTicketSession: (profile: Profile, ticket: TicketRef, integrationId: string) => void;
+  /** The new session will not start on a ticket after all. */
+  onClearPendingTicket: (tabId: string) => void;
+  /** "Work on it in a room…" on a ticket's screen: an existing room's tab
+   * with the ticket for its principal to delegate, or (`room` null) a
+   * new-session tab on Room that starts on the ticket. */
+  onWorkInRoom: (profile: Profile, ticket: TicketRef, integrationId: string, room: { id: string; title: string | null } | null) => void;
+  /** A room's agent listed on a ticket's screen: the room's tab, the agent
+   * in view and its conversation open. */
+  onOpenRoomAgent: (profile: Profile, roomId: string, roomTitle: string | null, agentId: string) => void;
   onToggleMaximized: (tabId: string, kind: DockPaneKind) => void;
   onOpenPath: (profile: Profile, tabId: string, path: string) => void;
   onOpenTerminalAt: (tabId: string, path: string) => void;
@@ -61,7 +84,8 @@ export interface TabPanelActions {
   onRoomCreated: (tab: Tab, profile: Profile, roomId: string, title: string) => void;
   /** Opens (or focuses) another session of the profile as a tab: a room's
    * agent, from its panel. */
-  onOpenSession: (profile: Profile, sessionId: string, title: string | null) => void;
+  /** `roomAgent`: the session is a room's agent, opened from its room. */
+  onOpenSession: (profile: Profile, sessionId: string, title: string | null, roomAgent?: boolean) => void;
 }
 
 interface TabChatProps {
@@ -97,7 +121,7 @@ const TabChat = memo(function TabChat({
   // Outside a room panel a card opens the agent as a tab. `actions` is stable
   // (see the note on `TabPanelActions`), so this is too.
   const cardActions = useMemo(
-    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null) }),
+    () => ({ openAgent: (agentId: string) => actions.onOpenSession(profile, agentId, null, true) }),
     [actions, profile],
   );
   return (
@@ -121,6 +145,11 @@ const TabChat = memo(function TabChat({
       profile={profile}
       sessionId={tab.id}
       isNewConversation={tab.isNew}
+      pendingTicket={tab.pendingTicket ?? null}
+      startsRoom={tab.startsRoom === true}
+      onClearPendingTicket={() => actions.onClearPendingTicket(tab.id)}
+      // The ticket's screen lives in the dock, which only the desktop has.
+      onShowTicket={noPanes ? undefined : (ticket) => actions.onShowTicket(tab.id, ticket.provider, ticket.key)}
       onRoomCreated={(roomId, title) => actions.onRoomCreated(tab, profile, roomId, title)}
       onTurnActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
       onBackgroundJobsChange={(jobs, failedJobs) => actions.onBackgroundJobsChange(tab.id, jobs, failedJobs)}
@@ -160,17 +189,38 @@ interface TabDockProps {
  * shared by a conversation and a room, which differ in what sits beside it and
  * nothing else. */
 function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions, roomPanes, background = false }: TabDockProps) {
+  const integrationId = dock.panes.includes("integration") ? (dock.integrationId ?? null) : null;
   return (
     <SessionDock
       dock={dock}
       background={background}
       groupId={groupId}
+      railEnd={<IntegrationRail profile={profile} selectedId={integrationId} onToggle={(id) => actions.onToggleIntegration(tab.id, id)} />}
       onWidthChange={(width) => actions.onDockWidthChange(tab.id, width)}
       onDragEnd={actions.onDockDragEnd}
       panes={{
         none: dock.panes.includes("none") ? <DockEmptyState /> : undefined,
         agent: dock.panes.includes("agent") ? roomPanes?.agent : undefined,
         about: dock.panes.includes("about") ? roomPanes?.about : undefined,
+        integration: integrationId !== null ? (
+          <IntegrationPanel
+            profile={profile}
+            integrationId={integrationId}
+            ticketKey={dock.ticketKey ?? null}
+            onOpenTicket={(key) => actions.onOpenTicket(tab.id, key)}
+            // The session beside the pane can take a ticket once it exists on
+            // the relay; a room's is its principal, which never works on one,
+            // and a room's agent in its own tab gets its tickets from the room.
+            sessionId={tab.room || tab.roomAgent || (tab.isNew && tab.title === null) ? null : tab.id}
+            onNewSession={(ticket) => actions.onNewTicketSession(profile, ticket, integrationId)}
+            onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+            onWorkInRoom={(ticket, room) => actions.onWorkInRoom(profile, ticket, integrationId, room)}
+            onOpenRoomAgent={(roomId, roomTitle, agentId) => actions.onOpenRoomAgent(profile, roomId, roomTitle, agentId)}
+            maximized={dock.maximized === "integration"}
+            onToggleMaximized={() => actions.onToggleMaximized(tab.id, "integration")}
+            onClose={() => actions.onClosePane(tab.id, "integration")}
+          />
+        ) : undefined,
         terminal: dock.panes.includes("terminal") && !background ? (
           <TerminalPanelSlot
             profile={profile}
@@ -287,7 +337,11 @@ export const TabPanel = memo(function TabPanel({
           onActiveChange={(active) => actions.onTurnActiveChange(tab.id, active)}
           onConnectedChange={(connected) => actions.onConnectedChange(tab.id, connected)}
           onGone={() => actions.onDeleted(tab)}
-          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
+          onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title, true)}
+          pendingTicket={tab.pendingTicket ?? null}
+          onClearPendingTicket={() => actions.onClearPendingTicket(tab.id)}
+          // The ticket's screen lives in the dock, which only the desktop has.
+          onShowTicket={roomDock ? (ticket) => actions.onShowTicket(tab.id, ticket.provider, ticket.key) : null}
           dock={roomDock}
         />
       </>

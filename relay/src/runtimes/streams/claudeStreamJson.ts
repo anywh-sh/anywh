@@ -1,5 +1,6 @@
-import { isMainThreadEvent, type ClaudeEvent } from "../defs/claude/index.js";
-import type { AgentEvent, PlanTodo, SubagentStatus, ToolInput } from "../../protocol/agent-event.js";
+import { CLAUDE_MCP_FAILURE_CLASSIFIER, isMainThreadEvent, type ClaudeEvent } from "../defs/claude/index.js";
+import type { AgentEvent, McpFailure, PlanTodo, SubagentStatus, ToolInput } from "../../protocol/agent-event.js";
+import { classifyMcpFailure } from "../mcpFailure.js";
 import { classifyToolKind, deriveOutcome, deriveSubject, type ToolCallMemo } from "./claudeToolMapping.js";
 
 /**
@@ -158,12 +159,14 @@ function mapMessageContent(event: ClaudeEvent, memos: Map<string, ToolCallMemo> 
       const isError = raw.is_error === true;
       const memo = raw.tool_use_id ? memos?.get(raw.tool_use_id) : undefined;
       const outcome = deriveOutcome(toolUseResult, resultContent, isError, memo);
+      const mcpFailure = isError && memo ? mcpFailureOf(memo, resultContent) : undefined;
       results.push({
         type: "tool_ended",
         toolUseId: raw.tool_use_id,
         content: resultContent,
         isError,
         ...(outcome ? { outcome } : {}),
+        ...(mcpFailure ? { mcpFailure } : {}),
         ...parent,
       });
     }
@@ -172,6 +175,17 @@ function mapMessageContent(event: ClaudeEvent, memos: Map<string, ToolCallMemo> 
   }
 
   return results;
+}
+
+/** Why a failed call to an MCP server's tool failed, by the CLI's own words
+ * (`CLAUDE_MCP_FAILURE_CLASSIFIER`). The server is named as the tool name
+ * spells it, normalized by the CLI (`claude.ai Atlassian` is
+ * `claude_ai_Atlassian`). The relay's own servers (`anywh-*`) are left out:
+ * nobody signs in to them. */
+function mcpFailureOf(memo: ToolCallMemo, content: string): McpFailure | undefined {
+  const subject = deriveSubject(memo.name, memo.input);
+  if (subject?.kind !== "mcp" || subject.server.startsWith("anywh-")) return undefined;
+  return { server: subject.server, reason: classifyMcpFailure(CLAUDE_MCP_FAILURE_CLASSIFIER, { text: content }) };
 }
 
 /**

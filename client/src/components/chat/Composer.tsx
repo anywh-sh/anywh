@@ -33,6 +33,12 @@ import { AgentModelEffortButton } from "@/components/chat/AgentModelEffortButton
 import { ContextUsageButton } from "@/components/chat/ContextUsageButton";
 import { CompactBoundaryToast } from "@/components/chat/CompactBoundaryToast";
 import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
+import { TicketPickerMenu } from "@/components/chat/TicketPickerMenu";
+import { useConnectCard } from "@/components/integrations/ConnectCardProvider";
+import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
+import { useSessionListCache } from "@/hooks/tabs/useMergedSessions";
+import { sessionTicket } from "@/lib/integrations/workTickets";
+import { TICKET_ALLOWED_PREFIXES, TicketChipNode, enterPicks, ticketPickItems, type TicketPickItem, type TicketPickSource } from "@/lib/composer/ticketSuggestion";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { ATTACHMENT_ACCEPT, attachmentKindFor } from "@/lib/composer/attachmentTypes";
@@ -48,6 +54,8 @@ import type { Profile } from "@/lib/profiles/profiles";
 export interface ComposerProps {
   /** Also threaded to `AgentModelEffortButton`'s own `getHostInfo` fetch. */
   profile: Profile;
+  /** The conversation's session: its work ticket heads the `#` menu. */
+  sessionId?: string;
   onSend: (text: string, images: PendingAttachment[]) => void;
   disabled?: boolean;
   turnInFlight: boolean;
@@ -198,6 +206,7 @@ const EXTENSIONS = [
   }),
   ComposerLink,
   HardBreakCaretAnchor,
+  TicketChipNode,
 ];
 
 /** Rebuilds the Tiptap doc from plain text (draft restore) — via JSON, not an interpolated HTML string: the text may have
@@ -475,6 +484,146 @@ function createSlashCommandExtension(
   });
 }
 
+/**
+ * `#` after a space (or at the start of a line — never inside a word, so
+ * `C#` stays text) opens the menu of the person's tickets; picking one puts
+ * an atomic chip in the text that goes out as just the key. Built like the
+ * `/` menu above (same `activeRef` channel back for Enter), on a plugin key
+ * of its own so the two suggestions do not share state. The tickets are
+ * read from `sourceRef` as typed, which `TicketSourceBridge` keeps current.
+ */
+function createTicketExtension(activeRef: MutableRefObject<boolean>, sourceRef: MutableRefObject<TicketPickSource>, connectRef: MutableRefObject<(() => void) | null>) {
+  return Extension.create({
+    name: "ticketSuggestion",
+    addProseMirrorPlugins() {
+      let component: ReactRenderer | null = null;
+      let unmount: (() => void) | null = null;
+      let selectedIndex = 0;
+      let currentItems: TicketPickItem[] = [];
+      let currentQuery = "";
+      let currentCommand: ((item: TicketPickItem) => void) | null = null;
+      // Moved with the arrows since the query last changed (see `enterPicks`).
+      let selectionMoved = false;
+
+      // `activeRef` is what keeps Enter from sending: true only when Enter
+      // would pick an item.
+      function syncActive() {
+        activeRef.current = enterPicks(currentItems, selectedIndex, currentQuery, selectionMoved);
+      }
+      function render() {
+        syncActive();
+        component?.updateProps({ items: currentItems, query: currentQuery, selectedIndex, armed: activeRef.current, onHover: applySelection, onPick: currentCommand });
+      }
+      function applySelection(index: number) {
+        selectedIndex = index;
+        render();
+      }
+      function moveSelection(index: number) {
+        selectionMoved = true;
+        applySelection(index);
+      }
+      function close() {
+        activeRef.current = false;
+        unmount?.();
+        unmount = null;
+        component?.destroy();
+        component = null;
+      }
+
+      return [
+        Suggestion<TicketPickItem, TicketPickItem>({
+          editor: this.editor,
+          pluginKey: new PluginKey("ticketSuggestion"),
+          char: "#",
+          allowedPrefixes: TICKET_ALLOWED_PREFIXES,
+          items: ({ query }) => ticketPickItems(sourceRef.current, query),
+          command: ({ editor, range, props }) => {
+            if (props.kind === "connect") {
+              editor.chain().focus().deleteRange(range).run();
+              connectRef.current?.();
+              return;
+            }
+            editor
+              .chain()
+              .focus()
+              .insertContentAt(range, [
+                { type: "ticketChip", attrs: { provider: props.provider, site: props.site, key: props.key, title: props.title } },
+                { type: "text", text: " " },
+              ])
+              .run();
+          },
+          render: () => ({
+            onStart: (props) => {
+              currentItems = props.items;
+              currentQuery = props.query;
+              currentCommand = props.command;
+              selectedIndex = 0;
+              selectionMoved = false;
+              syncActive();
+              component = new ReactRenderer(TicketPickerMenu, {
+                editor: props.editor,
+                props: { items: currentItems, query: currentQuery, selectedIndex, armed: activeRef.current, onHover: applySelection, onPick: currentCommand },
+              });
+              unmount = props.mount(component.element);
+            },
+            onUpdate: (props) => {
+              currentItems = props.items;
+              currentQuery = props.query;
+              currentCommand = props.command;
+              selectedIndex = 0;
+              selectionMoved = false;
+              render();
+            },
+            onKeyDown: (props) => {
+              if (props.event.key === "Escape") {
+                close();
+                return true;
+              }
+              if (currentItems.length === 0) return false;
+              if (props.event.key === "ArrowDown") {
+                moveSelection((selectedIndex + 1) % currentItems.length);
+                return true;
+              }
+              if (props.event.key === "ArrowUp") {
+                moveSelection((selectedIndex - 1 + currentItems.length) % currentItems.length);
+                return true;
+              }
+              if (props.event.key === "Enter" || props.event.key === "Tab") {
+                // Only the row drawn as selected is taken. With none, Enter
+                // sends the message and Tab does nothing (focus stays here).
+                if (!enterPicks(currentItems, selectedIndex, currentQuery, selectionMoved)) return props.event.key === "Tab";
+                currentCommand?.(currentItems[selectedIndex]);
+                return true;
+              }
+              return false;
+            },
+            onExit: close,
+          }),
+        }),
+      ];
+    },
+  });
+}
+
+/** Keeps the `#` menu's source current from outside the editor: the
+ * profile's integrations and the session's work ticket. Its own component,
+ * so the integrations state, which every pushed change re-renders, reaches
+ * this and not the composer. Renders nothing. */
+function TicketSourceBridge({ profileId, sessionId, sourceRef, connectRef }: { profileId: string; sessionId: string | undefined; sourceRef: MutableRefObject<TicketPickSource>; connectRef: MutableRefObject<(() => void) | null> }) {
+  const integrations = useProfileIntegrations(profileId);
+  const cache = useSessionListCache();
+  const openConnectCard = useConnectCard();
+  const fromList = sessionId ? cache[profileId]?.sessions.find((session) => session.id === sessionId)?.workTicket : undefined;
+  const links = integrations?.entry.workTickets ?? null;
+  sourceRef.current = {
+    entry: integrations?.entry,
+    workTicket: sessionId ? sessionTicket(links, sessionId, fromList) : undefined,
+    canConnect: openConnectCard !== null,
+  };
+  connectRef.current = openConnectCard ? () => openConnectCard(profileId, "jira") : null;
+  return null;
+}
+
 /** Keyboard focus highlights the whole container (textarea + toolbar), not
  * just the isolated textarea. Voice flow: record → the mic button becomes a
  * stop square with the elapsed time → cancel or stop → transcribe → text
@@ -487,6 +636,7 @@ function createSlashCommandExtension(
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
   {
     profile,
+    sessionId,
     onSend,
     disabled,
     turnInFlight,
@@ -550,6 +700,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const effortChoicesRef = useRef(effortChoices);
   effortChoicesRef.current = effortChoices;
   const [slashCommandExtension] = useState(() => createSlashCommandExtension(slashMenuActiveRef, slashCopyRef, modelCatalogRef, effortChoicesRef));
+  // The `#` menu: open state for Enter, and what it lists (`TicketSourceBridge`).
+  const ticketMenuActiveRef = useRef(false);
+  const ticketSourceRef = useRef<TicketPickSource>({ entry: undefined, workTicket: undefined, canConnect: false });
+  const ticketConnectRef = useRef<(() => void) | null>(null);
+  const [ticketExtension] = useState(() => createTicketExtension(ticketMenuActiveRef, ticketSourceRef, ticketConnectRef));
   // Channel back to the dynamic placeholder (see `createPlaceholderExtension`)
   // and to the `Tab` handler below — both live outside Tiptap's render
   // cycle, so they don't see the `suggestion` prop update on their own.
@@ -574,8 +729,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // typing invalidates the suggestion it was computed from.
   const [typoConfirm, setTypoConfirm] = useState<{ text: string; suggestion: string } | null>(null);
   const extensions = useMemo(
-    () => [...EXTENSIONS, placeholderExtension, slashCommandExtension],
-    [placeholderExtension, slashCommandExtension],
+    () => [...EXTENSIONS, placeholderExtension, slashCommandExtension, ticketExtension],
+    [placeholderExtension, slashCommandExtension, ticketExtension],
   );
 
   const editor = useEditor({
@@ -600,7 +755,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         // Command menu open: let Suggestion handle Enter/arrows (see
         // `createSlashCommandExtension`) — without this Enter would always
         // submit instead of filling in the selected command.
-        if (event.key === "Enter" && !event.shiftKey && slashMenuActiveRef.current) return false;
+        if (event.key === "Enter" && !event.shiftKey && (slashMenuActiveRef.current || ticketMenuActiveRef.current)) return false;
         // Backspace right after a Shift+Enter (or between two consecutive
         // breaks, a blank line) didn't undo the line: the cursor sits right
         // after the invisible anchor (`HARD_BREAK_ANCHOR`, see
@@ -617,6 +772,13 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         if (event.key === "Backspace" && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
           const { $head, empty } = view.state.selection;
           const nodeBefore = empty ? $head.nodeBefore : null;
+          // A `#` ticket goes as one piece, whatever the webview's own
+          // editing would do with a non-editable span.
+          if (nodeBefore?.type.name === "ticketChip") {
+            event.preventDefault();
+            view.dispatch(view.state.tr.delete($head.pos - nodeBefore.nodeSize, $head.pos).scrollIntoView());
+            return true;
+          }
           if (nodeBefore?.isText && nodeBefore.text === HARD_BREAK_ANCHOR) {
             const anchorStart = $head.pos - nodeBefore.nodeSize;
             const hardBreak = view.state.doc.resolve(anchorStart).nodeBefore;
@@ -877,6 +1039,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       )}
 
       <EditorContent editor={editor} className="composer-editor" />
+      <TicketSourceBridge profileId={profile.id} sessionId={sessionId} sourceRef={ticketSourceRef} connectRef={ticketConnectRef} />
 
       <div className="flex items-center justify-between gap-2 px-2 pt-1 pb-2">
         <div className="flex min-w-0 flex-1 items-center gap-0.5">

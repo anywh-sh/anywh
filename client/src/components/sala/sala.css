@@ -441,6 +441,27 @@
 .sala-node.stop .sala-title {
   color: var(--muted-foreground);
 }
+.sala-ticket {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 6px;
+  font: 400 11px var(--font-mono);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  background: var(--bg-chrome);
+}
+.sala-ticket.on {
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--motion-ease);
+}
+.sala-ticket.on:hover {
+  color: var(--foreground);
+}
 .sala-node-body {
   flex: 1;
   min-height: 0;
@@ -2092,4 +2113,21 @@
 }
 .sala-side-row.sub:hover {
   background: var(--surface-hover);
+}
+/* A ticket of "About this room": the whole row opens the ticket's screen. */
+.sala-side-row.sala-ticket-row {
+  width: calc(100% + 12px);
+  padding: 0 6px;
+  margin: 0 -6px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+.sala-side-row.sala-ticket-row:hover {
+  background: var(--surface-hover);
+}
+.sala-ticket-who {
+  flex: 0 1 auto;
+  max-width: 40%;
+  font-size: 11.5px;
 }
