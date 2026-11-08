@@ -179,7 +179,9 @@ describe("my tickets in the integration's pane", () => {
     const ticket = await screen.findByTestId("ticket-screen");
     // The row's title shows while the ticket is read.
     expect(within(ticket).getByRole("heading", { name: "Paginate the orders list" })).toBeInTheDocument();
-    expect(within(ticket).getByText(copy.ticket.loading)).toBeInTheDocument();
+    // A skeleton stands in for the description and comments while it is read.
+    expect(within(ticket).getByRole("status", { name: copy.ticket.loading })).toBeInTheDocument();
+    expect(within(ticket).getByTestId("ticket-skeleton").closest("[aria-busy]")).toHaveAttribute("aria-busy", "true");
     await waitFor(() => expect(sentOfType("integration_refresh")).toContainEqual({ type: "integration_refresh", id: "jira", query: "ticket", param: "NGL-2", force: false }));
 
     const detail: TicketDetail = {
@@ -193,6 +195,7 @@ describe("my tickets in the integration's pane", () => {
     };
     act(() => relay.emitIntegrations(RELAY, [jira([mine(null, [NGL1, NGL2]), { query: "ticket", param: "NGL-2", detail, status: "ok", reading: false, observedAt: Date.now() }])]));
     const description = await within(ticket).findByTestId("ticket-description");
+    expect(within(ticket).queryByTestId("ticket-skeleton")).toBeNull();
     // The chat's own markdown.
     expect(within(description).getByText("pagination").tagName).toBe("STRONG");
     expect(within(ticket).getByText("NGL-2")).toBeInTheDocument();

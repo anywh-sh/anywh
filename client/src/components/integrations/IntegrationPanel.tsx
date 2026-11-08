@@ -175,10 +175,9 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
         providerName={dict.integrations.providers[provider]}
         toolbar={refreshButton}
         placeholder={
-          <div className="flex flex-col gap-2">
-            {view === "error" ? <p className="text-sm text-destructive">{copy.ticket.error}</p> : view === "needs_auth" ? <QueryNeedsAuth profileId={profileId} integration={integration} provider={provider} /> : <p className="text-sm text-text-faint">{copy.ticket.loading}</p>}
-          </div>
+          view === "error" ? <p className="text-sm text-destructive">{copy.ticket.error}</p> : view === "needs_auth" ? <QueryNeedsAuth profileId={profileId} integration={integration} provider={provider} /> : null
         }
+        loading={view !== "error" && view !== "needs_auth"}
         sessions={links !== null && <TicketSessions profileId={profileId} links={onTicket} onOpen={onOpenSession} onOpenRoomAgent={onOpenRoomAgent} />}
         footer={
           <TicketWorkActions
