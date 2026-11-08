@@ -1,8 +1,8 @@
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
-import { EMPTY_PROFILE_INTEGRATIONS, type ProfileIntegrations } from "@/lib/integrations/derive";
-import { INTEGRATIONS_WATCH_PATH, type IntegrationState, type IntegrationsClientMessage, type McpAuthFlow, type WorkTicket } from "@/lib/integrations/model";
+import { addResultKey, EMPTY_PROFILE_INTEGRATIONS, type ProfileIntegrations } from "@/lib/integrations/derive";
+import { INTEGRATIONS_WATCH_PATH, type IntegrationState, type IntegrationsClientMessage, type McpAuthFlow, type McpRuntimeId, type WorkTicket } from "@/lib/integrations/model";
 import { isWorkTicket, type WorkTicketMap } from "@/lib/integrations/workTickets";
 import { forgetProfileFlows, noteAuthFlow, registerIntegrationsSender } from "@/lib/integrations/oauthDeepLink";
 
@@ -218,6 +218,11 @@ export class IntegrationsWatch {
         this.update({ workTickets: rest });
         return;
       }
+      if (message.type === "integration_add_result") {
+        const { id, runtimeId, outcome } = message;
+        this.update({ addResults: { ...this.state.addResults, [addResultKey(id, runtimeId)]: { ...outcome, at: this.now() } } });
+        return;
+      }
       if (message.type === "mcp_auth_flow") {
         noteAuthFlow(this.profile.id, message.flow);
         this.update({ authFlows: { ...this.state.authFlows, [message.flow.flowId]: message.flow } });
@@ -262,6 +267,7 @@ export class IntegrationsWatch {
 type ParsedServerMessage =
   | { type: "integrations_state"; integrations: IntegrationState[] }
   | { type: "mcp_auth_flow"; flow: McpAuthFlow }
+  | { type: "integration_add_result"; id: string; runtimeId: McpRuntimeId; outcome: { ok: true; serverName?: string } | { error: string } }
   | { type: "work_tickets_state"; links: WorkTicket[] }
   | { type: "work_ticket_upsert"; link: WorkTicket }
   | { type: "work_ticket_removed"; sessionId: string }
@@ -304,6 +310,12 @@ export function parseServerMessage(raw: unknown): ParsedServerMessage | null {
       const { type: _type, ...flow } = message;
       if (typeof flow.flowId !== "string" || typeof flow.phase !== "string") return null;
       return { type: "mcp_auth_flow", flow: flow as unknown as McpAuthFlow };
+    }
+    case "integration_add_result": {
+      if (typeof message.id !== "string" || (message.runtimeId !== "claude" && message.runtimeId !== "codex")) return null;
+      const outcome =
+        message.ok === true ? { ok: true as const, ...(typeof message.serverName === "string" ? { serverName: message.serverName } : {}) } : { error: typeof message.error === "string" ? message.error : "unknown" };
+      return { type: "integration_add_result", id: message.id, runtimeId: message.runtimeId, outcome };
     }
     case "work_tickets_state":
       if (!Array.isArray(message.links)) return null;

@@ -1261,6 +1261,12 @@ export const en: Dictionary = {
       connect: "Connect",
       connectAll: "Connect all",
       add: "Add",
+      adding: "adding…",
+      addFailed: "couldn't add it",
+      addErrors: {
+        timeout: "The machine did not answer in time.",
+        generic: "Something went wrong while adding the server.",
+      },
       queued: "waits for the sign-in before it",
       awaiting: "finish in the browser…",
       completing: "finishing…",

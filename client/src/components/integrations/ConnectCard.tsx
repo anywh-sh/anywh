@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { AgentMark } from "@/components/shell/AgentMark";
 import { IntegrationIcon } from "@/components/integrations/IntegrationIcon";
 import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
-import { siteHost } from "@/lib/integrations/derive";
+import { addResultKey, siteHost, type IntegrationAddOutcome } from "@/lib/integrations/derive";
 import { useDict } from "@/i18n";
 import type { Dictionary } from "@/i18n/dictionary";
 import { checkCallbackPaste, connectProgress, connectRows, CONNECT_RUNTIMES, flowErrorKey, isActiveFlow, pendingTargets, type CallbackPasteError, type ConnectRow } from "@/lib/integrations/connect";
@@ -26,8 +26,12 @@ interface ConnectCardProps {
 /**
  * Adds an integration's MCP server to a profile's agents and signs them in,
  * one agent per line — the "+" opens it as much as the integration's pane
- * does. "Add" declares the server in an agent that lacks it (the relay then
- * starts its sign-in, which the line follows); "Connect" starts the agent CLI's own OAuth flow on the relay, which
+ * does. "Add" declares the server in an agent that lacks it and goes
+ * straight into its sign-in: the line shows "adding…" from the click on
+ * (one `integration_add`, however many clicks), the relay answers with
+ * `integration_add_result` and has queued the sign-in by then, which the
+ * line follows; no answer within `ADD_TIMEOUT_MS`, or a failure, leaves a
+ * "Try again" on the line. "Connect" starts the agent CLI's own OAuth flow on the relay, which
  * then reports it (`mcp_auth_flow`) as it goes — the browser opens, the app
  * gets the `anywh://` callback back (routed by `oauthDeepLink.ts`), the relay
  * finishes. Several agents at once are one queue on the relay ("Connect
@@ -58,10 +62,20 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
    * row is busy until the flow comes back with an answer. */
   const [rechecks, setRechecks] = useState<Readonly<Record<string, McpAuthFlow>>>({});
   const recheckTimers = useRef(new Set<number>());
+  /** Adds sent from here and not answered yet, by agent: the relay's last
+   * answer when it was sent (an answer is a newer one). */
+  const [pendingAdds, setPendingAdds] = useState<Readonly<Partial<Record<McpRuntimeId, PendingAdd>>>>({});
+  /** Adds that failed or went unanswered, by agent: why. */
+  const [addErrors, setAddErrors] = useState<Readonly<Partial<Record<McpRuntimeId, string>>>>({});
+  const addTimers = useRef(new Set<number>());
+  const pendingAddsRef = useRef(pendingAdds);
+  pendingAddsRef.current = pendingAdds;
   useEffect(() => {
     const timers = recheckTimers.current;
+    const adds = addTimers.current;
     return () => {
       for (const timer of timers) window.clearTimeout(timer);
+      for (const timer of adds) window.clearTimeout(timer);
     };
   }, []);
 
@@ -96,6 +110,23 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   const listed = installed ?? (hostUnknown ? CONNECT_RUNTIMES : null);
   const rows = connectRows(integration, flows, listed);
   const loading = installed === null && !hostUnknown;
+
+  // An add sent from here ends with the relay's answer.
+  const addResults = entry?.addResults;
+  useEffect(() => {
+    if (!integrationId || !addResults) return;
+    const answered: McpRuntimeId[] = [];
+    const failed: Partial<Record<McpRuntimeId, string>> = {};
+    for (const [runtimeId, pending] of Object.entries(pendingAdds) as [McpRuntimeId, PendingAdd][]) {
+      const result = addResults[addResultKey(integrationId, runtimeId)];
+      if (!result || result === pending.before) continue;
+      answered.push(runtimeId);
+      if ("error" in result) failed[runtimeId] = result.error;
+    }
+    if (answered.length === 0) return;
+    setPendingAdds((prev) => Object.fromEntries(Object.entries(prev).filter(([runtimeId]) => !answered.includes(runtimeId as McpRuntimeId))));
+    if (Object.keys(failed).length > 0) setAddErrors((prev) => ({ ...prev, ...failed }));
+  }, [addResults, pendingAdds, integrationId]);
 
   // A sign-in that reaches the browser step opens the browser once, unless
   // it was moved to another device.
@@ -151,13 +182,35 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   const host = siteHost(integration);
   const progress = connectProgress(rows);
   const queue = pendingTargets(rows);
-  const missing = rows.filter((row) => row.state === "missing").map((row) => row.runtimeId);
+  const relayAdding = integration?.adding ?? [];
+  const isAdding = (runtimeId: McpRuntimeId) => pendingAdds[runtimeId] !== undefined || relayAdding.includes(runtimeId);
+  const missing = rows.filter((row) => row.state === "missing" && !isAdding(row.runtimeId)).map((row) => row.runtimeId);
   const batch = queue.length + missing.length;
 
   const send = (message: IntegrationsClientMessage): boolean => {
     const sent = integrations?.send(message) ?? false;
     setUnreachable(!sent);
     return sent;
+  };
+  /** Sends one `integration_add` for the agents not being added to yet;
+   * each line shows "adding…" until the relay answers, or times out. */
+  const startAdd = (runtimes: readonly McpRuntimeId[]) => {
+    // The ref, not this render's state: a second click before the next
+    // render must not send a second add.
+    const fresh = runtimes.filter((runtimeId) => pendingAddsRef.current[runtimeId] === undefined && !relayAdding.includes(runtimeId));
+    if (fresh.length === 0 || !send({ type: "integration_add", id: integrationId, provider, runtimes: fresh })) return;
+    const sent = Object.fromEntries(fresh.map((runtimeId): [McpRuntimeId, PendingAdd] => [runtimeId, { before: entry?.addResults[addResultKey(integrationId, runtimeId)] }]));
+    pendingAddsRef.current = { ...pendingAddsRef.current, ...sent };
+    setAddErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([runtimeId]) => !fresh.includes(runtimeId as McpRuntimeId))));
+    setPendingAdds((prev) => ({ ...prev, ...sent }));
+    const timer = window.setTimeout(() => {
+      addTimers.current.delete(timer);
+      const late = fresh.filter((runtimeId) => pendingAddsRef.current[runtimeId] === sent[runtimeId]);
+      if (late.length === 0) return;
+      setPendingAdds((prev) => Object.fromEntries(Object.entries(prev).filter(([runtimeId]) => !late.includes(runtimeId as McpRuntimeId))));
+      setAddErrors((prev) => ({ ...prev, ...Object.fromEntries(late.map((runtimeId) => [runtimeId, "timeout"])) }));
+    }, ADD_TIMEOUT_MS);
+    addTimers.current.add(timer);
   };
   const elsewhereFor = (runtimeId: McpRuntimeId, value: boolean) =>
     setElsewhere((prev) => {
@@ -173,7 +226,7 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
       elsewhereFor(row.runtimeId, false);
       send({ type: "mcp_auth_start", targets: [{ runtimeId: row.runtimeId, serverName: row.runtime.serverName }] });
     },
-    add: (row) => send({ type: "integration_add", id: integrationId, provider, runtimes: [row.runtimeId] }),
+    add: (row) => startAdd([row.runtimeId]),
     cancel: (flow) => send({ type: "mcp_auth_cancel", flowId: flow.flowId }),
     anotherDevice: (row, flow) => {
       if (!row.runtime) return;
@@ -207,7 +260,7 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
           {rows.length === 0 && !loading && <p className="px-4 py-4 text-sm text-muted-foreground">{copy.noAgents.replace("{name}", name)}</p>}
           {rows.map((row) => (
-            <ConnectRowView key={row.runtimeId} row={row} name={name} host={host} elsewhere={elsewhere.has(row.runtimeId)} rechecking={row.flow ? isRechecking(row.flow, rechecks[row.flow.flowId]) : false} actions={actions} />
+            <ConnectRowView key={row.runtimeId} row={row} name={name} host={host} adding={isAdding(row.runtimeId)} addError={addErrors[row.runtimeId]} elsewhere={elsewhere.has(row.runtimeId)} rechecking={row.flow ? isRechecking(row.flow, rechecks[row.flow.flowId]) : false} actions={actions} />
           ))}
         </div>
         {(batch > 1 || unreachable) && (
@@ -222,7 +275,7 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
                   // The relay signs the added servers in itself, after the
                   // ones already there.
                   if (queue.length > 0 && !send({ type: "mcp_auth_start", targets: queue })) return;
-                  if (missing.length > 0) send({ type: "integration_add", id: integrationId, provider, runtimes: missing });
+                  if (missing.length > 0) startAdd(missing);
                 }}
               >
                 {copy.connectAll}
@@ -234,6 +287,14 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
     </Dialog>
   );
 }
+
+interface PendingAdd {
+  readonly before: IntegrationAddOutcome | undefined;
+}
+
+/** How long an add sent from here may go unanswered before its line offers
+ * "Try again": the relay's own CLI timeout, with room to spare. */
+export const ADD_TIMEOUT_MS = 30_000;
 
 /** How long a recheck asked from here may go unanswered: the relay's own
  * window, with room to spare. */
@@ -273,7 +334,25 @@ interface RowActions {
   recheck: (flow: McpAuthFlow) => void;
 }
 
-function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { row: ConnectRow; name: string; host: string | null; elsewhere: boolean; rechecking: boolean; actions: RowActions }) {
+function ConnectRowView({
+  row,
+  name,
+  host,
+  adding,
+  addError,
+  elsewhere,
+  rechecking,
+  actions,
+}: {
+  row: ConnectRow;
+  name: string;
+  host: string | null;
+  adding: boolean;
+  addError: string | undefined;
+  elsewhere: boolean;
+  rechecking: boolean;
+  actions: RowActions;
+}) {
   const dict = useDict();
   const copy = dict.integrations.connect;
   const agent = dict.chat.composer.agentNames[row.runtimeId];
@@ -340,6 +419,23 @@ function ConnectRowView({ row, name, host, elsewhere, rechecking, actions }: { r
         </>
       );
     }
+  } else if (adding && row.state !== "connected") {
+    status = { text: copy.adding };
+    trailing = <Spinner />;
+  } else if (addError !== undefined && row.state !== "connected") {
+    status = { text: copy.addFailed, tone: "error" };
+    body = (
+      <>
+        <p data-testid="connect-add-error" title={addError} className="text-xs text-destructive">
+          {addError === "timeout" ? copy.addErrors.timeout : copy.addErrors.generic}
+        </p>
+        <div>
+          <Button type="button" size="sm" variant="outline" onClick={() => actions.add(row)}>
+            {copy.retry}
+          </Button>
+        </div>
+      </>
+    );
   } else if (row.state === "connected") {
     status = { text: host ? copy.connectedTo.replace("{host}", host) : copy.state.connected, tone: "ok" };
     trailing = <Check className="size-4 text-diff-add" strokeWidth={2.5} aria-label={copy.state.connected} />;

@@ -31,7 +31,14 @@ export interface ProfileIntegrations {
   /** Every session's work ticket, by session id, as the relay last said;
    * `null` until it has. Kept across disconnects, like `integrations`. */
   workTickets: WorkTicketMap | null;
+  /** The last `integration_add_result` per integration and agent CLI (see
+   * `addResultKey`), with when it arrived (client clock). */
+  addResults: Record<string, IntegrationAddOutcome>;
 }
+
+export type IntegrationAddOutcome = ({ ok: true; serverName?: string } | { error: string }) & { at: number };
+
+export const addResultKey = (integrationId: string, runtimeId: McpRuntimeId): string => `${integrationId}\u0000${runtimeId}`;
 
 export const EMPTY_PROFILE_INTEGRATIONS: ProfileIntegrations = {
   connection: "connecting",
@@ -39,6 +46,7 @@ export const EMPTY_PROFILE_INTEGRATIONS: ProfileIntegrations = {
   receivedAt: null,
   authFlows: {},
   workTickets: null,
+  addResults: {},
 };
 
 /**

@@ -173,6 +173,9 @@ export interface IntegrationState {
   runtimes: IntegrationRuntime[];
   /** The CLI reads go through; absent while none is connected. */
   fetchRuntime?: McpRuntimeId;
+  /** The CLIs its server is being added to (`integration_add`) right now;
+   * absent when none. */
+  adding?: McpRuntimeId[];
   site?: IntegrationSite;
   prefs: IntegrationPrefs;
   queries: QueryState[];
@@ -287,6 +290,11 @@ export type IntegrationsServerMessage =
   | { type: "work_ticket_result"; sessionId: string; ok: true }
   | { type: "work_ticket_result"; sessionId: string; error: "conflict" | "no_session" }
   | ({ type: "mcp_auth_flow" } & McpAuthFlow)
+  /** The answer to an `integration_add`, per CLI, to the socket that sent
+   * it, as soon as that CLI has the server (its sign-in is queued then):
+   * `serverName` is the server signed in to, absent when it needs none. */
+  | { type: "integration_add_result"; id: string; runtimeId: McpRuntimeId; ok: true; serverName?: string }
+  | { type: "integration_add_result"; id: string; runtimeId: McpRuntimeId; error: string }
   | { type: "pong" };
 
 /** What the client sends on the integrations socket. */

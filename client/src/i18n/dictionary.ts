@@ -1777,6 +1777,11 @@ export interface Dictionary {
       connectAll: string;
       /** Adds the server to an agent that has none. */
       add: string;
+      /** The add is on its way to the relay. */
+      adding: string;
+      /** The add did not go through; `addErrors` says why. */
+      addFailed: string;
+      addErrors: { timeout: string; generic: string };
       queued: string;
       awaiting: string;
       completing: string;

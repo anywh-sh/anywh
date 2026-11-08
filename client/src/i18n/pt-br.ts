@@ -1261,6 +1261,12 @@ export const ptBr: Dictionary = {
       connect: "Conectar",
       connectAll: "Conectar todos",
       add: "Adicionar",
+      adding: "adicionando…",
+      addFailed: "não foi possível adicionar",
+      addErrors: {
+        timeout: "A máquina não respondeu a tempo.",
+        generic: "Algo deu errado ao adicionar o servidor.",
+      },
       queued: "espera o login anterior",
       awaiting: "termine no navegador…",
       completing: "concluindo…",

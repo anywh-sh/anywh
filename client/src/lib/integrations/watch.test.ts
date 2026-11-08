@@ -157,6 +157,22 @@ describe("IntegrationsWatch", () => {
 });
 
 describe("parseServerMessage", () => {
+  it("reads an integration_add_result, ok or failed, and drops one for an unknown agent", () => {
+    expect(parseServerMessage(JSON.stringify({ type: "integration_add_result", id: "jira", runtimeId: "claude", ok: true, serverName: "atlassian" }))).toEqual({
+      type: "integration_add_result",
+      id: "jira",
+      runtimeId: "claude",
+      outcome: { ok: true, serverName: "atlassian" },
+    });
+    expect(parseServerMessage(JSON.stringify({ type: "integration_add_result", id: "jira", runtimeId: "codex", error: "unsupported" }))).toEqual({
+      type: "integration_add_result",
+      id: "jira",
+      runtimeId: "codex",
+      outcome: { error: "unsupported" },
+    });
+    expect(parseServerMessage(JSON.stringify({ type: "integration_add_result", id: "jira", runtimeId: "gemini", ok: true }))).toBeNull();
+  });
+
   it("keeps well-formed work tickets only", () => {
     const good = { sessionId: "s1", ticket: { provider: "jira", site: "cloud-1", key: "NGL-1" }, origin: "start", linkedAt: 1, lineDue: false };
     const raw = JSON.stringify({ type: "work_tickets_state", links: [good, { sessionId: "s2", ticket: { key: "bad" } }] });
