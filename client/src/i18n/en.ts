@@ -1245,12 +1245,6 @@ export const en: Dictionary = {
     },
     add: {
       menuItem: "{name}",
-      title: "Add {name}",
-      description: "Adds the {name} MCP server to the agents you pick. You sign in to each of them next.",
-      agentsLabel: "Agents",
-      submit: "Add",
-      cancel: "Cancel",
-      unreachable: "The machine is not reachable right now.",
     },
     connect: {
       title: "Connect {name}",

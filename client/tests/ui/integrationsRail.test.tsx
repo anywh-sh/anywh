@@ -170,16 +170,15 @@ describe("integrations on the side panel rail", () => {
 
     await user.click(within(rail).getByRole("button", { name: en.panels.addView }));
     await user.click(await screen.findByRole("menuitem", { name: "Jira" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(en.integrations.add.title.replace("{name}", "Jira"))).toBeInTheDocument();
-    // Both agents, picked by default (the relay's host info is not scripted).
-    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(2);
-    await user.click(within(dialog).getByRole("checkbox", { name: en.chat.composer.agentNames.codex }));
-    await user.click(within(dialog).getByRole("button", { name: en.integrations.add.submit }));
-
-    // The connect card takes the dialog's place, to follow the sign-ins.
-    await screen.findByTestId("connect-card");
-    expect(screen.queryByText(en.integrations.add.title.replace("{name}", "Jira"))).toBeNull();
+    // The connect card, one line per agent: no picker of its own.
+    const card = await screen.findByTestId("connect-card");
+    expect(within(card).getByText(en.integrations.connect.title.replace("{name}", "Jira"))).toBeInTheDocument();
+    expect(within(card).queryByRole("checkbox")).toBeNull();
+    // Both agents, each with its own "Add" (the relay's host info is not
+    // scripted).
+    await waitFor(() => expect(within(card).getAllByRole("button", { name: en.integrations.connect.add })).toHaveLength(2));
+    const claudeRow = card.querySelector<HTMLElement>('[data-connect-row="claude"]')!;
+    await user.click(within(claudeRow).getByRole("button", { name: en.integrations.connect.add }));
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const sent = relay.sent.filter((entry) => entry.message.type === "integration_add");

@@ -1,13 +1,12 @@
-import { useState } from "react";
 import { RailAddButton, type RailAddItem } from "@/components/shell/RailAddButton";
 import { RailSelectedMark, railButtonClass } from "@/components/shell/railButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { IntegrationAddDialog } from "@/components/integrations/IntegrationAddDialog";
+import { useConnectCard } from "@/components/integrations/ConnectCardProvider";
 import { IntegrationIcon } from "@/components/integrations/IntegrationIcon";
 import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
 import { useDict } from "@/i18n";
 import { addableProviders, railBadge, railIntegrations, runtimesNeedingAuth } from "@/lib/integrations/derive";
-import type { IntegrationProvider, IntegrationState } from "@/lib/integrations/model";
+import type { IntegrationState } from "@/lib/integrations/model";
 import type { Profile } from "@/lib/profiles/profiles";
 import { cn } from "@/lib/utils";
 
@@ -21,15 +20,16 @@ interface IntegrationRailProps {
 /**
  * What sits under the rail's divider: one button per integration the tab's
  * profile has — a server in at least one of its agents, connected or not —
- * and the "+" that adds one it lacks. The data is the profile's, not the
+ * and the "+" that adds one it lacks, through the connect card: one line per
+ * agent, each added and signed in on its own. The data is the profile's, not the
  * conversation's, so it is drawn by the dock itself rather than portaled in.
  * A relay without integrations draws the "+" alone, with nothing to offer.
  */
 export function IntegrationRail({ profile, selectedId, onToggle }: IntegrationRailProps) {
   const dict = useDict();
   const integrations = useProfileIntegrations(profile.id);
-  const [adding, setAdding] = useState<IntegrationProvider | null>(null);
-  if (!integrations) return <RailAddButton />;
+  const openConnectCard = useConnectCard();
+  if (!integrations || !openConnectCard) return <RailAddButton />;
 
   const items: RailAddItem[] = addableProviders(integrations.entry).map((provider) => {
     const name = dict.integrations.providers[provider];
@@ -37,7 +37,7 @@ export function IntegrationRail({ profile, selectedId, onToggle }: IntegrationRa
       id: provider,
       label: dict.integrations.add.menuItem.replace("{name}", name),
       icon: <IntegrationIcon provider={provider} />,
-      onSelect: () => setAdding(provider),
+      onSelect: () => openConnectCard(profile.id, provider),
     };
   });
 
@@ -52,7 +52,6 @@ export function IntegrationRail({ profile, selectedId, onToggle }: IntegrationRa
         />
       ))}
       <RailAddButton items={items} />
-      <IntegrationAddDialog provider={adding} profile={profile} onOpenChange={(open) => !open && setAdding(null)} send={integrations.send} />
     </>
   );
 }

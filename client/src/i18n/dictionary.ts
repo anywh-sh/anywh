@@ -1759,16 +1759,9 @@ export interface Dictionary {
       needsAuthMany: string;
       failed: string;
     };
-    /** The "+" menu and the dialog it opens. `{name}` is the provider. */
+    /** The "+" menu, which opens the connect card. `{name}` is the provider. */
     add: {
       menuItem: string;
-      title: string;
-      description: string;
-      agentsLabel: string;
-      submit: string;
-      cancel: string;
-      /** The profile's relay could not be reached. */
-      unreachable: string;
     };
     /** The card that signs the profile's agents in to an integration.
      * `{name}` is the provider, `{host}` its site. */

@@ -24,12 +24,15 @@ interface ConnectCardProps {
 }
 
 /**
- * Signs a profile's agents in to an integration's MCP server, one agent per
- * line: "Connect" starts the agent CLI's own OAuth flow on the relay, which
+ * Adds an integration's MCP server to a profile's agents and signs them in,
+ * one agent per line — the "+" opens it as much as the integration's pane
+ * does. "Add" declares the server in an agent that lacks it (the relay then
+ * starts its sign-in, which the line follows); "Connect" starts the agent CLI's own OAuth flow on the relay, which
  * then reports it (`mcp_auth_flow`) as it goes — the browser opens, the app
  * gets the `anywh://` callback back (routed by `oauthDeepLink.ts`), the relay
  * finishes. Several agents at once are one queue on the relay ("Connect
- * all"), signed in one after the other.
+ * all", which adds the server where it is missing too), signed in one after
+ * the other.
  *
  * When the browser cannot come back to the app (another device, a server
  * that refuses the app's link), "Open on another device" restarts the flow
@@ -43,6 +46,8 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   const integrations = useProfileIntegrations(profile.id);
   const open = integrationId !== null;
   const [installed, setInstalled] = useState<McpRuntimeId[] | null>(null);
+  /** The machine could not say which agents it has. */
+  const [hostUnknown, setHostUnknown] = useState(false);
   const [unreachable, setUnreachable] = useState(false);
   /** Agents whose sign-in was moved to another device: their browser is not
    * opened here. */
@@ -65,14 +70,19 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
     setUnreachable(false);
     setElsewhere(new Set());
     setInstalled(null);
+    setHostUnknown(false);
     let cancelled = false;
     getHostInfo(profile)
       .then((info) => {
         if (cancelled) return;
         const ids = new Set((info.agents ?? []).map((agent) => agent.id));
-        setInstalled(CONNECT_RUNTIMES.filter((id) => ids.has(id)));
+        const found = CONNECT_RUNTIMES.filter((id) => ids.has(id));
+        if (found.length > 0) setInstalled(found);
+        else setHostUnknown(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setHostUnknown(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -81,7 +91,11 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   const entry = integrations?.entry;
   const integration = entry?.integrations?.find((item) => item.id === integrationId);
   const flows = entry?.authFlows ?? {};
-  const rows = connectRows(integration, flows, installed);
+  // A machine that cannot say which agents it has is offered the
+  // integration in every one of them.
+  const listed = installed ?? (hostUnknown ? CONNECT_RUNTIMES : null);
+  const rows = connectRows(integration, flows, listed);
+  const loading = installed === null && !hostUnknown;
 
   // A sign-in that reaches the browser step opens the browser once, unless
   // it was moved to another device.
@@ -137,6 +151,8 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
   const host = siteHost(integration);
   const progress = connectProgress(rows);
   const queue = pendingTargets(rows);
+  const missing = rows.filter((row) => row.state === "missing").map((row) => row.runtimeId);
+  const batch = queue.length + missing.length;
 
   const send = (message: IntegrationsClientMessage): boolean => {
     const sent = integrations?.send(message) ?? false;
@@ -189,16 +205,26 @@ export function ConnectCard({ profile, integrationId, onOpenChange }: ConnectCar
           </div>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {rows.length === 0 && <p className="px-4 py-4 text-sm text-muted-foreground">{copy.noAgents.replace("{name}", name)}</p>}
+          {rows.length === 0 && !loading && <p className="px-4 py-4 text-sm text-muted-foreground">{copy.noAgents.replace("{name}", name)}</p>}
           {rows.map((row) => (
             <ConnectRowView key={row.runtimeId} row={row} name={name} host={host} elsewhere={elsewhere.has(row.runtimeId)} rechecking={row.flow ? isRechecking(row.flow, rechecks[row.flow.flowId]) : false} actions={actions} />
           ))}
         </div>
-        {(queue.length > 1 || unreachable) && (
+        {(batch > 1 || unreachable) && (
           <div className="flex items-center gap-3 border-t border-border px-4 py-3">
             {unreachable && <p className="min-w-0 flex-1 text-xs text-destructive">{copy.unreachable}</p>}
-            {queue.length > 1 && (
-              <Button type="button" size="sm" className="ml-auto" onClick={() => send({ type: "mcp_auth_start", targets: queue })}>
+            {batch > 1 && (
+              <Button
+                type="button"
+                size="sm"
+                className="ml-auto"
+                onClick={() => {
+                  // The relay signs the added servers in itself, after the
+                  // ones already there.
+                  if (queue.length > 0 && !send({ type: "mcp_auth_start", targets: queue })) return;
+                  if (missing.length > 0) send({ type: "integration_add", id: integrationId, provider, runtimes: missing });
+                }}
+              >
                 {copy.connectAll}
               </Button>
             )}

@@ -75,16 +75,16 @@ async function openCardFromPane(user: ReturnType<typeof userEvent.setup>): Promi
   return screen.findByTestId("connect-card");
 }
 
-/** "+" → Jira → Add → the card: how a Jira every agent has yet to sign in to
- * (not on the rail) is connected. */
+/** "+" → Jira → the card: how a Jira every agent has yet to sign in to (not
+ * on the rail) is added and connected. */
 async function openCardFromAdd(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
   const rail = await openConversation(user);
   await user.click(within(rail).getByRole("button", { name: en.panels.addView }));
   await user.click(await screen.findByRole("menuitem", { name: "Jira" }));
-  const dialog = await screen.findByRole("dialog");
-  await user.click(within(dialog).getByRole("button", { name: en.integrations.add.submit }));
   return screen.findByTestId("connect-card");
 }
+
+const row = (card: HTMLElement, runtimeId: string): HTMLElement => card.querySelector<HTMLElement>(`[data-connect-row="${runtimeId}"]`)!;
 
 const status = (card: HTMLElement, runtimeId: string) => within(card).getByTestId(`connect-status-${runtimeId}`);
 
@@ -269,21 +269,47 @@ describe("connecting an integration", () => {
     expect(sentOfType("mcp_auth_complete")).toEqual([{ type: "mcp_auth_complete", flowId: "f1", callbackUrl: "anywh://mcp-oauth/callback?code=c&state=s1" }]);
   });
 
-  it("follows the sign-ins of an integration added from the +", async () => {
+  it("adds Jira to one agent from the +, then follows its sign-in", async () => {
     start({ integrations: [] });
     const user = userEvent.setup();
-    const rail = await openConversation(user);
+    const card = await openCardFromAdd(user);
 
-    await user.click(within(rail).getByRole("button", { name: en.panels.addView }));
-    await user.click(await screen.findByRole("menuitem", { name: "Jira" }));
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: en.integrations.add.submit }));
+    // No agent has the server: one "Add" per agent (the relay's host info is
+    // not scripted, so both are offered).
+    const missing = copy.state.missing.replace("{name}", "Jira");
+    await waitFor(() => expect(status(card, "claude")).toHaveTextContent(missing));
+    expect(status(card, "codex")).toHaveTextContent(missing);
+    expect(within(card).getByTestId("connect-progress")).toHaveTextContent("0 of 2");
 
-    const card = await screen.findByTestId("connect-card");
+    await user.click(within(row(card, "claude")).getByRole("button", { name: copy.add }));
+    expect(sentOfType("integration_add")).toEqual([{ type: "integration_add", id: "jira", provider: "jira", runtimes: ["claude"] }]);
+    expect(sentOfType("mcp_auth_start")).toEqual([]);
+
     act(() => {
       relay.emitIntegrations(RELAY, [jira([runtime({ status: "needs_auth" })])]);
       relay.emitOnIntegrations(RELAY, flow({ flowId: "f1", phase: "awaiting_user", authUrl: "https://auth.example/a?state=s1", state: "s1" }));
     });
     await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.awaiting));
+    expect(status(card, "codex")).toHaveTextContent(missing);
+  });
+
+  it("connects, from the +, the agent that has the server, and adds it to the one that lacks it", async () => {
+    start({ integrations: [jira([runtime({ status: "needs_auth" })])] });
+    const user = userEvent.setup();
+    const card = await openCardFromAdd(user);
+
+    await waitFor(() => expect(status(card, "codex")).toHaveTextContent(copy.state.missing.replace("{name}", "Jira")));
+    expect(status(card, "claude")).toHaveTextContent(copy.state.needsAuth);
+
+    await user.click(within(row(card, "claude")).getByRole("button", { name: copy.connect }));
+    expect(sentOfType("mcp_auth_start")).toEqual([{ type: "mcp_auth_start", targets: [{ runtimeId: "claude", serverName: "atlassian" }] }]);
+    expect(sentOfType("integration_add")).toEqual([]);
+
+    // "Connect all" covers both: the sign-in that is due, and the server
+    // still missing.
+    relay.sent.length = 0;
+    await user.click(within(card).getByRole("button", { name: copy.connectAll }));
+    expect(sentOfType("mcp_auth_start")).toEqual([{ type: "mcp_auth_start", targets: [{ runtimeId: "claude", serverName: "atlassian" }] }]);
+    expect(sentOfType("integration_add")).toEqual([{ type: "integration_add", id: "jira", provider: "jira", runtimes: ["codex"] }]);
   });
 });

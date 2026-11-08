@@ -1245,12 +1245,6 @@ export const ptBr: Dictionary = {
     },
     add: {
       menuItem: "{name}",
-      title: "Adicionar {name}",
-      description: "Adiciona o servidor MCP do {name} aos agentes que você escolher. Em seguida você entra em cada um deles.",
-      agentsLabel: "Agentes",
-      submit: "Adicionar",
-      cancel: "Cancelar",
-      unreachable: "A máquina não está acessível agora.",
     },
     connect: {
       title: "Conectar {name}",
