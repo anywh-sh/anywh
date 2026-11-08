@@ -234,6 +234,7 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
               key={`${project ?? "*"}`}
               rows={rows}
               profileId={profileId}
+              integrationId={integration.id}
               linksByKey={linksByKey(links, provider)}
               stale={stale}
               hasMore={mine?.nextPageToken !== undefined}
@@ -262,6 +263,7 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
 function LoadingMoreList({
   rows,
   profileId,
+  integrationId,
   linksByKey,
   stale,
   hasMore,
@@ -272,6 +274,7 @@ function LoadingMoreList({
 }: {
   rows: Parameters<typeof TicketList>[0]["rows"];
   profileId: string;
+  integrationId: string;
   linksByKey: ReadonlyMap<string, WorkTicket[]>;
   stale: boolean;
   hasMore: boolean;
@@ -289,6 +292,7 @@ function LoadingMoreList({
     <TicketList
       rows={rows}
       profileId={profileId}
+      integrationId={integrationId}
       linksByKey={linksByKey}
       stale={stale}
       hasMore={hasMore}

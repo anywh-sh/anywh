@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Equal, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useDict, useLocale } from "@/i18n";
 import { formatCompactTime } from "@/lib/format/relativeTime";
 import { groupByStatus, priorityLevel, type PriorityLevel } from "@/lib/integrations/tickets";
-import { GroupHeading, toggledIn } from "@/components/shell/GroupHeading";
+import { GroupHeading, useStoredFolds } from "@/components/shell/GroupHeading";
 import type { TicketRow, WorkTicket } from "@/lib/integrations/model";
 import { SessionLinkChips } from "@/components/integrations/SessionLinkChips";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,8 @@ export function PriorityMark({ priority, className }: { priority: string | undef
 interface TicketListProps {
   rows: readonly TicketRow[];
   profileId: string;
+  /** The integration the rows come from; with the profile, keys the folds. */
+  integrationId: string;
   /** The sessions working on each ticket, by key. */
   linksByKey: ReadonlyMap<string, WorkTicket[]>;
   /** The list is the relay's last answer while it cannot be reached. */
@@ -57,12 +59,13 @@ interface TicketListProps {
  * first, newest change first inside each: title, then priority, key, status,
  * the sessions working on it and how long since it changed. A row opens the
  * ticket's screen. */
-export function TicketList({ rows, profileId, linksByKey, stale, hasMore, loadingMore, onOpen, onLoadMore }: TicketListProps) {
+export function TicketList({ rows, profileId, integrationId, linksByKey, stale, hasMore, loadingMore, onOpen, onLoadMore }: TicketListProps) {
   const copy = useDict().integrations.tickets;
   const { locale } = useLocale();
   const groups = useMemo(() => groupByStatus(rows), [rows]);
-  // Folded statuses, by label: in memory only, like the sidebar's groups.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+  // Folded statuses, by label, per profile and integration: the list
+  // unmounts whenever the pane leaves it (another session, a ticket).
+  const [collapsed, toggleFold] = useStoredFolds(`anywh:ticket-groups-collapsed:${profileId}:${integrationId}`);
   const count = hasMore ? copy.countMore.replace("{count}", String(rows.length)) : rows.length === 1 ? copy.countOne : copy.count.replace("{count}", String(rows.length));
   return (
     <div className={cn("flex flex-col", stale && "opacity-60")}>
@@ -71,7 +74,7 @@ export function TicketList({ rows, profileId, linksByKey, stale, hasMore, loadin
           const folded = collapsed.has(group.label);
           return (
             <section key={group.label} data-status-group={group.label} className="mt-3.5 first:mt-1">
-              <GroupHeading label={group.label} count={group.rows.length} collapsed={folded} onToggle={() => setCollapsed((current) => toggledIn(current, group.label))} />
+              <GroupHeading label={group.label} count={group.rows.length} collapsed={folded} onToggle={() => toggleFold(group.label)} />
               {!folded && (
                 <ul className="flex flex-col">
                   {group.rows.map((row) => (

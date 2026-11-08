@@ -130,6 +130,23 @@ describe("my tickets in the integration's pane", () => {
     expect(listedKeys()).toEqual(["NGL-1", "NGL-3", "ANY-7", "NGL-2"]);
   });
 
+  it("keeps a folded status folded when the list comes back", async () => {
+    start(jira([mine(null, [NGL1, ANY7])]));
+    const user = userEvent.setup();
+    await openPane(user);
+    await waitFor(() => expect(listedKeys()).toEqual(["NGL-1", "ANY-7"]));
+    await user.click(within(screen.getByTestId("ticket-list")).getByRole("button", { name: /^To Do/ }));
+    expect(listedKeys()).toEqual(["NGL-1"]);
+
+    // Leaving the list unmounts it; the fold is still there on the way back.
+    await user.click(screen.getByRole("button", { name: /Export orders as CSV/ }));
+    const ticket = await screen.findByTestId("ticket-screen");
+    await user.click(within(ticket).getByRole("button", { name: copy.allMine }));
+    await waitFor(() => expect(screen.queryByTestId("ticket-screen")).toBeNull());
+    expect(within(screen.getByTestId("ticket-list")).getByRole("button", { name: /^To Do/ })).toHaveAttribute("aria-expanded", "false");
+    expect(listedKeys()).toEqual(["NGL-1"]);
+  });
+
   it("opens on the remembered project, and a new pick is remembered through the relay", async () => {
     start(jira([mine(null, [NGL1, ANY7]), mine("NGL", [NGL1])], "NGL"));
     const user = userEvent.setup();
