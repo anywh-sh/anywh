@@ -58,14 +58,14 @@ export function integrationDataState(entry: ProfileIntegrations | undefined): In
   return entry.connection === "live" ? "live" : "stale";
 }
 
-/** The integrations a rail shows: those a CLI of the profile reads, or
- * could once signed in. A server that only fails, or whose state is not
- * known, is not one the profile has; one whose last server went away is
- * gone from the rail too. */
+/** The integrations a rail shows: those some CLI of the profile is connected
+ * to. One every CLI has yet to sign in to, that only fails, or whose state is
+ * not known is not on the rail — the "+" offers it, and adding it signs the
+ * existing servers in; one whose last server went away is gone too. */
 export function railIntegrations(entry: ProfileIntegrations | undefined): IntegrationState[] {
   const state = integrationDataState(entry);
   if (state === "none" || state === "unsupported" || !entry?.integrations) return [];
-  return entry.integrations.filter((integration) => integration.runtimes.some((runtime) => runtime.status === "connected" || runtime.status === "needs_auth"));
+  return entry.integrations.filter((integration) => integration.runtimes.some((runtime) => runtime.status === "connected"));
 }
 
 /** The mark on an integration's rail button: amber when a CLI has to sign in,
@@ -98,9 +98,10 @@ export function pickFetchRuntime(integration: IntegrationState): McpRuntimeId | 
 /** Every provider the "+" may offer to add. */
 export const ADDABLE_PROVIDERS: readonly IntegrationProvider[] = ["jira"];
 
-/** The providers the "+" offers on this profile: those no CLI has a server for
- * yet. Nothing while the relay's state is unknown or it has no integrations
- * at all, so the menu never offers what it cannot do. */
+/** The providers the "+" offers on this profile: those not on the rail, no
+ * CLI being connected to them yet. Nothing while the relay's state is
+ * unknown or it has no integrations at all, so the menu never offers what it
+ * cannot do. */
 export function addableProviders(entry: ProfileIntegrations | undefined): IntegrationProvider[] {
   if (integrationDataState(entry) !== "live") return [];
   const present = new Set(railIntegrations(entry).map((integration) => integration.provider));

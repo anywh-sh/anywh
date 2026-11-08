@@ -60,11 +60,11 @@ const jiraLabel = (count: number) =>
 
 describe("integrations on the side panel rail", () => {
   it("shows Jira between the divider and the +, badged amber while an agent has to sign in", async () => {
-    start({ integrations: [jira([runtime({ status: "needs_auth" }), runtime({ runtimeId: "codex", status: "needs_auth" })])] });
+    start({ integrations: [jira([runtime({}), runtime({ runtimeId: "codex", status: "needs_auth" })])] });
     const user = userEvent.setup();
     const rail = await openConversation(user);
 
-    const button = await within(rail).findByRole("button", { name: jiraLabel(2) });
+    const button = await within(rail).findByRole("button", { name: jiraLabel(1) });
     const add = within(rail).getByRole("button", { name: en.panels.addView });
     const divider = rail.querySelector('[aria-hidden="true"].h-px');
     expect(divider).not.toBeNull();
@@ -80,7 +80,12 @@ describe("integrations on the side panel rail", () => {
     const failed = await within(rail).findByRole("button", { name: en.integrations.rail.failed.replace("{name}", "Jira") });
     expect(failed.querySelector('[data-rail-badge="failed"]')).not.toBeNull();
 
-    // A Jira no agent reads nor can sign in to is not one the profile has.
+    // A Jira no agent is connected to is not on the rail yet: signed out
+    // everywhere, or only failing.
+    relay.emitIntegrations(RELAY, [jira([runtime({ status: "needs_auth" }), runtime({ runtimeId: "codex", status: "needs_auth" })])]);
+    await waitFor(() => expect(rail.querySelector("[data-integration]")).toBeNull());
+    relay.emitIntegrations(RELAY, [jira([runtime({}), runtime({ runtimeId: "codex" })])]);
+    await within(rail).findByRole("button", { name: "Jira" });
     relay.emitIntegrations(RELAY, [jira([runtime({ status: "failed" }), runtime({ runtimeId: "codex", status: "unknown" })])]);
     await waitFor(() => expect(rail.querySelector("[data-integration]")).toBeNull());
   });
@@ -182,9 +187,16 @@ describe("integrations on the side panel rail", () => {
     expect(new URL(sent[0].url).pathname).toBe("/integrations/watch");
     expect(sent[0].message).toEqual({ type: "integration_add", id: "jira", provider: "jira", runtimes: ["claude"] });
 
-    // Once the relay reports it, the + offers it no more.
+    // Signed out, it stays off the rail and on the +; once an agent is
+    // connected, the rail has it and the + offers it no more.
     relay.emitIntegrations(RELAY, [jira([runtime({ status: "needs_auth" })])]);
-    await within(rail).findByRole("button", { name: jiraLabel(1) });
+    await user.click(within(rail).getByRole("button", { name: en.panels.addView }));
+    expect(await screen.findByRole("menuitem", { name: "Jira" })).toBeInTheDocument();
+    expect(rail.querySelector("[data-integration]")).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    relay.emitIntegrations(RELAY, [jira([runtime({})])]);
+    await within(rail).findByRole("button", { name: "Jira" });
     await user.click(within(rail).getByRole("button", { name: en.panels.addView }));
     expect(screen.queryByRole("menu")).toBeNull();
   });

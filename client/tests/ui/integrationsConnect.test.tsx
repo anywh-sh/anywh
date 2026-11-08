@@ -65,12 +65,24 @@ async function openConversation(user: ReturnType<typeof userEvent.setup>): Promi
   return screen.findByTestId("dock-rail");
 }
 
-/** Rail button → pane → its notice → the card. */
+/** Rail button → pane → its notice → the card: for a Jira some agent is
+ * already connected to, the only kind the rail shows. */
 async function openCardFromPane(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
   const rail = await openConversation(user);
   await user.click(await within(rail).findByRole("button", { name: /^Jira ·/ }));
   const notice = await screen.findByTestId("integration-connect-notice");
   await user.click(within(notice).getByRole("button", { name: en.integrations.panel.connect }));
+  return screen.findByTestId("connect-card");
+}
+
+/** "+" → Jira → Add → the card: how a Jira every agent has yet to sign in to
+ * (not on the rail) is connected. */
+async function openCardFromAdd(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
+  const rail = await openConversation(user);
+  await user.click(within(rail).getByRole("button", { name: en.panels.addView }));
+  await user.click(await screen.findByRole("menuitem", { name: "Jira" }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: en.integrations.add.submit }));
   return screen.findByTestId("connect-card");
 }
 
@@ -80,7 +92,7 @@ describe("connecting an integration", () => {
   it("signs two agents in one after the other, the browser coming back through the app's link", async () => {
     start({ integrations: [jira([runtime({ status: "needs_auth" }), runtime({ runtimeId: "codex", status: "needs_auth" })])] });
     const user = userEvent.setup();
-    const card = await openCardFromPane(user);
+    const card = await openCardFromAdd(user);
 
     expect(within(card).getByText(copy.title.replace("{name}", "Jira"))).toBeInTheDocument();
     expect(within(card).getByTestId("connect-progress")).toHaveTextContent("0 of 2");
@@ -128,7 +140,7 @@ describe("connecting an integration", () => {
   });
 
   it("moves a sign-in to another device: copy the link, paste where the browser ended, checked first", async () => {
-    start({ integrations: [jira([runtime({ status: "needs_auth" })])] });
+    start({ integrations: [jira([runtime({ status: "needs_auth" }), runtime({ runtimeId: "codex" })])] });
     const user = userEvent.setup();
     const card = await openCardFromPane(user);
 
@@ -173,7 +185,7 @@ describe("connecting an integration", () => {
   it("asks the relay to look again for a claude.ai connector, on the button and on coming back", async () => {
     start({ integrations: [jira([runtime({ scope: "claudeai", authMode: "claudeai", status: "needs_auth", serverName: "claude.ai Atlassian" })])] });
     const user = userEvent.setup();
-    const card = await openCardFromPane(user);
+    const card = await openCardFromAdd(user);
 
     await user.click(within(card).getByRole("button", { name: copy.connect }));
     const authUrl = "https://claude.ai/api/organizations/org/mcp/start-auth/x";
@@ -195,7 +207,7 @@ describe("connecting an integration", () => {
   it("says why a sign-in failed in the person's language, keeping the raw text as a tooltip", async () => {
     start({ integrations: [jira([runtime({ status: "needs_auth" }), runtime({ runtimeId: "codex", status: "needs_auth" })])] });
     const user = userEvent.setup();
-    const card = await openCardFromPane(user);
+    const card = await openCardFromAdd(user);
 
     act(() => {
       relay.emitOnIntegrations(RELAY, flow({ flowId: "f1", phase: "failed", error: "timeout" }));
@@ -218,7 +230,7 @@ describe("connecting an integration", () => {
   it("shows a claude.ai recheck as busy until the relay answers, then says it is still not authorized", async () => {
     start({ integrations: [jira([runtime({ scope: "claudeai", authMode: "claudeai", status: "needs_auth", serverName: "claude.ai Atlassian" })])] });
     const user = userEvent.setup();
-    const card = await openCardFromPane(user);
+    const card = await openCardFromAdd(user);
     const waiting = (patch: Partial<McpAuthFlow> = {}) => flow({ flowId: "f1", phase: "awaiting_user", mode: "claudeai", serverName: "claude.ai Atlassian", authUrl: "https://claude.ai/x", ...patch });
     act(() => relay.emitOnIntegrations(RELAY, waiting()));
     await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.claudeai));
@@ -244,7 +256,7 @@ describe("connecting an integration", () => {
   it("takes the address by hand when the app's own link did not come back", async () => {
     start({ integrations: [jira([runtime({ status: "needs_auth" })])] });
     const user = userEvent.setup();
-    const card = await openCardFromPane(user);
+    const card = await openCardFromAdd(user);
     act(() => relay.emitOnIntegrations(RELAY, flow({ flowId: "f1", phase: "awaiting_user", authUrl: "https://auth.example/a?state=s1", state: "s1" })));
     await waitFor(() => expect(status(card, "claude")).toHaveTextContent(copy.awaiting));
     expect(within(card).queryByLabelText(copy.pasteLabel)).toBeNull();

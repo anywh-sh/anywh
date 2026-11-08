@@ -42,10 +42,11 @@ describe("railIntegrations", () => {
     expect(railIntegrations(entry({ connection: "unsupported", integrations: [shown] }))).toEqual([]);
   });
 
-  it("leaves out an integration no CLI reads nor can sign in to", () => {
-    const signIn = jira([runtime({ status: "needs_auth" })]);
-    const broken = jira([runtime({ status: "failed" }), runtime({ runtimeId: "codex", status: "unknown" })], { id: "jira-2" });
-    expect(railIntegrations(entry({ connection: "live", integrations: [signIn, broken] }))).toEqual([signIn]);
+  it("keeps only an integration some CLI is connected to", () => {
+    const partly = jira([runtime({ status: "connected" }), runtime({ runtimeId: "codex", status: "needs_auth" })]);
+    const signIn = jira([runtime({ status: "needs_auth" })], { id: "jira-2" });
+    const broken = jira([runtime({ status: "failed" }), runtime({ runtimeId: "codex", status: "unknown" })], { id: "jira-3" });
+    expect(railIntegrations(entry({ connection: "live", integrations: [partly, signIn, broken] }))).toEqual([partly]);
   });
 });
 
@@ -74,10 +75,11 @@ describe("pickFetchRuntime", () => {
 });
 
 describe("addableProviders", () => {
-  it("offers Jira only on a live relay that has no server for it", () => {
+  it("offers Jira on a live relay until some agent is connected to it", () => {
     expect(addableProviders(entry({ connection: "live", integrations: [] }))).toEqual(["jira"]);
     expect(addableProviders(entry({ connection: "live", integrations: [jira([])] }))).toEqual(["jira"]);
-    expect(addableProviders(entry({ connection: "live", integrations: [jira([runtime({ status: "needs_auth" })])] }))).toEqual([]);
+    expect(addableProviders(entry({ connection: "live", integrations: [jira([runtime({ status: "needs_auth" })])] }))).toEqual(["jira"]);
+    expect(addableProviders(entry({ connection: "live", integrations: [jira([runtime({ status: "connected" }), runtime({ runtimeId: "codex", status: "needs_auth" })])] }))).toEqual([]);
     expect(addableProviders(entry({ connection: "offline", integrations: [] }))).toEqual([]);
     expect(addableProviders(entry({ connection: "unsupported" }))).toEqual([]);
   });
