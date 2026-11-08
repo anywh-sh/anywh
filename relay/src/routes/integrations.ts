@@ -123,10 +123,17 @@ export function handleIntegrationsConnection(socket: WebSocket, service: Integra
     }
     if (isIntegrationAddMessage(parsed)) {
       console.log(`[integrations] add (profile ${PROFILE}, ${parsed.id} on ${parsed.runtimes.join(", ")})`);
+      const { id } = parsed;
       service
-        .addIntegration(parsed.id, parsed.runtimes)
-        .then((result) => {
-          for (const failure of result.failures) console.log(`[integrations] add on ${failure.runtimeId} failed (profile ${PROFILE}): ${failure.error}`);
+        .addIntegration(id, parsed.runtimes, (runtimeId, result) => {
+          const failure = result.failures.find((candidate) => candidate.runtimeId === runtimeId);
+          if (failure) {
+            console.log(`[integrations] add on ${runtimeId} failed (profile ${PROFILE}): ${failure.error}`);
+            send({ type: "integration_add_result", id, runtimeId, error: failure.error });
+            return;
+          }
+          const target = result.targets.find((candidate) => candidate.runtimeId === runtimeId);
+          send({ type: "integration_add_result", id, runtimeId, ok: true, ...(target ? { serverName: target.serverName } : {}) });
         })
         .catch((error: unknown) => console.error("[relay] integration add failed:", (error as Error).message))
         .finally(() => send(service.getSnapshot()));

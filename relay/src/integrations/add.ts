@@ -2,12 +2,15 @@
 // person picked, through the CLI itself (the def's `mcp.add`: Claude's
 // `mcp add-json`, Codex's `config/value/write`), then lists the servers to
 // sign in to. A CLI that already has a server of the integration gets none
-// added: its server is the one signed in.
+// added: its server is the one signed in. A declared server is noted in the
+// inventory at once and signed in to without waiting for the CLI's rescan
+// (a live Claude scan boots every server of the profile: seconds), which
+// runs behind it and replaces the note with what the CLI reports.
 import { spawn } from "node:child_process";
 import { buildChildEnv } from "../host/childEnv.js";
 import { EXTRA_PATH_DIRS, resolveAgentBin } from "../runtimes/executables.js";
 import type { AgentRuntimeDef, McpAddContract } from "../runtimes/types.js";
-import type { IntegrationProvider, McpAuthTarget, McpInventoryEntry, McpRuntimeId } from "./types.js";
+import type { IntegrationProvider, McpAuthTarget, McpInventoryEntry, McpRuntimeId, McpTransport } from "./types.js";
 
 export const ADD_CLI_TIMEOUT_MS = 20_000;
 
@@ -17,6 +20,8 @@ interface ProviderServer {
   readonly name: string;
   readonly fallbackName: string;
   readonly config: (runtimeId: McpRuntimeId) => Record<string, unknown>;
+  /** How the inventory shows it until a scan lists it. */
+  readonly transport: McpTransport;
 }
 
 const ATLASSIAN_URL = "https://mcp.atlassian.com/v1/mcp";
@@ -26,6 +31,7 @@ const PROVIDER_SERVERS: Partial<Record<IntegrationProvider, ProviderServer>> = {
     name: "atlassian",
     fallbackName: "atlassian-anywh",
     config: (runtimeId) => (runtimeId === "claude" ? { type: "http", url: ATLASSIAN_URL } : { url: ATLASSIAN_URL }),
+    transport: { type: "http", url: ATLASSIAN_URL },
   },
 };
 
@@ -49,9 +55,12 @@ export interface IntegrationAddDeps {
   readonly codexRequest?: (method: string, params: unknown) => Promise<unknown>;
   /** Rescans the CLI's servers; resolves once the inventory has them. */
   readonly rescan: (runtimeId: McpRuntimeId) => Promise<unknown>;
-  /** The inventory's entry by name, after the rescan. */
-  readonly entry: (runtimeId: McpRuntimeId, name: string) => McpInventoryEntry | undefined;
+  /** Notes a server just declared in the CLI, before a scan lists it. */
+  readonly declared: (runtimeId: McpRuntimeId, server: Pick<McpInventoryEntry, "name" | "scope" | "transport" | "authMode">) => void;
 }
+
+/** What a CLI says when the server is in its config already. */
+const ALREADY_DECLARED = /already exists/i;
 
 export interface IntegrationAddResult {
   /** The servers to sign in to, in the order asked. */
@@ -77,9 +86,20 @@ export async function addIntegration(deps: IntegrationAddDeps, provider: Integra
       continue;
     }
     try {
-      await declareMcpServer(deps, def, contract, name, server.config(runtimeId));
-      await deps.rescan(runtimeId);
-      if (deps.entry(runtimeId, name)?.status === "connected") continue;
+      try {
+        await declareMcpServer(deps, def, contract, name, server.config(runtimeId));
+      } catch (error) {
+        // In the CLI's config but not in the inventory yet (a scan behind
+        // the file): the server a fresh scan lists is the one signed in to.
+        if (!(error instanceof Error && ALREADY_DECLARED.test(error.message))) throw error;
+        await deps.rescan(runtimeId);
+        const listed = deps.existing(runtimeId);
+        if (!listed) throw error;
+        if (listed.status !== "connected") result.targets.push({ runtimeId, serverName: listed.name });
+        continue;
+      }
+      deps.declared(runtimeId, { name, scope: "user", transport: { ...server.transport }, authMode: "oauth" });
+      void deps.rescan(runtimeId).catch(() => undefined);
       result.targets.push({ runtimeId, serverName: name });
     } catch (error) {
       result.failures.push({ runtimeId, error: error instanceof Error ? error.message : String(error) });

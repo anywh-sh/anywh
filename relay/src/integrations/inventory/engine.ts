@@ -203,6 +203,16 @@ export class McpInventory {
     this.commit(this.entryList.map((entry) => (entry.runtimeId === runtimeId && entry.name === name && entry.cwd === cwd ? { ...entry, status, scannedAt: this.now() } : { ...entry })));
   }
 
+  /** A server the relay itself just declared in a CLI (in the neutral
+   * folder), known before any scan lists it: shown at once, as not signed
+   * in, until the next scan of that CLI replaces it with what the CLI
+   * reports. A server already known by that name is left as it is. */
+  noteDeclared(runtimeId: McpRuntimeId, server: { name: string; scope: McpInventoryEntry["scope"]; transport: McpInventoryEntry["transport"]; authMode: McpInventoryEntry["authMode"] }): void {
+    if (!this.runtimes.has(runtimeId) || this.closed) return;
+    if (this.entryList.some((entry) => entry.runtimeId === runtimeId && entry.name === server.name && entry.cwd === undefined)) return;
+    this.commit([...this.entryList.map((entry) => ({ ...entry })), { runtimeId, ...server, status: "needs_auth", scannedAt: this.now() }]);
+  }
+
   /** Watches the config files of every CLI. Idempotent. */
   start(): void {
     if (this.started || this.closed) return;

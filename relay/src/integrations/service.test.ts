@@ -54,6 +54,10 @@ class TestInventory implements IntegrationInventory {
   noteInBand(runtimeId: string, servers: readonly { name: string; status: McpInventoryEntry["status"] }[]) {
     this.set(this.list.map((entry) => ({ ...entry, ...(entry.runtimeId === runtimeId ? { status: servers.find((server) => server.name === entry.name && server.status !== "pending")?.status ?? entry.status } : {}) })));
   }
+  noteDeclared(runtimeId: McpInventoryEntry["runtimeId"], server: Pick<McpInventoryEntry, "name" | "scope" | "transport" | "authMode">) {
+    if (this.list.some((entry) => entry.runtimeId === runtimeId && entry.name === server.name)) return;
+    this.set([...this.list, { runtimeId, ...server, status: "needs_auth", scannedAt: NOW }]);
+  }
   setStatus(runtimeId: string, name: string, status: McpInventoryEntry["status"], cwd?: string) {
     this.set(this.list.map((entry) => (entry.runtimeId === runtimeId && entry.name === name && entry.cwd === cwd ? { ...entry, status } : entry)));
   }
@@ -484,4 +488,34 @@ test("a sign-in reads again the chosen list and the ticket screens asked a momen
     ["mine:NGL", "ticket:NGL-1"],
     "inside the floor too",
   );
+});
+
+test("an add asked again while it runs joins it: one declaration, one sign-in, and the state says adding meanwhile", async () => {
+  const inventory = new TestInventory([]);
+  const adds: string[][] = [];
+  const started: unknown[] = [];
+  const { promise, resolve } = deferred<{ targets: { runtimeId: "claude"; serverName: string }[]; failures: [] }>();
+  const service = new IntegrationService({
+    inventory,
+    now: () => NOW,
+    add: (_id, _provider, runtimes) => {
+      adds.push([...runtimes]);
+      return promise;
+    },
+    auth: { start: (targets: unknown) => started.push(targets), close: () => {} } as unknown as NonNullable<ConstructorParameters<typeof IntegrationService>[0]["auth"]>,
+  });
+  const snapshots: IntegrationsStateMessage[] = [];
+  service.subscribe((message) => snapshots.push(message));
+  const heard: string[] = [];
+  const first = service.addIntegration("jira", ["claude"], (runtimeId) => heard.push(`first:${runtimeId}`));
+  const again = service.addIntegration("jira", ["claude"], (runtimeId) => heard.push(`again:${runtimeId}`));
+  assert.deepEqual(snapshots.at(-1)?.integrations.find((integration) => integration.id === "jira")?.adding, ["claude"], "the state says so at once");
+  resolve({ targets: [{ runtimeId: "claude", serverName: "atlassian" }], failures: [] });
+  const [a, b] = await Promise.all([first, again]);
+  assert.deepEqual(a, b);
+  assert.deepEqual(adds, [["claude"]], "declared once");
+  assert.deepEqual(started, [[{ runtimeId: "claude", serverName: "atlassian" }]], "one sign-in");
+  assert.deepEqual(heard.sort(), ["again:claude", "first:claude"], "both askers hear the outcome");
+  assert.equal(snapshots.at(-1)?.integrations.find((integration) => integration.id === "jira")?.adding, undefined);
+  service.close();
 });

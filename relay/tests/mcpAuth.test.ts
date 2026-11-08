@@ -171,3 +171,36 @@ test("a sign-in nobody finishes fails; a server that refuses the app's link sign
   watch.socket.send(JSON.stringify({ type: "mcp_auth_recheck", flowId: connector.flowId }));
   await watch.recorded.waitFor(flowOf("claude", "claude.ai Atlassian MCP", "done"), recheckSince, 15_000);
 });
+
+test("+ Add answers at once and goes straight to the sign-in, without waiting for the slow live scan; asked twice, it declares once", async () => {
+  const argvDir = mkdtempSync(join(tmpdir(), "anywh-mcp-add-argv-"));
+  works.push(argvDir);
+  const argvFile = join(argvDir, "argv.jsonl");
+  const { watch } = await start(
+    (files) => {
+      writeFileSync(files.claudeStatus, JSON.stringify({ mcpServers: CLAUDE_MCP_STATUS_SETTLED.mcpServers.filter((server) => !/atlassian/i.test(server.name)) }));
+      writeFileSync(files.codexList, JSON.stringify([]));
+      writeFileSync(files.codexStatus, JSON.stringify({ ...CODEX_MCP_STATUS_LIST, data: [] }));
+    },
+    // Every live Claude scan answers `pending` five times first: ~5 s.
+    { FAKE_CLAUDE_MCP_PENDING_REPLIES: "5", FAKE_CLAUDE_ARGV_FILE: argvFile },
+    (message) => message.type === "integrations_state" && jiraOf(message)?.runtimes.length === 0,
+  );
+  const since = watch.recorded.mark();
+  const startedAt = Date.now();
+  watch.socket.send(JSON.stringify({ type: "integration_add", id: "jira", provider: "jira", runtimes: ["claude"] }));
+  watch.socket.send(JSON.stringify({ type: "integration_add", id: "jira", provider: "jira", runtimes: ["claude"] }));
+  await watch.recorded.waitFor((message) => message.type === "integrations_state" && (jiraOf(message) as { adding?: string[] } | undefined)?.adding?.includes("claude") === true, since, 5000);
+  const result = await watch.recorded.waitFor((message) => message.type === "integration_add_result", since, 5000);
+  assert.deepEqual(result, { type: "integration_add_result", id: "jira", runtimeId: "claude", ok: true, serverName: "atlassian" });
+  assert.equal(runtimeOf(await watch.recorded.waitFor((message) => runtimeOf(message, "claude") !== undefined, since, 5000), "claude")?.status, "needs_auth", "shown declared before any scan lists it");
+  await watch.recorded.waitFor(flowOf("claude", "atlassian", "awaiting_user"), since, 10_000);
+  assert.ok(Date.now() - startedAt < 4000, `the sign-in was up in ${Date.now() - startedAt} ms, not after the ~5 s scan`);
+  await watch.recorded.waitFor((message) => message.type === "integration_add_result" && watch.recorded.messages.slice(since).filter((candidate) => candidate.type === "integration_add_result").length === 2, since, 5000);
+  const results = watch.recorded.messages.slice(since).filter((message) => message.type === "integration_add_result");
+  assert.ok(results.every((message) => message.ok === true && message.serverName === "atlassian"), "the second add joined the first");
+  const adds = readFileSync(argvFile, "utf8").trim().split("\n").filter((line) => line.includes('"add-json"'));
+  assert.equal(adds.length, 1, "one `claude mcp add-json`");
+  const flows = watch.recorded.messages.slice(since).filter((message) => flowOf("claude", "atlassian", "queued")(message));
+  assert.equal(new Set(flows.map((message) => message.flowId)).size, 1, "one sign-in");
+});

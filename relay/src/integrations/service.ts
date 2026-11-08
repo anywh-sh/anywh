@@ -129,6 +129,8 @@ export interface IntegrationInventory {
   scan(options?: { runtimeId?: McpRuntimeId; cwd?: string }): Promise<unknown>;
   /** See `McpInventory.noteInBand`. */
   noteInBand(runtimeId: McpRuntimeId, servers: readonly { name: string; status: McpServerStatus }[], cwd?: string): void;
+  /** See `McpInventory.noteDeclared`. */
+  noteDeclared(runtimeId: McpRuntimeId, server: Pick<McpInventoryEntry, "name" | "scope" | "transport" | "authMode">): void;
   /** See `McpInventory.setStatus`. */
   setStatus(runtimeId: McpRuntimeId, name: string, status: McpServerStatus, cwd?: string): void;
   start(): void;
@@ -204,6 +206,8 @@ function validParam(query: IntegrationQueryKind, param: string | null): boolean 
 export class IntegrationService {
   private readonly integrations = new Map<string, IntegrationSlot>();
   private readonly listeners = new Set<IntegrationsListener>();
+  /** The adds running, by integration and CLI. */
+  private readonly adding = new Map<string, Promise<IntegrationAddResult>>();
   private readonly now: () => number;
   private readonly forceFloorMs: number;
   private readonly rescanAfterMs: number;
@@ -380,13 +384,48 @@ export class IntegrationService {
   }
 
   /** Declares integration `id`'s server in each of `runtimes` and signs in
-   * to every one that is not signed in yet, in one queue. */
-  async addIntegration(id: string, runtimes: readonly McpRuntimeId[]): Promise<IntegrationAddResult> {
+   * to every one that is not signed in yet, in one queue. An add of a CLI
+   * already running joins it: one declaration, one sign-in. `onResult`
+   * hears each CLI's outcome as soon as it is known. */
+  async addIntegration(id: string, runtimes: readonly McpRuntimeId[], onResult?: (runtimeId: McpRuntimeId, result: IntegrationAddResult) => void): Promise<IntegrationAddResult> {
     const integration = this.integrations.get(id);
-    if (!integration || !this.deps.add) return { targets: [], failures: runtimes.map((runtimeId) => ({ runtimeId, error: "unsupported" })) };
-    const result = await this.deps.add(id, integration.definition.provider, runtimes);
-    if (result.targets.length > 0) this.deps.auth?.start(result.targets);
-    return result;
+    const add = this.deps.add;
+    if (!integration || !add) {
+      const result = { targets: [], failures: runtimes.map((runtimeId) => ({ runtimeId, error: "unsupported" })) };
+      for (const runtimeId of runtimes) onResult?.(runtimeId, { targets: [], failures: result.failures.filter((failure) => failure.runtimeId === runtimeId) });
+      return result;
+    }
+    const total: IntegrationAddResult = { targets: [], failures: [] };
+    // One CLI after the other: the sign-ins queue in the order asked.
+    for (const runtimeId of new Set(runtimes)) {
+      const result = await this.addOne(integration, runtimeId, add);
+      onResult?.(runtimeId, result);
+      total.targets.push(...result.targets);
+      total.failures.push(...result.failures);
+    }
+    return total;
+  }
+
+  private addOne(integration: IntegrationSlot, runtimeId: McpRuntimeId, add: NonNullable<IntegrationServiceDeps["add"]>): Promise<IntegrationAddResult> {
+    const { id, provider } = integration.definition;
+    const key = `${id}\u0000${runtimeId}`;
+    const running = this.adding.get(key);
+    if (running) return running;
+    const run = (async (): Promise<IntegrationAddResult> => {
+      try {
+        const result = await add(id, provider, [runtimeId]);
+        if (result.targets.length > 0 && !this.closed) this.deps.auth?.start(result.targets);
+        return result;
+      } catch (error) {
+        return { targets: [], failures: [{ runtimeId, error: error instanceof Error ? error.message : String(error) }] };
+      } finally {
+        this.adding.delete(key);
+        this.notify();
+      }
+    })();
+    this.adding.set(key, run);
+    this.notify();
+    return run;
   }
 
   /** The integration's server a CLI already has, if any. */
@@ -652,11 +691,13 @@ export class IntegrationService {
   private present(integration: IntegrationSlot, now: number): IntegrationState {
     const picks = this.picks(integration);
     const fetchRuntime = RUNTIME_ORDER.find((runtimeId) => picks.some((pick) => pick.runtimeId === runtimeId && pick.status === "connected"));
+    const adding = RUNTIME_ORDER.filter((runtimeId) => this.adding.has(`${integration.definition.id}\u0000${runtimeId}`));
     return {
       id: integration.definition.id,
       provider: integration.definition.provider,
       runtimes: integrationRuntimes(picks),
       ...(fetchRuntime ? { fetchRuntime } : {}),
+      ...(adding.length > 0 ? { adding } : {}),
       ...(integration.site ? { site: { ...integration.site } } : {}),
       prefs: { ...integration.prefs },
       queries: [...integration.queries.values()].map((slot) => this.presentQuery(slot, now)),
@@ -805,7 +846,7 @@ export function createIntegrationService(options: CreateIntegrationServiceOption
         names: (runtimeId) => ref.service?.serverNames(runtimeId) ?? [],
         ...(codexControl ? { codexRequest: (method: string, params: unknown) => codexControl.request(method, params) } : {}),
         rescan: (runtimeId) => ref.service?.rescanRuntime(runtimeId) ?? Promise.resolve(),
-        entry: (runtimeId, name) => ref.service?.entryFor(runtimeId, name),
+        declared: (runtimeId, server) => inventory.noteDeclared(runtimeId, server),
       },
       provider,
       runtimes,
@@ -816,6 +857,7 @@ export function createIntegrationService(options: CreateIntegrationServiceOption
       subscribe: (listener) => inventory.subscribe(listener),
       scan: (scan) => inventory.scan(scan),
       noteInBand: (runtimeId, servers, cwd) => inventory.noteInBand(runtimeId, servers, cwd),
+      noteDeclared: (runtimeId, server) => inventory.noteDeclared(runtimeId, server),
       setStatus: (runtimeId, name, status, cwd) => inventory.setStatus(runtimeId, name, status, cwd),
       start: () => inventory.start(),
       close: () => {
