@@ -235,7 +235,6 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
       <div className="flex shrink-0 flex-col gap-1.5 px-3 pt-3">
         <div className="flex items-center gap-2">
           <ProjectDropdown
-            provider={provider}
             value={project}
             projects={projectOptions(integration)}
             disabled={stale}

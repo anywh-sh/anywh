@@ -1,11 +1,8 @@
 import { Check, ChevronDown } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { IntegrationIcon } from "@/components/integrations/IntegrationIcon";
 import { useDict } from "@/i18n";
-import type { IntegrationProvider } from "@/lib/integrations/model";
 
 interface ProjectDropdownProps {
-  provider: IntegrationProvider;
   /** The project shown; `null` for every project. */
   value: string | null;
   projects: readonly string[];
@@ -19,7 +16,7 @@ interface ProjectDropdownProps {
  * project's. Not modal, like the rail's "+" menu: the pane stays live
  * behind it.
  */
-export function ProjectDropdown({ provider, value, projects, disabled = false, onChange }: ProjectDropdownProps) {
+export function ProjectDropdown({ value, projects, disabled = false, onChange }: ProjectDropdownProps) {
   const copy = useDict().integrations.tickets;
   const label = value ?? copy.allMine;
   return (
@@ -32,7 +29,6 @@ export function ProjectDropdown({ provider, value, projects, disabled = false, o
           data-testid="project-dropdown"
           className="flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 border border-border bg-bg-elevated px-2.5 text-left text-[13px] text-foreground transition-colors outline-none hover:border-text-faint focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-default disabled:opacity-60 disabled:hover:border-border"
         >
-          <IntegrationIcon provider={provider} className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">{label}</span>
           <ChevronDown className="size-3.5 shrink-0 text-text-faint" aria-hidden />
         </button>
