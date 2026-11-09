@@ -28,7 +28,7 @@ export function FirstLaunchBanner() {
   return (
     <section
       aria-label={copy.title}
-      className="fixed bottom-9 left-3 z-50 flex w-88 max-w-[calc(100vw-1.5rem)] flex-col gap-3 border border-border bg-popover p-4 text-popover-foreground shadow-popover"
+      className="fixed bottom-9 left-3 z-50 flex w-96 max-w-[calc(100vw-1.5rem)] flex-col gap-3 border border-border bg-popover p-4 text-popover-foreground shadow-popover"
     >
       <button
         type="button"
@@ -51,7 +51,7 @@ export function FirstLaunchBanner() {
         <a
           href={TELEMETRY_DOCS_URL}
           onClick={(event) => handleExternalLinkClick(event, TELEMETRY_DOCS_URL)}
-          className="font-mono text-[10.5px] text-text-faint underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none"
+          className="font-mono text-[10.5px] whitespace-nowrap text-text-faint underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none"
         >
           {copy.learnMore}
         </a>
