@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   getAvailableUpdate,
+  clearReadyUpdate,
   getReadyUpdate,
   getInstallOrigin,
   subscribeAppUpdate,
@@ -10,7 +11,7 @@ import {
   type UpdateAvailableInfo,
 } from "@/lib/install/appUpdate";
 import { inTauri } from "@/lib/platform/tauri";
-import { installOnClose } from "@/lib/install/updaterPlugin";
+import { installOnClose, restartIntoUpdate } from "@/lib/install/updaterPlugin";
 import {
   type AppSettings,
   type UpdateMode,
@@ -33,6 +34,30 @@ export function useAppUpdate(): UpdateAvailableInfo | null {
  * `updaterPlugin.ts`), never another download. */
 export function useReadyUpdate(): ReadyUpdate | null {
   return useSyncExternalStore(subscribeReadyUpdate, getReadyUpdate);
+}
+
+/** The restart-into-update action shared by the title-bar button and the
+ * modal: one copy, so the two cannot drift. `restarting` disables the control
+ * while the install/relaunch runs; if either refuses (the app stays up) it
+ * re-arms for another press instead of staying stuck, and on success the
+ * ready update is cleared. */
+export function useRestartIntoUpdate(): { restart: () => Promise<void>; restarting: boolean } {
+  const ready = useReadyUpdate();
+  const [restarting, setRestarting] = useState(false);
+
+  async function restart(): Promise<void> {
+    if (!ready || restarting) return;
+    setRestarting(true);
+    try {
+      await restartIntoUpdate(ready.update, ready.installed);
+    } catch {
+      setRestarting(false);
+      return;
+    }
+    clearReadyUpdate();
+  }
+
+  return { restart, restarting };
 }
 
 /** Registers the close-time install for a downloaded update that has not been

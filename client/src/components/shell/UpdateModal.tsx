@@ -2,11 +2,10 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAppUpdate, useAppUpdateSettings, useInstallOrigin, useReadyUpdate } from "@/hooks/platform/useAppUpdate";
+import { useAppUpdate, useAppUpdateSettings, useInstallOrigin, useReadyUpdate, useRestartIntoUpdate } from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { resolveUpdateMode } from "@/lib/install/updateMode";
-import { restartIntoUpdate } from "@/lib/install/updaterPlugin";
 import { cn } from "@/lib/utils";
 
 /** Same one-liner `install.sh` itself prints and `ManualInstructions`
@@ -37,7 +36,7 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
   const { settings, setUpdateMode } = useAppUpdateSettings();
   const dict = useDict().shell.updateModal;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [restarting, setRestarting] = useState(false);
+  const { restart, restarting } = useRestartIntoUpdate();
 
   // Only install.sh leaves behind a marker that says so — every other route
   // (a .deb/.rpm, Homebrew's macOS cask-that-doesn't-exist-yet, a dev build)
@@ -70,16 +69,6 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
     setTimeout(() => setCopyState("idle"), 1500);
   }
 
-  async function handleRestart(): Promise<void> {
-    if (!ready || restarting) return;
-    setRestarting(true);
-    try {
-      await restartIntoUpdate(ready.update, ready.installed);
-    } catch {
-      setRestarting(false);
-    }
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -100,7 +89,7 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
                 size="sm"
                 className="self-start"
                 disabled={restarting}
-                onClick={() => void handleRestart()}
+                onClick={() => void restart()}
               >
                 {dict.restartNow}
               </Button>

@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { ArrowUpCircle, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useReadyUpdate } from "@/hooks/platform/useAppUpdate";
+import { useReadyUpdate, useRestartIntoUpdate } from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
-import { clearReadyUpdate, dismissRestartPrompt } from "@/lib/install/appUpdate";
-import { restartIntoUpdate } from "@/lib/install/updaterPlugin";
+import { dismissRestartPrompt } from "@/lib/install/appUpdate";
 
 /**
  * The primary surface of the in-app updater: once an update is downloaded
@@ -16,23 +14,9 @@ import { restartIntoUpdate } from "@/lib/install/updaterPlugin";
 export function UpdateRestartButton() {
   const ready = useReadyUpdate();
   const dict = useDict().shell.titleBar;
-  const [restarting, setRestarting] = useState(false);
+  const { restart, restarting } = useRestartIntoUpdate();
 
   if (!ready || ready.dismissed) return null;
-
-  async function restart(): Promise<void> {
-    if (!ready || restarting) return;
-    setRestarting(true);
-    try {
-      await restartIntoUpdate(ready.update, ready.installed);
-    } catch {
-      // The install or the relaunch refused (the app stays up); let the
-      // button be pressed again rather than leave it stuck disabled.
-      setRestarting(false);
-      return;
-    }
-    clearReadyUpdate();
-  }
 
   return (
     <div className="flex h-[30px] min-w-0 shrink items-stretch border border-border text-xs text-primary">

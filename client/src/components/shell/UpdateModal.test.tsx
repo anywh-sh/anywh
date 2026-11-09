@@ -31,7 +31,13 @@ vi.mock("@/lib/install/appUpdate", async (importOriginal) => {
 });
 
 import { UpdateModal } from "@/components/shell/UpdateModal";
-import { clearReadyUpdate, clearUpdate, markUpdateAvailable, performUpdateCheck } from "@/lib/install/appUpdate";
+import {
+  clearReadyUpdate,
+  clearUpdate,
+  getReadyUpdate,
+  markUpdateAvailable,
+  performUpdateCheck,
+} from "@/lib/install/appUpdate";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { readSettings, writeSettings } from "@/lib/settings";
 import type { Update } from "@/lib/install/updaterPlugin";
@@ -200,5 +206,7 @@ describe("UpdateModal", () => {
 
     expect(install).toHaveBeenCalledTimes(1);
     expect(relaunch).toHaveBeenCalledTimes(1);
+    // Same as the title-bar button: nothing keeps pointing at the old update.
+    expect(getReadyUpdate()).toBeNull();
   });
 });
