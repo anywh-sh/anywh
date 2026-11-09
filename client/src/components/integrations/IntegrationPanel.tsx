@@ -29,6 +29,10 @@ interface IntegrationPanelProps {
   /** The session of the tab beside the pane, when it can take a ticket (it
    * exists on the relay and is not a room). */
   sessionId: string | null;
+  /** The tab beside the pane is a new session not started yet and has no
+   * ticket: "Work on this in the current session" makes the ticket the one
+   * its first message starts on (`null`: not such a tab). */
+  onStartHere: ((ticket: TicketRef) => void) | null;
   /** "New session" on a ticket's screen. */
   onNewSession: (ticket: TicketRef) => void;
   /** A session listed on a ticket's screen. */
@@ -51,7 +55,7 @@ interface IntegrationPanelProps {
  * there; ↻ reads again. While an agent has to sign in, the pane says so
  * first and opens the connect card.
  */
-export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTicket, sessionId, onNewSession, onOpenSession, onWorkInRoom, onOpenRoomAgent, maximized, onToggleMaximized, onClose }: IntegrationPanelProps) {
+export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTicket, sessionId, onStartHere, onNewSession, onOpenSession, onWorkInRoom, onOpenRoomAgent, maximized, onToggleMaximized, onClose }: IntegrationPanelProps) {
   const dict = useDict();
   const integrations = useProfileIntegrations(profile.id);
   const integration = integrations?.entry.integrations?.find((entry) => entry.id === integrationId);
@@ -76,6 +80,7 @@ export function IntegrationPanel({ profile, integrationId, ticketKey, onOpenTick
           onOpenTicket,
           links: integrations.entry.workTickets,
           sessionId,
+          onStartHere,
           onNewSession,
           onOpenSession,
           onWorkInRoom,
@@ -137,13 +142,14 @@ interface BodyProps {
   /** Every session's work ticket, `null` until the relay has said. */
   links: WorkTicketMap | null;
   sessionId: string | null;
+  onStartHere: ((ticket: TicketRef) => void) | null;
   onNewSession: (ticket: TicketRef) => void;
   onOpenSession: (sessionId: string, title: string | null) => void;
   onWorkInRoom: (ticket: TicketRef, room: TicketRoomChoice | null) => void;
   onOpenRoomAgent: (roomId: string, roomTitle: string | null, agentId: string) => void;
 }
 
-function IntegrationBody({ profileId, integration, provider, stale, receivedAt, send, ticketKey, onOpenTicket, links, sessionId, onNewSession, onOpenSession, onWorkInRoom, onOpenRoomAgent }: BodyProps) {
+function IntegrationBody({ profileId, integration, provider, stale, receivedAt, send, ticketKey, onOpenTicket, links, sessionId, onStartHere, onNewSession, onOpenSession, onWorkInRoom, onOpenRoomAgent }: BodyProps) {
   const dict = useDict();
   const copy = dict.integrations.tickets;
   const canRead = !stale && pickFetchRuntime(integration) !== undefined;
@@ -197,7 +203,9 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
     const ticket = ticketRefFor(integration, ticketKey);
     const onTicket = linksOnTicket(links, { provider, key: ticketKey });
     // Both need the ticket's site, which the relay learns on its first read.
-    const workHere = ticket !== null && !stale && canWorkHere(links, sessionId);
+    // A session not started yet takes the ticket as its pending one, which
+    // its first message carries; nothing reaches the relay before that.
+    const workHere = ticket !== null && (onStartHere !== null || (!stale && canWorkHere(links, sessionId)));
     return (
       <TicketScreen
         ticketKey={ticketKey}
@@ -215,7 +223,8 @@ function IntegrationBody({ profileId, integration, provider, stale, receivedAt, 
           <TicketWorkActions
             workHere={workHere}
             onWorkHere={() => {
-              if (ticket && sessionId) sendRef.current({ type: "work_ticket", sessionId, action: "link", ticket });
+              if (ticket && onStartHere) onStartHere(ticket);
+              else if (ticket && sessionId) sendRef.current({ type: "work_ticket", sessionId, action: "link", ticket });
             }}
             onNewSession={ticket ? () => onNewSession(ticket) : null}
             rooms={rooms}

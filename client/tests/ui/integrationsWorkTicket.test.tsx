@@ -155,8 +155,9 @@ describe("working on a ticket", () => {
     await user.click(listRow);
     const sessions = await screen.findByTestId("ticket-sessions");
     expect(within(sessions).getAllByRole("button").map((button) => button.getAttribute("data-session-link"))).toEqual([running, idle, third]);
-    // The new-session tab beside the pane has no session yet: only "New session".
-    expect(screen.queryByRole("button", { name: work.workHere })).toBeNull();
+    // The new-session tab beside the pane has not started: it can still take
+    // the ticket, for its first message.
+    expect(within(screen.getByTestId("ticket-work-actions")).getByRole("button", { name: work.workHere })).toBeInTheDocument();
     expect(within(screen.getByTestId("ticket-work-actions")).getByRole("button", { name: work.newSession })).toBeInTheDocument();
 
     await user.click(within(sessions).getByRole("button", { name: /fix filter/ }));
@@ -193,6 +194,34 @@ describe("working on a ticket", () => {
     // A later message carries no ticket.
     await send(user, "next");
     expect(sentOfType("user_message")[1].message).toEqual({ type: "user_message", text: "next" });
+  }, LONG);
+
+  it("works on a ticket in a new session that has not started yet, its first message starting on it", async () => {
+    start([]);
+    const user = userEvent.setup();
+    renderApp();
+    await startNewConversation(user);
+    await openJira(user);
+    await user.click(await screen.findByRole("button", { name: /Paginate the orders list/ }));
+    expect(chip()).toBeNull();
+    await user.click(within(await screen.findByTestId("ticket-work-actions")).getByRole("button", { name: work.workHere }));
+
+    // The same tab, the ticket as a chip beside the folder; nothing told to
+    // the relay yet.
+    await waitFor(() => expect(chip()).toHaveAttribute("data-ticket", "NGL-1144"));
+    expect(onScreen(screen.queryAllByLabelText(en.chat.composer.placeholder))).toHaveLength(1);
+    expect(sentOfType("work_ticket")).toEqual([]);
+
+    // With a ticket pending, another one only offers a new session.
+    await user.click(within(screen.getByTestId("ticket-screen")).getByRole("button", { name: en.integrations.tickets.ticket.back.replace("{list}", en.integrations.tickets.allMine) }));
+    await user.click(await screen.findByRole("button", { name: /Export orders as CSV/ }));
+    await waitFor(() => expect(screen.getByTestId("ticket-screen")).toHaveTextContent("Export orders as CSV"));
+    expect(screen.queryByRole("button", { name: work.workHere })).toBeNull();
+    expect(within(screen.getByTestId("ticket-work-actions")).getByRole("button", { name: work.newSession })).toBeInTheDocument();
+
+    await send(user, "go");
+    expect(sentOfType("user_message")[0].message).toEqual({ type: "user_message", text: "go", startTicket: { provider: "jira", site: SITE, key: "NGL-1144" } });
+    expect(sentOfType("work_ticket")).toEqual([]);
   }, LONG);
 
   it("drops the ticket from a new session with its ✕", async () => {

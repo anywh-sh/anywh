@@ -66,6 +66,9 @@ export interface TabPanelActions {
   /** "New session" on a ticket's screen: a new-session tab of the profile
    * that starts on the ticket, with the integration's pane beside it. */
   onNewTicketSession: (profile: Profile, ticket: TicketRef, integrationId: string) => void;
+  /** "Work on this in the current session" on a new-session tab not started
+   * yet: its first message starts on the ticket. */
+  onSetPendingTicket: (tabId: string, ticket: TicketRef) => void;
   /** The new session will not start on a ticket after all. */
   onClearPendingTicket: (tabId: string) => void;
   /** "Work on it in a room…" on a ticket's screen: an existing room's tab
@@ -190,6 +193,7 @@ interface TabDockProps {
  * nothing else. */
 function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions, roomPanes, background = false }: TabDockProps) {
   const integrationId = dock.panes.includes("integration") ? (dock.integrationId ?? null) : null;
+  const notStarted = tab.isNew && tab.title === null && !tab.isRunning;
   return (
     <SessionDock
       dock={dock}
@@ -211,7 +215,10 @@ function TabDock({ tab, profile, groupId, dock, terminalTabs, fileTabs, actions,
             // The session beside the pane can take a ticket once it exists on
             // the relay; a room's is its principal, which never works on one,
             // and a room's agent in its own tab gets its tickets from the room.
-            sessionId={tab.room || tab.roomAgent || (tab.isNew && tab.title === null) ? null : tab.id}
+            sessionId={tab.room || tab.roomAgent || notStarted ? null : tab.id}
+            // One not started yet takes the ticket as its pending one (Room
+            // mode included: it goes with the room, as "New room" does).
+            onStartHere={notStarted && !tab.room && !tab.roomAgent && !tab.pendingTicket ? (ticket) => actions.onSetPendingTicket(tab.id, ticket) : null}
             onNewSession={(ticket) => actions.onNewTicketSession(profile, ticket, integrationId)}
             onOpenSession={(sessionId, title) => actions.onOpenSession(profile, sessionId, title)}
             onWorkInRoom={(ticket, room) => actions.onWorkInRoom(profile, ticket, integrationId, room)}

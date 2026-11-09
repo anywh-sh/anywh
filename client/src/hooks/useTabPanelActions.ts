@@ -160,6 +160,7 @@ export function useTabPanelActions({
         tabsState.setPendingTicket(id, ticket);
         sessionDock.showIntegration(id, integrationId, null);
       },
+      onSetPendingTicket: (tabId, ticket) => tabsState.setPendingTicket(tabId, ticket),
       onClearPendingTicket: (tabId) => tabsState.setPendingTicket(tabId, null),
       onWorkInRoom: (profile, ticket, integrationId, room) => {
         if (room === null) {
