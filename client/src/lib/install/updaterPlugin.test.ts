@@ -35,13 +35,13 @@ describe("installOnClose", () => {
     windowApi.close.mockReset().mockResolvedValue(undefined);
   });
 
-  it("installs, then closes the window", async () => {
+  it("installs without relaunching, then closes the window", async () => {
     const { update, install } = fakeUpdate();
     await installOnClose(update);
     const preventDefault = vi.fn();
     await windowApi.handler({ preventDefault });
     expect(preventDefault).toHaveBeenCalled();
-    expect(install).toHaveBeenCalled();
+    expect(install).toHaveBeenCalledWith({ restartAfterInstall: false });
     expect(windowApi.destroy).toHaveBeenCalledOnce();
   });
 

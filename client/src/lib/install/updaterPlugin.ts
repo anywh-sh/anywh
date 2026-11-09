@@ -68,6 +68,11 @@ export async function restartIntoUpdate(update: Update, installed: boolean): Pro
  * the window (the title bar's close button, Alt+F4, the taskbar) installs it
  * on the way out instead of discarding it.
  *
+ * `restartAfterInstall: false` because the user just asked to quit — the
+ * plugin's default on Windows makes the NSIS installer relaunch the app
+ * (`/R`), which would reopen the window that was just closed. The next
+ * launch is the new version either way.
+ *
  * The close must never be blocked by the install: the request is cancelled
  * only to run the install first, and whatever happens (the installer throws,
  * antivirus holds the file, extraction fails, or it returns on a platform
@@ -84,7 +89,7 @@ export async function installOnClose(update: Update): Promise<() => void> {
     installAttempted = true;
     event.preventDefault();
     try {
-      await update.install();
+      await update.install({ restartAfterInstall: false });
     } catch {
       trackError("update_failed");
     }
