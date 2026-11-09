@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getProfiles, isBrokeredProfile, isTailnetProfile, markProfileVerified, removeProfile, setProfiles, syncProfilesForHost, type Profile } from "./profiles";
+import { addProfile, getProfiles, isBrokeredProfile, isTailnetProfile, markProfileVerified, removeProfile, setProfiles, syncProfilesForHost, type Profile } from "./profiles";
 import type { RemoteProfile } from "@/lib/relay/relay-types";
 
 function remote(overrides: Partial<RemoteProfile> & Pick<RemoteProfile, "id" | "host">): RemoteProfile {
@@ -13,12 +13,28 @@ function remote(overrides: Partial<RemoteProfile> & Pick<RemoteProfile, "id" | "
   };
 }
 
+const sent: { name: string; props: Record<string, unknown> }[] = [];
+vi.mock("@/lib/telemetry", () => ({
+  telemetry: {
+    available: true,
+    track: (name: string, props: Record<string, unknown>) => {
+      sent.push({ name, props });
+      return "sent";
+    },
+    trackDaily: () => "sent",
+    trackOnce: () => "sent",
+  },
+}));
+
 // Real code path throughout — setProfiles/syncProfilesForHost are the
 // production functions (profiles.ts), not stand-ins. Each test seeds a known
 // starting list via setProfiles so it doesn't depend on whatever the
 // previous test left behind.
 beforeEach(() => {
   localStorage.clear();
+  sent.length = 0;
+  for (const profile of getProfiles()) removeProfile(profile.id);
+  sent.length = 0;
 });
 
 describe("syncProfilesForHost", () => {
@@ -404,5 +420,49 @@ describe("localRelay", () => {
 
     expect(getProfiles()).toHaveLength(1);
     expect(getProfiles()[0].localRelay).toBe(true);
+  });
+});
+
+describe("profile_added", () => {
+  const paired = (extra: Partial<Profile> = {}): Profile => ({ id: "paired", label: "Paired", host: "1.2.3.4", relayPort: 8443, ...extra });
+  const added = () => sent.filter((event) => event.name === "profile_added");
+
+  it("is not sent for an unverified save — the attempt may still fail", () => {
+    addProfile(paired({ unverified: true }));
+    expect(added()).toEqual([]);
+  });
+
+  it("is sent once, with the same properties as before, when the profile is verified", () => {
+    addProfile(paired({ unverified: true, brokerNodeId: "n1" }));
+    markProfileVerified("paired");
+    markProfileVerified("paired");
+    expect(added()).toEqual([{ name: "profile_added", props: { kind: "remote", pairing_method: "code" } }]);
+  });
+
+  it("is sent at once for a new profile that is already verified", () => {
+    addProfile(paired());
+    expect(added()).toEqual([{ name: "profile_added", props: { kind: "remote", pairing_method: "address" } }]);
+  });
+
+  it("is not sent again for a re-add or a re-verification of the same id", () => {
+    addProfile(paired({ unverified: true }));
+    markProfileVerified("paired");
+    addProfile(paired());
+    addProfile(paired({ unverified: true }));
+    markProfileVerified("paired");
+    expect(added()).toHaveLength(1);
+  });
+
+  it("counts a verified re-add of an id saved unverified, once", () => {
+    addProfile(paired({ unverified: true }));
+    addProfile(paired());
+    markProfileVerified("paired");
+    expect(added()).toHaveLength(1);
+  });
+
+  it("is never sent for an attempt that failed and was removed", () => {
+    addProfile(paired({ unverified: true }));
+    removeProfile("paired");
+    expect(added()).toEqual([]);
   });
 });
