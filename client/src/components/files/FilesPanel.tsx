@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { Eye, EyeOff, FolderInput } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
@@ -270,6 +271,7 @@ function useFilesDrop(profile: Profile, sessionId: string, uploadFailed: string)
 export function FilesPanel({ profile, chatSessionId, maximized, fileTabs, onToggleMaximized, onClose, onOpenTerminal }: FilesPanelProps) {
   const dict = useDict();
   const copy = dict.panels.files;
+  useEffect(() => trackFeature("files_panel"), []);
   const { open, activePath, expanded, treeWidth, root } = fileTabs.getTabs(chatSessionId);
   // Not persisted — same as the terminal's tab list, this is view state, not
   // worth surviving a restart. Defaults to filtered.

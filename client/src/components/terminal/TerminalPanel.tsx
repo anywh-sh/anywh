@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { PaneTabStrip } from "@/components/shell/PaneTabStrip";
 import { SessionPanel } from "@/components/shell/SessionPanel";
 import { TerminalView } from "@/components/terminal/TerminalView";
@@ -68,6 +69,7 @@ export function TerminalPanel({
    * invocations (same component instance), so the second one sees it
    * already flipped and skips. */
   const seededRef = useRef(false);
+  useEffect(() => trackFeature("terminal"), []);
   useEffect(() => {
     if (tabs.length > 0) {
       hasHadTabsRef.current = true;

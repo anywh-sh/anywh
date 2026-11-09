@@ -1,4 +1,5 @@
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import type { Profile } from "@/lib/profiles/profiles";
 import { BrokerAsleepError, BrokerRevokedError, BrokerThrottledError } from "@/lib/profiles/tailnetBroker";
 import { EMPTY_PROFILE_USAGE, type ProfilePlanUsage } from "@/lib/planUsage/derive";
@@ -143,6 +144,7 @@ export class PlanUsageWatch {
    */
   refresh(force: boolean, runtime?: PlanUsageRuntime): boolean {
     if (this.stopped || this.final) return false;
+    if (force) trackFeature("plan_usage_refresh");
     const message: PlanUsageRefreshMessage = { type: "plan_usage_refresh", force, ...(runtime ? { runtime } : {}) };
     this.pendingRefresh = { message, resends: 0, sent: false };
     this.update({ refreshing: true });

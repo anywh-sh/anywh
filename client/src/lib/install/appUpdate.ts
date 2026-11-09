@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { trackError } from "@/lib/telemetry/instrument";
 import { APP_VERSION, isUnreleasedVersion } from "@/lib/install/appVersion";
 import { isNewerVersion } from "@/lib/install/semver";
 import { type AppSettings, type UpdateMode, readSettings, writeSettings } from "@/lib/settings";
@@ -211,6 +212,7 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
         const update = await deps.downloadUpdate();
         if (update) markDownloaded(update);
       } catch {
+        trackError("update_failed");
         // Best-effort — a network hiccup here is no different from one in
         // checkLatestRelease above, and the next scheduled check retries.
       }

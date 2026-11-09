@@ -13,6 +13,7 @@ import {
   type InstallRunStatus,
   type Prerequisites,
 } from "@/lib/install/localRelay";
+import { trackError } from "@/lib/telemetry/instrument";
 import { currentPlatform } from "@/lib/platform/platform";
 import { addProfile, findProfile, type Profile } from "@/lib/profiles/profiles";
 import {
@@ -459,6 +460,7 @@ function settle(ok: boolean, profile: InstallProfileResult | null, failure: Inst
   }
   releaseHold();
   const code: LocalFailureCode = failure ? toFailureCode(failure.code) : state.install.lines.length > 0 ? "cancelled" : "unexpected";
+  if (code !== "cancelled") trackError("agent_install_failed");
   publish({
     ...state,
     install: { ...state.install, status: "failed", failure: { code, detail: failure?.message ?? "" }, failedStep: failure?.step ?? null },
@@ -498,6 +500,7 @@ function watchSetup(): void {
       stopWatchingSetup();
       publish({ ...state, verify: { ...state.verify, status: "ok", failure: null } });
     } else if (setup.status === "failed") {
+      trackError("relay_unreachable");
       publish({ ...state, verify: { ...state.verify, status: "failed", failure: { code: "unresponsive", detail: "" } } });
     } else if (state.verify.status !== "running") {
       publish({ ...state, verify: { ...state.verify, status: "running", failure: null } });

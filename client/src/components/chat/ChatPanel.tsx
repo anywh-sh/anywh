@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { trackError, trackFeature, trackPromptSent, trackSessionStarted } from "@/lib/telemetry/instrument";
 import { createPortal } from "react-dom";
 import { ImagePlus } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -858,6 +859,10 @@ export function ChatPanel({
     );
   };
 
+  useEffect(() => {
+    if (protocolMismatch !== null) trackError("relay_version_mismatch");
+  }, [protocolMismatch]);
+
   const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
     // Editing via composer (iOS) — the normal send (slash
     // commands, `addUserMessage`+`sendMessage`) doesn't apply here:
@@ -878,6 +883,7 @@ export function ChatPanel({
     // button there to change model/permission mode, so typing the
     // command is the only way to do it on that platform.
     const command = parseSlashCommand(text, modelCatalog, effortChoicesFor(modelCatalog, model));
+    if (command) trackFeature("slash_command");
     if (command?.name === "clear") {
       clearConversation();
       return;
@@ -890,10 +896,15 @@ export function ChatPanel({
       setEffort(command.effort);
       return;
     }
+    if (sentImages.length > 0) trackFeature("attachment");
+    trackPromptSent(agentId);
     if (roomMode) {
+      trackSessionStarted({ agentId, model, effort, permissionMode, kind: "sala" });
+      trackFeature("sala");
       openRoom(text, sentImages);
       return;
     }
+    if (isNewConversation) trackSessionStarted({ agentId, model, effort, permissionMode, kind: "chat" });
     log.addUserMessage(text, sentImages);
     sendMessage(buildWireMessage(text, sentImages));
     images.clearWithoutRevoke();

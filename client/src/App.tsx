@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -217,6 +218,9 @@ function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
+  useEffect(() => {
+    if (searchOpen) trackFeature("global_search");
+  }, [searchOpen]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   // Connection state per tab — used by TitleBar and the native iOS top bar, which
@@ -241,6 +245,10 @@ function AppShell() {
   // a tab's cancel/dismiss/stop functions, registered by its own `ChatPanel`
   // so the tray can act on a tab that isn't focused right now.
   const backgroundActionsRef = useRef<Map<string, BackgroundJobActions>>(new Map());
+  const hasBackgroundJobs = Object.values(backgroundActivityByTab).some((entry) => entry.jobs.length > 0);
+  useEffect(() => {
+    if (hasBackgroundJobs) trackFeature("background_jobs");
+  }, [hasBackgroundJobs]);
 
   useEffect(() => {
     void ensureNotificationPermission();

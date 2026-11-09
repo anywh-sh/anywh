@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { trackError } from "@/lib/telemetry/instrument";
 import { Ban, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +47,9 @@ export function RevokedProfileBanner({ profile }: { profile: Profile }) {
   const profiles = useProfiles();
   const dict = useDict();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  useEffect(() => {
+    if (revoked) trackError("profile_revoked");
+  }, [revoked]);
 
   if (!revoked) return null;
 
