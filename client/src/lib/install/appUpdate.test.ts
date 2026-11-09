@@ -330,6 +330,128 @@ describe("performUpdateCheck", () => {
 
     expect(downloadUpdate).toHaveBeenCalledTimes(1);
   });
+
+  describe("retrying a download that never arrived", () => {
+    const notModified = () => Promise.resolve({ kind: "notModified" as const });
+
+    async function setup() {
+      const appUpdate = await freshModule();
+      const settings = await freshSettings();
+      settings.writeSettings({
+        ...settings.readSettings(),
+        app: { updateMode: "auto-download" },
+      });
+      return { appUpdate, settings };
+    }
+
+    it("retries after a failed download even though the next check is 'not modified'", async () => {
+      const { appUpdate, settings } = await setup();
+      const downloadUpdate = vi
+        .fn<() => Promise<Update | null>>()
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValueOnce(fakeUpdate("999.0.0"));
+      const base = { getInstallOrigin: fakeOrigin(true), downloadUpdate };
+
+      await appUpdate.performUpdateCheck(Date.now(), {
+        ...base,
+        checkLatestRelease: () => Promise.resolve(NEWER),
+      });
+      expect(appUpdate.getReadyUpdate()).toBeNull();
+      expect(settings.readSettings().app?.lastSeenVersion).toBe("999.0.0");
+
+      await appUpdate.forceUpdateCheck({
+        ...base,
+        checkLatestRelease: notModified,
+      });
+      expect(downloadUpdate).toHaveBeenCalledTimes(2);
+      expect(appUpdate.getReadyUpdate()?.update.version).toBe("999.0.0");
+    });
+
+    it("retries after a download that came back empty", async () => {
+      const { appUpdate } = await setup();
+      const downloadUpdate = vi
+        .fn<() => Promise<Update | null>>()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(fakeUpdate("999.0.0"));
+      const base = { getInstallOrigin: fakeOrigin(true), downloadUpdate };
+
+      await appUpdate.performUpdateCheck(Date.now(), {
+        ...base,
+        checkLatestRelease: () => Promise.resolve(NEWER),
+      });
+      await appUpdate.forceUpdateCheck({
+        ...base,
+        checkLatestRelease: notModified,
+      });
+
+      expect(appUpdate.getReadyUpdate()?.update.version).toBe("999.0.0");
+    });
+
+    it("retries on a fresh launch, where the in-memory update store is empty", async () => {
+      const { appUpdate, settings } = await setup();
+      settings.writeSettings({
+        ...settings.readSettings(),
+        app: {
+          updateMode: "auto-download",
+          lastSeenVersion: "999.0.0",
+          etag: "e",
+        },
+      });
+      const downloadUpdate = vi.fn(() => Promise.resolve(fakeUpdate("999.0.0")));
+
+      await appUpdate.forceUpdateCheck({
+        getInstallOrigin: fakeOrigin(true),
+        checkLatestRelease: notModified,
+        downloadUpdate,
+      });
+
+      expect(downloadUpdate).toHaveBeenCalledOnce();
+      expect(appUpdate.getAvailableUpdate()?.version).toBe("999.0.0");
+    });
+
+    it("does not download again once the version is ready", async () => {
+      const { appUpdate } = await setup();
+      const downloadUpdate = vi.fn(() => Promise.resolve(fakeUpdate("999.0.0")));
+      const base = { getInstallOrigin: fakeOrigin(true), downloadUpdate };
+
+      await appUpdate.performUpdateCheck(Date.now(), {
+        ...base,
+        checkLatestRelease: () => Promise.resolve(NEWER),
+      });
+      await appUpdate.forceUpdateCheck({
+        ...base,
+        checkLatestRelease: notModified,
+      });
+
+      expect(downloadUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it("does nothing on 'not modified' when the last seen version is not newer, or the mode is not automatic", async () => {
+      const { appUpdate, settings } = await setup();
+      const downloadUpdate = vi.fn(() => Promise.resolve(fakeUpdate("0.1.0")));
+      settings.writeSettings({
+        ...settings.readSettings(),
+        app: { updateMode: "auto-download", lastSeenVersion: "0.1.0" },
+      });
+      await appUpdate.forceUpdateCheck({
+        getInstallOrigin: fakeOrigin(true),
+        checkLatestRelease: notModified,
+        downloadUpdate,
+      });
+
+      settings.writeSettings({
+        ...settings.readSettings(),
+        app: { updateMode: "notify", lastSeenVersion: "999.0.0" },
+      });
+      await appUpdate.forceUpdateCheck({
+        getInstallOrigin: fakeOrigin(true),
+        checkLatestRelease: notModified,
+        downloadUpdate,
+      });
+
+      expect(downloadUpdate).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("ready update", () => {

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { trackError } from "@/lib/telemetry/instrument";
 import { APP_VERSION, isUnreleasedVersion } from "@/lib/install/appVersion";
 import { isNewerVersion } from "@/lib/install/semver";
-import { type AppSettings, readSettings, writeSettings } from "@/lib/settings";
+import { type AppSettings, type UpdateMode, readSettings, writeSettings } from "@/lib/settings";
 import { inTauri } from "@/lib/platform/tauri";
 import { currentPlatform } from "@/lib/platform/platform";
 import { downloadRealUpdate, installDownloadedUpdate, type Update } from "@/lib/install/updaterPlugin";
@@ -202,14 +202,23 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   // that can (an app dragged into /Applications).
   const mode = resolveUpdateMode(app?.updateMode, origin.updatable);
 
-  if (result.kind === "notModified") {
+  if (result.kind === "rateLimited") {
+    nextApp.nextCheckAllowedAt = result.retryAfterEpochMs ?? undefined;
     writeSettings({ ...settings, app: nextApp });
     return;
   }
 
-  if (result.kind === "rateLimited") {
-    nextApp.nextCheckAllowedAt = result.retryAfterEpochMs ?? undefined;
+  if (result.kind === "notModified") {
     writeSettings({ ...settings, app: nextApp });
+    // The ETag is saved the moment a release is first seen, so a download
+    // that failed (or came back empty) would otherwise never be tried again:
+    // every later check answers "not modified". A version already seen as
+    // newer, with nothing ready for it, is therefore retried here.
+    const seen = app?.lastSeenVersion;
+    if (seen && isNewerVersion(seen, appVersion)) {
+      const known = getAvailableUpdate();
+      await offerUpdate(seen, known?.version === seen ? known.htmlUrl : releasePageUrl(seen), mode, deps);
+    }
     return;
   }
 
@@ -218,37 +227,45 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   if (result.etag) nextApp.etag = result.etag;
   writeSettings({ ...settings, app: nextApp });
 
-  if (isNewerVersion(version, appVersion)) {
-    markUpdateAvailable({ version, htmlUrl: result.htmlUrl });
+  if (isNewerVersion(version, appVersion)) await offerUpdate(version, result.htmlUrl, mode, deps);
+}
 
-    // Only once per version: the plugin's own check() keeps returning the
-    // same update until the app restarts into it, since the running version
-    // hasn't changed yet.
-    if (mode === "auto-download" && getReadyUpdate()?.update.version !== version && !downloading) {
-      downloading = true;
-      try {
-        const update = await deps.downloadUpdate();
-        if (update) {
-          let installed = false;
-          if (deps.installsInBackground ?? installsInBackground()) {
-            try {
-              await (deps.installUpdate ?? installDownloadedUpdate)(update);
-              installed = true;
-            } catch {
-              // Left downloaded: the restart button installs it, as on Windows.
-              trackError("update_failed");
-            }
-          }
-          markReady(update, installed);
+function releasePageUrl(version: string): string {
+  return `https://github.com/anywh-sh/anywh/releases/tag/v${version}`;
+}
+
+/** Surfaces a newer version and, in the automatic mode, downloads (and where
+ * possible installs) it. Reached from a fresh release and from a "not
+ * modified" check that still has an undelivered download to retry. */
+async function offerUpdate(version: string, htmlUrl: string, mode: UpdateMode, deps: CheckDeps): Promise<void> {
+  markUpdateAvailable({ version, htmlUrl });
+
+  // Only once per version: the plugin's own check() keeps returning the
+  // same update until the app restarts into it, since the running version
+  // hasn't changed yet.
+  if (mode !== "auto-download" || getReadyUpdate()?.update.version === version || downloading) return;
+  downloading = true;
+  try {
+    const update = await deps.downloadUpdate();
+    if (update) {
+      let installed = false;
+      if (deps.installsInBackground ?? installsInBackground()) {
+        try {
+          await (deps.installUpdate ?? installDownloadedUpdate)(update);
+          installed = true;
+        } catch {
+          // Left downloaded: the restart button installs it, as on Windows.
+          trackError("update_failed");
         }
-      } catch {
-        trackError("update_failed");
-        // Best-effort — a network hiccup here is no different from one in
-        // checkLatestRelease above, and the next scheduled check retries.
-      } finally {
-        downloading = false;
       }
+      markReady(update, installed);
     }
+  } catch {
+    // A failed download is retried by the next check even though the ETag
+    // already says "not modified" (see the `notModified` branch).
+    trackError("update_failed");
+  } finally {
+    downloading = false;
   }
 }
 
