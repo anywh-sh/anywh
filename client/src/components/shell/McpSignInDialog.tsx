@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { connectorMark } from "@/lib/sala/connectorMarks";
+import { trackError, trackFeature } from "@/lib/telemetry/instrument";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,6 +55,16 @@ export function McpSignInDialog({ open, onOpenChange, target }: McpSignInDialogP
   const copy = useDict().shell.profiles.mcpSignIn;
   const [active, setActive] = useState<string | null>(null);
   const [state, setState] = useState<LoginState>({ status: "idle" });
+  const finished = state.status === "done" ? state.code : undefined;
+  useEffect(() => {
+    if (finished === undefined) return;
+    if (finished !== 0) {
+      trackError("mcp_signin_failed");
+      return;
+    }
+    trackFeature("mcp_signin");
+    if (active && connectorMark(active)?.key === "atlassian") trackFeature("integration_jira");
+  }, [finished]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pasted, setPasted] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
 

@@ -5,6 +5,8 @@ import { LocaleProvider } from "@/i18n";
 import App from "./App";
 import { applyFontSize, readFontSize } from "@/lib/fontSize";
 import { installHostBridge } from "@/lib/platform/hostBridge";
+import { startTelemetry } from "@/lib/telemetry";
+import { reportBoot } from "@/lib/telemetry/instrument";
 import { applyCachedTheme } from "@/lib/theme/themeApply";
 import "./index.css";
 
@@ -19,6 +21,10 @@ installHostBridge();
 // rather than in a component's effect — otherwise the first frame paints at
 // the default size and snaps to the stored one a tick later.
 applyFontSize(readFontSize());
+// Reads what only the native side knows (the environment). A no-op in a
+// build without a project key.
+startTelemetry();
+void reportBoot();
 
 // The WebdriverIO Tauri stack has three halves that all have to match: the
 // `tauri-plugin-wdio` crate (gated behind the `e2e` Cargo feature), the

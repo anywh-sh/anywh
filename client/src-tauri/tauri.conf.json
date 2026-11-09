@@ -59,6 +59,9 @@
     ],
     "resources": ["icons/128x128.png"],
     "externalBin": ["binaries/tailnet-sidecar"],
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser"

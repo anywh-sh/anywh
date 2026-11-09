@@ -311,7 +311,7 @@ jobs:
             sidecarTarget: linux-arm64
           - platform: windows-latest
             sidecarTarget: win32-x64
-          - platform: macos-14
+          - platform: macos-15
             sidecarTarget: darwin-arm64
             rustTarget: aarch64-apple-darwin
           # Cross-compiled from the same arm64 runner rather than a second
@@ -320,7 +320,7 @@ jobs:
           # automatically for this target, so whisper-rs/cpal's native C
           # builds cross-compile without extra setup. Unvalidated until this
           # job runs for real — macOS was never exercised in CI before this workflow.
-          - platform: macos-14
+          - platform: macos-15
             sidecarTarget: darwin-x64
             rustTarget: x86_64-apple-darwin
     runs-on: ${{ matrix.platform }}
@@ -409,6 +409,48 @@ jobs:
         run: node scripts/build-sidecar.mjs --target ${{ matrix.sidecarTarget }}
         working-directory: client
 
+      # Developer ID signing and notarization for the official build. The
+      # Tauri CLI signs the app and the sidecar, submits the bundle to Apple's
+      # notary service with the App Store Connect API key and staples the
+      # ticket, but only when these variables exist — so the step exports them
+      # only when the secrets are configured. A fork, or a run without them,
+      # builds an unsigned app exactly as before. All-or-nothing on purpose: a
+      # signed but un-notarized app is still blocked by Gatekeeper, so half a
+      # configuration fails the leg instead of shipping that.
+      - name: Configure macOS signing
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          present=0
+          for value in "$CERTIFICATE" "$CERTIFICATE_PASSWORD" "$SIGNING_IDENTITY" "$API_ISSUER" "$API_KEY" "$API_KEY_P8"; do
+            if [ -n "$value" ]; then present=$((present + 1)); fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "::notice::no Apple signing secrets: the macOS app is built unsigned"
+            exit 0
+          fi
+          if [ "$present" -ne 6 ]; then
+            echo "::error::Apple signing is partly configured: APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY and APPLE_API_KEY_P8 must all be set, or none"
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_${API_KEY}.p8"
+          printf '%s\n' "$API_KEY_P8" > "$key_path"
+          {
+            echo "APPLE_CERTIFICATE=$CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+            echo "APPLE_API_KEY=$API_KEY"
+            echo "APPLE_API_KEY_PATH=$key_path"
+          } >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -418,6 +460,11 @@ jobs:
           # comes from the repository variable, not from tauri.conf.json (see
           # the guard in create-release, which keeps this from being empty).
           TAURI_CONFIG: '{"identifier":"${{ vars.ANYWH_APP_IDENTIFIER }}"}'
+          # Compiled into the frontend by Vite. Unlike the identifier this one
+          # is optional: a release built without the secret ships with the
+          # telemetry module inert, which is also what a fork or a local
+          # build gets.
+          VITE_POSTHOG_KEY: ${{ secrets.ANYWH_POSTHOG_KEY }}
         with:
           projectPath: client
           args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }}
@@ -428,7 +475,10 @@ jobs:
           # scripts/build-latest-json.mjs replaces it, running once in the
           # checksums job after every leg's assets (and .sig files, which
           # uploadUpdaterSignatures still uploads regardless of this) are in.
-          uploadUpdaterJson: false
+          # The input is `includeUpdaterJson`; the old `uploadUpdaterJson` is
+          # not an input at all, so it was ignored and every leg kept racing
+          # on latest.json (a delete of an already-deleted asset is a 404).
+          includeUpdaterJson: false
 
   # Ships the relay as a tarball with node_modules already compiled — separate
   # from the client's `build` matrix above because it packages a Node
@@ -451,7 +501,7 @@ jobs:
             target: linux-arm64
           # No node-gyp toolchain needed here: node-pty already ships a
           # darwin-arm64 prebuild, so `npm ci` just downloads it.
-          - platform: macos-14
+          - platform: macos-15
             target: darwin-arm64
     runs-on: ${{ matrix.platform }}
     steps:
@@ -517,7 +567,7 @@ jobs:
       # this formula's dependency, even if the user has started relying on
       # it for unrelated work since. Bundling the runtime removes that
       # coupling entirely. Runs on a real macOS arm64 runner (this job's own
-      # `macos-14` leg), so build.mjs's blob generation, injection and
+      # `macos-15` leg), so build.mjs's blob generation, injection and
       # ad-hoc codesign all happen on the actual target platform, not
       # cross-built.
       - name: Build the SEA binary (macOS)
@@ -632,11 +682,11 @@ jobs:
           fi
 
       # Runs once here instead of once per matrix leg (see the comment next
-      # to `uploadUpdaterJson: false` on the build job) — every platform's
+      # to `includeUpdaterJson: false` on the build job) — every platform's
       # asset + .sig is already in dist/ at this point, so there's nothing
       # left to race against. `--clobber` replaces the empty placeholder
       # `gh release download` can't have produced in the first place (no
-      # `latest.json` is ever uploaded now that uploadUpdaterJson is off).
+      # `latest.json` is ever uploaded now that includeUpdaterJson is off).
       - name: Build the updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

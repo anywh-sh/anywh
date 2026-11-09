@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { Copy, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -142,6 +143,7 @@ export function ThemeImportDialog({
       const key = themeStoreKey(profile);
       const current = customThemesForHost(key).filter((theme) => theme.id !== saved.id);
       setThemesForHost(key, [...current, saved]);
+      trackFeature("theme_import");
       onImported(saved);
       onOpenChange(false);
     } catch (error) {

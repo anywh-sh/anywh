@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBar } from "@/components/shell/StatusBar";
-import { clearDownloadedUpdate, clearUpdate, performUpdateCheck } from "@/lib/install/appUpdate";
+import { clearReadyUpdate, clearUpdate, performUpdateCheck } from "@/lib/install/appUpdate";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { defaultLocale } from "@/i18n/config";
 import { en } from "@/i18n/en";
@@ -53,7 +53,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   clearUpdate();
-  clearDownloadedUpdate();
+  clearReadyUpdate();
   localStorage.clear();
 });
 

@@ -31,8 +31,8 @@ const UPDATE_ENDPOINT_OVERRIDE_ENV: &str = "ANYWH_UPDATE_ENDPOINT";
 /// is a plain `--no-bundle` debug build, not run from inside an AppImage or
 /// `.app`, so `decide_origin` below would honestly (and correctly, for a
 /// real dev build) answer `updatable: false` — which would make
-/// `normalizeUpdateMode` silently downgrade `auto-download` back to
-/// `notify` and defeat the entire point of that test, exercising the real
+/// `resolveUpdateMode` (client `updateMode.ts`) treat an automatic mode as
+/// notify-only and defeat the entire point of that test, exercising the real
 /// `tauri-plugin-updater` download+signature-verify path. Forcing the
 /// answer here is the same kind of origin-probe override
 /// `UPDATE_ENDPOINT_OVERRIDE_ENV` already is for the release check above.

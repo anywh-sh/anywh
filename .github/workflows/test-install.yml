@@ -308,7 +308,7 @@ jobs:
   checkout-macos:
     name: checkout tarball (macOS, no service manager)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
     env:
       ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8765
@@ -531,7 +531,7 @@ jobs:
   app-macos:
     name: app install (macOS, fixture bundle)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 10
     env:
       ANYWH_RELEASE_BASE_URL: http://127.0.0.1:8791

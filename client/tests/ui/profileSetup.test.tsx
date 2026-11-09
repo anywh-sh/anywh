@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setProfiles } from "@/lib/profiles/profiles";
+import { getProfiles, setProfiles } from "@/lib/profiles/profiles";
 import { enqueueProfileSetup, __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
 import { installFakeRelay, type FakeRelay } from "./helpers/fakeRelay";
 import { renderApp } from "./helpers/renderApp";
@@ -184,5 +184,27 @@ describe("profile setup", () => {
 
     await user.click(screen.getByRole("button", { name: en.common.retry }));
     await screen.findByText(en.shell.profiles.setup.connectedTitle);
+  });
+
+  it("closing a failed attempt lets the profile it saved go; the others stay", async () => {
+    setProfiles([{ id: "home", label: "Home", host: "127.0.0.1", relayPort: 8765 }]);
+    // A machine that never answers, whoever asks: the dialog's own verify
+    // and the shell's background session sync alike.
+    const routed = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url.includes("10.9.9.9") ? Promise.reject(new TypeError("Load failed")) : routed(input, init);
+    });
+    const user = userEvent.setup();
+    renderApp();
+
+    enqueueProfileSetup({ source: "params", params: { label: "Remote", host: "10.9.9.9", port: 8765 } });
+    await screen.findByText(en.shell.profiles.setup.verifyFailedTitle);
+    expect(getProfiles().map((p) => p.label)).toEqual(["Home", "Remote"]);
+
+    await user.click(screen.getByRole("button", { name: en.shell.profiles.setup.later }));
+
+    expect(screen.queryByText(en.shell.profiles.setup.verifyFailedTitle)).not.toBeInTheDocument();
+    expect(getProfiles().map((p) => p.id)).toEqual(["home"]);
   });
 });

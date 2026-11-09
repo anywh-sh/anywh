@@ -23,6 +23,11 @@ mod relay_setup;
 // owns that), same exclusion as the rest of this list.
 #[cfg(not(target_os = "ios"))]
 mod updater;
+// Reads the telemetry kill-switch variables for the webview, which cannot see
+// the process environment. Desktop only: the iOS build has no such command and
+// the frontend treats its absence as "not set".
+#[cfg(not(target_os = "ios"))]
+mod telemetry;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -165,7 +170,8 @@ pub fn run_with(
             relay_setup::relay_setup_cancel,
             relay_setup::relay_setup_status,
             updater::app_install_source,
-            updater::app_check_latest_release
+            updater::app_check_latest_release,
+            telemetry::telemetry_env_disabled
         ]);
 
     #[cfg(target_os = "ios")]

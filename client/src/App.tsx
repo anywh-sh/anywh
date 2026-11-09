@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -24,6 +25,7 @@ import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
+import { FirstLaunchBanner } from "@/components/shell/FirstLaunchBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { FirstRun } from "@/components/firstrun/FirstRun";
@@ -63,11 +65,12 @@ import { useTailnetSidecarOwner } from "@/hooks/profiles/useTailnetSidecarOwner"
 import { findProfile, getProfiles } from "@/lib/profiles/profiles";
 import { pruneCachedProfiles } from "@/lib/format/sessionListCache";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
-import { dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
+import { abandonProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
 import { ensureNotificationPermission } from "@/lib/platform/notifications";
 import { isIOS, isMacOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
-import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
+import { useInstallOnClose } from "@/hooks/platform/useAppUpdate";
+import { UPDATE_CHECK_INTERVAL_MS, forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
  * a direct deep-link to a specific state in tests via Playwright. */
@@ -216,6 +219,9 @@ function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
+  useEffect(() => {
+    if (searchOpen) trackFeature("global_search");
+  }, [searchOpen]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   // Connection state per tab — used by TitleBar and the native iOS top bar, which
@@ -240,13 +246,17 @@ function AppShell() {
   // a tab's cancel/dismiss/stop functions, registered by its own `ChatPanel`
   // so the tray can act on a tab that isn't focused right now.
   const backgroundActionsRef = useRef<Map<string, BackgroundJobActions>>(new Map());
+  const hasBackgroundJobs = Object.values(backgroundActivityByTab).some((entry) => entry.jobs.length > 0);
+  useEffect(() => {
+    if (hasBackgroundJobs) trackFeature("background_jobs");
+  }, [hasBackgroundJobs]);
 
   useEffect(() => {
     void ensureNotificationPermission();
   }, []);
 
   // The app stays open for days, so "check on launch" alone would never fire
-  // for someone who never restarts — a 24h interval here, not a one-shot
+  // for someone who never restarts — an interval here, not a one-shot
   // effect, is what makes that case checked at all. Deliberately not inside
   // whatever eventually renders the result, so that stays a trivial,
   // timer-free read of what this already found. No updater exists under the
@@ -255,17 +265,28 @@ function AppShell() {
   useEffect(() => {
     if (isIOS()) return;
     void performUpdateCheck();
-    const interval = setInterval(() => void performUpdateCheck(), 24 * 60 * 60 * 1000);
+    const interval = setInterval(() => void performUpdateCheck(), UPDATE_CHECK_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 
-  // The title bar menu's "Check for updates" — bypasses the 24h cadence
+  // A downloaded update that hasn't been installed (Windows) installs as the
+  // window closes.
+  useInstallOnClose();
+
+  // The title bar menu's "Check for updates" — bypasses the check cadence
   // (forceUpdateCheck, same as the removed Settings page's button did) and
-  // always opens the modal afterwards, found or not, so a manual check gets
-  // an answer instead of silently doing nothing when already up to date.
-  async function handleCheckForUpdates(): Promise<void> {
-    await forceUpdateCheck();
+  // always opens the modal, found or not, so a manual check gets an answer
+  // instead of silently doing nothing when already up to date.
+  function handleCheckForUpdates(): void {
+    // The modal opens at once and follows the check (and any download it
+    // starts) through the update store; awaiting the whole thing first left
+    // the menu item looking dead for the length of a download. A second press
+    // joins the check already running.
     setUpdateModalOpen(true);
+    forceUpdateCheck().catch(() => {
+      // Nothing to show beyond what the store already reflects; the modal
+      // falls back to its up-to-date/available state.
+    });
   }
 
   // First launch: restores last time's tabs (full list + order + which one
@@ -678,7 +699,7 @@ function AppShell() {
       onContinue={handleSetupContinue}
       onUseExisting={handleSetupUseExisting}
       onRetry={retryProfileSetup}
-      onDismiss={dismissProfileSetup}
+      onDismiss={abandonProfileSetup}
     />
   );
 
@@ -732,7 +753,7 @@ function AppShell() {
       sidebarCollapsed
       onToggleSidebar={resizable.toggleCollapsed}
       onOpenSettings={() => setSettingsOpen(true)}
-      onCheckForUpdates={() => void handleCheckForUpdates()}
+      onCheckForUpdates={handleCheckForUpdates}
     />
   );
 
@@ -742,7 +763,7 @@ function AppShell() {
       sidebarCollapsed={resizable.collapsed}
       onToggleSidebar={resizable.toggleCollapsed}
       onOpenSettings={() => setSettingsOpen(true)}
-      onCheckForUpdates={() => void handleCheckForUpdates()}
+      onCheckForUpdates={handleCheckForUpdates}
     />
   );
 
@@ -750,6 +771,7 @@ function AppShell() {
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
+      <FirstLaunchBanner />
 
       <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
       <SettingsDialog

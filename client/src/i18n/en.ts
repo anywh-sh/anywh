@@ -389,6 +389,10 @@ export const en: Dictionary = {
       close: "Close",
       reconnecting: "Reconnecting…",
       connected: "Connected",
+      restartToUpdate: "Restart to update",
+      restartShort: "Restart",
+      restartToUpdateHint: "anywh {version} is ready",
+      dismissRestartToUpdate: "Dismiss",
     },
     statusBar: {
       changes: "{count} changes",
@@ -548,6 +552,14 @@ export const en: Dictionary = {
         queued: "+{count} queued",
       },
     },
+    telemetryBanner: {
+      title: "Help us improve and pick the next features",
+      body: "We count which features get used, anonymously. Your prompts, files, paths and terminal output are never included. You can change this anytime in Settings → Privacy.",
+      dontShare: "Don't share",
+      gotIt: "Got it",
+      close: "Close",
+      learnMore: "What we collect",
+    },
     revoked: {
       eyebrow: "profile revoked",
       body: "{profile}'s access was removed from the account. This profile can no longer connect — the local history is still readable.",
@@ -569,11 +581,16 @@ export const en: Dictionary = {
       copyFailed: "Couldn't copy",
       restartHint: "Quit and reopen it to pick up this version.",
       checkAutomatically: "Check for updates automatically",
-      checkAutomaticallyOn: "On",
+      checkAutomaticallyNotify: "Notify only",
       checkAutomaticallyOff: "Off",
-      checkAutomaticallyAutoDownload: "Auto-download",
+      checkAutomaticallyInstall: "Install automatically",
+      downloadingHint: "Downloading in the background. A restart button appears in the title bar when it's ready.",
+      downloadFailedHint: "Download failed. It will be retried on the next check.",
+      checkingTitle: "Checking for updates",
+      checkingBody: "Looking for a newer version…",
       readyTitle: "Update ready",
-      readyBody: "anywh {version} has been downloaded and verified. Restart to apply it.",
+      readyBodyInstalled: "anywh {version} is installed. Restart to start using it.",
+      readyBodyDownloaded: "anywh {version} has been downloaded and verified. Restart to install it.",
       restartNow: "Restart now",
     },
     workingDirectory: {
@@ -672,6 +689,7 @@ export const en: Dictionary = {
       app: "app",
       profiles: "profiles",
       appearance: "Appearance",
+      privacy: "Privacy",
     },
     appearance: {
       title: "Appearance",
@@ -728,6 +746,17 @@ export const en: Dictionary = {
         sample: "The relay's socket doesn't reconnect when the app returns from the background.",
         reset: "restore",
       },
+    },
+    privacy: {
+      title: "Privacy",
+      scope: "applies to the whole app",
+      share: {
+        title: "Share anonymous usage counts",
+        description: "Counts which features get used. Your prompts, files, paths and terminal output are never included.",
+        learnMore: "What we collect",
+      },
+      lockedByEnv: "Turned off by the DO_NOT_TRACK or ANYWH_TELEMETRY_DISABLED environment variable this app was opened with. Your saved choice is kept.",
+      lockedNoAnalytics: "This build has no analytics, so nothing is sent whatever this says.",
     },
     profile: {
       sections: {

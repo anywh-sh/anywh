@@ -1,9 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
+import { trackError } from "@/lib/telemetry/instrument";
 import { APP_VERSION, isUnreleasedVersion } from "@/lib/install/appVersion";
 import { isNewerVersion } from "@/lib/install/semver";
 import { type AppSettings, type UpdateMode, readSettings, writeSettings } from "@/lib/settings";
 import { inTauri } from "@/lib/platform/tauri";
-import { downloadRealUpdate, type Update } from "@/lib/install/updaterPlugin";
+import { currentPlatform } from "@/lib/platform/platform";
+import { downloadRealUpdate, installDownloadedUpdate, type Update } from "@/lib/install/updaterPlugin";
+import { getInstallOrigin, resolveUpdateMode, type InstallOrigin } from "@/lib/install/updateMode";
+
+export { getInstallOrigin, resolveUpdateMode };
+export type { InstallOrigin, InstallSourceMarker } from "@/lib/install/updateMode";
 
 /**
  * Fase A2 of the in-app updater plan: the store `UpdateModal` reads from,
@@ -47,73 +53,97 @@ export function subscribeAppUpdate(listener: () => void): () => void {
 }
 
 // ---------------------------------------------------------------------------
-// The downloaded-and-ready-to-install update — phase B3. Separate store from
-// `current` above: that one is driven by the cheap GitHub check and can be
-// dismissed per-version, this one holds a live `Update` resource (a handle
-// into the Rust plugin, not plain data) and is only ever cleared by actually
-// installing it or by a newer download replacing it.
+// The downloaded update. Separate store from `current` above: that one is
+// driven by the cheap GitHub check, this one holds a live `Update` resource
+// (a handle into the Rust plugin, not plain data) and is only ever cleared by
+// restarting into it or by a newer download replacing it.
 // ---------------------------------------------------------------------------
 
-let downloaded: Update | null = null;
-const downloadListeners = new Set<() => void>();
+export interface ReadyUpdate {
+  update: Update;
+  /** Already applied to disk — the restart only relaunches. `false` where
+   * installing ends the process (Windows), or after an install that failed:
+   * the restart then installs it, the same as the Windows path. */
+  installed: boolean;
+  /** The title-bar prompt was dismissed; the status bar and the modal still
+   * show it. Per run on purpose: once applied, the next launch is already the
+   * new version, and an unapplied one deserves asking again. */
+  dismissed: boolean;
+}
 
-function notifyDownload(): void {
-  for (const listener of downloadListeners) listener();
+let ready: ReadyUpdate | null = null;
+const readyListeners = new Set<() => void>();
+
+function notifyReady(): void {
+  for (const listener of readyListeners) listener();
 }
 
 /** Closes the previous `Update` resource (if any) before replacing it — an
  * `Update` extends Tauri's `Resource`, so an unclosed one leaks its Rust-side
  * handle for the rest of the app's run. */
-function markDownloaded(update: Update): void {
-  if (downloaded && downloaded !== update) void downloaded.close();
-  downloaded = update;
-  notifyDownload();
+function markReady(update: Update, installed: boolean): void {
+  if (ready && ready.update !== update) void ready.update.close();
+  ready = { update, installed, dismissed: false };
+  notifyReady();
 }
 
-/** Called once the user actually installs it (see `updaterPlugin.ts`'s
- * `installAndRestart`) — the app is about to relaunch, so there's nothing
- * left to hold a reference to, but clearing it keeps the store honest if the
- * relaunch is ever slow enough for a re-render to observe it in between. */
-export function clearDownloadedUpdate(): void {
-  downloaded = null;
-  notifyDownload();
+export function dismissRestartPrompt(): void {
+  if (!ready || ready.dismissed) return;
+  ready = { ...ready, dismissed: true };
+  notifyReady();
 }
 
-export function getDownloadedUpdate(): Update | null {
-  return downloaded;
+/** Called once the app is about to relaunch, so there's nothing left to hold
+ * a reference to, but clearing it keeps the store honest if the relaunch is
+ * ever slow enough for a re-render to observe it in between. */
+export function clearReadyUpdate(): void {
+  ready = null;
+  notifyReady();
 }
 
-export function subscribeDownloadedUpdate(listener: () => void): () => void {
-  downloadListeners.add(listener);
-  return () => downloadListeners.delete(listener);
+export function getReadyUpdate(): ReadyUpdate | null {
+  return ready;
+}
+
+export function subscribeReadyUpdate(listener: () => void): () => void {
+  readyListeners.add(listener);
+  return () => readyListeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
+// What the updater is doing right now. The modal reads this instead of
+// guessing from "an update exists and the mode is automatic", which claimed a
+// download was running when nothing was (a failed one, a notify-only origin).
+// ---------------------------------------------------------------------------
+
+export interface UpdateActivity {
+  /** A check (the GitHub poll, then the download it leads to) is in flight. */
+  checking: boolean;
+  /** `failed`: the last attempt did not produce a download; the next check
+   * retries it (see the `notModified` branch of `runCheck`). */
+  download: "idle" | "downloading" | "failed";
+}
+
+let activity: UpdateActivity = { checking: false, download: "idle" };
+const activityListeners = new Set<() => void>();
+
+function setActivity(patch: Partial<UpdateActivity>): void {
+  activity = { ...activity, ...patch };
+  for (const listener of activityListeners) listener();
+}
+
+export function getUpdateActivity(): UpdateActivity {
+  return activity;
+}
+
+export function subscribeUpdateActivity(listener: () => void): () => void {
+  activityListeners.add(listener);
+  return () => activityListeners.delete(listener);
 }
 
 // ---------------------------------------------------------------------------
 // Rust bindings — thin, guarded by inTauri() (localRelay.ts's discipline)
 // ---------------------------------------------------------------------------
-
-export interface InstallSourceMarker {
-  version: number;
-  method: string;
-  channel: string;
-  path: string;
-  installedVersion: string;
-  installedAt: string;
-}
-
-export interface InstallOrigin {
-  channel: string;
-  updatable: boolean;
-  execPath: string;
-  marker: InstallSourceMarker | null;
-}
-
-const UNKNOWN_ORIGIN: InstallOrigin = { channel: "unknown", updatable: false, execPath: "", marker: null };
-
-export async function getInstallOrigin(): Promise<InstallOrigin> {
-  if (!inTauri()) return UNKNOWN_ORIGIN;
-  return invoke<InstallOrigin>("app_install_source");
-}
 
 export type LatestReleaseCheck =
   | { kind: "notModified" }
@@ -132,33 +162,50 @@ export async function checkLatestRelease(etag: string | undefined): Promise<Late
 // Policy — pure functions, the whole reason the scheduling logic is testable
 // ---------------------------------------------------------------------------
 
-const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** How often the app asks. The poll is a conditional GET (ETag), which GitHub
+ * doesn't count against the anonymous limit when nothing changed, so the
+ * cadence is about how soon a release reaches someone who never restarts. */
+export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-/** `off` suppresses everything; otherwise due once both the 24h cadence and
- * any rate-limit backoff (`nextCheckAllowedAt`) have elapsed. */
+/** `off` suppresses everything; otherwise due once both the cadence and any
+ * rate-limit backoff (`nextCheckAllowedAt`) have elapsed. */
 export function isCheckDue(app: AppSettings | undefined, now: number): boolean {
   if ((app?.updateMode ?? "notify") === "off") return false;
-  if (now - (app?.lastCheckedAt ?? 0) < CHECK_INTERVAL_MS) return false;
+  if (now - (app?.lastCheckedAt ?? 0) < UPDATE_CHECK_INTERVAL_MS) return false;
   if (now < (app?.nextCheckAllowedAt ?? 0)) return false;
   return true;
 }
 
-/** A non-updatable origin can't apply anything it downloads, so offering to
- * download it anyway would just strand the file — coerce to `notify`
- * instead of leaving a setting that silently does nothing. */
-export function normalizeUpdateMode(mode: UpdateMode, updatable: boolean): UpdateMode {
-  return mode === "auto-download" && !updatable ? "notify" : mode;
+/** Windows' NSIS installer closes the app to replace it, so there the update
+ * can only be installed as the app goes away; macOS (`.app` swap) and Linux
+ * (AppImage rewrite) replace the files under a running process. */
+function installsInBackground(): boolean {
+  return currentPlatform() !== "windows";
 }
 
 interface CheckDeps {
   getInstallOrigin: () => Promise<InstallOrigin>;
   checkLatestRelease: (etag: string | undefined) => Promise<LatestReleaseCheck>;
   downloadUpdate: () => Promise<Update | null>;
+  /** Applies a downloaded update to disk — only called where
+   * `installsInBackground` says it can run without ending the process. */
+  installUpdate?: (update: Update) => Promise<void>;
+  installsInBackground?: boolean;
   /** The running app's version — `APP_VERSION` unless a test says otherwise. */
   appVersion?: string;
 }
 
-const REAL_DEPS: CheckDeps = { getInstallOrigin, checkLatestRelease, downloadUpdate: downloadRealUpdate };
+const REAL_DEPS: CheckDeps = {
+  getInstallOrigin,
+  checkLatestRelease,
+  downloadUpdate: downloadRealUpdate,
+  installUpdate: installDownloadedUpdate,
+};
+
+/** A check can start while the previous one's download is still running (the
+ * timer firing during a manual "Check for updates"); a second download would
+ * race the first one's install over the same files. */
+let downloading = false;
 
 async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   const settings = readSettings();
@@ -181,16 +228,28 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   const result = await deps.checkLatestRelease(app?.etag);
 
   const nextApp: AppSettings = { ...app, lastCheckedAt: now };
-  if (app?.updateMode) nextApp.updateMode = normalizeUpdateMode(app.updateMode, origin.updatable);
-
-  if (result.kind === "notModified") {
-    writeSettings({ ...settings, app: nextApp });
-    return;
-  }
+  // Not written back: a saved `auto-download` that this origin can't honour
+  // stays as the user chose it, in case the install later moves somewhere
+  // that can (an app dragged into /Applications).
+  const mode = resolveUpdateMode(app?.updateMode, origin.updatable);
 
   if (result.kind === "rateLimited") {
     nextApp.nextCheckAllowedAt = result.retryAfterEpochMs ?? undefined;
     writeSettings({ ...settings, app: nextApp });
+    return;
+  }
+
+  if (result.kind === "notModified") {
+    writeSettings({ ...settings, app: nextApp });
+    // The ETag is saved the moment a release is first seen, so a download
+    // that failed (or came back empty) would otherwise never be tried again:
+    // every later check answers "not modified". A version already seen as
+    // newer, with nothing ready for it, is therefore retried here.
+    const seen = app?.lastSeenVersion;
+    if (seen && isNewerVersion(seen, appVersion)) {
+      const known = getAvailableUpdate();
+      await offerUpdate(seen, known?.version === seen ? known.htmlUrl : releasePageUrl(seen), mode, deps);
+    }
     return;
   }
 
@@ -199,27 +258,61 @@ async function runCheck(now: number, deps: CheckDeps): Promise<void> {
   if (result.etag) nextApp.etag = result.etag;
   writeSettings({ ...settings, app: nextApp });
 
-  if (isNewerVersion(version, appVersion)) {
-    markUpdateAvailable({ version, htmlUrl: result.htmlUrl });
+  if (isNewerVersion(version, appVersion)) await offerUpdate(version, result.htmlUrl, mode, deps);
+}
 
-    // Real download only in auto-download mode, and only once per version —
-    // the plugin's own check() keeps returning the same update every day
-    // until the user actually restarts into it, since the running version
-    // hasn't changed yet.
-    if (nextApp.updateMode === "auto-download" && getDownloadedUpdate()?.version !== version) {
-      try {
-        const update = await deps.downloadUpdate();
-        if (update) markDownloaded(update);
-      } catch {
-        // Best-effort — a network hiccup here is no different from one in
-        // checkLatestRelease above, and the next scheduled check retries.
+function releasePageUrl(version: string): string {
+  return `https://github.com/anywh-sh/anywh/releases/tag/v${version}`;
+}
+
+/** Surfaces a newer version and, in the automatic mode, downloads (and where
+ * possible installs) it. Reached from a fresh release and from a "not
+ * modified" check that still has an undelivered download to retry. */
+async function offerUpdate(version: string, htmlUrl: string, mode: UpdateMode, deps: CheckDeps): Promise<void> {
+  markUpdateAvailable({ version, htmlUrl });
+
+  // Only once per version: the plugin's own check() keeps returning the
+  // same update until the app restarts into it, since the running version
+  // hasn't changed yet.
+  if (mode !== "auto-download" || getReadyUpdate()?.update.version === version || downloading) return;
+  downloading = true;
+  setActivity({ download: "downloading" });
+  try {
+    const update = await deps.downloadUpdate();
+    if (update) {
+      let installed = false;
+      if (deps.installsInBackground ?? installsInBackground()) {
+        // The swap happens under the running process, which keeps going on the
+        // replaced bundle until the restart — the same as Zed, which rsyncs
+        // over its running app with no guard. A release that changes the
+        // tailnet-sidecar interface (flags, protocol) would break a process
+        // that spawns the new sidecar next to old frontend code, and would
+        // need a guard here.
+        try {
+          await (deps.installUpdate ?? installDownloadedUpdate)(update);
+          installed = true;
+        } catch {
+          // Left downloaded: the restart button installs it, as on Windows.
+          trackError("update_failed");
+        }
       }
+      markReady(update, installed);
+      setActivity({ download: "idle" });
+    } else {
+      setActivity({ download: "failed" });
     }
+  } catch {
+    setActivity({ download: "failed" });
+    // A failed download is retried by the next check even though the ETag
+    // already says "not modified" (see the `notModified` branch).
+    trackError("update_failed");
+  } finally {
+    downloading = false;
   }
 }
 
 /**
- * The scheduled entry point (called from a 24h interval in `App.tsx`, never
+ * The scheduled entry point (called from the interval in `App.tsx`, never
  * from the banner — see that component for why). `deps` defaults to the real
  * Rust bindings; tests inject fakes here instead of mocking Tauri's IPC,
  * the same kind of seam the relay's tests use at the `claude` process
@@ -230,8 +323,21 @@ export async function performUpdateCheck(now: number = Date.now(), deps: CheckDe
   await runCheck(now, deps);
 }
 
+let manualCheck: Promise<void> | null = null;
+
 /** The title bar's "Check for updates" item — same check, deliberately
  * bypassing `isCheckDue`: a user pressing the button is the due condition. */
-export async function forceUpdateCheck(deps: CheckDeps = REAL_DEPS): Promise<void> {
-  await runCheck(Date.now(), deps);
+export function forceUpdateCheck(deps: CheckDeps = REAL_DEPS): Promise<void> {
+  // A second press while one is running joins it instead of starting a
+  // parallel check (two GitHub polls, two writes of the same settings).
+  manualCheck ??= (async () => {
+    setActivity({ checking: true });
+    try {
+      await runCheck(Date.now(), deps);
+    } finally {
+      manualCheck = null;
+      setActivity({ checking: false });
+    }
+  })();
+  return manualCheck;
 }

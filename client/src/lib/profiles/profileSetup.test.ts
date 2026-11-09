@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getProfiles, setProfiles } from "@/lib/profiles/profiles";
+import { findProfile, getProfiles, markProfileVerified, setProfiles } from "@/lib/profiles/profiles";
 
 const {
   claimTailnetBundleMock,
@@ -23,6 +23,19 @@ const {
   fetchControlProfilesMock: vi.fn(),
 }));
 
+const sent: { name: string; props: Record<string, unknown> }[] = [];
+vi.mock("@/lib/telemetry", () => ({
+  telemetry: {
+    available: true,
+    track: (name: string, props: Record<string, unknown>) => {
+      sent.push({ name, props });
+      return "sent";
+    },
+    trackDaily: () => "sent",
+    trackOnce: () => "sent",
+  },
+}));
+
 vi.mock("@/lib/profiles/tailnetClaim", () => ({ claimTailnetBundle: claimTailnetBundleMock }));
 // parsePairingCode stays real (pure, no network) — only discovery is mocked.
 vi.mock("@/lib/profiles/pairingCode", async (importOriginal) => {
@@ -44,6 +57,7 @@ vi.mock("@/lib/relay/relayClient", () => ({
 }));
 
 import {
+  abandonProfileSetup,
   completeProfileSetup,
   dismissProfileSetup,
   dropQueuedProfileSetup,
@@ -85,6 +99,7 @@ beforeEach(() => {
   localStorage.clear();
   setProfiles([]);
   __resetProfileSetupForTests();
+  sent.length = 0;
 
   claimTailnetBundleMock.mockReset().mockResolvedValue({
     nodeId: "node-default",
@@ -520,5 +535,120 @@ describe("hold", () => {
     release();
     release();
     expect(getProfileSetupState().held).toBe(false);
+  });
+});
+
+describe("profile_connect_failed", () => {
+  const failures = () => sent.filter((event) => event.name === "profile_connect_failed").map((event) => event.props);
+
+  it("counts a direct address that answered nothing: verify stage, kind of address, never the address", async () => {
+    fetchSessionsMock.mockRejectedValueOnce(new TypeError("Load failed"));
+    enqueueProfileSetup(directRequest({ host: "192.168.1.20", port: 8765 }));
+    await vi.runAllTimersAsync();
+
+    expect(getProfileSetupState().state).toMatchObject({ status: "failed", stage: "verify" });
+    expect(failures()).toEqual([{ stage: "verify", reason: "unreachable", address_class: "private_lan", in_first_run: false }]);
+    expect(JSON.stringify(sent)).not.toContain("192.168");
+  });
+
+  it("counts a brokered connect failure by the error's own words, and each retry that fails again once more", async () => {
+    acquireTailnetSidecarMock.mockRejectedValue(new Error("dial tcp: connection refused"));
+    enqueueProfileSetup(tailnetRequest());
+    await vi.runAllTimersAsync();
+    retryProfileSetup();
+    await vi.runAllTimersAsync();
+
+    expect(failures()).toEqual([
+      { stage: "connect", reason: "refused", address_class: "brokered", in_first_run: false },
+      { stage: "connect", reason: "refused", address_class: "brokered", in_first_run: false },
+    ]);
+  });
+
+  it("counts a failed claim as brokered, with an auth reason when the service answered 401", async () => {
+    claimTailnetBundleMock.mockRejectedValueOnce(new Error("claim failed (401)"));
+    enqueueProfileSetup(tailnetRequest());
+    await vi.runAllTimersAsync();
+
+    expect(failures()).toEqual([{ stage: "claim", reason: "auth", address_class: "brokered", in_first_run: false }]);
+  });
+
+  it("sends nothing for an attempt that reaches ready", async () => {
+    enqueueProfileSetup(directRequest());
+    await vi.runAllTimersAsync();
+    expect(failures()).toEqual([]);
+  });
+});
+
+describe("abandonProfileSetup", () => {
+  it("removes the unverified profile of a failed attempt along with the request", async () => {
+    fetchSessionsMock.mockRejectedValueOnce(new TypeError("Load failed"));
+    enqueueProfileSetup(directRequest());
+    await vi.runAllTimersAsync();
+    expect(getProfiles()).toHaveLength(1);
+
+    abandonProfileSetup();
+
+    expect(getProfiles()).toHaveLength(0);
+    expect(getProfileSetupState().state).toBeNull();
+  });
+
+  it("also removes the profile of a failed brokered attempt and frees the queue", async () => {
+    acquireTailnetSidecarMock.mockRejectedValueOnce(new Error("join failed"));
+    enqueueProfileSetup(tailnetRequest());
+    await vi.runAllTimersAsync();
+
+    abandonProfileSetup();
+
+    expect(getProfiles()).toHaveLength(0);
+    expect(enqueueProfileSetup(directRequest())).toBe(true);
+  });
+
+  it("leaves a failed claim as it is: nothing was saved, only the request is let go", async () => {
+    setProfiles([{ id: "home", label: "Home", host: "127.0.0.1", relayPort: 8765 }]);
+    claimTailnetBundleMock.mockRejectedValueOnce(new Error("claim failed"));
+    enqueueProfileSetup(tailnetRequest());
+    await vi.runAllTimersAsync();
+
+    abandonProfileSetup();
+
+    expect(getProfileSetupState().state).toBeNull();
+    expect(getProfiles().map((p) => p.id)).toEqual(["home"]);
+  });
+
+  it("never removes a profile that was verified meanwhile", async () => {
+    fetchSessionsMock.mockRejectedValueOnce(new TypeError("Load failed"));
+    enqueueProfileSetup(directRequest());
+    await vi.runAllTimersAsync();
+    const saved = getProfiles()[0];
+    markProfileVerified(saved.id);
+
+    abandonProfileSetup();
+
+    expect(findProfile(saved.id)).toBeDefined();
+  });
+
+  it("never removes a profile an earlier run saved and a resume re-dialled", async () => {
+    setProfiles([{ id: "left", label: "Left over", host: "1.2.3.4", relayPort: 8443, unverified: true }]);
+    fetchSessionsMock.mockRejectedValueOnce(new TypeError("Load failed"));
+    resumeProfileSetup(getProfiles()[0]);
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state).toMatchObject({ status: "failed", stage: "verify" });
+
+    abandonProfileSetup();
+
+    expect(getProfileSetupState().state).toBeNull();
+    expect(findProfile("left")?.unverified).toBe(true);
+  });
+
+  it("leaves a request still in flight with its profile: the dialog is only hidden", async () => {
+    fetchSessionsMock.mockImplementationOnce(() => new Promise(() => {}));
+    enqueueProfileSetup(directRequest());
+    await vi.runAllTimersAsync();
+    expect(getProfileSetupState().state?.status).toBe("verifying");
+
+    abandonProfileSetup();
+
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
   });
 });

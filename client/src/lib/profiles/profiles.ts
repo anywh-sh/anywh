@@ -1,3 +1,4 @@
+import { trackProfileAdded } from "@/lib/telemetry/instrument";
 import type { AgentPreference, RemoteProfile } from "@/lib/relay/relay-types";
 import { getCachedSessions } from "@/lib/format/sessionListCache";
 
@@ -226,9 +227,25 @@ export function findProfile(id: string): Profile | undefined {
   return profiles.find((profile) => profile.id === id);
 }
 
+/** Ids already counted as added this session. A profile counts when it is
+ * first known to be reachable, never when it is merely saved: a setup that
+ * saves first (so a single-use pairing code is not lost) and then fails to
+ * connect is not a profile the person added. */
+const countedAdded = new Set<string>();
+
+function countAdded(profile: Profile): void {
+  if (countedAdded.has(profile.id)) return;
+  countedAdded.add(profile.id);
+  trackProfileAdded(profile);
+}
+
 /** Appends a profile, or replaces the entry with the same id (the host
- * registry is authoritative for label/color, so re-adding is an update). */
+ * registry is authoritative for label/color, so re-adding is an update).
+ * An `unverified` profile is not counted yet — `markProfileVerified` does
+ * that once it answers. */
 export function addProfile(profile: Profile): void {
+  const existing = profiles.find((p) => p.id === profile.id);
+  if (!profile.unverified && (!existing || existing.unverified)) countAdded(profile);
   setProfiles([...profiles.filter((p) => p.id !== profile.id), profile]);
 }
 
@@ -246,6 +263,7 @@ export function markProfileVerified(id: string): void {
   if (!profile?.unverified) return;
   const verified: Profile = { ...profile };
   delete verified.unverified;
+  countAdded(verified);
   setProfiles(profiles.map((p) => (p.id === id ? verified : p)));
 }
 
@@ -265,6 +283,7 @@ export function removeProfile(id: string): boolean {
   const profile = profiles.find((p) => p.id === id);
   if (!profile) return false;
   for (const listener of removalListeners) listener(profile);
+  countedAdded.delete(id);
   setProfiles(profiles.filter((p) => p.id !== id));
   return true;
 }
