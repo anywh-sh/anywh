@@ -409,6 +409,48 @@ jobs:
         run: node scripts/build-sidecar.mjs --target ${{ matrix.sidecarTarget }}
         working-directory: client
 
+      # Developer ID signing and notarization for the official build. The
+      # Tauri CLI signs the app and the sidecar, submits the bundle to Apple's
+      # notary service with the App Store Connect API key and staples the
+      # ticket, but only when these variables exist — so the step exports them
+      # only when the secrets are configured. A fork, or a run without them,
+      # builds an unsigned app exactly as before. All-or-nothing on purpose: a
+      # signed but un-notarized app is still blocked by Gatekeeper, so half a
+      # configuration fails the leg instead of shipping that.
+      - name: Configure macOS signing
+        if: runner.os == 'macOS'
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          present=0
+          for value in "$CERTIFICATE" "$CERTIFICATE_PASSWORD" "$SIGNING_IDENTITY" "$API_ISSUER" "$API_KEY" "$API_KEY_P8"; do
+            if [ -n "$value" ]; then present=$((present + 1)); fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "::notice::no Apple signing secrets: the macOS app is built unsigned"
+            exit 0
+          fi
+          if [ "$present" -ne 6 ]; then
+            echo "::error::Apple signing is partly configured: APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_API_ISSUER, APPLE_API_KEY and APPLE_API_KEY_P8 must all be set, or none"
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_${API_KEY}.p8"
+          printf '%s\n' "$API_KEY_P8" > "$key_path"
+          {
+            echo "APPLE_CERTIFICATE=$CERTIFICATE"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$SIGNING_IDENTITY"
+            echo "APPLE_API_ISSUER=$API_ISSUER"
+            echo "APPLE_API_KEY=$API_KEY"
+            echo "APPLE_API_KEY_PATH=$key_path"
+          } >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
