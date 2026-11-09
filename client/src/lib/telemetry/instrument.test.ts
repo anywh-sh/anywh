@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PAPER_THEME } from "@/lib/theme/builtinThemes";
+import { setSelectedThemeId, setThemesForHost } from "@/lib/theme/themes";
 import { EVENTS, ERROR_KINDS, FEATURES, validateEvent } from "@/lib/telemetry/events";
 
 const sent: { name: string; props: Record<string, unknown> }[] = [];
@@ -17,7 +19,7 @@ vi.mock("@/lib/telemetry", () => {
   };
 });
 
-const { trackError, trackFeature, trackFirstRunCompleted, trackFirstRunStep, trackProfileAdded, trackPromptSent, trackSessionStarted } = await import(
+const { themeKind, trackError, trackFeature, trackFirstRunCompleted, trackFirstRunStep, trackProfileAdded, trackPromptSent, trackSessionStarted } = await import(
   "@/lib/telemetry/instrument"
 );
 
@@ -57,6 +59,18 @@ describe("instrument helpers", () => {
     trackFirstRunCompleted({ host: "relay.example.com" }, ["claude"]);
     const paths = sent.filter((e) => e.name === "first_run_completed").map((e) => e.props.path);
     expect(paths).toEqual(["local_install", "adopt", "remote"]);
+  });
+
+  it("calls only an imported theme custom, never a built-in one", () => {
+    expect(themeKind()).toBe("builtin");
+    setSelectedThemeId(PAPER_THEME.id);
+    expect(themeKind()).toBe("builtin");
+    setThemesForHost("relay.example.com", [{ ...PAPER_THEME, id: "imported-one", name: "Imported" }]);
+    setSelectedThemeId("imported-one");
+    expect(themeKind()).toBe("custom");
+    setSelectedThemeId("gone");
+    expect(themeKind()).toBe("builtin");
+    setSelectedThemeId(null);
   });
 
   it("never lets an unknown agent, model or mode through as text", () => {

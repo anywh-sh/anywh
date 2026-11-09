@@ -2,6 +2,7 @@ import { getProfiles } from "@/lib/profiles/profiles";
 import { isPushActive } from "@/lib/platform/pushRegistration";
 import { readSettings } from "@/lib/settings";
 import { readFontSize, DEFAULT_FONT_SIZE } from "@/lib/fontSize";
+import { isBuiltinTheme } from "@/lib/theme/builtinThemes";
 import { getSelectedThemeId, resolveSelectedTheme } from "@/lib/theme/themes";
 import { telemetry } from "@/lib/telemetry";
 import { dailyDue, firstOpenAt, swapBootVersion } from "@/lib/telemetry/dedupe";
@@ -95,6 +96,14 @@ export function trackFirstRunCompleted(profile: Pick<Profile, "host" | "localRel
   });
 }
 
+/** `custom` only for an imported theme: any built-in, the default or not, and
+ * a selection whose file is gone (it renders as the default) are `builtin`. */
+export function themeKind(): "builtin" | "custom" {
+  const id = getSelectedThemeId();
+  if (id === null || isBuiltinTheme(id) || resolveSelectedTheme().missing) return "builtin";
+  return "custom";
+}
+
 /** Once the app is up: `app_opened`, today's `app_active` and, on the first
  * boot of a new version, `update_installed`. Held by the controller until the
  * consent question is answered. */
@@ -118,7 +127,7 @@ export function reportBoot(): void {
     runtimes_installed: [...new Set(profiles.map((p) => agentIdOf(p.lastUsedAgentId ?? "")).filter((id): id is NonNullable<typeof id> => id !== null))],
     update_mode: mode,
     push_enabled: profiles.some((p) => isPushActive(p.id)),
-    theme_kind: getSelectedThemeId() === null || resolveSelectedTheme().missing ? "builtin" : "custom",
+    theme_kind: themeKind(),
     font_size_bucket: fontSize < DEFAULT_FONT_SIZE ? "small" : fontSize > DEFAULT_FONT_SIZE ? "large" : "default",
   });
   const active = (): void => {
