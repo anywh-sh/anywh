@@ -60,6 +60,7 @@
     "hast-util-to-jsx-runtime": "^2.3.6",
     "lowlight": "^3.0.0",
     "lucide-react": "^1.33.0",
+    "posthog-js": "^1.447.3",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
