@@ -269,14 +269,14 @@ function AppShell() {
     return () => clearInterval(interval);
   }, []);
 
-  // The title bar menu's "Check for updates" — bypasses the check cadence
-  // (forceUpdateCheck, same as the removed Settings page's button did) and
-  // always opens the modal afterwards, found or not, so a manual check gets
-  // an answer instead of silently doing nothing when already up to date.
   // A downloaded update that hasn't been installed (Windows) installs as the
   // window closes.
   useInstallOnClose();
 
+  // The title bar menu's "Check for updates" — bypasses the check cadence
+  // (forceUpdateCheck, same as the removed Settings page's button did) and
+  // always opens the modal, found or not, so a manual check gets an answer
+  // instead of silently doing nothing when already up to date.
   function handleCheckForUpdates(): void {
     // The modal opens at once and follows the check (and any download it
     // starts) through the update store; awaiting the whole thing first left
