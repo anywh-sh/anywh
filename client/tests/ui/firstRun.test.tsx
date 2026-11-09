@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { getProfiles, setProfiles, type Profile } from "@/lib/profiles/profiles";
 import { clearProfileRevoked, markProfileRevoked } from "@/lib/profiles/profileRevocation";
 import { __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
-import { __resetFirstRunForTests } from "@/lib/profiles/firstRun";
+import { __resetFirstRunForTests, resetFirstRunViews } from "@/lib/profiles/firstRun";
 import { enqueueProfileSetup } from "@/lib/profiles/profileSetup";
 import { PENDING_AGENTS_STORAGE_KEY } from "@/lib/install/pendingAgents";
 import { installFakeRelay, type FakeAgent, type FakeRelay } from "./helpers/fakeRelay";
@@ -222,6 +222,29 @@ describe("first run", () => {
     await user.click(within(alert).getByRole("button", { name: other.retry }));
     await screen.findByRole("heading", { name: agents.title });
     expect(getProfiles()[0].unverified).toBeUndefined();
+  });
+
+  it("Back from a failed attempt lets its never-reached profile go, so another path starts clean", async () => {
+    const user = userEvent.setup();
+    const routed = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("10.0.0.99")) return Promise.reject(new TypeError("Load failed"));
+      return routed!(input, init);
+    });
+    // As on the desktop, where the welcome sits under this screen: a browser
+    // build opens straight on it, with nothing to go Back to.
+    resetFirstRunViews([{ screen: "welcome" }, { screen: "other" }]);
+    renderApp();
+
+    await connectByAddress(user, "10.0.0.99");
+    await screen.findByRole("alert");
+    expect(getProfiles()).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: en.firstRun.frame.back }));
+
+    await vi.waitFor(() => expect(getProfiles()).toHaveLength(0));
+    expect(await screen.findByRole("button", { name: en.firstRun.welcome.otherMachine })).toBeInTheDocument();
   });
 
   it("stays on the first run when a claim never lands, with nothing saved", async () => {

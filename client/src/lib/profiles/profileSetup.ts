@@ -6,7 +6,7 @@ import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tai
 import { fetchControlProfiles, fetchSessions } from "@/lib/relay/relayClient";
 import { addressClassOf, connectFailureReasonOf } from "@/lib/profiles/connectFailure";
 import { trackProfileConnectFailed } from "@/lib/telemetry/instrument";
-import { findProfile, isTailnetProfile, markProfileVerified, type Profile } from "@/lib/profiles/profiles";
+import { findProfile, isTailnetProfile, markProfileVerified, removeProfile, type Profile } from "@/lib/profiles/profiles";
 
 /**
  * Drives a new profile from "a join code or code just arrived" to "ready to
@@ -190,6 +190,10 @@ let generation = 0;
  * `SetupState`'s `failed` variants) so `retryProfileSetup` can still reach
  * `ready` with the original list even though it never re-runs the claim. */
 let activeDuplicates: Profile[] = [];
+/** The profile the current request saved itself (`claimAndSaveProfile`) —
+ * as opposed to one `resumeProfileSetup` re-dials, which an earlier run
+ * saved and which is not this request's to throw away. */
+let createdProfileId: string | undefined;
 /** The tailnet-sidecar reference `connectStep` acquired for the profile
  * currently being set up, if any — held at module scope rather than by a
  * hook mounted for the pending profile specifically to avoid resolving the
@@ -363,6 +367,7 @@ async function runItem(item: QueueItem): Promise<void> {
     const result = await claimAndSaveProfile(params);
     profile = result.profile;
     activeDuplicates = result.duplicates;
+    createdProfileId = profile.id;
   } catch (err) {
     console.error("[anywh] profile setup: failed to claim", err);
     trackFailure("claim", err, undefined, item.request, mode);
@@ -421,6 +426,7 @@ export function resumeProfileSetup(profile: Profile): void {
   if (running || current !== null) return;
   currentKey = undefined;
   activeDuplicates = [];
+  createdProfileId = undefined;
   running = true;
   void runFromConnect(isTailnetProfile(profile) ? "tailnet" : "direct", profile, generation);
 }
@@ -463,6 +469,7 @@ function finishCurrent(): void {
   current = null;
   currentKey = undefined;
   activeDuplicates = [];
+  createdProfileId = undefined;
   running = false;
   publish();
   // Deferred so Radix has a tick to fully unmount the closing dialog before
@@ -522,6 +529,22 @@ export function dismissProfileSetup(): void {
 }
 
 /**
+ * Gives up on the request the way `dismissProfileSetup` does and, when it
+ * had `failed` after saving a profile of its own that is still `unverified`,
+ * removes that profile too: it was saved only so the attempt could resume,
+ * and nobody is going to resume it. Never touches a verified profile, one a
+ * resume re-dialled (saved by an earlier run), or a request still in flight
+ * — that one only has its dialog hidden, as in `dismissProfileSetup`.
+ */
+export function abandonProfileSetup(): void {
+  const state = current;
+  const owned = createdProfileId;
+  dismissProfileSetup();
+  if (state?.status !== "failed" || state.stage === "claim" || owned === undefined || state.profile.id !== owned) return;
+  if (findProfile(owned)?.unverified) removeProfile(owned);
+}
+
+/**
  * Lets go of a request that already settled — failed, or ready and never
  * continued — when it belongs to a profile other than `profileId` (any
  * profile, without one). Every
@@ -545,6 +568,7 @@ export function __resetProfileSetupForTests(): void {
   current = null;
   currentKey = undefined;
   activeDuplicates = [];
+  createdProfileId = undefined;
   heldSidecarProfileId = undefined;
   running = false;
   held = false;

@@ -12,7 +12,7 @@ import { useProfileSetup } from "@/hooks/profiles/useProfileSetup";
 import { useDict } from "@/i18n";
 import { parsePairingCode } from "@/lib/profiles/pairingCode";
 import { findProfile, removeProfile } from "@/lib/profiles/profiles";
-import { dismissProfileSetup, enqueueProfileSetup, retryProfileSetup, type SetupState } from "@/lib/profiles/profileSetup";
+import { abandonProfileSetup, dismissProfileSetup, enqueueProfileSetup, retryProfileSetup, type SetupState } from "@/lib/profiles/profileSetup";
 import { isValidHost } from "@/lib/profiles/hostAddress";
 
 export type OtherMachineMode = "code" | "address";
@@ -107,12 +107,18 @@ export function OtherMachine({
   // Leaving while this screen's own request is still running (Back) means
   // giving up on it: it is let go, so it neither pulls the reader back here
   // nor holds the queue for what they do next. A link that started on its
-  // own is not this screen's to drop.
+  // own is not this screen's to drop. Leaving on this screen's own failed
+  // attempt is giving up too: it is let go along with the profile it saved
+  // but never reached, which would otherwise stay in the list, badged
+  // unverified, after the reader took another path.
   const ownInFlight = useRef(false);
   ownInFlight.current = submitted !== null && state !== null && (state.status === "claiming" || state.status === "connecting" || state.status === "verifying");
+  const ownFailed = useRef(false);
+  ownFailed.current = submitted !== null && state?.status === "failed";
   useEffect(
     () => () => {
       if (ownInFlight.current) dismissProfileSetup();
+      else if (ownFailed.current) abandonProfileSetup();
     },
     [],
   );
