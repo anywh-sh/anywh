@@ -542,6 +542,9 @@ export function ChatPanel({
   // (`appliedDefaultPathRef`): after that the user can switch freely without
   // the effect insisting on going back to the default on every re-render.
   const appliedDefaultPathRef = useRef(false);
+  // `isNewConversation` stays true after the first send (the tab keeps its
+  // flag until it is replaced), so "a new session started" is once per panel.
+  const sessionStartedRef = useRef(false);
   useEffect(() => {
     if (!isNewConversation || appliedDefaultPathRef.current || cwd === null) return;
     appliedDefaultPathRef.current = true;
@@ -904,7 +907,10 @@ export function ChatPanel({
       openRoom(text, sentImages);
       return;
     }
-    if (isNewConversation) trackSessionStarted({ agentId, model, effort, permissionMode, kind: "chat" });
+    if (isNewConversation && !sessionStartedRef.current) {
+      sessionStartedRef.current = true;
+      trackSessionStarted({ agentId, model, effort, permissionMode, kind: "chat" });
+    }
     log.addUserMessage(text, sentImages);
     sendMessage(buildWireMessage(text, sentImages));
     images.clearWithoutRevoke();
