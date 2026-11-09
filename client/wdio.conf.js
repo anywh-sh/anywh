@@ -78,6 +78,12 @@ mkdirSync(firstRunE2EFixtures.installDir, { recursive: true });
 // were signed with its (discarded) private half.
 export const updateDownloadE2EFixtures = {
   port: 47864,
+  // Written by the fixture artifact (a shell script standing in for the next
+  // release's binary) when the title-bar button relaunches into it.
+  relaunchMarker: resolve(tmpdir(), "anywh-e2e-relaunched.marker"),
+  // Where the spec parks the real e2e binary before the updater overwrites it.
+  appBinaryPath,
+  backupPath: resolve(tmpdir(), "anywh-e2e-binary.backup"),
   artifactPath: resolve(import.meta.dirname, "tests/e2e/fixtures/updater/update-artifact.bin"),
   signaturePath: resolve(import.meta.dirname, "tests/e2e/fixtures/updater/update-artifact.bin.sig"),
 };
@@ -100,6 +106,8 @@ export const config = {
         env: {
           ANYWH_UPDATE_ENDPOINT: updateE2EFixtures.endpoint,
           ANYWH_E2E_OPENED_URLS_LOG: updateE2EFixtures.openedUrlsLog,
+          ANYWH_E2E_RELAUNCH_MARKER: updateDownloadE2EFixtures.relaunchMarker,
+          ANYWH_E2E_REAL_BINARY: updateDownloadE2EFixtures.backupPath,
           // Forces app_install_source() to report `updatable: true`
           // (updater.rs's E2E_FORCE_UPDATABLE_ENV) — a plain --no-bundle
           // debug build is honestly "unknown"/not updatable otherwise,

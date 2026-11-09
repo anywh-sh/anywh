@@ -47,6 +47,11 @@ function isProfileSettings(value: unknown): value is ProfileSettings {
   return true;
 }
 
+/** `auto-download` is the automatic mode: download, install in the
+ * background where the platform allows it, offer a restart. It is the default
+ * on an install that can replace itself; `notify` is an explicit "tell me,
+ * never download" and `off` stops the checks. See `resolveUpdateMode`
+ * (`lib/install/updateMode.ts`) for how an unset value resolves. */
 export type UpdateMode = "notify" | "auto-download" | "off";
 
 const VALID_UPDATE_MODES: UpdateMode[] = ["notify", "auto-download", "off"];
@@ -68,11 +73,21 @@ function isTelemetrySettings(value: unknown): value is TelemetrySettings {
   return candidate.installId === undefined || typeof candidate.installId === "string";
 }
 
+/** Bumped when the meaning of a saved `updateMode` changes. Version 1 is the
+ * background updater, where `notify` became an opt-in the user picks in the
+ * update dialog. */
+export const UPDATE_MODE_VERSION = 1;
+
 /** App-wide, never per-profile — there is one running binary, not one per
  * profile, so this lives beside `global`/`byProfile` rather than inside
  * either of them. */
 export interface AppSettings {
   updateMode?: UpdateMode;
+  /** Which release of the update-mode semantics `updateMode` was written
+   * under (`UPDATE_MODE_VERSION`); absent on anything saved by a build that
+   * predates it. Only a `notify` saved at the current version is an explicit
+   * "never download" — see `migrateUpdateMode`. */
+  updateModeVersion?: number;
   telemetry?: TelemetrySettings;
   lastCheckedAt?: number;
   lastSeenVersion?: string;
@@ -89,6 +104,7 @@ function isAppSettings(value: unknown): value is AppSettings {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   if (candidate.updateMode !== undefined && !VALID_UPDATE_MODES.includes(candidate.updateMode as UpdateMode)) return false;
+  if (candidate.updateModeVersion !== undefined && typeof candidate.updateModeVersion !== "number") return false;
   if (candidate.telemetry !== undefined && !isTelemetrySettings(candidate.telemetry)) return false;
   if (candidate.lastCheckedAt !== undefined && typeof candidate.lastCheckedAt !== "number") return false;
   if (candidate.lastSeenVersion !== undefined && typeof candidate.lastSeenVersion !== "string") return false;
@@ -170,6 +186,20 @@ function migrateLegacyKeys(store: SettingsStore): SettingsStore {
   return { ...store, byProfile };
 }
 
+/** Builds from before the background updater wrote `notify` without the user
+ * choosing it: the old normalisation downgraded an automatic mode to `notify`
+ * on origins that could not update, and the old dialog labelled `notify` as
+ * "On". Reading that as "never download" would strand them on the manual path
+ * forever, so a `notify` with no version marker is dropped back to "no
+ * choice" (automatic where the install can update). `off` is unambiguous and
+ * stays. Stamping the marker makes this run once: from then on a saved
+ * `notify` is one picked in the new dialog. */
+export function migrateUpdateMode(app: AppSettings | undefined): AppSettings | undefined {
+  if (!app || app.updateModeVersion !== undefined) return app;
+  const { updateMode, ...rest } = app;
+  return { ...rest, ...(updateMode === "notify" ? {} : { updateMode }), updateModeVersion: UPDATE_MODE_VERSION };
+}
+
 function loadStore(): SettingsStore {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -177,8 +207,11 @@ function loadStore(): SettingsStore {
     if (!isSettingsStore(parsed)) return migrateLegacyKeys(EMPTY_STORE);
     // A corrupted `app` falls back to `undefined` on its own — it never
     // takes `global`/`byProfile` down with it.
-    const app = isAppSettings(parsed.app) ? parsed.app : undefined;
-    return migrateLegacyKeys({ ...parsed, app });
+    const saved = isAppSettings(parsed.app) ? parsed.app : undefined;
+    const app = migrateUpdateMode(saved);
+    const migrated = migrateLegacyKeys({ ...parsed, app });
+    if (app !== saved) localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+    return migrated;
   } catch {
     return migrateLegacyKeys(EMPTY_STORE);
   }

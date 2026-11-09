@@ -1001,6 +1001,16 @@ export interface Dictionary {
       reconnecting: string;
       /** Accessibility label of the connection dot while the session is connected. */
       connected: string;
+      /** Accessible name of the button that appears once an update is
+       * downloaded (and, where the platform allows, already installed). */
+      restartToUpdate: string;
+      /** Its visible label — short, because the title bar shares a sidebar
+       * column's width with the sidebar and menu buttons. */
+      restartShort: string;
+      /** `{version}` — tooltip of that button. */
+      restartToUpdateHint: string;
+      /** `aria-label` of the button's dismiss control. */
+      dismissRestartToUpdate: string;
     };
     /** The strip along the bottom of the window: what the focused session's
      * folder looks like to git, and which version of the app is running.
@@ -1026,9 +1036,8 @@ export interface Dictionary {
        * release exists, so there is one thing there rather than a number
        * plus a separate badge competing for the same sliver of width. */
       updateAvailable: string;
-      /** `{version}` — replaces `updateAvailable` once auto-download has
-       * already fetched and verified the update; nothing left to do but
-       * restart into it. */
+      /** `{version}` — replaces `updateAvailable` once the update has been
+       * fetched and verified; nothing left to do but restart into it. */
       updateReady: string;
       /** The chip that opens the cross-session background-activity tray —
        * first item on the left, before the git status. Unlike
@@ -1308,17 +1317,29 @@ export interface Dictionary {
        * the only place this setting lives now that Settings > Updates is
        * gone. */
       checkAutomatically: string;
-      checkAutomaticallyOn: string;
+      /** Tells about a new version and never downloads it. */
+      checkAutomaticallyNotify: string;
       checkAutomaticallyOff: string;
-      /** Third option of the same control — only rendered when
+      /** Downloads and installs in the background — only rendered when
        * `InstallOrigin.updatable` is true, since it's a setting that would
        * otherwise silently do nothing. */
-      checkAutomaticallyAutoDownload: string;
-      /** Shown instead of `title` once auto-download has already fetched and
-       * verified the update. */
+      checkAutomaticallyInstall: string;
+      /** Shown under `body` while an automatic mode is fetching the update. */
+      downloadingHint: string;
+      /** Shown under `body` when the last download attempt failed; the next
+       * scheduled or manual check tries again. */
+      downloadFailedHint: string;
+      /** Shown instead of `title` while a manual check is still running. */
+      checkingTitle: string;
+      checkingBody: string;
+      /** Shown instead of `title` once the update has been fetched and
+       * verified. */
       readyTitle: string;
-      /** `{version}` — shown instead of `body` in the same state. */
-      readyBody: string;
+      /** `{version}` — shown instead of `body` in the same state when the
+       * update is already on disk and only a restart is left. */
+      readyBodyInstalled: string;
+      /** `{version}` — same, for an update that installs on the restart. */
+      readyBodyDownloaded: string;
       restartNow: string;
     };
     /** The folder a conversation runs in. Lives in the title bar since the

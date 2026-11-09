@@ -69,7 +69,8 @@ import { abandonProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSe
 import { ensureNotificationPermission } from "@/lib/platform/notifications";
 import { isIOS, isMacOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
-import { forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
+import { useInstallOnClose } from "@/hooks/platform/useAppUpdate";
+import { UPDATE_CHECK_INTERVAL_MS, forceUpdateCheck, performUpdateCheck } from "@/lib/install/appUpdate";
 
 /** Optional override via query string (`?profile=&session=`) — only to allow
  * a direct deep-link to a specific state in tests via Playwright. */
@@ -255,7 +256,7 @@ function AppShell() {
   }, []);
 
   // The app stays open for days, so "check on launch" alone would never fire
-  // for someone who never restarts — a 24h interval here, not a one-shot
+  // for someone who never restarts — an interval here, not a one-shot
   // effect, is what makes that case checked at all. Deliberately not inside
   // whatever eventually renders the result, so that stays a trivial,
   // timer-free read of what this already found. No updater exists under the
@@ -264,17 +265,28 @@ function AppShell() {
   useEffect(() => {
     if (isIOS()) return;
     void performUpdateCheck();
-    const interval = setInterval(() => void performUpdateCheck(), 24 * 60 * 60 * 1000);
+    const interval = setInterval(() => void performUpdateCheck(), UPDATE_CHECK_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
 
-  // The title bar menu's "Check for updates" — bypasses the 24h cadence
+  // A downloaded update that hasn't been installed (Windows) installs as the
+  // window closes.
+  useInstallOnClose();
+
+  // The title bar menu's "Check for updates" — bypasses the check cadence
   // (forceUpdateCheck, same as the removed Settings page's button did) and
-  // always opens the modal afterwards, found or not, so a manual check gets
-  // an answer instead of silently doing nothing when already up to date.
-  async function handleCheckForUpdates(): Promise<void> {
-    await forceUpdateCheck();
+  // always opens the modal, found or not, so a manual check gets an answer
+  // instead of silently doing nothing when already up to date.
+  function handleCheckForUpdates(): void {
+    // The modal opens at once and follows the check (and any download it
+    // starts) through the update store; awaiting the whole thing first left
+    // the menu item looking dead for the length of a download. A second press
+    // joins the check already running.
     setUpdateModalOpen(true);
+    forceUpdateCheck().catch(() => {
+      // Nothing to show beyond what the store already reflects; the modal
+      // falls back to its up-to-date/available state.
+    });
   }
 
   // First launch: restores last time's tabs (full list + order + which one
@@ -741,7 +753,7 @@ function AppShell() {
       sidebarCollapsed
       onToggleSidebar={resizable.toggleCollapsed}
       onOpenSettings={() => setSettingsOpen(true)}
-      onCheckForUpdates={() => void handleCheckForUpdates()}
+      onCheckForUpdates={handleCheckForUpdates}
     />
   );
 
@@ -751,7 +763,7 @@ function AppShell() {
       sidebarCollapsed={resizable.collapsed}
       onToggleSidebar={resizable.toggleCollapsed}
       onOpenSettings={() => setSettingsOpen(true)}
-      onCheckForUpdates={() => void handleCheckForUpdates()}
+      onCheckForUpdates={handleCheckForUpdates}
     />
   );
 

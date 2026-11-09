@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
@@ -21,8 +21,8 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 const UNKNOWN_ORIGIN: InstallOrigin = { channel: "unknown", updatable: false, execPath: "", marker: null };
 
 const { getInstallOriginMock } = vi.hoisted(() => ({
-  getInstallOriginMock: vi.fn(
-    (): Promise<InstallOrigin> => Promise.resolve({ channel: "unknown", updatable: false, execPath: "", marker: null }),
+  getInstallOriginMock: vi.fn((): Promise<InstallOrigin> =>
+    Promise.resolve({ channel: "unknown", updatable: false, execPath: "", marker: null }),
   ),
 }));
 vi.mock("@/lib/install/appUpdate", async (importOriginal) => {
@@ -31,7 +31,15 @@ vi.mock("@/lib/install/appUpdate", async (importOriginal) => {
 });
 
 import { UpdateModal } from "@/components/shell/UpdateModal";
-import { clearDownloadedUpdate, clearUpdate, markUpdateAvailable, performUpdateCheck } from "@/lib/install/appUpdate";
+import {
+  clearReadyUpdate,
+  clearUpdate,
+  getReadyUpdate,
+  forceUpdateCheck,
+  markUpdateAvailable,
+  performUpdateCheck,
+  type LatestReleaseCheck,
+} from "@/lib/install/appUpdate";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { readSettings, writeSettings } from "@/lib/settings";
 import type { Update } from "@/lib/install/updaterPlugin";
@@ -40,7 +48,7 @@ const copy = en.shell.updateModal;
 
 /** Same reasoning as appUpdate.test.ts's own `fakeUpdate` — `Update` is a
  * real Tauri plugin class, this only fakes the members the modal and
- * `installAndRestart` actually touch. */
+ * `restartIntoUpdate` actually touch. */
 function fakeUpdate(version: string, install: () => Promise<void> = vi.fn()): Update {
   return { version, install, close: vi.fn() } as unknown as Update;
 }
@@ -50,7 +58,10 @@ const UPDATABLE_ORIGIN: InstallOrigin = { channel: "appimage", updatable: true, 
 afterEach(() => {
   cleanup();
   clearUpdate();
-  clearDownloadedUpdate();
+  clearReadyUpdate();
+  // The settings store caches in memory, so clearing storage alone would leak
+  // one test's saved mode into the next.
+  writeSettings({ ...readSettings(), app: {} });
   localStorage.clear();
   openUrl.mockClear();
   relaunch.mockClear();
@@ -71,7 +82,9 @@ describe("UpdateModal", () => {
     render(<UpdateModal open onOpenChange={() => {}} />);
 
     expect(screen.getByText(copy.title)).toBeInTheDocument();
-    expect(screen.getByText(copy.body.replace("{version}", "999.0.0").replace("{current}", APP_VERSION))).toBeInTheDocument();
+    expect(
+      screen.getByText(copy.body.replace("{version}", "999.0.0").replace("{current}", APP_VERSION)),
+    ).toBeInTheDocument();
   });
 
   it("opens the release page when there's no install.sh marker", async () => {
@@ -85,6 +98,8 @@ describe("UpdateModal", () => {
   });
 
   it("offers to copy the install command, with a restart hint, when the marker says install.sh", async () => {
+    // Notify-only is the one mode that leaves the user to apply the update.
+    writeSettings({ ...readSettings(), app: { updateMode: "notify" } });
     getInstallOriginMock.mockResolvedValue({
       channel: "appimage",
       updatable: true,
@@ -113,11 +128,11 @@ describe("UpdateModal", () => {
     expect(await screen.findByRole("button", { name: copy.copied })).toBeInTheDocument();
   });
 
-  it("defaults to checking automatically, and persists turning it off", async () => {
+  it("defaults to notify-only on an origin that can't update itself, and persists turning it off", async () => {
     render(<UpdateModal open onOpenChange={() => {}} />);
     const user = userEvent.setup();
 
-    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyOn })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyNotify })).toHaveAttribute("aria-checked", "true");
 
     await user.click(screen.getByRole("radio", { name: copy.checkAutomaticallyOff }));
 
@@ -127,7 +142,28 @@ describe("UpdateModal", () => {
 
   it("doesn't offer auto-download on an origin that can't apply one", () => {
     render(<UpdateModal open onOpenChange={() => {}} />);
-    expect(screen.queryByRole("radio", { name: copy.checkAutomaticallyAutoDownload })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: copy.checkAutomaticallyInstall })).not.toBeInTheDocument();
+  });
+
+  it("defaults to installing automatically on an updatable origin", async () => {
+    getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+    render(<UpdateModal open onOpenChange={() => {}} />);
+
+    const install = await screen.findByRole("radio", { name: copy.checkAutomaticallyInstall });
+    await waitFor(() => expect(install).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("keeps a saved notify choice on an updatable origin", async () => {
+    getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+    writeSettings({ ...readSettings(), app: { updateMode: "notify" } });
+    render(<UpdateModal open onOpenChange={() => {}} />);
+
+    const notify = await screen.findByRole("radio", { name: copy.checkAutomaticallyNotify });
+    await waitFor(() => expect(notify).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyInstall })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 
   it("offers and persists auto-download once the origin says it's updatable", async () => {
@@ -135,7 +171,7 @@ describe("UpdateModal", () => {
     render(<UpdateModal open onOpenChange={() => {}} />);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("radio", { name: copy.checkAutomaticallyAutoDownload }));
+    await user.click(await screen.findByRole("radio", { name: copy.checkAutomaticallyInstall }));
 
     expect(readSettings().app?.updateMode).toBe("auto-download");
   });
@@ -150,6 +186,8 @@ describe("UpdateModal", () => {
       checkLatestRelease: () =>
         Promise.resolve({ kind: "available", tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
       downloadUpdate: () => Promise.resolve(fakeUpdate("999.0.0", install)),
+      // Windows-shaped: the install waits for the restart click.
+      installsInBackground: false,
       // A released app: an unstamped one (git's 0.0.0) never checks.
       appVersion: "0.2.0",
     });
@@ -157,7 +195,7 @@ describe("UpdateModal", () => {
     render(<UpdateModal open onOpenChange={() => {}} />);
 
     expect(screen.getByText(copy.readyTitle)).toBeInTheDocument();
-    expect(screen.getByText(copy.readyBody.replace("{version}", "999.0.0"))).toBeInTheDocument();
+    expect(screen.getByText(copy.readyBodyDownloaded.replace("{version}", "999.0.0"))).toBeInTheDocument();
     // The plain "available" action never renders once a download is ready —
     // there's nothing left to view a release page or copy a command for.
     expect(screen.queryByRole("button", { name: copy.viewRelease })).not.toBeInTheDocument();
@@ -167,5 +205,84 @@ describe("UpdateModal", () => {
 
     expect(install).toHaveBeenCalledTimes(1);
     expect(relaunch).toHaveBeenCalledTimes(1);
+    // Same as the title-bar button: nothing keeps pointing at the old update.
+    expect(getReadyUpdate()).toBeNull();
+  });
+
+  describe("download status hint", () => {
+    const NEWER = { kind: "available" as const, tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null };
+    const deps = (downloadUpdate: () => Promise<Update | null>) => ({
+      getInstallOrigin: () => Promise.resolve(UPDATABLE_ORIGIN),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate,
+      installsInBackground: false,
+      appVersion: "0.2.0",
+    });
+
+    it("shows no download claim while an update is known but nothing is downloading", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.viewRelease, { selector: "button" })).toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadFailedHint)).not.toBeInTheDocument();
+    });
+
+    it("shows the downloading hint only while the download runs, then the ready state", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      let finish: (update: Update) => void = () => {};
+      const pending = new Promise<Update>((resolve) => {
+        finish = resolve;
+      });
+      const check = performUpdateCheck(
+        Date.now(),
+        deps(() => pending),
+      );
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.downloadingHint)).toBeInTheDocument();
+
+      finish(fakeUpdate("999.0.0"));
+      await check;
+      expect(await screen.findByText(copy.readyTitle)).toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+    });
+
+    it("says the download failed and will be retried", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      await performUpdateCheck(
+        Date.now(),
+        deps(() => Promise.reject(new Error("offline"))),
+      );
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.downloadFailedHint)).toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("manual check", () => {
+    it("shows a checking state while the check runs, then the outcome, without awaiting a download first", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      let release: (check: LatestReleaseCheck) => void = () => {};
+      const pending = new Promise<LatestReleaseCheck>((resolve) => {
+        release = resolve;
+      });
+      const check = forceUpdateCheck({
+        getInstallOrigin: () => Promise.resolve(UPDATABLE_ORIGIN),
+        checkLatestRelease: () => pending,
+        downloadUpdate: () => Promise.resolve(null),
+        appVersion: "0.2.0",
+      });
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.checkingTitle)).toBeInTheDocument();
+      expect(screen.queryByText(copy.upToDateTitle)).not.toBeInTheDocument();
+
+      release({ kind: "notModified" });
+      await check;
+      expect(await screen.findByText(copy.upToDateTitle)).toBeInTheDocument();
+    });
   });
 });
