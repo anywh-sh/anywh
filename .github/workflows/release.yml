@@ -475,7 +475,10 @@ jobs:
           # scripts/build-latest-json.mjs replaces it, running once in the
           # checksums job after every leg's assets (and .sig files, which
           # uploadUpdaterSignatures still uploads regardless of this) are in.
-          uploadUpdaterJson: false
+          # The input is `includeUpdaterJson`; the old `uploadUpdaterJson` is
+          # not an input at all, so it was ignored and every leg kept racing
+          # on latest.json (a delete of an already-deleted asset is a 404).
+          includeUpdaterJson: false
 
   # Ships the relay as a tarball with node_modules already compiled — separate
   # from the client's `build` matrix above because it packages a Node
@@ -679,11 +682,11 @@ jobs:
           fi
 
       # Runs once here instead of once per matrix leg (see the comment next
-      # to `uploadUpdaterJson: false` on the build job) — every platform's
+      # to `includeUpdaterJson: false` on the build job) — every platform's
       # asset + .sig is already in dist/ at this point, so there's nothing
       # left to race against. `--clobber` replaces the empty placeholder
       # `gh release download` can't have produced in the first place (no
-      # `latest.json` is ever uploaded now that uploadUpdaterJson is off).
+      # `latest.json` is ever uploaded now that includeUpdaterJson is off).
       - name: Build the updater manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

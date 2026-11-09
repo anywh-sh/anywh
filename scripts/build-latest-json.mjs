@@ -2,7 +2,7 @@
 // `checksums` job, from the per-platform assets and `.sig` files every
 // `build` matrix leg has already uploaded to the same draft release.
 //
-// tauri-action can generate this file itself (`uploadUpdaterJson`, on by
+// tauri-action can generate this file itself (`includeUpdaterJson`, on by
 // default), but it does so by having *each* matrix leg read the release's
 // current `latest.json`, merge its own platform in, and re-upload — a
 // read-merge-write against the same GitHub release with no locking. Two
@@ -10,7 +10,7 @@
 // whatever key the winner hadn't merged in yet, silently. Building the
 // manifest exactly once, after every leg has finished uploading, has no
 // such race by construction. `release.yml`'s `build` job disables
-// `uploadUpdaterJson` for this reason; this script is what replaces it.
+// `includeUpdaterJson` for this reason; this script is what replaces it.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
