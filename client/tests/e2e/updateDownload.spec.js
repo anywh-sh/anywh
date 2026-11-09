@@ -1,65 +1,71 @@
-import { readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import { join } from "node:path";
 import { updateDownloadE2EFixtures, updateE2EFixtures } from "../../wdio.conf.js";
 
-// The in-app updater's Phase B (auto-download). update.spec.js's Phase A
-// coverage proves the GitHub check and the modal; every JS-side unit/
-// component test for the download path (appUpdate.test.ts,
-// UpdateModal.test.tsx, StatusBar.test.tsx) injects a fake `downloadUpdate`
-// and never calls the real plugin. This is the one tier that does: a real
-// `check()` against a fixture `latest.json`, a real `update.download()`
-// that verifies the artifact's minisign signature against the pubkey baked
-// into the e2e build (src-tauri/tauri.e2e.conf.json's
-// `plugins.updater.pubkey`), and the real StatusBar/UpdateModal reaction
-// once that download lands in `getDownloadedUpdate()`. It deliberately
-// stops there — never clicking "Restart now" — since `installAndRestart`
-// genuinely replaces the running binary and relaunches it, which is neither
-// safe nor deterministic inside a test run (see updaterPlugin.ts and
-// .anywh/skills/tests/SKILL.md).
+// The in-app updater, background-install flow. update.spec.js covers the
+// notify-only path (GitHub check, modal, opener); this is the tier that runs
+// the real thing end to end, with no modal click anywhere:
 //
-// Two fixture servers run here because the download path has two
-// independent hops: `updateE2EFixtures` stands in for the GitHub "latest
-// release" endpoint `app_check_latest_release` polls first — the same
-// server update.spec.js uses, on the same port, safe to reuse because only
-// one spec file's app process is ever alive at a time — and
-// `updateDownloadE2EFixtures` stands in for the update manifest/artifact
-// `tauri-plugin-updater` itself then fetches, at the port hardcoded into
-// tauri.e2e.conf.json (see wdio.conf.js for why that one can't be threaded
-// through an env var the way the GitHub endpoint is).
+//   scheduled check -> real `check()` against a fixture `latest.json` -> real
+//   `download()` that verifies the artifact's minisign signature against the
+//   pubkey in tauri.e2e.conf.json -> real `install()`, which on Linux
+//   overwrites the running binary on disk -> the title-bar "Restart to update"
+//   button -> real `relaunch()` into what install() wrote.
+//
+// What makes the last two steps checkable is the artifact: a signed shell
+// script (fixtures/updater/update-artifact.bin) standing in for the next
+// release. install() writes it over the e2e binary, so (1) the file on disk
+// equals the artifact the moment the button appears — which is exactly the
+// "quit and reopen lands on the new version" guarantee — and (2) the relaunch
+// runs the script, which writes a marker file. The real binary is parked in
+// the temp dir first and put back afterwards, or every later spec would find a
+// shell script where the app should be.
+//
+// Two fixture servers because the path has two independent hops:
+// `updateE2EFixtures` stands in for the GitHub "latest release" endpoint
+// `app_check_latest_release` polls first (the same server update.spec.js uses,
+// on the same port, safe to reuse because only one spec file's app process is
+// ever alive at a time), and a second one for the manifest/artifact
+// `tauri-plugin-updater` itself fetches, at the port hardcoded into
+// tauri.e2e.conf.json (see wdio.conf.js for why that one can't be an env var).
 const FAKE_TAG = "v99.0.0";
 const FAKE_VERSION = "99.0.0"; // comfortably newer than any real release or the e2e build's own 0.1.x
 const FAKE_HTML_URL = `https://github.com/anywh-sh/anywh/releases/tag/${FAKE_TAG}`;
+// ANYWH_E2E_LOCALE=pt-BR renders the flow in Portuguese (used for the
+// screenshots); the labels the spec looks for follow it.
+const PT = process.env.ANYWH_E2E_LOCALE === "pt-BR";
+const RESTART_LABEL = PT ? "Reiniciar para atualizar" : "Restart to update"; // the button's aria-label
+const FOOTER_LABEL = PT ? `Reiniciar na ${FAKE_VERSION}` : `Restart into ${FAKE_VERSION}`;
 const ARTIFACT_BYTES = readFileSync(updateDownloadE2EFixtures.artifactPath);
 // Not trimmed — the real release pipeline (scripts/build-latest-json.mjs)
 // reads its .sig fixtures the same raw way, and this fixture exists to
 // match that path exactly rather than a convenient approximation of it.
 const ARTIFACT_SIGNATURE = readFileSync(updateDownloadE2EFixtures.signaturePath, "utf8");
 
-describe("anywh in-app updater — auto-download", () => {
+function restoreBinary() {
+  const { appBinaryPath, backupPath } = updateDownloadE2EFixtures;
+  if (!existsSync(backupPath)) return;
+  // Copy beside, then rename over: the app may still be running from the path,
+  // and writing into a running binary fails with ETXTBSY while a rename
+  // replaces the directory entry.
+  const staged = `${appBinaryPath}.restore`;
+  copyFileSync(backupPath, staged);
+  chmodSync(staged, 0o755);
+  renameSync(staged, appBinaryPath);
+  rmSync(backupPath);
+}
+
+describe("anywh in-app updater — background install", () => {
   let githubServer;
   let manifestServer;
 
   before(async () => {
-    // Same disk-persisted-localStorage trap update.spec.js documents (see
-    // that file), plus a seed this spec needs that neither a fresh profile
-    // nor that file's own before() ever sets: `auto-download` only exists
-    // once explicitly chosen, and no spec in this tier can drag a radio
-    // click blind — the toggle itself is already real-click-tested by
-    // update.spec.js, so seeding the mode directly here is deliberate, not
-    // a shortcut around coverage that exists elsewhere.
-    await browser.execute(() => {
-      let settings = {};
-      try {
-        const raw = localStorage.getItem("anywh:settings");
-        settings = raw ? JSON.parse(raw) : {};
-      } catch {
-        settings = {};
-      }
-      settings.app = { updateMode: "auto-download" };
-      localStorage.setItem("anywh:settings", JSON.stringify(settings));
-    });
-    await browser.execute(() => window.location.reload());
-    await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
+    // A run that died before its `after` leaves the script where the app
+    // belongs; put the real binary back first.
+    restoreBinary();
+    copyFileSync(updateDownloadE2EFixtures.appBinaryPath, updateDownloadE2EFixtures.backupPath);
+    rmSync(updateDownloadE2EFixtures.relaunchMarker, { force: true });
 
     githubServer = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
@@ -104,6 +110,28 @@ describe("anywh in-app updater — auto-download", () => {
       manifestServer.once("error", reject);
       manifestServer.listen(updateDownloadE2EFixtures.port, "127.0.0.1", () => resolveListening());
     });
+
+    // Both servers are up, so the scheduled check that runs on load finds the
+    // update. The update settings are reset rather than seeded with a mode:
+    // the e2e build's forced-updatable origin makes "no saved mode" resolve to
+    // automatic, and that default is what this spec proves. (The webview
+    // persists localStorage on disk across runs, and settings.ts holds the
+    // store in memory after import — hence the reload.)
+    await browser.execute((locale) => {
+      let settings = {};
+      try {
+        const raw = localStorage.getItem("anywh:settings");
+        settings = raw ? JSON.parse(raw) : {};
+      } catch {
+        settings = {};
+      }
+      delete settings.app;
+      localStorage.setItem("anywh:settings", JSON.stringify(settings));
+      // Only for a screenshot run: ANYWH_E2E_LOCALE=pt-BR renders the same flow
+      // in the second language.
+      if (locale) localStorage.setItem("anywh:locale", locale);
+    }, process.env.ANYWH_E2E_LOCALE ?? "");
+    await browser.execute(() => window.location.reload());
   });
 
   after(async () => {
@@ -111,45 +139,57 @@ describe("anywh in-app updater — auto-download", () => {
       new Promise((resolveClosed) => githubServer.close(() => resolveClosed())),
       new Promise((resolveClosed) => manifestServer.close(() => resolveClosed())),
     ]);
+    restoreBinary();
   });
 
-  it("Check for updates downloads and signature-verifies the real update before the modal opens", async () => {
-    const menu = await $('[aria-label="Menu"]');
-    await menu.waitForExist({ timeout: 15000 });
-    // Keyboard, not a click — same Radix pointerdown limitation update.spec.js
-    // documents for this driver.
-    await menu.click();
-    await browser.keys("Enter");
-
-    const item = await $('//*[@role="menuitem" and contains(., "Check for updates")]');
-    await item.waitForExist({ timeout: 5000 });
-    await browser.keys("ArrowDown");
-    await browser.keys("Enter");
-
-    // handleCheckForUpdates (App.tsx) awaits the whole scheduled check —
-    // including runCheck's best-effort download attempt — before opening
-    // the modal, so by the time the dialog exists the real download has
-    // already finished (or failed silently, which is exactly what the
-    // assertion below catches: a rejected signature never produces "Update
-    // ready", only the plain "Update available" state update.spec.js
-    // already covers).
-    const dialog = await $('[role="dialog"]');
-    await dialog.waitForExist({ timeout: 10000 });
-
-    const restartButton = await dialog.$('.//button[contains(., "Restart now")]');
-    await restartButton.waitForExist({
-      timeout: 10000,
+  it("downloads, verifies and installs in the background, then offers the restart in the title bar — no modal", async () => {
+    const restart = await $(`//button[@aria-label="${RESTART_LABEL}"]`);
+    await restart.waitForExist({
+      timeout: 30000,
       timeoutMsg:
-        'the modal never reached the "Restart now" state — either the real download never started, or ' +
-        "tauri-plugin-updater rejected the fixture artifact's signature against tauri.e2e.conf.json's test pubkey",
+        `the title bar never showed "${RESTART_LABEL}" — either the scheduled check never ran, the real download ` +
+        "never started, tauri-plugin-updater rejected the fixture artifact's signature against " +
+        "tauri.e2e.conf.json's test pubkey, or install() failed",
     });
+    await expect(await $('[role="dialog"]').isExisting()).toBe(false);
+    if (process.env.ANYWH_E2E_SCREENSHOTS) {
+      await browser.saveScreenshot(
+        join(process.env.ANYWH_E2E_SCREENSHOTS, `update-restart-button-${process.env.ANYWH_E2E_LOCALE || "en"}.png`),
+      );
+    }
 
-    const title = await dialog.$('.//*[contains(text(), "Update ready")]');
-    await expect(title).toBeExisting();
+    // install() already ran: the binary on disk is the update. This is what a
+    // quit-and-reopen would start, without the button ever being pressed.
+    expect(readFileSync(updateDownloadE2EFixtures.appBinaryPath).equals(ARTIFACT_BYTES)).toBe(true);
   });
 
-  it("the footer indicator swaps to the restart prompt once the download is ready", async () => {
-    const indicator = await $(`//button[contains(., "Restart into ${FAKE_VERSION}")]`);
+  it("the footer indicator offers the restart too", async () => {
+    const indicator = await $(`//button[contains(., "${FOOTER_LABEL}")]`);
     await indicator.waitForExist({ timeout: 5000 });
+  });
+
+  it("the title-bar button relaunches into the installed version", async () => {
+    const restart = await $(`//button[@aria-label="${RESTART_LABEL}"]`);
+    // Deferred, not `restart.click()`: the relaunch kills the app before a
+    // WebDriver click can answer, and the failed request would fail the test.
+    await browser.execute((button) => {
+      setTimeout(() => button.click(), 1000);
+    }, restart);
+    // The session ends before the app goes away: afterwards there is no driver
+    // left to answer the runner's own end-of-session request, which would fail
+    // a spec whose tests all passed. Clearing the id is what tells the runner
+    // there is nothing left to end.
+    await browser.deleteSession();
+    browser.sessionId = undefined;
+
+    // The relaunch replaces the process with the installed script, which
+    // writes the marker; the old webview is gone by then, so this is a plain
+    // file poll rather than a browser command.
+    const deadline = Date.now() + 15000;
+    while (!existsSync(updateDownloadE2EFixtures.relaunchMarker)) {
+      if (Date.now() > deadline) throw new Error("the restart button never relaunched into the installed update");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+    expect(readFileSync(updateDownloadE2EFixtures.relaunchMarker, "utf8")).toContain("relaunched into the updated build");
   });
 });

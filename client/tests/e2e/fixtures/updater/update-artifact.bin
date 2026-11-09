@@ -1,1 +1,8 @@
-This is a throwaway dummy update artifact used only by the anywh in-app updater e2e test.
+#!/bin/sh
+# Stands in for the next release's binary in updateDownload.spec.js: once the
+# updater has installed it over the app and the title-bar button relaunches,
+# this is what runs. It leaves proof that it did, then hands over to the real
+# e2e binary (same process, via exec) so the WebDriver session can still be
+# closed by the test runner.
+echo "relaunched into the updated build" > "$ANYWH_E2E_RELAUNCH_MARKER"
+exec "$ANYWH_E2E_REAL_BINARY" "$@"

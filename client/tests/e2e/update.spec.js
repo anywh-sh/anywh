@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { updateE2EFixtures } from "../../wdio.conf.js";
 
-// The in-app updater's Fase A (notify-only — Trello r63WoWD7): a GitHub
-// release check plus a modal, never an auto-restart. Every other tier
+// The in-app updater's notify-only path: a GitHub release check plus a modal.
+// It pins `updateMode: "notify"` — the e2e build's forced-updatable origin
+// would otherwise make the default automatic and start downloading, which is
+// updateDownload.spec.js's job. Every other tier
 // covers this feature in isolation — appUpdate.test.ts drives the
 // check/scheduling policy with fake deps, UpdateModal.test.tsx renders the
 // component standalone. None of them proves the whole wire fires inside the
@@ -43,15 +45,14 @@ describe("anywh in-app updater", () => {
     // localStorage, so editing localStorage alone leaves the already-running
     // app holding the stale value and re-persisting it on its own next write.
     await browser.execute(() => {
-      const raw = localStorage.getItem("anywh:settings");
-      if (!raw) return;
+      let settings = {};
       try {
-        const settings = JSON.parse(raw);
-        delete settings.app;
-        localStorage.setItem("anywh:settings", JSON.stringify(settings));
+        settings = JSON.parse(localStorage.getItem("anywh:settings") ?? "{}");
       } catch {
         // Malformed — readSettings() already treats that as "use the default".
       }
+      settings.app = { updateMode: "notify" };
+      localStorage.setItem("anywh:settings", JSON.stringify(settings));
     });
     await browser.execute(() => window.location.reload());
     await $('[aria-label="New session"]').waitForExist({ timeout: 15000 });
@@ -163,7 +164,7 @@ describe("anywh in-app updater", () => {
     await off.click();
     await expect(await off.getAttribute("aria-checked")).toBe("true");
 
-    const on = await $('//button[@role="radio" and text()="On"]');
+    const on = await $('//button[@role="radio" and text()="Notify only"]');
     await on.click();
     await expect(await on.getAttribute("aria-checked")).toBe("true");
     await expect(await off.getAttribute("aria-checked")).toBe("false");
