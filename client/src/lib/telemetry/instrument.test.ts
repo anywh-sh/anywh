@@ -47,6 +47,18 @@ describe("instrument helpers", () => {
     }
   });
 
+  it("reports the first-run path from the flow taken, not from the profile's shape", () => {
+    const localProfile = { host: "127.0.0.1", localRelay: true };
+    trackFirstRunStep("preparing", "install");
+    trackFirstRunCompleted(localProfile, ["claude"]);
+    trackFirstRunStep("preparing", "adopt");
+    trackFirstRunCompleted(localProfile, ["claude"]);
+    trackFirstRunStep("other", "address");
+    trackFirstRunCompleted({ host: "relay.example.com" }, ["claude"]);
+    const paths = sent.filter((e) => e.name === "first_run_completed").map((e) => e.props.path);
+    expect(paths).toEqual(["local_install", "adopt", "remote"]);
+  });
+
   it("never lets an unknown agent, model or mode through as text", () => {
     trackSessionStarted({ agentId: "my-private-agent", model: "something/odd", effort: "weird", permissionMode: "custom", kind: "chat" });
     expect(sent[0]?.props).toEqual({ runtime: "other", model_family: "other", effort: "other", permission_mode: "other", kind: "chat" });

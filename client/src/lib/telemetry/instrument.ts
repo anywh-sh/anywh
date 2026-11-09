@@ -65,7 +65,14 @@ export function trackProfileAdded(profile: Pick<Profile, "host" | "localRelay" |
   telemetry.track("profile_added", local ? { kind: "local" } : { kind: "remote", pairing_method: profile.brokerNodeId ? "code" : "address" });
 }
 
+/** The path the person last took in the first run. The profile alone cannot
+ * tell it: adopting an existing relay and installing a new one both save a
+ * `localRelay` profile. */
+let firstRunFlow: EventProps<"first_run_completed">["path"] | null = null;
+
 export function trackFirstRunStep(step: EventProps<"first_run_step_viewed">["step"], mode: EventProps<"first_run_step_viewed">["mode"]): void {
+  if (step === "preparing") firstRunFlow = mode === "adopt" ? "adopt" : "local_install";
+  else if (step === "other") firstRunFlow = "remote";
   telemetry.track("first_run_step_viewed", mode === undefined ? { step } : { step, mode });
 }
 
@@ -78,9 +85,11 @@ export function trackFirstRunCompleted(profile: Pick<Profile, "host" | "localRel
   const started = firstRunStartedAt ?? Date.now();
   firstRunStartedAt = null;
   const local = profile?.localRelay === true || (profile !== undefined && !profile.brokerNodeId && LOOPBACK.has(profile.host));
+  const flow = firstRunFlow;
+  firstRunFlow = null;
   const agents = [...new Set(agentIds.map(agentIdOf).filter((id): id is NonNullable<typeof id> => id !== null))];
   telemetry.track("first_run_completed", {
-    path: local ? (profile?.localRelay ? "local_install" : "adopt") : "remote",
+    path: flow ?? (local ? (profile?.localRelay ? "local_install" : "adopt") : "remote"),
     duration_s: Math.max(0, Math.round((Date.now() - started) / 1000)),
     agents_installed: agents,
   });
