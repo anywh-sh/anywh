@@ -65,7 +65,7 @@ import { useTailnetSidecarOwner } from "@/hooks/profiles/useTailnetSidecarOwner"
 import { findProfile, getProfiles } from "@/lib/profiles/profiles";
 import { pruneCachedProfiles } from "@/lib/format/sessionListCache";
 import type { MergedSession } from "@/lib/format/sessionGrouping";
-import { dismissProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
+import { abandonProfileSetup, retryProfileSetup } from "@/lib/profiles/profileSetup";
 import { ensureNotificationPermission } from "@/lib/platform/notifications";
 import { isIOS, isMacOS } from "@/lib/platform/platform";
 import { cn } from "@/lib/utils";
@@ -687,7 +687,7 @@ function AppShell() {
       onContinue={handleSetupContinue}
       onUseExisting={handleSetupUseExisting}
       onRetry={retryProfileSetup}
-      onDismiss={dismissProfileSetup}
+      onDismiss={abandonProfileSetup}
     />
   );
 

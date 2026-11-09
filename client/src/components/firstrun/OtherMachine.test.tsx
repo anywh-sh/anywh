@@ -5,7 +5,7 @@ import { OtherMachine, type ReadySetup } from "@/components/firstrun/OtherMachin
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getProfiles, setProfiles } from "@/lib/profiles/profiles";
-import { __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
+import { getProfileSetupState, __resetProfileSetupForTests } from "@/lib/profiles/profileSetup";
 
 /**
  * The screen against the real setup queue: only the network is stubbed.
@@ -89,6 +89,46 @@ describe("OtherMachine", () => {
     machineUp = true;
     await user.click(screen.getByRole("button", { name: en.firstRun.other.retry }));
     await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    expect(getProfiles()).toHaveLength(1);
+  });
+
+  it("leaving on a failed attempt lets the profile it saved go", async () => {
+    const user = userEvent.setup();
+    machineUp = false;
+    const { unmount } = render(
+      <OtherMachine initialMode="address" initialHost={MACHINE.host} initialPort={MACHINE.port} onAdvanced={() => {}} onReady={() => {}} />,
+    );
+    await user.click(screen.getByRole("button", { name: en.firstRun.other.connect }));
+    await screen.findByRole("alert");
+    expect(getProfiles()).toHaveLength(1);
+
+    unmount();
+
+    expect(getProfiles()).toHaveLength(0);
+    expect(getProfileSetupState().state).toBeNull();
+  });
+
+  it("leaving while the attempt is still running keeps what it saved", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(
+      <OtherMachine initialMode="address" initialHost={MACHINE.host} initialPort={MACHINE.port} onAdvanced={() => {}} onReady={() => {}} />,
+    );
+    await user.click(screen.getByRole("button", { name: en.firstRun.other.connect }));
+    await vi.waitFor(() => expect(getProfileSetupState().state?.status).toBe("verifying"));
+
+    unmount();
+
+    expect(getProfiles()).toHaveLength(1);
+    expect(getProfiles()[0].unverified).toBe(true);
+  });
+
+  it("leaving after a failure this screen did not start leaves that profile alone", () => {
+    setProfiles([{ id: "left", label: "Left over", host: MACHINE.host, relayPort: MACHINE.port, unverified: true }]);
+    const { unmount } = render(<OtherMachine initialMode="address" onAdvanced={() => {}} onReady={() => {}} />);
+
+    unmount();
+
     expect(getProfiles()).toHaveLength(1);
   });
 
