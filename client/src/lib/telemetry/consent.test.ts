@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { envFlagSet, isPending, resolveConsent } from "@/lib/telemetry/consent";
+import { isPending, resolveConsent } from "@/lib/telemetry/consent";
 
 describe("resolveConsent", () => {
   it("lets the environment beat every saved choice", () => {
@@ -32,13 +32,4 @@ describe("resolveConsent", () => {
       "pending_env",
     ]);
   });
-});
-
-describe("envFlagSet", () => {
-  it.each([["1", true], ["true", true], ["yes", true], [" 1 ", true], ["0", false], ["false", false], ["FALSE", false], ["", false], [undefined, false]])(
-    "%j -> %s",
-    (value, expected) => {
-      expect(envFlagSet(value)).toBe(expected);
-    },
-  );
 });

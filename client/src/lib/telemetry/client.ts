@@ -55,6 +55,8 @@ export interface Telemetry {
   optOut(source: "banner" | "settings"): void;
   /** Re-reads the saved choice (it changed in another window or store). */
   refresh(): void;
+  /** Called after anything that can change `consentState()`. */
+  subscribe(listener: () => void): () => void;
 }
 
 export function createTelemetry(deps: TelemetryDeps): Telemetry {
@@ -63,6 +65,10 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
   let held: Held[] = [];
   const recent = new Map<EventName, number[]>();
   let sdk: Promise<Sdk> | null = null;
+  const listeners = new Set<() => void>();
+  const notify = (): void => {
+    for (const listener of listeners) listener();
+  };
 
   function state(): ConsentState {
     return resolveConsent(envDisabled, deps.readOptedIn());
@@ -141,10 +147,12 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
       envDisabled = disabled;
       if (disabled) held = [];
       else if (state() === "enabled") flush();
+      notify();
     },
     optIn() {
       deps.writeOptedIn(true);
       if (state() === "enabled") flush();
+      notify();
     },
     optOut(source) {
       const at = deps.now();
@@ -155,11 +163,17 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
       if (available && envDisabled === false && payload !== null && withinRate("telemetry_opted_out", at)) deliver("telemetry_opted_out", payload, at, true);
       held = [];
       deps.writeOptedIn(false);
+      notify();
     },
     refresh() {
       const current = state();
       if (current === "enabled") flush();
       else if (!isPending(current)) held = [];
+      notify();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 }

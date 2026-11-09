@@ -28,12 +28,3 @@ export function resolveConsent(envDisabled: boolean | null, optedIn: boolean | n
 export function isPending(state: ConsentState): boolean {
   return state === "pending_banner" || state === "pending_env";
 }
-
-/** The two variables that turn telemetry off, read by the native side. A
- * value counts when set to anything but empty, `0` or `false` — the
- * convention `DO_NOT_TRACK` itself follows. */
-export function envFlagSet(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized !== "" && normalized !== "0" && normalized !== "false";
-}

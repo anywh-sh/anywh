@@ -548,6 +548,14 @@ export const ptBr: Dictionary = {
         queued: "+{count} na fila",
       },
     },
+    telemetryBanner: {
+      title: "Nos ajude a melhorar e decidir as próximas features",
+      body: "Contagens anônimas de quais features você usa. Nunca seus prompts, arquivos, caminhos ou saída de terminal. Mude quando quiser em Configurações → Privacidade.",
+      dontShare: "Não compartilhar",
+      gotIt: "Entendi",
+      close: "Fechar",
+      learnMore: "O que coletamos",
+    },
     revoked: {
       eyebrow: "perfil revogado",
       body: "O acesso de {profile} foi removido da conta. Este perfil não consegue mais conectar — o histórico local continua disponível para leitura.",
@@ -672,6 +680,7 @@ export const ptBr: Dictionary = {
       app: "app",
       profiles: "perfis",
       appearance: "Aparência",
+      privacy: "Privacidade",
     },
     appearance: {
       title: "Aparência",
@@ -728,6 +737,17 @@ export const ptBr: Dictionary = {
         sample: "O socket do relay não reconecta quando o app volta do background.",
         reset: "restaurar",
       },
+    },
+    privacy: {
+      title: "Privacidade",
+      scope: "vale para o app inteiro",
+      share: {
+        title: "Compartilhar contagens anônimas de uso",
+        description: "Conta quais features são usadas. Nunca inclui seus prompts, arquivos, caminhos ou saída de terminal.",
+        learnMore: "O que coletamos",
+      },
+      lockedByEnv: "Desligado pela variável de ambiente DO_NOT_TRACK ou ANYWH_TELEMETRY_DISABLED com que o app foi aberto. Sua escolha salva é mantida.",
+      lockedNoAnalytics: "Este build não tem analytics, então nada é enviado, independentemente desta opção.",
     },
     profile: {
       sections: {
