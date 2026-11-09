@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { inTauri } from "@/lib/platform/tauri";
+import { trackError } from "@/lib/telemetry/instrument";
 
 export type { Update };
 
@@ -51,8 +52,10 @@ export async function installDownloadedUpdate(update: Update): Promise<void> {
 
 /**
  * The restart button's action. `installed` updates only need the relaunch;
- * the rest install first, which on Windows ends the process itself, so
- * `relaunch()` is only ever reached where the install returned.
+ * the rest install first, which on Windows ends the process itself and (with
+ * the plugin's default `restartAfterInstall: true`, NSIS `/R`) has the
+ * installer reopen the app, so `relaunch()` is only ever reached where the
+ * install returned.
  */
 export async function restartIntoUpdate(update: Update, installed: boolean): Promise<void> {
   if (!installed) await update.install();
@@ -60,20 +63,35 @@ export async function restartIntoUpdate(update: Update, installed: boolean): Pro
 }
 
 /**
- * Windows' deferred install: closing the window (the title bar's close
- * button, Alt+F4, the taskbar) installs a downloaded update on the way out
- * instead of discarding it. `install()` exits the process on success; if it
- * throws, the close still has to happen, so the window is destroyed.
+ * Close-time install for a downloaded update that has not been applied
+ * (Windows; also macOS/Linux after a background install that failed): closing
+ * the window (the title bar's close button, Alt+F4, the taskbar) installs it
+ * on the way out instead of discarding it.
+ *
+ * The close must never be blocked by the install: the request is cancelled
+ * only to run the install first, and whatever happens (the installer throws,
+ * antivirus holds the file, extraction fails, or it returns on a platform
+ * that doesn't exit), the window is then closed for real. `destroy()` is
+ * tried first; if that is refused, a second `close()` goes through because
+ * the handler stands aside once the install has had its turn.
  * Returns the unlisten function.
  */
 export async function installOnClose(update: Update): Promise<() => void> {
   const window = getCurrentWindow();
+  let installAttempted = false;
   return window.onCloseRequested(async (event) => {
+    if (installAttempted) return;
+    installAttempted = true;
     event.preventDefault();
     try {
       await update.install();
-    } finally {
+    } catch {
+      trackError("update_failed");
+    }
+    try {
       await window.destroy();
+    } catch {
+      await window.close();
     }
   });
 }
