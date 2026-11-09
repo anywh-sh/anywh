@@ -53,6 +53,15 @@ describe("validateEvent", () => {
     expect(validateEvent("update_installed", { from_version: "0.1.7", to_version: "see /home/wil/x", update_mode: "off" })).toBeNull();
   });
 
+  it("takes a connect failure only as closed values", () => {
+    const ok = { stage: "verify", reason: "unreachable", address_class: "private_lan", in_first_run: true };
+    expect(validateEvent("profile_connect_failed", ok)).toEqual(ok);
+    expect(validateEvent("profile_connect_failed", { ...ok, address_class: "192.168.1.5" })).toBeNull();
+    expect(validateEvent("profile_connect_failed", { ...ok, reason: "connect ECONNREFUSED 192.168.1.5:8765" })).toBeNull();
+    expect(validateEvent("profile_connect_failed", { ...ok, host: "192.168.1.5" })).toBeNull();
+    expect(validateEvent("profile_connect_failed", { stage: "claim", reason: "other", address_class: "brokered" })).toBeNull();
+  });
+
   it("has one registry entry per documented event and no others", () => {
     expect(Object.keys(EVENTS).sort()).toEqual(
       [
@@ -64,6 +73,7 @@ describe("validateEvent", () => {
         "first_run_completed",
         "first_run_step_viewed",
         "profile_added",
+        "profile_connect_failed",
         "session_started",
         "telemetry_opted_out",
         "update_installed",

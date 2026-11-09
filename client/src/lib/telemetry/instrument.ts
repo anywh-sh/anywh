@@ -1,4 +1,5 @@
 import { getProfiles } from "@/lib/profiles/profiles";
+import { isFirstRunActive } from "@/lib/profiles/firstRun";
 import { isPushActive } from "@/lib/platform/pushRegistration";
 import { readSettings } from "@/lib/settings";
 import { readFontSize, DEFAULT_FONT_SIZE } from "@/lib/fontSize";
@@ -64,6 +65,10 @@ export function trackPromptSent(agentId: string | null | undefined): void {
 export function trackProfileAdded(profile: Pick<Profile, "host" | "localRelay" | "brokerNodeId">): void {
   const local = profile.localRelay === true || (!profile.brokerNodeId && LOOPBACK.has(profile.host));
   telemetry.track("profile_added", local ? { kind: "local" } : { kind: "remote", pairing_method: profile.brokerNodeId ? "code" : "address" });
+}
+
+export function trackProfileConnectFailed(input: Omit<EventProps<"profile_connect_failed">, "in_first_run">): void {
+  telemetry.track("profile_connect_failed", { ...input, in_first_run: isFirstRunActive() });
 }
 
 /** The path the person last took in the first run. The profile alone cannot

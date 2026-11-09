@@ -4,6 +4,8 @@ import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { resolveTailnetTarget } from "@/lib/profiles/tailnetBroker";
 import { acquireTailnetSidecar, releaseTailnetSidecar } from "@/lib/profiles/tailnetSidecar";
 import { fetchControlProfiles, fetchSessions } from "@/lib/relay/relayClient";
+import { addressClassOf, connectFailureReasonOf } from "@/lib/profiles/connectFailure";
+import { trackProfileConnectFailed } from "@/lib/telemetry/instrument";
 import { findProfile, isTailnetProfile, markProfileVerified, type Profile } from "@/lib/profiles/profiles";
 
 /**
@@ -307,12 +309,26 @@ async function verifyStep(profile: Profile): Promise<VerifiedInfo> {
   return { sessionCount: sessions.length };
 }
 
+/** Counts an attempt that ended `failed`, once per attempt (a retry that
+ * fails again is another attempt). Only closed values leave: the stage, a
+ * coarse reason, and the kind of address — never the address itself. A claim
+ * has no profile yet, so its address kind comes from the request: a pairing
+ * code is brokered, a direct one names its own host. */
+function trackFailure(stage: "claim" | "connect" | "verify", err: unknown, profile?: Profile, request?: SetupRequest, mode?: SetupMode): void {
+  let address: ReturnType<typeof addressClassOf>;
+  if (profile) address = addressClassOf(profile.host, isTailnetProfile(profile));
+  else if (mode === "tailnet" || request?.source !== "params") address = "brokered";
+  else address = addressClassOf(request.params.host ?? "");
+  trackProfileConnectFailed({ stage, reason: connectFailureReasonOf(err), address_class: address });
+}
+
 async function runFromConnect(mode: SetupMode, profile: Profile, gen: number): Promise<void> {
   if (gen === generation) setCurrent({ status: "connecting", mode, profile });
   try {
     await connectStep(profile, mode);
   } catch (err) {
     console.error("[anywh] profile setup: failed to connect", err);
+    trackFailure("connect", err, profile);
     settleTerminal(gen, { status: "failed", mode, stage: "connect", profile });
     return;
   }
@@ -326,6 +342,7 @@ async function runFromConnect(mode: SetupMode, profile: Profile, gen: number): P
     settleTerminal(gen, { status: "ready", mode, profile: findProfile(profile.id) ?? profile, info, duplicates: activeDuplicates });
   } catch (err) {
     console.error("[anywh] profile setup: failed to verify", err);
+    trackFailure("verify", err, profile);
     settleTerminal(gen, { status: "failed", mode, stage: "verify", profile });
   }
 }
@@ -348,6 +365,7 @@ async function runItem(item: QueueItem): Promise<void> {
     activeDuplicates = result.duplicates;
   } catch (err) {
     console.error("[anywh] profile setup: failed to claim", err);
+    trackFailure("claim", err, undefined, item.request, mode);
     settleTerminal(gen, { status: "failed", mode, stage: "claim" });
     return;
   }

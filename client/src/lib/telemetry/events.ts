@@ -81,6 +81,17 @@ const FIRST_RUN_MODES = ["install", "adopt", "code", "address", "app", "terminal
 const FIRST_RUN_PATHS = ["local_install", "adopt", "remote"] as const;
 const AGENT_IDS = ["claude", "codex"] as const;
 
+/** The failed stages of the profile-setup pipeline. */
+export const CONNECT_FAILED_STAGES = ["claim", "connect", "verify"] as const;
+export type ConnectFailedStage = (typeof CONNECT_FAILED_STAGES)[number];
+/** Only what the error itself tells: a browser fetch that got no answer is
+ * `unreachable`, never `refused` — see `connectFailureReasonOf`. */
+export const CONNECT_FAILURE_REASONS = ["refused", "timeout", "unreachable", "auth", "other"] as const;
+export type ConnectFailureReason = (typeof CONNECT_FAILURE_REASONS)[number];
+/** The kind of address dialled, never the address. */
+export const ADDRESS_CLASSES = ["loopback", "private_lan", "tailscale", "public", "hostname", "brokered"] as const;
+export type AddressClass = (typeof ADDRESS_CLASSES)[number];
+
 function closed<T extends readonly string[]>(values: T, pick: string | null | undefined): T[number] | "other" {
   return pick !== null && pick !== undefined && (values as readonly string[]).includes(pick) ? pick : "other";
 }
@@ -154,6 +165,12 @@ export const EVENTS = {
   }, 30),
   feature_used: def({ feature: oneOf(FEATURES) }, 20),
   profile_added: def({ kind: oneOf(["local", "remote"]), pairing_method: optionalOneOf(["code", "address"]) }, 10),
+  profile_connect_failed: def({
+    stage: oneOf(CONNECT_FAILED_STAGES),
+    reason: oneOf(CONNECT_FAILURE_REASONS),
+    address_class: oneOf(ADDRESS_CLASSES),
+    in_first_run: bool,
+  }, 10),
   error_shown: def({ kind: oneOf(ERROR_KINDS) }, 10),
   update_installed: def({ from_version: version, to_version: version, update_mode: oneOf(UPDATE_MODES) }, 3),
   telemetry_opted_out: def({ source: oneOf(["banner", "settings"]) }, 3),

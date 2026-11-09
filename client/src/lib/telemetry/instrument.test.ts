@@ -19,7 +19,7 @@ vi.mock("@/lib/telemetry", () => {
   };
 });
 
-const { themeKind, trackError, trackFeature, trackFirstRunCompleted, trackFirstRunStep, trackProfileAdded, trackPromptSent, trackSessionStarted } = await import(
+const { themeKind, trackError, trackFeature, trackFirstRunCompleted, trackFirstRunStep, trackProfileAdded, trackProfileConnectFailed, trackPromptSent, trackSessionStarted } = await import(
   "@/lib/telemetry/instrument"
 );
 
@@ -38,6 +38,7 @@ describe("instrument helpers", () => {
     trackProfileAdded({ host: "127.0.0.1" });
     trackProfileAdded({ host: "relay.example.com" });
     trackProfileAdded({ host: "127.0.0.1", brokerNodeId: "n1" });
+    trackProfileConnectFailed({ stage: "verify", reason: "unreachable", address_class: "private_lan" });
     trackFirstRunStep("welcome", undefined);
     trackFirstRunStep("preparing", "install");
     trackFirstRunCompleted({ host: "127.0.0.1", localRelay: true }, ["claude", "codex", "unknown-agent"]);
