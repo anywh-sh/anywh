@@ -311,7 +311,7 @@ jobs:
             sidecarTarget: linux-arm64
           - platform: windows-latest
             sidecarTarget: win32-x64
-          - platform: macos-14
+          - platform: macos-15
             sidecarTarget: darwin-arm64
             rustTarget: aarch64-apple-darwin
           # Cross-compiled from the same arm64 runner rather than a second
@@ -320,7 +320,7 @@ jobs:
           # automatically for this target, so whisper-rs/cpal's native C
           # builds cross-compile without extra setup. Unvalidated until this
           # job runs for real — macOS was never exercised in CI before this workflow.
-          - platform: macos-14
+          - platform: macos-15
             sidecarTarget: darwin-x64
             rustTarget: x86_64-apple-darwin
     runs-on: ${{ matrix.platform }}
@@ -456,7 +456,7 @@ jobs:
             target: linux-arm64
           # No node-gyp toolchain needed here: node-pty already ships a
           # darwin-arm64 prebuild, so `npm ci` just downloads it.
-          - platform: macos-14
+          - platform: macos-15
             target: darwin-arm64
     runs-on: ${{ matrix.platform }}
     steps:
@@ -522,7 +522,7 @@ jobs:
       # this formula's dependency, even if the user has started relying on
       # it for unrelated work since. Bundling the runtime removes that
       # coupling entirely. Runs on a real macOS arm64 runner (this job's own
-      # `macos-14` leg), so build.mjs's blob generation, injection and
+      # `macos-15` leg), so build.mjs's blob generation, injection and
       # ad-hoc codesign all happen on the actual target platform, not
       # cross-built.
       - name: Build the SEA binary (macOS)
