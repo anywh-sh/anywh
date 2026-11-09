@@ -390,6 +390,7 @@ export const en: Dictionary = {
       reconnecting: "Reconnecting…",
       connected: "Connected",
       restartToUpdate: "Restart to update",
+      restartShort: "Restart",
       restartToUpdateHint: "anywh {version} is ready",
       dismissRestartToUpdate: "Dismiss",
     },

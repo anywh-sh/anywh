@@ -390,6 +390,7 @@ export const ptBr: Dictionary = {
       reconnecting: "Reconectando…",
       connected: "Conectado",
       restartToUpdate: "Reiniciar para atualizar",
+      restartShort: "Reiniciar",
       restartToUpdateHint: "O anywh {version} está pronto",
       dismissRestartToUpdate: "Dispensar",
     },

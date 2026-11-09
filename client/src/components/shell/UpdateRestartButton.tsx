@@ -35,17 +35,18 @@ export function UpdateRestartButton() {
   }
 
   return (
-    <div className="flex h-[30px] shrink-0 items-stretch border border-border text-xs text-primary">
+    <div className="flex h-[30px] min-w-0 shrink items-stretch border border-border text-xs text-primary">
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
             disabled={restarting}
+            aria-label={dict.restartToUpdate}
             onClick={() => void restart()}
             className="flex cursor-pointer items-center gap-1.5 px-2 font-mono outline-hidden transition-colors hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-ring/60 disabled:opacity-50"
           >
             <ArrowUpCircle className="size-3.5" strokeWidth={1.5} />
-            {dict.restartToUpdate}
+            {dict.restartShort}
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">{dict.restartToUpdateHint.replace("{version}", ready.update.version)}</TooltipContent>

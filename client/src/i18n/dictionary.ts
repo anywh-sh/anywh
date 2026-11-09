@@ -1001,9 +1001,12 @@ export interface Dictionary {
       reconnecting: string;
       /** Accessibility label of the connection dot while the session is connected. */
       connected: string;
-      /** The button that appears once an update is downloaded (and, where the
-       * platform allows, already installed). */
+      /** Accessible name of the button that appears once an update is
+       * downloaded (and, where the platform allows, already installed). */
       restartToUpdate: string;
+      /** Its visible label — short, because the title bar shares a sidebar
+       * column's width with the sidebar and menu buttons. */
+      restartShort: string;
       /** `{version}` — tooltip of that button. */
       restartToUpdateHint: string;
       /** `aria-label` of the button's dismiss control. */
