@@ -96,7 +96,9 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
         // Consent is read again here, not trusted from when the event was
         // accepted: a "no" that lands between the two must win.
         if (!force && state() !== "enabled") return;
-        instance.capture(name, { ...common, ...payload, $process_person_profile: false }, { timestamp: new Date(at) });
+        // `$geoip_disable` makes the ingestion skip the lookup that turns the
+        // request's IP into country, city and coordinates.
+        instance.capture(name, { ...common, ...payload, $process_person_profile: false, $geoip_disable: true }, { timestamp: new Date(at) });
       },
       () => {
         // A blocked or failed load costs the event, never the app.

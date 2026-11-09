@@ -37,6 +37,19 @@ function rig(overrides: Partial<TelemetryDeps> = {}, optedIn: boolean | null = n
 
 beforeEach(() => localStorage.clear());
 
+describe("GeoIP", () => {
+  it("every emitted event carries $geoip_disable, including the opt-out count", async () => {
+    const r = rig({}, true);
+    r.telemetry.setEnvDisabled(false);
+    r.telemetry.track("feature_used", { feature: "sala" });
+    await r.settle();
+    r.telemetry.optOut("settings");
+    await r.settle();
+    expect(r.sent.length).toBeGreaterThanOrEqual(2);
+    for (const e of r.sent) expect(e.properties.$geoip_disable).toBe(true);
+  });
+});
+
 describe("without a key", () => {
   it("is a no-op that never loads the SDK, whatever the consent", async () => {
     const r = rig({ key: undefined }, true);

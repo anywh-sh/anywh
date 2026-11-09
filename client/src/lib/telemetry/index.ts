@@ -1,5 +1,6 @@
 import { readSettings, subscribeSettings, writeSettings } from "@/lib/settings";
 import { createTelemetry, type Sdk, type Telemetry } from "@/lib/telemetry/client";
+import { scrubEvent } from "@/lib/telemetry/scrub";
 import { commonProps, readEnvDisabled } from "@/lib/telemetry/environment";
 
 /**
@@ -52,12 +53,7 @@ async function loadSdk(): Promise<Sdk> {
     // What the SDK adds on its own (the page's URL, the browser, the screen,
     // the session) is dropped: only the registry's properties and the
     // handful the ingestion needs leave.
-    before_send: (event) => {
-      const keep = new Set(["token", "distinct_id", "$process_person_profile", "$lib", "$lib_version"]);
-      const properties: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(event.properties)) if (keep.has(key) || !key.startsWith("$")) properties[key] = value;
-      return { ...event, properties, $set: undefined, $set_once: undefined };
-    },
+    before_send: (event) => (event === null ? null : scrubEvent(event)),
   });
   return posthog;
 }
