@@ -138,6 +138,7 @@ This matters more than "no authentication" alone suggests: the relay's default p
 - [Pairing protocol](./docs/pairing.md) — for a relay that is not directly reachable
 - [Push notifications](./docs/push.md) — how the relay notifies a phone, and the contract a gateway implements
 - [Plan usage](./docs/plan-usage.md) — where the usage numbers come from, what reading them costs, and the probe's kill switch
+- [Telemetry](./docs/telemetry.md) — the anonymous usage counts official builds send, what is never sent, and how to turn it off
 - [Running as a systemd service](./infra/systemd/README.md) — the unit template, and provisioning from the command line
 
 ## Contributing
