@@ -40,8 +40,10 @@ export async function getInstallOrigin(): Promise<InstallOrigin> {
  *   (`updatable`), notify-only everywhere else;
  * - `auto-download` saved: automatic, but only on an updatable origin — a
  *   download that can never be applied would just be stranded on disk;
- * - `notify` saved: an explicit choice (nothing writes it on its own), kept
- *   as "tell me, never download" — the old default, now opt-in;
+ * - `notify` saved: an explicit choice, kept as "tell me, never download" —
+ *   the old default, now opt-in. A `notify` written by a build before the
+ *   background updater was not a choice; `migrateUpdateMode` (`settings.ts`)
+ *   drops those on load, so one reaching here was picked in the new dialog;
  * - `off`: no checks at all.
  */
 export function resolveUpdateMode(saved: UpdateMode | undefined, updatable: boolean): UpdateMode {

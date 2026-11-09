@@ -11,7 +11,14 @@ import {
 } from "@/lib/install/appUpdate";
 import { inTauri } from "@/lib/platform/tauri";
 import { installOnClose } from "@/lib/install/updaterPlugin";
-import { type AppSettings, type UpdateMode, readSettings, subscribeSettings, writeSettings } from "@/lib/settings";
+import {
+  type AppSettings,
+  type UpdateMode,
+  UPDATE_MODE_VERSION,
+  readSettings,
+  subscribeSettings,
+  writeSettings,
+} from "@/lib/settings";
 
 /** Reactive read of the update the last scheduled check found, if any —
  * `null` while none is available or it was dismissed. The check itself runs
@@ -58,7 +65,7 @@ export function useAppUpdateSettings(): { settings: AppSettings; setUpdateMode: 
 
   function setUpdateMode(mode: UpdateMode): void {
     const current = readSettings();
-    writeSettings({ ...current, app: { ...current.app, updateMode: mode } });
+    writeSettings({ ...current, app: { ...current.app, updateMode: mode, updateModeVersion: UPDATE_MODE_VERSION } });
   }
 
   return { settings: store.app ?? {}, setUpdateMode };

@@ -51,7 +51,7 @@ describe("anywh in-app updater", () => {
       } catch {
         // Malformed — readSettings() already treats that as "use the default".
       }
-      settings.app = { updateMode: "notify" };
+      settings.app = { updateMode: "notify", updateModeVersion: 1 };
       localStorage.setItem("anywh:settings", JSON.stringify(settings));
     });
     await browser.execute(() => window.location.reload());
