@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- A signed build runs under the hardened runtime, which denies the
+	     microphone to anything not holding this entitlement — even with
+	     NSMicrophoneUsageDescription in Info.plist and the user's consent.
+	     Without it voice input fails silently in the official build only. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
