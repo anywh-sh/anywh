@@ -418,6 +418,11 @@ jobs:
           # comes from the repository variable, not from tauri.conf.json (see
           # the guard in create-release, which keeps this from being empty).
           TAURI_CONFIG: '{"identifier":"${{ vars.ANYWH_APP_IDENTIFIER }}"}'
+          # Compiled into the frontend by Vite. Unlike the identifier this one
+          # is optional: a release built without the secret ships with the
+          # telemetry module inert, which is also what a fork or a local
+          # build gets.
+          VITE_POSTHOG_KEY: ${{ secrets.ANYWH_POSTHOG_KEY }}
         with:
           projectPath: client
           args: ${{ matrix.rustTarget && format('--target {0}', matrix.rustTarget) || '' }}

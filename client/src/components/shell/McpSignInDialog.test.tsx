@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpSignInDialog, type McpSignInTarget } from "./McpSignInDialog";
 import { en } from "@/i18n/en";
 
+const trackFeature = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/telemetry/instrument", () => ({ trackFeature, trackError: vi.fn() }));
+
 // Same boundary as every other component test here: the socket is stubbed,
 // the dialog is real. What's worth pinning is the contract with the relay
 // — one socket per server, the URL it's opened with, the output shown
@@ -47,6 +50,7 @@ class FakeSocket {
 }
 
 beforeEach(() => {
+  trackFeature.mockClear();
   FakeSocket.opened = [];
   vi.stubGlobal("WebSocket", FakeSocket);
 });
@@ -104,6 +108,27 @@ describe("McpSignInDialog", () => {
 
     FakeSocket.opened[0].emit({ type: "exit", code: 0 });
     expect(await screen.findByText(copy.signedIn)).toBeInTheDocument();
+  });
+
+  it.each(["atlassian", "jira"])("counts a finished sign-in to the Atlassian server %s as Jira", async (server) => {
+    const user = userEvent.setup();
+    render(<McpSignInDialog open onOpenChange={() => {}} target={{ ...target, servers: [server] }} />);
+    await user.click(body().getByRole("button", { name: copy.signIn }));
+
+    FakeSocket.opened[0].emit({ type: "exit", code: 0 });
+    await screen.findByText(copy.signedIn);
+    expect(trackFeature).toHaveBeenCalledWith("integration_jira");
+  });
+
+  it("does not count another server's sign-in as Jira", async () => {
+    const user = userEvent.setup();
+    render(<McpSignInDialog open onOpenChange={() => {}} target={target} />);
+    await user.click(body().getAllByRole("button", { name: copy.signIn })[0]);
+
+    FakeSocket.opened[0].emit({ type: "exit", code: 0 });
+    await screen.findByText(copy.signedIn);
+    expect(trackFeature).toHaveBeenCalledWith("mcp_signin");
+    expect(trackFeature).not.toHaveBeenCalledWith("integration_jira");
   });
 
   it("a refused login reads as not finished rather than as success", async () => {

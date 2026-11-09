@@ -17,6 +17,7 @@ import {
 } from "@/lib/install/agentsCatalog";
 import { clearPendingAgents, setPendingAgents } from "@/lib/install/pendingAgents";
 import { finishFirstRun } from "@/lib/profiles/firstRun";
+import { trackFirstRunCompleted } from "@/lib/telemetry/instrument";
 import { resolveConnection } from "@/lib/profiles/connectionResolver";
 import { findProfile, getProfiles, setProfiles, type Profile } from "@/lib/profiles/profiles";
 import { updateProfileMeta } from "@/lib/relay/relayClient";
@@ -134,6 +135,7 @@ export function AgentsScreen({
     }
     if (findProfile(profile.id)) setProfiles(getProfiles().map((p) => (p.id === profile.id ? { ...p, agentPreference: preference } : p)));
     clearPendingAgents();
+    trackFirstRunCompleted(findProfile(profile.id) ?? profile, installed.map((a) => a.id));
     finishFirstRun(profile.id);
   }
 

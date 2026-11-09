@@ -1,3 +1,4 @@
+import { trackProfileAdded } from "@/lib/telemetry/instrument";
 import type { AgentPreference, RemoteProfile } from "@/lib/relay/relay-types";
 import { getCachedSessions } from "@/lib/format/sessionListCache";
 
@@ -229,6 +230,7 @@ export function findProfile(id: string): Profile | undefined {
 /** Appends a profile, or replaces the entry with the same id (the host
  * registry is authoritative for label/color, so re-adding is an update). */
 export function addProfile(profile: Profile): void {
+  if (!profiles.some((p) => p.id === profile.id)) trackProfileAdded(profile);
   setProfiles([...profiles.filter((p) => p.id !== profile.id), profile]);
 }
 

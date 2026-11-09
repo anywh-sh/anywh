@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import {
   ensureMicrophonePermission,
   listInputDevices,
@@ -80,6 +81,7 @@ export function useVoiceRecording({ onTranscribed, onError }: UseVoiceRecordingO
     try {
       await ensureMicrophonePermission();
       await startRecording(selectedDevice || undefined);
+      trackFeature("voice");
     } catch (error) {
       onError(
         error instanceof MicrophonePermissionError

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { markFirstRunStarted, trackFirstRunStep } from "@/lib/telemetry/instrument";
 import { AdvancedOptions } from "@/components/firstrun/AdvancedOptions";
 import { AgentsScreen } from "@/components/firstrun/AgentsScreen";
 import { OnboardingFrame } from "@/components/firstrun/OnboardingFrame";
@@ -84,6 +85,14 @@ export function FirstRun() {
   const adoptionDeclined = useRef(false);
 
   const view = views[views.length - 1] ?? { screen: "welcome" };
+
+  // Which screen the person is on, for the onboarding funnel. `mode` is only
+  // ever one of the closed values a screen is opened with.
+  const stepMode = view.screen === "preparing" ? view.mode : view.screen === "other" ? view.mode : view.screen === "advanced" ? view.install : undefined;
+  useEffect(() => {
+    markFirstRunStarted();
+    trackFirstRunStep(view.screen, stepMode);
+  }, [view.screen, stepMode]);
 
   // The one place the onboarding's minimum window size is held.
   useOnboardingMinSize();

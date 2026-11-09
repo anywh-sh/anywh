@@ -88,6 +88,7 @@ export interface Dictionary {
       app: string;
       profiles: string;
       appearance: string;
+      privacy: string;
     };
     appearance: {
       title: string;
@@ -147,6 +148,23 @@ export interface Dictionary {
         sample: string;
         reset: string;
       };
+    };
+    /** The page that says what the app sends and lets the user stop it. The
+     * word "telemetry" stays out of it, as out of the first-launch banner:
+     * it is the technical name, and these are the words for the person. */
+    privacy: {
+      title: string;
+      scope: string;
+      share: {
+        title: string;
+        description: string;
+        /** The link to the page that lists every event. */
+        learnMore: string;
+      };
+      /** Why the switch is locked, when it is. The saved choice is untouched
+       * in both cases. */
+      lockedByEnv: string;
+      lockedNoAnalytics: string;
     };
     profile: {
       sections: {
@@ -1236,6 +1254,18 @@ export interface Dictionary {
         /** `{count}` — pairings waiting behind this one. */
         queued: string;
       };
+    };
+    /** Shown once, over the corner of the window, until it is answered. Its
+     * copy is fixed by product decision — change it only deliberately. */
+    telemetryBanner: {
+      title: string;
+      body: string;
+      /** Declines. */
+      dontShare: string;
+      /** Accepts; the close button accepts too. */
+      gotIt: string;
+      close: string;
+      learnMore: string;
     };
     revoked: {
       eyebrow: string;

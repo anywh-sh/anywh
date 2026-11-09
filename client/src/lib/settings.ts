@@ -51,11 +51,29 @@ export type UpdateMode = "notify" | "auto-download" | "off";
 
 const VALID_UPDATE_MODES: UpdateMode[] = ["notify", "auto-download", "off"];
 
+/** The telemetry choice and this installation's anonymous id. `optedIn` is
+ * `null` until the first-launch banner is resolved (`true` for "Got it" or
+ * the close button, `false` for "Don't share"); the id is a random UUID
+ * made on first use, never derived from anything about the machine or the
+ * user, and never sent anywhere but as the event's distinct id. */
+export interface TelemetrySettings {
+  optedIn: boolean | null;
+  installId?: string;
+}
+
+function isTelemetrySettings(value: unknown): value is TelemetrySettings {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.optedIn !== null && typeof candidate.optedIn !== "boolean") return false;
+  return candidate.installId === undefined || typeof candidate.installId === "string";
+}
+
 /** App-wide, never per-profile — there is one running binary, not one per
  * profile, so this lives beside `global`/`byProfile` rather than inside
  * either of them. */
 export interface AppSettings {
   updateMode?: UpdateMode;
+  telemetry?: TelemetrySettings;
   lastCheckedAt?: number;
   lastSeenVersion?: string;
   /** GitHub's ETag on the last successful check, round-tripped as
@@ -71,6 +89,7 @@ function isAppSettings(value: unknown): value is AppSettings {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   if (candidate.updateMode !== undefined && !VALID_UPDATE_MODES.includes(candidate.updateMode as UpdateMode)) return false;
+  if (candidate.telemetry !== undefined && !isTelemetrySettings(candidate.telemetry)) return false;
   if (candidate.lastCheckedAt !== undefined && typeof candidate.lastCheckedAt !== "number") return false;
   if (candidate.lastSeenVersion !== undefined && typeof candidate.lastSeenVersion !== "string") return false;
   if (candidate.etag !== undefined && typeof candidate.etag !== "string") return false;

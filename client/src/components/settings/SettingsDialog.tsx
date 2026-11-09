@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
+import { PrivacySettings } from "@/components/settings/PrivacySettings";
 import { ProfileSettings } from "@/components/settings/ProfileSettings";
 import { SettingsNav, type SettingsSection } from "@/components/settings/SettingsNav";
 import { useProfiles } from "@/hooks/profiles/useProfiles";
@@ -69,6 +70,8 @@ export function SettingsDialog({ open, onOpenChange, activeProfile, profilesSupp
       );
     }
     switch (section.kind) {
+      case "privacy":
+        return <PrivacySettings />;
       case "appearance":
       case "profile":
         return <AppearanceSettings activeProfile={activeProfile} />;

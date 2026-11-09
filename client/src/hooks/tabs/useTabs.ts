@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { getProfiles } from "@/lib/profiles/profiles";
 
 export interface Tab {
@@ -439,6 +440,7 @@ export function useTabs() {
    * resulting layout would be identical, since a tab can't appear in two
    * groups at once — no mirroring). */
   const splitTabToNewGroup = useCallback((tabId: string, afterGroupId: string | null) => {
+    trackFeature("split_tab");
     setState((prev) => {
       if (prev.groups.length >= MAX_GROUPS) return prev;
       const sourceGroup = findGroupOfTab(prev.groups, tabId);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -24,6 +25,7 @@ import { RoomStatusProbes } from "@/components/sala/RoomStatusProbes";
 import { WINDOW_CONTROLS_INSET_CLASS, WindowControls } from "@/components/shell/WindowControls";
 import { useBackgroundActivity, type BackgroundActivityEntry, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { RevokedProfileBanners } from "@/components/shell/RevokedProfileBanner";
+import { FirstLaunchBanner } from "@/components/shell/FirstLaunchBanner";
 import { UpdateModal } from "@/components/shell/UpdateModal";
 import { ProfileSetupDialog } from "@/components/shell/ProfileSetupDialog";
 import { FirstRun } from "@/components/firstrun/FirstRun";
@@ -216,6 +218,9 @@ function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
+  useEffect(() => {
+    if (searchOpen) trackFeature("global_search");
+  }, [searchOpen]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   // Connection state per tab — used by TitleBar and the native iOS top bar, which
@@ -240,6 +245,10 @@ function AppShell() {
   // a tab's cancel/dismiss/stop functions, registered by its own `ChatPanel`
   // so the tray can act on a tab that isn't focused right now.
   const backgroundActionsRef = useRef<Map<string, BackgroundJobActions>>(new Map());
+  const hasBackgroundJobs = Object.values(backgroundActivityByTab).some((entry) => entry.jobs.length > 0);
+  useEffect(() => {
+    if (hasBackgroundJobs) trackFeature("background_jobs");
+  }, [hasBackgroundJobs]);
 
   useEffect(() => {
     void ensureNotificationPermission();
@@ -750,6 +759,7 @@ function AppShell() {
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-chrome text-foreground">
       {profileSetupDialog}
       <DownloadToasts />
+      <FirstLaunchBanner />
 
       <SessionSearch open={searchOpen} onOpenChange={setSearchOpen} activeProfileId={activeProfile.id} onSelectSession={handleSearchSelectSession} />
       <SettingsDialog

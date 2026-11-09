@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, ChevronRight, Code2, Download, FilePlus, Pencil, SquareTerminal, Trash2 } from "lucide-react";
@@ -107,6 +108,7 @@ function EditorOpenMenuItems({ editors, locality, path, itemLabel, subTriggerLab
 
   function openInEditor(editorId: EditorId): void {
     onSelected();
+    trackFeature("open_in_editor");
     const url = buildEditorUrl(editorId, locality, { path });
     if (url) void openUrl(url);
   }

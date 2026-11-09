@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { trackFeature } from "@/lib/telemetry/instrument";
 import type { ChangeSignal } from "@/components/files/FilesPanel";
 import { fetchRawFile, readFile, rawFileUrl, type FileReadResult } from "@/lib/relay/filesClient";
 import { isTailnetProfile, type Profile } from "@/lib/profiles/profiles";
@@ -80,6 +81,7 @@ function RawImage({
  */
 export function FileViewer({ profile, sessionId, path, changedFile }: FileViewerProps) {
   const copy = useDict().panels.files.viewer;
+  useEffect(() => trackFeature("file_viewer"), []);
   const [result, setResult] = useState<FileReadResult | "loading" | "error">("loading");
 
   useEffect(() => {
