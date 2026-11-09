@@ -1,4 +1,13 @@
-import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { updateDownloadE2EFixtures, updateE2EFixtures } from "../../wdio.conf.js";
@@ -54,6 +63,46 @@ function restoreBinary() {
   chmodSync(staged, 0o755);
   renameSync(staged, appBinaryPath);
   rmSync(backupPath);
+}
+
+// The relaunch runs the artifact script, which `exec`s a *second* real app —
+// the copy parked at `backupPath`, so its /proc exe link is that exact path
+// (Linux only, like the rest of this spec: the fixture manifest is
+// linux-x86_64). Nothing else ever runs from there, so matching the exact
+// path finds the relaunched app and nothing a real service or another spec
+// owns; the PIDs are then killed one by one, never by a name pattern.
+function relaunchedAppPids() {
+  const pids = [];
+  for (const entry of readdirSync("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      // A running binary whose file was deleted reads as "<path> (deleted)".
+      const exe = readlinkSync(`/proc/${entry}/exe`).replace(/ \(deleted\)$/, "");
+      if (exe === updateDownloadE2EFixtures.backupPath) pids.push(Number(entry));
+    } catch {
+      // Gone already, or not ours to inspect.
+    }
+  }
+  return pids;
+}
+
+async function killRelaunchedApp() {
+  for (const signal of ["SIGTERM", "SIGKILL"]) {
+    const pids = relaunchedAppPids();
+    if (pids.length === 0) return;
+    for (const pid of pids) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // Exited between the scan and the kill.
+      }
+    }
+    const deadline = Date.now() + 5000;
+    while (relaunchedAppPids().length > 0 && Date.now() < deadline) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+  }
+  if (relaunchedAppPids().length > 0) throw new Error("the relaunched app could not be stopped");
 }
 
 describe("anywh in-app updater — background install", () => {
@@ -135,6 +184,9 @@ describe("anywh in-app updater — background install", () => {
   });
 
   after(async () => {
+    // The relaunched app outlives the session (nothing owns it any more) and
+    // would hold the single-instance lock and ports for the next spec file.
+    await killRelaunchedApp();
     await Promise.all([
       new Promise((resolveClosed) => githubServer.close(() => resolveClosed())),
       new Promise((resolveClosed) => manifestServer.close(() => resolveClosed())),
@@ -190,6 +242,15 @@ describe("anywh in-app updater — background install", () => {
       if (Date.now() > deadline) throw new Error("the restart button never relaunched into the installed update");
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
-    expect(readFileSync(updateDownloadE2EFixtures.relaunchMarker, "utf8")).toContain("relaunched into the updated build");
+    expect(readFileSync(updateDownloadE2EFixtures.relaunchMarker, "utf8")).toContain(
+      "relaunched into the updated build",
+    );
+    // The marker is written just before the exec, so the second app may take
+    // a moment to show up; it has to be there for `after` to be able to stop it.
+    const upDeadline = Date.now() + 10000;
+    while (relaunchedAppPids().length === 0) {
+      if (Date.now() > upDeadline) throw new Error("the relaunched app never came up from the installed update");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
   });
 });
