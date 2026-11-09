@@ -117,12 +117,14 @@ export function subscribeReadyUpdate(listener: () => void): () => void {
 // ---------------------------------------------------------------------------
 
 export interface UpdateActivity {
+  /** A check (the GitHub poll, then the download it leads to) is in flight. */
+  checking: boolean;
   /** `failed`: the last attempt did not produce a download; the next check
    * retries it (see the `notModified` branch of `runCheck`). */
   download: "idle" | "downloading" | "failed";
 }
 
-let activity: UpdateActivity = { download: "idle" };
+let activity: UpdateActivity = { checking: false, download: "idle" };
 const activityListeners = new Set<() => void>();
 
 function setActivity(patch: Partial<UpdateActivity>): void {
@@ -315,8 +317,21 @@ export async function performUpdateCheck(now: number = Date.now(), deps: CheckDe
   await runCheck(now, deps);
 }
 
+let manualCheck: Promise<void> | null = null;
+
 /** The title bar's "Check for updates" item — same check, deliberately
  * bypassing `isCheckDue`: a user pressing the button is the due condition. */
-export async function forceUpdateCheck(deps: CheckDeps = REAL_DEPS): Promise<void> {
-  await runCheck(Date.now(), deps);
+export function forceUpdateCheck(deps: CheckDeps = REAL_DEPS): Promise<void> {
+  // A second press while one is running joins it instead of starting a
+  // parallel check (two GitHub polls, two writes of the same settings).
+  manualCheck ??= (async () => {
+    setActivity({ checking: true });
+    try {
+      await runCheck(Date.now(), deps);
+    } finally {
+      manualCheck = null;
+      setActivity({ checking: false });
+    }
+  })();
+  return manualCheck;
 }

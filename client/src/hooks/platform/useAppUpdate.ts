@@ -39,8 +39,8 @@ export function useReadyUpdate(): ReadyUpdate | null {
   return useSyncExternalStore(subscribeReadyUpdate, getReadyUpdate);
 }
 
-/** Reactive read of what the updater is doing (downloading, or the last
- * download failed) — drives the modal's status text. */
+/** Reactive read of what the updater is doing (checking, downloading, or the
+ * last download failed) — drives the modal's status text. */
 export function useUpdateActivity(): UpdateActivity {
   return useSyncExternalStore(subscribeUpdateActivity, getUpdateActivity);
 }

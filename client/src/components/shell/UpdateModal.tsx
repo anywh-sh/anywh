@@ -81,7 +81,15 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{ready ? dict.readyTitle : update ? dict.title : dict.upToDateTitle}</DialogTitle>
+          <DialogTitle>
+            {ready
+              ? dict.readyTitle
+              : update
+                ? dict.title
+                : activity.checking
+                  ? dict.checkingTitle
+                  : dict.upToDateTitle}
+          </DialogTitle>
         </DialogHeader>
         <DialogBody>
           {ready ? (
@@ -125,6 +133,8 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
                 viaInstallScript && <p className="text-xs text-text-faint">{dict.restartHint}</p>
               )}
             </>
+          ) : activity.checking ? (
+            <p className="text-sm text-muted-foreground">{dict.checkingBody}</p>
           ) : (
             <p className="text-sm text-muted-foreground">{dict.upToDateBody.replace("{version}", APP_VERSION)}</p>
           )}

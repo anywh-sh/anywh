@@ -35,8 +35,10 @@ import {
   clearReadyUpdate,
   clearUpdate,
   getReadyUpdate,
+  forceUpdateCheck,
   markUpdateAvailable,
   performUpdateCheck,
+  type LatestReleaseCheck,
 } from "@/lib/install/appUpdate";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { readSettings, writeSettings } from "@/lib/settings";
@@ -257,6 +259,30 @@ describe("UpdateModal", () => {
 
       expect(await screen.findByText(copy.downloadFailedHint)).toBeInTheDocument();
       expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("manual check", () => {
+    it("shows a checking state while the check runs, then the outcome, without awaiting a download first", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      let release: (check: LatestReleaseCheck) => void = () => {};
+      const pending = new Promise<LatestReleaseCheck>((resolve) => {
+        release = resolve;
+      });
+      const check = forceUpdateCheck({
+        getInstallOrigin: () => Promise.resolve(UPDATABLE_ORIGIN),
+        checkLatestRelease: () => pending,
+        downloadUpdate: () => Promise.resolve(null),
+        appVersion: "0.2.0",
+      });
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.checkingTitle)).toBeInTheDocument();
+      expect(screen.queryByText(copy.upToDateTitle)).not.toBeInTheDocument();
+
+      release({ kind: "notModified" });
+      await check;
+      expect(await screen.findByText(copy.upToDateTitle)).toBeInTheDocument();
     });
   });
 });

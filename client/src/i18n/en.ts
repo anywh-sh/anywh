@@ -586,6 +586,8 @@ export const en: Dictionary = {
       checkAutomaticallyInstall: "Install automatically",
       downloadingHint: "Downloading in the background. A restart button appears in the title bar when it's ready.",
       downloadFailedHint: "Download failed. It will be retried on the next check.",
+      checkingTitle: "Checking for updates",
+      checkingBody: "Looking for a newer version…",
       readyTitle: "Update ready",
       readyBodyInstalled: "anywh {version} is installed. Restart to start using it.",
       readyBodyDownloaded: "anywh {version} has been downloaded and verified. Restart to install it.",

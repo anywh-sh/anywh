@@ -366,6 +366,33 @@ describe("performUpdateCheck", () => {
     expect(notify.getUpdateActivity().download).toBe("idle");
   });
 
+  it("joins a manual check that is already running instead of starting a second one", async () => {
+    const appUpdate = await freshModule();
+    let release: (check: { kind: "notModified" }) => void = () => {};
+    const checkLatestRelease = vi.fn(
+      () =>
+        new Promise<{ kind: "notModified" }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const deps = { getInstallOrigin: fakeOrigin(true), checkLatestRelease, downloadUpdate: noDownload };
+
+    const first = appUpdate.forceUpdateCheck(deps);
+    const second = appUpdate.forceUpdateCheck(deps);
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(checkLatestRelease).toHaveBeenCalledTimes(1));
+    expect(appUpdate.getUpdateActivity().checking).toBe(true);
+
+    release({ kind: "notModified" });
+    await first;
+    expect(checkLatestRelease).toHaveBeenCalledTimes(1);
+    expect(appUpdate.getUpdateActivity().checking).toBe(false);
+
+    // Once finished, the next press is a new check.
+    void appUpdate.forceUpdateCheck(deps);
+    await vi.waitFor(() => expect(checkLatestRelease).toHaveBeenCalledTimes(2));
+  });
+
   describe("retrying a download that never arrived", () => {
     const notModified = () => Promise.resolve({ kind: "notModified" as const });
 

@@ -277,9 +277,16 @@ function AppShell() {
   // window closes.
   useInstallOnClose();
 
-  async function handleCheckForUpdates(): Promise<void> {
-    await forceUpdateCheck();
+  function handleCheckForUpdates(): void {
+    // The modal opens at once and follows the check (and any download it
+    // starts) through the update store; awaiting the whole thing first left
+    // the menu item looking dead for the length of a download. A second press
+    // joins the check already running.
     setUpdateModalOpen(true);
+    forceUpdateCheck().catch(() => {
+      // Nothing to show beyond what the store already reflects; the modal
+      // falls back to its up-to-date/available state.
+    });
   }
 
   // First launch: restores last time's tabs (full list + order + which one
@@ -746,7 +753,7 @@ function AppShell() {
       sidebarCollapsed
       onToggleSidebar={resizable.toggleCollapsed}
       onOpenSettings={() => setSettingsOpen(true)}
-      onCheckForUpdates={() => void handleCheckForUpdates()}
+      onCheckForUpdates={handleCheckForUpdates}
     />
   );
 
@@ -756,7 +763,7 @@ function AppShell() {
       sidebarCollapsed={resizable.collapsed}
       onToggleSidebar={resizable.toggleCollapsed}
       onOpenSettings={() => setSettingsOpen(true)}
-      onCheckForUpdates={() => void handleCheckForUpdates()}
+      onCheckForUpdates={handleCheckForUpdates}
     />
   );
 
