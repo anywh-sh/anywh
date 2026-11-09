@@ -282,6 +282,12 @@ async function offerUpdate(version: string, htmlUrl: string, mode: UpdateMode, d
     if (update) {
       let installed = false;
       if (deps.installsInBackground ?? installsInBackground()) {
+        // The swap happens under the running process, which keeps going on the
+        // replaced bundle until the restart — the same as Zed, which rsyncs
+        // over its running app with no guard. A release that changes the
+        // tailnet-sidecar interface (flags, protocol) would break a process
+        // that spawns the new sidecar next to old frontend code, and would
+        // need a guard here.
         try {
           await (deps.installUpdate ?? installDownloadedUpdate)(update);
           installed = true;
