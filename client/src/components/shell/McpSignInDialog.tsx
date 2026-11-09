@@ -63,7 +63,7 @@ export function McpSignInDialog({ open, onOpenChange, target }: McpSignInDialogP
       return;
     }
     trackFeature("mcp_signin");
-    if (active && connectorMark(active)?.key === "atlassian" && /jira/i.test(active)) trackFeature("integration_jira");
+    if (active && connectorMark(active)?.key === "atlassian") trackFeature("integration_jira");
   }, [finished]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pasted, setPasted] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
