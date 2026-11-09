@@ -70,7 +70,7 @@ describe("validateEvent", () => {
       ].sort(),
     );
     expect(FEATURES).toHaveLength(15);
-    expect(ERROR_KINDS).toHaveLength(6);
+    expect(ERROR_KINDS).toHaveLength(7);
   });
 });
 

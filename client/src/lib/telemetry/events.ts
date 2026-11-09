@@ -56,6 +56,7 @@ export type Feature = (typeof FEATURES)[number];
 
 export const ERROR_KINDS = [
   "agent_install_failed",
+  "relay_install_failed",
   "relay_version_mismatch",
   "relay_unreachable",
   "profile_revoked",

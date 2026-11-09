@@ -460,7 +460,7 @@ function settle(ok: boolean, profile: InstallProfileResult | null, failure: Inst
   }
   releaseHold();
   const code: LocalFailureCode = failure ? toFailureCode(failure.code) : state.install.lines.length > 0 ? "cancelled" : "unexpected";
-  if (code !== "cancelled") trackError("agent_install_failed");
+  if (code !== "cancelled") trackError("relay_install_failed");
   publish({
     ...state,
     install: { ...state.install, status: "failed", failure: { code, detail: failure?.message ?? "" }, failedStep: failure?.step ?? null },
