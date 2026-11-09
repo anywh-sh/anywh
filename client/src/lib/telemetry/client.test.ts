@@ -79,6 +79,34 @@ describe("while the banner is unresolved", () => {
     expect(r.sent[0]?.properties).toMatchObject({ feature: "sala", app_version: "0.1.7", $process_person_profile: false });
   });
 
+  it("still sends first_prompt_sent after a quit before the banner was answered", async () => {
+    const first = rig();
+    first.telemetry.setEnvDisabled(false);
+    expect(first.telemetry.trackOnce("first_prompt_sent", "first_prompt_sent", { seconds_since_first_open: 10, runtime: "claude" })).toBe("buffered");
+    // Quit: the in-memory buffer is gone, the next launch starts from storage.
+    const second = rig();
+    second.telemetry.setEnvDisabled(false);
+    expect(second.telemetry.trackOnce("first_prompt_sent", "first_prompt_sent", { seconds_since_first_open: 20, runtime: "claude" })).toBe("buffered");
+    second.telemetry.optIn();
+    await second.settle();
+    expect(second.sent.map((s) => s.event)).toEqual(["first_prompt_sent"]);
+    // Once it went out, it is spent.
+    expect(second.telemetry.trackOnce("first_prompt_sent", "first_prompt_sent", { seconds_since_first_open: 30, runtime: "claude" })).toBe("dropped");
+  });
+
+  it("does not burn a daily marker while the event is only held", async () => {
+    const first = rig();
+    first.telemetry.setEnvDisabled(false);
+    expect(first.telemetry.trackDaily("app_active", "app_active", {})).toBe("buffered");
+    expect(first.telemetry.trackDaily("app_active", "app_active", {})).toBe("dropped");
+    const second = rig();
+    second.telemetry.setEnvDisabled(false);
+    second.telemetry.optIn();
+    expect(second.telemetry.trackDaily("app_active", "app_active", {})).toBe("sent");
+    await second.settle();
+    expect(second.sent.map((s) => s.event)).toEqual(["app_active"]);
+  });
+
   it("discards them when the user declines, sending only the opt-out count", async () => {
     const r = rig();
     r.telemetry.setEnvDisabled(false);

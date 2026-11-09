@@ -63,6 +63,10 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
   const available = deps.key !== undefined && deps.key !== "";
   let envDisabled: boolean | null = null;
   let held: Held[] = [];
+  // Once/daily markers for events still in `held`. They reach storage only
+  // when the event is handed to the transport, so quitting before the banner
+  // is answered does not burn them.
+  let heldMarks = new Map<string, () => void>();
   const recent = new Map<EventName, number[]>();
   let sdk: Promise<Sdk> | null = null;
   const listeners = new Set<() => void>();
@@ -104,6 +108,8 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
   function flush(): void {
     const batch = held;
     held = [];
+    for (const mark of heldMarks.values()) mark();
+    heldMarks = new Map();
     for (const item of batch) deliver(item.name, item.payload, item.at);
   }
 
@@ -130,23 +136,30 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
     available,
     track,
     trackDaily(key, name, props) {
-      if (!dailyDue(key, deps.now())) return "dropped";
+      const markKey = `daily:${key}`;
+      if (heldMarks.has(markKey) || !dailyDue(key, deps.now())) return "dropped";
+      const at = deps.now();
       const result = track(name, props);
-      if (result !== "dropped") markDaily(key, deps.now());
+      if (result === "sent") markDaily(key, at);
+      else if (result === "buffered") heldMarks.set(markKey, () => markDaily(key, at));
       return result;
     },
     trackOnce(key, name, props) {
-      if (!onceDue(key)) return "dropped";
+      const markKey = `once:${key}`;
+      if (heldMarks.has(markKey) || !onceDue(key)) return "dropped";
       const result = track(name, props);
-      if (result !== "dropped") markOnce(key);
+      if (result === "sent") markOnce(key);
+      else if (result === "buffered") heldMarks.set(markKey, () => markOnce(key));
       return result;
     },
     consentState: state,
     bannerPending: () => available && state() === "pending_banner",
     setEnvDisabled(disabled) {
       envDisabled = disabled;
-      if (disabled) held = [];
-      else if (state() === "enabled") flush();
+      if (disabled) {
+        held = [];
+        heldMarks = new Map();
+      } else if (state() === "enabled") flush();
       notify();
     },
     optIn() {
@@ -162,13 +175,17 @@ export function createTelemetry(deps: TelemetryDeps): Telemetry {
       // when the environment is known not to forbid it, and is the last.
       if (available && envDisabled === false && payload !== null && withinRate("telemetry_opted_out", at)) deliver("telemetry_opted_out", payload, at, true);
       held = [];
+      heldMarks = new Map();
       deps.writeOptedIn(false);
       notify();
     },
     refresh() {
       const current = state();
       if (current === "enabled") flush();
-      else if (!isPending(current)) held = [];
+      else if (!isPending(current)) {
+        held = [];
+        heldMarks = new Map();
+      }
       notify();
     },
     subscribe(listener) {
