@@ -1,6 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   getAvailableUpdate,
+  getUpdateActivity,
+  subscribeUpdateActivity,
+  type UpdateActivity,
   clearReadyUpdate,
   getReadyUpdate,
   getInstallOrigin,
@@ -34,6 +37,12 @@ export function useAppUpdate(): UpdateAvailableInfo | null {
  * `updaterPlugin.ts`), never another download. */
 export function useReadyUpdate(): ReadyUpdate | null {
   return useSyncExternalStore(subscribeReadyUpdate, getReadyUpdate);
+}
+
+/** Reactive read of what the updater is doing (downloading, or the last
+ * download failed) — drives the modal's status text. */
+export function useUpdateActivity(): UpdateActivity {
+  return useSyncExternalStore(subscribeUpdateActivity, getUpdateActivity);
 }
 
 /** The restart-into-update action shared by the title-bar button and the

@@ -21,8 +21,8 @@ vi.mock("@tauri-apps/plugin-process", () => ({
 const UNKNOWN_ORIGIN: InstallOrigin = { channel: "unknown", updatable: false, execPath: "", marker: null };
 
 const { getInstallOriginMock } = vi.hoisted(() => ({
-  getInstallOriginMock: vi.fn(
-    (): Promise<InstallOrigin> => Promise.resolve({ channel: "unknown", updatable: false, execPath: "", marker: null }),
+  getInstallOriginMock: vi.fn((): Promise<InstallOrigin> =>
+    Promise.resolve({ channel: "unknown", updatable: false, execPath: "", marker: null }),
   ),
 }));
 vi.mock("@/lib/install/appUpdate", async (importOriginal) => {
@@ -80,7 +80,9 @@ describe("UpdateModal", () => {
     render(<UpdateModal open onOpenChange={() => {}} />);
 
     expect(screen.getByText(copy.title)).toBeInTheDocument();
-    expect(screen.getByText(copy.body.replace("{version}", "999.0.0").replace("{current}", APP_VERSION))).toBeInTheDocument();
+    expect(
+      screen.getByText(copy.body.replace("{version}", "999.0.0").replace("{current}", APP_VERSION)),
+    ).toBeInTheDocument();
   });
 
   it("opens the release page when there's no install.sh marker", async () => {
@@ -91,14 +93,6 @@ describe("UpdateModal", () => {
     await user.click(await screen.findByRole("button", { name: copy.viewRelease }));
 
     expect(openUrl).toHaveBeenCalledWith("https://example.test/r");
-  });
-
-  it("says it is downloading in the background while an automatic check has not finished", async () => {
-    getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
-    markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
-    render(<UpdateModal open onOpenChange={() => {}} />);
-
-    expect(await screen.findByText(copy.downloadingHint)).toBeInTheDocument();
   });
 
   it("offers to copy the install command, with a restart hint, when the marker says install.sh", async () => {
@@ -164,7 +158,10 @@ describe("UpdateModal", () => {
 
     const notify = await screen.findByRole("radio", { name: copy.checkAutomaticallyNotify });
     await waitFor(() => expect(notify).toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyInstall })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: copy.checkAutomaticallyInstall })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 
   it("offers and persists auto-download once the origin says it's updatable", async () => {
@@ -208,5 +205,58 @@ describe("UpdateModal", () => {
     expect(relaunch).toHaveBeenCalledTimes(1);
     // Same as the title-bar button: nothing keeps pointing at the old update.
     expect(getReadyUpdate()).toBeNull();
+  });
+
+  describe("download status hint", () => {
+    const NEWER = { kind: "available" as const, tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null };
+    const deps = (downloadUpdate: () => Promise<Update | null>) => ({
+      getInstallOrigin: () => Promise.resolve(UPDATABLE_ORIGIN),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate,
+      installsInBackground: false,
+      appVersion: "0.2.0",
+    });
+
+    it("shows no download claim while an update is known but nothing is downloading", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      markUpdateAvailable({ version: "999.0.0", htmlUrl: "https://example.test/r" });
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.viewRelease, { selector: "button" })).toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadFailedHint)).not.toBeInTheDocument();
+    });
+
+    it("shows the downloading hint only while the download runs, then the ready state", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      let finish: (update: Update) => void = () => {};
+      const pending = new Promise<Update>((resolve) => {
+        finish = resolve;
+      });
+      const check = performUpdateCheck(
+        Date.now(),
+        deps(() => pending),
+      );
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.downloadingHint)).toBeInTheDocument();
+
+      finish(fakeUpdate("999.0.0"));
+      await check;
+      expect(await screen.findByText(copy.readyTitle)).toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+    });
+
+    it("says the download failed and will be retried", async () => {
+      getInstallOriginMock.mockResolvedValue(UPDATABLE_ORIGIN);
+      await performUpdateCheck(
+        Date.now(),
+        deps(() => Promise.reject(new Error("offline"))),
+      );
+      render(<UpdateModal open onOpenChange={() => {}} />);
+
+      expect(await screen.findByText(copy.downloadFailedHint)).toBeInTheDocument();
+      expect(screen.queryByText(copy.downloadingHint)).not.toBeInTheDocument();
+    });
   });
 });

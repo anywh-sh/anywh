@@ -2,7 +2,14 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAppUpdate, useAppUpdateSettings, useInstallOrigin, useReadyUpdate, useRestartIntoUpdate } from "@/hooks/platform/useAppUpdate";
+import {
+  useAppUpdate,
+  useAppUpdateSettings,
+  useInstallOrigin,
+  useReadyUpdate,
+  useRestartIntoUpdate,
+  useUpdateActivity,
+} from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/install/appVersion";
 import { resolveUpdateMode } from "@/lib/install/updateMode";
@@ -32,6 +39,7 @@ const INSTALL_COMMAND = "curl -fsSL https://anywh.sh/install | sh";
 export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const update = useAppUpdate();
   const ready = useReadyUpdate();
+  const activity = useUpdateActivity();
   const origin = useInstallOrigin();
   const { settings, setUpdateMode } = useAppUpdateSettings();
   const dict = useDict().shell.updateModal;
@@ -108,9 +116,12 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
                       ? dict.copyFailed
                       : dict.copyCommand}
               </Button>
-              {mode === "auto-download" ? (
+              {activity.download === "downloading" ? (
                 <p className="text-xs text-text-faint">{dict.downloadingHint}</p>
+              ) : activity.download === "failed" ? (
+                <p className="text-xs text-text-faint">{dict.downloadFailedHint}</p>
               ) : (
+                mode !== "auto-download" &&
                 viaInstallScript && <p className="text-xs text-text-faint">{dict.restartHint}</p>
               )}
             </>

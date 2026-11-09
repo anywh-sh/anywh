@@ -585,6 +585,7 @@ export const ptBr: Dictionary = {
       checkAutomaticallyOff: "Desligado",
       checkAutomaticallyInstall: "Instalar automaticamente",
       downloadingHint: "Baixando em segundo plano. Um botão de reiniciar aparece na barra de título quando estiver pronto.",
+      downloadFailedHint: "O download falhou. Vamos tentar de novo na próxima verificação.",
       readyTitle: "Atualização pronta",
       readyBodyInstalled: "O anywh {version} está instalado. Reinicie para começar a usá-lo.",
       readyBodyDownloaded: "O anywh {version} foi baixado e verificado. Reinicie para instalar.",

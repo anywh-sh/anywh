@@ -331,6 +331,41 @@ describe("performUpdateCheck", () => {
     expect(downloadUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it("reports the download state: downloading, then idle once ready", async () => {
+    const appUpdate = await freshModule();
+    const settings = await freshSettings();
+    settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "auto-download" } });
+    const seen: string[] = [];
+    appUpdate.subscribeUpdateActivity(() => seen.push(appUpdate.getUpdateActivity().download));
+
+    await appUpdate.performUpdateCheck(Date.now(), {
+      getInstallOrigin: fakeOrigin(true),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate: () => Promise.resolve(fakeUpdate("999.0.0")),
+    });
+
+    expect(seen).toEqual(["downloading", "idle"]);
+  });
+
+  it("reports a failed or empty download as failed, and never claims one in notify mode", async () => {
+    const appUpdate = await freshModule();
+    const settings = await freshSettings();
+    settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "auto-download" } });
+    const base = { getInstallOrigin: fakeOrigin(true), checkLatestRelease: () => Promise.resolve(NEWER) };
+
+    await appUpdate.performUpdateCheck(Date.now(), { ...base, downloadUpdate: () => Promise.reject(new Error("x")) });
+    expect(appUpdate.getUpdateActivity().download).toBe("failed");
+
+    await appUpdate.forceUpdateCheck({ ...base, downloadUpdate: () => Promise.resolve(null) });
+    expect(appUpdate.getUpdateActivity().download).toBe("failed");
+
+    const notify = await freshModule();
+    const s2 = await freshSettings();
+    s2.writeSettings({ ...s2.readSettings(), app: { updateMode: "notify" } });
+    await notify.forceUpdateCheck({ ...base, downloadUpdate: () => Promise.resolve(fakeUpdate("999.0.0")) });
+    expect(notify.getUpdateActivity().download).toBe("idle");
+  });
+
   describe("retrying a download that never arrived", () => {
     const notModified = () => Promise.resolve({ kind: "notModified" as const });
 

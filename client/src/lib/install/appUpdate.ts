@@ -111,6 +111,35 @@ export function subscribeReadyUpdate(listener: () => void): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// What the updater is doing right now. The modal reads this instead of
+// guessing from "an update exists and the mode is automatic", which claimed a
+// download was running when nothing was (a failed one, a notify-only origin).
+// ---------------------------------------------------------------------------
+
+export interface UpdateActivity {
+  /** `failed`: the last attempt did not produce a download; the next check
+   * retries it (see the `notModified` branch of `runCheck`). */
+  download: "idle" | "downloading" | "failed";
+}
+
+let activity: UpdateActivity = { download: "idle" };
+const activityListeners = new Set<() => void>();
+
+function setActivity(patch: Partial<UpdateActivity>): void {
+  activity = { ...activity, ...patch };
+  for (const listener of activityListeners) listener();
+}
+
+export function getUpdateActivity(): UpdateActivity {
+  return activity;
+}
+
+export function subscribeUpdateActivity(listener: () => void): () => void {
+  activityListeners.add(listener);
+  return () => activityListeners.delete(listener);
+}
+
+// ---------------------------------------------------------------------------
 // Rust bindings — thin, guarded by inTauri() (localRelay.ts's discipline)
 // ---------------------------------------------------------------------------
 
@@ -245,6 +274,7 @@ async function offerUpdate(version: string, htmlUrl: string, mode: UpdateMode, d
   // hasn't changed yet.
   if (mode !== "auto-download" || getReadyUpdate()?.update.version === version || downloading) return;
   downloading = true;
+  setActivity({ download: "downloading" });
   try {
     const update = await deps.downloadUpdate();
     if (update) {
@@ -259,8 +289,12 @@ async function offerUpdate(version: string, htmlUrl: string, mode: UpdateMode, d
         }
       }
       markReady(update, installed);
+      setActivity({ download: "idle" });
+    } else {
+      setActivity({ download: "failed" });
     }
   } catch {
+    setActivity({ download: "failed" });
     // A failed download is retried by the next check even though the ETag
     // already says "not modified" (see the `notModified` branch).
     trackError("update_failed");

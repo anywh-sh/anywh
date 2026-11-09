@@ -1326,6 +1326,9 @@ export interface Dictionary {
       checkAutomaticallyInstall: string;
       /** Shown under `body` while an automatic mode is fetching the update. */
       downloadingHint: string;
+      /** Shown under `body` when the last download attempt failed; the next
+       * scheduled or manual check tries again. */
+      downloadFailedHint: string;
       /** Shown instead of `title` once the update has been fetched and
        * verified. */
       readyTitle: string;
