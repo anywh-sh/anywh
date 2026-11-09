@@ -58,6 +58,14 @@ describe("useSessionDock — panes", () => {
     expect(result.current.getDock("t1")).toMatchObject({ panes: ["files"], maximized: "files" });
   });
 
+  it("never carries the expansion onto the no-selection view, which has no restore button", () => {
+    const { result } = renderHook(() => useSessionDock());
+    act(() => result.current.togglePane("t1", "about"));
+    act(() => result.current.toggleMaximized("t1", "about"));
+    act(() => result.current.togglePane("t1", "none"));
+    expect(result.current.getDock("t1")).toMatchObject({ panes: ["none"], maximized: null });
+  });
+
   it("switching panes leaves a column that was not expanded as it was", () => {
     const { result } = renderHook(() => useSessionDock());
     act(() => result.current.togglePane("t1", "agent"));
