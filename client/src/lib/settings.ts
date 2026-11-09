@@ -47,6 +47,11 @@ function isProfileSettings(value: unknown): value is ProfileSettings {
   return true;
 }
 
+/** `auto-download` is the automatic mode: download, install in the
+ * background where the platform allows it, offer a restart. It is the default
+ * on an install that can replace itself; `notify` is an explicit "tell me,
+ * never download" and `off` stops the checks. See `resolveUpdateMode`
+ * (`lib/install/updateMode.ts`) for how an unset value resolves. */
 export type UpdateMode = "notify" | "auto-download" | "off";
 
 const VALID_UPDATE_MODES: UpdateMode[] = ["notify", "auto-download", "off"];

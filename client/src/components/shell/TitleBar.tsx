@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipShortcut, TooltipTrigger } from "@/components/ui/tooltip";
+import { UpdateRestartButton } from "@/components/shell/UpdateRestartButton";
 import { MAC_TRAFFIC_LIGHTS_INSET } from "@/components/shell/WindowControls";
 import { useDict } from "@/i18n";
 import { isMacOS, shortcutLabel } from "@/lib/platform/platform";
@@ -37,6 +38,7 @@ export function TitleBar({
       className={cn("flex h-10 shrink-0 items-center gap-1 pr-2 pl-1.5 select-none", isMacOS() && MAC_TRAFFIC_LIGHTS_INSET)}
     >
       <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
+      <UpdateRestartButton />
       {showMenu && (
         <DropdownMenu>
           <Tooltip>

@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LanguageControl } from "@/components/shell/LanguageControl";
-import { useAppUpdate, useDownloadedUpdate } from "@/hooks/platform/useAppUpdate";
+import { useAppUpdate, useReadyUpdate } from "@/hooks/platform/useAppUpdate";
 import { backgroundActivityProfileColor, type BackgroundActivityItem } from "@/hooks/useBackgroundActivity";
 import { useBackgroundJobLog } from "@/hooks/useBackgroundJobLog";
 import { useElapsedSeconds } from "@/hooks/useElapsedSeconds";
@@ -224,7 +224,7 @@ export function StatusBar({
 }: StatusBarProps) {
   const dict = useDict();
   const update = useAppUpdate();
-  const downloaded = useDownloadedUpdate();
+  const ready = useReadyUpdate();
   const profileId = profile?.id ?? null;
   const key = profileId && sessionId ? `${profileId}:${sessionId}` : null;
 
@@ -388,15 +388,15 @@ export function StatusBar({
           {connected ? dict.shell.statusBar.relayConnected : dict.shell.titleBar.reconnecting}
         </span>
       )}
-      {downloaded ? (
+      {ready ? (
         <button
           type="button"
           onClick={onOpenUpdateModal}
           className="flex shrink-0 cursor-pointer items-center gap-1 border border-transparent px-1.5 py-0.5 text-primary outline-hidden transition-colors hover:border-border"
-          title={dict.shell.statusBar.updateReady.replace("{version}", downloaded.version)}
+          title={dict.shell.statusBar.updateReady.replace("{version}", ready.update.version)}
         >
           <ArrowUpCircle className="size-3" strokeWidth={1.5} />
-          {dict.shell.statusBar.updateReady.replace("{version}", downloaded.version)}
+          {dict.shell.statusBar.updateReady.replace("{version}", ready.update.version)}
         </button>
       ) : update ? (
         <button

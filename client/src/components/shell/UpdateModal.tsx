@@ -2,10 +2,11 @@ import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAppUpdate, useAppUpdateSettings, useDownloadedUpdate, useInstallOrigin } from "@/hooks/platform/useAppUpdate";
+import { useAppUpdate, useAppUpdateSettings, useInstallOrigin, useReadyUpdate } from "@/hooks/platform/useAppUpdate";
 import { useDict } from "@/i18n";
 import { APP_VERSION } from "@/lib/install/appVersion";
-import { installAndRestart } from "@/lib/install/updaterPlugin";
+import { resolveUpdateMode } from "@/lib/install/updateMode";
+import { restartIntoUpdate } from "@/lib/install/updaterPlugin";
 import { cn } from "@/lib/utils";
 
 /** Same one-liner `install.sh` itself prints and `ManualInstructions`
@@ -14,28 +15,24 @@ import { cn } from "@/lib/utils";
 const INSTALL_COMMAND = "curl -fsSL https://anywh.sh/install | sh";
 
 /**
- * Phase A shipped a link or a command, never a button that applies anything
- * — there was no updater plugin yet to apply it with. Phase B added one, but
- * only auto-download mode ever calls it, and only from the scheduled check
- * (`appUpdate.ts`'s `runCheck`); this modal never triggers a download
- * itself, it only ever shows the result of one already sitting in
- * `useDownloadedUpdate()` and offers the explicit restart click that's the
- * one thing this app never does on its own. Opened from the footer's update
- * indicator (`StatusBar`, only rendered once something is available) or
- * manually from the title bar menu's "Check for updates", which opens this
- * regardless of outcome — so it doubles as the "you're up to date"
- * confirmation a manual check needs.
+ * Secondary surface of the in-app updater. The primary one is the title bar's
+ * restart button (`UpdateRestartButton`), which needs no modal click: the
+ * scheduled check downloads and installs on its own. This opens from the
+ * footer's update indicator or the title bar menu's "Check for updates"
+ * (regardless of outcome, so it doubles as the "you're up to date"
+ * confirmation a manual check needs), and shows what a restart is waiting on.
+ * It never starts a download itself.
  *
- * Also the only home left for the update-mode toggle: Settings no longer has
- * an "Updates" page, and this is the one surface a user reaches specifically
- * because they're thinking about updates. `auto-download` is only offered
- * when `InstallOrigin.updatable` is true — `normalizeUpdateMode` would just
- * coerce it back to `notify` otherwise, so showing it would be a setting
- * that silently does nothing.
+ * Also the only home of the update-mode toggle: Settings has no "Updates"
+ * page, and this is the surface a user reaches because they're thinking about
+ * updates. "Install automatically" is only offered when
+ * `InstallOrigin.updatable` is true — `resolveUpdateMode` would coerce it to
+ * notify-only otherwise, so showing it would be a setting that silently does
+ * nothing.
  */
 export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const update = useAppUpdate();
-  const downloaded = useDownloadedUpdate();
+  const ready = useReadyUpdate();
   const origin = useInstallOrigin();
   const { settings, setUpdateMode } = useAppUpdateSettings();
   const dict = useDict().shell.updateModal;
@@ -47,12 +44,14 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
   // has nothing this app could re-run for the user, so the honest action is
   // the release page.
   const viaInstallScript = origin?.marker?.method === "install.sh";
-  const canAutoDownload = origin?.updatable ?? false;
-  const mode = settings.updateMode ?? "notify";
+  const canAutoInstall = origin?.updatable ?? false;
+  // What actually runs, not what's stored: an unset value is automatic on an
+  // updatable origin, so the control has to show that rather than "Notify".
+  const mode = resolveUpdateMode(settings.updateMode, canAutoInstall);
 
   const modeOptions = [
-    { mode: "notify" as const, label: dict.checkAutomaticallyOn },
-    ...(canAutoDownload ? [{ mode: "auto-download" as const, label: dict.checkAutomaticallyAutoDownload }] : []),
+    { mode: "notify" as const, label: dict.checkAutomaticallyNotify },
+    ...(canAutoInstall ? [{ mode: "auto-download" as const, label: dict.checkAutomaticallyInstall }] : []),
     { mode: "off" as const, label: dict.checkAutomaticallyOff },
   ];
 
@@ -72,22 +71,29 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
   }
 
   async function handleRestart(): Promise<void> {
-    if (!downloaded || restarting) return;
+    if (!ready || restarting) return;
     setRestarting(true);
-    await installAndRestart(downloaded);
+    try {
+      await restartIntoUpdate(ready.update, ready.installed);
+    } catch {
+      setRestarting(false);
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{downloaded ? dict.readyTitle : update ? dict.title : dict.upToDateTitle}</DialogTitle>
+          <DialogTitle>{ready ? dict.readyTitle : update ? dict.title : dict.upToDateTitle}</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          {downloaded ? (
+          {ready ? (
             <>
               <p className="text-sm text-pretty text-muted-foreground">
-                {dict.readyBody.replace("{version}", downloaded.version)}
+                {(ready.installed ? dict.readyBodyInstalled : dict.readyBodyDownloaded).replace(
+                  "{version}",
+                  ready.update.version,
+                )}
               </p>
               <Button
                 variant="outline"
@@ -113,7 +119,11 @@ export function UpdateModal({ open, onOpenChange }: { open: boolean; onOpenChang
                       ? dict.copyFailed
                       : dict.copyCommand}
               </Button>
-              {viaInstallScript && <p className="text-xs text-text-faint">{dict.restartHint}</p>}
+              {mode === "auto-download" ? (
+                <p className="text-xs text-text-faint">{dict.downloadingHint}</p>
+              ) : (
+                viaInstallScript && <p className="text-xs text-text-faint">{dict.restartHint}</p>
+              )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">{dict.upToDateBody.replace("{version}", APP_VERSION)}</p>

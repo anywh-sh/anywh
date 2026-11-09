@@ -19,6 +19,7 @@ import {
   type EventProps,
 } from "@/lib/telemetry/events";
 import { APP_VERSION } from "@/lib/install/appVersion";
+import { getInstallOrigin, resolveUpdateMode } from "@/lib/install/updateMode";
 import type { Profile } from "@/lib/profiles/profiles";
 
 /**
@@ -112,11 +113,17 @@ export function themeKind(): "builtin" | "custom" {
 /** Once the app is up: `app_opened`, today's `app_active` and, on the first
  * boot of a new version, `update_installed`. Held by the controller until the
  * consent question is answered. */
-export function reportBoot(): void {
+export async function reportBoot(): Promise<void> {
   if (!telemetry.available) return;
   const profiles = getProfiles();
   const local = profiles.filter((p) => p.localRelay === true).length;
-  const mode = updateModeOf(readSettings().app?.updateMode ?? "notify");
+  // The mode that runs, not the stored one: an unset value is automatic on an
+  // install that can replace itself. iOS has no origin probe, hence the catch.
+  const updatable = await getInstallOrigin().then(
+    (origin) => origin.updatable,
+    () => false,
+  );
+  const mode = updateModeOf(resolveUpdateMode(readSettings().app?.updateMode, updatable));
   const fontSize = readFontSize();
   const previous = swapBootVersion(APP_VERSION);
   firstOpenAt(Date.now());

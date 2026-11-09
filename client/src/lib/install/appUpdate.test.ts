@@ -31,7 +31,7 @@ async function freshSettings() {
  * instead of reading `.close` back off the typed `Update` (which
  * `@typescript-eslint/unbound-method` flags as an unbound method access). */
 function fakeUpdate(version: string, close: () => Promise<void> = vi.fn()): Update {
-  return { version, close } as unknown as Update;
+  return { version, close, install: vi.fn() } as unknown as Update;
 }
 
 beforeEach(() => {
@@ -44,11 +44,14 @@ describe("isCheckDue", () => {
     expect(isCheckDue(undefined, Date.now())).toBe(true);
   });
 
-  it("is not due within 24h of the last check", async () => {
-    const { isCheckDue } = await freshModule();
+  it("checks every 4 hours", async () => {
+    const { isCheckDue, UPDATE_CHECK_INTERVAL_MS } = await freshModule();
     const now = Date.now();
+    const hour = 60 * 60 * 1000;
+    expect(UPDATE_CHECK_INTERVAL_MS).toBe(4 * hour);
     expect(isCheckDue({ lastCheckedAt: now - 60_000 }, now)).toBe(false);
-    expect(isCheckDue({ lastCheckedAt: now - 25 * 60 * 60 * 1000 }, now)).toBe(true);
+    expect(isCheckDue({ lastCheckedAt: now - 3 * hour }, now)).toBe(false);
+    expect(isCheckDue({ lastCheckedAt: now - 5 * hour }, now)).toBe(true);
   });
 
   it("off suppresses everything regardless of timing", async () => {
@@ -56,7 +59,7 @@ describe("isCheckDue", () => {
     expect(isCheckDue({ updateMode: "off", lastCheckedAt: 0 }, Date.now())).toBe(false);
   });
 
-  it("respects a rate-limit backoff even when the 24h window has elapsed", async () => {
+  it("respects a rate-limit backoff even when the cadence has elapsed", async () => {
     const { isCheckDue } = await freshModule();
     const now = Date.now();
     expect(isCheckDue({ lastCheckedAt: 0, nextCheckAllowedAt: now + 60_000 }, now)).toBe(false);
@@ -64,17 +67,25 @@ describe("isCheckDue", () => {
   });
 });
 
-describe("normalizeUpdateMode", () => {
-  it("forces auto-download to notify on a non-updatable origin", async () => {
-    const { normalizeUpdateMode } = await freshModule();
-    expect(normalizeUpdateMode("auto-download", false)).toBe("notify");
+describe("resolveUpdateMode", () => {
+  it("defaults to automatic only where the install can replace itself", async () => {
+    const { resolveUpdateMode } = await freshModule();
+    expect(resolveUpdateMode(undefined, true)).toBe("auto-download");
+    expect(resolveUpdateMode(undefined, false)).toBe("notify");
   });
 
-  it("leaves every other combination untouched", async () => {
-    const { normalizeUpdateMode } = await freshModule();
-    expect(normalizeUpdateMode("auto-download", true)).toBe("auto-download");
-    expect(normalizeUpdateMode("notify", false)).toBe("notify");
-    expect(normalizeUpdateMode("off", false)).toBe("off");
+  it("keeps an explicit off or notify, on any origin", async () => {
+    const { resolveUpdateMode } = await freshModule();
+    expect(resolveUpdateMode("off", true)).toBe("off");
+    expect(resolveUpdateMode("off", false)).toBe("off");
+    expect(resolveUpdateMode("notify", true)).toBe("notify");
+    expect(resolveUpdateMode("notify", false)).toBe("notify");
+  });
+
+  it("honours a saved automatic mode only on an updatable origin", async () => {
+    const { resolveUpdateMode } = await freshModule();
+    expect(resolveUpdateMode("auto-download", true)).toBe("auto-download");
+    expect(resolveUpdateMode("auto-download", false)).toBe("notify");
   });
 });
 
@@ -82,6 +93,7 @@ describe("performUpdateCheck", () => {
   const fakeOrigin = (updatable: boolean) => () =>
     Promise.resolve({ channel: "appimage", updatable, execPath: "/x", marker: null });
   const noDownload = () => Promise.resolve(null);
+  const NEWER = { kind: "available" as const, tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null };
 
   it("never asks GitHub from a build no release stamped", async () => {
     const appUpdate = await freshModule();
@@ -166,22 +178,98 @@ describe("performUpdateCheck", () => {
     expect(settings.readSettings().app?.lastCheckedAt).toBe(now);
   });
 
-  it("forces a stored auto-download mode to notify when the origin isn't updatable", async () => {
+  it("neither downloads nor rewrites a saved auto-download the origin can't honour", async () => {
     const appUpdate = await freshModule();
     const settings = await freshSettings();
-    const now = Date.now();
     settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "auto-download" } });
+    const downloadUpdate = vi.fn(noDownload);
 
-    await appUpdate.performUpdateCheck(now, {
+    await appUpdate.performUpdateCheck(Date.now(), {
       getInstallOrigin: fakeOrigin(false),
-      checkLatestRelease: () => Promise.resolve({ kind: "notModified" }),
-      downloadUpdate: noDownload,
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate,
     });
 
-    expect(settings.readSettings().app?.updateMode).toBe("notify");
+    expect(downloadUpdate).not.toHaveBeenCalled();
+    expect(appUpdate.getAvailableUpdate()?.version).toBe("999.0.0");
+    expect(settings.readSettings().app?.updateMode).toBe("auto-download");
   });
 
-  it("downloads and marks the update ready in auto-download mode when the release is newer", async () => {
+  it.each([
+    { updatable: true, downloads: 1 },
+    { updatable: false, downloads: 0 },
+  ])("with no saved mode and updatable=$updatable, downloads $downloads time(s) and always notifies", async ({ updatable, downloads }) => {
+    const appUpdate = await freshModule();
+    const downloadUpdate = vi.fn(() => Promise.resolve(fakeUpdate("999.0.0")));
+
+    await appUpdate.performUpdateCheck(Date.now(), {
+      getInstallOrigin: fakeOrigin(updatable),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate,
+      installUpdate: () => Promise.resolve(),
+      installsInBackground: true,
+    });
+
+    expect(downloadUpdate).toHaveBeenCalledTimes(downloads);
+    expect(appUpdate.getAvailableUpdate()?.version).toBe("999.0.0");
+  });
+
+  it("installs right after the download where the platform allows it", async () => {
+    const appUpdate = await freshModule();
+    const order: string[] = [];
+    const update = fakeUpdate("999.0.0");
+
+    await appUpdate.performUpdateCheck(Date.now(), {
+      getInstallOrigin: fakeOrigin(true),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate: () => {
+        order.push("download");
+        return Promise.resolve(update);
+      },
+      installUpdate: () => {
+        order.push("install");
+        return Promise.resolve();
+      },
+      installsInBackground: true,
+    });
+
+    expect(order).toEqual(["download", "install"]);
+    expect(appUpdate.getReadyUpdate()).toMatchObject({ update, installed: true, dismissed: false });
+  });
+
+  it("defers the install where it would end the process (Windows)", async () => {
+    const appUpdate = await freshModule();
+    const installUpdate = vi.fn(() => Promise.resolve());
+    const update = fakeUpdate("999.0.0");
+
+    await appUpdate.performUpdateCheck(Date.now(), {
+      getInstallOrigin: fakeOrigin(true),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate: () => Promise.resolve(update),
+      installUpdate,
+      installsInBackground: false,
+    });
+
+    expect(installUpdate).not.toHaveBeenCalled();
+    expect(appUpdate.getReadyUpdate()).toMatchObject({ update, installed: false });
+  });
+
+  it("keeps a failed install as downloaded, so the restart installs it", async () => {
+    const appUpdate = await freshModule();
+    const update = fakeUpdate("999.0.0");
+
+    await appUpdate.performUpdateCheck(Date.now(), {
+      getInstallOrigin: fakeOrigin(true),
+      checkLatestRelease: () => Promise.resolve(NEWER),
+      downloadUpdate: () => Promise.resolve(update),
+      installUpdate: () => Promise.reject(new Error("disk full")),
+      installsInBackground: true,
+    });
+
+    expect(appUpdate.getReadyUpdate()).toMatchObject({ update, installed: false });
+  });
+
+  it("downloads and marks the update ready in a saved auto-download mode when the release is newer", async () => {
     const appUpdate = await freshModule();
     const settings = await freshSettings();
     const now = Date.now();
@@ -195,15 +283,19 @@ describe("performUpdateCheck", () => {
       checkLatestRelease: () =>
         Promise.resolve({ kind: "available", tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
       downloadUpdate,
+      installUpdate: () => Promise.resolve(),
+      installsInBackground: true,
     });
 
     expect(downloadUpdate).toHaveBeenCalledTimes(1);
-    expect(appUpdate.getDownloadedUpdate()).toBe(update);
+    expect(appUpdate.getReadyUpdate()?.update).toBe(update);
   });
 
-  it("never downloads in notify mode, even when the release is newer", async () => {
+  it("never downloads in a saved notify mode, even on an updatable origin", async () => {
     const appUpdate = await freshModule();
+    const settings = await freshSettings();
     const now = Date.now();
+    settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "notify" } });
     const downloadUpdate = vi.fn(() => Promise.resolve(fakeUpdate("999.0.0")));
 
     await appUpdate.performUpdateCheck(now, {
@@ -214,7 +306,7 @@ describe("performUpdateCheck", () => {
     });
 
     expect(downloadUpdate).not.toHaveBeenCalled();
-    expect(appUpdate.getDownloadedUpdate()).toBeNull();
+    expect(appUpdate.getReadyUpdate()).toBeNull();
   });
 
   it("does not re-download a version it has already fetched", async () => {
@@ -240,7 +332,7 @@ describe("performUpdateCheck", () => {
   });
 });
 
-describe("downloaded update", () => {
+describe("ready update", () => {
   it("closes the previous Update resource when a newer download replaces it", async () => {
     const appUpdate = await freshModule();
     const settings = await freshSettings();
@@ -258,7 +350,7 @@ describe("downloaded update", () => {
         Promise.resolve({ kind: "available" as const, tagName: "v999.0.0", htmlUrl: "https://example.test/r", etag: null }),
       downloadUpdate: () => Promise.resolve(first),
     });
-    expect(appUpdate.getDownloadedUpdate()).toBe(first);
+    expect(appUpdate.getReadyUpdate()?.update).toBe(first);
 
     // A day later so the next check is due on its own — exercises the same
     // path performUpdateCheck's 24h interval in App.tsx actually takes.
@@ -271,13 +363,13 @@ describe("downloaded update", () => {
 
     expect(firstClose).toHaveBeenCalledTimes(1);
     expect(secondClose).not.toHaveBeenCalled();
-    expect(appUpdate.getDownloadedUpdate()).toBe(second);
+    expect(appUpdate.getReadyUpdate()?.update).toBe(second);
   });
 
-  it("notifies subscribers and clears on clearDownloadedUpdate", async () => {
+  it("notifies subscribers and clears on clearReadyUpdate", async () => {
     const appUpdate = await freshModule();
     const listener = vi.fn();
-    const unsubscribe = appUpdate.subscribeDownloadedUpdate(listener);
+    const unsubscribe = appUpdate.subscribeReadyUpdate(listener);
 
     const settings = await freshSettings();
     settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "auto-download" } });
@@ -289,11 +381,34 @@ describe("downloaded update", () => {
     });
     expect(listener).toHaveBeenCalledTimes(1);
 
-    appUpdate.clearDownloadedUpdate();
+    appUpdate.clearReadyUpdate();
     expect(listener).toHaveBeenCalledTimes(2);
-    expect(appUpdate.getDownloadedUpdate()).toBeNull();
+    expect(appUpdate.getReadyUpdate()).toBeNull();
 
     unsubscribe();
+  });
+
+  it("dismissing hides the prompt for this update only", async () => {
+    const appUpdate = await freshModule();
+    const settings = await freshSettings();
+    settings.writeSettings({ ...settings.readSettings(), app: { updateMode: "auto-download" } });
+    const run = (version: string, at: number) =>
+      appUpdate.performUpdateCheck(at, {
+        getInstallOrigin: () => Promise.resolve({ channel: "appimage", updatable: true, execPath: "/x", marker: null }),
+        checkLatestRelease: () =>
+          Promise.resolve({ kind: "available" as const, tagName: `v${version}`, htmlUrl: "https://example.test/r", etag: null }),
+        downloadUpdate: () => Promise.resolve(fakeUpdate(version)),
+        installUpdate: () => Promise.resolve(),
+        installsInBackground: true,
+      });
+
+    await run("999.0.0", Date.now());
+    appUpdate.dismissRestartPrompt();
+    expect(appUpdate.getReadyUpdate()?.dismissed).toBe(true);
+
+    await run("999.0.1", Date.now() + 5 * 60 * 60 * 1000);
+    expect(appUpdate.getReadyUpdate()).toMatchObject({ dismissed: false });
+    expect(appUpdate.getReadyUpdate()?.update.version).toBe("999.0.1");
   });
 });
 
