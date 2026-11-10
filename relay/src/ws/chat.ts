@@ -18,6 +18,7 @@ import {
   isStopTurnMessage,
   isUserMessage,
   startTicketOf,
+  messageTicketRefsOf,
 } from "../protocol/guards.js";
 import type { EditMessageError, SharedSession } from "../session/sharedSession.js";
 
@@ -105,5 +106,5 @@ export function dispatchChatMessage(session: SharedSession, socket: WebSocket, p
     );
     return;
   }
-  session.submitTurn(socket, parsed.text, startTicketOf(parsed));
+  session.submitTurn(socket, parsed.text, startTicketOf(parsed), messageTicketRefsOf(parsed));
 }

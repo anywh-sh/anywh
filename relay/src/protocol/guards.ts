@@ -1,6 +1,7 @@
 import type { ModelChoice, PermissionMode } from "../session/sessionStore.js";
 import { isAgentPreference, type AgentPreference } from "../host/profileRegistry.js";
 import type { ChoiceAnswer } from "../bridges/mcpBridge.js";
+import type { MessageTicketRef } from "./agent-event.js";
 import { TICKET_KEY_PATTERN, type IntegrationProvider, type IntegrationsClientMessage, type McpAuthTarget, type McpRuntimeId, type TicketRef } from "../integrations/types.js";
 
 interface UserMessage {
@@ -10,6 +11,9 @@ interface UserMessage {
    * `startTicketOf`: `isUserMessage` does not look at it, so a malformed one
    * never costs the message. */
   startTicket?: unknown;
+  /** The tickets the message has as chips, for its bubble. Read through
+   * `messageTicketRefsOf`, for the same reason as `startTicket`. */
+  ticketRefs?: unknown;
 }
 
 export function isUserMessage(value: unknown): value is UserMessage {
@@ -360,6 +364,27 @@ export function isTicketRef(value: unknown): value is TicketRef {
 /** A `user_message`'s `startTicket`, if it is a well-formed ticket. */
 export function startTicketOf(message: UserMessage): TicketRef | undefined {
   return isTicketRef(message.startTicket) ? message.startTicket : undefined;
+}
+
+/** How many chips one message keeps, and how long a chip's title may be. */
+export const MESSAGE_TICKET_REFS_LIMIT = 20;
+export const MESSAGE_TICKET_TITLE_LIMIT = 300;
+
+export function isMessageTicketRef(value: unknown): value is MessageTicketRef {
+  if (!isRecord(value)) return false;
+  const { provider, site, key, title } = value;
+  return INTEGRATION_PROVIDERS.includes(provider as IntegrationProvider) && typeof site === "string" && isTicketKey(key) && (title === undefined || typeof title === "string");
+}
+
+/** A `user_message`'s well-formed `ticketRefs`, each reduced to the fields
+ * the bubble needs (a long title cut); a malformed one is skipped, never the
+ * message. */
+export function messageTicketRefsOf(message: UserMessage): MessageTicketRef[] {
+  if (!Array.isArray(message.ticketRefs)) return [];
+  return message.ticketRefs
+    .filter(isMessageTicketRef)
+    .slice(0, MESSAGE_TICKET_REFS_LIMIT)
+    .map(({ provider, site, key, title }) => ({ provider, site, key, ...(title ? { title: title.slice(0, MESSAGE_TICKET_TITLE_LIMIT) } : {}) }));
 }
 
 type ClientMessage<T extends IntegrationsClientMessage["type"]> = Extract<IntegrationsClientMessage, { type: T }>;

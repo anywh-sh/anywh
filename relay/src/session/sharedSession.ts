@@ -5,7 +5,7 @@ import { WITHDRAWN_APPROVAL_NOTE, withRelayNote } from "../protocol/relayNote.js
 import { createSessionDriver } from "../runtimes/createSessionDriver.js";
 import type { AgentSessionDriver, ObservedMcpServer, SessionDriverHost, SubtaskInfo, TurnHooks } from "../runtimes/sessionDriver.js";
 import type { HostAgentBinding } from "../runtimes/hostSessionDriver.js";
-import type { AgentEvent, McpFailure, RoomCard } from "../protocol/agent-event.js";
+import type { AgentEvent, McpFailure, MessageTicketRef, RoomCard } from "../protocol/agent-event.js";
 import { withRoomCard } from "../protocol/roomCard.js";
 import { withTicketLine, type TicketLine } from "../protocol/ticketLine.js";
 import type { McpStateMessage, TicketRef } from "../integrations/types.js";
@@ -21,6 +21,7 @@ import { BridgeToolFilter } from "./bridgeToolFilter.js";
 import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type EditTarget } from "./historyPaging.js";
 import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offersSilence } from "./turnMessages.js";
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
+import { attachTicketRefs, nextOccurrence, refsInText, withStoredRefs, type StoredTicketRefs } from "./messageTicketRefs.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice, SessionActivity } from "./sessionStore.js";
@@ -190,6 +191,12 @@ export interface SharedSessionOptions {
    * by a new turn/`/clear`/edit) — this is how SessionManager writes it to
    * SessionStore. */
   onSuggestionChange?: (suggestion: string | null) => void;
+  /** The `#` chips of this session's messages, kept for their bubbles (see
+   * `messageTicketRefs.ts`). */
+  initialTicketRefs?: StoredTicketRefs[];
+  /** Called whenever a message with chips is sent, or `/clear` drops them
+   * all — this is how SessionManager writes them to SessionStore. */
+  onTicketRefsChange?: (stored: StoredTicketRefs[]) => void;
   /** Deferred question persisted before a relay restart, if any. */
   initialPendingChoice?: PersistedChoice;
   /** Called whenever the deferred question is set or cleared (`undefined`) —
@@ -446,6 +453,8 @@ export class SharedSession implements SessionDriverHost {
    * after the clear (its normal guard only looks at `history.length`,
    * which we deliberately zero out on clear). */
   private historyCleared = false;
+  /** See `initialTicketRefs`. */
+  private storedTicketRefs: StoredTicketRefs[];
   /** Where in `history` the turn that told the agent its work ticket
    * starts, while this process has seen it. */
   private ticketLineAt: number | undefined;
@@ -523,6 +532,7 @@ export class SharedSession implements SessionDriverHost {
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
+    this.storedTicketRefs = options.initialTicketRefs ?? [];
     this.choiceMachine = new ChoiceMachine(this.clients, (kind, questions) =>
       // Deliberately NO push for a rehydrated question: the person was
       // already notified when it was first asked, and re-notifying on every
@@ -1210,7 +1220,7 @@ export class SharedSession implements SessionDriverHost {
     const filter = new BridgeToolFilter();
     // Anything broadcast while this was reading is already in `history` and
     // happened after what was read — the recovered part goes in front of it.
-    this.history.unshift(...events.filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event: this.withMcpServerName(event) })));
+    this.history.unshift(...attachTicketRefs(events, this.storedTicketRefs).filter((event) => !filter.shouldHide(event)).map((event) => ({ type: "agent_event" as const, event: this.withMcpServerName(event) })));
   }
 
   /** `origin` is the socket that sent this message — used only to know who
@@ -1218,7 +1228,7 @@ export class SharedSession implements SessionDriverHost {
    * already committed it optimistically before calling this) so it doesn't
    * get duplicated by the synthetic `user_message` that `runTurn` broadcasts
    * to the OTHER devices connected to the same session (see comment there). */
-  submitTurn(origin: WebSocket, text: string, startTicket?: TicketRef): void {
+  submitTurn(origin: WebSocket, text: string, startTicket?: TicketRef, ticketRefs: readonly MessageTicketRef[] = []): void {
     // A previous turn's suggestion no longer applies once a new one starts —
     // clear it right away (don't wait for the turn to finish) so it doesn't
     // stay hanging around for the whole duration of the turn in progress.
@@ -1233,7 +1243,7 @@ export class SharedSession implements SessionDriverHost {
     // message beat the timer to it.
     this.cancelPendingWakeup();
     // Enqueue: only one `claude -p` turn runs at a time in this session.
-    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note, undefined, startTicket));
+    this.enqueue(() => this.runTurn(origin, text, undefined, false, undefined, undefined, note, undefined, startTicket, undefined, refsInText(ticketRefs, text)));
   }
 
   /** Fired by `BackgroundJobTracker` (via
@@ -1543,6 +1553,10 @@ export class SharedSession implements SessionDriverHost {
       this.driver.resetSessionId();
       this.history.length = 0;
       this.historyCleared = true;
+      if (this.storedTicketRefs.length > 0) {
+        this.storedTicketRefs = [];
+        this.options.onTicketRefsChange?.([]);
+      }
       this.contextUsage = undefined;
       this.baselineTokens = undefined;
       // Same reasoning as performEdit's turnsBefore === 0 branch: `/clear`
@@ -1612,6 +1626,8 @@ export class SharedSession implements SessionDriverHost {
     /** The ticket line the prompt starts with, decided by whoever queued an
      * agent turn (a delegated task); never shown, like the card. */
     ticketLine?: TicketLine,
+    /** The tickets the person's message has as chips, for its bubble only. */
+    ticketRefs: readonly MessageTicketRef[] = [],
   ): Promise<void> {
     // The conversation so far is read from the agent's own storage before
     // anything of this turn enters the log: a turn that starts before any
@@ -1678,9 +1694,16 @@ export class SharedSession implements SessionDriverHost {
     let syntheticUserEvent: AgentEvent | undefined;
     let shownApart = false;
     if (!follow) {
+      // A person's message only: its chips are recorded under the
+      // occurrence it is, before it enters `history`.
+      const refs = !synthetic && !card ? ticketRefs : [];
+      if (refs.length > 0) {
+        this.storedTicketRefs = withStoredRefs(this.storedTicketRefs, text, nextOccurrence(this.history, text), [...refs]);
+        this.options.onTicketRefsChange?.(this.storedTicketRefs);
+      }
       const event: AgentEvent = synthetic
         ? { type: "user_message", text, synthetic: synthetic.kind, ...(synthetic.label ? { label: synthetic.label } : {}), ...(card ? { room: card } : {}) }
-        : { type: "user_message", text, ...(card ? { room: card } : {}) };
+        : { type: "user_message", text, ...(card ? { room: card } : {}), ...(refs.length > 0 ? { ticketRefs: [...refs] } : {}) };
       syntheticUserEvent = event;
       if (origin) {
         this.broadcastExcept({ type: "agent_event", event }, origin);

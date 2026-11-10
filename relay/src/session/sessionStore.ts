@@ -5,6 +5,7 @@ import type { ContextBreakdown } from "../context/breakdown.js";
 import type { ChoiceQuestion } from "../bridges/mcpBridge.js";
 import { capStoredTitle, firstLineTitle, MAX_STORED_TITLE_CHARS } from "./titleCap.js";
 import { isRoomMembership, type RoomMembership } from "./room.js";
+import { restoreStoredTicketRefs, type StoredTicketRefs } from "./messageTicketRefs.js";
 
 // Session name -> { session_id, cwd/lock } mapping, persisted to disk per
 // profile — without this, GET /sessions, continuity via --resume, and
@@ -153,6 +154,10 @@ export interface SessionEntry {
    * as `null` via `getSuggestion`, the distinction doesn't matter to a
    * reconnecting client either way. */
   suggestion?: string | null;
+  /** The `#` chips of the session's messages, for their bubbles (see
+   * `messageTicketRefs.ts`). Absent on records that predate them, and on
+   * every session whose messages had none. */
+  ticketRefs?: StoredTicketRefs[];
   /** The deferred `present_choice`/plan-marker question still waiting for a
    * human, kept so it survives a relay restart — it can sit unanswered for
    * days. Optional for the same reason as `permissionMode`/`draft`: records
@@ -901,6 +906,22 @@ export class SessionStore {
     this.ensureEntry(id);
     if (this.records[id].suggestion === text) return;
     this.records[id].suggestion = text;
+    this.persist();
+  }
+
+  getTicketRefs(id: string): StoredTicketRefs[] {
+    return restoreStoredTicketRefs(this.records[id]?.ticketRefs);
+  }
+
+  /** `[]` clears them; no-op when there is nothing to clear. */
+  setTicketRefs(id: string, stored: StoredTicketRefs[]): void {
+    if (stored.length === 0) {
+      if (this.records[id]?.ticketRefs === undefined) return;
+      delete this.records[id].ticketRefs;
+    } else {
+      this.ensureEntry(id);
+      this.records[id].ticketRefs = structuredClone(stored);
+    }
     this.persist();
   }
 

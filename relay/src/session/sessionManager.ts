@@ -643,6 +643,8 @@ export class SessionManager {
       onDraftChange: (text) => this.sessionStore.setDraft(id, text),
       initialSuggestion: this.sessionStore.getSuggestion(id),
       onSuggestionChange: (text) => this.sessionStore.setSuggestion(id, text),
+      initialTicketRefs: this.sessionStore.getTicketRefs(id),
+      onTicketRefsChange: (stored) => this.sessionStore.setTicketRefs(id, stored),
       onActivityStateChange: () => this.announceActivity(id),
       workTicketLine: (start, firstTurn, command) => this.workTickets?.takeLine(id, start, firstTurn, command),
       onTicketLineLost: () => this.workTickets?.lineLost(id),

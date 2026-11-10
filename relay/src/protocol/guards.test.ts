@@ -32,6 +32,10 @@ import {
   isTicketKey,
   isTicketRef,
   startTicketOf,
+  isMessageTicketRef,
+  messageTicketRefsOf,
+  MESSAGE_TICKET_REFS_LIMIT,
+  MESSAGE_TICKET_TITLE_LIMIT,
   isIntegrationRefreshMessage,
   isIntegrationLoadMoreMessage,
   isIntegrationPrefsMessage,
@@ -315,6 +319,28 @@ test("startTicketOf: a malformed startTicket is ignored, and never makes the mes
   const malformed = { type: "user_message", text: "go", startTicket: { provider: "jira", key: "NGL-1" } };
   assert.equal(isUserMessage(malformed), true);
   assert.equal(isUserMessage(malformed) && startTicketOf(malformed), undefined);
+});
+
+test("isMessageTicketRef: a chip's ticket, its site possibly empty", () => {
+  const ref = { provider: "jira", site: "acme.atlassian.net", key: "NGL-1", title: "Fix it" };
+  assert.equal(isMessageTicketRef(ref), true);
+  assert.equal(isMessageTicketRef({ ...ref, site: "", title: undefined }), true, "an unknown site and no title");
+  assert.equal(isMessageTicketRef({ ...ref, provider: "github" }), false, "unknown provider");
+  assert.equal(isMessageTicketRef({ ...ref, site: undefined }), false, "no site");
+  assert.equal(isMessageTicketRef({ ...ref, key: "ngl-1" }), false, "malformed key");
+  assert.equal(isMessageTicketRef({ ...ref, title: 3 }), false, "non-string title");
+  for (const value of NON_OBJECTS) assert.equal(isMessageTicketRef(value), false);
+});
+
+test("messageTicketRefsOf: keeps the well-formed refs, trimmed to the bubble's fields, and never costs the message", () => {
+  const ref = { provider: "jira" as const, site: "acme.atlassian.net", key: "NGL-1" };
+  assert.deepEqual(messageTicketRefsOf({ type: "user_message", text: "go" }), []);
+  assert.deepEqual(messageTicketRefsOf({ type: "user_message", text: "go", ticketRefs: "NGL-1" }), []);
+  const message = { type: "user_message" as const, text: "go", ticketRefs: [{ ...ref, id: "10042", extra: true }, { provider: "jira", key: "NGL-2" }, { ...ref, key: "NGL-3", title: "x".repeat(MESSAGE_TICKET_TITLE_LIMIT + 50) }] };
+  assert.equal(isUserMessage(message), true);
+  assert.deepEqual(messageTicketRefsOf(message), [ref, { ...ref, key: "NGL-3", title: "x".repeat(MESSAGE_TICKET_TITLE_LIMIT) }]);
+  const many = Array.from({ length: MESSAGE_TICKET_REFS_LIMIT + 5 }, (_, index) => ({ ...ref, key: `NGL-${String(index + 1)}` }));
+  assert.equal(messageTicketRefsOf({ type: "user_message", text: "go", ticketRefs: many }).length, MESSAGE_TICKET_REFS_LIMIT);
 });
 
 test("isIntegrationRefreshMessage: param is a project (or null) for mine, a ticket key for ticket", () => {
