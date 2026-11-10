@@ -66,6 +66,7 @@ function recordingTargets(defs: readonly AgentRuntimeDef[], dir: string, overrid
     publishSelectable: (agents) => (published.selectable = agents),
     publishRoomRuntimes: (ids) => (published.roomRuntimes = ids),
     publishModelCatalog: (agentId, catalog) => (published.catalogs[agentId] = catalog),
+    catalogTtlMs: 1_000,
     ...overrides,
   };
   return { targets, published };
@@ -141,19 +142,6 @@ test("refreshSelectableAgents probes the model catalog of each selectable agent,
   });
 });
 
-test("refreshSelectableAgents: an agent whose catalog is already known is not probed again", async () => {
-  await withTmpDir(async (dir) => {
-    const known = fixtureDef("known", writeVersionScript(dir, "known-cli", "1.0.0"), CATALOG);
-    const fresh = fixtureDef("fresh", writeVersionScript(dir, "fresh-cli", "1.0.0"), CATALOG);
-    const { targets, published } = recordingTargets([known, fresh], dir, { hasModelCatalog: (agentId) => agentId === "known" });
-
-    await refreshSelectableAgents(targets);
-    await new Promise((resolve) => setImmediate(resolve));
-
-    assert.deepEqual(Object.keys(published.catalogs), ["fresh"]);
-  });
-});
-
 /** Answers `--version` until `hangFlag` exists, then never answers — a CLI
  * too slow for detection's 3 s timeout. */
 function writeHangingScript(dir: string, name: string, hangFlag: string): string {
@@ -172,7 +160,7 @@ test("createAgentRefresher: an installed agent whose --version times out keeps i
     const bin = writeHangingScript(dir, "slow-cli.cjs", hangFlag);
     const slow = fixtureDef("slow", bin, CATALOG);
     const { targets, published } = recordingTargets([slow], dir);
-    const refresh = createAgentRefresher(targets);
+    const { refresh } = createAgentRefresher(targets);
 
     assert.equal((await refresh())[0].installed, true);
 
@@ -232,7 +220,7 @@ test("createAgentRefresher: calls made during a refresh share one follow-up inst
     const log = join(dir, "calls.log");
     const def = fixtureDef("counted", writeCountingScript(dir, "counted-cli.cjs", log, 300), CATALOG);
     const { targets } = recordingTargets([def], dir);
-    const refresh = createAgentRefresher(targets);
+    const { refresh } = createAgentRefresher(targets);
 
     const first = refresh();
     const second = refresh();
@@ -254,7 +242,7 @@ test("createAgentRefresher: a catalog probe still running is not started again b
       models: { kind: "cli-probe", args: ["models"], parse: (stdout) => (stdout.includes("MODELS") ? CATALOG : undefined) },
     };
     const { targets, published } = recordingTargets([def], dir);
-    const refresh = createAgentRefresher(targets);
+    const { refresh } = createAgentRefresher(targets);
 
     await refresh();
     await refresh();
@@ -263,5 +251,182 @@ test("createAgentRefresher: a catalog probe still running is not started again b
 
     assert.deepEqual(published.catalogs.probed, CATALOG);
     assert.equal(calls(log, "models"), 1);
+  });
+});
+
+/** Reads the version and the catalog from files the test rewrites, and logs
+ * every invocation's first arg: a CLI whose answers change under a running
+ * relay. A missing catalog file makes the `models` probe exit 1. */
+function writeChangingScript(dir: string, name: string, files: { version: string; catalog: string; log: string }, delayMs = 0): string {
+  const path = join(dir, name);
+  writeFileSync(
+    path,
+    [
+      "#!/usr/bin/env node",
+      'const fs = require("node:fs");',
+      `fs.appendFileSync(${JSON.stringify(files.log)}, process.argv[2] + "\\n");`,
+      `setTimeout(() => {`,
+      `  if (process.argv[2] === "--version") return process.stdout.write(fs.readFileSync(${JSON.stringify(files.version)}, "utf8"));`,
+      `  if (!fs.existsSync(${JSON.stringify(files.catalog)})) process.exit(1);`,
+      `  process.stdout.write(fs.readFileSync(${JSON.stringify(files.catalog)}, "utf8") + "\\n");`,
+      `}, ${delayMs});`,
+    ].join("\n"),
+  );
+  chmodSync(path, 0o755);
+  return path;
+}
+
+function probeDef(id: string, bin: string): AgentRuntimeDef {
+  return {
+    ...fixtureDef(id, bin, CATALOG),
+    models: {
+      kind: "cli-probe",
+      args: ["models"],
+      parse: (stdout) => (stdout.trim().endsWith("}") ? (JSON.parse(stdout) as ModelCatalog) : undefined),
+    },
+  };
+}
+
+async function waitUntil(condition: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!condition() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(condition(), `timed out waiting for ${what}`);
+}
+
+const NEWER: ModelCatalog = { options: [{ id: "m1", label: "Model 1" }, { id: "m2", label: "Model 2" }], defaultId: "m1" };
+
+/** A refresher over one changing CLI, with a clock the test moves. */
+function changingRefresher(dir: string, catalog: ModelCatalog) {
+  const files = { version: join(dir, "version"), catalog: join(dir, "catalog"), log: join(dir, "calls.log") };
+  writeFileSync(files.version, "1.0.0\n");
+  writeFileSync(files.catalog, JSON.stringify(catalog));
+  const def = probeDef("changing", writeChangingScript(dir, "changing-cli.cjs", files));
+  const clock = { now: 0 };
+  const publications: ModelCatalog[] = [];
+  const { targets, published } = recordingTargets([def], dir, {
+    now: () => clock.now,
+    publishModelCatalog: (_id, next) => {
+      publications.push(next);
+      published.catalogs.changing = next;
+    },
+  });
+  return { files, clock, publications, published, refresher: createAgentRefresher(targets) };
+}
+
+test("createAgentRefresher: a known catalog is not probed again within its TTL", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, publications, refresher } = changingRefresher(dir, CATALOG);
+
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the first catalog");
+    await refresher.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(calls(files.log, "models"), 1);
+    assert.equal(refresher.catalogsDue(), false);
+  });
+});
+
+test("createAgentRefresher: past the TTL the catalog is probed again and a changed list is published", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, clock, publications, refresher } = changingRefresher(dir, CATALOG);
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the first catalog");
+
+    writeFileSync(files.catalog, JSON.stringify(NEWER));
+    clock.now = 1_000;
+    assert.equal(refresher.catalogsDue(), true);
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 2, "the changed catalog");
+
+    assert.deepEqual(publications[1], NEWER);
+    assert.equal(refresher.catalogsDue(), false);
+  });
+});
+
+test("createAgentRefresher: a new --version probes again within the TTL", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, publications, refresher } = changingRefresher(dir, CATALOG);
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the first catalog");
+
+    writeFileSync(files.version, "2.0.0\n");
+    writeFileSync(files.catalog, JSON.stringify(NEWER));
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 2, "the catalog under the new version");
+
+    assert.equal(calls(files.log, "models"), 2);
+  });
+});
+
+test("createAgentRefresher: a re-probe that finds the same catalog publishes nothing", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, clock, publications, refresher } = changingRefresher(dir, CATALOG);
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the first catalog");
+
+    clock.now = 1_000;
+    await refresher.refresh();
+    await waitUntil(() => calls(files.log, "models") === 2, "the second probe");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(publications.length, 1);
+  });
+});
+
+test("createAgentRefresher: a failed re-probe keeps the published catalog and is retried only after the failure delay", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, clock, published, publications, refresher } = changingRefresher(dir, CATALOG);
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the first catalog");
+
+    rmSync(files.catalog);
+    clock.now = 1_000;
+    await refresher.refresh();
+    await waitUntil(() => calls(files.log, "models") === 2, "the failing probe");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(published.catalogs.changing, CATALOG, "the earlier catalog stays");
+
+    // Fresh again for a whole TTL: a failure counts as an attempt.
+    clock.now = 1_500;
+    await refresher.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(calls(files.log, "models"), 2);
+  });
+});
+
+test("createAgentRefresher: a probe that never found a catalog is retried after the failure delay, not before", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, clock, publications, refresher } = changingRefresher(dir, CATALOG);
+    rmSync(files.catalog);
+    await refresher.refresh();
+    await waitUntil(() => calls(files.log, "models") === 1, "the failing probe");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    clock.now = 59_000;
+    await refresher.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(calls(files.log, "models"), 1);
+
+    writeFileSync(files.catalog, JSON.stringify(CATALOG));
+    clock.now = 60_000;
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the catalog once the CLI answers");
+  });
+});
+
+test("createAgentRefresher: refreshes made while a probe runs spawn one probe", async () => {
+  await withTmpDir(async (dir) => {
+    const files = { version: join(dir, "version"), catalog: join(dir, "catalog"), log: join(dir, "calls.log") };
+    writeFileSync(files.version, "1.0.0\n");
+    writeFileSync(files.catalog, JSON.stringify(CATALOG));
+    const def = probeDef("slow-probe", writeChangingScript(dir, "slow-probe-cli.cjs", files, 300));
+    const { targets, published } = recordingTargets([def], dir);
+    const { refresh } = createAgentRefresher(targets);
+
+    await Promise.all([refresh(), refresh(), refresh()]);
+    await waitUntil(() => published.catalogs["slow-probe"] !== undefined, "the catalog");
+
+    assert.equal(calls(files.log, "models"), 1);
   });
 });

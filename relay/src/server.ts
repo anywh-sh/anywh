@@ -11,6 +11,7 @@ import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { buildRegistry } from "./runtimes/registry.js";
+import type { AgentDetection } from "./runtimes/detection.js";
 import { createAgentRefresher } from "./runtimes/selectableAgents.js";
 import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
 import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
@@ -158,7 +159,8 @@ const sessionManager = new SessionManager(
     }
   },
   pushDispatcher ? (event) => pushDispatcher.notify(event) : undefined,
-  // `modelCatalogs` is filled by the boot probes below, after this runs.
+  // `modelCatalogs` is filled by the catalog probes below (at boot, then on
+  // each refresh), after this runs.
   (agentId) => modelCatalogs[agentId],
   // A room's workers never hold a tool-permission call open for a person: the
   // request becomes an approval card and the turn ends.
@@ -382,15 +384,35 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
 
 // Each installed agent's model catalog, exactly as its own CLI's picker
 // lists it (`probes/modelCatalog.ts`, driven by each def's `models`) —
-// probed once at boot, after `detectRuntimes` below says which agents are
+// probed at boot, after `detectRuntimes` below says which agents are
 // installed, in parallel with everything else (doesn't block
-// `httpServer.listen`). Sent per connection rather than per session: the
+// `httpServer.listen`), and again when a catalog goes stale, the CLI's
+// `--version` changes or a probe found nothing (`selectableAgents.ts`):
+// the list a CLI offers comes from its server and account, so it moves
+// without the binary moving. A changed catalog is re-sent to every
+// connected client, which replaces that agent's entry. Sent per connection rather than per session: the
 // client picks the entry for whichever agent the session runs, so a
 // session switching agents needs no extra round trip. `modelCatalogClients`
 // covers the obvious race — the first client's WS connection almost always
 // arrives before the probes resolve — and each catalog is re-sent as it
 // lands, so a slow CLI never holds back a fast one.
 const modelCatalogs: Record<string, ModelCatalog> = {};
+
+/** envMs reads a duration in ms from the environment, falling back when it
+ * is unset or not a non-negative number. */
+function envMs(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return process.env[name] !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+// A new model ships a few times a month, not a day: a catalog is fresh for
+// 6 hours (at most ~4 probes a day per CLI and profile; each one spawns the
+// CLI for a second or so). The timer below only decides — detection is
+// cheap, and it probes just what went stale or changed version — so it ticks
+// hourly, which keeps the worst delay near 7 hours and a CLI auto-update
+// visible within the hour.
+const MODEL_CATALOG_TTL_MS = envMs("RELAY_MODEL_CATALOG_TTL_MS", 6 * 3_600_000);
+const MODEL_CATALOG_REFRESH_MS = envMs("RELAY_MODEL_CATALOG_REFRESH_MS", 3_600_000);
 const modelCatalogClients = new Set<WebSocket>();
 function sendModelCatalogs(client: WebSocket): void {
   if (Object.keys(modelCatalogs).length === 0) return;
@@ -404,7 +426,7 @@ function sendModelCatalogs(client: WebSocket): void {
 // `runtimes/executables.ts`, which also grows per agent.
 const SELECTABLE_AGENT_IDS = ["claude", "codex"];
 
-const refreshAgents = createAgentRefresher({
+const agentRefresher = createAgentRefresher({
   defs: [claudeRuntimeDef, codexRuntimeDef],
   selectableIds: SELECTABLE_AGENT_IDS,
   roomRuntimeIds: HOST_RUNTIMES,
@@ -421,15 +443,24 @@ const refreshAgents = createAgentRefresher({
     modelCatalogs[agentId] = catalog;
     for (const client of modelCatalogClients) sendModelCatalogs(client);
   },
-  hasModelCatalog: (agentId) => agentId in modelCatalogs,
+  catalogTtlMs: MODEL_CATALOG_TTL_MS,
 });
+const refreshAgents = (): Promise<readonly AgentDetection[]> => agentRefresher.refresh();
 
-refreshAgents().catch((error: unknown) => {
+function logRefreshFailure(error: unknown): void {
   // detectRuntimes itself never rejects (detection.ts's own contract) —
   // this only exists so a mistake in that contract fails loudly instead
   // of leaving /host-info's `agents` silently empty forever.
   console.error("[relay] failed to detect agent runtimes:", error);
-});
+}
+
+refreshAgents().catch(logRefreshFailure);
+
+// Nobody is looking at a picker while no client is connected, and a client
+// that connects later triggers the due check below.
+setInterval(() => {
+  if (modelCatalogClients.size > 0) refreshAgents().catch(logRefreshFailure);
+}, MODEL_CATALOG_REFRESH_MS).unref();
 
 // Exported so integration tests (relay/tests/) can close both servers in
 // teardown — this module runs its listen/connection wiring as a side effect
@@ -640,6 +671,9 @@ wss.on("connection", (socket: WebSocket, request) => {
 
   modelCatalogClients.add(socket);
   sendModelCatalogs(socket);
+  // The catalog just sent may be old: a stale one is probed again now, and
+  // the new list reaches this socket (and any other) when it lands.
+  if (agentRefresher.catalogsDue()) refreshAgents().catch(logRefreshFailure);
 
   socket.on("message", (raw: Buffer) => {
     let parsed: unknown;

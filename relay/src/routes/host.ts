@@ -17,8 +17,8 @@ export interface SelectableAgentInfo {
   readonly version?: string;
 }
 
-// Set once at boot (server.ts, after runtimes/detection.ts's probe
-// resolves) — empty until then, same "older relay/client simply sees
+// Set at boot (server.ts, after runtimes/detection.ts's probe
+// resolves) and again on every agent refresh — empty until then, same "older relay/client simply sees
 // nothing new" shape as `version` below. Only agents server.ts's own
 // SELECTABLE_AGENT_IDS names land here, further filtered to `installed` —
 // a relay without the `codex` binary on `$PATH` still only ever offers
