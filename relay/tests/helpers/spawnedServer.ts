@@ -100,6 +100,10 @@ async function spawnRelayOnce(extraEnv: Record<string, string>): Promise<{ serve
       ANYWH_ENV_DIR: join(workDir, "env"),
       RELAY_SESSIONS_FILE: join(workDir, "sessions.json"),
       RELAY_BACKGROUND_JOBS_FILE: join(workDir, "background-jobs.json"),
+      // Never the registry next to the code (`./push-devices.local.json`,
+      // relay/): on a developer's machine that file holds the real devices,
+      // and a room turn ending in a spawned relay pushed to them for real.
+      RELAY_PUSH_DEVICES_FILE: join(workDir, "push-devices.json"),
       AGENT_BIN: FAKE_AGENT_BIN,
       SYSTEMCTL_BIN: FAKE_SYSTEMCTL_BIN,
       // Never the machine's real agent host socket (see testServer.ts).
