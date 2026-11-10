@@ -98,9 +98,6 @@ export interface RoomSessions {
   generateTitle(id: string, text: string): void;
 }
 
-/** Aliases the Claude CLI takes beyond the ids its own picker lists. */
-const CLAUDE_MODEL_ALIAS = /^(default|best|haiku|sonnet|opus|opusplan)(\[1m\])?$|^claude-[a-z0-9.-]+$/;
-
 export interface RoomManagerOptions {
   readonly store: SessionStore;
   readonly sessions: RoomSessions;
@@ -1184,16 +1181,6 @@ export class RoomManager implements RoomToolHost {
     for (const id of this.store.listIds()) if ((this.store.getRoom(id)?.undeliveredReports?.length ?? 0) > 0) this.considerDigest(id);
   }
 
-  /** A model the runtime will take: the catalog's own ids, and for Claude
-   * its aliases (the CLI takes more than its picker lists). Unknown
-   * catalog: anything goes, the CLI is the judge. */
-  private checkModel(runtime: string, model: string): string | undefined {
-    const catalog = this.options.getModelCatalog?.(runtime);
-    if (!catalog || catalog.options.some((option) => option.id === model)) return undefined;
-    if (runtime === "claude" && CLAUDE_MODEL_ALIAS.test(model)) return undefined;
-    return `Model "${model}" is not one ${runtime} offers here. Use one of: ${catalog.options.map((option) => option.id).join(", ")}${runtime === "claude" ? " (or haiku, sonnet, opus)" : ""}.`;
-  }
-
   // ------------------------------------------------------------ tools
 
   /** An agent's name for a tool's answer: its title, or its id when it has
@@ -1258,8 +1245,8 @@ export class RoomManager implements RoomToolHost {
     if (live >= ROOM_MAX_LIVE_AGENTS) {
       return fail(`room_cap_reached: this room already has ${live} agents at work, the limit is ${ROOM_MAX_LIVE_AGENTS}. Wait for one to report, or ask the person to stop one, before delegating more.`);
     }
-    const modelProblem = this.checkModel(args.runtime, args.model);
-    if (modelProblem) return fail(modelProblem);
+    // A model the catalog does not list is still passed through: the catalog
+    // can lag behind the CLI, and the CLI rejects an invalid id itself.
     if (!this.options.hostConnected()) return fail("The agent host is not running, so no agent can start now. Tell the person; nothing was started.");
     const def = this.options.registry.get(args.runtime)!;
     const option = this.options.getModelCatalog?.(args.runtime)?.options.find((candidate) => candidate.id === args.model);
