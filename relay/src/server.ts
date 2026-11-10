@@ -12,7 +12,7 @@ import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import type { AgentDetection } from "./runtimes/detection.js";
-import { createAgentRefresher } from "./runtimes/selectableAgents.js";
+import { createAgentRefresher, parseDurationMs } from "./runtimes/selectableAgents.js";
 import type { ModelCatalog, RoomAgentSetup } from "./runtimes/types.js";
 import { FileCursorStore, HostClient } from "./agentHost/hostClient.js";
 import { relayAgentHostSocket } from "./agentHost/paths.js";
@@ -390,20 +390,13 @@ function handleBridgeRequest(req: IncomingMessage, res: ServerResponse): boolean
 // `--version` changes or a probe found nothing (`selectableAgents.ts`):
 // the list a CLI offers comes from its server and account, so it moves
 // without the binary moving. A changed catalog is re-sent to every
-// connected client, which replaces that agent's entry. Sent per connection rather than per session: the
-// client picks the entry for whichever agent the session runs, so a
+// connected client, which replaces that agent's entry. Sent per connection
+// rather than per session: the client picks the entry for whichever agent the session runs, so a
 // session switching agents needs no extra round trip. `modelCatalogClients`
 // covers the obvious race — the first client's WS connection almost always
 // arrives before the probes resolve — and each catalog is re-sent as it
 // lands, so a slow CLI never holds back a fast one.
 const modelCatalogs: Record<string, ModelCatalog> = {};
-
-/** envMs reads a duration in ms from the environment, falling back when it
- * is unset or not a non-negative number. */
-function envMs(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
-  return process.env[name] !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
-}
 
 // A new model ships a few times a month, not a day: a catalog is fresh for
 // 6 hours (at most ~4 probes a day per CLI and profile; each one spawns the
@@ -411,8 +404,8 @@ function envMs(name: string, fallback: number): number {
 // cheap, and it probes just what went stale or changed version — so it ticks
 // hourly, which keeps the worst delay near 7 hours and a CLI auto-update
 // visible within the hour.
-const MODEL_CATALOG_TTL_MS = envMs("RELAY_MODEL_CATALOG_TTL_MS", 6 * 3_600_000);
-const MODEL_CATALOG_REFRESH_MS = envMs("RELAY_MODEL_CATALOG_REFRESH_MS", 3_600_000);
+const MODEL_CATALOG_TTL_MS = parseDurationMs(process.env.RELAY_MODEL_CATALOG_TTL_MS, 6 * 3_600_000, 0);
+const MODEL_CATALOG_REFRESH_MS = parseDurationMs(process.env.RELAY_MODEL_CATALOG_REFRESH_MS, 3_600_000, 1_000);
 const modelCatalogClients = new Set<WebSocket>();
 function sendModelCatalogs(client: WebSocket): void {
   if (Object.keys(modelCatalogs).length === 0) return;

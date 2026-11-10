@@ -44,6 +44,10 @@ export interface CatalogProbeRecord {
   readonly version: string | undefined;
   /** JSON of the catalog last published; absent while no probe has found one. */
   readonly published?: string;
+  /** Whether the last probe found nothing while an earlier catalog stands.
+   * `version` is then still the one that catalog was read under, so a CLI
+   * that changed version keeps counting as due — at the failure delay. */
+  readonly failed?: boolean;
 }
 
 /** A probe that found nothing (failed, timed out) is retried after this,
@@ -56,7 +60,26 @@ export const CATALOG_RETRY_AFTER_FAILURE_MS = 60_000;
 export function catalogProbeDue(record: CatalogProbeRecord | undefined, version: string | undefined, now: number, ttlMs: number): boolean {
   if (!record) return true;
   if (record.published === undefined) return now - record.at >= CATALOG_RETRY_AFTER_FAILURE_MS;
-  return version !== record.version || now - record.at >= ttlMs;
+  if (version !== record.version) return !record.failed || now - record.at >= CATALOG_RETRY_AFTER_FAILURE_MS;
+  return now - record.at >= ttlMs;
+}
+
+/** The record after a probe that found nothing: an earlier catalog stays
+ * published, under the version it was read with. */
+function probeFoundNothing(earlier: CatalogProbeRecord | undefined, version: string | undefined, at: number): CatalogProbeRecord {
+  if (earlier?.published === undefined) return { at, version };
+  return { at, version: earlier.version, published: earlier.published, failed: true };
+}
+
+/** The longest delay `setInterval`/`setTimeout` take; a larger one fires at once. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** A duration in ms read from an environment value: `fallback` when it is
+ * unset, blank, not a number, below `min` or past what a timer can wait. */
+export function parseDurationMs(raw: string | undefined, fallback: number, min: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= min && value <= MAX_TIMER_MS ? value : fallback;
 }
 
 /** The catalog-probe memory shared across refreshes. */
@@ -100,17 +123,21 @@ export async function refreshSelectableAgents(
     if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
     const id = def.identity.id;
     const version = selectable.find((detection) => detection.id === id)?.version;
-    if (state.probing.has(id) || !catalogProbeDue(state.records.get(id), version, now(), targets.catalogTtlMs)) continue;
+    if (def.models.kind === "session-rpc" || state.probing.has(id) || !catalogProbeDue(state.records.get(id), version, now(), targets.catalogTtlMs)) continue;
     state.probing.add(id);
     probeModelCatalog(def, targets.homeOverride, targets.cwd)
       .then((catalog) => {
-        const earlier = state.records.get(id)?.published;
-        const json = catalog ? JSON.stringify(catalog) : earlier;
-        state.records.set(id, { at: now(), version, published: json });
-        if (catalog && json !== earlier) targets.publishModelCatalog(id, catalog);
+        const earlier = state.records.get(id);
+        if (catalog) {
+          const json = JSON.stringify(catalog);
+          state.records.set(id, { at: now(), version, published: json });
+          if (json !== earlier?.published) targets.publishModelCatalog(id, catalog);
+        } else {
+          state.records.set(id, probeFoundNothing(earlier, version, now()));
+        }
       })
       .catch((error: unknown) => {
-        state.records.set(id, { at: now(), version, published: state.records.get(id)?.published });
+        state.records.set(id, probeFoundNothing(state.records.get(id), version, now()));
         console.error(`[relay] failed to probe ${id} model catalog:`, error);
       })
       .finally(() => state.probing.delete(id));
@@ -172,6 +199,7 @@ export function createAgentRefresher(targets: SelectableAgentsTargets): AgentRef
       return targets.defs.some((def) => {
         const detection = last.get(def.identity.id);
         if (!detection?.installed || !targets.selectableIds.includes(def.identity.id)) return false;
+        if (def.models.kind === "session-rpc" || state.probing.has(def.identity.id)) return false;
         return catalogProbeDue(state.records.get(def.identity.id), detection.version, now, targets.catalogTtlMs);
       });
     },

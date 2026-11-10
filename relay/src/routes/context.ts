@@ -27,7 +27,7 @@ export interface RouteContext {
   readonly homeOverride: string | undefined;
   /** Re-detects which agent CLIs are installed and republishes what boot
    * detection did (`/host-info`'s agents, the room runtimes, a model
-   * catalog for any agent whose is missing, stale or from another CLI version). Resolves with every
+   * catalog for any agent whose catalog is missing, stale or from another CLI version). Resolves with every
    * detection, the agents not installed included. */
   readonly refreshAgents: () => Promise<readonly AgentDetection[]>;
   readonly port: number;

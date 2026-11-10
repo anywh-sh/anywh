@@ -46,16 +46,21 @@ after(async () => {
 
 test("a catalog that changes under a running relay reaches a client that was already connected", async () => {
   const { socket: watcher } = await connectSessionAndCollectUntil(server.port, "catalog-watcher", isCatalogWith("Fake Opus 9"));
-  let other: { close: () => void } | undefined;
   try {
     writeFileSync(modelsFile, JSON.stringify(NEWER_MODELS));
-    // A new connection is what finds the catalog due and probes again.
-    const updated = collectUntil(watcher, isCatalogWith("Fake Fable 9.2"), 10_000);
-    other = (await connectSessionAndCollectUntil(server.port, "catalog-trigger", (message) => message.type === "model_catalogs_state")).socket;
+    // A new connection is what finds the catalog due and probes again. The
+    // watcher's own connection may still have a probe in flight that read
+    // the old file, which a connection made meanwhile cannot restart — so
+    // connect again until the update arrives.
+    let arrived = false;
+    const updated = collectUntil(watcher, isCatalogWith("Fake Fable 9.2"), 10_000).finally(() => (arrived = true));
+    for (let attempt = 0; !arrived && attempt < 40; attempt++) {
+      (await connectSessionAndCollectUntil(server.port, `catalog-trigger-${attempt}`, (message) => message.type === "model_catalogs_state")).socket.close();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
     const messages = await updated;
     assert.deepEqual(labelsOf(messages.at(-1)!), ["Fake Opus 9", "Fake Fable 9.2"]);
   } finally {
-    other?.close();
     watcher.close();
   }
 });

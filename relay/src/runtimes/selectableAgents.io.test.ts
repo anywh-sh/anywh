@@ -395,6 +395,46 @@ test("createAgentRefresher: a failed re-probe keeps the published catalog and is
   });
 });
 
+test("createAgentRefresher: a probe that fails right after a version change is retried at the failure delay, not at the TTL", async () => {
+  await withTmpDir(async (dir) => {
+    const { files, clock, publications, refresher } = changingRefresher(dir, CATALOG);
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 1, "the first catalog");
+
+    writeFileSync(files.version, "2.0.0\n");
+    rmSync(files.catalog);
+    await refresher.refresh();
+    await waitUntil(() => calls(files.log, "models") === 2, "the failing probe");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    clock.now = 30_000;
+    await refresher.refresh();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(calls(files.log, "models"), 2, "too soon after the failure");
+
+    writeFileSync(files.catalog, JSON.stringify(NEWER));
+    clock.now = 60_000;
+    await refresher.refresh();
+    await waitUntil(() => publications.length === 2, "the catalog under the new version");
+    assert.deepEqual(publications[1], NEWER);
+  });
+});
+
+test("createAgentRefresher: catalogsDue is false while the probe that would answer it is running", async () => {
+  await withTmpDir(async (dir) => {
+    const files = { version: join(dir, "version"), catalog: join(dir, "catalog"), log: join(dir, "calls.log") };
+    writeFileSync(files.version, "1.0.0\n");
+    writeFileSync(files.catalog, JSON.stringify(CATALOG));
+    const def = probeDef("running-probe", writeChangingScript(dir, "running-probe-cli.cjs", files, 300));
+    const { targets, published } = recordingTargets([def], dir);
+    const refresher = createAgentRefresher(targets);
+
+    await refresher.refresh();
+    assert.equal(refresher.catalogsDue(), false, "the probe is under way");
+    await waitUntil(() => published.catalogs["running-probe"] !== undefined, "the catalog");
+  });
+});
+
 test("createAgentRefresher: a probe that never found a catalog is retried after the failure delay, not before", async () => {
   await withTmpDir(async (dir) => {
     const { files, clock, publications, refresher } = changingRefresher(dir, CATALOG);
