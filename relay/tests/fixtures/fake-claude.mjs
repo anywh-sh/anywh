@@ -9,7 +9,9 @@
 //     (runtimes/defs/claude/session.ts sendTurn)
 //   - `-p --input-format stream-json --no-session-persistence ...` + an
 //     `initialize` control_request on stdin -> the model catalog probe
-//     (defs/claude/def.ts `models`)
+//     (defs/claude/def.ts `models`). FAKE_CLAUDE_MODELS_FILE, a JSON array
+//     in the `models` shape of that reply, is read again on every probe, so
+//     a test can change the CLI's catalog under a running relay.
 //   - `-p --input-format stream-json ...` otherwise -> a persistent process
 //     with one turn per stdin message (the agent host's agents), see
 //     fake-claude-persistent.mjs
@@ -137,6 +139,14 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+
+/** The `models` the catalog probe's `initialize` reply carries by default. */
+const DEFAULT_INIT_MODELS = [
+  { value: "default", resolvedModel: "claude-fake-opus-9", displayName: "Default (recommended)", description: "Fake Opus 9 · Best for everyday tasks" },
+  { value: "fake-sonnet", resolvedModel: "claude-fake-sonnet-9", displayName: "Fake Sonnet 9", description: "Efficient", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"] },
+  { value: "fake-opus", resolvedModel: "claude-fake-opus-9", displayName: "Fake Opus 9", description: "For complex work", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "claude-fake-opus-8", resolvedModel: "claude-fake-opus-8", displayName: "Fake Opus 8" },
+];
 
 const args = process.argv.slice(2);
 
@@ -395,12 +405,9 @@ if (args[0] === "--version") {
           subtype: "success",
           request_id: message.request_id,
           response: {
-            models: [
-              { value: "default", resolvedModel: "claude-fake-opus-9", displayName: "Default (recommended)", description: "Fake Opus 9 · Best for everyday tasks" },
-              { value: "fake-sonnet", resolvedModel: "claude-fake-sonnet-9", displayName: "Fake Sonnet 9", description: "Efficient", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "max"] },
-              { value: "fake-opus", resolvedModel: "claude-fake-opus-9", displayName: "Fake Opus 9", description: "For complex work", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
-              { value: "claude-fake-opus-8", resolvedModel: "claude-fake-opus-8", displayName: "Fake Opus 8" },
-            ],
+            models: process.env.FAKE_CLAUDE_MODELS_FILE
+              ? JSON.parse(readFileSync(process.env.FAKE_CLAUDE_MODELS_FILE, "utf8"))
+              : DEFAULT_INIT_MODELS,
           },
         },
       });
