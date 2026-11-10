@@ -239,7 +239,7 @@ test("room_status lists each agent's purpose and area, and the areas of the canv
   }
 });
 
-test("delegate refuses an unknown runtime or model, a parent outside the room, and a worker cannot delegate or a principal report", async () => {
+test("delegate refuses an unknown runtime, a missing model, an effort the model lacks, a parent outside the room, and a worker cannot delegate or a principal report", async () => {
   // The model catalog the relay probed off the (fake) CLI at boot.
   await waitFor(async () => {
     try {
@@ -265,13 +265,11 @@ test("delegate refuses an unknown runtime or model, a parent outside the room, a
         marker("delegate", { task: "x", runtime: "claude", model: "haiku", parentId: "someone-else" }),
         marker("delegate", { task: "x", runtime: "claude" }),
         marker("report", { status: "done", summary: "not mine to send" }),
-        marker("delegate", { task: "x", runtime: "claude", model: "gpt-9" }),
         marker("delegate", { task: "x", runtime: "claude", model: "fake-sonnet", effort: "ultra" }),
       ].join(" "),
     );
-    assert.equal(results.length, 6);
-    assert.match(results[4].content, /Model "gpt-9" is not one claude offers here\. Use one of: fake-sonnet, fake-opus/);
-    assert.match(results[5].content, /takes effort low, medium, high, max/);
+    assert.equal(results.length, 5);
+    assert.match(results[4].content, /takes effort low, medium, high, max/);
     assert.ok(results.every((result) => result.isError), JSON.stringify(results));
     assert.match(results[0].content, /Unknown runtime "gemini"\. Use one of: claude/);
     assert.match(results[1].content, /no agent "someone-else" in this room/);
@@ -287,6 +285,24 @@ test("delegate refuses an unknown runtime or model, a parent outside the room, a
       return agent !== undefined && agent.state === "idle";
     }, 20_000, "the worker's turn");
     assert.equal((await members(roomId)).length, 2, "the worker's delegate created nothing");
+  } finally {
+    socket.close();
+  }
+});
+
+test("delegate takes a model the catalog does not list: the CLI is the judge", async () => {
+  const roomId = await createRoom();
+  const socket = await connectSession(relay.port, roomId);
+  try {
+    const { results } = await principalTurn(socket, marker("delegate", { task: "x", runtime: "claude", model: "claude-fake-fable-9-2" }));
+    assert.equal(results.length, 1);
+    assert.equal(results[0].isError, false, results[0].content);
+    const { agentId } = JSON.parse(results[0].content) as { agentId: string };
+    await waitFor(async () => {
+      const agent = (await hostAgents()).find((candidate) => candidate.agentId === agentId);
+      return agent !== undefined && agent.state === "idle";
+    }, 20_000, "the worker's turn");
+    assert.equal((await members(roomId)).length, 2);
   } finally {
     socket.close();
   }
