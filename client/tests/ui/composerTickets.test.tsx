@@ -74,6 +74,8 @@ async function composer(): Promise<HTMLElement> {
 
 const picker = () => screen.queryByTestId("ticket-picker");
 const options = () => within(picker()!).getAllByRole("option").map((option) => option.getAttribute("data-ticket-option"));
+/** The `#` chips drawn in the sent bubbles on screen. */
+const bubbleChips = () => onScreen(screen.queryAllByTestId("message-ticket-chip"));
 const chipsIn = (field: HTMLElement) => [...field.querySelectorAll("[data-ticket-chip]")].map((chip) => chip.getAttribute("data-ticket-chip"));
 
 async function sendWith(user: ReturnType<typeof userEvent.setup>): Promise<void> {
@@ -137,10 +139,82 @@ describe("# in the composer", () => {
     await sendWith(user);
 
     await waitFor(() => expect(sentOfType("user_message")).toHaveLength(1));
-    // Exactly what a plain message is: no extra field, no link, no work ticket.
-    expect(sentOfType("user_message")[0].message).toEqual({ type: "user_message", text: "look at NGL-12 now" });
+    // The text has just the key; the chip rides along for the bubble only —
+    // no link, no work ticket.
+    expect(sentOfType("user_message")[0].message).toEqual({ type: "user_message", text: "look at NGL-12 now", ticketRefs: [{ provider: "jira", site: SITE, key: "NGL-12", title: NGL12.title }] });
     expect(sentOfType("work_ticket")).toEqual([]);
     expect(onScreen(screen.queryAllByTestId("work-ticket-chip"))).toEqual([]);
+  }, LONG);
+
+  it("draws a picked ticket as a chip in the sent bubble, which opens the ticket's screen", async () => {
+    start({ integrations: [jira()], links: [] });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    const field = await composer();
+
+    await user.type(field, "look at #filter");
+    await waitFor(() => expect(options()).toEqual(["NGL-12"]));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(chipsIn(field)).toEqual(["NGL-12"]));
+    await user.keyboard("now");
+    await sendWith(user);
+
+    const [chip] = await waitFor(() => {
+      const chips = bubbleChips();
+      expect(chips).toHaveLength(1);
+      return chips;
+    }, SLOW);
+    expect(chip).toHaveTextContent("NGL-12");
+    expect(chip.closest(".prose-chat-user")).toHaveTextContent("look at NGL-12 now");
+    expect(chip).toHaveAccessibleName(en.integrations.work.openTicket.replace("{key}", "NGL-12"));
+    await user.click(chip);
+    expect(await screen.findByTestId("ticket-screen")).toHaveTextContent(NGL12.title);
+  }, LONG);
+
+  it("leaves a key typed by hand as plain text, in the message and in the bubble", async () => {
+    start({ integrations: [jira()], links: [] });
+    const user = userEvent.setup();
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: en.shell.sidebar.newConversation }));
+    const field = await composer();
+
+    await user.type(field, "look at NGL-30 now");
+    await sendWith(user);
+    await waitFor(() => expect(sentOfType("user_message")).toHaveLength(1));
+    expect(sentOfType("user_message")[0].message).toEqual({ type: "user_message", text: "look at NGL-30 now" });
+    await waitFor(() => expect(onScreen([...document.querySelectorAll(".prose-chat-user")])).toHaveLength(1));
+    expect(onScreen([...document.querySelectorAll(".prose-chat-user")])[0]).toHaveTextContent("look at NGL-30 now");
+    expect(bubbleChips()).toEqual([]);
+  }, LONG);
+
+  it("draws the chips of a replayed message, and only those", async () => {
+    const session = id("replayed");
+    start({ integrations: [jira()], links: [] });
+    const user = userEvent.setup();
+    renderApp();
+    await seedSessions([{ id: session, title: "replayed session", lastActiveAt: Date.now() }]);
+    await user.click(await screen.findByRole("button", { name: /^replayed session/ }, SLOW));
+    await composer();
+
+    const events = [
+      { type: "turn_started" },
+      { type: "user_message", text: "compare NGL-7 with NGL-30", ticketRefs: [{ provider: "jira", site: SITE, key: "NGL-7", title: NGL7.title }] },
+      { type: "turn_ended", stopped: false },
+    ];
+    act(() => {
+      for (const socket of relay.sockets) if (socket.url.includes(`session=${session}`)) socket.emitMessage({ type: "history_page", messages: events.map((event) => ({ type: "agent_event", event })), cursor: 0, hasMore: false });
+    });
+    const [chip] = await waitFor(() => {
+      const chips = bubbleChips();
+      expect(chips).toHaveLength(1);
+      return chips;
+    }, SLOW);
+    expect(chip).toHaveTextContent("NGL-7");
+    expect(chip).toHaveAttribute("title", NGL7.title);
+    expect(chip.closest(".prose-chat-user")).toHaveTextContent("compare NGL-7 with NGL-30");
+    await user.click(chip);
+    expect(await screen.findByTestId("ticket-screen")).toHaveTextContent(NGL7.title);
   }, LONG);
 
   it("offers Connect Jira on a profile without it, which opens the connect card", async () => {

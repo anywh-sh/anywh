@@ -42,6 +42,8 @@ import { createRoom } from "@/lib/relay/roomClient";
 import { SessionTypeSelector, type SessionType } from "@/components/sala/SessionTypeSelector";
 import { SessionWorkTicket } from "@/components/chat/WorkTicketChip";
 import type { TicketRef, TicketTag } from "@/lib/integrations/model";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
+import { textHasTicketKey } from "@/lib/format/remarkTicketChips";
 
 /** See `ChatPanelProps.onBackgroundActionsReady`. */
 export interface BackgroundJobActions {
@@ -805,6 +807,14 @@ export function ChatPanel({
     performEditRef.current(id, text);
   }, []);
 
+  // A bubble's `#` chip opens the same ticket screen as the work ticket
+  // chip. Stable while there is a pane to open (the caller's callback is a
+  // fresh closure each render), absent while there is none.
+  const showTicketRef = useRef(onShowTicket);
+  showTicketRef.current = onShowTicket;
+  const canShowTicket = onShowTicket !== undefined;
+  const onShowMessageTicket = useMemo(() => (canShowTicket ? (ticket: TicketTag) => showTicketRef.current?.(ticket) : undefined), [canShowTicket]);
+
   const onCopyMessage = useCallback((text: string) => {
     navigator.clipboard.writeText(text).catch(() => {
       window.alert(dictRef.current.chat.message.copyFailed);
@@ -898,7 +908,7 @@ export function ChatPanel({
     />
   );
 
-  const handleSend = (text: string, sentImages: PendingAttachment[]): void => {
+  const handleSend = (text: string, sentImages: PendingAttachment[], ticketRefs: MessageTicketRef[] = []): void => {
     // Editing via composer (iOS) — the normal send (slash
     // commands, `addUserMessage`+`sendMessage`) doesn't apply here:
     // the text goes to `edit_message`, not `user_message`. Images
@@ -934,10 +944,13 @@ export function ChatPanel({
       openRoom(text, sentImages);
       return;
     }
-    log.addUserMessage(text, sentImages);
+    // The `#` chips the text still has, drawn again in the bubble here and
+    // on every other device; the agent gets only their keys, in the text.
+    const chips = ticketRefs.filter((ref) => textHasTicketKey(text, ref.key));
+    log.addUserMessage(text, sentImages, chips);
     // A session started from a ticket: the relay links it and tells the
     // agent in a line of its own; the bubble keeps only what was typed.
-    sendMessage(buildWireMessage(text, sentImages), pendingTicket ?? undefined);
+    sendMessage(buildWireMessage(text, sentImages), pendingTicket ?? undefined, chips);
     if (pendingTicket) {
       if (!carriesTicket) setStartedTicket(pendingTicket);
       onClearPendingTicket?.();
@@ -1004,6 +1017,7 @@ export function ChatPanel({
           onSaveEdit={onSaveEdit}
           onCopy={onCopyMessage}
           onOpenPath={onOpenPath}
+          onShowTicket={onShowMessageTicket}
           cwd={cwd}
           isActiveTab={isActiveTab}
           trailing={logTrailing}

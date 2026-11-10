@@ -1,6 +1,8 @@
 import { memo, useEffect, useReducer, useRef, useState } from "react";
 import { Check, Copy, FileText, Pencil, Video } from "lucide-react";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
+import type { TicketTag } from "@/lib/integrations/model";
 import { useLongPress } from "@/hooks/useLongPress";
 import { isIOS } from "@/lib/platform/platform";
 import { stripPlanChoiceMarkers } from "@/lib/relay/planChoiceMarker";
@@ -25,6 +27,10 @@ interface UserBubbleProps {
   onCancelEdit: () => void;
   onSaveEdit: (id: string, text: string) => void;
   onCopy: (text: string) => void;
+  /** The tickets the person put in the message as `#` chips. */
+  ticketRefs?: MessageTicketRef[];
+  /** Opens a chip's ticket screen; absent where there is no pane for it. */
+  onShowTicket?: (ticket: TicketTag) => void;
 }
 
 /** Relative timestamp ("3 min ago") with a tooltip revealing the exact time
@@ -70,6 +76,8 @@ export const UserBubble = memo(function UserBubble({
   onCancelEdit,
   onSaveEdit,
   onCopy,
+  ticketRefs,
+  onShowTicket,
 }: UserBubbleProps) {
   const dict = useDict();
   const editDisabled = Boolean(images && images.length > 0);
@@ -201,7 +209,7 @@ export const UserBubble = memo(function UserBubble({
                 collapseLabel={dict.chat.message.showLess}
               >
                 <div className="prose-chat prose-chat-user min-w-0">
-                  <MarkdownContent text={text} userMessage />
+                  <MarkdownContent text={text} userMessage ticketRefs={ticketRefs} onShowTicket={onShowTicket} />
                 </div>
               </CollapsibleText>
             )}

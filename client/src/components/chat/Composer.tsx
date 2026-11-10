@@ -38,7 +38,8 @@ import { useConnectCard } from "@/components/integrations/ConnectCardProvider";
 import { useProfileIntegrations } from "@/hooks/relay/useIntegrations";
 import { useSessionListCache } from "@/hooks/tabs/useMergedSessions";
 import { sessionTicket } from "@/lib/integrations/workTickets";
-import { TICKET_ALLOWED_PREFIXES, TicketChipNode, enterPicks, ticketPickItems, type TicketPickItem, type TicketPickSource } from "@/lib/composer/ticketSuggestion";
+import { TICKET_ALLOWED_PREFIXES, TicketChipNode, enterPicks, ticketPickItems, ticketRefsOfDoc, type TicketPickItem, type TicketPickSource } from "@/lib/composer/ticketSuggestion";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
 import { HARD_BREAK_ANCHOR, serializeEditorContent, trimComposerText } from "@/lib/composer/composerLinks";
 import { attachmentName } from "@/lib/composer/attachmentName";
 import { ATTACHMENT_ACCEPT, attachmentKindFor } from "@/lib/composer/attachmentTypes";
@@ -56,7 +57,8 @@ export interface ComposerProps {
   profile: Profile;
   /** The conversation's session: its work ticket heads the `#` menu. */
   sessionId?: string;
-  onSend: (text: string, images: PendingAttachment[]) => void;
+  /** `ticketRefs`: the tickets the text has as `#` chips (see `ticketRefsOfDoc`). */
+  onSend: (text: string, images: PendingAttachment[], ticketRefs?: MessageTicketRef[]) => void;
   disabled?: boolean;
   turnInFlight: boolean;
   /** Epoch ms of the turn's start, for the clock on the stop button. */
@@ -900,7 +902,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   });
 
   function performSend(text: string): void {
-    onSend(text, pendingImages);
+    onSend(text, pendingImages, editor ? ticketRefsOfDoc(editor.getJSON()) : []);
     editor?.commands.clearContent(true);
     // Explicit immediate flush (not the debounce scheduled by the
     // `clearContent`-triggered `onUpdate`) — persists the empty draft right

@@ -200,3 +200,25 @@ describe("UserBubble", () => {
     });
   });
 });
+
+describe("UserBubble's # chips", () => {
+  const ticketRefs = [{ provider: "jira" as const, site: "cloud-1", key: "NGL-12", title: "Filter by date" }];
+
+  it("draws only the listed keys as chips, the first time each stands in the text", async () => {
+    const onShowTicket = vi.fn();
+    renderBubble({ text: "see NGL-12, NGL-123, `NGL-12` and NGL-30; NGL-12 again", ticketRefs, onShowTicket });
+    const chips = screen.getAllByTestId("message-ticket-chip");
+    expect(chips.map((chip) => chip.textContent)).toEqual(["NGL-12"]);
+    expect(chips[0]).toHaveAttribute("title", "Filter by date");
+    expect(chips[0].closest("p")).toHaveTextContent("see NGL-12, NGL-123, NGL-12 and NGL-30; NGL-12 again");
+    await userEvent.setup().click(screen.getByRole("button", { name: en.integrations.work.openTicket.replace("{key}", "NGL-12") }));
+    expect(onShowTicket).toHaveBeenCalledWith({ provider: "jira", key: "NGL-12" });
+  });
+
+  it("draws the chip without an action where there is no pane to open", () => {
+    renderBubble({ text: "see NGL-12", ticketRefs });
+    const chip = screen.getByTestId("message-ticket-chip");
+    expect(chip.tagName).toBe("SPAN");
+    expect(screen.queryByRole("button", { name: en.integrations.work.openTicket.replace("{key}", "NGL-12") })).toBeNull();
+  });
+});

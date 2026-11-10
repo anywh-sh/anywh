@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { LogEntryRow } from "@/components/chat/LogEntryRow";
 import { UserBubble, AssistantText, TurnFooter } from "@/components/chat/Message";
+import type { TicketTag } from "@/lib/integrations/model";
 import { RoomCard, SubagentsLaunched } from "@/components/chat/RoomCard";
 import { ToolCallCard } from "@/components/chat/ToolCallCard";
 import { WorkBlock } from "@/components/chat/activity/WorkBlock";
@@ -67,6 +68,9 @@ interface MessageLogProps {
    * `undefined` on compact/iOS, where that panel doesn't exist (see
    * `Message.tsx`'s `AssistantText`). */
   onOpenPath?: (path: string) => void;
+  /** Opens the ticket of a `#` chip in a user bubble — `undefined` where
+   * there is no pane to open it in; stable identity, like the ones above. */
+  onShowTicket?: (ticket: TicketTag) => void;
   /** The session's working directory — a tool call's header shows the file
    * it touched relative to this, not as the relay's absolute path. */
   cwd: string | null;
@@ -106,6 +110,7 @@ interface UserActionHandlers {
   onSaveEdit: (id: string, text: string) => void;
   onCopy: (text: string) => void;
   onOpenPath?: (path: string) => void;
+  onShowTicket?: (ticket: TicketTag) => void;
   cwd: string | null;
 }
 
@@ -148,6 +153,8 @@ function renderItem(item: Exclude<RenderItem, { kind: "trailing" }>, userActions
           onCancelEdit={userActions.onCancelEdit}
           onSaveEdit={userActions.onSaveEdit}
           onCopy={userActions.onCopy}
+          ticketRefs={entry.ticketRefs}
+          onShowTicket={userActions.onShowTicket}
         />
       );
     case "text":
@@ -238,13 +245,14 @@ export const MessageLog = memo(forwardRef<MessageLogHandle, MessageLogProps>(fun
   onSaveEdit,
   onCopy,
   onOpenPath,
+  onShowTicket,
   cwd,
   isActiveTab,
   trailing,
 }: MessageLogProps, ref) {
   const parentRef = useRef<HTMLDivElement>(null);
   const dict = useDict();
-  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, cwd };
+  const userActions: UserActionHandlers = { editingMessageId, onStartEdit, onCancelEdit, onSaveEdit, onCopy, onOpenPath, onShowTicket, cwd };
 
   // Which rows are expanded, for this tab — held here, above the virtualized
   // list, so a row that scrolls out of view keeps its state.

@@ -1,11 +1,15 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { useMemo, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import ReactMarkdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { handleExternalLinkClick } from "@/lib/platform/externalLink";
 import { looksLikeExternalUrl, looksLikeFilePath } from "@/lib/composer/filePathLinks";
 import { MarkdownCodeBlock } from "@/components/chat/MarkdownCodeBlock";
 import { remarkUserMessage, USER_MESSAGE_REHYPE_OPTIONS } from "@/lib/format/remarkUserMessage";
+import { remarkTicketChips, TICKET_CHIP_ATTRIBUTE } from "@/lib/format/remarkTicketChips";
+import { MessageTicketChip } from "@/components/chat/MessageTicketChip";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
+import type { TicketTag } from "@/lib/integrations/model";
 
 const REMARK_PLUGINS = [remarkGfm];
 const USER_REMARK_PLUGINS = [remarkGfm, remarkUserMessage];
@@ -54,20 +58,31 @@ const TableTh = tableCell("th");
  * as plain code, unchanged.
  *
  * `userMessage` is for text a person typed rather than an agent wrote — see
- * `remarkUserMessage` for what it changes.
+ * `remarkUserMessage` for what it changes. `ticketRefs` (a user message's
+ * `#` chips) are drawn as chips where their keys first stand in the text,
+ * opening the ticket's screen through `onShowTicket` when there is one.
  */
 export function MarkdownContent({
   text,
   onOpenPath,
   userMessage = false,
+  ticketRefs,
+  onShowTicket,
 }: {
   text: string;
   onOpenPath?: (path: string) => void;
   userMessage?: boolean;
+  ticketRefs?: readonly MessageTicketRef[];
+  onShowTicket?: (ticket: TicketTag) => void;
 }) {
+  const chipKeys = userMessage && ticketRefs ? ticketRefs.map((ref) => ref.key).join(" ") : "";
+  const remarkPlugins = useMemo<Options["remarkPlugins"]>(
+    () => (chipKeys ? [...USER_REMARK_PLUGINS, [remarkTicketChips, { keys: chipKeys.split(" ") }]] : userMessage ? USER_REMARK_PLUGINS : REMARK_PLUGINS),
+    [chipKeys, userMessage],
+  );
   return (
     <ReactMarkdown
-      remarkPlugins={userMessage ? USER_REMARK_PLUGINS : REMARK_PLUGINS}
+      remarkPlugins={remarkPlugins}
       remarkRehypeOptions={userMessage ? USER_MESSAGE_REHYPE_OPTIONS : undefined}
       rehypePlugins={[rehypeHighlight]}
       components={{
@@ -104,6 +119,12 @@ export function MarkdownContent({
               {children}
             </a>
           );
+        },
+        span: ({ node: _node, children, ...props }) => {
+          const key = (props as Record<string, unknown>)[TICKET_CHIP_ATTRIBUTE];
+          const ticket = typeof key === "string" ? ticketRefs?.find((ref) => ref.key === key) : undefined;
+          if (ticket) return <MessageTicketChip ticket={ticket} onShowTicket={onShowTicket} />;
+          return <span {...props}>{children}</span>;
         },
         pre: MarkdownCodeBlock,
         // Only inline spans (no `className` — react-markdown/remark only

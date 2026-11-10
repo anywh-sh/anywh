@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_PROFILE_INTEGRATIONS, type ProfileIntegrations } from "@/lib/integrations/derive";
 import type { IntegrationState, TicketRow } from "@/lib/integrations/model";
-import { TICKET_PICK_LIMIT, enterPicks, ticketPickItems, type TicketPickSource } from "./ticketSuggestion";
+import { TICKET_PICK_LIMIT, enterPicks, ticketPickItems, ticketRefsOfDoc, type TicketPickSource } from "./ticketSuggestion";
 
 function row(key: string, title: string, statusCategory: TicketRow["statusCategory"] = "todo"): TicketRow {
   return { key, id: key, title, statusCategory, statusLabel: "To Do", priority: "Medium", project: "NGL", updatedAt: 0, url: "" };
@@ -92,5 +92,24 @@ describe("enterPicks", () => {
     expect(enterPicks([ticket], 0, "12", false)).toBe(false);
     expect(enterPicks([ticket], 0, "12", true)).toBe(true);
     expect(enterPicks([], 0, "", false)).toBe(false);
+  });
+});
+
+describe("ticketRefsOfDoc", () => {
+  const chip = (key: string, title = "") => ({ type: "ticketChip", attrs: { provider: "jira", site: "cloud-1", key, title } });
+
+  it("lists the chips in order, once per key, and never a key typed as text", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "see NGL-1 and " }, chip("NGL-12", "Filter by date"), { type: "text", text: " " }, chip("NGL-7")] },
+        { type: "paragraph", content: [chip("NGL-12", "Filter by date")] },
+      ],
+    };
+    expect(ticketRefsOfDoc(doc)).toEqual([
+      { provider: "jira", site: "cloud-1", key: "NGL-12", title: "Filter by date" },
+      { provider: "jira", site: "cloud-1", key: "NGL-7" },
+    ]);
+    expect(ticketRefsOfDoc({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "NGL-1" }] }] })).toEqual([]);
   });
 });

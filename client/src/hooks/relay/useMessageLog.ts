@@ -1,10 +1,12 @@
 import { useMemo, useReducer } from "react";
 import type { AgentEvent, HistoryMessage, HistoryPageMessage, PlanTodo, ToolInput, ToolKind, ToolOutcome, ToolSubject } from "@/lib/relay/relay-types";
-import type { RoomCard, SubagentStatus } from "@/lib/relay/agent-event";
+import type { MessageTicketRef, RoomCard, SubagentStatus } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 
 export type LogEntry =
-  | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number; room?: RoomCard }
+  /** `ticketRefs`: the tickets the person put in the message as `#` chips,
+   * drawn as chips in its bubble. */
+  | { kind: "user"; id: string; text: string; images?: PendingAttachment[]; sentAt: number; room?: RoomCard; ticketRefs?: MessageTicketRef[] }
   | { kind: "text"; id: string; text: string; streaming: boolean; sentAt: number }
   | ToolCallEntry
   /** A reasoning block — running until the relay says it ended. `text` is
@@ -119,7 +121,7 @@ interface MessageLogState {
 }
 
 type Action =
-  | { type: "USER_MESSAGE"; text: string; images?: PendingAttachment[]; sentAt: number }
+  | { type: "USER_MESSAGE"; text: string; images?: PendingAttachment[]; sentAt: number; ticketRefs?: MessageTicketRef[] }
   /** Message editing — truncates `entries` up to (exclusive) the
    * entry `id` (edited message and everything that came after, on this
    * device's screen) and pushes the new one, optimistically, same as
@@ -281,7 +283,7 @@ function applyAgentEvent(state: MessageLogState, event: AgentEvent): MessageLogS
       const sentAt = event.timestamp ? Date.parse(event.timestamp) : Date.now();
       // `room` turns the entry into a card at render time; it stays a
       // `kind: "user"` entry so turn counting and editing see no difference.
-      return { ...state, entries: [...state.entries, { kind: "user", id: newId(), text: event.text, sentAt, ...(event.room ? { room: event.room } : {}) }] };
+      return { ...state, entries: [...state.entries, { kind: "user", id: newId(), text: event.text, sentAt, ...(event.room ? { room: event.room } : {}), ...(event.ticketRefs?.length ? { ticketRefs: event.ticketRefs } : {}) }] };
     }
 
     case "text_delta": {
@@ -473,7 +475,7 @@ function reducer(state: MessageLogState, action: Action): MessageLogState {
     case "USER_MESSAGE":
       return {
         ...state,
-        entries: [...state.entries, { kind: "user", id: newId(), text: action.text, images: action.images, sentAt: action.sentAt }],
+        entries: [...state.entries, { kind: "user", id: newId(), text: action.text, images: action.images, sentAt: action.sentAt, ...(action.ticketRefs?.length ? { ticketRefs: action.ticketRefs } : {}) }],
       };
 
     case "EDIT_USER_MESSAGE": {
@@ -565,7 +567,7 @@ export interface UseMessageLogResult {
   historyCursor: number | null;
   /** Older-page request in flight — see `beginLoadingOlderHistory`. */
   loadingOlderHistory: boolean;
-  addUserMessage: (text: string, images?: PendingAttachment[]) => void;
+  addUserMessage: (text: string, images?: PendingAttachment[], ticketRefs?: MessageTicketRef[]) => void;
   /** Message editing — truncates locally (optimistically) up to
    * message `id` and pushes the new one on top. The relay client is the
    * one that actually sends `edit_message` to the relay; this here only
@@ -613,7 +615,7 @@ export function useMessageLog(): UseMessageLogResult {
     hasMoreHistory: state.hasMoreHistory,
     historyCursor: state.historyCursor,
     loadingOlderHistory: state.loadingOlderHistory,
-    addUserMessage: (text, images) => dispatch({ type: "USER_MESSAGE", text, images, sentAt: Date.now() }),
+    addUserMessage: (text, images, ticketRefs) => dispatch({ type: "USER_MESSAGE", text, images, sentAt: Date.now(), ticketRefs }),
     editUserMessage: (id, text) => dispatch({ type: "EDIT_USER_MESSAGE", id, text, sentAt: Date.now() }),
     handleEvent: (event) => dispatch({ type: "AGENT_EVENT", event }),
     handleTurnError: (message) => dispatch({ type: "TURN_ERROR", message }),

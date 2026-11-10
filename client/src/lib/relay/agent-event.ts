@@ -35,6 +35,16 @@ export interface RoomReportCard {
   at: number;
 }
 
+/** A ticket a person's message referenced with the composer's `#` chip,
+ * kept for its bubble only (the model gets just the key, in the text).
+ * `site` may be empty when the tracker's site was not known. */
+export interface MessageTicketRef {
+  provider: "jira" | "linear";
+  site: string;
+  key: string;
+  title?: string;
+}
+
 /** What a room turn showed as a card instead of a chat bubble — see the
  * `user_message` variant. `reports`: the agents an agent started reported
  * back (its digest); `instruction`: an agent above this one handed it work
@@ -165,8 +175,10 @@ export type AgentEvent =
    * got; a card renderer does not show it. Absent, the message renders as
    * it always did.
    * `timestamp` is the real on-disk time on replay, absent live (whoever
-   * sent it already knows the click's own time). */
-  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup" | "approval" | "room_digest"; label?: string; room?: RoomCard }
+   * sent it already knows the click's own time).
+   * `ticketRefs`: the tickets the person put in the message as chips, each
+   * key present in `text`; absent when there were none. */
+  | { type: "user_message"; text: string; timestamp?: string; synthetic?: "background_job" | "wakeup" | "approval" | "room_digest"; label?: string; room?: RoomCard; ticketRefs?: MessageTicketRef[] }
   /** Live streaming preview of a growing text block — `index` correlates
    * multiple chunks (and, in principle, multiple concurrently-streaming
    * blocks) to the same block before it commits as `text`. A number for a

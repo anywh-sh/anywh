@@ -27,6 +27,7 @@ import type {
   SetCwdErrorCode,
 } from "@/lib/relay/relay-types";
 import type { TicketRef } from "@/lib/integrations/model";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
 import type { Theme, ThemeValidationError } from "@/lib/theme/theme";
 import { catalogsFromLegacyDefaultModelState, recordModelCatalogs } from "@/lib/composer/modelCatalog";
 import { authHeaders } from "@/lib/profiles/connectionResolver";
@@ -720,10 +721,12 @@ export class RelayClient {
 
   /** `startTicket`, on a new session's first message only: the relay links
    * the session to it and tells the agent, in a line the person never sees
-   * (`text` stays exactly what they typed). */
-  sendMessage(text: string, startTicket?: TicketRef): void {
+   * (`text` stays exactly what they typed). `ticketRefs`: the tickets the
+   * text has as `#` chips, for the bubble on every device only — the agent
+   * gets just the keys, in `text`; a relay that predates them ignores them. */
+  sendMessage(text: string, startTicket?: TicketRef, ticketRefs: readonly MessageTicketRef[] = []): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
-    this.socket.send(JSON.stringify(startTicket ? { type: "user_message", text, startTicket } : { type: "user_message", text }));
+    this.socket.send(JSON.stringify({ type: "user_message", text, ...(startTicket ? { startTicket } : {}), ...(ticketRefs.length > 0 ? { ticketRefs } : {}) }));
   }
 
   stopTurn(): void {

@@ -1,4 +1,5 @@
-import { Node, mergeAttributes } from "@tiptap/core";
+import { Node, mergeAttributes, type JSONContent } from "@tiptap/core";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
 import type { IntegrationProvider, IntegrationState, TicketTag } from "@/lib/integrations/model";
 import { integrationDataState, pickFetchRuntime, railIntegrations } from "@/lib/integrations/derive";
 import type { ProfileIntegrations } from "@/lib/integrations/derive";
@@ -7,8 +8,9 @@ import { HARD_BREAK_ANCHOR } from "@/lib/composer/composerLinks";
 
 /**
  * `#` in the composer: a ticket of the profile's tracker becomes a chip in
- * the text, and the message carries just its key. Context only — nothing is
- * linked and no field is added to the message.
+ * the text, and the message's text carries just its key. Context only —
+ * nothing is linked and the agent sees only the key; the message also lists
+ * the chips (`ticketRefsOfDoc`) so its bubble draws them again.
  */
 
 /** What the `#` menu offers. */
@@ -130,3 +132,23 @@ export const TicketChipNode = Node.create({
     return (node.attrs as { key: string }).key;
   },
 });
+
+/** The tickets a composer document has as chips, in order, once per key:
+ * what the sent message lists for its bubble. A key typed by hand is text,
+ * not a chip, and is not listed. Pure. */
+export function ticketRefsOfDoc(doc: JSONContent): MessageTicketRef[] {
+  const refs: MessageTicketRef[] = [];
+  const seen = new Set<string>();
+  const walk = (node: JSONContent): void => {
+    if (node.type === "ticketChip") {
+      const { provider, site, key, title } = (node.attrs ?? {}) as { provider?: unknown; site?: unknown; key?: unknown; title?: unknown };
+      if ((provider === "jira" || provider === "linear") && typeof key === "string" && key !== "" && !seen.has(key)) {
+        seen.add(key);
+        refs.push({ provider, site: typeof site === "string" ? site : "", key, ...(typeof title === "string" && title !== "" ? { title } : {}) });
+      }
+    }
+    node.content?.forEach(walk);
+  };
+  walk(doc);
+  return refs;
+}

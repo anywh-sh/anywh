@@ -7,6 +7,7 @@ import { LocaleProvider, LOCALE_STORAGE_KEY, useLocale } from "@/i18n";
 import { en } from "@/i18n/en";
 import { ptBr } from "@/i18n/pt-br";
 import { getHostInfo } from "@/lib/relay/filesClient";
+import type { MessageTicketRef } from "@/lib/relay/agent-event";
 import type { PendingAttachment } from "@/hooks/media/useImageUpload";
 import { LARGE_PASTE_MIN_CHARS, LARGE_PASTE_MIN_LINES } from "@/lib/composer/largePaste";
 import type { Profile } from "@/lib/profiles/profiles";
@@ -47,7 +48,7 @@ function Harness({
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
   contextUsage?: ContextUsage | null;
-  onSend?: (text: string, images: PendingAttachment[]) => void;
+  onSend?: (text: string, images: PendingAttachment[], ticketRefs?: MessageTicketRef[]) => void;
   onAddFiles?: (files: FileList | File[]) => void | Promise<File[]>;
   uploadingImage?: boolean;
 }) {
@@ -121,7 +122,7 @@ describe("Composer", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     await user.click(screen.getByLabelText(en.chat.composer.placeholder));
     await user.keyboard("{Enter}");
-    expect(onSend).toHaveBeenCalledWith("look at this", []);
+    expect(onSend).toHaveBeenCalledWith("look at this", [], []);
   });
 
   it("pastes text with its spacing intact, even when the clipboard also offers HTML", async () => {
@@ -141,7 +142,7 @@ describe("Composer", () => {
     clipboard.setData("text/plain", "  if (x) {\r\n    run();\n\n\n}\n");
     await user.paste(clipboard);
     await user.keyboard("{Enter}");
-    expect(onSend).toHaveBeenCalledWith("  if (x) {\n    run();\n\n\n}", []);
+    expect(onSend).toHaveBeenCalledWith("  if (x) {\n    run();\n\n\n}", [], []);
   });
 
   it("turns a large paste into a named .txt attachment instead of inline text", async () => {
@@ -226,7 +227,7 @@ describe("Composer", () => {
     await user.paste(clipboard);
     await user.keyboard("{Enter}");
 
-    expect(onSend).toHaveBeenCalledWith(big.trim(), []);
+    expect(onSend).toHaveBeenCalledWith(big.trim(), [], []);
   });
 
   it("keeps a paste just under the bounds inline", async () => {
@@ -247,7 +248,7 @@ describe("Composer", () => {
     await user.keyboard("{Enter}");
 
     expect(onAddFiles).not.toHaveBeenCalled();
-    expect(onSend).toHaveBeenCalledWith(small.trim(), []);
+    expect(onSend).toHaveBeenCalledWith(small.trim(), [], []);
   });
 
   it("still links a URL inside pasted text", async () => {
@@ -264,7 +265,7 @@ describe("Composer", () => {
     clipboard.setData("text/plain", "see https://example.com/a now\nok");
     await user.paste(clipboard);
     await user.keyboard("{Enter}");
-    expect(onSend).toHaveBeenCalledWith("see [https://example.com/a](https://example.com/a) now\nok", []);
+    expect(onSend).toHaveBeenCalledWith("see [https://example.com/a](https://example.com/a) now\nok", [], []);
   });
 
   it("follows a language switch even though the editor is never recreated", async () => {
