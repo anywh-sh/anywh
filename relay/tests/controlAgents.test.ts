@@ -60,7 +60,7 @@ before(async () => {
   // claude runs through `#!/usr/bin/env node`: this test's own node goes
   // first on the PATH instead.
   symlinkSync(process.execPath, join(binDir, "node"));
-  const inheritedPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !isExecutable(join(entry, "codex")));
+  const inheritedPath = (process.env.PATH ?? "").split(delimiter).filter((entry) => entry && !isExecutable(join(entry, "codex")) && !isExecutable(join(entry, "kimi")));
   relay = await spawnRelay({
     HOME: home,
     PATH: [binDir, ...inheritedPath].join(delimiter),
@@ -116,7 +116,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
   assert.equal(cors, "*");
   assert.deepEqual(
     agents.map((agent) => agent.id),
-    ["claude", "codex"],
+    ["claude", "codex", "kimi"],
   );
 
   assert.deepEqual(byId(agents, "claude"), {
@@ -138,6 +138,16 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     loginCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
+  });
+  assert.deepEqual(byId(agents, "kimi"), {
+    id: "kimi",
+    bin: "kimi",
+    installed: false,
+    version: null,
+    loggedIn: null,
+    loginCommand: "kimi login",
+    installUrl: "https://moonshotai.github.io/kimi-code/",
+    docsUrl: null,
   });
 });
 

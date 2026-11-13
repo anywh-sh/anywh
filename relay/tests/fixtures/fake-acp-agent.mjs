@@ -20,6 +20,10 @@
 // Sessions live in FAKE_ACP_STATE (a JSON file) so a fresh process can
 // resume or load one; FAKE_ACP_LOG gets every message received, one JSON
 // line each. `--version` prints the version the shapes were recorded from.
+// FAKE_ACP_IDLE_EXIT_MS, if set, makes the process exit after that long with
+// no turn running — so a test relay that never disposes its sessions doesn't
+// keep its own process alive on these children; the next turn then runs on
+// a fresh process, as after the relay's own idle reaper.
 import fs from "node:fs";
 import readline from "node:readline";
 
@@ -164,15 +168,28 @@ async function runPrompt(id, params) {
   send({ id, result: { stopReason: "end_turn" } });
 }
 
+const IDLE_EXIT_MS = Number(process.env.FAKE_ACP_IDLE_EXIT_MS ?? 0);
+let running = 0;
+let idleTimer;
+function armIdleExit() {
+  if (!IDLE_EXIT_MS) return;
+  clearTimeout(idleTimer);
+  if (running === 0 && pendingClient.size === 0) idleTimer = setTimeout(() => process.exit(0), IDLE_EXIT_MS);
+}
+armIdleExit();
+
 function handle(message) {
+  clearTimeout(idleTimer);
   if (LOG) fs.appendFileSync(LOG, `${JSON.stringify(message)}\n`);
   if (message.id !== undefined && message.method === undefined) {
     const resolve = pendingClient.get(message.id);
     pendingClient.delete(message.id);
     resolve?.(message.result);
+    armIdleExit();
     return;
   }
   const { id, method, params } = message;
+  queueMicrotask(armIdleExit);
   switch (method) {
     case "initialize":
       send({ id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true, sessionCapabilities: { resume: {}, delete: {} } }, agentInfo: { name: "Fake ACP", version: "2.6.0" } } });
@@ -224,7 +241,11 @@ function handle(message) {
       return;
     }
     case "session/prompt":
-      void runPrompt(id, params);
+      running += 1;
+      void runPrompt(id, params).finally(() => {
+        running -= 1;
+        armIdleExit();
+      });
       return;
     case "session/cancel":
       cancelled.add(params.sessionId);
