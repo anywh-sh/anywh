@@ -238,10 +238,13 @@ export const en: Dictionary = {
         "read-only": { label: "Read only", hint: "Reads and plans inside a read-only sandbox; asks before anything that writes" },
         "workspace-write": { label: "Workspace write", hint: "Edits inside the session folder; only asks when a sandboxed command fails" },
         "full-access": { label: "Full access", hint: "No sandbox, never asks — destructive commands included" },
+        auto: { label: "Auto", hint: "Runs safe actions on its own; still asks before risky ones" },
+        yolo: { label: "YOLO", hint: "Never asks, destructive commands included" },
       },
       agentNames: {
         claude: "Claude Code",
         codex: "Codex",
+        kimi: "Kimi Code",
       },
       pending: "…",
       modelLocked: "The model is fixed after the conversation's first turn",

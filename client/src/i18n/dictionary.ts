@@ -24,7 +24,7 @@ import type { AnswerChoiceErrorCode, EditMessageErrorCode, SetCwdErrorCode } fro
  * `xhigh`/`max`); an id outside this set renders as itself. */
 export type KnownEffortId = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
-export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
+export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access" | "auto" | "yolo";
 
 /** Every agent id this build has a display name for — resolved defensively
  * at the call site (`AgentModelEffortButton`), same id-switch-with-fallback shape
@@ -32,7 +32,7 @@ export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypass
  * identical string — still dictionary entries, not a literal in the
  * component, per this repo's "any string rendered to a user lives in the
  * dictionary" rule. */
-export type KnownAgentId = "claude" | "codex";
+export type KnownAgentId = "claude" | "codex" | "kimi";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
 import type { PreparingFailureCode } from "@/lib/install/localInstall";
 

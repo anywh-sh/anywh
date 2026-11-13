@@ -238,10 +238,13 @@ export const ptBr: Dictionary = {
         "read-only": { label: "Somente leitura", hint: "Lê e planeja num sandbox só de leitura; pede permissão antes de qualquer escrita" },
         "workspace-write": { label: "Escrita no workspace", hint: "Edita dentro da pasta da sessão; só pergunta quando um comando no sandbox falha" },
         "full-access": { label: "Acesso total", hint: "Sem sandbox, nunca pergunta — nem em comando destrutivo" },
+        auto: { label: "Automático", hint: "Faz sozinho o que é seguro; ainda pergunta antes do que é arriscado" },
+        yolo: { label: "YOLO", hint: "Nunca pergunta, nem em comando destrutivo" },
       },
       agentNames: {
         claude: "Claude Code",
         codex: "Codex",
+        kimi: "Kimi Code",
       },
       pending: "…",
       modelLocked: "O modelo fica fixo depois do primeiro turno da conversa",
