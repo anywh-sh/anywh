@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { buildChildEnv } from "../../host/childEnv.js";
 import { resolveShipped } from "../../host/paths.js";
-import { resolveAgentBin } from "../executables.js";
+import { resolveRuntimeBin } from "../executables.js";
 import { createJsonRpcConnection } from "./jsonRpcStdio.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, TurnHost } from "../types.js";
 
@@ -174,7 +174,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   const clearIdleTimerFn = options.idleTimers?.clear ?? clearTimeout;
   const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
-  const bin = resolveAgentBin(options.def.identity.bin);
+  const bin = resolveRuntimeBin(options.def.identity);
   const stripCredentials = (env: NodeJS.ProcessEnv): void => {
     for (const name of options.def.identity.env.strip) delete env[name];
   };

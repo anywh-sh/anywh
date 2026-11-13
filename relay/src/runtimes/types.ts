@@ -30,6 +30,11 @@ export interface RuntimeIdentity {
   readonly id: string;
   readonly bin: string;
   readonly fallbackBins?: readonly string[];
+  /** Directories, relative to the user's home, where this CLI's own
+   * installer puts `bin` when it doesn't put it on the PATH (Kimi Code's
+   * lands in `~/.kimi-code/bin`). Searched after the PATH and the shared
+   * well-known dirs; absent when the CLI installs somewhere those cover. */
+  readonly binDirs?: readonly string[];
   readonly env: {
     /** Env var names that must never reach a spawned child — the golden
      * rule (`docs/invariants.md`) as data instead of a hardcoded list.

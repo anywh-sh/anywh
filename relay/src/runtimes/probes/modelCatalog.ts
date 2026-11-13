@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { buildChildEnv } from "../../host/childEnv.js";
-import { EXTRA_PATH_DIRS, resolveAgentBin } from "../executables.js";
+import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import type { AgentRuntimeDef, ModelCatalog } from "../types.js";
 
 const MODEL_PROBE_TIMEOUT_MS = 15_000;
@@ -27,7 +27,7 @@ export function probeModelCatalog(def: AgentRuntimeDef, homeOverride: string | u
     const stripCredentials = (env: NodeJS.ProcessEnv): void => {
       for (const name of def.identity.env.strip) delete env[name];
     };
-    const child = spawn(resolveAgentBin(def.identity.bin), models.args, {
+    const child = spawn(resolveRuntimeBin(def.identity), models.args, {
       cwd,
       env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set),
     });

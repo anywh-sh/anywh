@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { dirname, sep } from "node:path";
 import { buildChildEnv } from "../../host/childEnv.js";
-import { EXTRA_PATH_DIRS, resolveAgentBin, stripBilledCredentials } from "../executables.js";
+import { EXTRA_PATH_DIRS, resolveRuntimeBin, stripBilledCredentials } from "../executables.js";
 import type { AgentRuntimeDef } from "../types.js";
 
 export interface QuickPromptResult {
@@ -48,7 +48,7 @@ export async function runQuickPrompt(
 ): Promise<QuickPromptResult | undefined> {
   if (def.quickPrompt.kind === "none") return undefined;
 
-  const bin = resolveAgentBin(def.identity.bin);
+  const bin = resolveRuntimeBin(def.identity);
   // Same reasoning as executables.ts's own `agentBinDir`: a binary found
   // outside the relay's PATH (WELL_KNOWN_BIN_DIRS) can still re-invoke
   // itself or a sibling tool by bare name, and the child's PATH is the

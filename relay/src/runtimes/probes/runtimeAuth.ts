@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { buildChildEnv } from "../../host/childEnv.js";
-import { EXTRA_PATH_DIRS, resolveAgentBin } from "../executables.js";
+import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import type { AgentRuntimeDef, AuthStatus } from "../types.js";
 
 const AUTH_PROBE_TIMEOUT_MS = 5000;
@@ -42,7 +42,7 @@ export function probeRuntimeAuth(def: AgentRuntimeDef, homeOverride: string | un
     const stripCredentials = (env: NodeJS.ProcessEnv): void => {
       for (const name of def.identity.env.strip) delete env[name];
     };
-    const child = spawn(resolveAgentBin(def.identity.bin), auth.args, {
+    const child = spawn(resolveRuntimeBin(def.identity), auth.args, {
       env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set),
     });
     let stdout = "";

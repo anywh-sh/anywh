@@ -2,6 +2,7 @@ import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import { resolveShipped } from "../host/paths.js";
+import type { RuntimeIdentity } from "./types.js";
 
 // Shared by every module that spawns the agent CLI (the real turn in
 // runtimes/defs/claude/session.ts, plus the one-shot probes in defaultModel.ts,
@@ -73,6 +74,14 @@ export function resolveAgentBin(name: string, env: NodeJS.ProcessEnv = process.e
   // and serving whether or not an agent CLI exists yet, and the honest
   // place to report that it doesn't is the turn that tried to spawn it.
   return name;
+}
+
+/** `resolveAgentBin` for a runtime def's own binary: the shared well-known
+ * dirs, then the dirs its installer is known to use (`identity.binDirs`,
+ * relative to `home`). */
+export function resolveRuntimeBin(identity: Pick<RuntimeIdentity, "bin" | "binDirs">, env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  const ownDirs = (identity.binDirs ?? []).map((dir) => join(home, dir));
+  return resolveAgentBin(identity.bin, env, [...WELL_KNOWN_BIN_DIRS, ...ownDirs]);
 }
 
 export const AGENT_BIN = resolveAgentBin(CONFIGURED_AGENT_BIN);
