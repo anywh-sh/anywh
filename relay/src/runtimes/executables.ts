@@ -103,7 +103,18 @@ export const AGENT_BIN = resolveAgentBin(CONFIGURED_AGENT_BIN);
 // this entry, a `codex` run by hand in the app's embedded terminal on a
 // machine with `OPENAI_API_KEY` set would bill per token instead of drawing
 // on the CLI's own subscription.
-export const BILLED_CREDENTIAL_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"] as const;
+export const BILLED_CREDENTIAL_VARS = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "OPENAI_API_KEY",
+  // Kimi Code (Moonshot AI): the model, and its web search/fetch services.
+  "KIMI_API_KEY",
+  "MOONSHOT_API_KEY",
+  "KIMI_MODEL_API_KEY",
+  "KIMI_WEB_SEARCH_API_KEY",
+  "KIMI_WEB_FETCH_API_KEY",
+  "KIMI_REGISTRY_API_KEY",
+] as const;
 
 /** Strips every billed credential from `env`, in place. */
 export function stripBilledCredentials(env: NodeJS.ProcessEnv): void {

@@ -1,0 +1,205 @@
+// The `AgentRuntimeDef` for Kimi Code CLI (Moonshot AI), driven over the
+// Agent Client Protocol (`kimi acp`) by the shared ACP engine
+// (`defs/acpDriver.ts`). Everything ACP-generic lives in `defs/acp.ts` and
+// `streams/acpSessionUpdate.ts`; this file is only what is particular to
+// Kimi. Every fact below was measured against Kimi Code CLI 2.6.0, logged
+// in through its own device-code flow, unless a comment says it was read
+// off the binary instead.
+import type { AgentRuntimeDef, AuthProbeOutput, AuthStatus, FailureClass, JsonRpcRequestSpec, RuntimeFailure, TurnContext, TurnHost } from "../types.js";
+import {
+  ACP_HISTORY_METHOD,
+  acpInitialize,
+  acpInterrupt,
+  acpThreadResume,
+  acpThreadStart,
+  acpTurnStart,
+  answerAcpApproval,
+  answerAcpQuestion,
+  isAcpSessionGoneError,
+  type AcpPermissionParams,
+  type AcpQuestion,
+} from "./acp.js";
+import { acpNotificationMapping } from "../streams/acpSessionUpdate.js";
+
+/** Kimi's question tool. It asks through `session/request_permission`, one
+ * option per answer (`q0_opt_<n>`, named by the label) plus `q0_skip` — and
+ * only ever the first question: given two, 2.6.0 logs "handleQuestion
+ * degrading to first question only" and drops the rest. */
+const QUESTION_TOOL = "AskUserQuestion";
+
+interface QuestionInput {
+  readonly questions?: readonly { readonly question?: string; readonly header?: string; readonly options?: readonly { readonly label?: string; readonly description?: string }[] }[];
+}
+
+/** The question a permission request for `AskUserQuestion` asks, from the
+ * tool's own input (the driver adds it back to the request) — or, without
+ * it, from the request's options and text alone. */
+export function kimiQuestion(params: AcpPermissionParams): AcpQuestion {
+  const asked = (params.toolCall?.rawInput as QuestionInput | undefined)?.questions?.[0];
+  const optionForLabel = new Map<string, string>();
+  let dismissOptionId: string | undefined;
+  for (const option of params.options ?? []) {
+    if (option.kind?.startsWith("reject")) dismissOptionId ??= option.optionId;
+    else if (option.name) optionForLabel.set(option.name, option.optionId);
+  }
+  const text = (params.toolCall?.content ?? []).map((item) => item?.content?.text ?? "").join("").trim();
+  const descriptions = new Map((asked?.options ?? []).flatMap((option) => (option.label && option.description ? [[option.label, option.description] as const] : [])));
+  return {
+    question: {
+      id: params.toolCall?.toolCallId ?? "question",
+      question: asked?.question ?? text,
+      ...(asked?.header ? { header: asked.header } : {}),
+      options: [...optionForLabel.keys()].map((label) => ({ label, ...(descriptions.has(label) ? { description: descriptions.get(label) } : {}) })),
+    },
+    optionForLabel,
+    ...(dismissOptionId ? { dismissOptionId } : {}),
+  };
+}
+
+/** Kimi words a permission request as "Requesting approval to Running: ls"
+ * / "… to Writing /path". The request often arrives before any update
+ * carried the call's input (measured: a Write asked first, its input came
+ * after), so when the input is missing it is read back out of that
+ * sentence — the command or the path is what the approval card shows. */
+const APPROVAL_SENTENCE = /^Requesting approval to (?:(Running): (.+)|(Writing|Editing|Reading|Deleting) (.+)|(.+))$/s;
+
+export function kimiApprovalParams(params: AcpPermissionParams): AcpPermissionParams {
+  const toolCall = params.toolCall;
+  if (!toolCall || toolCall.rawInput !== undefined) return params;
+  const text = (toolCall.content ?? []).map((item) => item?.content?.text ?? "").join("").trim();
+  const match = APPROVAL_SENTENCE.exec(text);
+  if (!match) return params;
+  const rawInput = match[1] ? { command: match[2] } : match[3] ? { path: match[4] } : undefined;
+  const content = rawInput ? toolCall.content : [{ type: "content", content: { type: "text", text: match[5] } }];
+  return { ...params, toolCall: { ...toolCall, ...(rawInput ? { rawInput } : {}), content } };
+}
+
+function handleServerRequest(method: string, params: unknown, host: TurnHost): Promise<unknown> | undefined {
+  if (method !== "session/request_permission") return undefined;
+  const request = params as AcpPermissionParams;
+  if (request.toolCall?.title === QUESTION_TOOL) return answerAcpQuestion(kimiQuestion(request), host);
+  return answerAcpApproval(kimiApprovalParams(request), host);
+}
+
+/** Mode, model and reasoning level, in that order: a new model can reset
+ * the level, so the level goes after it. The mode ids are Kimi's own (see
+ * `permissions`); `model` and `thinking` are the ids of its two pickers. */
+function configureSession(ctx: TurnContext, sessionId: string): readonly JsonRpcRequestSpec[] {
+  return [
+    { method: "session/set_mode", params: { sessionId, modeId: ctx.permissionModeId } },
+    ...(ctx.modelId ? [{ method: "session/set_config_option", params: { sessionId, configId: "model", value: ctx.modelId } }] : []),
+    ...(ctx.effortId ? [{ method: "session/set_config_option", params: { sessionId, configId: "thinking", value: ctx.effortId } }] : []),
+  ];
+}
+
+/**
+ * `kimi provider list`: a line per configured provider when logged in
+ * (`managed:kimi-code  type=kimi  models=6  source=oauth`), `No providers
+ * configured.` when not — exit 0 and an empty stderr in both states, so the
+ * text is the answer. It can't tell an expired login from a valid one; a
+ * turn against an expired one fails with the agent's own "Authentication
+ * required" instead. Never `--json`: that variant prints each provider's
+ * `apiKey`.
+ */
+export function parseKimiProviderList({ stdout }: AuthProbeOutput): AuthStatus {
+  // The list names a provider, never an account or a plan.
+  return { loggedIn: /^\S+\s+type=\S+/m.test(stdout) };
+}
+
+/** Kimi's failures arrive as JSON-RPC errors on `session/prompt`. A model
+ * outside the subscription answers `-32000 "Authentication required: Your
+ * current subscription does not have access to <model>"` — a plan limit,
+ * not a logged-out account, despite the wording. */
+export function classifyKimiFailure(failure: RuntimeFailure): FailureClass {
+  if (isAcpSessionGoneError(failure.text)) return "session-invalid";
+  if (/subscription does not have access|upgrade to higher-tier|quota|rate limit/i.test(failure.text)) return "usage-limit";
+  if (/authentication required|not logged in|unauthorized|login/i.test(failure.text)) return "auth";
+  if (/ENOENT|not found: kimi/i.test(failure.text)) return "not-installed";
+  return "transient";
+}
+
+const mapping = acpNotificationMapping({ logTag: "Kimi", hiddenTools: new Set([QUESTION_TOOL]) });
+
+export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
+  identity: {
+    id: "kimi",
+    bin: "kimi",
+    // The official installer (`install.sh`) puts the binary here and never
+    // on the PATH.
+    binDirs: [".kimi-code/bin"],
+    // Read off the 2.6.0 binary: the env vars it takes a key from. Each one
+    // bills the Moonshot account behind it (the model, web search, web
+    // fetch, the registry) instead of the subscription.
+    env: { strip: ["KIMI_API_KEY", "MOONSHOT_API_KEY", "KIMI_MODEL_API_KEY", "KIMI_WEB_SEARCH_API_KEY", "KIMI_WEB_FETCH_API_KEY", "KIMI_REGISTRY_API_KEY"] },
+    install: { url: "https://moonshotai.github.io/kimi-code/" },
+    // Read off the 2.6.0 binary: it looks for `AGENTS.md` (or
+    // `.kimi-code/AGENTS.md`) from the project root down to the cwd.
+    projectInstructionsFile: "AGENTS.md",
+  },
+  capabilities: {
+    // `AskUserQuestion` arrives as a structured request with an option per
+    // answer (see `kimiQuestion`).
+    presentChoice: "native",
+    approvalPrompt: "native",
+    // ACP has `session/fork`, but nothing here maps an edit onto it yet.
+    rewindTurn: "none",
+    replayHistory: "native",
+    backgroundJobs: "none",
+    // `agent_thought_chunk` carries the reasoning text itself.
+    thinking: "native",
+    // `usage_update {used, size}`, sent as a turn starts and after a stop.
+    contextUsage: "native",
+  },
+  continuity: { kind: "cli-resume", resumeStyle: "capture" },
+  // A throwaway session's `configOptions` (`probes/acpModelCatalog.ts`):
+  // the picker's display names verbatim, and per model the reasoning levels
+  // it offers (`low/high/max` on most, `on/high` on K2.7 Code Highspeed).
+  // Models the subscription doesn't include are listed too — the picker
+  // does the same, and a turn on one fails with a usage-limit error.
+  models: { kind: "session-rpc" },
+  auth: { kind: "cli-probe", args: ["provider", "list"], parse: parseKimiProviderList, loginCommand: ["login"] },
+  permissions: {
+    defaultModeId: "default",
+    // Kimi's own four modes, ids verbatim (`session/new`'s `modes`), the
+    // same on every platform: none of them depends on an OS sandbox.
+    // `default` asked before `ls` but wrote a file inside the cwd without
+    // asking; `auto` still asks before risky actions, questions and plans;
+    // only `yolo` never pauses.
+    modesFor: () => [
+      { id: "default", labelKey: "kimi.mode.default", settings: undefined, pausesForApproval: true },
+      { id: "plan", labelKey: "kimi.mode.plan", settings: undefined, pausesForApproval: true },
+      { id: "auto", labelKey: "kimi.mode.auto", settings: undefined, pausesForApproval: true },
+      { id: "yolo", labelKey: "kimi.mode.yolo", settings: undefined, pausesForApproval: false },
+    ],
+  },
+  bridges: [],
+  // `kimi -p` works, but every call records a new session in Kimi's own
+  // history ("To resume this session: kimi -r …") with no flag to skip it,
+  // so each title or suggestion would leave a stray conversation behind.
+  quickPrompt: { kind: "none" },
+  exec: {
+    kind: "jsonRpcDaemon",
+    protocol: "acp",
+    args: ["acp"],
+    initialize: acpInitialize,
+    framing: "ndjson",
+    thread: { start: acpThreadStart, resume: acpThreadResume },
+    turn: { start: acpTurnStart, interrupt: acpInterrupt },
+    replayHistoryMethod: ACP_HISTORY_METHOD,
+    configureSession,
+    ...mapping,
+    handleServerRequest,
+  },
+  classifyFailure: classifyKimiFailure,
+  // Read off the 2.6.0 binary, not measured on disk: the user-level files
+  // it loads from its home (`~/.kimi-code`, `$KIMI_CODE_HOME`) and from the
+  // cross-agent `~/.agents`. `config.toml` is deliberately absent: it holds
+  // the OAuth tokens and API keys next to the model aliases.
+  portability: {
+    authoredPaths: [".kimi-code/AGENTS.md", ".kimi-code/skills", ".kimi-code/agents", ".agents/AGENTS.md"],
+    // Servers live in their own `~/.kimi-code/mcp.json` (`mcpServers`), but
+    // the CLI has no `mcp login` to drive and its OAuth callback was never
+    // observed, so nothing here can claim a login flow.
+    mcp: { kind: "none" },
+  },
+};

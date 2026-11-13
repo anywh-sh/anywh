@@ -14,6 +14,11 @@ const DECISION_LABELS: Readonly<Record<string, string>> = {
   "codex.decision.acceptForSession": "Accept for this session",
   "codex.decision.decline": "Decline",
   "codex.decision.cancel": "Cancel",
+  // ACP agents (defs/acp.ts), by option kind.
+  "acp.decision.allowOnce": "Accept",
+  "acp.decision.allowAlways": "Accept for this session",
+  "acp.decision.rejectOnce": "Decline",
+  "acp.decision.rejectAlways": "Always decline",
 };
 
 /** Falls back to the raw key for one it doesn't recognize — same fallback
