@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { assertCoherent } from "../registry.js";
+import { estimateRuleTokens, estimateSkillsTokens } from "../../context/breakdown.js";
 import { BILLED_CREDENTIAL_VARS } from "../executables.js";
 import type { ApprovalRequest } from "../types.js";
 import type { AcpPermissionParams } from "./acp.js";
@@ -117,4 +118,24 @@ test("an approval is deferrable, recognised by the call's real input and never b
   const answer = await exec().handleServerRequest("session/request_permission", { options: BASH_OPTIONS, toolCall: { title: "Bash", content: sentence } }, host);
   assert.deepEqual(asked?.deferrable, {}, "deferrable even when the input is unknown: the card is kept, the repeat asked about again");
   assert.deepEqual(answer, { outcome: { outcome: "selected", optionId: "reject" } });
+});
+
+test("Kimi's context accounting reproduces what was measured against 2.6.0", () => {
+  const accounting = kimiRuntimeDef.contextAccounting;
+  assert.ok(accounting?.skills);
+  // `AGENTS.md`: cl100k tokens of the file → what it added to the first call.
+  for (const [raw, measured] of [
+    [47, 216],
+    [1079, 1248],
+    [686, 951],
+  ] as const) {
+    assert.ok(Math.abs(estimateRuleTokens(raw, accounting.rules) - measured) <= 63, `${raw} → ${measured}`);
+  }
+  // Skills: descriptions as Kimi cuts them (o200k tokens) → what they added.
+  const cut = (raw: number) => Math.min(raw, accounting.skills!.descriptionMaxTokens);
+  assert.equal(estimateSkillsTokens([cut(7)], accounting.skills), 72);
+  assert.equal(estimateSkillsTokens([cut(253)], accounting.skills), 107);
+  assert.ok(Math.abs(estimateSkillsTokens([cut(757)], accounting.skills) - 110) <= 3);
+  assert.equal(estimateSkillsTokens([cut(7), cut(7), cut(7)], accounting.skills), 144);
+  assert.equal(accounting.fixedSetupTokens, 13000);
 });

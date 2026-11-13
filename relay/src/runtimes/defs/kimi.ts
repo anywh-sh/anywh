@@ -219,6 +219,32 @@ export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
     handleServerRequest,
   },
   classifyFailure: classifyKimiFailure,
+  // Measured against 2.6.0, with Kimi's own record of each model call (the
+  // input of a session's first call, in its session log) as ground truth: one
+  // fixed five-word prompt per directory, so the difference between two
+  // directories is what the one thing that differs costs.
+  //   - setup: 13,002 tokens in a directory with one unrelated file and no
+  //     skills anywhere (system prompt, tools, that first message). The
+  //     usage Kimi reports never isolates it — one report per turn, after
+  //     the turn (`usageAfterTurnMs`) — hence `fixedSetupTokens`.
+  //   - an empty directory: 13,000 (noise), so no inflation.
+  //   - `AGENTS.md`: +216 for 47 cl100k tokens of English, +1,248 for 1,079,
+  //     +951 for 686 of Portuguese. English alone fits a slope of exactly 1
+  //     with 169 per file, but Kimi's tokenizer spends more on Portuguese than
+  //     either public encoding (o200k is further off: 576 for those 951); the
+  //     fit across the three, against cl100k, misses by 63 at most.
+  //   - skills: +72 for one with a 7-token description, +107 at 253 tokens,
+  //     +110 at 757 (the description is cut), +144 for three short ones —
+  //     29 per skill, 36 for the block, descriptions cut near 42 tokens.
+  //   - a subagent in `.kimi-code/agents`: +7 (noise), so none are read
+  //     into the prompt, and there is no `subagents` line.
+  contextAccounting: {
+    encoding: "cl100k_base",
+    rules: { multiplier: 1.015, perFile: 192 },
+    emptyDirectoryInflation: 0,
+    skills: { descriptionMaxTokens: 42, perEntry: 29, header: 36, dirs: [".kimi-code/skills", ".agents/skills"] },
+    fixedSetupTokens: 13000,
+  },
   // Read off the 2.6.0 binary, not measured on disk: the user-level files
   // it loads from its home (`~/.kimi-code`, `$KIMI_CODE_HOME`) and from the
   // cross-agent `~/.agents`. `config.toml` is deliberately absent: it holds

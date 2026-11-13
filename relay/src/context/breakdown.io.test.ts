@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeContextBreakdown, estimateRuleTokens, readRuleTokens, readSkillTokens, readSubagentTokens } from "./breakdown.js";
+import { breakdownTotal, computeContextBreakdown, estimateRuleTokens, readRuleTokens, readSkillTokens, readSubagentTokens } from "./breakdown.js";
 import { countTokens } from "./tokenizer.js";
 import type { ContextAccounting, ContextSkillAccounting, ContextSubagentAccounting } from "../runtimes/types.js";
 
@@ -223,6 +223,21 @@ test("computeContextBreakdown wires skills/subagents end to end, only for a def 
     assert.equal(breakdown.subagents.count, 1);
     assert.equal(breakdown.skills, undefined, "Claude's accounting declares no skills");
     assert.equal(breakdown.residual?.tokens, 100000 - breakdown.subagents.tokens);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("computeContextBreakdown, for a def whose setup can't be observed, names the measured setup as an estimate and needs no baseline", async () => {
+  const dir = makeWorkDir();
+  try {
+    writeFileSync(join(dir, "AGENTS.md"), "some rules");
+    const accounting: ContextAccounting = { encoding: "cl100k_base", rules: { multiplier: 1.015, perFile: 192 }, emptyDirectoryInflation: 0, fixedSetupTokens: 13000 };
+    // A baseline that is really a whole first turn is ignored.
+    const breakdown = await computeContextBreakdown({ cwd: dir, home: dir, ruleFileName: "AGENTS.md", accounting, baselineTokens: 113744 });
+    assert.deepEqual(breakdown.residual, { tokens: 13000, estimated: true });
+    assert.ok(breakdown.rules);
+    assert.equal(breakdownTotal(breakdown), 13000 + breakdown.rules.tokens);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

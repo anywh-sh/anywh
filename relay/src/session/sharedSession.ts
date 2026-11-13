@@ -20,7 +20,7 @@ import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type Edi
 import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offersSilence } from "./turnMessages.js";
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
-import { computeContextBreakdown } from "../context/breakdown.js";
+import { breakdownTotal, computeContextBreakdown } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
 import { availableModes, isOfferedMode, neverPauses, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
@@ -501,6 +501,13 @@ export class SharedSession implements SessionDriverHost {
     this.effort = options.initialEffort;
     this.contextUsage = options.initialContextUsage;
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
+    if (this.setupIsEstimated() && this.contextUsage) {
+      // A record written before the setup was estimated may carry a whole
+      // first turn as its baseline; the next breakdown sets the real one.
+      const { baselineTokens: _stale, ...rest } = this.contextUsage;
+      this.contextUsage = rest;
+      this.baselineTokens = undefined;
+    }
     this.draft = options.initialDraft ?? "";
     this.suggestion = options.initialSuggestion ?? null;
     this.choiceMachine = new ChoiceMachine(this.clients, (kind, questions) =>
@@ -668,6 +675,12 @@ export class SharedSession implements SessionDriverHost {
     return sent;
   }
 
+  /** Whether this session's agent reports usage in a way that never isolates
+   * its setup, which is then estimated (`ContextAccounting.fixedSetupTokens`). */
+  private setupIsEstimated(): boolean {
+    return this.def.contextAccounting?.fixedSetupTokens !== undefined;
+  }
+
   getContextUsage(): ContextUsage | undefined {
     return this.contextUsage;
   }
@@ -691,6 +704,13 @@ export class SharedSession implements SessionDriverHost {
       accounting,
       baselineTokens: this.contextUsage.baselineTokens,
     });
+    if (!this.contextUsage) return;
+    if (accounting.fixedSetupTokens !== undefined) {
+      // The setup can't be observed for this def, only estimated: it is
+      // what the breakdown names, and the conversation is the rest.
+      this.baselineTokens = Math.min(breakdownTotal(breakdown), this.contextUsage.usedTokens);
+      this.contextUsage = { ...this.contextUsage, baselineTokens: this.baselineTokens };
+    }
     this.contextUsage = { ...this.contextUsage, breakdown };
     this.options.onContextUsageChange?.(this.contextUsage);
     this.broadcastContextUsage();
@@ -1765,14 +1785,14 @@ export class SharedSession implements SessionDriverHost {
         // already covers persistence once per turn.
         const step = this.attributor.observe(agentEvent);
         if (step) {
-          if (step.baseline !== undefined) this.baselineTokens = step.baseline;
+          if (step.baseline !== undefined && !this.setupIsEstimated()) this.baselineTokens = step.baseline;
           const contextWindowSize = step.contextWindowSize ?? this.contextUsage?.contextWindowSize;
           const model = this.contextUsage?.model ?? this.model;
           if (contextWindowSize !== undefined && model !== undefined) {
             this.contextUsage = { model, contextWindowSize, usedTokens: step.used, ...(this.baselineTokens !== undefined ? { baselineTokens: this.baselineTokens } : {}) };
             this.broadcastContextUsage();
           }
-          if (step.attribution) this.emitContextAttribution(step.attribution, bridgeFilter, emit);
+          if (step.attribution && !this.setupIsEstimated()) this.emitContextAttribution(step.attribution, bridgeFilter, emit);
         }
         // The relay's own bridge calls have their own UI; hiding them here
         // leaves the job tracker below, which sees everything, unaffected.
@@ -1804,6 +1824,13 @@ export class SharedSession implements SessionDriverHost {
         };
         this.options.onContextUsageChange?.(this.contextUsage);
         this.broadcastContextUsage();
+        // Estimated setup: worked out now rather than when the popover first
+        // opens, so the Setup/Conversation split is there from the start.
+        if (this.setupIsEstimated()) {
+          this.requestContextBreakdown().catch((error: unknown) => {
+            console.error("[relay] failed to estimate the context setup:", error instanceof Error ? error.message : String(error));
+          });
+        }
       }
       const turnEnded = clock.turnEnded(stopped);
       // The relay, not the model, decides what stays silent: only a turn that

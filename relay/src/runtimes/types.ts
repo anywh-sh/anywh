@@ -633,6 +633,16 @@ export interface ContextAccounting {
   readonly emptyDirectoryInflation: number;
   readonly skills?: ContextSkillAccounting;
   readonly subagents?: ContextSubagentAccounting;
+  /** For a CLI whose usage reports never isolate the setup: the measured cost
+   * of its own system prompt and tools, everything the categories above can't
+   * name. Kimi Code reports usage once per turn, after it, so its first report
+   * already holds the whole first turn; taking that as the baseline (as the
+   * conversation's first per-request report is for Claude and Codex) would
+   * call a whole turn "setup". With this set, the setup is this constant plus
+   * the estimated categories, and no tool call is given a share of a turn's
+   * growth either (one report per turn can't tell the calls apart from the
+   * messages around them). Absent: the setup is the first report. */
+  readonly fixedSetupTokens?: number;
 }
 
 // ---------------------------------------------------------------------------

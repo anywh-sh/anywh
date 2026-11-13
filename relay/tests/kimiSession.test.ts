@@ -95,6 +95,19 @@ function permissionAnswers(): string[] {
     .map((message) => message.result?.outcome?.optionId ?? message.result?.outcome?.outcome ?? "");
 }
 
+test("after a turn the context is broken down with Kimi's estimated setup, and no tool call is given a share of the turn", async () => {
+  const socket = await kimiSession("kimi-breakdown");
+  sendUserMessage(socket, "[[tool]]");
+  // The estimate is worked out once the turn is over, without the popover asking.
+  const messages = await collectUntil(socket, (message) => message.type === "context_usage_state" && (message as { usage?: { breakdown?: unknown } }).usage?.breakdown !== undefined);
+  const usage = (messages.at(-1) as { usage: { usedTokens: number; baselineTokens?: number; breakdown: { residual?: { tokens: number; estimated: boolean } } } }).usage;
+  assert.deepEqual(usage.breakdown.residual, { tokens: 13000, estimated: true });
+  // The fake reports far less than Kimi's real setup: the setup never exceeds what is used.
+  assert.equal(usage.baselineTokens, usage.usedTokens);
+  assert.ok(!events(messages).some((event) => event.type === "context_attribution"));
+  socket.close();
+});
+
 test("a command approval doesn't hold Kimi: it is refused at once and kept as a card, and approving it runs the call in a new turn", async () => {
   const socket = await kimiSession("kimi-approval");
   const before = permissionAnswers().length;
