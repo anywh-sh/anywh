@@ -76,6 +76,14 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
     }
   }
 
+  // A def that reports context usage shows the context popover, and the
+  // popover's breakdown (rules, skills, setup, conversation) is part of
+  // adding an agent, not a follow-up: without the accounting, the agent gets
+  // a bare total where the others get categories.
+  if (capabilities.contextUsage !== "none" && !def.contextAccounting) {
+    issues.push({ message: 'capabilities.contextUsage is declared but contextAccounting is missing — measure it against the real CLI (runtimes/README.md, "Adding a def")' });
+  }
+
   if ((models.kind === "session-rpc" || auth.kind === "session-rpc") && exec.kind !== "jsonRpcDaemon") {
     issues.push({ message: 'models/auth kind "session-rpc" requires exec.kind to be "jsonRpcDaemon"' });
   }

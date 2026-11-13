@@ -73,7 +73,7 @@ names in `identity.env.strip`, never to strip them itself.
 | `exec` | the union: how a turn is actually driven | data + pure functions |
 | `quickPrompt` | how to run a short, isolated one-shot prompt for the relay's own probes (title/suggestion generation) — never a real turn | data + a pure function, or `{ kind: "none" }` |
 | `classifyFailure` | turns raw failure text/code into one of a fixed set of classes | a pure function |
-| `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category — absent when the CLI never reports enough to calibrate against | data, or absent |
+| `contextAccounting` | calibrated constants for breaking this def's context-window baseline down by category (rules, skills, subagents, setup) — required whenever `capabilities.contextUsage` isn't `"none"` (`assertCoherent`); `fixedSetupTokens` for a CLI whose usage reports never isolate the setup | data |
 | `portability` | what has to be true to reproduce this runtime's setup somewhere else: which paths under its config home are the user's own, where its MCP servers are declared, and how a login is driven on a machine with no browser | data + pure functions |
 
 The def's own functions (`buildArgs`, the stream mappers, `thread.start`,
@@ -367,13 +367,23 @@ CLI (version noted, §8) and run it through `assertToolContract`.
       isn't there.
 - [ ] `assertCoherent(def)` passes with zero issues before the def is wired
       into `runtimes/registry.ts` for real.
-- [ ] If this def declares `contextAccounting`, its `multiplier`/`perFile`/
-      `emptyDirectoryInflation` constants are calibrated against the real
-      CLI, not guessed — a paired diff (empty directory vs. one holding only
-      the rule file, both runs at least twice to rule out a first-run
-      warm-up cost) against the chosen `encoding`'s raw token count, with the
-      exact CLI version that produced them recorded in a comment next to the
-      constants (a fixture — or a constant — with no version is folklore,
-      not a test). Absent `contextAccounting` is a legitimate answer for a
-      CLI that never reports enough to calibrate against, not a gap to fill
-      in later.
+- [ ] A def that reports context usage declares `contextAccounting`
+      (`assertCoherent` refuses it otherwise): the popover's breakdown is part
+      of adding an agent, not a follow-up. Its `multiplier`/`perFile`/
+      `emptyDirectoryInflation` (and `skills`/`subagents`, when the CLI reads
+      those into its prompt) are calibrated against the real CLI, not
+      guessed — a paired diff (empty directory vs. one holding only the rule
+      file, both runs at least twice to rule out a first-run warm-up cost)
+      against the chosen `encoding`'s raw token count, in English and in a
+      second language (one CLI's tokenizer spends a quarter more on
+      Portuguese than either public encoding), with the exact CLI version
+      that produced them recorded in a comment next to the constants (a
+      fixture — or a constant — with no version is folklore, not a test).
+- [ ] Check **when** the CLI reports usage: per model request (Claude,
+      Codex — the first report is the setup) or once per turn (Kimi — the
+      first report already holds a whole turn). For the second kind, measure
+      the setup itself and declare it as `fixedSetupTokens`, and if the
+      report arrives after the turn's answer, `exec.usageAfterTurnMs`. The
+      ground truth for any of these diffs is the CLI's own record of a model
+      call's input when its reports don't isolate it (Kimi keeps one per call
+      in its session log), never the number the relay sees after a turn.

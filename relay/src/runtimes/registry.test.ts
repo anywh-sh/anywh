@@ -47,6 +47,15 @@ function baseDef(): AgentRuntimeDef {
   };
 }
 
+test("assertCoherent requires the context accounting of a def that reports context usage", () => {
+  const def = baseDef();
+  const reporting = { ...def, capabilities: { ...def.capabilities, contextUsage: "native" as const } };
+  assert.equal(assertCoherent(reporting).length, 1);
+  assert.match(assertCoherent(reporting)[0].message, /contextAccounting is missing/);
+  const accounted = { ...reporting, contextAccounting: { encoding: "cl100k_base" as const, rules: { multiplier: 1, perFile: 0 }, emptyDirectoryInflation: 0 } };
+  assert.deepEqual(assertCoherent(accounted), []);
+});
+
 test("assertCoherent accepts the minimal fixture", () => {
   assert.deepEqual(assertCoherent(baseDef()), []);
 });
