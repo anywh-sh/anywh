@@ -1,6 +1,6 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type WebSocket from "ws";
@@ -15,6 +15,7 @@ const FAKE_ACP_AGENT = resolve(import.meta.dirname, "fixtures/fake-acp-agent.mjs
 
 let server: TestServer;
 let dir: string;
+let LOG: string;
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), "anywh-kimi-session-"));
@@ -25,6 +26,8 @@ before(async () => {
   process.env.PATH = [binDir, process.env.PATH ?? ""].join(delimiter);
   process.env.FAKE_ACP_STATE = join(dir, "acp-state.json");
   process.env.FAKE_ACP_IDLE_EXIT_MS = "1000";
+  LOG = join(dir, "acp-log.jsonl");
+  process.env.FAKE_ACP_LOG = LOG;
   server = await startTestServer();
   // Inherited from a shell, it could put a real `kimi` ahead of the fake.
   process.env.EXTRA_PATH_DIRS = "";
@@ -72,23 +75,99 @@ test("a turn streams Kimi's thought and reply and ends with the context it repor
   socket.close();
 });
 
-test("a command approval reaches the client as a choice and the answer reaches Kimi", async () => {
+type ApprovalPrompt = { type: string; promptId: string; kind?: string; questions: { options: { id?: string }[]; approval?: { tool: string; detail: string } }[] };
+
+const isApprovalPrompt = (message: Record<string, unknown>): boolean => message.type === "choice_prompt" && message.kind === "approval";
+
+function approvalPrompt(messages: Record<string, unknown>[]): ApprovalPrompt | undefined {
+  return messages.filter(isApprovalPrompt).at(-1) as ApprovalPrompt | undefined;
+}
+
+/** The option Kimi got back for each permission request, in the order the
+ * relay answered them. */
+function permissionAnswers(): string[] {
+  if (!existsSync(LOG)) return [];
+  return readFileSync(LOG, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as { method?: string; result?: { outcome?: { optionId?: string; outcome?: string } } })
+    .filter((message) => message.method === undefined && message.result?.outcome !== undefined)
+    .map((message) => message.result?.outcome?.optionId ?? message.result?.outcome?.outcome ?? "");
+}
+
+test("a command approval doesn't hold Kimi: it is refused at once and kept as a card, and approving it runs the call in a new turn", async () => {
   const socket = await kimiSession("kimi-approval");
+  const before = permissionAnswers().length;
   sendUserMessage(socket, "[[tool]]");
-  const prompted = await collectUntil(socket, (message) => message.type === "choice_prompt");
-  const prompt = prompted.at(-1) as { promptId: string; questions: { options: { id?: string; label: string }[]; approval?: { tool: string; detail: string } }[] };
+  // The card goes out as the turn is wrapped up, after its `turn_ended`.
+  const first = await collectUntil(socket, isApprovalPrompt);
+  assertTurnEnded(first.find(isTurnEnded), false);
+  assert.ok(events(first).some((event) => event.type === "text" && event.text === "refused"), "the turn ended instead of waiting on a person");
+  const prompt = approvalPrompt(first);
+  assert.ok(prompt, "the approval is published when the turn ends");
   assert.deepEqual(prompt.questions[0].approval, { tool: "Bash", detail: "ls" });
   assert.deepEqual(
     prompt.questions[0].options.map((option) => option.id),
     ["accept", "acceptForSession", "decline"],
   );
-  socket.send(JSON.stringify({ type: "choice_answer", promptId: prompt.promptId, answers: [{ question: "", selected: ["accept"] }] }));
-  const rest = await collectUntil(socket, isTurnEnded);
-  const log = events(rest);
-  const ended = log.find((event) => event.type === "tool_ended") as { content?: string; isError?: boolean } | undefined;
+
+  // A device that connects later (hours later, say) still gets the card.
+  const { socket: late, messages: burst } = await connectSessionAndCollectUntil(server.port, "kimi-approval", (message) => message.type === "caught_up");
+  assert.equal(approvalPrompt(burst)?.promptId, prompt.promptId);
+  late.close();
+
+  socket.send(JSON.stringify({ type: "choice_answer", promptId: prompt.promptId, answers: [{ question: "", selected: ["acceptForSession"] }] }));
+  const second = await collectUntil(socket, isTurnEnded);
+  assertTurnEnded(second.find(isTurnEnded), false);
+  assert.ok(!second.some(isApprovalPrompt), "Kimi's repeat of the approved call is not asked about again");
+  const ended = events(second).find((event) => event.type === "tool_ended") as { content?: string; isError?: boolean } | undefined;
   assert.equal(ended?.content, "file.txt\n");
-  assert.equal(ended?.isError, false);
-  assert.ok(log.some((event) => event.type === "text" && event.text === "listed"));
+  assert.ok(events(second).some((event) => event.type === "text" && event.text === "ran"));
+  assert.deepEqual(permissionAnswers().slice(before), ["reject", "approve_always"], "the repeat got the decision the person picked");
+  socket.close();
+});
+
+test("approvals Kimi asks for at once become one card, and only the approved call runs", async () => {
+  const socket = await kimiSession("kimi-parallel");
+  sendUserMessage(socket, "[[tools2]]");
+  const first = await collectUntil(socket, isApprovalPrompt);
+  assertTurnEnded(first.find(isTurnEnded), false);
+  const prompt = approvalPrompt(first);
+  assert.ok(prompt, "no approval card");
+  assert.deepEqual(
+    prompt.questions.map((question) => question.approval?.detail),
+    ["ls", "pwd"],
+    "neither request is lost",
+  );
+  socket.send(
+    JSON.stringify({
+      type: "choice_answer",
+      promptId: prompt.promptId,
+      answers: [
+        { question: "", selected: ["accept"] },
+        { question: "", selected: ["decline"] },
+      ],
+    }),
+  );
+  const second = await collectUntil(socket, isTurnEnded);
+  assert.ok(!second.some(isApprovalPrompt));
+  assert.ok(events(second).some((event) => event.type === "text" && event.text === "ran"), "only the approved call is repeated, and it runs");
+  socket.close();
+});
+
+test("an approval asked in a turn Kimi started on its own reaches the person, and the session isn't stuck behind it", async () => {
+  const socket = await kimiSession("kimi-background");
+  sendUserMessage(socket, "[[background]]");
+  const first = await collectUntil(socket, isTurnEnded);
+  assert.ok(events(first).some((event) => event.type === "text" && event.text === "started"));
+  // No turn of the session is running when Kimi asks.
+  const asked = await collectUntil(socket, isApprovalPrompt);
+  const prompt = approvalPrompt(asked);
+  assert.equal(prompt?.questions[0].approval?.detail, "make build");
+  // Kimi was answered already: a new message is not queued behind the card.
+  sendUserMessage(socket, "anyone there?");
+  const reply = await collectUntil(socket, isTurnEnded);
+  assert.ok(events(reply).some((event) => event.type === "text" && event.text === "echo: anyone there?"));
   socket.close();
 });
 
@@ -106,19 +185,6 @@ test("Kimi's question tool shows as a choice card and the label picked is the an
   socket.send(JSON.stringify({ type: "choice_answer", promptId: prompt.promptId, answers: [{ question: "Pick one", selected: ["Blue"] }] }));
   const rest = await collectUntil(socket, isTurnEnded);
   assert.ok(events(rest).some((event) => event.type === "text" && event.text === "answer: Blue"));
-  socket.close();
-});
-
-test("Stop ends a turn that is waiting on an approval, and the session keeps going", async () => {
-  const socket = await kimiSession("kimi-stop");
-  sendUserMessage(socket, "[[hang]]");
-  await collectUntil(socket, (message) => message.type === "choice_prompt");
-  socket.send(JSON.stringify({ type: "stop_turn" }));
-  const stopped = await collectUntil(socket, isTurnEnded);
-  assertTurnEnded(stopped.find(isTurnEnded), true);
-  sendUserMessage(socket, "still there?");
-  const next = await collectUntil(socket, isTurnEnded);
-  assert.ok(events(next).some((event) => event.type === "text" && event.text === "echo: still there?"));
   socket.close();
 });
 

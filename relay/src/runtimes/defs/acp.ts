@@ -168,7 +168,10 @@ function approvalDetail(params: AcpPermissionParams): string {
 /** Builds the approval request, keeping the decision-id ↔ optionId pairing
  * so the answer can be sent back as the agent's own option. Two options of
  * the same kind keep their own ids (only the first takes the shared one). */
-export function acpApprovalRequest(params: AcpPermissionParams): { readonly request: ApprovalRequest; readonly optionFor: ReadonlyMap<string, string> } {
+export function acpApprovalRequest(
+  params: AcpPermissionParams,
+  deferrable?: ApprovalRequest["deferrable"],
+): { readonly request: ApprovalRequest; readonly optionFor: ReadonlyMap<string, string> } {
   const optionFor = new Map<string, string>();
   const decisions: ApprovalDecision[] = [];
   for (const option of params.options ?? []) {
@@ -187,15 +190,19 @@ export function acpApprovalRequest(params: AcpPermissionParams): { readonly requ
       detail: { kind: tool, text: detail },
       availableDecisions: decisions,
       ...(safe ? { safeDecisionId: safe.id } : {}),
+      // Refusing now is only safe with a decision that says no.
+      ...(deferrable && safe ? { deferrable } : {}),
     },
     optionFor,
   };
 }
 
 /** Answers an approval through the session's `TurnHost`. A host that gives
- * up (the turn was cancelled) answers `cancelled`, never a guess. */
-export function answerAcpApproval(params: AcpPermissionParams, host: TurnHost): Promise<unknown> {
-  const { request, optionFor } = acpApprovalRequest(params);
+ * up (the turn was cancelled) answers `cancelled`, never a guess.
+ * `deferrable` is the def's to give (see `ApprovalRequest.deferrable`): only
+ * it knows whether its agent takes a refusal now and asks again later. */
+export function answerAcpApproval(params: AcpPermissionParams, host: TurnHost, deferrable?: ApprovalRequest["deferrable"]): Promise<unknown> {
+  const { request, optionFor } = acpApprovalRequest(params, deferrable);
   return host.requestApproval(request).then(
     (decisionId) => {
       const optionId = optionFor.get(decisionId);

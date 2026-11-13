@@ -5,7 +5,7 @@
 // Kimi. Every fact below was measured against Kimi Code CLI 2.6.0, logged
 // in through its own device-code flow, unless a comment says it was read
 // off the binary instead.
-import type { AgentRuntimeDef, AuthProbeOutput, AuthStatus, FailureClass, JsonRpcRequestSpec, RuntimeFailure, TurnContext, TurnHost } from "../types.js";
+import type { AgentRuntimeDef, ApprovalRequest, AuthProbeOutput, AuthStatus, FailureClass, JsonRpcRequestSpec, RuntimeFailure, TurnContext, TurnHost } from "../types.js";
 import {
   ACP_HISTORY_METHOD,
   acpInitialize,
@@ -74,11 +74,30 @@ export function kimiApprovalParams(params: AcpPermissionParams): AcpPermissionPa
   return { ...params, toolCall: { ...toolCall, ...(rawInput ? { rawInput } : {}), content } };
 }
 
+/**
+ * Kimi's approvals can wait on a person for days: measured against 2.6.0, a
+ * refused call ends in the tool result `Tool "Bash" was not run because the
+ * user rejected the approval request.`, the model ends its turn rather than
+ * look for a way around it, and told later that the call was approved it
+ * asks again for the very same call (same title, same input). So the
+ * session may refuse at once and keep the card (`ApprovalRequest.deferrable`).
+ *
+ * The repeat is recognised by the call's real input only — the one the
+ * driver added back from the stream — never by the sentence: Kimi cuts a
+ * long command short there ("Running: cd /a && wc…"), and a prefix must not
+ * let a different command through.
+ */
+export function kimiDeferrable(request: AcpPermissionParams): NonNullable<ApprovalRequest["deferrable"]> {
+  const tool = request.toolCall?.title;
+  const input = request.toolCall?.rawInput;
+  return tool && input !== undefined ? { call: { tool, input } } : {};
+}
+
 function handleServerRequest(method: string, params: unknown, host: TurnHost): Promise<unknown> | undefined {
   if (method !== "session/request_permission") return undefined;
   const request = params as AcpPermissionParams;
   if (request.toolCall?.title === QUESTION_TOOL) return answerAcpQuestion(kimiQuestion(request), host);
-  return answerAcpApproval(kimiApprovalParams(request), host);
+  return answerAcpApproval(kimiApprovalParams(request), host, kimiDeferrable(request));
 }
 
 /** Mode, model and reasoning level, in that order: a new model can reset

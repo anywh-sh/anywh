@@ -35,7 +35,16 @@ import {
 import { promptDraft, turnEndedDraft, turnFailedDraft, type PushNotificationDraft } from "../push/events.js";
 import { isAnyoneLooking, leaseExpiry } from "../push/presence.js";
 import { ChoiceMachine } from "./choiceMachine.js";
-import { buildApprovalQuestion as buildNativeApprovalQuestion, buildUserInputQuestions, resolveApprovalAnswer, resolveUserInputAnswers } from "./nativeApproval.js";
+import {
+  buildApprovalQuestion as buildNativeApprovalQuestion,
+  buildUserInputQuestions,
+  deferredNativeCall,
+  nativeCallDigest,
+  planNativeVerdicts,
+  resolveApprovalAnswer,
+  resolveUserInputAnswers,
+  type NativeGrant,
+} from "./nativeApproval.js";
 import {
   type BroadcastMessage,
   broadcast,
@@ -374,6 +383,9 @@ export class SharedSession implements SessionDriverHost {
   /** Tool calls the person approved for the turn in flight (see
    * `checkPermission`); only for an agent whose CLI lives in the host. */
   private turnGrants: readonly ToolGrant[] = [];
+  /** The native calls a person approved on a deferred card, for the turn
+   * that carries their verdict (see `deferNativeApproval`). */
+  private nativeGrants: readonly NativeGrant[] = [];
   private dequeuedSeq = 0;
   private discardedUpTo = 0;
   private cwd: string;
@@ -871,15 +883,44 @@ export class SharedSession implements SessionDriverHost {
 
   /** `TurnHost`'s half of `SessionDriverHost` — where a def whose approval
    * is native (not bridged through `McpPermissionBridge`) routes a
-   * server-initiated approval request. Nothing calls this yet: no driver
-   * for a JSON-RPC-daemon-shaped def is registered with `createSessionDriver`
-   * in production today, so this is unreachable, not untested-by-omission.
-   * The forced-resolve fallback (`request.safeDecisionId`) is the def's own
+   * server-initiated approval request (Codex's, Kimi's). A request the def
+   * marked `deferrable` is refused and kept as a card instead of waiting
+   * (`deferNativeApproval`, `docs/deferred-approval.md`). The forced-resolve fallback (`request.safeDecisionId`) is the def's own
    * choice, not a guess made here — `session/` has no business knowing which
    * of another engine's decision ids means "no" (`runtimes/README.md` §0). */
   async requestApproval(request: ApprovalRequest): Promise<string> {
+    if (request.deferrable && request.safeDecisionId !== undefined) return this.deferNativeApproval(request, request.safeDecisionId);
     const answers = await this.choiceMachine.presentApprovalChoice([buildNativeApprovalQuestion(request)]);
     return resolveApprovalAnswer(answers, request.safeDecisionId);
+  }
+
+  /**
+   * A native approval a person may take hours or days to answer. Holding the
+   * agent's request open that long loses it to anything that ends the agent's
+   * process (a relay restart or update), and leaves every new message queued
+   * inside the agent behind it. So the request is refused at once (the def
+   * vouched, by marking it `deferrable`, that its agent ends the turn and asks
+   * again later), kept as a persisted card, and the verdict runs as a new
+   * turn in which the agent's repeat of each approved call is answered with
+   * the decision the person picked.
+   *
+   * Several requests of one turn (an agent that runs tools in parallel asks
+   * in parallel) become one card when the turn ends. A request can also
+   * arrive with no turn of the session running: an agent may start a turn of
+   * its own — Kimi does when a background command it started finishes — and
+   * nothing would then end a turn to publish the card, so it is published
+   * now.
+   */
+  private deferNativeApproval(request: ApprovalRequest, refusal: string): string {
+    const known = request.deferrable?.call;
+    if (known) {
+      const digest = nativeCallDigest(known);
+      const grant = this.nativeGrants.find((each) => each.digest === digest);
+      if (grant) return grant.decisionId;
+    }
+    this.choiceMachine.deferApproval(deferredNativeCall(request), buildNativeApprovalQuestion(request), this.currentTurnId);
+    if (this.turnStartedAt === null) this.choiceMachine.flushDeferredApprovals(this.currentTurnId);
+    return refusal;
   }
 
   /** `TurnHost`'s other half — same "unreachable today" status as
@@ -1007,6 +1048,17 @@ export class SharedSession implements SessionDriverHost {
     if (result.kind === "choice") {
       const text = formatPlanChoiceAnswerText(result.answers);
       this.enqueue(() => this.runTurn(undefined, text));
+    }
+    if (result.kind === "deferredApproval" && result.calls.some((call) => call.native !== undefined)) {
+      // Refused through the agent's own approval request: no permission rule
+      // to hand the next turn, the session answers the agent's repeat itself.
+      const { decisions, grants } = planNativeVerdicts(result.calls, result.questions, result.answers);
+      const text = buildDeferredApprovalFollowup(decisions);
+      this.enqueue(() => {
+        this.nativeGrants = grants;
+        return this.runTurn(undefined, text, { kind: "approval" });
+      });
+      return true;
     }
     if (result.kind === "deferredApproval") {
       // The calls were refused when they were asked; now the human has
@@ -1791,6 +1843,7 @@ export class SharedSession implements SessionDriverHost {
       this.notify(turnFailedDraft(this.title));
     } finally {
       this.turnGrants = [];
+      this.nativeGrants = [];
       // Only `pendingApproval` — `pendingChoice` deliberately survives the
       // turn that created it (see the doc
       // comment on `cancelPendingApproval`). This is THE inversion this

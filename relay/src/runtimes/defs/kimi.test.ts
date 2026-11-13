@@ -4,9 +4,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { assertCoherent } from "../registry.js";
 import { BILLED_CREDENTIAL_VARS } from "../executables.js";
+import type { ApprovalRequest } from "../types.js";
 import type { AcpPermissionParams } from "./acp.js";
 import { acpApprovalRequest } from "./acp.js";
-import { classifyKimiFailure, kimiApprovalParams, kimiQuestion, kimiRuntimeDef, parseKimiProviderList } from "./kimi.js";
+import { classifyKimiFailure, kimiApprovalParams, kimiDeferrable, kimiQuestion, kimiRuntimeDef, parseKimiProviderList } from "./kimi.js";
 
 // Shapes recorded from Kimi Code CLI 2.6.0 (`kimi acp`, `kimi provider list`).
 const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../tests/fixtures/kimi-acp-2.6.0-updates.json"), "utf8")) as { questionTurn: unknown[] };
@@ -95,4 +96,25 @@ test("an approval that arrives before the call's input shows the command or path
   // An input that did arrive wins over the sentence.
   const withInput = kimiApprovalParams({ toolCall: { title: "Bash", rawInput: { command: "pwd" }, content: [{ type: "content", content: { type: "text", text: "Requesting approval to Running: ls" } }] } });
   assert.deepEqual(acpApprovalRequest(withInput).request.detail, { kind: "Bash", text: "pwd" });
+});
+
+// The options of a Bash approval as Kimi Code 2.6.0 sends them.
+const BASH_OPTIONS = [
+  { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
+  { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
+  { optionId: "reject", name: "Reject", kind: "reject_once" },
+];
+
+test("an approval is deferrable, recognised by the call's real input and never by Kimi's shortened sentence", async () => {
+  // Kimi Code 2.6.0 cuts a long command short in its sentence.
+  const sentence = [{ type: "content", content: { type: "text", text: "Requesting approval to Running: cd /work && wc…" } }];
+  assert.deepEqual(kimiDeferrable({ toolCall: { title: "Bash", content: sentence } }), {});
+  const full = "cd /work && wc -c hello.txt && date +%Y > year.txt";
+  assert.deepEqual(kimiDeferrable({ toolCall: { title: "Bash", rawInput: { command: full }, content: sentence } }), { call: { tool: "Bash", input: { command: full } } });
+
+  let asked: ApprovalRequest | undefined;
+  const host = { requestApproval: (request: ApprovalRequest) => ((asked = request), Promise.resolve("decline")), requestUserInput: () => Promise.resolve("deferred" as const) };
+  const answer = await exec().handleServerRequest("session/request_permission", { options: BASH_OPTIONS, toolCall: { title: "Bash", content: sentence } }, host);
+  assert.deepEqual(asked?.deferrable, {}, "deferrable even when the input is unknown: the card is kept, the repeat asked about again");
+  assert.deepEqual(answer, { outcome: { outcome: "selected", optionId: "reject" } });
 });

@@ -265,6 +265,14 @@ export interface ApprovalRequest {
    * vocabulary. Absent means the def has no known safe id; the caller falls
    * back to its own last resort. */
   readonly safeDecisionId?: string;
+  /** Set by a def whose agent, refused (`safeDecisionId`), ends its turn and
+   * later asks again for the very same call when told it was approved —
+   * measured, never assumed. The session may then refuse at once and keep
+   * the request as a card a person answers whenever (hours, days), instead
+   * of holding the agent's request open that long. `call` is what the
+   * repeat is recognised by: the tool and its whole input, absent when the
+   * input is not known (the repeat is then asked about again). */
+  readonly deferrable?: { readonly call?: { readonly tool: string; readonly input: unknown } };
 }
 
 /** One of a native `requestUserInput` call's questions, translated from the

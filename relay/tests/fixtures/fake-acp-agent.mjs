@@ -5,9 +5,19 @@
 // set_config_option, session/cancel, session/update, session/request_permission).
 // Not a model: what a turn does is scripted by markers in its prompt text.
 //   (default)    a thought, then the reply "echo: <prompt>" in two chunks
-//   [[tool]]     a Bash call: announced, input streamed, then a permission
-//                request without the input (as Kimi sends it); allowed →
-//                completed with "file.txt\n", rejected → failed
+//   [[tool]]     a Bash call `ls`: announced, its input streamed as JSON text
+//                (whole before the permission request, `rawInput` only after
+//                it, as Kimi sends them), then a permission request without
+//                the input; allowed → completed with "file.txt\n", rejected →
+//                failed with Kimi's own refusal text
+//   [[tools2]]   two Bash calls (`ls`, `pwd`) whose permission requests are
+//                open at once, as Kimi asks for tools it runs in parallel
+//   [[background]] the turn ends at once ("started"); a moment later the agent
+//                starts a turn of its own, with no prompt (as Kimi does when
+//                a background command finishes), asking about `make build`
+//   a "- Bash <command>" line (the relay's follow-up to an approval) → the
+//                agent asks again for each such command it was told was
+//                approved (not those listed as denied), as Kimi does
 //   [[hang]]     a permission request that stays open: the turn ends only
 //                after `session/cancel` AND that request was answered
 //                `cancelled` (ACP's rule), with stopReason "cancelled"
@@ -89,6 +99,32 @@ function known(sessionId) {
   return loadSessions()[sessionId];
 }
 
+/** One Bash call in the order Kimi 2.6.0 sends it; resolves to whether it
+ * was allowed to run. */
+async function bashCall(sessionId, session, call, command) {
+  const input = JSON.stringify({ command });
+  update(sessionId, { sessionUpdate: "tool_call", toolCallId: call, title: "Bash", kind: "execute", status: "pending", content: [{ type: "content", content: { type: "text", text: "" } }] });
+  update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: call, status: "in_progress", content: [{ type: "content", content: { type: "text", text: input.slice(0, 11) } }] });
+  update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: call, status: "in_progress", content: [{ type: "content", content: { type: "text", text: input } }] });
+  const answer = await ask("session/request_permission", {
+    sessionId,
+    options: [
+      { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
+      { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
+    toolCall: { toolCallId: call, title: "Bash", content: [{ type: "content", content: { type: "text", text: `Requesting approval to Running: ${command}` } }] },
+  });
+  update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: call, title: `Running: ${command}`, kind: "execute", status: "in_progress", rawInput: { command } });
+  const allowed = answer?.outcome?.outcome === "selected" && answer.outcome.optionId.startsWith("approve");
+  const done = allowed
+    ? { sessionUpdate: "tool_call_update", toolCallId: call, status: "completed", rawOutput: "file.txt\n", content: [{ type: "content", content: { type: "text", text: "file.txt\n" } }] }
+    : { sessionUpdate: "tool_call_update", toolCallId: call, status: "failed", content: [{ type: "content", content: { type: "text", text: 'Tool "Bash" was not run because the user rejected the approval request.' } }] };
+  update(sessionId, done);
+  session.history.push({ sessionUpdate: "tool_call", toolCallId: call, title: "Bash", kind: "execute", status: "in_progress", rawInput: { command } }, done);
+  return allowed;
+}
+
 async function runPrompt(id, params) {
   const sessions = loadSessions();
   const session = sessions[params.sessionId];
@@ -108,27 +144,31 @@ async function runPrompt(id, params) {
     return;
   }
 
+  // Only what the follow-up approved: the calls it lists as denied stay alone.
+  const retries = [...text.split(/\n\ndenied by the user/)[0].matchAll(/^- Bash (.+)$/gm)].map((match) => match[1]);
   if (text.includes("[[tool]]")) {
-    const call = "0:tool_bash";
-    update(params.sessionId, { sessionUpdate: "tool_call", toolCallId: call, title: "Bash", kind: "execute", status: "pending", content: [{ type: "content", content: { type: "text", text: "" } }] });
-    update(params.sessionId, { sessionUpdate: "tool_call_update", toolCallId: call, status: "in_progress", content: [{ type: "content", content: { type: "text", text: '{"command":' } }] });
-    update(params.sessionId, { sessionUpdate: "tool_call_update", toolCallId: call, title: "Running: ls", kind: "execute", status: "in_progress", rawInput: { command: "ls" } });
-    const answer = await ask("session/request_permission", {
-      sessionId: params.sessionId,
-      options: [
-        { optionId: "approve_once", name: "Approve once", kind: "allow_once" },
-        { optionId: "approve_always", name: "Approve for this session", kind: "allow_always" },
-        { optionId: "reject", name: "Reject", kind: "reject_once" },
-      ],
-      toolCall: { toolCallId: call, title: "Bash", content: [{ type: "content", content: { type: "text", text: "Requesting approval to Running: ls" } }] },
-    });
-    const allowed = answer?.outcome?.outcome === "selected" && answer.outcome.optionId.startsWith("approve");
-    const done = allowed
-      ? { sessionUpdate: "tool_call_update", toolCallId: call, status: "completed", rawOutput: "file.txt\n", content: [{ type: "content", content: { type: "text", text: "file.txt\n" } }] }
-      : { sessionUpdate: "tool_call_update", toolCallId: call, status: "failed", rawOutput: 'Tool "Bash" was not run because the user rejected the approval request.' };
-    update(params.sessionId, done);
-    session.history.push({ sessionUpdate: "tool_call", toolCallId: call, title: "Bash", kind: "execute", status: "in_progress", rawInput: { command: "ls" } }, done);
-    say(allowed ? "listed" : "refused");
+    say((await bashCall(params.sessionId, session, "0:tool_bash", "ls")) ? "listed" : "refused");
+  } else if (text.includes("[[tools2]]")) {
+    const results = await Promise.all([bashCall(params.sessionId, session, "0:tool_ls", "ls"), bashCall(params.sessionId, session, "0:tool_pwd", "pwd")]);
+    say(results.map((allowed) => (allowed ? "ran" : "refused")).join(","));
+  } else if (text.includes("[[background]]")) {
+    say("started");
+    running += 1;
+    setTimeout(() => {
+      void bashCall(params.sessionId, session, "1:tool_build", "make build")
+        .then((allowed) => {
+          say(allowed ? "built" : "refused");
+          saveSessions(sessions);
+        })
+        .finally(() => {
+          running -= 1;
+          armIdleExit();
+        });
+    }, 50);
+  } else if (retries.length > 0) {
+    const results = [];
+    for (const [index, command] of retries.entries()) results.push(await bashCall(params.sessionId, session, `2:tool_retry_${index}`, command));
+    say(results.map((allowed) => (allowed ? "ran" : "refused")).join(","));
   } else if (text.includes("[[hang]]")) {
     const answer = await ask("session/request_permission", {
       sessionId: params.sessionId,
