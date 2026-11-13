@@ -6,7 +6,7 @@
 //
 // Pure: types and constants only.
 
-export type PlanUsageRuntime = "claude" | "codex";
+export type PlanUsageRuntime = "claude" | "codex" | "kimi";
 
 /** Canonical window lengths, in minutes. A window is identified by its
  * duration, never by its position or a source-specific name (D2'): Claude's
@@ -54,7 +54,7 @@ export type PlanUsageStatus = "ok" | "warning" | "limited" | "signed_out" | "no_
 /** Where the reading in a `RuntimePlanUsage` came from. `transcript` is a
  * limit refusal Claude Code wrote into a session transcript (only ever
  * "limited until X"). */
-export type PlanUsageSource = "turn" | "probe" | "app_server_read" | "app_server_push" | "transcript";
+export type PlanUsageSource = "turn" | "probe" | "app_server_read" | "app_server_push" | "transcript" | "cli_server_read";
 
 export type PlanUsageErrorKind = "network" | "auth" | "parse" | "unknown";
 

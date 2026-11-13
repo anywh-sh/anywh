@@ -141,7 +141,7 @@ export interface ProfileGroup {
   accounts: AccountEntry[];
 }
 
-const RUNTIME_ORDER: PlanUsageRuntime[] = ["claude", "codex"];
+const RUNTIME_ORDER: PlanUsageRuntime[] = ["claude", "codex", "kimi"];
 
 function runtimeRank(runtime: string): number {
   const index = RUNTIME_ORDER.indexOf(runtime as PlanUsageRuntime);
@@ -150,7 +150,7 @@ function runtimeRank(runtime: string): number {
 
 /**
  * The card's groups: the active tab's profile first, then the rest in the
- * profile list's own order. Within a group, Claude before Codex.
+ * profile list's own order. Within a group, Claude, then Codex, then Kimi.
  *
  * The same account logged in on two profiles' machines (one Claude login
  * used at home and at work) is one quota, so it is shown in full once — at
