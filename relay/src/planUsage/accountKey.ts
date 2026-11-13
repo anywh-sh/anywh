@@ -39,7 +39,7 @@ export const DEFAULT_ACCOUNT_SALT_DIR = dirname(ENV_DIR);
 
 /** Which pair of parts a key was built from; part of the HMAC input, so a
  * pair can't collide with another kind's. */
-export type AccountKeyKind = "claude_account_org" | "claude_email_org" | "codex_email_plan";
+export type AccountKeyKind = "claude_account_org" | "claude_email_org" | "codex_email_plan" | "kimi_user_id";
 
 function normalizePart(part: unknown): string | null {
   if (typeof part !== "string") return null;

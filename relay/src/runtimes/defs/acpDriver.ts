@@ -27,11 +27,15 @@ import { acpConfigOptions, acpCurrentValue, isAcpSessionGoneError } from "./acp.
 // same type.
 // eslint-disable-next-line import-x/no-restricted-paths
 import type { ContextUsage } from "../../session/sessionStore.js";
+import { planUsageCapture, planUsageRuntimeOf, type PlanUsageCapture } from "../../planUsage/index.js";
 
 export interface AcpSessionDriverOptions {
   readonly homeOverride?: string;
   readonly initialSessionId?: string;
   readonly host: SessionDriverHost;
+  /** Where the turn's start and end go (a finished turn re-reads the plan
+   * usage); the relay's shared capture unless a test passes its own. */
+  readonly planUsage?: PlanUsageCapture;
 }
 
 type AcpPlan = JsonRpcDaemonPlan & { readonly protocol: "acp" };
@@ -64,6 +68,7 @@ export class AcpSessionDriver implements AgentSessionDriver {
   private readonly def: AgentRuntimeDef & { exec: AcpPlan };
   private readonly homeOverride: string | undefined;
   private readonly host: SessionDriverHost;
+  private readonly planUsage: PlanUsageCapture;
   private daemon: CodexDaemon | undefined;
   private sessionId: string | undefined;
   /** Whether `sessionId` is attached to the current process: a fresh
@@ -91,6 +96,7 @@ export class AcpSessionDriver implements AgentSessionDriver {
     this.def = def;
     this.homeOverride = options.homeOverride;
     this.host = options.host;
+    this.planUsage = options.planUsage ?? planUsageCapture;
     this.sessionId = options.initialSessionId;
   }
 
@@ -221,6 +227,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
     // open must not surface as an unhandled rejection.
     this.cancelled.catch(() => {});
     this.inFlight = true;
+    const planRuntime = planUsageRuntimeOf(this.def.identity.id);
+    const endTurn = planRuntime ? this.planUsage.turnStarted(planRuntime) : undefined;
     try {
       const daemon = await this.ensureDaemon(ctx.cwd);
       const sessionId = await this.attach(daemon, ctx);
@@ -240,6 +248,7 @@ export class AcpSessionDriver implements AgentSessionDriver {
       if (isAcpSessionGoneError(message)) this.resetSessionId();
       throw error;
     } finally {
+      endTurn?.();
       this.inFlight = false;
       this.onUpdate = undefined;
       this.cancelTurn = undefined;

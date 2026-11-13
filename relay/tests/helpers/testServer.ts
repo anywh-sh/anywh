@@ -112,7 +112,10 @@ export async function startTestServer(): Promise<TestServer> {
       await new Promise<void>((resolveClose) => serverModule.wss.close(() => resolveClose()));
       serverModule.httpServer.closeAllConnections();
       await new Promise<void>((resolveClose) => serverModule.httpServer.close(() => resolveClose()));
-      rmSync(workDir, { recursive: true, force: true });
+      // Retried: a real agent CLI installed on the machine (detection and
+      // the model-catalog probe find `kimi` by its own install dir) may still
+      // be writing its cache under the throwaway home as it is removed.
+      rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     },
   };
 }
