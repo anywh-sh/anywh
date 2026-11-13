@@ -19,6 +19,12 @@ export interface PermissionModeOption {
   readonly pausesForApproval: boolean;
 }
 
+/** Whether `id` is a mode that promises the agent never stops to ask (an
+ * unknown id never does). */
+export function neverPauses(modes: readonly PermissionModeOption[], id: string): boolean {
+  return modes.some((mode) => mode.id === id && !mode.pausesForApproval);
+}
+
 export function availableModes(def: AgentRuntimeDef, platform: HostPlatform): readonly PermissionModeOption[] {
   return def.permissions.modesFor(platform).map((mode) => ({ id: mode.id, pausesForApproval: mode.pausesForApproval }));
 }

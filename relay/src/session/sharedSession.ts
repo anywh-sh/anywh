@@ -22,7 +22,7 @@ import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/sile
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
 import { computeContextBreakdown } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
-import { availableModes, isOfferedMode, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
+import { availableModes, isOfferedMode, neverPauses, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
 import {
   toBackgroundJobSummary,
@@ -37,6 +37,7 @@ import { isAnyoneLooking, leaseExpiry } from "../push/presence.js";
 import { ChoiceMachine } from "./choiceMachine.js";
 import {
   buildApprovalQuestion as buildNativeApprovalQuestion,
+  approvingDecisionIds,
   buildUserInputQuestions,
   deferredNativeCall,
   nativeCallDigest,
@@ -889,6 +890,12 @@ export class SharedSession implements SessionDriverHost {
    * choice, not a guess made here — `session/` has no business knowing which
    * of another engine's decision ids means "no" (`runtimes/README.md` §0). */
   async requestApproval(request: ApprovalRequest): Promise<string> {
+    // The mode the person picked promises no pause, so the agent asking
+    // anyway is answered yes, once. Kimi Code does ask: its own guard against
+    // commands it finds dangerous (`rm -rf` outside /tmp, …) runs in every
+    // mode but `auto`, `yolo` included.
+    const approveAnyway = neverPauses(this.permissionModes, this.permissionMode) ? approvingDecisionIds(request)[0] : undefined;
+    if (approveAnyway !== undefined) return approveAnyway;
     if (request.deferrable && request.safeDecisionId !== undefined) return this.deferNativeApproval(request, request.safeDecisionId);
     const answers = await this.choiceMachine.presentApprovalChoice([buildNativeApprovalQuestion(request)]);
     return resolveApprovalAnswer(answers, request.safeDecisionId);

@@ -182,8 +182,12 @@ export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
     // Kimi's own four modes, ids verbatim (`session/new`'s `modes`), the
     // same on every platform: none of them depends on an OS sandbox.
     // `default` asked before `ls` but wrote a file inside the cwd without
-    // asking; `auto` still asks before risky actions, questions and plans;
-    // only `yolo` never pauses.
+    // asking; `auto` still asks before risky actions, questions and plans.
+    // `yolo` skips every approval except one: Kimi's `dangerous-command-ask`
+    // guard (read off the 2.6.0 binary, then measured) still asks before a
+    // Bash command it finds destructive (`rm -rf` outside /tmp, …) in every
+    // mode but `auto`. The relay keeps `yolo`'s promise by answering those
+    // itself (`SharedSession.requestApproval`), so the mode never pauses.
     modesFor: () => [
       { id: "default", labelKey: "kimi.mode.default", settings: undefined, pausesForApproval: true },
       { id: "plan", labelKey: "kimi.mode.plan", settings: undefined, pausesForApproval: true },

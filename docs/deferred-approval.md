@@ -126,6 +126,13 @@ different command through. Kimi streams the input as JSON text in
 arrives after the answer), and the ACP driver adds it back to the request.
 Without it the card is still kept, and the repeat is asked about again.
 
+None of this happens in `yolo`, which promises no pause: Kimi still asks
+there before a command its own `dangerous-command-ask` guard finds destructive
+(`rm -rf` outside /tmp, …), and the relay answers those requests with "Approve
+once" itself. Kimi's guard is skipped only in its `auto` mode, or with
+`permission.dangerousCommandGuard = false` / `KIMI_CODE_DANGEROUS_COMMAND_GUARD=false`,
+both fixed for the whole process while the session's mode changes per turn.
+
 Kimi can also start a turn of its own, with no prompt from the relay: it does
 when a background command it launched finishes. An approval asked there arrives
 with no turn of the session running, so nothing would end a turn to publish

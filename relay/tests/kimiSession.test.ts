@@ -171,6 +171,21 @@ test("an approval asked in a turn Kimi started on its own reaches the person, an
   socket.close();
 });
 
+test("in yolo, an approval Kimi asks for anyway is answered yes by the relay, and no card is shown", async () => {
+  // Kimi's own guard asks before a command it finds dangerous even in yolo;
+  // the fake asks before every Bash call, which stands in for that.
+  const socket = await kimiSession("kimi-yolo");
+  socket.send(JSON.stringify({ type: "set_permission_mode", mode: "yolo" }));
+  await collectUntil(socket, (message) => message.type === "permission_mode_state" && message.mode === "yolo");
+  const before = permissionAnswers().length;
+  sendUserMessage(socket, "[[tool]]");
+  const messages = await collectUntil(socket, isTurnEnded);
+  assert.ok(!messages.some(isApprovalPrompt), "yolo never pauses");
+  assert.ok(events(messages).some((event) => event.type === "text" && event.text === "listed"));
+  assert.deepEqual(permissionAnswers().slice(before), ["approve_once"], "approved for this call only, not for the session");
+  socket.close();
+});
+
 test("Kimi's question tool shows as a choice card and the label picked is the answer", async () => {
   const socket = await kimiSession("kimi-question");
   sendUserMessage(socket, "[[question]]");
