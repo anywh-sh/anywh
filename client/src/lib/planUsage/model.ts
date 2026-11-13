@@ -53,7 +53,8 @@ export type PlanUsageStatus = "ok" | "warning" | "limited" | "signed_out" | "no_
 
 /** Where the reading in a `RuntimePlanUsage` came from. `transcript` is a
  * limit refusal Claude Code wrote into a session transcript (only ever
- * "limited until X"). */
+ * "limited until X"). `cli_server_read` is a read from Kimi Code's own
+ * local `kimi web` server. */
 export type PlanUsageSource = "turn" | "probe" | "app_server_read" | "app_server_push" | "transcript" | "cli_server_read";
 
 export type PlanUsageErrorKind = "network" | "auth" | "parse" | "unknown";
