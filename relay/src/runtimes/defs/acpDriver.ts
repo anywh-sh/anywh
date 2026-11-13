@@ -57,6 +57,31 @@ interface StopReasonResult {
   readonly stopReason?: string;
 }
 
+interface AcpToolCallUpdate {
+  readonly toolCallId?: unknown;
+  readonly status?: unknown;
+  readonly rawInput?: unknown;
+  readonly content?: readonly { readonly content?: { readonly text?: unknown } }[];
+}
+
+/** A tool call's input as the agent streams it while still writing the call:
+ * measured against Kimi Code 2.6.0, `tool_call_update`s carry the input's
+ * JSON text growing piece by piece (`{"command":"wc`, …) and the complete
+ * object arrives before the permission request, while `rawInput` only comes
+ * after it is answered. Only a text that parses as a whole object counts,
+ * and only before the call ran: once it has, the content is its output. */
+export function streamedToolInput(update: AcpToolCallUpdate): unknown {
+  if (update.status === "completed" || update.status === "failed") return undefined;
+  const text = update.content?.[0]?.content?.text;
+  if (typeof text !== "string" || !text.startsWith("{")) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The key a `configureSession` request is remembered under: its method,
  * plus the config option it sets when it sets one. */
 function configKey(spec: JsonRpcRequestSpec): string {
@@ -139,8 +164,10 @@ export class AcpSessionDriver implements AgentSessionDriver {
   }
 
   private rememberToolInput(params: unknown): void {
-    const update = (params as { update?: { toolCallId?: unknown; rawInput?: unknown } } | null)?.update;
-    if (update && typeof update.toolCallId === "string" && update.rawInput !== undefined) this.toolInputs.set(update.toolCallId, update.rawInput);
+    const update = (params as { update?: AcpToolCallUpdate } | null)?.update;
+    if (!update || typeof update.toolCallId !== "string") return;
+    const input = update.rawInput !== undefined ? update.rawInput : streamedToolInput(update);
+    if (input !== undefined) this.toolInputs.set(update.toolCallId, input);
   }
 
   private async ensureDaemon(cwd: string): Promise<CodexDaemon> {
