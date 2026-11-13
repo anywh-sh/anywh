@@ -100,6 +100,32 @@ function handleServerRequest(method: string, params: unknown, host: TurnHost): P
   return answerAcpApproval(kimiApprovalParams(request), host, kimiDeferrable(request));
 }
 
+/**
+ * A failed turn as Kimi records it in its own session log
+ * (`<home>/sessions/<workdir>/<session>/agents/main/wire.jsonl`, one JSON
+ * record per line) — the only place it says so: measured against 2.6.0 with
+ * a spent quota, `session/prompt` answers `end_turn` and no update carries
+ * the error. The turn's own record is
+ * `{"type":"turn.ended","reason":"failed","error":{"code":"provider.api_error","message":"You've reached your 5-hour usage limit. …"},"time":<ms>}`;
+ * a turn that ended well says `"reason":"completed"` (or `"cancelled"`).
+ */
+export function parseKimiTurnFailure(lines: readonly string[], sinceMs: number): RuntimeFailure | undefined {
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let record: { type?: unknown; reason?: unknown; time?: unknown; error?: { message?: unknown } };
+    try {
+      record = JSON.parse(lines[index]) as typeof record;
+    } catch {
+      continue;
+    }
+    if (record.type !== "turn.ended") continue;
+    if (typeof record.time !== "number" || record.time < sinceMs) return undefined;
+    if (record.reason !== "failed") return undefined;
+    const message = record.error?.message;
+    return { text: typeof message === "string" && message.trim() !== "" ? message : "Kimi Code ended the turn with an error." };
+  }
+  return undefined;
+}
+
 /** Mode, model and reasoning level, in that order: a new model can reset
  * the level, so the level goes after it. The mode ids are Kimi's own (see
  * `permissions`); `model` and `thinking` are the ids of its two pickers. */
@@ -215,6 +241,13 @@ export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
     // never during the turn. Waiting 250 ms covers it many times over and
     // costs nothing when it comes.
     usageAfterTurnMs: 250,
+    turnFailureLog: {
+      // Read off the 2.6.0 binary: `KIMI_CODE_HOME`, else `~/.kimi-code`.
+      home: { envVar: "KIMI_CODE_HOME", dir: ".kimi-code" },
+      sessionsDir: "sessions",
+      sessionLog: (sessionId) => `${sessionId}/agents/main/wire.jsonl`,
+      parse: parseKimiTurnFailure,
+    },
     ...mapping,
     handleServerRequest,
   },

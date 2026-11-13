@@ -8,7 +8,7 @@ import { BILLED_CREDENTIAL_VARS } from "../executables.js";
 import type { ApprovalRequest } from "../types.js";
 import type { AcpPermissionParams } from "./acp.js";
 import { acpApprovalRequest } from "./acp.js";
-import { classifyKimiFailure, kimiApprovalParams, kimiDeferrable, kimiQuestion, kimiRuntimeDef, parseKimiProviderList } from "./kimi.js";
+import { classifyKimiFailure, kimiApprovalParams, kimiDeferrable, parseKimiTurnFailure, kimiQuestion, kimiRuntimeDef, parseKimiProviderList } from "./kimi.js";
 
 // Shapes recorded from Kimi Code CLI 2.6.0 (`kimi acp`, `kimi provider list`).
 const fixture = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../tests/fixtures/kimi-acp-2.6.0-updates.json"), "utf8")) as { questionTurn: unknown[] };
@@ -138,4 +138,20 @@ test("Kimi's context accounting reproduces what was measured against 2.6.0", () 
   assert.ok(Math.abs(estimateSkillsTokens([cut(757)], accounting.skills) - 110) <= 3);
   assert.equal(estimateSkillsTokens([cut(7), cut(7), cut(7)], accounting.skills), 144);
   assert.equal(accounting.fixedSetupTokens, 13000);
+});
+
+const TURN_ENDED = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../tests/fixtures/kimi-wire-2.6.0-turn-ended.json"), "utf8")) as {
+  completed: { time: number };
+  failed: { time: number; error: { message: string } };
+};
+
+test("a turn Kimi recorded as failed is read off its session log, with Kimi's own message, and only for the turn that just ran", () => {
+  const lines = [JSON.stringify(TURN_ENDED.completed), "not json", JSON.stringify({ type: "token_counting.turn_recorded" }), JSON.stringify(TURN_ENDED.failed)];
+  const failure = parseKimiTurnFailure(lines, TURN_ENDED.failed.time - 1000);
+  assert.equal(failure?.text, TURN_ENDED.failed.error.message);
+  assert.equal(classifyKimiFailure(failure), "usage-limit", "a spent quota reads as a usage limit");
+  // The failed record belongs to an older turn than the one that just ran.
+  assert.equal(parseKimiTurnFailure(lines, TURN_ENDED.failed.time + 1), undefined);
+  assert.equal(parseKimiTurnFailure([JSON.stringify(TURN_ENDED.completed)], TURN_ENDED.completed.time - 1000), undefined);
+  assert.equal(parseKimiTurnFailure([], 0), undefined);
 });

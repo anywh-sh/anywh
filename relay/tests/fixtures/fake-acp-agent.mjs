@@ -26,6 +26,10 @@
 //                the answer
 //   [[fail]]     session/prompt answers the subscription error Kimi gives a
 //                model the plan doesn't include
+//   [[quota]]    the model call fails on a spent quota the way Kimi 2.6.0
+//                handles it: `end_turn` and no update at all over ACP, the
+//                failure only in the session log
+//                (`$KIMI_CODE_HOME/sessions/wd_fake/<session>/agents/main/wire.jsonl`)
 // Every prompt that ends normally is followed, after its answer, by a
 // usage_update (used = 100 × prompts so far), 5 ms later, as Kimi sends it.
 // Sessions live in FAKE_ACP_STATE (a JSON file) so a fresh process can
@@ -138,6 +142,19 @@ async function runPrompt(id, params) {
     for (const piece of [reply.slice(0, 3), reply.slice(3)]) update(params.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: piece } });
     session.history.push({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
   };
+
+  if (text.includes("[[quota]]")) {
+    const home = process.env.KIMI_CODE_HOME;
+    if (home) {
+      const dir = `${home}/sessions/wd_fake/${params.sessionId}/agents/main`;
+      fs.mkdirSync(dir, { recursive: true });
+      const message = "You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends.";
+      fs.appendFileSync(`${dir}/wire.jsonl`, `${JSON.stringify({ type: "turn.ended", agentId: "main", turnId: prompts, reason: "failed", error: { code: "provider.api_error", message }, time: Date.now() })}\n`);
+    }
+    saveSessions(sessions);
+    send({ id, result: { stopReason: "end_turn" } });
+    return;
+  }
 
   if (text.includes("[[fail]]")) {
     send({ id, error: { code: -32000, message: "Authentication required: Your current subscription does not have access to m2. Upgrade to higher-tier plans." } });

@@ -19,8 +19,11 @@
 //     history.
 //   - messages and tool calls stream in pieces, so the mapper keeps per-turn
 //     state (`exec.turnState`) and is flushed when the turn ends.
+import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { spawnCodexDaemon, type CodexDaemon } from "../transports/codexDaemon.js";
-import type { AgentEvent, AgentRuntimeDef, ApprovalRequest, JsonRpcDaemonPlan, JsonRpcRequestSpec, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
+import type { AgentEvent, AgentRuntimeDef, ApprovalRequest, JsonRpcDaemonPlan, JsonRpcRequestSpec, RuntimeFailure, TurnContext, TurnFailureLog, TurnHost, UserInputQuestion } from "../types.js";
 import type { AgentSessionDriver, DriverTurnResult, SessionDriverHost } from "../sessionDriver.js";
 import { acpConfigOptions, acpCurrentValue, isAcpSessionGoneError } from "./acp.js";
 // Same known reverse-direction dependency `codexDriver.ts` has, for the
@@ -82,6 +85,27 @@ export function streamedToolInput(update: AcpToolCallUpdate): unknown {
   }
 }
 
+/** How much of the end of a session log is read for a turn's failure: the
+ * turn's own record is among the last few, and a log grows to megabytes. */
+const FAILURE_LOG_TAIL_BYTES = 64 * 1024;
+
+/** The last lines of `path`, oldest first; the first one is dropped when
+ * the read starts mid-line. */
+function tailLines(path: string): string[] {
+  const size = statSync(path).size;
+  const length = Math.min(size, FAILURE_LOG_TAIL_BYTES);
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(path, "r");
+  try {
+    readSync(fd, buffer, 0, length, size - length);
+  } finally {
+    closeSync(fd);
+  }
+  const lines = buffer.toString("utf8").split("\n");
+  if (length < size) lines.shift();
+  return lines.filter((line) => line.trim() !== "");
+}
+
 /** The key a `configureSession` request is remembered under: its method,
  * plus the config option it sets when it sets one. */
 function configKey(spec: JsonRpcRequestSpec): string {
@@ -115,6 +139,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
    * a permission request naming the call (which carries no input of its
    * own) can say what it is asking about. */
   private toolInputs = new Map<string, unknown>();
+  /** Where a session's own log was found (`turnFailureLog`), by session. */
+  private failureLog: { readonly sessionId: string; readonly path: string } | undefined;
 
   constructor(def: AgentRuntimeDef, options: AcpSessionDriverOptions) {
     if (!isAcpPlan(def)) throw new Error(`AcpSessionDriver: def "${def.identity.id}" has no ACP exec plan`);
@@ -263,6 +289,7 @@ export class AcpSessionDriver implements AgentSessionDriver {
     // open must not surface as an unhandled rejection.
     this.cancelled.catch(() => {});
     this.inFlight = true;
+    const turnStartedAt = Date.now();
     const planRuntime = planUsageRuntimeOf(this.def.identity.id);
     const endTurn = planRuntime ? this.planUsage.turnStarted(planRuntime) : undefined;
     try {
@@ -285,6 +312,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
         });
         usageArrived = undefined;
       }
+      const failure = exec.turnFailureLog ? this.readTurnFailure(exec.turnFailureLog, sessionId, turnStartedAt) : undefined;
+      if (failure) throw new Error(failure.text);
       if (state !== undefined) for (const event of exec.turnState?.flush(state) ?? []) emit(event);
       const model = ctx.modelId ?? this.currentModel;
       const contextUsage: ContextUsage | undefined =
@@ -301,6 +330,26 @@ export class AcpSessionDriver implements AgentSessionDriver {
       this.cancelTurn = undefined;
       this.cancelled = undefined;
       this.toolInputs.clear();
+    }
+  }
+
+  /** The failure of the turn that started at `sinceMs`, from the agent's own
+   * session log. A log that can't be found or read says nothing: the turn
+   * stands as the agent answered it. */
+  private readTurnFailure(log: TurnFailureLog, sessionId: string, sinceMs: number): RuntimeFailure | undefined {
+    try {
+      if (this.failureLog?.sessionId !== sessionId || !existsSync(this.failureLog.path)) {
+        const home = (log.home.envVar ? process.env[log.home.envVar] : undefined) || join(this.homeOverride ?? homedir(), log.home.dir);
+        const sessions = join(home, log.sessionsDir);
+        const path = readdirSync(sessions)
+          .map((workdir) => join(sessions, workdir, log.sessionLog(sessionId)))
+          .find((candidate) => existsSync(candidate));
+        this.failureLog = path ? { sessionId, path } : undefined;
+      }
+      return this.failureLog ? log.parse(tailLines(this.failureLog.path), sinceMs) : undefined;
+    } catch (error) {
+      console.error(`[relay] ${this.def.identity.id}: could not read the session log for a turn's outcome:`, error instanceof Error ? error.message : String(error));
+      return undefined;
     }
   }
 

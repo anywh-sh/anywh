@@ -419,6 +419,21 @@ export interface ToolGrant {
   readonly rule?: string;
 }
 
+/** Where an agent keeps a session's own log, and how a turn's failure reads
+ * in it (`JsonRpcDaemonPlan.turnFailureLog`). */
+export interface TurnFailureLog {
+  /** The agent's home: this env var when set, else this path under `$HOME`. */
+  readonly home: { readonly envVar?: string; readonly dir: string };
+  /** Under the home, the folder holding one folder per working directory. */
+  readonly sessionsDir: string;
+  /** Under one of those folders, a session's log. */
+  readonly sessionLog: (sessionId: string) => string;
+  /** Pure: the failure of a turn that ended at or after `sinceMs` (epoch
+   * ms), from the log's last lines, oldest first; `undefined` when that turn
+   * didn't fail or isn't in them. */
+  readonly parse: (lines: readonly string[], sinceMs: number) => RuntimeFailure | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // exec — the axis the old contract didn't have. A spawn-per-turn CLI with
 // a known stream shape is *pure data*: an argv builder plus a mapper,
@@ -528,6 +543,13 @@ export interface JsonRpcDaemonPlan {
    * the turn, in ms. It stops as soon as the report arrives. Absent: the
    * turn closes on the answer. */
   readonly usageAfterTurnMs?: number;
+  /** For an agent that answers a failed turn as if it had ended normally —
+   * Kimi Code answers `session/prompt` with `end_turn` and says nothing over
+   * ACP when its model call fails, a spent quota included — where its own
+   * session log is, and a pure reader of a failure from that log's last
+   * lines. The driver reads it after every turn and fails the turn with the
+   * agent's own message. Never a credentials file. */
+  readonly turnFailureLog?: TurnFailureLog;
   /** Where native approval and native structured input arrive — Codex's
    * `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
    * both land here and get answered through the same `TurnHost` the MCP

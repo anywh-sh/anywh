@@ -27,6 +27,7 @@ before(async () => {
   process.env.FAKE_ACP_STATE = join(dir, "acp-state.json");
   process.env.FAKE_ACP_IDLE_EXIT_MS = "1000";
   LOG = join(dir, "acp-log.jsonl");
+  process.env.KIMI_CODE_HOME = join(dir, "kimi-home");
   process.env.FAKE_ACP_LOG = LOG;
   server = await startTestServer();
   // Inherited from a shell, it could put a real `kimi` ahead of the fake.
@@ -196,6 +197,17 @@ test("in yolo, an approval Kimi asks for anyway is answered yes by the relay, an
   assert.ok(!messages.some(isApprovalPrompt), "yolo never pauses");
   assert.ok(events(messages).some((event) => event.type === "text" && event.text === "listed"));
   assert.deepEqual(permissionAnswers().slice(before), ["approve_once"], "approved for this call only, not for the session");
+  socket.close();
+});
+
+test("a turn Kimi failed but answered as ended shows as a failure, with Kimi's own message", async () => {
+  // A spent quota: Kimi answers `end_turn` and only its session log says why.
+  const socket = await kimiSession("kimi-quota");
+  sendUserMessage(socket, "[[quota]]");
+  // A failed turn ends without a `turn_ended`, on the idle `turn_state`.
+  const messages = await collectUntil(socket, (message) => message.type === "turn_state" && message.active === false);
+  const error = events(messages).find((event) => event.type === "error") as { message?: string } | undefined;
+  assert.match(error?.message ?? "", /5-hour usage limit/);
   socket.close();
 });
 
