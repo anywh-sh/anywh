@@ -1,4 +1,12 @@
-import type { ContextUsage } from "@/lib/relay/relayClient";
+import type { ContextUsage, ModelCatalog } from "@/lib/relay/relayClient";
+
+/** The model's name as the agent's own picker shows it, for the id the
+ * context report names (Kimi reports `kimi-code/kimi-for-coding`, its picker
+ * says "Kimi for Coding"); the id itself when the catalog doesn't list it
+ * (Claude reports a resolved id, `claude-opus-5-5`, not the alias it lists). */
+export function contextModelName(model: string, catalog: ModelCatalog | null | undefined): string {
+  return catalog?.options.find((option) => option.id === model)?.label ?? model;
+}
 
 // Thresholds borrowed from Claude Code's official statusline convention
 // (green <70%, yellow 70–89%, red >=90% — code.claude.com/docs/en/statusline)

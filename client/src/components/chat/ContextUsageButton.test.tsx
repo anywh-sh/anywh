@@ -51,6 +51,17 @@ describe("ContextUsageButton", () => {
     expect(screen.getByText("claude-opus-5 · 200k window")).toBeInTheDocument();
   });
 
+  it("names the model the way the agent's picker does when its catalog lists the id", async () => {
+    const user = userEvent.setup();
+    const kimi: ContextUsage = { model: "kimi-code/kimi-for-coding", contextWindowSize: 1_048_576, usedTokens: 113_744 };
+    const catalog = { options: [{ id: "kimi-code/kimi-for-coding", label: "Kimi for Coding" }] };
+    render(<ContextUsageButton usage={kimi} onOpen={() => {}} modelCatalog={catalog} />);
+    await user.click(screen.getByRole("button"));
+
+    expect(screen.getByText(/^Kimi for Coding · /)).toBeInTheDocument();
+    expect(screen.queryByText(/kimi-code\/kimi-for-coding/)).not.toBeInTheDocument();
+  });
+
   it("shows the Setup line, with the real percent of the window, only when baselineTokens is known", async () => {
     const user = userEvent.setup();
     render(<ContextUsageButton usage={USAGE_WITH_BASELINE} onOpen={() => {}} />);
