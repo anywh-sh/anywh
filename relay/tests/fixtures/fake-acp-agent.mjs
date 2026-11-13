@@ -26,7 +26,8 @@
 //                the answer
 //   [[fail]]     session/prompt answers the subscription error Kimi gives a
 //                model the plan doesn't include
-// Every prompt starts with a usage_update (used = 100 × prompts so far).
+// Every prompt that ends normally is followed, after its answer, by a
+// usage_update (used = 100 × prompts so far), 5 ms later, as Kimi sends it.
 // Sessions live in FAKE_ACP_STATE (a JSON file) so a fresh process can
 // resume or load one; FAKE_ACP_LOG gets every message received, one JSON
 // line each. `--version` prints the version the shapes were recorded from.
@@ -131,7 +132,6 @@ async function runPrompt(id, params) {
   if (!session || !attached.has(params.sessionId)) return error(id, `Invalid params: Unknown sessionId: ${params.sessionId}`);
   const text = params.prompt.map((block) => block.text ?? "").join("");
   prompts += 1;
-  update(params.sessionId, { sessionUpdate: "usage_update", used: 100 * prompts, size: 1000 });
   session.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text } });
   session.history.push({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "<system-reminder>\nToday's date is 2026-11-12.\n</system-reminder>" } });
   const say = (reply) => {
@@ -206,6 +206,15 @@ async function runPrompt(id, params) {
   }
   saveSessions(sessions);
   send({ id, result: { stopReason: "end_turn" } });
+  // Kimi reports the context only after answering, never during the turn,
+  // in a write of its own (measured 0.3–1.8 ms after the answer).
+  const used = 100 * prompts;
+  running += 1;
+  setTimeout(() => {
+    update(params.sessionId, { sessionUpdate: "usage_update", used, size: 1000 });
+    running -= 1;
+    armIdleExit();
+  }, 5);
 }
 
 const IDLE_EXIT_MS = Number(process.env.FAKE_ACP_IDLE_EXIT_MS ?? 0);

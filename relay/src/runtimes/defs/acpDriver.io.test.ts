@@ -44,6 +44,7 @@ function fixtureDef(): AgentRuntimeDef {
         ...(ctx.modelId ? [{ method: "session/set_config_option", params: { sessionId, configId: "model", value: ctx.modelId } }] : []),
         ...(ctx.effortId ? [{ method: "session/set_config_option", params: { sessionId, configId: "thinking", value: ctx.effortId } }] : []),
       ],
+      usageAfterTurnMs: 250,
       ...mapping,
       handleServerRequest: (method, params, host) => (method === "session/request_permission" ? answerAcpApproval(params as AcpPermissionParams, host) : undefined),
     },
@@ -108,7 +109,9 @@ test("a turn creates the session, streams the reply and ends on session/prompt's
     assert.equal(result.lastAssistantText, "echo: hello");
     assert.deepEqual(result.contextUsage, { model: "m1", contextWindowSize: 1000, usedTokens: 100 });
     const kinds = events.map((event) => event.type);
-    assert.deepEqual(kinds, ["usage", "thinking_started", "thinking_delta", "thinking", "text_delta", "text_delta", "text"]);
+    // The usage report arrives after the answer, as Kimi sends it, and still
+    // belongs to the turn (`usageAfterTurnMs`).
+    assert.deepEqual(kinds, ["thinking_started", "thinking_delta", "thinking", "text_delta", "text_delta", "usage", "text"]);
   } finally {
     driver.dispose();
     h.cleanup();

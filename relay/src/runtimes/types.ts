@@ -522,6 +522,12 @@ export interface JsonRpcDaemonPlan {
    * so an unchanged pick costs nothing. Absent for a protocol that takes
    * the picks on `turn.start` itself (Codex). */
   readonly configureSession?: (ctx: TurnContext, threadId: string) => readonly JsonRpcRequestSpec[];
+  /** For an agent that reports a turn's context usage only after answering
+   * `turn.start` (Kimi Code's ACP `usage_update`, measured 0.3–1.8 ms after
+   * the answer): how long the driver keeps listening for it before closing
+   * the turn, in ms. It stops as soon as the report arrives. Absent: the
+   * turn closes on the answer. */
+  readonly usageAfterTurnMs?: number;
   /** Where native approval and native structured input arrive — Codex's
    * `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
    * both land here and get answered through the same `TurnHost` the MCP

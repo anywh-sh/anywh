@@ -242,9 +242,18 @@ export class AcpSessionDriver implements AgentSessionDriver {
     const state = exec.turnState?.create();
     let lastAssistantText: string | undefined;
     let lastUsage: { readonly used: number; readonly size?: number } | undefined;
+    // Whether the latest event is a usage report, and who is waiting for one
+    // (`usageAfterTurnMs`): the report the agent sends after answering can be
+    // read before the answer's own continuation runs, or a moment after.
+    let usageIsLatest = false;
+    let usageArrived: (() => void) | undefined;
     const emit = (event: AgentEvent): void => {
       if (event.type === "text") lastAssistantText = event.text;
-      if (event.type === "usage") lastUsage = { used: event.prefixTokens, size: event.contextWindowSize };
+      usageIsLatest = event.type === "usage";
+      if (event.type === "usage") {
+        lastUsage = { used: event.prefixTokens, size: event.contextWindowSize };
+        usageArrived?.();
+      }
       onEvent(event);
     };
     this.cancelled = new Promise<never>((_resolve, reject) => {
@@ -265,6 +274,17 @@ export class AcpSessionDriver implements AgentSessionDriver {
       };
       const spec = exec.turn.start(ctx, sessionId);
       const result = (await daemon.request(spec.method, spec.params)) as StopReasonResult | null;
+      const usageWait = exec.usageAfterTurnMs;
+      if (usageWait !== undefined && !usageIsLatest) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, usageWait);
+          usageArrived = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+        usageArrived = undefined;
+      }
       if (state !== undefined) for (const event of exec.turnState?.flush(state) ?? []) emit(event);
       const model = ctx.modelId ?? this.currentModel;
       const contextUsage: ContextUsage | undefined =

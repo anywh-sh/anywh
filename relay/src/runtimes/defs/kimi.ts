@@ -210,6 +210,11 @@ export const kimiRuntimeDef: AgentRuntimeDef<undefined> = {
     turn: { start: acpTurnStart, interrupt: acpInterrupt },
     replayHistoryMethod: ACP_HISTORY_METHOD,
     configureSession,
+    // Measured against 2.6.0: the only `usage_update` of a turn (with the
+    // window size) arrives 0.3–1.8 ms after `session/prompt` answers —
+    // never during the turn. Waiting 250 ms covers it many times over and
+    // costs nothing when it comes.
+    usageAfterTurnMs: 250,
     ...mapping,
     handleServerRequest,
   },
