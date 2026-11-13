@@ -58,8 +58,9 @@ relay/src/
     createSessionDriver.ts  the one place outside `registry.ts` allowed to
                            branch on `exec.kind` — picks a concrete driver
                            for a def (`ClaudeSessionDriver` for a
-                           `spawnPerTurn` def, `CodexSessionDriver` for a
-                           `jsonRpcDaemon` one)
+                           `spawnPerTurn` def; for a `jsonRpcDaemon` one,
+                           by its `protocol`: `CodexSessionDriver` or
+                           `AcpSessionDriver`)
     defs/claude/           Claude's own knowledge: process spawn, stream
                            parsing, on-disk transcript format
       def.ts                 the pure `AgentRuntimeDef` — argv, env, capability
@@ -71,11 +72,13 @@ relay/src/
     defs/codex.ts, defs/codexDriver.ts   Codex's def and driver, the same
                            def/driver split as Claude's — registered in
                            `server.ts` alongside Claude's, not a draft
-    defs/acp.ts             still a design-validation draft, not a registered
-                           def — proves the contract survives a third agent
-                           shape (a daemon that speaks JSON-RPC over headers
-                           instead of Codex's newline framing) before any
-                           engine consumes it
+    defs/acp.ts, defs/acpDriver.ts   the Agent Client Protocol engine:
+                           request builders, permission/question mapping and
+                           the one driver every ACP agent shares (`session/
+                           prompt` is the turn; stop is `session/cancel`)
+    defs/kimi.ts            Kimi Code's def on that engine — only what is
+                           particular to Kimi (binary, credentials, modes,
+                           its question tool)
   session/                turn orchestration, broadcast, approval/choice
                            state machine, history paging — drives whichever
                            `AgentSessionDriver` `createSessionDriver.ts`

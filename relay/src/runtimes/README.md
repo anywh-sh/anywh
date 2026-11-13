@@ -62,7 +62,7 @@ names in `identity.env.strip`, never to strip them itself.
 
 | Field | What it answers | Data or code |
 |---|---|---|
-| `identity` | which binary, which env vars to strip/set, which file it reads for project instructions, and where a person without the CLI learns to install it (`install.url`/`docsUrl`, `https://` only) | data |
+| `identity` | which binary (and, in `binDirs`, where its installer puts it when that isn't on the PATH), which env vars to strip/set, which file it reads for project instructions, and where a person without the CLI learns to install it (`install.url`/`docsUrl`, `https://` only) | data |
 | `capabilities` | what this agent can do, at what level (`native`/`bridged`/`none`) | data |
 | `continuity` | who owns conversation history across turns | data |
 | `models` | where to find the model catalog the CLI's own picker shows — a probe's args, optional stdin, and a pure parser (`probes/modelCatalog.ts` runs it), a static catalog, or "ask the daemon" | data + a pure function |
@@ -112,8 +112,22 @@ that answers "no" to the first, it's `jsonRpcDaemon`.
    request/response protocol?** `claude-stream-json`-shaped output (one JSON
    value per line, no correlation id) is `spawnPerTurn` even if verbose;
    anything with request ids and a spec (JSON-RPC 2.0) is a daemon plan,
-   regardless of framing (see `framing: 'ndjson' | 'lsp-headers'` — Codex and
-   ACP both answer "daemon" here but frame differently).
+   regardless of framing (`framing: 'ndjson' | 'lsp-headers'`; Codex and
+   every ACP agent measured so far are both `ndjson`).
+
+A daemon plan then names its `protocol`, and that — never the def's id —
+picks the driver: `codex-app-server` (`defs/codexDriver.ts`) or `acp`
+(`defs/acpDriver.ts`). The two differ in how a turn ends: Codex answers
+`turn/start` at once and reports the end as a `turn/completed`
+notification; ACP answers `session/prompt` only when the turn is over. **A
+new agent that speaks the Agent Client Protocol is a def, not an engine**:
+compose `defs/acp.ts`'s builders and `streams/acpSessionUpdate.ts`'s mapper
+the way `defs/kimi.ts` does, and declare only what is particular to it
+(binary, credentials, mode and config ids, a question tool to hide). Two
+optional plan fields exist for ACP's shape: `configureSession` (mode,
+model and reasoning level are their own requests before a prompt, sent
+only when they change) and `turnState` (messages and tool calls stream in
+pieces, so the mapper keeps per-turn state and is flushed at the end).
 
 `CustomPlan` exists for the shape nobody has hit yet — a wrapped subprocess
 pool, a remote HTTP-only agent. Declared now as a closed union member so it
