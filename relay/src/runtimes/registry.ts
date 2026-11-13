@@ -114,8 +114,8 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
 
   // A runtime that names nothing the user authored is a runtime the UI can
   // never offer "bring my configuration" for. Declaring the empty list is
-  // allowed to be the honest answer for a transport rather than an agent
-  // (defs/acp.ts), but it has to be *noticed* — same posture as the empty
+  // allowed to be the honest answer for a transport rather than an agent,
+  // but it has to be *noticed* — same posture as the empty
   // `env.strip` right above.
   if (portability.authoredPaths.length === 0) {
     issues.push({ message: "portability.authoredPaths is empty — a runtime with no authored config is a runtime the UI can't offer to carry" });

@@ -6,6 +6,7 @@ import type { AgentRuntimeDef } from "./types.js";
 import type { AgentSessionDriver, SessionDriverHost } from "./sessionDriver.js";
 import { ClaudeSessionDriver, type ClaudeMcpWiring } from "./defs/claude/index.js";
 import { CodexSessionDriver } from "./defs/codexDriver.js";
+import { AcpSessionDriver } from "./defs/acpDriver.js";
 import { HostSessionDriver, type HostAgentBinding } from "./hostSessionDriver.js";
 
 export interface CreateSessionDriverOptions {
@@ -53,7 +54,11 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
             host: options.host,
           });
         case "acp":
-          throw new Error(`no session driver for the ACP protocol yet (def "${def.identity.id}")`);
+          return new AcpSessionDriver(def, {
+            homeOverride: options.homeOverride,
+            initialSessionId: options.initialSessionId,
+            host: options.host,
+          });
       }
       break;
     case "custom":

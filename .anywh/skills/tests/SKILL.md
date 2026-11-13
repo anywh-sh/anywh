@@ -16,7 +16,7 @@ Avoid mock-heavy tests that assert on implementation detail instead of behavior.
 
 Avoid tautological tests (tests that just restate the implementation). Favor tests that pin down an invariant or a boundary case that could plausibly break.
 
-## The sanctioned mock boundaries: the `claude` process, `systemctl`, the push gateway, and `codex app-server`
+## The sanctioned mock boundaries: the `claude` process, `systemctl`, the push gateway, `codex app-server`, and an ACP agent
 
 The relay's job is to spawn `claude -p ...` per turn and stream its JSON events back over WebSocket. That external process is the one dependency that cannot be exercised for real in a test: it needs a live subscription, it is not deterministic, and it must never run in CI.
 
@@ -29,6 +29,8 @@ The profile registry has the same kind of leak from a relay started by hand: one
 A third boundary is the **push gateway** (`POST <gatewayUrl>`, contract C of `docs/push.md`), the service that turns the relay's notification into an APNs push. A real one needs a paid Apple account and would buzz a real phone, so the relay's own tests stand a local `node:http` server in for it: `relay/src/push/dispatcher.io.test.ts` drives the real `PushDispatcher` and the real `PushStore` (tmpdir) against it, with only the clock replaced so a backoff can be stepped through, and `relay/tests/push.test.ts` runs the whole path — a real relay and the fake `claude`, registration over HTTP, presence over the real WebSocket, a turn, then the request arriving at the fake gateway. The gateway fake only records what it was sent and answers what the test scripts (`200 {rejected, failed}`, `503`, `429`); nothing the relay itself controls is faked. The relay never talks to Apple, so there is no APNs fake here — that boundary belongs to the gateway's own repo.
 
 A fourth boundary is **`codex app-server`**, for the same reasons as `claude`: it needs a live, paid login, is not deterministic, and every real turn spends the user's quota. `relay/tests/fixtures/fake-codex-app-server.mjs` speaks newline-delimited JSON-RPC in the shapes the Codex def was checked against (the `codex app-server generate-ts --experimental` bindings of a named CLI version); what a turn does is scripted by markers in its text. It is substituted through the def's `identity.bin` (the agent host's `codexDef` option) or a `codex` wrapper on the relay's `PATH` — and then `EXTRA_PATH_DIRS` must be emptied for that relay, or a real `codex` from an inherited `EXTRA_PATH_DIRS` comes first on its children's `PATH`. The protocol shapes a feature relies on are recorded with their CLI version (e.g. `tests/fixtures/codex-app-server-0.154.0-dynamic-tools.json`, checked against the installed CLI by `scripts/manual/check-codex-dynamic-tools.mjs`, which only generates bindings and spends no quota). A test against the fake proves the wiring, never Codex's behaviour: say so where it matters.
+
+A fifth boundary is an **Agent Client Protocol agent** (`kimi acp` today), for the same reasons again: a live login, no determinism, quota spent per turn. `relay/tests/fixtures/fake-acp-agent.mjs` speaks newline-delimited ACP in the shapes recorded from Kimi Code CLI 2.6.0 — `session/new|resume|load|delete|prompt|set_mode|set_config_option`, `session/cancel`, `session/update`, `session/request_permission` — with each turn scripted by markers in its prompt, and its sessions kept in `FAKE_ACP_STATE` so a fresh process can resume or replay one. It is substituted through the def's `identity.bin` (`runtimes/defs/acpDriver.io.test.ts`). The real CLI's own output lives next to it as a versioned fixture (`tests/fixtures/kimi-acp-2.6.0-updates.json`) that the pure mapper tests replay; like the Codex fake, the fake proves the engine's wiring, not Kimi's behaviour.
 
 ## Where tests live
 
@@ -45,7 +47,7 @@ boundary a new test is allowed to touch:
   function, or the test belongs in the next tier.
 - **`<module>.io.test.ts` — boundary.** Touches a real tmpdir, a real
   child process, or a real socket — but never a *new* mock. This repo has
-  exactly four sanctioned mock boundaries (above); a test that needs a fifth
+  exactly five sanctioned mock boundaries (above); a test that needs a sixth
   one is a sign the module needs restructuring, not a sign to add a fake.
   `sessionStore.test.ts` (real tmpdir) is this tier's shape today; new test
   files that touch a boundary use the `.io.test.ts` suffix going forward,

@@ -1,5 +1,5 @@
 import { detectRuntimes, parseCliVersion, type AgentDetection } from "./detection.js";
-import { probeModelCatalog } from "./probes/modelCatalog.js";
+import { hasCatalogProbe, probeModelCatalog } from "./probes/modelCatalog.js";
 import type { AgentRuntimeDef, Capabilities, ModelCatalog } from "./types.js";
 
 /** What `/host-info` lists per agent — structurally the same shape as
@@ -123,7 +123,7 @@ export async function refreshSelectableAgents(
     if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
     const id = def.identity.id;
     const version = selectable.find((detection) => detection.id === id)?.version;
-    if (def.models.kind === "session-rpc" || state.probing.has(id) || !catalogProbeDue(state.records.get(id), version, now(), targets.catalogTtlMs)) continue;
+    if (!hasCatalogProbe(def) || state.probing.has(id) || !catalogProbeDue(state.records.get(id), version, now(), targets.catalogTtlMs)) continue;
     state.probing.add(id);
     probeModelCatalog(def, targets.homeOverride, targets.cwd)
       .then((catalog) => {
@@ -199,7 +199,7 @@ export function createAgentRefresher(targets: SelectableAgentsTargets): AgentRef
       return targets.defs.some((def) => {
         const detection = last.get(def.identity.id);
         if (!detection?.installed || !targets.selectableIds.includes(def.identity.id)) return false;
-        if (def.models.kind === "session-rpc" || state.probing.has(def.identity.id)) return false;
+        if (!hasCatalogProbe(def) || state.probing.has(def.identity.id)) return false;
         return catalogProbeDue(state.records.get(def.identity.id), detection.version, now, targets.catalogTtlMs);
       });
     },

@@ -338,7 +338,17 @@ export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => re
  * line back would mean re-parsing an envelope the engine already decoded,
  * for no benefit a spawn-per-turn CLI's raw stdout line (which has no
  * envelope to unwrap) doesn't share. */
-export type NotificationMapper = (method: string, params: unknown, ctx: { readonly turnId: string }) => readonly AgentEvent[];
+export type NotificationMapper = (method: string, params: unknown, ctx: NotificationContext) => readonly AgentEvent[];
+
+export interface NotificationContext {
+  readonly turnId: string;
+  /** The turn's scratch state, when the plan declares `turnState` — plain
+   * data the mapper updates in place, so one logical item a protocol
+   * streams across several notifications (an ACP message arriving in
+   * chunks, a tool call whose arguments arrive before its result) can be
+   * committed once. Absent for a plan without `turnState` (Codex). */
+  readonly state?: unknown;
+}
 
 /** One tool of a room (`delegate`, `report`, ...) as plain data: a name, a
  * description for the model, and a JSON Schema for its arguments — the shape
@@ -488,6 +498,22 @@ export interface JsonRpcDaemonPlan {
   readonly rewindMethod?: string;
   readonly replayHistoryMethod?: string;
   readonly mapNotification: NotificationMapper;
+  /** For a protocol whose notifications don't each carry a whole item (ACP
+   * streams a message as chunks and never says it ended): `create` makes the
+   * state handed to `mapNotification` as `ctx.state` for one turn (or one
+   * history replay), `flush` commits whatever is still open when that turn
+   * ends. Both pure. Absent when every notification stands on its own. */
+  readonly turnState?: {
+    readonly create: () => unknown;
+    readonly flush: (state: unknown) => readonly AgentEvent[];
+  };
+  /** Requests that bring a session in line with this turn's picks before
+   * `turn.start` (ACP's `session/set_mode`, `session/set_config_option`),
+   * in the order they must be sent. The driver sends each only when it
+   * differs from what it last sent at the same position on this session,
+   * so an unchanged pick costs nothing. Absent for a protocol that takes
+   * the picks on `turn.start` itself (Codex). */
+  readonly configureSession?: (ctx: TurnContext, threadId: string) => readonly JsonRpcRequestSpec[];
   /** Where native approval and native structured input arrive — Codex's
    * `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
    * both land here and get answered through the same `TurnHost` the MCP

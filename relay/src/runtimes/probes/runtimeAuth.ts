@@ -8,8 +8,8 @@ const AUTH_PROBE_TIMEOUT_MS = 5000;
 /** Thrown for a def whose `auth` can only be answered from inside a live
  * session — there is nothing to spawn, so the caller has to say "can't
  * check" rather than invent a `loggedIn` it didn't measure. No def in the
- * registry is in this state today; `defs/acp.ts` (a draft, unregistered)
- * is, which is exactly why this stays a real branch. */
+ * registry is in this state today; it stays a real branch for the first
+ * one that is. */
 export class AuthNotProbableError extends Error {
   constructor(runtimeId: string) {
     super(`runtime "${runtimeId}" only reports auth from inside a session`);
