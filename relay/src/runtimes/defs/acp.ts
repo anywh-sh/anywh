@@ -75,6 +75,9 @@ export const acpRuntimeDraft: AgentRuntimeDef<undefined> = {
   quickPrompt: { kind: "none" },
   exec: {
     kind: "jsonRpcDaemon",
+    protocol: "acp",
+    args: [],
+    initialize: () => ({ method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } }),
     // LSP-style Content-Length framing, not one-JSON-per-line like Codex
     // — the one axis that actually differs between the two JSON-RPC
     // agents drafted so far, which is the whole point of naming it

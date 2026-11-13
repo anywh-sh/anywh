@@ -427,11 +427,25 @@ export interface SpawnPerTurnPlan {
   readonly interrupt: { readonly signal: NodeJS.Signals; readonly expectsCleanExit: boolean };
 }
 
+/** Which request/response vocabulary a daemon speaks — and so which driver
+ * runs it. The framing and the transport are shared; what isn't is how a
+ * turn ends: Codex's app-server answers `turn/start` at once and reports the
+ * end later as a `turn/completed` notification, while an ACP agent answers
+ * `session/prompt` only when the turn is over. `createSessionDriver` picks
+ * the driver from this, never from the def's id. */
+export type DaemonProtocol = "codex-app-server" | "acp";
+
 export interface JsonRpcDaemonPlan {
   readonly kind: "jsonRpcDaemon";
-  /** `ndjson`: one JSON value per line (Codex). `lsp-headers`: `Content-Length`-framed,
-   * like LSP (ACP) — the one axis that actually differs between the two
-   * JSON-RPC agents seen so far. */
+  readonly protocol: DaemonProtocol;
+  /** Argv after `identity.bin` that starts the daemon (`["app-server"]`,
+   * `["acp"]`). */
+  readonly args: readonly string[];
+  /** The handshake the transport sends before anything else, built from the
+   * relay's own version — each protocol has its own `initialize` params. */
+  readonly initialize: (clientVersion: string) => JsonRpcRequestSpec;
+  /** `ndjson`: one JSON value per line (Codex, and every ACP agent measured
+   * so far). `lsp-headers`: `Content-Length`-framed, like LSP. */
   readonly framing: "ndjson" | "lsp-headers";
   readonly thread: {
     readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
