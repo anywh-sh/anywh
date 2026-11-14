@@ -26,9 +26,9 @@
 //                the answer
 //   [[fail]]     session/prompt answers the subscription error Kimi gives a
 //                model the plan doesn't include
-//   [[quota]]    the model call fails on a spent quota the way Kimi 2.6.0
-//                handles it: `end_turn` and no update at all over ACP, the
-//                failure only in the session log
+//   [[quota]]    part of a reply ("halfway"), then the model call fails on a
+//                spent quota the way Kimi 2.6.0 handles it: `end_turn` and no
+//                update about it over ACP, the failure only in the session log
 //                (`$KIMI_CODE_HOME/sessions/wd_fake/<session>/agents/main/wire.jsonl`)
 // Every prompt that ends normally is followed, after its answer, by a
 // usage_update (used = 100 × prompts so far), 5 ms later, as Kimi sends it.
@@ -144,6 +144,7 @@ async function runPrompt(id, params) {
   };
 
   if (text.includes("[[quota]]")) {
+    say("halfway");
     const home = process.env.KIMI_CODE_HOME;
     if (home) {
       const dir = `${home}/sessions/wd_fake/${params.sessionId}/agents/main`;

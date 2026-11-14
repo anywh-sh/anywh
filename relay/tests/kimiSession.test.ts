@@ -208,6 +208,8 @@ test("a turn Kimi failed but answered as ended shows as a failure, with Kimi's o
   const messages = await collectUntil(socket, (message) => message.type === "turn_state" && message.active === false);
   const error = events(messages).find((event) => event.type === "error") as { message?: string } | undefined;
   assert.match(error?.message ?? "", /5-hour usage limit/);
+  // What it said before failing is committed, not lost with the turn.
+  assert.ok(events(messages).some((event) => event.type === "text" && event.text === "halfway"));
   socket.close();
 });
 

@@ -322,9 +322,11 @@ export class AcpSessionDriver implements AgentSessionDriver {
         });
         usageArrived = undefined;
       }
+      // What the turn streamed before it failed is still the turn's: committed
+      // first, so the partial answer is kept, then the turn fails.
+      if (state !== undefined) for (const event of exec.turnState?.flush(state) ?? []) emit(event);
       const failure = exec.turnFailureLog ? this.readTurnFailure(exec.turnFailureLog, sessionId, turnStartedAt) : undefined;
       if (failure) throw new Error(failure.text);
-      if (state !== undefined) for (const event of exec.turnState?.flush(state) ?? []) emit(event);
       const model = ctx.modelId ?? this.currentModel;
       const contextUsage: ContextUsage | undefined =
         model && lastUsage?.size !== undefined ? { model, contextWindowSize: lastUsage.size, usedTokens: lastUsage.used } : undefined;
