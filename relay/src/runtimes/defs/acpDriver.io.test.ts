@@ -158,6 +158,25 @@ test("a permission request is answered with the agent's own option, and the call
   }
 });
 
+test("a stop before the prompt was sent ends the turn as stopped, and the prompt is never sent", async () => {
+  const h = harness();
+  const driver = new AcpSessionDriver(fixtureDef(), { host: h.host });
+  try {
+    // Asked while the process is still starting and the session doesn't exist yet.
+    const pending = driver.sendTurn(ctx(h.dir, "never sent"), () => {});
+    assert.equal(driver.stop(), true);
+    const result = await pending;
+    assert.equal(result.stopped, true);
+    assert.equal(h.received().filter((message) => message.method === "session/prompt").length, 0);
+    // The session is fine afterwards.
+    const { result: next } = await turn(driver, ctx(h.dir, "hello"));
+    assert.equal(next.stopped, false);
+  } finally {
+    driver.dispose();
+    h.cleanup();
+  }
+});
+
 test("stop cancels the turn and releases the permission request still open", async () => {
   const h = harness();
   let release: (() => void) | undefined;

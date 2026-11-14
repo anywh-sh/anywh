@@ -129,6 +129,11 @@ export class AcpSessionDriver implements AgentSessionDriver {
   /** The model the session runs, as the agent last reported it. */
   private currentModel: string | undefined;
   private inFlight = false;
+  /** Whether the turn's `session/prompt` has been sent: before it, there is
+   * nothing on the agent's side to cancel. */
+  private promptSent = false;
+  /** A stop asked for before the prompt was sent: the prompt never is. */
+  private stopRequested = false;
   /** Rejected by `stop()` so every approval/question still open gives up and
    * answers `cancelled`; replaced at every turn. */
   private cancelTurn: (() => void) | undefined;
@@ -289,6 +294,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
     // open must not surface as an unhandled rejection.
     this.cancelled.catch(() => {});
     this.inFlight = true;
+    this.promptSent = false;
+    this.stopRequested = false;
     const turnStartedAt = Date.now();
     const planRuntime = planUsageRuntimeOf(this.def.identity.id);
     const endTurn = planRuntime ? this.planUsage.turnStarted(planRuntime) : undefined;
@@ -299,7 +306,10 @@ export class AcpSessionDriver implements AgentSessionDriver {
       this.onUpdate = (method, params) => {
         for (const event of exec.mapNotification(method, params, { turnId: sessionId, state })) emit(event);
       };
+      // Stopped while the session was still being created, resumed or set up.
+      if (this.stopRequested) return { stopped: true, lastAssistantText: undefined };
       const spec = exec.turn.start(ctx, sessionId);
+      this.promptSent = true;
       const result = (await daemon.request(spec.method, spec.params)) as StopReasonResult | null;
       const usageWait = exec.usageAfterTurnMs;
       if (usageWait !== undefined && !usageIsLatest) {
@@ -326,6 +336,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
     } finally {
       endTurn?.();
       this.inFlight = false;
+      this.promptSent = false;
+      this.stopRequested = false;
       this.onUpdate = undefined;
       this.cancelTurn = undefined;
       this.cancelled = undefined;
@@ -393,7 +405,13 @@ export class AcpSessionDriver implements AgentSessionDriver {
    * in-flight `sendTurn` then settles from `session/prompt`'s own answer
    * (`stopReason: "cancelled"`). */
   stop(): boolean {
-    if (!this.daemon || this.daemon.exited || !this.sessionId || !this.inFlight) return false;
+    if (!this.inFlight) return false;
+    if (!this.promptSent) {
+      // Nothing sent yet that the agent could cancel: the prompt is held back.
+      this.stopRequested = true;
+      return true;
+    }
+    if (!this.daemon || this.daemon.exited || !this.sessionId) return false;
     const spec = this.def.exec.turn.interrupt(this.sessionId, "");
     this.daemon.notify(spec.method, spec.params);
     this.cancelTurn?.();
