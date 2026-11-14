@@ -6,6 +6,7 @@ import { PlanUsageCapture } from "./capture.js";
 import type { PlanUsageReading } from "./ingest.js";
 import type { ClaudeUsageAuth, ClaudeUsageProbeResult } from "./probes/claudeUsageProbe.js";
 import type { CodexRateLimitsResult } from "./probes/codexRateLimits.js";
+import type { KimiUsageResult } from "./probes/kimiUsage.js";
 import { CLAUDE_PROBE_INTERVAL_MS, SCHEDULER_TICK_MS } from "./scheduler.js";
 import { DEFAULT_PLAN_USAGE_LIMITS, PlanUsageService, planUsageLimitsFromEnv, type PlanUsageServiceDeps, type PlanUsageSnapshotStore } from "./service.js";
 import type { TranscriptLimit } from "./transcriptLimits.js";
@@ -40,7 +41,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
   const intervals = new Map<number, () => void>();
   let nextId = 1;
   const capture = new PlanUsageCapture(() => now);
-  const calls = { probe: 0, auth: 0, codexRead: 0, codexClose: 0, activity: 0, transcript: 0 };
+  const calls = { probe: 0, auth: 0, codexRead: 0, codexClose: 0, kimiRead: 0, kimiClose: 0, activity: 0, transcript: 0 };
   const h = {
     get now() {
       return now;
@@ -56,6 +57,12 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
         kind: "reading",
         reading: { status: "ok", windows: [{ durationMins: 300, usedPercent: 10, resetsAt: now + 60 * MIN, limitId: "codex" }, { durationMins: 10080, usedPercent: 30, resetsAt: now + 3 * 24 * 60 * MIN, limitId: "codex" }], observedAt: now, source: "app_server_read", plan: { family: "plus", label: "Plus" } },
         identity: { email: EMAIL, planType: "plus" },
+      }),
+    kimi: (): Promise<KimiUsageResult> =>
+      Promise.resolve({
+        kind: "reading",
+        reading: { status: "ok", windows: [{ durationMins: 300, usedPercent: 25, resetsAt: now + 90 * MIN }, { durationMins: 43200, usedPercent: 12, resetsAt: now + 20 * 24 * 60 * MIN }], observedAt: now, source: "cli_server_read", plan: { family: "plus", label: "Plus" } },
+        userId: "kimi-user-1",
       }),
     codexUpdate: undefined as ((reading: PlanUsageReading) => void) | undefined,
     logs: [] as string[],
@@ -103,6 +110,13 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
         close: () => calls.codexClose++,
       };
     },
+    createKimiReader: () => ({
+      read: () => {
+        calls.kimiRead++;
+        return h.kimi();
+      },
+      close: () => calls.kimiClose++,
+    }),
     loadSalt: () => Promise.resolve(new Uint8Array(32).fill(3)),
     log: (line) => h.logs.push(line),
     ...(options.store ? { store: options.store } : {}),
@@ -122,6 +136,7 @@ function harness(options: { probeEnabled?: boolean; installed?: string[]; store?
     intervals,
     claude: () => service.getSnapshot().runtimes.find((usage) => usage.runtime === "claude"),
     codex: () => service.getSnapshot().runtimes.find((usage) => usage.runtime === "codex"),
+    kimi: () => service.getSnapshot().runtimes.find((usage) => usage.runtime === "kimi"),
     /** Advances the clock by `ms`, firing the interval once per elapsed tick. */
     async advance(ms: number) {
       const end = now + ms;
@@ -745,4 +760,66 @@ test("a failure in background work is logged, not left unhandled", async () => {
   await t.advance(30_000);
   await t.service.refresh({ force: false });
   assert.equal(t.codex()?.status, "signed_out");
+});
+
+// Kimi is read like Codex: a pull from a server of the CLI's own, on
+// Codex's cadence and floors, never a turn.
+test("kimi: read on connect, then every minute while a client watches, with its plan and an account key", async () => {
+  const t = harness({ installed: ["kimi"] });
+  const release = t.service.connectClient();
+  await settle();
+  assert.equal(t.calls.kimiRead, 1);
+  const kimi = t.kimi();
+  assert.equal(kimi?.status, "ok");
+  assert.deepEqual(kimi?.windows.map((window) => [window.durationMins, window.usedPercent]), [[300, 25], [43200, 12]]);
+  assert.deepEqual(kimi?.plan, { family: "plus", label: "Plus" });
+  assert.match(kimi?.accountKey ?? "", /^[0-9a-f]{16}$/);
+  assert.ok(!JSON.stringify(t.service.getSnapshot()).includes("kimi-user-1"), "the user id only feeds the key");
+  await t.advance(MIN);
+  assert.equal(t.calls.kimiRead, 2);
+  release();
+  assert.equal(t.calls.kimiClose, 1, "the server goes when the last client does");
+  await t.advance(10 * MIN);
+  assert.equal(t.calls.kimiRead, 2);
+});
+
+test("kimi: a finished turn pulls again, under the button's floor", async () => {
+  const t = harness({ installed: ["kimi"] });
+  t.service.connectClient();
+  await settle();
+  const reads = t.calls.kimiRead;
+  await t.advance(30_000);
+  const end = t.capture.turnStarted("kimi");
+  end();
+  await settle();
+  assert.equal(t.calls.kimiRead, reads + 1);
+  end();
+  const again = t.capture.turnStarted("kimi");
+  again();
+  await settle();
+  assert.equal(t.calls.kimiRead, reads + 1, "inside the floor a second turn reads nothing");
+});
+
+test("kimi: no login is signed_out, and a failed read keeps the last windows", async () => {
+  const t = harness({ installed: ["kimi"] });
+  await t.service.refresh({ force: true, runtime: "kimi" });
+  assert.equal(t.kimi()?.status, "ok");
+  t.h.kimi = () => Promise.resolve({ kind: "error", error: "network" });
+  await t.advance(MIN);
+  await t.service.refresh({ force: true, runtime: "kimi" });
+  assert.equal(t.kimi()?.status, "error");
+  assert.equal(t.kimi()?.windows.length, 2);
+  t.h.kimi = () => Promise.resolve({ kind: "auth", status: "signed_out" });
+  await t.advance(MIN);
+  await t.service.refresh({ force: true, runtime: "kimi" });
+  assert.equal(t.kimi()?.status, "signed_out");
+  assert.equal(t.kimi()?.everSignedIn, true, "a lost login, not a profile that never used Kimi");
+});
+
+test("kimi: not reported, nor read, while it isn't installed", async () => {
+  const t = harness({ installed: ["claude"] });
+  t.service.connectClient();
+  await settle();
+  assert.equal(t.calls.kimiRead, 0);
+  assert.equal(t.kimi(), undefined);
 });

@@ -1,14 +1,16 @@
 import { spawn } from "node:child_process";
 import { buildChildEnv } from "../../host/childEnv.js";
-import { EXTRA_PATH_DIRS, resolveAgentBin } from "../executables.js";
+import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import type { AgentRuntimeDef, ModelCatalog } from "../types.js";
+import { probeAcpModelCatalog } from "./acpModelCatalog.js";
 
 const MODEL_PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * The model catalog this runtime's CLI offers under this `$HOME`, exactly
  * as its own picker lists it — or `undefined` when it can't be read (probe
- * failed, timed out, or the def only knows it from inside a session).
+ * failed, timed out, or the def only knows it from inside a session of a
+ * protocol with no way to ask).
  *
  * Same split as `probeRuntimeAuth`: the def owns which args, what to write
  * on stdin and how to read the answer (`models`), this file owns only the
@@ -18,16 +20,24 @@ const MODEL_PROBE_TIMEOUT_MS = 15_000;
  * (Codex's app-server) never would while its stdin stays open, and one
  * that does (Claude after `initialize`) has nothing left worth waiting for.
  */
+/** Whether this def's catalog can be read outside a session at all: a
+ * `session-rpc` catalog only can for an ACP agent (a throwaway session's
+ * `configOptions`). The refresher skips the rest instead of probing for
+ * nothing. */
+export function hasCatalogProbe(def: AgentRuntimeDef): boolean {
+  return def.models.kind !== "session-rpc" || (def.exec.kind === "jsonRpcDaemon" && def.exec.protocol === "acp");
+}
+
 export function probeModelCatalog(def: AgentRuntimeDef, homeOverride: string | undefined, cwd: string): Promise<ModelCatalog | undefined> {
   const { models } = def;
   if (models.kind === "static") return Promise.resolve(models.catalog);
-  if (models.kind === "session-rpc") return Promise.resolve(undefined);
+  if (models.kind === "session-rpc") return hasCatalogProbe(def) ? probeAcpModelCatalog(def, homeOverride) : Promise.resolve(undefined);
 
   return new Promise((resolveCatalog) => {
     const stripCredentials = (env: NodeJS.ProcessEnv): void => {
       for (const name of def.identity.env.strip) delete env[name];
     };
-    const child = spawn(resolveAgentBin(def.identity.bin), models.args, {
+    const child = spawn(resolveRuntimeBin(def.identity), models.args, {
       cwd,
       env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set),
     });

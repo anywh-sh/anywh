@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { availableModes, isOfferedMode, resolveInitialMode } from "./permissionModes.js";
+import { availableModes, isOfferedMode, neverPauses, resolveInitialMode } from "./permissionModes.js";
 import type { AgentRuntimeDef, HostPlatform } from "../runtimes/types.js";
 
 // `availableModes`/`isOfferedMode`/`resolveInitialMode` only ever touch
@@ -80,4 +80,14 @@ test("resolveInitialMode: a default this platform also doesn't offer falls back 
   const win32Modes = availableModes(codexLikeDef(), "win32");
   // Neither the persisted value nor the (Codex-real) default survive on win32.
   assert.equal(resolveInitialMode(win32Modes, "workspace-write", "workspace-write"), win32Modes[0].id);
+});
+
+test("neverPauses: only a mode that promises no pause, and never an unknown one", () => {
+  const modes = [
+    { id: "default", pausesForApproval: true },
+    { id: "yolo", pausesForApproval: false },
+  ];
+  assert.equal(neverPauses(modes, "yolo"), true);
+  assert.equal(neverPauses(modes, "default"), false);
+  assert.equal(neverPauses(modes, "not_a_mode"), false);
 });

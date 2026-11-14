@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { buildChildEnv } from "../../host/childEnv.js";
-import { EXTRA_PATH_DIRS, resolveAgentBin } from "../executables.js";
+import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../executables.js";
 import type { AgentRuntimeDef, AuthStatus } from "../types.js";
 
 const AUTH_PROBE_TIMEOUT_MS = 5000;
@@ -8,8 +8,8 @@ const AUTH_PROBE_TIMEOUT_MS = 5000;
 /** Thrown for a def whose `auth` can only be answered from inside a live
  * session — there is nothing to spawn, so the caller has to say "can't
  * check" rather than invent a `loggedIn` it didn't measure. No def in the
- * registry is in this state today; `defs/acp.ts` (a draft, unregistered)
- * is, which is exactly why this stays a real branch. */
+ * registry is in this state today; it stays a real branch for the first
+ * one that is. */
 export class AuthNotProbableError extends Error {
   constructor(runtimeId: string) {
     super(`runtime "${runtimeId}" only reports auth from inside a session`);
@@ -42,7 +42,7 @@ export function probeRuntimeAuth(def: AgentRuntimeDef, homeOverride: string | un
     const stripCredentials = (env: NodeJS.ProcessEnv): void => {
       for (const name of def.identity.env.strip) delete env[name];
     };
-    const child = spawn(resolveAgentBin(def.identity.bin), auth.args, {
+    const child = spawn(resolveRuntimeBin(def.identity), auth.args, {
       env: buildChildEnv(homeOverride, EXTRA_PATH_DIRS, stripCredentials, def.identity.env.set),
     });
     let stdout = "";

@@ -233,9 +233,9 @@ describe("UsageCard", () => {
   it("offers the login command for an agent with no login, and says when it was copied", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    const { card } = openCard({ byProfile: { trabalho: live([{ ...codexSignedOut, runtime: "claude" }, codexSignedOut]) } });
+    const { card } = openCard({ byProfile: { trabalho: live([{ ...codexSignedOut, runtime: "claude" }, codexSignedOut, { ...codexSignedOut, runtime: "kimi" }]) } });
     const strips = Array.from(card.querySelectorAll<HTMLElement>("[data-usage-signed-out]"));
-    expect(strips.map((strip) => strip.querySelector("code")?.textContent)).toEqual(["claude auth login", "codex login"]);
+    expect(strips.map((strip) => strip.querySelector("code")?.textContent)).toEqual(["claude auth login", "codex login", "kimi login"]);
     expect(strips[0].querySelector(".bg-primary")).not.toBeNull();
 
     await act(async () => {

@@ -121,11 +121,11 @@ describe("profileDataState", () => {
 });
 
 describe("groupByProfile", () => {
-  it("puts the active profile first, then the list's order, Claude before Codex", () => {
+  it("puts the active profile first, then the list's order, Claude before Codex before Kimi", () => {
     const groups = groupByProfile(
       ["pessoal", "trabalho", "lab"],
       {
-        pessoal: live([runtime({ runtime: "codex" }), runtime({ runtime: "claude" })]),
+        pessoal: live([runtime({ runtime: "kimi" }), runtime({ runtime: "codex" }), runtime({ runtime: "claude" })]),
         trabalho: live([runtime({ runtime: "claude" })]),
       },
       "trabalho",
@@ -135,7 +135,7 @@ describe("groupByProfile", () => {
       ["pessoal", false, "live"],
       ["lab", false, "none"],
     ]);
-    expect(groups[1].accounts.map((entry) => entry.runtime)).toEqual(["claude", "codex"]);
+    expect(groups[1].accounts.map((entry) => entry.runtime)).toEqual(["claude", "codex", "kimi"]);
     expect(groups[2].accounts).toEqual([]);
   });
 

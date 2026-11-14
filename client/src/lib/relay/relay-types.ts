@@ -70,7 +70,7 @@ export interface ContextUsage {
     skills?: { tokens: number; estimated: true; count: number };
     subagents?: { tokens: number; estimated: true; count: number };
     emptyDirectory?: { tokens: number; estimated: true };
-    residual?: { tokens: number; estimated: false };
+    residual?: { tokens: number; estimated: boolean };
   };
 }
 

@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { useDict } from "@/i18n";
-import type { Dictionary, KnownPermissionModeId } from "@/i18n/dictionary";
+import { permissionModeCopy } from "@/lib/composer/permissionModeCopy";
 import type { PermissionMode, PermissionModeOption } from "@/lib/relay/relayClient";
 import { cn } from "@/lib/utils";
 
@@ -20,19 +20,8 @@ interface PermissionModeButtonProps {
    * Shift+Tab cycle, Codex's is least-to-most permissive. */
   available: PermissionModeOption[];
   onChange: (mode: PermissionMode) => void;
-}
-
-/** Same id-switch-with-literal-fallback shape as `ChoiceCard.tsx`'s
- * `labelOf` (the precedent for turning an engine's own id into real text),
- * rather than resolving a `labelKey` shipped over the wire: a labelKey pipe
- * would be a second, competing mechanism for the same job, and the id is
- * just as stable a dictionary key. An id this build doesn't recognize (an
- * agent added after this build shipped) renders as the raw id with no
- * hint — visible, not fatal. Plain function, not a hook, so it can be
- * called conditionally/in a loop against a `dict` already resolved once by
- * the component. */
-function modeCopy(composer: Dictionary["chat"]["composer"], id: PermissionMode): { label: string; hint: string } {
-  return composer.mode[id as KnownPermissionModeId] ?? { label: id, hint: "" };
+  /** The session's agent, for a mode whose copy is the agent's own. */
+  agentId?: string | null;
 }
 
 /** The mark leading each mode, by what the mode does with approvals rather
@@ -62,7 +51,7 @@ function ModeMark({ option }: { option: PermissionModeOption | undefined }) {
  * mode never asks for approval" (`pausesForApproval: false` — Claude's
  * `bypassPermissions`, Codex's `full-access`), not a specific literal id.
  */
-export function PermissionModeButton({ mode, available, onChange }: PermissionModeButtonProps) {
+export function PermissionModeButton({ mode, available, onChange, agentId }: PermissionModeButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const copy = useDict().chat.composer;
 
@@ -81,14 +70,14 @@ export function PermissionModeButton({ mode, available, onChange }: PermissionMo
           className={cn(toolbarTriggerClass, "gap-[7px] hover:bg-surface-hover data-[state=open]:bg-surface-hover")}
         >
           {mode !== null && <ModeMark option={available.find((option) => option.id === mode)} />}
-          <span className="truncate">{mode !== null ? modeCopy(copy, mode).label : copy.pending}</span>
+          <span className="truncate">{mode !== null ? permissionModeCopy(copy, agentId, mode).label : copy.pending}</span>
           <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
         </button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" className="min-w-59">
         {available.map((option) => {
-          const { label, hint } = modeCopy(copy, option.id);
+          const { label, hint } = permissionModeCopy(copy, agentId, option.id);
           return (
             <DropdownMenuItem key={option.id} onSelect={() => onChange(option.id)} className={cn("h-auto items-start gap-2.5 py-1.5", option.id === mode && "text-foreground")}>
               <span className="mt-0.5">

@@ -577,7 +577,7 @@ const APPROVAL = {
   ],
   calls: [
     { tool: "Write", input: { file_path: "/tmp/x", content: "hi" }, toolUseId: "toolu_1" },
-    { tool: "Bash", input: { command: "ls" }, agentId: "agent-7" },
+    { tool: "Bash", input: { command: "ls" }, agentId: "agent-7", native: { approveIds: ["accept", "acceptForSession"], digest: "abc" } },
   ],
   askedAt: 1700000000000,
 };
@@ -602,7 +602,7 @@ test("pendingApproval: round-trips through disk (calls, agent id, askedAt), clea
 test("pendingApproval: load drops a malformed record (and rewrites the file) without touching valid ones", () => {
   withStoreFile(undefined, (file) => {
     const seed = new SessionStore(file, DEFAULT_CWD);
-    const ids = ["good", "noCalls", "callsNotArray", "lengthMismatch", "badTool", "badAgentId", "badToolUseId", "noQuestions"];
+    const ids = ["good", "noCalls", "callsNotArray", "lengthMismatch", "badTool", "badAgentId", "badToolUseId", "noQuestions", "badNativeIds", "badNativeDigest"];
     for (const id of ids) seed.setPendingApproval(id, APPROVAL);
     const records = JSON.parse(readFileSync(file, "utf8")) as Record<string, { pendingApproval: Record<string, unknown> }>;
     delete records.noCalls.pendingApproval.calls;
@@ -612,6 +612,8 @@ test("pendingApproval: load drops a malformed record (and rewrites the file) wit
     records.badAgentId.pendingApproval.calls = [{ tool: "Write", input: {}, agentId: 3 }, APPROVAL.calls[1]];
     records.badToolUseId.pendingApproval.calls = [{ tool: "Write", input: {}, toolUseId: {} }, APPROVAL.calls[1]];
     records.noQuestions.pendingApproval.questions = [];
+    records.badNativeIds.pendingApproval.calls = [APPROVAL.calls[0], { tool: "Bash", input: {}, native: { approveIds: [1] } }];
+    records.badNativeDigest.pendingApproval.calls = [APPROVAL.calls[0], { tool: "Bash", input: {}, native: { approveIds: ["accept"], digest: 7 } }];
     writeFileSync(file, JSON.stringify(records));
 
     const store = new SessionStore(file, DEFAULT_CWD);

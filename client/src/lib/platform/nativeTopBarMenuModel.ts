@@ -2,7 +2,7 @@ import type { Dictionary } from "@/i18n";
 import { effectiveEffort, labelForEffort } from "@/lib/composer/effortCatalog";
 import { effectiveModel, labelForModel } from "@/lib/composer/modelCatalog";
 import type { NativeTopBarMenuPayload } from "@/lib/platform/nativeShell";
-import type { KnownPermissionModeId } from "@/i18n/dictionary";
+import { permissionModeCopy } from "@/lib/composer/permissionModeCopy";
 import type { ModelCatalog, ModelChoice, ModelOption, PermissionMode, PermissionModeOption } from "@/lib/relay/relay-types";
 
 export interface TopBarMenuModelInput {
@@ -13,6 +13,8 @@ export interface TopBarMenuModelInput {
   connected: boolean;
   permissionMode: PermissionMode | null;
   permissionModes: PermissionModeOption[];
+  /** The session's agent, for a mode whose copy is the agent's own. */
+  agentId?: string | null;
   /** The explicit effort pick (`null` = the model's default). */
   effort?: string | null;
   /** The effective model's catalog entry; `null`/absent = no effort menu. */
@@ -24,10 +26,9 @@ export interface TopBarMenuModelInput {
  * CLI reports no default effort. Not a real level id, so it can't collide. */
 export const EFFORT_DEFAULT_ROW_ID = "default";
 
-/** Same id-to-copy fallback as `PermissionModeButton`: an id this build
- * doesn't know renders raw, with no hint. */
-function modeCopy(dict: Dictionary, id: PermissionMode): { label: string; hint: string } {
-  return dict.chat.composer.mode[id as KnownPermissionModeId] ?? { label: id, hint: "" };
+/** Same copy as `PermissionModeButton` (`permissionModeCopy`). */
+function modeCopy(dict: Dictionary, agentId: string | null | undefined, id: PermissionMode): { label: string; hint: string } {
+  return permissionModeCopy(dict.chat.composer, agentId, id);
 }
 
 /** What the iOS top bar's dropdown shows. Each entry is `null` when there is
@@ -39,6 +40,7 @@ export function buildTopBarMenuPayload({
   connected,
   permissionMode,
   permissionModes,
+  agentId = null,
   effort = null,
   effortCatalogOption = null,
   dict,
@@ -51,8 +53,8 @@ export function buildTopBarMenuPayload({
         : {
             label: dict.shell.titleBar.mode,
             currentId: permissionMode,
-            currentLabel: permissionMode !== null ? modeCopy(dict, permissionMode).label : dict.chat.composer.pending,
-            options: permissionModes.map((option) => ({ id: option.id, ...modeCopy(dict, option.id) })),
+            currentLabel: permissionMode !== null ? modeCopy(dict, agentId, permissionMode).label : dict.chat.composer.pending,
+            options: permissionModes.map((option) => ({ id: option.id, ...modeCopy(dict, agentId, option.id) })),
             enabled: connected && permissionMode !== null,
           },
     effort: buildEffortMenu({ effort, option: effortCatalogOption, connected, dict }),

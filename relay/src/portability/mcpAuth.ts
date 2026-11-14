@@ -4,7 +4,7 @@ import { join, sep } from "node:path";
 import pty from "node-pty";
 import { listDeclaredServers, parseDeclaration } from "./declaration.js";
 import { buildChildEnv } from "../host/childEnv.js";
-import { EXTRA_PATH_DIRS, resolveAgentBin } from "../runtimes/executables.js";
+import { EXTRA_PATH_DIRS, resolveRuntimeBin } from "../runtimes/executables.js";
 import type { AgentRuntimeDef } from "../runtimes/types.js";
 
 // MCP sign-in, the half of a carried setup that cannot be carried: the
@@ -107,7 +107,7 @@ export function startMcpLogin(def: AgentRuntimeDef, home: string, serverName: st
   const { mcp } = def.portability;
   if (mcp.kind !== "supported") throw new Error(`runtime "${def.identity.id}" declares no MCP support`);
 
-  const bin = resolveAgentBin(def.identity.bin);
+  const bin = resolveRuntimeBin(def.identity);
   const args = [...mcp.loginArgs(serverName)];
   const stripCredentials = (env: NodeJS.ProcessEnv): void => {
     for (const name of def.identity.env.strip) delete env[name];

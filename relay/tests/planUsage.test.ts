@@ -154,8 +154,11 @@ test("GET /plan-usage returns the same snapshot, with no e-mail or account id in
   assert.equal(response.status, 200);
   const body = (await response.json()) as State;
   assert.equal(body.type, "plan_usage_state");
+  // `kimi` too where the machine running this has it installed: detection
+  // has no test-time override for it (it finds the real CLI by its own
+  // install dir), and it reads no plan here (the throwaway home has no login).
   assert.deepEqual(
-    body.runtimes.map((usage) => usage.runtime),
+    body.runtimes.map((usage) => usage.runtime).filter((runtime) => runtime !== "kimi"),
     ["claude", "codex"],
   );
   for (const leaked of ["anywh.test", "uuid-it"]) assert.ok(!JSON.stringify(body).includes(leaked), leaked);

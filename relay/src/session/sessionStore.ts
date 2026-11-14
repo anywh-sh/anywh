@@ -208,6 +208,12 @@ export interface DeferredToolCall {
   /** The permission rule decided when the call was refused and the card
    * built (and warned about): the answer uses it, it does not look again. */
   grant?: { rule: string; broad: boolean };
+  /** Set for a call an agent asked about through its own approval request
+   * (`ApprovalRequest.deferrable`) rather than a permission rule: the
+   * decisions that approve it, and a digest of its whole input the agent's
+   * repeat is recognised by — absent when the input was not known, and the
+   * repeat is then asked about again. */
+  native?: { approveIds: string[]; digest?: string };
 }
 
 /** The deferred approval as published and stored: a question per call
@@ -249,11 +255,18 @@ function isPersistedApproval(value: unknown): value is PersistedApproval {
   if (!Array.isArray(calls) || calls.length !== value.questions.length) return false;
   return calls.every((call) => {
     if (!call || typeof call !== "object") return false;
-    const { tool, toolUseId, agentId, grant } = call as Record<string, unknown>;
+    const { tool, toolUseId, agentId, grant, native } = call as Record<string, unknown>;
+    const validNative =
+      native === undefined ||
+      (!!native &&
+        typeof native === "object" &&
+        Array.isArray((native as Record<string, unknown>).approveIds) &&
+        ((native as Record<string, unknown>).approveIds as unknown[]).every((id) => typeof id === "string") &&
+        ((native as Record<string, unknown>).digest === undefined || typeof (native as Record<string, unknown>).digest === "string"));
     const validGrant =
       grant === undefined ||
       (!!grant && typeof grant === "object" && typeof (grant as Record<string, unknown>).rule === "string" && (grant as Record<string, unknown>).rule !== "" && typeof (grant as Record<string, unknown>).broad === "boolean");
-    return typeof tool === "string" && tool !== "" && (toolUseId === undefined || typeof toolUseId === "string") && (agentId === undefined || typeof agentId === "string") && validGrant;
+    return typeof tool === "string" && tool !== "" && (toolUseId === undefined || typeof toolUseId === "string") && (agentId === undefined || typeof agentId === "string") && validGrant && validNative;
   });
 }
 

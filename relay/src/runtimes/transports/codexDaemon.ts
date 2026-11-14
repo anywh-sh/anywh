@@ -13,11 +13,18 @@
 // (`thread/start`, `turn/start`, `turn/interrupt`) is the caller's job via
 // `request()` — those are per-session/per-turn concerns
 // (`AgentRuntimeDef.exec`), not part of standing up the process itself.
+//
+// Named for Codex, its first user, but protocol-agnostic in everything that
+// matters: the argv and the handshake come from the def's own
+// `JsonRpcDaemonPlan`, so an ACP agent (`kimi acp`) runs on this same
+// transport. The `turn/started`/`turn/completed` bookkeeping below is
+// Codex's; an ACP turn is a `session/prompt` request still waiting for its
+// response, which `connection.pendingCount` already counts as busy.
 import { readFileSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { buildChildEnv } from "../../host/childEnv.js";
 import { resolveShipped } from "../../host/paths.js";
-import { resolveAgentBin } from "../executables.js";
+import { resolveRuntimeBin } from "../executables.js";
 import { createJsonRpcConnection } from "./jsonRpcStdio.js";
 import type { AgentRuntimeDef, JsonRpcDaemonPlan, TurnHost } from "../types.js";
 
@@ -58,6 +65,10 @@ export interface CodexDaemon {
    * activity for the idle reaper. Rejects immediately, without touching the
    * process, once `exited` is true. */
   request(method: string, params: unknown): Promise<unknown>;
+  /** Sends a notification (no id, no response) — how ACP's `session/cancel`
+   * travels. Counts as activity for the idle reaper. A no-op once `exited`
+   * is true: there is no one left to tell. */
+  notify(method: string, params: unknown): void;
   /** `true` once the process has stopped accepting requests for any reason
    * — the owner should spawn a fresh daemon before the next turn rather
    * than reuse this one. */
@@ -163,7 +174,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
   const clearIdleTimerFn = options.idleTimers?.clear ?? clearTimeout;
   const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
-  const bin = resolveAgentBin(options.def.identity.bin);
+  const bin = resolveRuntimeBin(options.def.identity);
   const stripCredentials = (env: NodeJS.ProcessEnv): void => {
     for (const name of options.def.identity.env.strip) delete env[name];
   };
@@ -171,7 +182,7 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
 
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(bin, ["app-server"], { env, cwd: options.cwd });
+    child = spawn(bin, [...exec.args], { env, cwd: options.cwd });
   } catch (error) {
     return Promise.reject(toError(error));
   }
@@ -338,27 +349,10 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
       }, idleTimeoutMs);
     }
 
-    const clientInfo = { name: "anywh", title: null, version: RELAY_VERSION };
-    // `experimentalApi: true` is required for the daemon to accept an
-    // `askForApproval.granular` value at all — confirmed live: without this,
-    // EVERY `turn/start` in `workspace-write` mode (the def's own
-    // `settingsFor`, runtimes/defs/codex.ts) is rejected outright with
-    // `{"code":-32600,"message":"askForApproval.granular requires
-    // experimentalApi capability"}`, before the turn even starts. `granular`
-    // is the only way to express "pause only when the sandbox itself blocks
-    // something" in the real protocol (the legacy `on-failure` config value
-    // this def used to send doesn't exist in the wire `AskForApproval`
-    // union) — so this capability is on for every Codex session, not just
-    // ones that pick `workspace-write`, since the handshake is per-process
-    // (one daemon per session, not per turn). `experimentalApi`'s own doc
-    // comment in the generated bindings describes it as "opt into receiving
-    // experimental API methods and fields" — broader than just granular
-    // approval, and by definition unstable across `codex-cli` releases;
-    // accepted here because it's the only way to use `granular` today, not
-    // because the scope is fully known. `requestAttestation: false`: the
-    // other half of `InitializeCapabilities`, unrelated to approvals — no
-    // attestation flow exists anywhere in this relay to opt into.
-    connection.request("initialize", { clientInfo, capabilities: { experimentalApi: true, requestAttestation: false } }).then(
+    // The handshake is the def's (each protocol has its own `initialize`
+    // params, see `JsonRpcDaemonPlan.initialize`); only the version is ours.
+    const handshake = exec.initialize(RELAY_VERSION);
+    connection.request(handshake.method, handshake.params).then(
       () => {
         if (exited) return; // already settled via the exit/error listeners above
         options.initSignal?.removeEventListener("abort", onInitAbort);
@@ -373,6 +367,11 @@ export function spawnCodexDaemon(options: SpawnCodexDaemonOptions): Promise<Code
             // timer is paused while `connection.pendingCount > 0`.
             response.then(scheduleIdleCheck, scheduleIdleCheck);
             return response;
+          },
+          notify(method, params) {
+            if (exited) return;
+            connection.notify(method, params);
+            scheduleIdleCheck();
           },
           get exited() {
             return exited;

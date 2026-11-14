@@ -24,7 +24,7 @@ import { updateProfileMeta } from "@/lib/relay/relayClient";
 
 /** What the cards show before the relay has answered: the agents anywh
  * knows, in the relay's registry order. */
-const KNOWN_AGENT_IDS = ["claude", "codex"] as const;
+const KNOWN_AGENT_IDS = ["claude", "codex", "kimi"] as const;
 
 type Load = { phase: "checking" } | { phase: "failed" } | { phase: "loaded"; agents: AgentInfo[]; full: boolean };
 

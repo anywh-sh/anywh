@@ -24,7 +24,7 @@ import type { AnswerChoiceErrorCode, EditMessageErrorCode, SetCwdErrorCode } fro
  * `xhigh`/`max`); an id outside this set renders as itself. */
 export type KnownEffortId = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
-export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access";
+export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypassPermissions" | "read-only" | "workspace-write" | "full-access" | "auto" | "yolo";
 
 /** Every agent id this build has a display name for — resolved defensively
  * at the call site (`AgentModelEffortButton`), same id-switch-with-fallback shape
@@ -32,7 +32,7 @@ export type KnownPermissionModeId = "default" | "acceptEdits" | "plan" | "bypass
  * identical string — still dictionary entries, not a literal in the
  * component, per this repo's "any string rendered to a user lives in the
  * dictionary" rule. */
-export type KnownAgentId = "claude" | "codex";
+export type KnownAgentId = "claude" | "codex" | "kimi";
 import type { ThemeValidationCode } from "@/lib/theme/theme";
 import type { PreparingFailureCode } from "@/lib/install/localInstall";
 
@@ -647,6 +647,8 @@ export interface Dictionary {
       codexAccept: string;
       codexAcceptForSession: string;
       codexDecline: string;
+      /** An ACP agent's `reject_always` option (relay decision id `rejectAlways`). */
+      rejectAlways: string;
       codexCancel: string;
       /** `{reason}` — Codex's own explanation for why it's asking, appended
        * to whichever question text is in play above. */
@@ -781,6 +783,10 @@ export interface Dictionary {
        * catalog is whatever the CLI reports at runtime, and a blurb per
        * alias would go stale the day the CLI ships a new one. */
       mode: Record<KnownPermissionModeId, { label: string; hint: string }>;
+      /** A mode whose id another agent also uses but which behaves
+       * differently for this one — Kimi Code's `default` writes files inside
+       * the session folder without asking, unlike Claude's. Wins over `mode`. */
+      modeByAgent: Partial<Record<KnownAgentId, Partial<Record<KnownPermissionModeId, { label: string; hint: string }>>>>;
       /** Keyed by `KnownAgentId` — same completeness guarantee as `mode`
        * above. Product names (`Claude Code`, `Codex`), identical in both
        * languages by nature, but still resolved through here rather than a

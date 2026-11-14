@@ -158,6 +158,34 @@ function settingsFor(id: string, cwd: string, extraWritableRoots: readonly strin
  * (`startTurn` below) is the only source of truth, so settings on the
  * thread itself never have a chance to drift from what the session's
  * dropdown actually shows. */
+/**
+ * The handshake `runtimes/transports/codexDaemon.ts` sends before anything
+ * else. `experimentalApi: true` is required for the daemon to accept an
+ * `askForApproval.granular` value at all — confirmed live: without this,
+ * EVERY `turn/start` in `workspace-write` mode (`settingsFor` above) is
+ * rejected outright with `{"code":-32600,"message":"askForApproval.granular
+ * requires experimentalApi capability"}`, before the turn even starts.
+ * `granular` is the only way to express "pause only when the sandbox itself
+ * blocks something" in the real protocol (the legacy `on-failure` config
+ * value this def used to send doesn't exist in the wire `AskForApproval`
+ * union) — so this capability is on for every Codex session, not just ones
+ * that pick `workspace-write`, since the handshake is per-process (one
+ * daemon per session, not per turn). `experimentalApi`'s own doc comment in
+ * the generated bindings describes it as "opt into receiving experimental
+ * API methods and fields" — broader than just granular approval, and by
+ * definition unstable across `codex-cli` releases; accepted here because
+ * it's the only way to use `granular` today, not because the scope is fully
+ * known. `requestAttestation: false`: the other half of
+ * `InitializeCapabilities`, unrelated to approvals — no attestation flow
+ * exists anywhere in this relay to opt into.
+ */
+export function codexInitialize(clientVersion: string): JsonRpcRequestSpec {
+  return {
+    method: "initialize",
+    params: { clientInfo: { name: "anywh", title: null, version: clientVersion }, capabilities: { experimentalApi: true, requestAttestation: false } },
+  };
+}
+
 function startThread(ctx: TurnContext): JsonRpcRequestSpec {
   const room = ctx.room;
   if (!room) return { method: "thread/start", params: { cwd: ctx.cwd } };
@@ -645,6 +673,9 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   quickPrompt: { kind: "cli", buildArgs: buildQuickPromptArgs, extractReply: extractCodexQuickPromptReply },
   exec: {
     kind: "jsonRpcDaemon",
+    protocol: "codex-app-server",
+    args: ["app-server"],
+    initialize: codexInitialize,
     framing: "ndjson",
     thread: { start: startThread, resume: resumeThread },
     turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },

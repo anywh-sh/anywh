@@ -122,10 +122,10 @@ export function isSetDraftMessage(value: unknown): value is { type: "set_draft";
 /** `/plan-usage/watch`'s one command (planUsage/types.ts
  * `PlanUsageRefreshMessage`): `force` must be a boolean and `runtime`, when
  * present, one of the runtimes with a plan to read. */
-export function isPlanUsageRefreshMessage(value: unknown): value is { type: "plan_usage_refresh"; runtime?: "claude" | "codex"; force: boolean } {
+export function isPlanUsageRefreshMessage(value: unknown): value is { type: "plan_usage_refresh"; runtime?: "claude" | "codex" | "kimi"; force: boolean } {
   if (typeof value !== "object" || value === null) return false;
   const { type, runtime, force } = value as { type?: unknown; runtime?: unknown; force?: unknown };
-  return type === "plan_usage_refresh" && typeof force === "boolean" && (runtime === undefined || runtime === "claude" || runtime === "codex");
+  return type === "plan_usage_refresh" && typeof force === "boolean" && (runtime === undefined || runtime === "claude" || runtime === "codex" || runtime === "kimi");
 }
 
 /** The client's liveness probe on a watch socket, answered with `pong`. */

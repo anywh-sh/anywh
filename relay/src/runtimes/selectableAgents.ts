@@ -1,5 +1,5 @@
 import { detectRuntimes, parseCliVersion, type AgentDetection } from "./detection.js";
-import { probeModelCatalog } from "./probes/modelCatalog.js";
+import { hasCatalogProbe, probeModelCatalog } from "./probes/modelCatalog.js";
 import type { AgentRuntimeDef, Capabilities, ModelCatalog } from "./types.js";
 
 /** What `/host-info` lists per agent — structurally the same shape as
@@ -34,6 +34,10 @@ export interface SelectableAgentsTargets {
   readonly catalogTtlMs: number;
   /** The clock the TTL is measured on; `Date.now` unless a test drives it. */
   readonly now?: () => number;
+  /** How long after a refresh in which some CLI's `--version` timed out
+   * (with no earlier detection to fall back on) the refresher detects
+   * again, on its own. Defaults to `TIMED_OUT_RETRY_MS`. */
+  readonly timedOutRetryMs?: number;
 }
 
 /** What the refresher remembers about one agent's catalog probes. */
@@ -123,7 +127,7 @@ export async function refreshSelectableAgents(
     if (!selectable.some((detection) => detection.id === def.identity.id)) continue;
     const id = def.identity.id;
     const version = selectable.find((detection) => detection.id === id)?.version;
-    if (def.models.kind === "session-rpc" || state.probing.has(id) || !catalogProbeDue(state.records.get(id), version, now(), targets.catalogTtlMs)) continue;
+    if (!hasCatalogProbe(def) || state.probing.has(id) || !catalogProbeDue(state.records.get(id), version, now(), targets.catalogTtlMs)) continue;
     state.probing.add(id);
     probeModelCatalog(def, targets.homeOverride, targets.cwd)
       .then((catalog) => {
@@ -144,6 +148,11 @@ export async function refreshSelectableAgents(
   }
   return detections;
 }
+
+/** First retry after a detection that timed out; each next one waits that
+ * much longer (10 s, 20 s, 30 s). */
+const TIMED_OUT_RETRY_MS = 10_000;
+const TIMED_OUT_RETRIES = 3;
 
 /** What `createAgentRefresher` hands back. */
 export interface AgentRefresher {
@@ -170,11 +179,34 @@ export function createAgentRefresher(targets: SelectableAgentsTargets): AgentRef
   const state: CatalogProbeState = { probing: new Set(), records: new Map() };
   let running: Promise<readonly AgentDetection[]> | undefined;
   let queued: Promise<readonly AgentDetection[]> | undefined;
+  let timedOutRetries = 0;
+  let retryTimer: NodeJS.Timeout | undefined;
+
+  // A CLI that was slow to answer `--version` once (Kimi Code's takes about
+  // a second idle, more while two relays boot side by side) would otherwise
+  // stay out of the picker until the hourly refresh — nothing else detects
+  // again for an agent that was never found. A few retries, spaced out, give
+  // it its chance; a CLI that really hangs stops costing anything after them.
+  const retryTimedOut = (detections: readonly AgentDetection[]): void => {
+    const unanswered = detections.some((detection) => detection.timedOut && !detection.installed && targets.selectableIds.includes(detection.id));
+    if (!unanswered) {
+      timedOutRetries = 0;
+      return;
+    }
+    if (timedOutRetries >= TIMED_OUT_RETRIES || retryTimer) return;
+    timedOutRetries += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      refresh().catch((error: unknown) => console.error("[relay] failed to detect agent runtimes:", error));
+    }, (targets.timedOutRetryMs ?? TIMED_OUT_RETRY_MS) * timedOutRetries);
+    retryTimer.unref();
+  };
 
   const run = (): Promise<readonly AgentDetection[]> => {
     running = refreshSelectableAgents(targets, last, state)
       .then((detections) => {
         last = new Map(detections.map((detection) => [detection.id, detection]));
+        retryTimedOut(detections);
         return detections;
       })
       .finally(() => {
@@ -183,23 +215,25 @@ export function createAgentRefresher(targets: SelectableAgentsTargets): AgentRef
     return running;
   };
 
+  const refresh = (): Promise<readonly AgentDetection[]> => {
+    if (!running) return run();
+    queued ??= running
+      .catch(() => undefined)
+      .then(() => {
+        queued = undefined;
+        return run();
+      });
+    return queued;
+  };
+
   return {
-    refresh: () => {
-      if (!running) return run();
-      queued ??= running
-        .catch(() => undefined)
-        .then(() => {
-          queued = undefined;
-          return run();
-        });
-      return queued;
-    },
+    refresh,
     catalogsDue: () => {
       const now = (targets.now ?? Date.now)();
       return targets.defs.some((def) => {
         const detection = last.get(def.identity.id);
         if (!detection?.installed || !targets.selectableIds.includes(def.identity.id)) return false;
-        if (def.models.kind === "session-rpc" || state.probing.has(def.identity.id)) return false;
+        if (!hasCatalogProbe(def) || state.probing.has(def.identity.id)) return false;
         return catalogProbeDue(state.records.get(def.identity.id), detection.version, now, targets.catalogTtlMs);
       });
     },

@@ -11,7 +11,8 @@ make them literally true hasn't landed yet). Each entry says which.
 **Enforced** — `no-restricted-syntax` in `relay/eslint.config.js`.
 
 A credential that makes an agent bill per token (`ANTHROPIC_API_KEY` and
-`ANTHROPIC_AUTH_TOKEN` for Claude, `OPENAI_API_KEY` for Codex, today) must
+`ANTHROPIC_AUTH_TOKEN` for Claude, `OPENAI_API_KEY` for Codex, `KIMI_API_KEY`/
+`MOONSHOT_API_KEY` and the other Moonshot keys for Kimi, today) must
 never reach a process this relay spawns —
 not a turn, not a one-shot probe, not the interactive terminal. If one
 leaks, the agent starts drawing on paid API usage instead of the
@@ -58,7 +59,8 @@ outside `runtimes/` fails the build. `session/` codes against the
 `AgentSessionDriver` interface (`runtimes/sessionDriver.ts`) only —
 `runtimes/createSessionDriver.ts` is the one place outside `registry.ts`
 allowed to look at `exec.kind`, picking `ClaudeSessionDriver` for a
-`spawnPerTurn` def or `CodexSessionDriver` for a `jsonRpcDaemon` one. A def
+`spawnPerTurn` def, and `CodexSessionDriver` or `AcpSessionDriver` for a
+`jsonRpcDaemon` one by its `protocol`. A def
 that leaked its shape into `session/` (an `if (agentId === 'codex')`,
 anywhere outside `runtimes/`) would be exactly the graft this test exists
 to catch.
@@ -69,7 +71,8 @@ to catch.
 — argv-building, env, capability declarations) is now separate from
 `runtimes/defs/claude/driver.ts` (the `AgentSessionDriver` implementation
 that owns the actual `claude` child process); Codex's `defs/codex.ts` /
-`defs/codexDriver.ts` follow the same split. A def's own functions —
+`defs/codexDriver.ts` and the ACP engine's `defs/acp.ts` /
+`defs/acpDriver.ts` follow the same split. A def's own functions —
 building argv, parsing a stream, classifying a failure — are pure and
 testable against a recorded fixture with no real CLI installed and no
 `child_process`/`fs`/`net`/`http` (see §8 of `runtimes/README.md`).

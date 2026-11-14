@@ -191,6 +191,24 @@ test("refreshSelectableAgents: a CLI that times out with no earlier detection is
   });
 });
 
+test("createAgentRefresher: a CLI that timed out with no earlier detection is detected again on its own, and offered once it answers", async () => {
+  await withTmpDir(async (dir) => {
+    const hangFlag = join(dir, "hang");
+    writeFileSync(hangFlag, "");
+    const slow = fixtureDef("slow", writeHangingScript(dir, "slow-cli.cjs", hangFlag), CATALOG);
+    const { targets, published } = recordingTargets([slow], dir, { timedOutRetryMs: 50 });
+    const { refresh } = createAgentRefresher(targets);
+
+    const [first] = await refresh();
+    assert.equal(first.timedOut, true);
+    assert.deepEqual(published.selectable, []);
+
+    // The CLI answers from now on; nobody calls refresh() again.
+    rmSync(hangFlag);
+    await waitUntil(() => published.selectable?.some((agent) => agent.id === "slow") === true, "the timed-out CLI to be offered after the automatic retry");
+  });
+});
+
 /** Logs every invocation's first arg to `log`, then answers `--version`
  * after `delayMs`, and a `models` probe with one model after `delayMs`. */
 function writeCountingScript(dir: string, name: string, log: string, delayMs: number): string {

@@ -76,6 +76,14 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
     }
   }
 
+  // A def that reports context usage shows the context popover, and the
+  // popover's breakdown (rules, skills, setup, conversation) is part of
+  // adding an agent, not a follow-up: without the accounting, the agent gets
+  // a bare total where the others get categories.
+  if (capabilities.contextUsage !== "none" && !def.contextAccounting) {
+    issues.push({ message: 'capabilities.contextUsage is declared but contextAccounting is missing — measure it against the real CLI (runtimes/README.md, "Adding a def")' });
+  }
+
   if ((models.kind === "session-rpc" || auth.kind === "session-rpc") && exec.kind !== "jsonRpcDaemon") {
     issues.push({ message: 'models/auth kind "session-rpc" requires exec.kind to be "jsonRpcDaemon"' });
   }
@@ -114,8 +122,8 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
 
   // A runtime that names nothing the user authored is a runtime the UI can
   // never offer "bring my configuration" for. Declaring the empty list is
-  // allowed to be the honest answer for a transport rather than an agent
-  // (defs/acp.ts), but it has to be *noticed* — same posture as the empty
+  // allowed to be the honest answer for a transport rather than an agent,
+  // but it has to be *noticed* — same posture as the empty
   // `env.strip` right above.
   if (portability.authoredPaths.length === 0) {
     issues.push({ message: "portability.authoredPaths is empty — a runtime with no authored config is a runtime the UI can't offer to carry" });

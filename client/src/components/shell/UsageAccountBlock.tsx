@@ -18,6 +18,7 @@ type CardStrings = Dictionary["shell"]["usage"]["card"];
 const LOGIN_COMMANDS: Record<string, string> = {
   claude: "claude auth login",
   codex: "codex login",
+  kimi: "kimi login",
 };
 
 const tone = (view: WindowView): string =>

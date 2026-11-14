@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnCodexDaemon, type CodexDaemonExitReason } from "./codexDaemon.js";
 import type { AgentRuntimeDef, JsonRpcRequestSpec, TurnHost } from "../types.js";
+import { codexInitialize } from "../defs/codex.js";
 
 // A real, executable Node script speaking real ndjson JSON-RPC over real
 // stdio — not a mock of Codex's actual conversational behavior (that's
@@ -125,6 +126,9 @@ function fixtureDef(
     quickPrompt: { kind: "none" },
     exec: {
       kind: "jsonRpcDaemon",
+      protocol: "codex-app-server",
+      args: ["app-server"],
+      initialize: codexInitialize,
       framing: "ndjson",
       thread: { start: startThread },
       turn: { start: startTurn, interrupt: (threadId, turnId) => ({ method: "turn/interrupt", params: { threadId, turnId } }) },

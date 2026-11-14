@@ -10,6 +10,7 @@ import { extractPdfText } from "./host/pdfText.js";
 import { ensureSelfRegistered } from "./host/profileRegistry.js";
 import { claudeRuntimeDef } from "./runtimes/defs/claude/index.js";
 import { codexRuntimeDef } from "./runtimes/defs/codex.js";
+import { kimiRuntimeDef } from "./runtimes/defs/kimi.js";
 import { buildRegistry } from "./runtimes/registry.js";
 import type { AgentDetection } from "./runtimes/detection.js";
 import { createAgentRefresher, parseDurationMs } from "./runtimes/selectableAgents.js";
@@ -127,7 +128,7 @@ const sessionListWatchers = new Set<WebSocket>();
 // relay — see assertCoherent's own doc comment) — `SessionManager.createSession`
 // resolves a session's persisted agentId against this instead of a
 // hardcoded literal.
-const registry = buildRegistry([claudeRuntimeDef, codexRuntimeDef]);
+const registry = buildRegistry([claudeRuntimeDef, codexRuntimeDef, kimiRuntimeDef]);
 
 // This profile's agent host (a separate service that keeps agent processes
 // alive across relay restarts). Always connecting in the background: the
@@ -413,14 +414,14 @@ function sendModelCatalogs(client: WebSocket): void {
 }
 
 // Every agent id a client may pick for a session. `detectRuntimes` below
-// filters further on `installed`, so a relay without the `codex` binary
-// still only ever offers Claude. Extending this list is how the relay
+// filters further on `installed`, so a relay without the `codex` or `kimi`
+// binary only ever offers what it has. Extending this list is how the relay
 // learns a new agent — same shape as `BILLED_CREDENTIAL_VARS` in
 // `runtimes/executables.ts`, which also grows per agent.
-const SELECTABLE_AGENT_IDS = ["claude", "codex"];
+const SELECTABLE_AGENT_IDS = ["claude", "codex", "kimi"];
 
 const agentRefresher = createAgentRefresher({
-  defs: [claudeRuntimeDef, codexRuntimeDef],
+  defs: registry.defs,
   selectableIds: SELECTABLE_AGENT_IDS,
   roomRuntimeIds: HOST_RUNTIMES,
   homeOverride: HOME_OVERRIDE,

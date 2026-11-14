@@ -1,0 +1,1239 @@
+{
+ "cli": "Kimi Code CLI 2.6.0 (kimi acp)",
+ "recorded": "2026-11-12",
+ "note": "session/update payloads (the `update` object) and session/request_permission params (under __request_permission), in arrival order; paths and session ids anonymized",
+ "writeAndBashTurn": [
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "Simple"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " task"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "."
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": ""
+   }
+  },
+  {
+   "sessionUpdate": "tool_call",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "title": "Write",
+   "kind": "edit",
+   "status": "pending",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\",\"content\":\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\",\"content\":\"hi"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\",\"content\":\"hi\\n"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\",\"content\":\"hi\\n\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\",\"content\":\"hi\\n\"}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "title": "Writing hello.txt",
+   "kind": "edit",
+   "status": "in_progress",
+   "rawInput": {
+    "path": "hello.txt",
+    "content": "hi\n"
+   },
+   "locations": [
+    {
+     "path": "/work/hello.txt"
+    }
+   ],
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"path\":\"hello.txt\",\"content\":\"hi\\n\"}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_ctL5c1QSHRYDSPJY17knKFCV",
+   "status": "completed",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "Wrote 3 bytes to hello.txt"
+     }
+    }
+   ],
+   "rawOutput": "Wrote 3 bytes to hello.txt",
+   "locations": [
+    {
+     "path": "/work/hello.txt"
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": ""
+   }
+  },
+  {
+   "sessionUpdate": "tool_call",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "title": "Bash",
+   "kind": "execute",
+   "status": "pending",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"command\":\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"command\":\"ls"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"command\":\"ls\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"command\":\"ls\"}"
+     }
+    }
+   ]
+  },
+  {
+   "__request_permission": {
+    "sessionId": "session_fixture",
+    "options": [
+     {
+      "optionId": "approve_once",
+      "name": "Approve once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "approve_always",
+      "name": "Approve for this session",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "reject",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "toolCall": {
+     "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+     "title": "Bash",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Requesting approval to Running: ls"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "title": "Running: ls",
+   "kind": "execute",
+   "status": "in_progress",
+   "rawInput": {
+    "command": "ls"
+   },
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"command\":\"ls\"}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_MANKWBJTBfYQYdFnqiHz7qkB",
+   "status": "completed",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "hello.txt\n"
+     }
+    }
+   ],
+   "rawOutput": "hello.txt\n"
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": ""
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "The"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " directory"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " now"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " contains"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " only"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " the"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " newly"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " created"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " `"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "hello"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": ".txt"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "`"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": " file"
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "."
+   }
+  }
+ ],
+ "questionTurn": [
+  {
+   "sessionUpdate": "tool_call",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "title": "AskUserQuestion",
+   "kind": "other",
+   "status": "pending",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": ""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\":"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\","
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\":"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\","
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\":"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\":"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"},"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\":"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\": \""
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\": \"Blue"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\": \"Blue\"}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\": \"Blue\"}]}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\": \"Blue\"}]}]"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "in_progress",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\": \"Which color do you prefer?\", \"header\": \"Color\", \"options\": [{\"label\": \"Red\"}, {\"label\": \"Blue\"}]}]}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "title": "Asking user questions",
+   "kind": "other",
+   "status": "in_progress",
+   "rawInput": {
+    "questions": [
+     {
+      "question": "Which color do you prefer?",
+      "header": "Color",
+      "options": [
+       {
+        "label": "Red"
+       },
+       {
+        "label": "Blue"
+       }
+      ]
+     }
+    ]
+   },
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\":\"Which color do you prefer?\",\"header\":\"Color\",\"options\":[{\"label\":\"Red\"},{\"label\":\"Blue\"}]}]}"
+     }
+    }
+   ]
+  },
+  {
+   "__request_permission": {
+    "sessionId": "session_fixture",
+    "options": [
+     {
+      "optionId": "q0_opt_0",
+      "name": "Red",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "q0_opt_1",
+      "name": "Blue",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "q0_skip",
+      "name": "Skip",
+      "kind": "reject_once"
+     }
+    ],
+    "toolCall": {
+     "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+     "title": "AskUserQuestion",
+     "content": [
+      {
+       "type": "content",
+       "content": {
+        "type": "text",
+        "text": "Which color do you prefer?"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "0:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "completed",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"answers\":{\"Which color do you prefer?\":\"Red\"}}"
+     }
+    }
+   ],
+   "rawOutput": "{\"answers\":{\"Which color do you prefer?\":\"Red\"}}"
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "User"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " chose"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " Red"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "."
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " Reply"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " with"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " only"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " the"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": " color"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "."
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": ""
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "Red"
+   }
+  }
+ ],
+ "replay": [
+  {
+   "sessionUpdate": "user_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "Use your tool for asking the user a question (do not just write the question as text): ask me whether I prefer red or blue, offering both as options. Then reply with only the color I chose."
+   }
+  },
+  {
+   "sessionUpdate": "user_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "<system-reminder>\nToday's date is 2026-11-12, in the local client machine's timezone (UTC). The current date is restated in a reminder whenever it changes; rely on the latest such reminder for the current date. DO NOT mention this to the user explicitly.\n</system-reminder>"
+   }
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "The user explicitly wants me to use the AskUserQuestion tool to ask whether they prefer red or blue, offering both as options. Then reply with only the color chosen."
+   }
+  },
+  {
+   "sessionUpdate": "tool_call",
+   "toolCallId": "1:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "title": "AskUserQuestion",
+   "kind": "other",
+   "status": "in_progress",
+   "rawInput": {
+    "questions": [
+     {
+      "question": "Which color do you prefer?",
+      "header": "Color",
+      "options": [
+       {
+        "label": "Red"
+       },
+       {
+        "label": "Blue"
+       }
+      ]
+     }
+    ]
+   },
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"questions\":[{\"question\":\"Which color do you prefer?\",\"header\":\"Color\",\"options\":[{\"label\":\"Red\"},{\"label\":\"Blue\"}]}]}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "tool_call_update",
+   "toolCallId": "1:tool_QI72QnreSuuRLYzakIL3MDW0",
+   "status": "completed",
+   "content": [
+    {
+     "type": "content",
+     "content": {
+      "type": "text",
+      "text": "{\"answers\":{\"Which color do you prefer?\":\"Red\"}}"
+     }
+    }
+   ]
+  },
+  {
+   "sessionUpdate": "agent_thought_chunk",
+   "content": {
+    "type": "text",
+    "text": "User chose Red. Reply with only the color."
+   }
+  },
+  {
+   "sessionUpdate": "agent_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "Red"
+   }
+  },
+  {
+   "sessionUpdate": "user_message_chunk",
+   "content": {
+    "type": "text",
+    "text": "Count slowly from 1 to 200, one number per line."
+   }
+  }
+ ]
+}

@@ -9,9 +9,13 @@
 // `subscribe`/`getSnapshot`/`connectClient`/`refresh`; nothing here knows
 // about sockets.
 //
-// Identity: `claude auth status` (email, orgId), `.claude.json` (UUIDs) and
-// Codex `account/read` (email) are hashed into `accountKey` here and dropped
-// — they never reach the state, the snapshot file, a subscriber or a log.
+// Identity: `claude auth status` (email, orgId), `.claude.json` (UUIDs),
+// Codex `account/read` (email) and Kimi's user id are hashed into
+// `accountKey` here and dropped — they never reach the state, the snapshot
+// file, a subscriber or a log.
+//
+// Kimi is read the way Codex is (a pull from a server of the CLI's own that
+// spends no quota), so it shares Codex's cadence, floors and decisions.
 import { homedir } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -29,6 +33,7 @@ import {
   type ClaudeUsageProbeResult,
 } from "./probes/claudeUsageProbe.js";
 import { createCodexRateLimitsReader, type CodexRateLimitsReader, type CodexRateLimitsResult } from "./probes/codexRateLimits.js";
+import { createKimiUsageReader, type KimiUsageReader, type KimiUsageResult } from "./probes/kimiUsage.js";
 import {
   CLAUDE_PROBE_INTERVAL_MS,
   CONNECT_FLOOR_MS,
@@ -128,6 +133,8 @@ export interface PlanUsageServiceDeps {
    * profile the relay has no record of. */
   codexEverSignedInOnDisk: () => Promise<boolean>;
   createCodexReader: (onUpdate: (reading: PlanUsageReading) => void) => CodexRateLimitsReader;
+  /** Kimi Code's `kimi web` reader. */
+  createKimiReader: () => KimiUsageReader;
   /** The machine's account salt; undefined turns account keys off. */
   loadSalt: () => Promise<Uint8Array | undefined>;
   store?: PlanUsageSnapshotStore;
@@ -159,7 +166,7 @@ interface RuntimeSlot {
   backoffUntil: number | null;
 }
 
-const RUNTIMES: readonly PlanUsageRuntime[] = ["claude", "codex"];
+const RUNTIMES: readonly PlanUsageRuntime[] = ["claude", "codex", "kimi"];
 
 export class PlanUsageService {
   private readonly slots: Record<PlanUsageRuntime, RuntimeSlot>;
@@ -169,10 +176,12 @@ export class PlanUsageService {
   private timer: unknown;
   private unsubscribeCapture?: () => void;
   private codexReader?: CodexRateLimitsReader;
+  private kimiReader?: KimiUsageReader;
   private claudeAuthInFlight?: Promise<void>;
   private lastClaudeAuthCheckAt: number | null = null;
   private lastTranscriptLimitCheckAt: number | null = null;
   private lastCodexOutcome?: string;
+  private lastKimiOutcome?: string;
   private salt?: Promise<Uint8Array | undefined>;
 
   constructor(private readonly deps: PlanUsageServiceDeps) {
@@ -180,6 +189,7 @@ export class PlanUsageService {
     this.slots = {
       claude: { usage: restored(stored.get("claude"), "claude"), failures: 0, backoffUntil: null },
       codex: { usage: restored(stored.get("codex"), "codex"), failures: 0, backoffUntil: null },
+      kimi: { usage: restored(stored.get("kimi"), "kimi"), failures: 0, backoffUntil: null },
     };
   }
 
@@ -202,6 +212,7 @@ export class PlanUsageService {
     this.unsubscribeCapture = undefined;
     this.stopTimer();
     this.codexReader?.close();
+    this.kimiReader?.close();
   }
 
   /** The runtimes installed on this relay (`selectableAgents`); only these
@@ -211,6 +222,7 @@ export class PlanUsageService {
     const changed = next.size !== this.installed.size || [...next].some((runtime) => !this.installed.has(runtime));
     this.installed = next;
     if (!next.has("codex")) this.codexReader?.close();
+    if (!next.has("kimi")) this.kimiReader?.close();
     if (!changed) return;
     this.notify();
     if (this.clients > 0) this.background(this.evaluate(true));
@@ -261,6 +273,7 @@ export class PlanUsageService {
       if (this.clients === 0) {
         this.stopTimer();
         this.codexReader?.close();
+        this.kimiReader?.close();
       }
     };
   }
@@ -292,7 +305,8 @@ export class PlanUsageService {
       this.deps.log?.(`[plan-usage] ${runtime} refresh served from cache (force ${String(force)}, ${Math.ceil((floor - now) / 1000)}s to go)`);
       return Promise.resolve();
     }
-    return runtime === "codex" ? this.readCodex() : this.forcedClaude();
+    if (runtime === "claude") return this.forcedClaude();
+    return runtime === "codex" ? this.readCodex() : this.readKimi();
   }
 
   /** The newest of the last reading and the last real read started (a
@@ -307,7 +321,7 @@ export class PlanUsageService {
   private refreshableAt(runtime: PlanUsageRuntime): number | null {
     const fresh = this.freshAt(runtime);
     if (!Number.isFinite(fresh)) return null;
-    return fresh + (runtime === "codex" ? this.limits.codexForceFloorMs : this.limits.claudeForceFloorMs);
+    return fresh + (runtime === "claude" ? this.limits.claudeForceFloorMs : this.limits.codexForceFloorMs);
   }
 
   private get limits(): PlanUsageLimits {
@@ -326,19 +340,20 @@ export class PlanUsageService {
     const now = this.deps.now();
     const work: Promise<void>[] = [];
 
-    if (this.installed.has("codex")) {
-      const slot = this.slots.codex;
+    for (const runtime of ["codex", "kimi"] as const) {
+      if (!this.installed.has(runtime)) continue;
+      const slot = this.slots[runtime];
       const decision = decideCodexAuto({
         now,
         clients: this.clients,
         inFlight: slot.inFlight !== undefined,
-        turnActive: this.deps.capture.isTurnActive("codex"),
-        lastReadingAt: this.lastReadingOrCall("codex"),
+        turnActive: this.deps.capture.isTurnActive(runtime),
+        lastReadingAt: this.lastReadingOrCall(runtime),
         backoffUntil: slot.backoffUntil,
         onConnect,
         connectFloorMs: this.limits.codexFreshMs,
       });
-      if (decision === "read") work.push(this.readCodex());
+      if (decision === "read") work.push(runtime === "codex" ? this.readCodex() : this.readKimi());
     }
 
     if (this.installed.has("claude")) work.push(this.evaluateClaude(now, onConnect));
@@ -546,6 +561,38 @@ export class PlanUsageService {
     }
   }
 
+  // --- Kimi --------------------------------------------------------------
+
+  private readKimi(): Promise<void> {
+    this.kimiReader ??= this.deps.createKimiReader();
+    const reader = this.kimiReader;
+    return this.read("kimi", async () => {
+      const result = await reader.read().catch((): KimiUsageResult => ({ kind: "error", error: "unknown" }));
+      return () => this.applyKimiResult(result);
+    });
+  }
+
+  private async applyKimiResult(result: KimiUsageResult): Promise<void> {
+    const slot = this.slots.kimi;
+    const kind = outcomeKind(result);
+    if (kind !== this.lastKimiOutcome) this.deps.log?.(`[plan-usage] kimi read: ${kind}`);
+    this.lastKimiOutcome = kind;
+    switch (result.kind) {
+      case "reading": {
+        const salt = result.userId ? await this.getSalt() : undefined;
+        const accountKey = salt && result.userId ? deriveAccountKey(salt, "kimi", "kimi_user_id", result.userId, "kimi-code") : undefined;
+        this.succeed("kimi", withAccountKey(ingestReading(slot.usage, result.reading), accountKey));
+        return;
+      }
+      case "auth":
+        this.succeed("kimi", ingestAuthState(slot.usage, result.status, this.deps.now()));
+        return;
+      case "error":
+        this.fail("kimi", result.error);
+        return;
+    }
+  }
+
   // --- streams -----------------------------------------------------------
 
   private onCapture(event: PlanUsageCaptureEvent): void {
@@ -564,10 +611,10 @@ export class PlanUsageService {
         return;
       }
       case "turn_activity":
-        // A finished Codex turn may have moved the limits: pull, if anyone
+        // A finished Codex or Kimi turn may have moved the limits: pull, if anyone
         // is watching — under the button's floor, so a run of short turns
         // doesn't become a run of reads.
-        if (event.runtime === "codex" && !event.active && this.clients > 0 && this.installed.has("codex")) this.background(this.refreshOne("codex", true));
+        if (event.runtime !== "claude" && !event.active && this.clients > 0 && this.installed.has(event.runtime)) this.background(this.refreshOne(event.runtime, true));
         return;
     }
   }
@@ -644,7 +691,7 @@ export class PlanUsageService {
 
 /** A read's outcome for a log line: `reading`, `auth:<status>` or
  * `error:<kind>` — never its content. */
-export function outcomeKind(result: ClaudeUsageProbeResult | CodexRateLimitsResult): string {
+export function outcomeKind(result: ClaudeUsageProbeResult | CodexRateLimitsResult | KimiUsageResult): string {
   switch (result.kind) {
     case "reading":
       return "reading";
@@ -680,7 +727,7 @@ const PERSISTED_KEYS = ["runtime", "status", "windows", "plan", "accountKey", "e
 /** A stored entry, re-checked field by field: the file is ours, but a hand
  * edit or an older format must not reach the client unchecked. */
 function restoreUsage(raw: unknown): RuntimePlanUsage | undefined {
-  if (!isRecord(raw) || (raw.runtime !== "claude" && raw.runtime !== "codex")) return undefined;
+  if (!isRecord(raw) || !(RUNTIMES as readonly unknown[]).includes(raw.runtime)) return undefined;
   if (typeof raw.status !== "string" || !Array.isArray(raw.windows)) return undefined;
   if (raw.observedAt !== null && typeof raw.observedAt !== "number") return undefined;
   const windows = raw.windows.filter(
@@ -761,6 +808,7 @@ export function createPlanUsageService(options: CreatePlanUsageServiceOptions): 
     readClaudeTranscriptLimit: (now) => transcriptLimits.read(now),
     codexEverSignedInOnDisk: () => codexEverSignedInOnDisk(home, env),
     createCodexReader: (onUpdate) => createCodexRateLimitsReader({ homeOverride: options.homeOverride, env, onUpdate }),
+    createKimiReader: () => createKimiUsageReader({ homeOverride: options.homeOverride, env }),
     loadSalt: () => loadOrCreateAccountSalt(),
     store: createFilePlanUsageStore(planUsagePathFor(options.sessionsFile)),
     ...(options.log ? { log: options.log } : {}),

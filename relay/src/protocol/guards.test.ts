@@ -266,6 +266,7 @@ test("isTerminalScrollMessage", () => {
 test("isPlanUsageRefreshMessage: force is required, runtime optional and known", () => {
   assert.ok(isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: true }));
   assert.ok(isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: false, runtime: "codex" }));
+  assert.ok(isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: true, runtime: "kimi" }));
   assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh" }));
   assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: "true" }));
   assert.ok(!isPlanUsageRefreshMessage({ type: "plan_usage_refresh", force: true, runtime: "gemini" }));

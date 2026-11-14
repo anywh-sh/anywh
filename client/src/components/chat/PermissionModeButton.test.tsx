@@ -33,6 +33,26 @@ describe("PermissionModeButton", () => {
     ]);
   });
 
+  it("names a mode the way its own agent behaves when another agent shares the id", async () => {
+    // Kimi's `default` writes files in the session folder without asking,
+    // unlike Claude's, so it must not read "Asks before every edit or command".
+    const user = userEvent.setup();
+    const kimiModes = [
+      { id: "default", pausesForApproval: true },
+      { id: "yolo", pausesForApproval: false },
+    ];
+    render(<PermissionModeButton mode="default" available={kimiModes} onChange={vi.fn()} agentId="kimi" />);
+
+    expect(screen.getByRole("button")).toHaveTextContent(en.chat.composer.modeByAgent.kimi!.default!.label);
+    await user.click(screen.getByRole("button"));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      en.chat.composer.modeByAgent.kimi!.default!.label + en.chat.composer.modeByAgent.kimi!.default!.hint,
+      en.chat.composer.mode.yolo.label + en.chat.composer.mode.yolo.hint,
+    ]);
+    expect(items[0].textContent).not.toContain(en.chat.composer.mode.default.hint);
+  });
+
   it("switches mode from the menu", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -7,6 +7,9 @@ import { parseClaudeModelCatalog } from "./defs/claude/modelCatalog.js";
 import { codexRuntimeDef, parseCodexModelList } from "./defs/codex.js";
 import { mapClaudeEvent } from "./streams/claudeStreamJson.js";
 import { mapCodexNotification } from "./streams/codexAppServer.js";
+import { kimiRuntimeDef } from "./defs/kimi.js";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ToolCallMemo } from "./streams/claudeToolMapping.js";
 
 /**
@@ -152,4 +155,19 @@ test("codex: effortId reaches turn/start", () => {
   if (codexRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
   const spec = codexRuntimeDef.exec.turn.start({ cwd: "/tmp", prompt: "hi", permissionModeId: "read-only", effortId }, "t1");
   assert.equal((spec.params as { effort?: unknown }).effort, effortId);
+});
+
+// Kimi Code CLI 2.6.0 (`kimi acp`): a recorded turn that writes a file and
+// runs a command, through the def's own mapper and turn state.
+test("kimi: a real turn fulfils the tool display contract", () => {
+  const recorded = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../tests/fixtures/kimi-acp-2.6.0-updates.json"), "utf8")) as { writeAndBashTurn: unknown[] };
+  if (kimiRuntimeDef.exec.kind !== "jsonRpcDaemon") throw new Error("expected jsonRpcDaemon");
+  const exec = kimiRuntimeDef.exec;
+  const state = exec.turnState?.create();
+  const events = recorded.writeAndBashTurn
+    .filter((update) => !(typeof update === "object" && update !== null && "__request_permission" in update))
+    .flatMap((update) => exec.mapNotification("session/update", { sessionId: "s", update }, { turnId: "s", state }));
+  events.push(...(state === undefined ? [] : (exec.turnState?.flush(state) ?? [])));
+  assertToolContract(events);
+  assert.equal(events.filter((event) => event.type === "tool_started").length, 2);
 });

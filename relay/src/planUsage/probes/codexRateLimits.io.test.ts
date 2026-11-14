@@ -281,6 +281,7 @@ test("a push delivered in the same tick as the read's reply is merged, not dropp
       Promise.resolve({
         exited: false,
         kill: () => {},
+        notify: () => {},
         request: (method: string) => {
           if (method === "account/read") return Promise.resolve(fixture.samples.accountReadChatgptPlus.result);
           const reply = Promise.resolve(fixture.samples.rateLimitsReadPaid.result);

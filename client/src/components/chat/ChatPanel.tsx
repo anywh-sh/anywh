@@ -1052,6 +1052,7 @@ export function ChatPanel({
                   onChangePermissionMode={setPermissionMode}
                   effort={effort}
                   onChangeEffort={setEffort}
+                  agentId={agentId}
                 />
                 <NativeComposer
                   ref={composerRef}

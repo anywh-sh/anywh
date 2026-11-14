@@ -5,8 +5,8 @@ import { toolbarTriggerClass } from "@/components/chat/toolbarTrigger";
 import { ContextUsageRing } from "@/components/chat/ContextUsageRing";
 import { useDict } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
-import type { ContextUsage } from "@/lib/relay/relayClient";
+import { contextModelName, contextUsageColor, contextUsagePercent, formatCategoryPercent, formatTokenCount } from "@/lib/format/contextUsage";
+import type { ContextUsage, ModelCatalog } from "@/lib/relay/relayClient";
 
 interface ContextUsageButtonProps {
   usage: ContextUsage | null;
@@ -14,6 +14,9 @@ interface ContextUsageButtonProps {
    * since the relay caches the result on `contextUsage.breakdown` and only
    * re-reads the rule file when its `mtime` actually changed. */
   onOpen: () => void;
+  /** The session's agent's model catalog, to name the model the way its
+   * picker does instead of by its raw id. */
+  modelCatalog?: ModelCatalog | null;
 }
 
 interface BreakdownSegment {
@@ -53,7 +56,7 @@ interface BreakdownSegment {
  * inheriting the focus). `usage` null (session with no turn yet) hides the
  * whole control.
  */
-export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
+export function ContextUsageButton({ usage, onOpen, modelCatalog }: ContextUsageButtonProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const dict = useDict();
@@ -196,7 +199,7 @@ export function ContextUsageButton({ usage, onOpen }: ContextUsageButtonProps) {
 
         <div className="border-t border-border-soft bg-bg-chrome px-[11px] py-[9px]">
           <span className="block truncate font-mono text-[10.5px] text-text-faint">
-            {copy.windowNote.replace("{model}", usage.model).replace("{window}", formatTokenCount(usage.contextWindowSize))}
+            {copy.windowNote.replace("{model}", contextModelName(usage.model, modelCatalog)).replace("{window}", formatTokenCount(usage.contextWindowSize))}
           </span>
         </div>
       </DropdownMenuContent>

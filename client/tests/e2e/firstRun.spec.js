@@ -189,13 +189,21 @@ describe("anywh onboarding", () => {
 
     // What only GET /control/agents can say (an older relay's /host-info
     // fallback lists installed agents with no login state and no missing
-    // ones): Claude is ready, and Codex is either not signed in (installed
-    // here, under a throwaway HOME) or not found (a runner without it).
+    // ones): Claude is ready, and Codex and Kimi are each either not signed
+    // in (installed here, under a throwaway HOME) or not found (a runner
+    // without them). Each card is told apart by its own name.
     const states = await browser.execute(() =>
-      Object.fromEntries([...document.querySelectorAll("li[data-state]")].map((card) => [card.textContent?.includes("Codex") ? "codex" : "claude", card.getAttribute("data-state")])),
+      Object.fromEntries(
+        [...document.querySelectorAll("li[data-state]")].map((card) => {
+          const text = card.textContent ?? "";
+          const id = text.includes("Codex") ? "codex" : text.includes("Kimi") ? "kimi" : text.includes("Claude") ? "claude" : text;
+          return [id, card.getAttribute("data-state")];
+        }),
+      ),
     );
     expect(states.claude).toBe("ready");
     expect(["noLogin", "missing"]).toContain(states.codex);
+    expect(["noLogin", "missing"]).toContain(states.kimi);
 
     // The minimum window size holds while the onboarding is on screen —
     // asserted because WebKitGTK under Xvfb was seen to honour it.
