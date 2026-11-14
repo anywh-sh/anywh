@@ -781,6 +781,10 @@ export interface Dictionary {
        * catalog is whatever the CLI reports at runtime, and a blurb per
        * alias would go stale the day the CLI ships a new one. */
       mode: Record<KnownPermissionModeId, { label: string; hint: string }>;
+      /** A mode whose id another agent also uses but which behaves
+       * differently for this one — Kimi Code's `default` writes files inside
+       * the session folder without asking, unlike Claude's. Wins over `mode`. */
+      modeByAgent: Partial<Record<KnownAgentId, Partial<Record<KnownPermissionModeId, { label: string; hint: string }>>>>;
       /** Keyed by `KnownAgentId` — same completeness guarantee as `mode`
        * above. Product names (`Claude Code`, `Codex`), identical in both
        * languages by nature, but still resolved through here rather than a

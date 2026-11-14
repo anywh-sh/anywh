@@ -17,13 +17,15 @@ interface NativeTopBarMenuProps {
   onChangePermissionMode: (mode: PermissionMode) => void;
   effort: string | null;
   onChangeEffort: (effort: string | null) => void;
+  /** The session's agent, for a mode whose copy is the agent's own. */
+  agentId?: string | null;
 }
 
 /** Headless: feeds the iOS top bar dropdown the session's models and
  * permission modes and applies the pick. Renders nothing. */
 export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
   const dict = useDict();
-  const { catalog, model, locked, connected, permissionMode, permissionModes, effort } = props;
+  const { catalog, model, locked, connected, permissionMode, permissionModes, effort, agentId } = props;
   const payload = useMemo(
     () =>
       buildTopBarMenuPayload({
@@ -33,11 +35,12 @@ export function NativeTopBarMenu(props: NativeTopBarMenuProps) {
         connected,
         permissionMode,
         permissionModes,
+        agentId,
         effort,
         effortCatalogOption: effectiveModelOption(catalog, model),
         dict,
       }),
-    [catalog, model, locked, connected, permissionMode, permissionModes, effort, dict],
+    [catalog, model, locked, connected, permissionMode, permissionModes, agentId, effort, dict],
   );
 
   const lastSentRef = useRef<string | null>(null);

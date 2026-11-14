@@ -241,6 +241,9 @@ export const en: Dictionary = {
         auto: { label: "Auto", hint: "Runs safe actions on its own; still asks before risky ones" },
         yolo: { label: "YOLO", hint: "Never asks, destructive commands included" },
       },
+      modeByAgent: {
+        kimi: { default: { label: "Default", hint: "Asks before commands; edits files in the session folder without asking" } },
+      },
       agentNames: {
         claude: "Claude Code",
         codex: "Codex",

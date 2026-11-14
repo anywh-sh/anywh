@@ -241,6 +241,9 @@ export const ptBr: Dictionary = {
         auto: { label: "Automático", hint: "Faz sozinho o que é seguro; ainda pergunta antes do que é arriscado" },
         yolo: { label: "YOLO", hint: "Nunca pergunta, nem em comando destrutivo" },
       },
+      modeByAgent: {
+        kimi: { default: { label: "Padrão", hint: "Pergunta antes de comandos; edita arquivos da pasta da sessão sem perguntar" } },
+      },
       agentNames: {
         claude: "Claude Code",
         codex: "Codex",

@@ -892,7 +892,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             disabled={disabled ?? false}
             locked={modelLocked}
           />
-          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
+          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} agentId={agentId} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
         </div>
