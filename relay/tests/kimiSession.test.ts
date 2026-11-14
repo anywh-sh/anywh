@@ -172,10 +172,13 @@ test("approvals Kimi asks for at once become one card, and only the approved cal
 test("an approval asked in a turn Kimi started on its own reaches the person, and the session isn't stuck behind it", async () => {
   const socket = await kimiSession("kimi-background");
   sendUserMessage(socket, "[[background]]");
-  const first = await collectUntil(socket, isTurnEnded);
-  assert.ok(events(first).some((event) => event.type === "text" && event.text === "started"));
-  // No turn of the session is running when Kimi asks.
+  // Kimi starts its own turn a moment after answering: on a slow machine its
+  // approval can arrive before the session's turn is wrapped up (it is then
+  // published as that turn ends) or after (published at once). Either way
+  // the card reaches the person.
   const asked = await collectUntil(socket, isApprovalPrompt);
+  assert.ok(asked.some(isTurnEnded), "the session's own turn ended");
+  assert.ok(events(asked).some((event) => event.type === "text" && event.text === "started"));
   const prompt = approvalPrompt(asked);
   assert.equal(prompt?.questions[0].approval?.detail, "make build");
   // Kimi was answered already: a new message is not queued behind the card.
