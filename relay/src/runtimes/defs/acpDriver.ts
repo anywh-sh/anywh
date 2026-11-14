@@ -355,6 +355,8 @@ export class AcpSessionDriver implements AgentSessionDriver {
       if (this.failureLog?.sessionId !== sessionId || !existsSync(this.failureLog.path)) {
         const home = (log.home.envVar ? process.env[log.home.envVar] : undefined) || join(this.homeOverride ?? homedir(), log.home.dir);
         const sessions = join(home, log.sessionsDir);
+        // No sessions folder: no log to read, nothing to report.
+        if (!existsSync(sessions)) return undefined;
         const path = readdirSync(sessions)
           .map((workdir) => join(sessions, workdir, log.sessionLog(sessionId)))
           .find((candidate) => existsSync(candidate));

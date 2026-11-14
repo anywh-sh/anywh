@@ -54,8 +54,14 @@ function loadSessions() {
   if (!STATE || !fs.existsSync(STATE)) return {};
   return JSON.parse(fs.readFileSync(STATE, "utf8"));
 }
+// Written whole or not at all: another fake process (the relay's catalog
+// probe, a session's own) can read the file at any moment, and a half-written
+// one would fail its JSON.parse.
 function saveSessions(sessions) {
-  if (STATE) fs.writeFileSync(STATE, JSON.stringify(sessions));
+  if (!STATE) return;
+  const partial = `${STATE}.${process.pid}.tmp`;
+  fs.writeFileSync(partial, JSON.stringify(sessions));
+  fs.renameSync(partial, STATE);
 }
 
 const MODELS = [
