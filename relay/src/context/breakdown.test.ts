@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeResidual, estimateRuleTokens, estimateSkillsTokens, estimateSubagentsTokens } from "./breakdown.js";
+import { computeResidual, estimateRuleTokens, estimateSkillsTokens, estimateSubagentsTokens, keepsRestoredSetup } from "./breakdown.js";
+
+test("keepsRestoredSetup: a setup restored after a restart is kept only when it came from the estimate", () => {
+  // Written since the setup was estimated: survives a restart.
+  assert.equal(keepsRestoredSetup({ breakdown: { residual: { tokens: 13000, estimated: true } } }), true);
+  // From before: the first report, which held a whole first turn.
+  assert.equal(keepsRestoredSetup({}), false);
+  assert.equal(keepsRestoredSetup({ breakdown: { residual: { tokens: 113744, estimated: false } } }), false);
+});
 
 test("estimateRuleTokens applies the calibrated multiplier and per-file overhead, rounded once", () => {
   // Claude's own fit (see claude/def.ts's contextAccounting comment):

@@ -20,7 +20,7 @@ import { INITIAL_HISTORY_TAIL_TURNS, findEditTarget, pageHistoryBefore, type Edi
 import { buildBackgroundJobFollowupPrompt, buildDeferredApprovalFollowup, offersSilence } from "./turnMessages.js";
 import { isNoReply, isSilentEvent, markSilent, NO_REPLY } from "../protocol/silentEvents.js";
 import { ContextAttributor, type Attribution } from "./contextAttribution.js";
-import { breakdownTotal, computeContextBreakdown } from "../context/breakdown.js";
+import { breakdownTotal, computeContextBreakdown, keepsRestoredSetup } from "../context/breakdown.js";
 import type { ContextUsage, ModelChoice, PermissionMode, PersistedApproval, PersistedChoice } from "./sessionStore.js";
 import { availableModes, isOfferedMode, neverPauses, resolveInitialMode, type PermissionModeOption } from "./permissionModes.js";
 import { toHostPlatform } from "../runtimes/hostPlatform.js";
@@ -501,9 +501,10 @@ export class SharedSession implements SessionDriverHost {
     this.effort = options.initialEffort;
     this.contextUsage = options.initialContextUsage;
     this.baselineTokens = options.initialContextUsage?.baselineTokens;
-    if (this.setupIsEstimated() && this.contextUsage) {
+    if (this.setupIsEstimated() && this.contextUsage && !keepsRestoredSetup(this.contextUsage)) {
       // A record written before the setup was estimated may carry a whole
-      // first turn as its baseline; the next breakdown sets the real one.
+      // first turn as its baseline; the next breakdown sets the real one. One
+      // written since carries the estimated setup it was computed with.
       const { baselineTokens: _stale, ...rest } = this.contextUsage;
       this.contextUsage = rest;
       this.baselineTokens = undefined;

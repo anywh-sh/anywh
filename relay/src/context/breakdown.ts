@@ -122,6 +122,14 @@ function isCwdEmpty(cwd: string): boolean {
   }
 }
 
+/** Pure: whether a restored context report's `baselineTokens` can be kept
+ * for a def whose setup is estimated (`fixedSetupTokens`): only when it came
+ * from that estimate (its breakdown's residual is one). A record from before
+ * may hold a whole first turn as its setup. */
+export function keepsRestoredSetup(usage: { readonly breakdown?: ContextBreakdown }): boolean {
+  return usage.breakdown?.residual?.estimated === true;
+}
+
 /** Pure: everything a breakdown names, summed — the setup itself for a def
  * whose setup is estimated (`fixedSetupTokens`). */
 export function breakdownTotal(breakdown: ContextBreakdown): number {
