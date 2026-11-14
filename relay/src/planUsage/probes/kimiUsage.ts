@@ -128,13 +128,21 @@ export function createKimiUsageReader(options: KimiUsageReaderOptions = {}): Kim
             child.kill();
             reject(new Error(`kimi web did not start within ${startTimeoutMs} ms`));
           }, startTimeoutMs);
-          child.stdout?.on("data", (chunk: Buffer) => {
+          const readToken = (chunk: Buffer): void => {
             stdout += chunk.toString("utf8");
             const token = kimiWebToken(stdout);
             if (!token) return;
             clearTimeout(timer);
+            // Only the startup banner is of interest: the server can live for
+            // hours, and keeping (and re-scanning) all it prints after that
+            // would grow without bound. Still drained, so a full pipe never
+            // blocks it.
+            stdout = "";
+            child.stdout?.off("data", readToken);
+            child.stdout?.on("data", () => {});
             resolveServer({ child, base: `http://127.0.0.1:${port}`, token });
-          });
+          };
+          child.stdout?.on("data", readToken);
           child.stderr?.on("data", () => {});
           child.once("error", (error) => {
             clearTimeout(timer);
