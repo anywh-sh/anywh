@@ -647,6 +647,8 @@ export interface Dictionary {
       codexAccept: string;
       codexAcceptForSession: string;
       codexDecline: string;
+      /** An ACP agent's `reject_always` option (relay decision id `rejectAlways`). */
+      rejectAlways: string;
       codexCancel: string;
       /** `{reason}` — Codex's own explanation for why it's asking, appended
        * to whichever question text is in play above. */

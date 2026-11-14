@@ -150,6 +150,7 @@ export const en: Dictionary = {
       codexAccept: "Accept",
       codexAcceptForSession: "Accept for this session",
       codexDecline: "Decline",
+      rejectAlways: "Always decline",
       codexCancel: "Cancel",
       reasonSuffix: "Reason: {reason}.",
     },

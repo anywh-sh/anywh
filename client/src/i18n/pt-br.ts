@@ -150,6 +150,7 @@ export const ptBr: Dictionary = {
       codexAccept: "Aceitar",
       codexAcceptForSession: "Aceitar para esta sessão",
       codexDecline: "Recusar",
+      rejectAlways: "Sempre recusar",
       codexCancel: "Cancelar",
       reasonSuffix: "Motivo: {reason}.",
     },
