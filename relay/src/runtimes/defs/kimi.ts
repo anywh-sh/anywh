@@ -85,12 +85,15 @@ export function kimiApprovalParams(params: AcpPermissionParams): AcpPermissionPa
  * The repeat is recognised by the call's real input only — the one the
  * driver added back from the stream — never by the sentence: Kimi cuts a
  * long command short there ("Running: cd /a && wc…"), and a prefix must not
- * let a different command through.
+ * let a different command through. Without the input the request is not
+ * deferred at all: nothing could recognise the repeat, so every approval
+ * would just start another refused turn. It then waits as an ordinary
+ * approval, the agent held on it.
  */
-export function kimiDeferrable(request: AcpPermissionParams): NonNullable<ApprovalRequest["deferrable"]> {
+export function kimiDeferrable(request: AcpPermissionParams): ApprovalRequest["deferrable"] {
   const tool = request.toolCall?.title;
   const input = request.toolCall?.rawInput;
-  return tool && input !== undefined ? { call: { tool, input } } : {};
+  return tool && input !== undefined ? { call: { tool, input } } : undefined;
 }
 
 function handleServerRequest(method: string, params: unknown, host: TurnHost): Promise<unknown> | undefined {

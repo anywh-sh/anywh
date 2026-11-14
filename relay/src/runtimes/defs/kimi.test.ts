@@ -106,17 +106,17 @@ const BASH_OPTIONS = [
   { optionId: "reject", name: "Reject", kind: "reject_once" },
 ];
 
-test("an approval is deferrable, recognised by the call's real input and never by Kimi's shortened sentence", async () => {
+test("an approval is deferrable only with the call's real input, never recognised by Kimi's shortened sentence", async () => {
   // Kimi Code 2.6.0 cuts a long command short in its sentence.
   const sentence = [{ type: "content", content: { type: "text", text: "Requesting approval to Running: cd /work && wc…" } }];
-  assert.deepEqual(kimiDeferrable({ toolCall: { title: "Bash", content: sentence } }), {});
+  assert.equal(kimiDeferrable({ toolCall: { title: "Bash", content: sentence } }), undefined);
   const full = "cd /work && wc -c hello.txt && date +%Y > year.txt";
   assert.deepEqual(kimiDeferrable({ toolCall: { title: "Bash", rawInput: { command: full }, content: sentence } }), { call: { tool: "Bash", input: { command: full } } });
 
   let asked: ApprovalRequest | undefined;
   const host = { requestApproval: (request: ApprovalRequest) => ((asked = request), Promise.resolve("decline")), requestUserInput: () => Promise.resolve("deferred" as const) };
   const answer = await exec().handleServerRequest("session/request_permission", { options: BASH_OPTIONS, toolCall: { title: "Bash", content: sentence } }, host);
-  assert.deepEqual(asked?.deferrable, {}, "deferrable even when the input is unknown: the card is kept, the repeat asked about again");
+  assert.equal(asked?.deferrable, undefined, "not deferred when the input is unknown: nothing could recognise the repeat");
   assert.deepEqual(answer, { outcome: { outcome: "selected", optionId: "reject" } });
 });
 

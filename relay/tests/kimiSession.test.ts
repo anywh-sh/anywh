@@ -228,6 +228,22 @@ test("Kimi's question tool shows as a choice card and the label picked is the an
   socket.close();
 });
 
+test("an approval whose call Kimi never described waits as an ordinary one, and Stop releases it", async () => {
+  // `[[hang]]` asks with no input anywhere: nothing could recognise a repeat,
+  // so the request is held open instead of deferred.
+  const socket = await kimiSession("kimi-stop");
+  sendUserMessage(socket, "[[hang]]");
+  const prompted = await collectUntil(socket, isApprovalPrompt);
+  assert.ok(!prompted.some(isTurnEnded), "the turn is still waiting on the approval");
+  socket.send(JSON.stringify({ type: "stop_turn" }));
+  const stopped = await collectUntil(socket, isTurnEnded);
+  assertTurnEnded(stopped.find(isTurnEnded), true);
+  sendUserMessage(socket, "still there?");
+  const next = await collectUntil(socket, isTurnEnded);
+  assert.ok(events(next).some((event) => event.type === "text" && event.text === "echo: still there?"));
+  socket.close();
+});
+
 test("Kimi's model catalog reaches clients, each model with its own reasoning levels", async () => {
   // Probed in the background once detection finds `kimi`; a connection made
   // after that carries it.

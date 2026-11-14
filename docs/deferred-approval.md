@@ -124,7 +124,9 @@ command short there (`Running: cd /work && wc…`), and a prefix must not let a
 different command through. Kimi streams the input as JSON text in
 `tool_call_update`s, whole before the permission request (`rawInput` only
 arrives after the answer), and the ACP driver adds it back to the request.
-Without it the card is still kept, and the repeat is asked about again.
+Without it the request is not deferred: nothing could recognise Kimi's repeat,
+so every approval would only start another refused turn. It waits as an
+ordinary approval instead, with Kimi held on it.
 
 None of this happens in `yolo`, which promises no pause: Kimi still asks
 there before a command its own `dangerous-command-ask` guard finds destructive
