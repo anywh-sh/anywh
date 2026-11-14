@@ -138,6 +138,12 @@ describe("ChoiceCard", () => {
     expect(screen.getByText(en.chat.approval.codexCancel)).toBeInTheDocument();
   });
 
+  it("renders an ACP agent's always-decline option from the dictionary, not the relay's English label", () => {
+    render(<ChoiceCard promptId="p1" questions={[question({ options: [{ id: "rejectAlways", label: "Always decline (wire)" }] })]} kind="approval" onAnswer={vi.fn()} />);
+    expect(screen.getByText(en.chat.approval.rejectAlways)).toBeInTheDocument();
+    expect(screen.queryByText("Always decline (wire)")).toBeNull();
+  });
+
   it("composes a Codex command approval's question from its structured parts, including the reason", () => {
     render(
       <ChoiceCard

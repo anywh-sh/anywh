@@ -6,13 +6,15 @@ describe("AgentLogo", () => {
   it("renders a distinct mark per known agent and a fallback for unknown ids", () => {
     const claude = render(<AgentLogo agentId="claude" />).container.innerHTML;
     const codex = render(<AgentLogo agentId="codex" />).container.innerHTML;
+    const kimi = render(<AgentLogo agentId="kimi" />).container.innerHTML;
     const other = render(<AgentLogo agentId="gemini" />).container.innerHTML;
-    expect(new Set([claude, codex, other]).size).toBe(3);
+    expect(new Set([claude, codex, kimi, other]).size).toBe(4);
   });
 
   it("names the vendor only for known agents", () => {
     expect(agentVendor("claude")).toBe("Anthropic");
     expect(agentVendor("codex")).toBe("OpenAI");
+    expect(agentVendor("kimi")).toBe("Moonshot AI");
     expect(agentVendor("gemini")).toBeUndefined();
   });
 });

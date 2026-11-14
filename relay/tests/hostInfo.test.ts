@@ -68,7 +68,11 @@ test("GET /host-info: ANYWH_EDITOR_SSH describes the ssh target", async () => {
 // that lands before it resolves — collectUntil's polling loop is the fix,
 // same "no arbitrary sleep" rule as everywhere else this doctrine applies.
 async function waitForAgents(): Promise<{ id: string; capabilities: Record<string, string> }[]> {
-  for (let attempt = 0; attempt < 50; attempt++) {
+  // The list is published once every def's detection is in, and a real
+  // agent CLI installed on the machine running this (detection has no
+  // test-time override for `codex` or `kimi`) can take most of a second to
+  // answer `--version` alone.
+  for (let attempt = 0; attempt < 250; attempt++) {
     const body = (await (await fetch(httpUrl("/host-info"))).json()) as { agents: { id: string; version?: string; capabilities: Record<string, string> }[] };
     if (body.agents.length > 0) return body.agents;
     await new Promise((resolve) => setTimeout(resolve, 20));

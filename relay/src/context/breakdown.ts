@@ -122,6 +122,20 @@ function isCwdEmpty(cwd: string): boolean {
   }
 }
 
+/** Pure: whether a restored context report's `baselineTokens` can be kept
+ * for a def whose setup is estimated (`fixedSetupTokens`): only when it came
+ * from that estimate (its breakdown's residual is one). A record from before
+ * may hold a whole first turn as its setup. */
+export function keepsRestoredSetup(usage: { readonly breakdown?: ContextBreakdown }): boolean {
+  return usage.breakdown?.residual?.estimated === true;
+}
+
+/** Pure: everything a breakdown names, summed — the setup itself for a def
+ * whose setup is estimated (`fixedSetupTokens`). */
+export function breakdownTotal(breakdown: ContextBreakdown): number {
+  return (breakdown.rules?.tokens ?? 0) + (breakdown.skills?.tokens ?? 0) + (breakdown.subagents?.tokens ?? 0) + (breakdown.emptyDirectory?.tokens ?? 0) + (breakdown.residual?.tokens ?? 0);
+}
+
 export interface ContextBreakdown {
   /** Absent when this cwd has no rule file at all — distinct from "0 tokens
    * of rules", which would be a real (if odd) file that tokenized to
@@ -141,8 +155,10 @@ export interface ContextBreakdown {
    * turn has completed) — there is nothing to subtract the estimated
    * categories from. Marked exact "by construction": it's an exact baseline
    * minus every category this def could estimate, so it always reconciles
-   * the total even though some of its own inputs are themselves estimates. */
-  readonly residual?: { readonly tokens: number; readonly estimated: false };
+   * the total even though some of its own inputs are themselves estimates.
+   * For a def with `fixedSetupTokens` it is that measured constant instead,
+   * always present, and an estimate like the categories. */
+  readonly residual?: { readonly tokens: number; readonly estimated: boolean };
 }
 
 /**
@@ -177,7 +193,13 @@ export async function computeContextBreakdown(opts: {
       : undefined;
 
   const estimatedTotal = (rules?.tokens ?? 0) + (skills?.tokens ?? 0) + (subagents?.tokens ?? 0) + (emptyDirectory?.tokens ?? 0);
-  const residual = opts.baselineTokens !== undefined ? { tokens: computeResidual(opts.baselineTokens, estimatedTotal), estimated: false as const } : undefined;
+  const fixed = opts.accounting.fixedSetupTokens;
+  const residual =
+    fixed !== undefined
+      ? { tokens: fixed, estimated: true }
+      : opts.baselineTokens !== undefined
+        ? { tokens: computeResidual(opts.baselineTokens, estimatedTotal), estimated: false }
+        : undefined;
 
   return {
     ...(rules ? { rules } : {}),

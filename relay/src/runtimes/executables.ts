@@ -2,6 +2,7 @@ import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, sep } from "node:path";
 import { resolveShipped } from "../host/paths.js";
+import type { RuntimeIdentity } from "./types.js";
 
 // Shared by every module that spawns the agent CLI (the real turn in
 // runtimes/defs/claude/session.ts, plus the one-shot probes in defaultModel.ts,
@@ -75,6 +76,22 @@ export function resolveAgentBin(name: string, env: NodeJS.ProcessEnv = process.e
   return name;
 }
 
+/** The homes an agent's own installer may have used, in order: the
+ * profile's (`RELAY_HOME_OVERRIDE`, the `$HOME` the agent runs with), then
+ * the relay process's own. */
+function runtimeHomes(env: NodeJS.ProcessEnv): string[] {
+  return [...new Set([env.RELAY_HOME_OVERRIDE, homedir()].filter((home): home is string => !!home))];
+}
+
+/** `resolveAgentBin` for a runtime def's own binary: the shared well-known
+ * dirs, then the dirs its installer is known to use (`identity.binDirs`,
+ * relative to each home — the profile's first, see `runtimeHomes`). */
+export function resolveRuntimeBin(identity: Pick<RuntimeIdentity, "bin" | "binDirs">, env: NodeJS.ProcessEnv = process.env, home: string | readonly string[] = runtimeHomes(env)): string {
+  const homes = typeof home === "string" ? [home] : home;
+  const ownDirs = homes.flatMap((each) => (identity.binDirs ?? []).map((dir) => join(each, dir)));
+  return resolveAgentBin(identity.bin, env, [...WELL_KNOWN_BIN_DIRS, ...ownDirs]);
+}
+
 export const AGENT_BIN = resolveAgentBin(CONFIGURED_AGENT_BIN);
 
 // Credentials that make a spawned agent bill per token instead of drawing on
@@ -94,7 +111,18 @@ export const AGENT_BIN = resolveAgentBin(CONFIGURED_AGENT_BIN);
 // this entry, a `codex` run by hand in the app's embedded terminal on a
 // machine with `OPENAI_API_KEY` set would bill per token instead of drawing
 // on the CLI's own subscription.
-export const BILLED_CREDENTIAL_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"] as const;
+export const BILLED_CREDENTIAL_VARS = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "OPENAI_API_KEY",
+  // Kimi Code (Moonshot AI): the model, and its web search/fetch services.
+  "KIMI_API_KEY",
+  "MOONSHOT_API_KEY",
+  "KIMI_MODEL_API_KEY",
+  "KIMI_WEB_SEARCH_API_KEY",
+  "KIMI_WEB_FETCH_API_KEY",
+  "KIMI_REGISTRY_API_KEY",
+] as const;
 
 /** Strips every billed credential from `env`, in place. */
 export function stripBilledCredentials(env: NodeJS.ProcessEnv): void {

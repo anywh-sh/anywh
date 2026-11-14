@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { buildChildEnv } from "../host/childEnv.js";
-import { resolveAgentBin } from "./executables.js";
+import { resolveRuntimeBin } from "./executables.js";
 import type { AgentRuntimeDef, Capabilities } from "./types.js";
 
 const DETECTION_TIMEOUT_MS = 3000;
@@ -40,7 +40,7 @@ export function parseCliVersion(raw: string | undefined): string | undefined {
  */
 export function detectRuntime(def: AgentRuntimeDef, homeOverride?: string): Promise<AgentDetection> {
   return new Promise((resolve) => {
-    const bin = resolveAgentBin(def.identity.bin);
+    const bin = resolveRuntimeBin(def.identity);
     const stripCredentials = (env: NodeJS.ProcessEnv): void => {
       for (const name of def.identity.env.strip) delete env[name];
     };

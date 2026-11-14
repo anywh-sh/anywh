@@ -30,6 +30,11 @@ export interface RuntimeIdentity {
   readonly id: string;
   readonly bin: string;
   readonly fallbackBins?: readonly string[];
+  /** Directories, relative to the user's home, where this CLI's own
+   * installer puts `bin` when it doesn't put it on the PATH (Kimi Code's
+   * lands in `~/.kimi-code/bin`). Searched after the PATH and the shared
+   * well-known dirs; absent when the CLI installs somewhere those cover. */
+  readonly binDirs?: readonly string[];
   readonly env: {
     /** Env var names that must never reach a spawned child — the golden
      * rule (`docs/invariants.md`) as data instead of a hardcoded list.
@@ -260,6 +265,14 @@ export interface ApprovalRequest {
    * vocabulary. Absent means the def has no known safe id; the caller falls
    * back to its own last resort. */
   readonly safeDecisionId?: string;
+  /** Set by a def whose agent, refused (`safeDecisionId`), ends its turn and
+   * later asks again for the very same call when told it was approved —
+   * measured, never assumed. The session may then refuse at once and keep
+   * the request as a card a person answers whenever (hours, days), instead
+   * of holding the agent's request open that long. `call` is what the
+   * repeat is recognised by: the tool and its whole input, absent when the
+   * input is not known (the repeat is then asked about again). */
+  readonly deferrable?: { readonly call?: { readonly tool: string; readonly input: unknown } };
 }
 
 /** One of a native `requestUserInput` call's questions, translated from the
@@ -333,7 +346,17 @@ export type StreamMapper = (raw: string, ctx: { readonly turnId: string }) => re
  * line back would mean re-parsing an envelope the engine already decoded,
  * for no benefit a spawn-per-turn CLI's raw stdout line (which has no
  * envelope to unwrap) doesn't share. */
-export type NotificationMapper = (method: string, params: unknown, ctx: { readonly turnId: string }) => readonly AgentEvent[];
+export type NotificationMapper = (method: string, params: unknown, ctx: NotificationContext) => readonly AgentEvent[];
+
+export interface NotificationContext {
+  readonly turnId: string;
+  /** The turn's scratch state, when the plan declares `turnState` — plain
+   * data the mapper updates in place, so one logical item a protocol
+   * streams across several notifications (an ACP message arriving in
+   * chunks, a tool call whose arguments arrive before its result) can be
+   * committed once. Absent for a plan without `turnState` (Codex). */
+  readonly state?: unknown;
+}
 
 /** One tool of a room (`delegate`, `report`, ...) as plain data: a name, a
  * description for the model, and a JSON Schema for its arguments — the shape
@@ -396,6 +419,21 @@ export interface ToolGrant {
   readonly rule?: string;
 }
 
+/** Where an agent keeps a session's own log, and how a turn's failure reads
+ * in it (`JsonRpcDaemonPlan.turnFailureLog`). */
+export interface TurnFailureLog {
+  /** The agent's home: this env var when set, else this path under `$HOME`. */
+  readonly home: { readonly envVar?: string; readonly dir: string };
+  /** Under the home, the folder holding one folder per working directory. */
+  readonly sessionsDir: string;
+  /** Under one of those folders, a session's log. */
+  readonly sessionLog: (sessionId: string) => string;
+  /** Pure: the failure of a turn that ended at or after `sinceMs` (epoch
+   * ms), from the log's last lines, oldest first; `undefined` when that turn
+   * didn't fail or isn't in them. */
+  readonly parse: (lines: readonly string[], sinceMs: number) => RuntimeFailure | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // exec — the axis the old contract didn't have. A spawn-per-turn CLI with
 // a known stream shape is *pure data*: an argv builder plus a mapper,
@@ -427,11 +465,25 @@ export interface SpawnPerTurnPlan {
   readonly interrupt: { readonly signal: NodeJS.Signals; readonly expectsCleanExit: boolean };
 }
 
+/** Which request/response vocabulary a daemon speaks — and so which driver
+ * runs it. The framing and the transport are shared; what isn't is how a
+ * turn ends: Codex's app-server answers `turn/start` at once and reports the
+ * end later as a `turn/completed` notification, while an ACP agent answers
+ * `session/prompt` only when the turn is over. `createSessionDriver` picks
+ * the driver from this, never from the def's id. */
+export type DaemonProtocol = "codex-app-server" | "acp";
+
 export interface JsonRpcDaemonPlan {
   readonly kind: "jsonRpcDaemon";
-  /** `ndjson`: one JSON value per line (Codex). `lsp-headers`: `Content-Length`-framed,
-   * like LSP (ACP) — the one axis that actually differs between the two
-   * JSON-RPC agents seen so far. */
+  readonly protocol: DaemonProtocol;
+  /** Argv after `identity.bin` that starts the daemon (`["app-server"]`,
+   * `["acp"]`). */
+  readonly args: readonly string[];
+  /** The handshake the transport sends before anything else, built from the
+   * relay's own version — each protocol has its own `initialize` params. */
+  readonly initialize: (clientVersion: string) => JsonRpcRequestSpec;
+  /** `ndjson`: one JSON value per line (Codex, and every ACP agent measured
+   * so far). `lsp-headers`: `Content-Length`-framed, like LSP. */
   readonly framing: "ndjson" | "lsp-headers";
   readonly thread: {
     readonly start: (ctx: TurnContext) => JsonRpcRequestSpec;
@@ -469,6 +521,35 @@ export interface JsonRpcDaemonPlan {
   readonly rewindMethod?: string;
   readonly replayHistoryMethod?: string;
   readonly mapNotification: NotificationMapper;
+  /** For a protocol whose notifications don't each carry a whole item (ACP
+   * streams a message as chunks and never says it ended): `create` makes the
+   * state handed to `mapNotification` as `ctx.state` for one turn (or one
+   * history replay), `flush` commits whatever is still open when that turn
+   * ends. Both pure. Absent when every notification stands on its own. */
+  readonly turnState?: {
+    readonly create: () => unknown;
+    readonly flush: (state: unknown) => readonly AgentEvent[];
+  };
+  /** Requests that bring a session in line with this turn's picks before
+   * `turn.start` (ACP's `session/set_mode`, `session/set_config_option`),
+   * in the order they must be sent. The driver sends each only when it
+   * differs from what it last sent at the same position on this session,
+   * so an unchanged pick costs nothing. Absent for a protocol that takes
+   * the picks on `turn.start` itself (Codex). */
+  readonly configureSession?: (ctx: TurnContext, threadId: string) => readonly JsonRpcRequestSpec[];
+  /** For an agent that reports a turn's context usage only after answering
+   * `turn.start` (Kimi Code's ACP `usage_update`, measured 0.3–1.8 ms after
+   * the answer): how long the driver keeps listening for it before closing
+   * the turn, in ms. It stops as soon as the report arrives. Absent: the
+   * turn closes on the answer. */
+  readonly usageAfterTurnMs?: number;
+  /** For an agent that answers a failed turn as if it had ended normally —
+   * Kimi Code answers `session/prompt` with `end_turn` and says nothing over
+   * ACP when its model call fails, a spent quota included — where its own
+   * session log is, and a pure reader of a failure from that log's last
+   * lines. The driver reads it after every turn and fails the turn with the
+   * agent's own message. Never a credentials file. */
+  readonly turnFailureLog?: TurnFailureLog;
   /** Where native approval and native structured input arrive — Codex's
    * `item/commandExecution/requestApproval` and `item/tool/requestUserInput`
    * both land here and get answered through the same `TurnHost` the MCP
@@ -574,6 +655,16 @@ export interface ContextAccounting {
   readonly emptyDirectoryInflation: number;
   readonly skills?: ContextSkillAccounting;
   readonly subagents?: ContextSubagentAccounting;
+  /** For a CLI whose usage reports never isolate the setup: the measured cost
+   * of its own system prompt and tools, everything the categories above can't
+   * name. Kimi Code reports usage once per turn, after it, so its first report
+   * already holds the whole first turn; taking that as the baseline (as the
+   * conversation's first per-request report is for Claude and Codex) would
+   * call a whole turn "setup". With this set, the setup is this constant plus
+   * the estimated categories, and no tool call is given a share of a turn's
+   * growth either (one report per turn can't tell the calls apart from the
+   * messages around them). Absent: the setup is the first report. */
+  readonly fixedSetupTokens?: number;
 }
 
 // ---------------------------------------------------------------------------

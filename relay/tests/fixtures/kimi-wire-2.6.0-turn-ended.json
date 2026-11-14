@@ -1,0 +1,35 @@
+{
+  "cli": "kimi 2.6.0",
+  "note": "turn.ended records as Kimi Code 2.6.0 writes them in a session log (agents/main/wire.jsonl), copied verbatim from a real session: a turn that completed, and one whose model call hit the 5-hour quota (session/prompt still answered end_turn).",
+  "completed": {
+    "type": "turn.ended",
+    "agentId": "main",
+    "turnId": 20,
+    "reason": "completed",
+    "durationMs": 180842,
+    "requestId": "17ef2f1f54b84efeea4a5ccd484b9ca5",
+    "time": 1794600932584
+  },
+  "failed": {
+    "type": "turn.ended",
+    "agentId": "main",
+    "turnId": 21,
+    "reason": "failed",
+    "error": {
+      "code": "provider.api_error",
+      "message": "You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends. To continue now, purchase extra usage or upgrade your plan: https://www.kimi.com/settings/subscription?tab=quota",
+      "name": "APIProviderQuotaExhaustedError",
+      "details": {
+        "statusCode": 429,
+        "requestId": null,
+        "traceId": "f7d9249520a3a7f7dcd871dbd2c8f138",
+        "diagnostics": {
+          "requestId": "f7d9249520a3a7f7dcd871dbd2c8f138"
+        }
+      },
+      "retryable": false
+    },
+    "durationMs": 125856,
+    "time": 1794601364548
+  }
+}

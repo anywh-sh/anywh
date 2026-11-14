@@ -892,7 +892,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             disabled={disabled ?? false}
             locked={modelLocked}
           />
-          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} />
+          <PermissionModeButton mode={permissionMode} available={permissionModes} onChange={onChangePermissionMode} agentId={agentId} />
           <CompactBoundaryToast event={compactBoundary} />
           {isTranscribing && <span className="font-mono text-[11px] text-muted-foreground">{copy.transcribing}</span>}
         </div>
@@ -969,7 +969,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           field, so it never competes with what is being typed. */}
       <div className="flex h-[34px] items-center justify-between gap-3 px-[5px]">
         <div className="flex min-w-0 items-center gap-3">{infoStart}</div>
-        <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} />
+        <ContextUsageButton usage={contextUsage} onOpen={onRequestContextBreakdown} modelCatalog={modelCatalog} />
       </div>
     </form>
   );

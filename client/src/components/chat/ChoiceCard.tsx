@@ -92,6 +92,7 @@ export function ChoiceCard({ promptId, questions, kind, onAnswer }: ChoiceCardPr
     if (option.id === "acceptForSession") return dict.chat.approval.codexAcceptForSession;
     if (option.id === "decline") return dict.chat.approval.codexDecline;
     if (option.id === "cancel") return dict.chat.approval.codexCancel;
+    if (option.id === "rejectAlways") return dict.chat.approval.rejectAlways;
     return option.label;
   }
 

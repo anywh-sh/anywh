@@ -41,7 +41,7 @@ Self-hosted and used daily by its author: rooms of parallel agents, chat, voice,
 |---|---|
 | [Claude Code](https://claude.ai/code) | Supported |
 | [Codex CLI](https://github.com/openai/codex) | Supported |
-| Kimi CLI | Planned |
+| [Kimi Code CLI](https://moonshotai.github.io/kimi-code/) | Supported (rooms not yet) |
 | Direct model API, bring your own key | Planned |
 
 Each agent is a self-contained "runtime def" behind a shared contract — the
@@ -124,7 +124,8 @@ This matters more than "no authentication" alone suggests: the relay's default p
 - [x] Multi-session and multi-profile support
 - [x] Rooms — several agents working one demand in parallel, grouped by area, with shared context and a git worktree each
 - [x] A pluggable agent runtime contract, with Codex CLI as the second agent behind it — pick per session, with its own native permission modes and approval prompts
-- [ ] More agent CLIs — Kimi CLI, and any ACP-speaking agent, beyond Claude Code and Codex
+- [x] Kimi Code CLI, the first agent driven over the Agent Client Protocol (ACP) — any other ACP agent now needs only a def
+- [ ] Rooms for every agent, not just Claude Code and Codex
 - [ ] Workspace isolation for ordinary chats — the per-agent git worktree rooms already use, for a single session too
 - [ ] Direct model access (BYOK) — talk to a model API with your own key instead of going through a CLI, same UI and session model either way
 

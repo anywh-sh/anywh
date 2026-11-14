@@ -3,7 +3,7 @@ import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, write
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it, test } from "node:test";
-import { BILLED_CREDENTIAL_VARS, resolveAgentBin, SCRIPTS_DIR, stripBilledCredentials } from "./executables.js";
+import { BILLED_CREDENTIAL_VARS, resolveAgentBin, resolveRuntimeBin, SCRIPTS_DIR, stripBilledCredentials } from "./executables.js";
 
 // `../../scripts` from this file's own new location is exactly the segment
 // that a directory move under `src/` silently breaks: it keeps resolving to
@@ -90,5 +90,35 @@ describe("resolveAgentBin", () => {
     const installed = install(wellKnown, "agent-no-path");
     assert.equal(resolveAgentBin("agent-no-path", {}, [wellKnown]), installed);
     assert.equal(resolveAgentBin("agent-no-path", { PATH: "" }, [wellKnown]), installed);
+  });
+});
+
+describe("resolveRuntimeBin", () => {
+  it("finds a CLI in the dir its own installer uses, relative to the home it is given", () => {
+    // Kimi Code's installer puts `kimi` in ~/.kimi-code/bin and never on
+    // the PATH, so neither the PATH nor the shared well-known dirs have it.
+    const home = mkdtempSync(join(root, "home-"));
+    mkdirSync(join(home, ".vendor-cli", "bin"), { recursive: true });
+    const installed = install(join(home, ".vendor-cli", "bin"), "vendor-agent");
+    assert.equal(resolveRuntimeBin({ bin: "vendor-agent", binDirs: [".vendor-cli/bin"] }, { PATH: "/usr/bin" }, home), installed);
+  });
+
+  it("still prefers the PATH over the def's own dirs", () => {
+    const home = mkdtempSync(join(root, "home-"));
+    mkdirSync(join(home, ".vendor-cli", "bin"), { recursive: true });
+    install(join(home, ".vendor-cli", "bin"), "vendor-both");
+    install(onPath, "vendor-both");
+    assert.equal(resolveRuntimeBin({ bin: "vendor-both", binDirs: [".vendor-cli/bin"] }, { PATH: onPath }, home), "vendor-both");
+  });
+
+  it("looks in the profile's home first (RELAY_HOME_OVERRIDE, the $HOME the agent runs with)", () => {
+    const profileHome = mkdtempSync(join(root, "profile-home-"));
+    mkdirSync(join(profileHome, ".vendor-cli", "bin"), { recursive: true });
+    const installed = install(join(profileHome, ".vendor-cli", "bin"), "vendor-profile");
+    assert.equal(resolveRuntimeBin({ bin: "vendor-profile", binDirs: [".vendor-cli/bin"] }, { PATH: "/usr/bin", RELAY_HOME_OVERRIDE: profileHome }), installed);
+  });
+
+  it("behaves like resolveAgentBin for a def that names no dirs of its own", () => {
+    assert.equal(resolveRuntimeBin({ bin: "vendor-nowhere" }, { PATH: "/usr/bin" }, root), "vendor-nowhere");
   });
 });

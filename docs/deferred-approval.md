@@ -93,6 +93,54 @@ mode.
   permission request.
 - Each approval costs one extra turn.
 
+## Kimi Code (native approvals)
+
+A Kimi session always defers, whatever kind of session it is: an approval it
+asks for may wait hours or days, and holding Kimi's `session/request_permission`
+open that long loses it to anything that ends the `kimi acp` process (a relay
+restart or update), and leaves every new message queued inside Kimi behind it.
+The def opts in per request (`ApprovalRequest.deferrable`); a def that does
+not (Codex) keeps the blocking behaviour.
+
+Measured against Kimi Code CLI 2.6.0 before relying on it:
+
+- refused, the call ends in `Tool "Bash" was not run because the user rejected
+  the approval request.` and the model ends its turn rather than look for a
+  way around it;
+- told by the follow-up (`approved: retry the denied call …`) that the call
+  was approved, it asks again for the very same call.
+
+So `SharedSession.requestApproval` refuses with the request's safe decision,
+and the call goes through the same staging, card, persistence and dismissal as
+above. What differs is the grant: there is no permission rule to hand Kimi.
+The call is stored with the decisions that approve it and a SHA-256 digest of
+its tool and whole input; the follow-up turn answers Kimi's repeat of a call
+with the same digest with the decision the person picked, so "Approve for this
+session" stays that. The digest is taken over the whole input, not the stored
+copy (cut at 4 KB), so two calls that only differ past the cut never match.
+
+The input comes from the stream, not from Kimi's sentence: Kimi cuts a long
+command short there (`Running: cd /work && wc…`), and a prefix must not let a
+different command through. Kimi streams the input as JSON text in
+`tool_call_update`s, whole before the permission request (`rawInput` only
+arrives after the answer), and the ACP driver adds it back to the request.
+Without it the request is not deferred: nothing could recognise Kimi's repeat,
+so every approval would only start another refused turn. It waits as an
+ordinary approval instead, with Kimi held on it.
+
+None of this happens in `yolo`, which promises no pause: Kimi still asks
+there before a command its own `dangerous-command-ask` guard finds destructive
+(`rm -rf` outside /tmp, …), and the relay answers those requests with "Approve
+once" itself. Kimi's guard is skipped only in its `auto` mode, or with
+`permission.dangerousCommandGuard = false` / `KIMI_CODE_DANGEROUS_COMMAND_GUARD=false`,
+both fixed for the whole process while the session's mode changes per turn.
+
+Kimi can also start a turn of its own, with no prompt from the relay: it does
+when a background command it launched finishes. An approval asked there arrives
+with no turn of the session running, so nothing would end a turn to publish
+the card; it is published at once. Several approvals of one turn (Kimi asks in
+parallel for tools it runs in parallel) become one card, a question each.
+
 ## Codex
 
 Not implemented. The shape is ready: `ChoiceMachine` knows nothing about

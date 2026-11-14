@@ -38,7 +38,7 @@ export type PlanUsageCaptureListener = (event: PlanUsageCaptureEvent) => void;
 
 /** The runtime a def id names, when it has a plan to read. */
 export function planUsageRuntimeOf(defId: string): PlanUsageRuntime | undefined {
-  return defId === "claude" || defId === "codex" ? defId : undefined;
+  return defId === "claude" || defId === "codex" || defId === "kimi" ? defId : undefined;
 }
 
 export class PlanUsageCapture {
@@ -46,6 +46,7 @@ export class PlanUsageCapture {
   private readonly activeTurns: Record<PlanUsageRuntime, number> = {
     claude: 0,
     codex: 0,
+    kimi: 0,
   };
 
   constructor(private readonly now: () => number = Date.now) {}

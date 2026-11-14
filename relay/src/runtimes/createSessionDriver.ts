@@ -6,6 +6,7 @@ import type { AgentRuntimeDef } from "./types.js";
 import type { AgentSessionDriver, SessionDriverHost } from "./sessionDriver.js";
 import { ClaudeSessionDriver, type ClaudeMcpWiring } from "./defs/claude/index.js";
 import { CodexSessionDriver } from "./defs/codexDriver.js";
+import { AcpSessionDriver } from "./defs/acpDriver.js";
 import { HostSessionDriver, type HostAgentBinding } from "./hostSessionDriver.js";
 
 export interface CreateSessionDriverOptions {
@@ -43,14 +44,23 @@ export function createSessionDriver(def: AgentRuntimeDef, options: CreateSession
         agentWorker: options.agentWorker,
       });
     case "jsonRpcDaemon":
-      // CodexSessionDriver is the only driver of this shape today — same
-      // "honest for a registry of exactly one" caveat as the spawnPerTurn
-      // branch above, not a generic JSON-RPC-daemon dispatch yet.
-      return new CodexSessionDriver(def, {
-        homeOverride: options.homeOverride,
-        initialSessionId: options.initialSessionId,
-        host: options.host,
-      });
+      // The daemon's protocol, not the def's id, picks the driver: every
+      // agent speaking the same protocol shares one.
+      switch (def.exec.protocol) {
+        case "codex-app-server":
+          return new CodexSessionDriver(def, {
+            homeOverride: options.homeOverride,
+            initialSessionId: options.initialSessionId,
+            host: options.host,
+          });
+        case "acp":
+          return new AcpSessionDriver(def, {
+            homeOverride: options.homeOverride,
+            initialSessionId: options.initialSessionId,
+            host: options.host,
+          });
+      }
+      break;
     case "custom":
       throw new Error(`no session driver for exec.kind "custom" (def "${def.identity.id}")`);
   }
