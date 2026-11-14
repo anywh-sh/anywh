@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnCodexDaemon, type CodexDaemon } from "../transports/codexDaemon.js";
@@ -15,7 +15,10 @@ const ACP_MODEL_PROBE_TIMEOUT_MS = 15_000;
  * and its levels read back. Selecting a model is a setting, not a prompt:
  * nothing here spends the user's quota. The session is deleted afterwards
  * so it never shows in the agent's own history, and it lives in a temp dir
- * of its own, never the user's project.
+ * of its own, never the user's project. Always the same dir: Kimi Code keeps
+ * an (empty, once the session is deleted) folder per working directory it
+ * was started in, so a fresh random one per probe left one behind on every
+ * catalog refresh.
  *
  * `undefined` when anything fails — a probe that can't answer leaves the
  * picker on the agent's default rather than guessing a list.
@@ -23,7 +26,8 @@ const ACP_MODEL_PROBE_TIMEOUT_MS = 15_000;
 export async function probeAcpModelCatalog(def: AgentRuntimeDef, homeOverride: string | undefined): Promise<ModelCatalog | undefined> {
   if (def.exec.kind !== "jsonRpcDaemon" || def.exec.protocol !== "acp") return undefined;
   const exec = def.exec;
-  const cwd = mkdtempSync(join(tmpdir(), "anywh-acp-models-"));
+  const cwd = join(tmpdir(), `anywh-acp-models-${def.identity.id}`);
+  mkdirSync(cwd, { recursive: true });
   const abort = new AbortController();
   let daemon: CodexDaemon | undefined;
   const timeout = setTimeout(() => {
@@ -64,7 +68,6 @@ export async function probeAcpModelCatalog(def: AgentRuntimeDef, homeOverride: s
   } finally {
     clearTimeout(timeout);
     daemon?.kill();
-    rmSync(cwd, { recursive: true, force: true });
   }
 }
 

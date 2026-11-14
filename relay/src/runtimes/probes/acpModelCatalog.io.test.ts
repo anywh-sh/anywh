@@ -59,6 +59,26 @@ test("an ACP agent's catalog: every model of its picker, each with the levels it
   }
 });
 
+test("every probe opens its throwaway session in the same folder, so the agent keeps no folder per probe", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "acp-models-"));
+  process.env.FAKE_ACP_STATE = join(dir, "state.json");
+  process.env.FAKE_ACP_LOG = join(dir, "log.jsonl");
+  try {
+    await probeModelCatalog(def, undefined, dir);
+    await probeModelCatalog(def, undefined, dir);
+    const cwds = readFileSync(join(dir, "log.jsonl"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { method?: string; params?: { cwd?: string } })
+      .filter((message) => message.method === "session/new")
+      .map((message) => message.params?.cwd);
+    assert.equal(cwds.length, 2);
+    assert.equal(cwds[0], cwds[1]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an agent that can't start a session leaves the catalog unknown", async () => {
   const broken: AgentRuntimeDef = { ...def, identity: { ...def.identity, bin: "/nonexistent/acp-agent" } };
   assert.equal(await probeModelCatalog(broken, undefined, tmpdir()), undefined);
