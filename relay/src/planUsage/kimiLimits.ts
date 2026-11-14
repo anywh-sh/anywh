@@ -84,7 +84,9 @@ export function parseKimiUserInfo(body: unknown): KimiAccount {
   };
 }
 
-/** The bearer token `kimi web` prints when it is ready ("Token:    <t>"). */
+/** The bearer token `kimi web` prints when it is ready ("Token:    <t>"),
+ * once its line is complete: stdout arrives in chunks, and one can end
+ * partway through the token. */
 export function kimiWebToken(stdout: string): string | undefined {
-  return /^\s*Token:\s+(\S+)\s*$/m.exec(stdout)?.[1];
+  return /^[ \t]*Token:[ \t]+(\S+)[ \t]*\r?\n/m.exec(stdout)?.[1];
 }

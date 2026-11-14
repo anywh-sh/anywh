@@ -58,4 +58,7 @@ test("userinfo gives the plan chip and the id for the key, nothing else", () => 
 test("the bearer token comes from the banner's Token line", () => {
   assert.equal(kimiWebToken("  Local:    http://127.0.0.1:1/#token=abc\n\n  Token:    abc-123_x\n"), "abc-123_x");
   assert.equal(kimiWebToken("  Kimi server ready\n"), undefined);
+  // A chunk that ends partway through the token: not the token yet.
+  assert.equal(kimiWebToken("  Token:    abc-1"), undefined);
+  assert.equal(kimiWebToken("  Token:    abc-1" + "23_x\r\n"), "abc-123_x");
 });
