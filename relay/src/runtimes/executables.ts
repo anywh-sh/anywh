@@ -76,11 +76,19 @@ export function resolveAgentBin(name: string, env: NodeJS.ProcessEnv = process.e
   return name;
 }
 
+/** The homes an agent's own installer may have used, in order: the
+ * profile's (`RELAY_HOME_OVERRIDE`, the `$HOME` the agent runs with), then
+ * the relay process's own. */
+function runtimeHomes(env: NodeJS.ProcessEnv): string[] {
+  return [...new Set([env.RELAY_HOME_OVERRIDE, homedir()].filter((home): home is string => !!home))];
+}
+
 /** `resolveAgentBin` for a runtime def's own binary: the shared well-known
  * dirs, then the dirs its installer is known to use (`identity.binDirs`,
- * relative to `home`). */
-export function resolveRuntimeBin(identity: Pick<RuntimeIdentity, "bin" | "binDirs">, env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
-  const ownDirs = (identity.binDirs ?? []).map((dir) => join(home, dir));
+ * relative to each home — the profile's first, see `runtimeHomes`). */
+export function resolveRuntimeBin(identity: Pick<RuntimeIdentity, "bin" | "binDirs">, env: NodeJS.ProcessEnv = process.env, home: string | readonly string[] = runtimeHomes(env)): string {
+  const homes = typeof home === "string" ? [home] : home;
+  const ownDirs = homes.flatMap((each) => (identity.binDirs ?? []).map((dir) => join(each, dir)));
   return resolveAgentBin(identity.bin, env, [...WELL_KNOWN_BIN_DIRS, ...ownDirs]);
 }
 

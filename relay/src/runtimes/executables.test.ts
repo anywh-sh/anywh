@@ -111,6 +111,13 @@ describe("resolveRuntimeBin", () => {
     assert.equal(resolveRuntimeBin({ bin: "vendor-both", binDirs: [".vendor-cli/bin"] }, { PATH: onPath }, home), "vendor-both");
   });
 
+  it("looks in the profile's home first (RELAY_HOME_OVERRIDE, the $HOME the agent runs with)", () => {
+    const profileHome = mkdtempSync(join(root, "profile-home-"));
+    mkdirSync(join(profileHome, ".vendor-cli", "bin"), { recursive: true });
+    const installed = install(join(profileHome, ".vendor-cli", "bin"), "vendor-profile");
+    assert.equal(resolveRuntimeBin({ bin: "vendor-profile", binDirs: [".vendor-cli/bin"] }, { PATH: "/usr/bin", RELAY_HOME_OVERRIDE: profileHome }), installed);
+  });
+
   it("behaves like resolveAgentBin for a def that names no dirs of its own", () => {
     assert.equal(resolveRuntimeBin({ bin: "vendor-nowhere" }, { PATH: "/usr/bin" }, root), "vendor-nowhere");
   });
