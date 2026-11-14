@@ -1411,13 +1411,25 @@ mod tests {
 
         // `kill -0` on an already-gone pid prints "No such process" to
         // stderr, which is the expected outcome here — silenced so a
-        // passing run doesn't look like it logged an error.
-        let child_alive = std::process::Command::new("kill")
-            .args(["-0", &child_pid.to_string()])
-            .stderr(std::process::Stdio::null())
-            .status()
-            .unwrap()
-            .success();
-        assert!(!child_alive, "the script's own child survived a cancel that only reached the shell");
+        // passing run doesn't look like it logged an error. Polled rather
+        // than checked once: the signal reaches the child at once, but it
+        // takes a moment to exit, and once the shell is gone it lingers as a
+        // zombie until init reaps it — `kill -0` still succeeds on a zombie.
+        // Checked once, a slow CI runner failed the test with the child
+        // already on its way out.
+        let is_alive = || {
+            std::process::Command::new("kill")
+                .args(["-0", &child_pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while is_alive() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        // A child the signal never reached is still sleeping (30 s) here.
+        assert!(!is_alive(), "the script's own child survived a cancel that only reached the shell");
     }
 }
