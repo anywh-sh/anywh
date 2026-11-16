@@ -183,6 +183,11 @@ export interface Dictionary {
         unknown: string;
         connect: string;
         switchAccount: string;
+        disconnect: string;
+        /** The confirmation before signing an agent out. `{agent}`. */
+        disconnectTitle: string;
+        disconnectBody: string;
+        disconnectFailed: string;
         loading: string;
         unreachable: string;
         none: string;
@@ -676,8 +681,8 @@ export interface Dictionary {
      * profile, and on a turn that failed for one. `{agent}` is its name. */
     agentSignedOut: {
       message: string;
-      /** The composer's hint while it is locked for want of a login. */
-      composerPlaceholder: string;
+      /** On the send button while the agent has no login. */
+      sendBlocked: string;
       connect: string;
       reconnect: string;
     };
@@ -1261,6 +1266,8 @@ export interface Dictionary {
         waiting: string;
         signedIn: string;
         signedInAs: string;
+        /** A code the CLI found malformed; the same login takes another. */
+        invalidCode: string;
         rejected: string;
         tryAgain: string;
         superseded: string;

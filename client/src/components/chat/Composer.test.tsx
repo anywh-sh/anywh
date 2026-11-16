@@ -43,7 +43,7 @@ function Harness({
   onSend = vi.fn(),
   onAddFiles = vi.fn(),
   uploadingImage = false,
-  inputLocked = false,
+  sendBlockedReason,
 }: {
   agentId?: string;
   modelCatalog?: ModelCatalog | null;
@@ -51,7 +51,7 @@ function Harness({
   onSend?: (text: string, images: PendingAttachment[]) => void;
   onAddFiles?: (files: FileList | File[]) => void | Promise<File[]>;
   uploadingImage?: boolean;
-  inputLocked?: boolean;
+  sendBlockedReason?: string;
 }) {
   const { setLocale } = useLocale();
   // The app mounts one at the root (`main.tsx`); the held send button needs it.
@@ -67,7 +67,7 @@ function Harness({
         onStop={vi.fn()}
         pendingImages={[]}
         uploadingImage={uploadingImage}
-        inputLocked={inputLocked}
+        sendBlockedReason={sendBlockedReason}
         onAddFiles={onAddFiles}
         onRemoveImage={vi.fn()}
         agentId={agentId}
@@ -96,20 +96,24 @@ function Harness({
 }
 
 describe("Composer", () => {
-  it("locked for want of a login: nothing can be typed or sent, and the agent picker stays usable", async () => {
+  it("with sending blocked, the text can be typed but not sent, and the button says why", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
     render(
       <LocaleProvider>
-        <Harness onSend={onSend} inputLocked />
+        <Harness onSend={onSend} sendBlockedReason="Connect Claude Code to send messages" />
       </LocaleProvider>,
     );
     const field = screen.getByLabelText(en.chat.composer.placeholder);
-    expect(field).toHaveAttribute("contenteditable", "false");
+    expect(field).toHaveAttribute("contenteditable", "true");
     await user.click(field);
     await user.keyboard("hello{Enter}");
     expect(onSend).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: en.common.send })).toBeDisabled();
+    expect(field).toHaveTextContent("hello");
+    const send = screen.getByRole("button", { name: "Connect Claude Code to send messages" });
+    expect(send).toBeDisabled();
+    await user.hover(send.parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Connect Claude Code to send messages");
     expect(screen.getByRole("button", { name: /Sonnet 5\.5/ })).toBeEnabled();
   });
 
