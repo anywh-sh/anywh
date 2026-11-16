@@ -44,7 +44,7 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
+import type { AgentRuntimeDef, ApprovalDecision, ApprovalRequest, JsonRpcRequestSpec, EffortOption, LoginPrompt, ModelCatalog, ModelOption, QuickPromptContext, TurnContext, TurnHost, UserInputQuestion } from "../types.js";
 import { mapCodexNotification } from "../streams/codexAppServer.js";
 
 /** The real wire shape of `TurnStartParams.approvalPolicy` — confirmed
@@ -179,6 +179,30 @@ function settingsFor(id: string, cwd: string, extraWritableRoots: readonly strin
  * `InitializeCapabilities`, unrelated to approvals — no attestation flow
  * exists anywhere in this relay to opt into.
  */
+/** `account/login/start {type:"chatgptDeviceCode"}`'s result, per the
+ * 0.154.0 bindings (`v2/LoginAccountResponse.ts`) and a live call:
+ * `{type:"chatgptDeviceCode", loginId, verificationUrl, userCode}`. The
+ * page is a fixed one the person types the code into — the device flow the
+ * CLI itself recommends on a headless machine (`codex login` without it
+ * waits on a `localhost:1455` callback no other device can reach). */
+export function parseCodexLoginStart(result: unknown): { loginId: string; prompt: LoginPrompt } | undefined {
+  const r = result as { type?: unknown; loginId?: unknown; verificationUrl?: unknown; userCode?: unknown } | null | undefined;
+  if (r?.type !== "chatgptDeviceCode" || typeof r.loginId !== "string" || typeof r.verificationUrl !== "string" || typeof r.userCode !== "string") {
+    return undefined;
+  }
+  // `codex login --device-auth` prints "expires in 15 minutes"; the
+  // structured reply carries no expiry of its own.
+  return { loginId: r.loginId, prompt: { url: r.verificationUrl, userCode: r.userCode, expiresInSec: 15 * 60 } };
+}
+
+/** `account/login/completed`'s params (`v2/AccountLoginCompletedNotification.ts`). */
+export function parseCodexLoginCompleted(params: unknown): { loginId: string | null; success: boolean; error?: string } | undefined {
+  const p = params as { loginId?: unknown; success?: unknown; error?: unknown } | null | undefined;
+  if (typeof p?.success !== "boolean") return undefined;
+  const loginId = typeof p.loginId === "string" ? p.loginId : null;
+  return typeof p.error === "string" ? { loginId, success: p.success, error: p.error } : { loginId, success: p.success };
+}
+
 export function codexInitialize(clientVersion: string): JsonRpcRequestSpec {
   return {
     method: "initialize",
@@ -643,9 +667,16 @@ export const codexRuntimeDef: AgentRuntimeDef<CodexPermissionSettings> = {
   auth: {
     kind: "cli-probe",
     args: ["login", "status"],
-    // `codex login --help` (0.154.0): `login` itself signs in, `status`
-    // is its one subcommand.
-    loginCommand: ["login"],
+    // Over the app-server rather than `codex login --device-auth`: the
+    // same flow, with the URL and code as fields instead of prose.
+    login: {
+      kind: "rpc-device",
+      start: { method: "account/login/start", params: { type: "chatgptDeviceCode" } },
+      parseStart: parseCodexLoginStart,
+      cancel: (loginId) => ({ method: "account/login/cancel", params: { loginId } }),
+      completedMethod: "account/login/completed",
+      parseCompleted: parseCodexLoginCompleted,
+    },
     parse: ({ stderr, exitCode }) => {
       if (exitCode !== 0) return { loggedIn: false };
       const method = /Logged in using (.+)/.exec(stderr)?.[1].trim();

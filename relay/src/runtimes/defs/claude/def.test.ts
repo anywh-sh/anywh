@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../../registry.js";
-import { claudeRuntimeDef } from "./def.js";
+import { claudeRuntimeDef, parseClaudeLoginPrompt } from "./def.js";
 import { CLAUDE_AGENT_ENV_OVERRIDES, CLAUDE_AGENT_WORKER_ENV } from "./session.js";
 import type { TurnContext } from "../../types.js";
 
@@ -129,4 +129,17 @@ test("identity.env.set: probes and the terminal never carry the agent-worker opt
     assert.ok(!(name in CLAUDE_AGENT_ENV_OVERRIDES), `terminal env has ${name}`);
   }
   assert.equal(CLAUDE_AGENT_ENV_OVERRIDES.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "0");
+});
+
+// `claude auth login`'s output on 2.1.323 with no terminal (fresh $HOME),
+// URL shortened: everything after `visit: ` up to the newline is the URL.
+const CLAUDE_LOGIN_URL =
+  "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&code_challenge=abc&code_challenge_method=S256&state=xyz";
+const CLAUDE_LOGIN_OUTPUT = `Opening browser to sign in…\nIf the browser didn't open, visit: ${CLAUDE_LOGIN_URL}\nPaste code here if prompted > `;
+
+test("login: `claude auth login` asks for a pasted code, and the URL is read whole", () => {
+  assert.equal(claudeRuntimeDef.auth.login?.kind, "cli-paste");
+  assert.deepEqual(parseClaudeLoginPrompt(CLAUDE_LOGIN_OUTPUT), { url: CLAUDE_LOGIN_URL });
+  // Cut mid-URL: not yet.
+  assert.equal(parseClaudeLoginPrompt(CLAUDE_LOGIN_OUTPUT.slice(0, 120)), undefined);
 });

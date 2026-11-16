@@ -10,24 +10,24 @@ function detection(def: AgentRuntimeDef, installed: boolean, version?: string): 
   return { id: def.identity.id, installed, version, capabilities: def.capabilities };
 }
 
-test("catalogEntry: an installed, logged-in agent carries its parsed version, login command and install link", () => {
+test("catalogEntry: an installed, logged-in agent carries its parsed version, sign-in support and install link", () => {
   assert.deepEqual(catalogEntry(codexRuntimeDef, detection(codexRuntimeDef, true, "codex-cli 0.154.0"), { kind: "status", loggedIn: true }), {
     id: "codex",
     bin: "codex",
     installed: true,
     version: "0.154.0",
     loggedIn: true,
-    loginCommand: "codex login",
+    signIn: true,
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
   });
 });
 
-test("catalogEntry: the login command starts with the binary's file name, never its full path", () => {
+test("catalogEntry: the binary is named by its file name, never its full path", () => {
   const def = { ...claudeRuntimeDef, identity: { ...claudeRuntimeDef.identity, bin: "/home/someone/.local/bin/claude" } };
   const entry = catalogEntry(def, detection(def, true, "2.1.303 (Claude Code)"), { kind: "status", loggedIn: false });
   assert.equal(entry.bin, "claude");
-  assert.equal(entry.loginCommand, "claude auth login");
+  assert.equal(entry.signIn, true);
   assert.equal(entry.loggedIn, false);
 });
 
@@ -49,7 +49,7 @@ test("catalogEntry: a version line with nothing version-shaped is null, and a de
   const bare: AgentRuntimeDef = { ...codexRuntimeDef, identity: { ...codexRuntimeDef.identity, install: undefined }, auth: { kind: "none" } };
   const entry = catalogEntry(bare, detection(bare, true, "dev build"), { kind: "status", loggedIn: true });
   assert.equal(entry.version, null);
-  assert.equal(entry.loginCommand, null);
+  assert.equal(entry.signIn, false);
   assert.equal(entry.installUrl, null);
   assert.equal(entry.docsUrl, null);
 });

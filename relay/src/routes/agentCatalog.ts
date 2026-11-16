@@ -19,12 +19,10 @@ export interface AgentCatalogEntry {
    * reports auth from inside a session. A probe that failed or timed out
    * is `false` — "go check your login" is the useful answer there. */
   readonly loggedIn: boolean | null;
-  /** The full command line a person runs to log in, for display only.
-   * It starts with `bin`, so a relay whose `AGENT_BIN` names a wrapper
-   * script shows the wrapper's name: that is the binary this relay really
-   * runs, and the one the person's own shell may not know by the CLI's
-   * usual name. */
-  readonly loginCommand: string | null;
+  /** Whether the relay can sign this agent in itself (`/agent-login`).
+   * Which flow it runs is the socket's business, not the catalog's: the
+   * app never shows a command to type. */
+  readonly signIn: boolean;
   readonly installUrl: string | null;
   /** A fuller reference beside `installUrl`, for a CLI whose setup page
    * leaves out commands a person may need (`identity.install.docsUrl`). */
@@ -45,7 +43,7 @@ export function catalogEntry(def: AgentRuntimeDef, detection: AgentDetection, au
     installed: detection.installed,
     version: (detection.installed && parseCliVersion(detection.version)) || null,
     loggedIn,
-    loginCommand: def.auth.loginCommand ? [bin, ...def.auth.loginCommand].join(" ") : null,
+    signIn: def.auth.login !== undefined,
     installUrl: def.identity.install?.url ?? null,
     docsUrl: def.identity.install?.docsUrl ?? null,
   };

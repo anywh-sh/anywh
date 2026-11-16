@@ -20,7 +20,7 @@ interface AgentEntry {
   installed: boolean;
   version: string | null;
   loggedIn: boolean | null;
-  loginCommand: string | null;
+  signIn: boolean;
   installUrl: string | null;
   docsUrl: string | null;
 }
@@ -125,7 +125,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     installed: true,
     version: "2.1.0",
     loggedIn: true,
-    loginCommand: "fake-claude.mjs auth login",
+    signIn: true,
     installUrl: "https://code.claude.com/docs/en/setup",
     docsUrl: null,
   });
@@ -135,7 +135,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     installed: false,
     version: null,
     loggedIn: null,
-    loginCommand: "codex login",
+    signIn: true,
     installUrl: "https://developers.openai.com/codex/cli",
     docsUrl: "https://github.com/openai/codex",
   });
@@ -145,7 +145,7 @@ test("lists every known agent, the missing ones too, with what the onboarding ne
     installed: false,
     version: null,
     loggedIn: null,
-    loginCommand: "kimi login",
+    signIn: true,
     installUrl: "https://moonshotai.github.io/kimi-code/",
     docsUrl: null,
   });

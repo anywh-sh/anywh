@@ -14,7 +14,7 @@ import { AGENT_BIN, BILLED_CREDENTIAL_VARS } from "../../executables.js";
 import { mapClaudeEvent } from "../../streams/claudeStreamJson.js";
 import { parseClaudeAuthStatus } from "../../probes/authStatus.js";
 import { parseClaudeModelCatalog } from "./modelCatalog.js";
-import type { AgentRuntimeDef, FailureClass, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
+import type { AgentRuntimeDef, FailureClass, LoginPrompt, QuickPromptContext, RuntimeFailure, TurnContext } from "../../types.js";
 import { buildTurnArgs, CLAUDE_AGENT_ENV_OVERRIDES, isSessionInvalidError, toClaudeMode, type ClaudeEvent, type ClaudePermissionMode } from "./session.js";
 
 function buildArgs(ctx: TurnContext): string[] {
@@ -74,6 +74,15 @@ function classifyFailure(failure: RuntimeFailure): FailureClass {
   // Everything else (an overloaded API, a network hiccup, ...) is the safe
   // default: none of it says the session itself is invalid.
   return "transient";
+}
+
+/** `claude auth login`'s prompt, as Claude Code 2.1.323 prints it with no
+ * terminal attached: `If the browser didn't open, visit: <url>` on one line,
+ * then `Paste code here if prompted > `. The URL only counts once its line
+ * has ended — a URL cut mid-chunk would open a page that rejects it. */
+export function parseClaudeLoginPrompt(output: string): LoginPrompt | undefined {
+  const match = /visit:\s*(https:\/\/\S+)\s*\n/.exec(output);
+  return match ? { url: match[1] } : undefined;
 }
 
 const CLAUDE_PERMISSION_MODES: readonly ClaudePermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
@@ -144,8 +153,9 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     args: ["auth", "status", "--json"],
     // Not the bare `claude login` older docs show: Claude Code 2.1.303's
     // `claude auth --help` lists `login` under `auth`, beside the `status`
-    // probed above.
-    loginCommand: ["auth", "login"],
+    // probed above. A plain child is enough (measured on 2.1.323): unlike
+    // `mcp login`, it reads the pasted code from a pipe.
+    login: { kind: "cli-paste", args: ["auth", "login"], parsePrompt: parseClaudeLoginPrompt },
     parse: ({ stdout }) => {
       const status = parseClaudeAuthStatus(stdout);
       return { loggedIn: status.loggedIn, account: status.email, plan: status.subscriptionType };

@@ -166,13 +166,23 @@ test("assertCoherent: install links must be https", () => {
   );
 });
 
-test("assertCoherent: a login command needs a login to run and at least one real arg", () => {
+test("assertCoherent: a login needs a login to run, real args, and a daemon for the RPC flow", () => {
   const def = baseDef();
   const probe = { kind: "cli-probe" as const, args: ["auth", "status"], parse: () => ({ loggedIn: true }) };
-  assert.deepEqual(assertCoherent({ ...def, auth: { ...probe, loginCommand: ["auth", "login"] } }), []);
-  assert.match(assertCoherent({ ...def, auth: { kind: "none", loginCommand: ["login"] } })[0].message, /auth\.kind is "none"/);
-  assert.match(assertCoherent({ ...def, auth: { ...probe, loginCommand: [] } })[0].message, /loginCommand is empty/);
-  assert.match(assertCoherent({ ...def, auth: { ...probe, loginCommand: ["login", " "] } })[0].message, /blank arg/);
+  const cli = (args: string[]) => ({ kind: "cli-paste" as const, args, parsePrompt: () => undefined });
+  const rpc = {
+    kind: "rpc-device" as const,
+    start: { method: "login/start", params: {} },
+    parseStart: () => undefined,
+    cancel: () => ({ method: "login/cancel", params: {} }),
+    completedMethod: "login/completed",
+    parseCompleted: () => undefined,
+  };
+  assert.deepEqual(assertCoherent({ ...def, auth: { ...probe, login: cli(["auth", "login"]) } }), []);
+  assert.match(assertCoherent({ ...def, auth: { kind: "none", login: cli(["login"]) } })[0].message, /auth\.kind is "none"/);
+  assert.match(assertCoherent({ ...def, auth: { ...probe, login: cli([]) } })[0].message, /login\.args is empty/);
+  assert.match(assertCoherent({ ...def, auth: { ...probe, login: cli(["login", " "]) } })[0].message, /blank arg/);
+  assert.match(assertCoherent({ ...def, auth: { ...probe, login: rpc } })[0].message, /exec\.kind is not "jsonRpcDaemon"/);
 });
 
 // ---------------------------------------------------------------------

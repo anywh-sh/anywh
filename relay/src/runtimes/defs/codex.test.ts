@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../registry.js";
-import { codexRuntimeDef, parseCodexModelList } from "./codex.js";
+import { codexRuntimeDef, parseCodexLoginCompleted, parseCodexLoginStart, parseCodexModelList } from "./codex.js";
 import type { TurnContext } from "../types.js";
 
 function turnContext(overrides: Partial<TurnContext> = {}): TurnContext {
@@ -443,4 +443,21 @@ test("models: parseCodexModelList carries supportedReasoningEfforts and defaultR
   // A model with no listed efforts takes none, whatever default it claims.
   assert.equal("efforts" in (catalog?.options[1] ?? {}), false);
   assert.equal("defaultEffort" in (catalog?.options[1] ?? {}), false);
+});
+
+test("login: the app-server's device flow, in the shapes a live 0.154.0 answered with", () => {
+  const login = codexRuntimeDef.auth.login;
+  assert.equal(login?.kind, "rpc-device");
+  assert.deepEqual(
+    parseCodexLoginStart({ type: "chatgptDeviceCode", loginId: "10d3db4c", verificationUrl: "https://auth.openai.com/codex/device", userCode: "KRXE-WAQOM" }),
+    { loginId: "10d3db4c", prompt: { url: "https://auth.openai.com/codex/device", userCode: "KRXE-WAQOM", expiresInSec: 900 } },
+  );
+  // A browser-callback login is not what was asked for.
+  assert.equal(parseCodexLoginStart({ type: "chatgpt", loginId: "x", authUrl: "https://auth.openai.com/oauth/authorize" }), undefined);
+  assert.deepEqual(parseCodexLoginCompleted({ loginId: "10d3db4c", success: false, error: "Login was not completed", onboardingEntrypoint: null }), {
+    loginId: "10d3db4c",
+    success: false,
+    error: "Login was not completed",
+  });
+  assert.deepEqual(parseCodexLoginCompleted({ loginId: null, success: true, error: null, onboardingEntrypoint: null }), { loginId: null, success: true });
 });

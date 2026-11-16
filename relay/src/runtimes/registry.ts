@@ -108,11 +108,16 @@ export function assertCoherent(def: AgentRuntimeDef): readonly CoherenceIssue[] 
     }
   }
 
-  if (auth.loginCommand !== undefined) {
+  if (auth.login !== undefined) {
+    const { login } = auth;
     if (auth.kind === "none") {
-      issues.push({ message: 'auth.loginCommand is declared but auth.kind is "none" — a CLI with no login has nothing to run' });
-    } else if (auth.loginCommand.length === 0 || auth.loginCommand.some((arg) => arg.trim() === "")) {
-      issues.push({ message: "auth.loginCommand is empty or has a blank arg — the bare binary is not a login command" });
+      issues.push({ message: 'auth.login is declared but auth.kind is "none" — a CLI with no login has nothing to run' });
+    } else if (login.kind === "rpc-device") {
+      if (exec.kind !== "jsonRpcDaemon") {
+        issues.push({ message: 'auth.login is "rpc-device" but exec.kind is not "jsonRpcDaemon" — there is no daemon to send it to' });
+      }
+    } else if (login.args.length === 0 || login.args.some((arg) => arg.trim() === "")) {
+      issues.push({ message: "auth.login.args is empty or has a blank arg — the bare binary is not a login command" });
     }
   }
 
