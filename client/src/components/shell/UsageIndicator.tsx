@@ -15,7 +15,7 @@ import {
   runtimeNote,
   runtimeWindows,
   spentUntil,
-  statusBarRuntimes,
+  signedInRuntimes,
   type ProfileGroup,
   type ProfilePlanUsage,
   type WindowView,
@@ -65,7 +65,7 @@ export const UsageIndicator = forwardRef<HTMLButtonElement, UsageIndicatorProps>
 
   const entry = byProfile[profileId];
   const data = profileDataState(entry);
-  const runtimes = data === "live" || data === "stale" ? statusBarRuntimes(entry?.runtimes ?? []) : [];
+  const runtimes = data === "live" || data === "stale" ? signedInRuntimes(entry?.runtimes ?? []) : [];
   // A relay too old for plan usage still gets a mark: hiding the indicator
   // would read exactly like a profile with no agent installed, and leave
   // nothing to tell that the relay is what needs updating.
@@ -182,14 +182,6 @@ function AgentBlock({
     // The words never change for a read: only the mark after them turns, in
     // a slot that is always there, so nothing in the bar moves.
     const note = runtimeNote(usage, now, false) ?? "notRead";
-    if (note === "signedOut") {
-      return block(
-        <>
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" />
-          {!compact && <span>{strings.signedOut}</span>}
-        </>,
-      );
-    }
     if (note === "apiKey") {
       return block(
         <>

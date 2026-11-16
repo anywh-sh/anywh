@@ -1460,15 +1460,12 @@ export interface Dictionary {
       outdatedSummary: string;
       /** The details card (`UsageCard`). */
       card: {
-        /** Accessible name of a Copy button: "Copy codex login". */
-        copyCommand: string;
         /** When the refresh button can read again: "again in 48s". Shown
          * next to the reading's age while every relay would answer from its
          * cache. */
         againIn: string;
         /** An agent installed but never logged in on this profile (relay's
          * `everSignedIn: false`). Provisional copy: no design sign-off yet. */
-        notUsed: string;
         title: string;
         /** `{count}` profiles in the card's header, plural and singular. */
         profiles: string;
@@ -1486,11 +1483,10 @@ export interface Dictionary {
          * is `updatedAgo`. */
         staleSince: string;
         unsupported: string;
-        noAgents: string;
+        noAccounts: string;
         /** Repeated account: "same account as {profile}" — `{profile}` is
          * drawn as the profile's square and name. */
         sameAccount: string;
-        signedOut: string;
         /** The last read failed; the rows are the reading before it. */
         readErrorKept: string;
         /** Card line of an agent never read: the refresh button reads it. */
@@ -1510,12 +1506,10 @@ export interface Dictionary {
       /** One spent agent: "Claude Code limit reached, back in 58m". `{reset}`
        * is `resetsIn`/`resetsOn`, or empty when the reset time is unknown. */
       summaryLimited: string;
-      /** `{agent}` + one of the state words below: "Codex not signed in". */
+      /** `{agent}` + one of the state words below: "Codex API key". */
       summaryState: string;
       /** A window at 100%, with no reset time to say instead. */
       limited: string;
-      /** The CLI is installed but has no login. */
-      signedOut: string;
       /** Logged in with an API key or another non-plan login: no windows. */
       apiKey: string;
       /** Nothing read yet, and no read in progress. */

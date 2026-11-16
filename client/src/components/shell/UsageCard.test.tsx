@@ -230,41 +230,20 @@ describe("UsageCard", () => {
     expect(within(repeat).queryAllByRole("meter")).toHaveLength(0);
   });
 
-  it("offers the login command for an agent with no login, and says when it was copied", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    const { card } = openCard({ byProfile: { trabalho: live([{ ...codexSignedOut, runtime: "claude" }, codexSignedOut, { ...codexSignedOut, runtime: "kimi" }]) } });
-    const strips = Array.from(card.querySelectorAll<HTMLElement>("[data-usage-signed-out]"));
-    expect(strips.map((strip) => strip.querySelector("code")?.textContent)).toEqual(["claude auth login", "codex login", "kimi login"]);
-    expect(strips[0].querySelector(".bg-primary")).not.toBeNull();
-
-    await act(async () => {
-      fireEvent.click(within(strips[1]).getByRole("button", { name: "Copy codex login" }));
-      await Promise.resolve();
-    });
-    expect(writeText).toHaveBeenCalledWith("codex login");
-    expect(within(strips[1]).getByRole("status")).toHaveTextContent("Copied");
-    expect(within(strips[1]).getByRole("button")).toHaveTextContent("Copied");
-    act(() => vi.advanceTimersByTime(1500));
-    expect(within(strips[1]).getByRole("button")).toHaveTextContent("Copy");
+  it("leaves out every agent with no login, a lost one as well as one never made, and offers no command", () => {
+    const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41), codexSignedOut, { ...codexSignedOut, runtime: "kimi", everSignedIn: false }]) } });
+    expect(card.querySelector('[data-usage-account="codex"]')).toBeNull();
+    expect(card.querySelector('[data-usage-account="kimi"]')).toBeNull();
+    expect(card.querySelector("code")).toBeNull();
+    expect(card.querySelector("header")).toHaveTextContent("2 profiles · 1 account");
   });
 
-  it("shows an agent never signed in on this profile as one quiet line, with its command and Copy", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    const { card } = openCard({ byProfile: { trabalho: live([claude(58, 41), { ...codexSignedOut, everSignedIn: false }]) } });
-    expect(card.querySelector("[data-usage-signed-out]")).toBeNull();
-    const line = card.querySelector<HTMLElement>("[data-usage-not-used]")!;
-    expect(line).toHaveTextContent("Codex·not used on this profile·codex loginCopy");
-    expect(line.querySelector(".bg-primary")).toBeNull();
-    await act(async () => {
-      fireEvent.click(within(line).getByRole("button", { name: "Copy codex login" }));
-      await Promise.resolve();
-    });
-    expect(writeText).toHaveBeenCalledWith("codex login");
-    expect(within(line).getByRole("status")).toHaveTextContent("Copied");
-    // Still one account (only Claude has one), still in the card.
-    expect(card.querySelector("header")).toHaveTextContent("2 profiles · 1 account");
+  it("a profile with no agent signed in says only that no account is connected", () => {
+    const { card } = openCard({ byProfile: { trabalho: live([codexSignedOut, { ...codexSignedOut, runtime: "claude" }]) } });
+    const profile = card.querySelector<HTMLElement>('[data-usage-profile="trabalho"]')!;
+    expect(profile).toHaveTextContent("no accounts connected");
+    expect(within(profile).queryAllByRole("button")).toHaveLength(0);
+    expect(within(profile).queryAllByRole("link")).toHaveLength(0);
   });
 
   it("keeps an unreachable profile's last numbers, dimmed and dated", () => {

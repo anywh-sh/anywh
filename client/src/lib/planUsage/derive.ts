@@ -171,7 +171,9 @@ export function groupByProfile(
   return ordered.map((profileId) => {
     const usage = byProfile[profileId] ?? EMPTY_PROFILE_USAGE;
     const data = profileDataState(usage);
-    const runtimes = data === "live" || data === "stale" ? [...(usage.runtimes ?? [])] : [];
+    // Only agents signed in on this profile: one with no login has no plan to
+    // show, and signing it in is the accounts settings' and the chat's job.
+    const runtimes = data === "live" || data === "stale" ? signedInRuntimes(usage.runtimes ?? []) : [];
     runtimes.sort((a, b) => runtimeRank(a.runtime) - runtimeRank(b.runtime));
     const accounts = runtimes.map((entry): AccountEntry => {
       if (!entry.accountKey) return { runtime: entry.runtime, usage: entry };
@@ -186,12 +188,11 @@ export function groupByProfile(
 }
 
 /** Accounts the card shows in full — the "3 accounts" of its header. A
- * runtime with no login is not an account. */
+ * runtime with no login never reaches a group; one not read yet is not an
+ * account either. */
 export function countAccounts(groups: readonly ProfileGroup[]): number {
   return groups.reduce(
-    (total, group) =>
-      total +
-      group.accounts.filter((entry) => !entry.sameAccountAs && entry.usage.status !== "signed_out" && entry.usage.status !== "unknown").length,
+    (total, group) => total + group.accounts.filter((entry) => !entry.sameAccountAs && entry.usage.status !== "unknown").length,
     0,
   );
 }
@@ -239,18 +240,17 @@ export function profileReading(entry: ProfilePlanUsage | undefined, nowMs: numbe
 
 /**
  * What an agent with no windows to draw says instead, most specific first:
- * a read in progress, then why there is nothing (no login, an API key, the
- * cause of a failed read), and only then "not read yet". `null` when the
+ * a read in progress, then why there is nothing (an API key, the cause of a
+ * failed read), and only then "not read yet". A runtime with no login never
+ * gets here: the usage views leave it out (`signedInRuntimes`). `null` when the
  * agent has windows — its numbers speak for it.
  */
-export type RuntimeNote = "reading" | "signedOut" | "apiKey" | "errorNetwork" | "errorAuth" | "errorParse" | "error" | "notRead";
+export type RuntimeNote = "reading" | "apiKey" | "errorNetwork" | "errorAuth" | "errorParse" | "error" | "notRead";
 
 export function runtimeNote(usage: RuntimePlanUsage, nowMs: number, reading: boolean): RuntimeNote | null {
   if (runtimeWindows(usage, nowMs).length > 0) return null;
   if (reading) return "reading";
   switch (usage.status) {
-    case "signed_out":
-      return "signedOut";
     case "no_subscription":
       return "apiKey";
     case "error":
@@ -264,28 +264,22 @@ export function runtimeNote(usage: RuntimePlanUsage, nowMs: number, reading: boo
     case "ok":
     case "warning":
     case "limited":
+    case "signed_out":
     case "unknown":
       // No windows to show (a reading without any, or none yet).
       return "notRead";
   }
 }
 
-/**
- * An agent installed on the profile's machine but never logged in there —
- * as opposed to a login that was lost. The relay says which with
- * `everSignedIn`; one that predates the field never sends it, and then every
- * `signed_out` counts as a lost login, as before.
- */
-export function neverSignedIn(usage: RuntimePlanUsage): boolean {
-  return usage.status === "signed_out" && usage.everSignedIn === false;
+/** The runtimes signed in on this profile — all the usage card and the
+ * status bar show. A login that was never made and one that was lost alike
+ * leave the usage views: there is no plan to read, and the way back in is
+ * the agent sign-in (profile settings, or the chat that needs it), never a
+ * command printed here. */
+export function signedInRuntimes(runtimes: readonly RuntimePlanUsage[]): RuntimePlanUsage[] {
+  return runtimes.filter((usage) => usage.status !== "signed_out");
 }
 
-/** The runtimes the status bar shows: all but the ones never signed in on
- * this profile — an agent nobody uses here is not something to flag. The
- * card still lists them, with the way to log in. */
-export function statusBarRuntimes(runtimes: readonly RuntimePlanUsage[]): RuntimePlanUsage[] {
-  return runtimes.filter((usage) => !neverSignedIn(usage));
-}
 
 /**
  * A relay timestamp in this client's clock. The two clocks of a tailnet are
