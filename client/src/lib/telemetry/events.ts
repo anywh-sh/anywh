@@ -46,6 +46,7 @@ export const FEATURES = [
   "global_search",
   "integration_jira",
   "mcp_signin",
+  "agent_signin",
   "slash_command",
   "theme_import",
   "plan_usage_refresh",
@@ -61,6 +62,7 @@ export const ERROR_KINDS = [
   "relay_unreachable",
   "profile_revoked",
   "mcp_signin_failed",
+  "agent_signin_failed",
   "update_failed",
 ] as const;
 export type ErrorKind = (typeof ERROR_KINDS)[number];

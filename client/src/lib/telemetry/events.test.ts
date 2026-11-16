@@ -79,8 +79,8 @@ describe("validateEvent", () => {
         "update_installed",
       ].sort(),
     );
-    expect(FEATURES).toHaveLength(15);
-    expect(ERROR_KINDS).toHaveLength(7);
+    expect(FEATURES).toHaveLength(16);
+    expect(ERROR_KINDS).toHaveLength(8);
   });
 });
 

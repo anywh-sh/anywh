@@ -1215,6 +1215,39 @@ export interface Dictionary {
       };
       /** Signing in to the MCP servers a carried setup brought along —
        * they travel declared, never authenticated. */
+      /** The agent account sign-in dialog (`AgentLoginDialog`). `{agent}` is
+       * the agent's display name, `{account}` the account it reports. */
+      agentLogin: {
+        title: string;
+        description: string;
+        connecting: string;
+        openPage: string;
+        copyLink: string;
+        copied: string;
+        pasteLabel: string;
+        pastePlaceholder: string;
+        submit: string;
+        /** A device code the person types into the page. */
+        enterCode: string;
+        /** A device code already carried by the link: shown to compare. */
+        checkCode: string;
+        copyCode: string;
+        waiting: string;
+        checking: string;
+        signedIn: string;
+        signedInAs: string;
+        rejected: string;
+        tryAgain: string;
+        superseded: string;
+        failed: string;
+        notSignedIn: string;
+        startFailed: string;
+        unreachable: string;
+        /** Above the CLI's own output, when no prompt could be read off it. */
+        rawOutput: string;
+        close: string;
+        done: string;
+      };
       mcpSignIn: {
         title: string;
         description: string;
