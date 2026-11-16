@@ -142,12 +142,12 @@ test("a refused code is reported as rejected, and the code itself never reaches 
   const logs = await capturingLogs(async () => {
     const login = openLogin("runtime=claude");
     await login.until(has("prompt"));
-    login.socket.send(JSON.stringify({ type: "code", value: "wrong-secret-4271" }));
+    login.socket.send(JSON.stringify({ type: "code", value: "wrong-secret#4271" }));
     await login.until(has("rejected"));
     assert.match(frame(login.frames, "rejected")?.detail ?? "", /wasn't accepted/);
     await login.closed();
   });
-  assert.doesNotMatch(logs, /wrong-secret-4271/);
+  assert.doesNotMatch(logs, /wrong-secret#4271/);
   assert.match(logs, /claude login: code rejected/);
 });
 

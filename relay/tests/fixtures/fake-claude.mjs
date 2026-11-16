@@ -120,7 +120,9 @@
 //                        line from stdin and accepts it only when it is
 //                        `good-code` — then deletes FAKE_CLAUDE_LOGGED_OUT_FILE,
 //                        so `auth status` reads logged in afterwards, the
-//                        way a real login lands. Anything else is the real
+//                        way a real login lands. A code with no `#` is
+//                        answered "Invalid code…" and another is read, as
+//                        the real one does; any other is the real
 //                        rejection, exit 1. FAKE_CLAUDE_LOGIN_GARBLED=1
 //                        prints text no parser recognizes and waits.
 //   FAKE_CLAUDE_AUTH_METHOD - `auth status --json`'s `authMethod` (default
@@ -382,7 +384,15 @@ if (args[0] === "--version") {
       pasted += chunk;
       const newline = pasted.search(/[\r\n]/);
       if (newline === -1) return;
-      if (pasted.slice(0, newline).trim() === "good-code") {
+      const line = pasted.slice(0, newline).trim();
+      pasted = pasted.slice(newline + 1);
+      // Claude Code 2.1.323 checks a code's shape before sending it: one it
+      // can tell is malformed is answered at once, and it reads another.
+      if (line !== "good-code" && !line.includes("#")) {
+        process.stdout.write("Invalid code. Please make sure the full code was copied.\n");
+        return;
+      }
+      if (line === "good-code") {
         const loggedOutFile = process.env.FAKE_CLAUDE_LOGGED_OUT_FILE;
         if (loggedOutFile && existsSync(loggedOutFile)) unlinkSync(loggedOutFile);
         process.stdout.write("Login successful.\n");

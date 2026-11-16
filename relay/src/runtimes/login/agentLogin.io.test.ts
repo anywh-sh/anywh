@@ -101,11 +101,24 @@ test("cli-paste: a refused code is a rejection carrying the CLI's own words, and
   t.after(() => login.cancel());
   await collect(login, (event) => event.type === "prompt");
   const ending = collect(login, isEnd);
-  login.submitCode("wrong");
+  login.submitCode("wrong#code");
   login.submitCode("good-code");
   const last = (await ending).at(-1);
   assert.equal(last?.type, "rejected");
   assert.match((last as { detail?: string }).detail ?? "", /wasn't accepted/);
+});
+
+test("cli-paste: a code the CLI finds malformed keeps the login going, and the next code can still sign in", async (t) => {
+  const home = scratchHome(t);
+  const login = startAgentLogin(withFake(claudeRuntimeDef, "fake-claude.mjs"), { homeOverride: home });
+  t.after(() => login.cancel());
+  await collect(login, (event) => event.type === "prompt");
+  const invalid = collect(login, (event) => event.type === "invalid-code" || isEnd(event));
+  login.submitCode("asdsda");
+  assert.deepEqual((await invalid).at(-1), { type: "invalid-code", detail: "Invalid code. Please make sure the full code was copied." });
+  const ending = collect(login, isEnd);
+  login.submitCode("good-code");
+  assert.equal((await ending).at(-1)?.type, "succeeded");
 });
 
 test("cli-paste: output no parser recognizes still reaches the caller, with no prompt", async (t) => {

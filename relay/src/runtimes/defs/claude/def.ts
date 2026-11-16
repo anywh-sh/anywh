@@ -82,6 +82,15 @@ function classifyFailure(failure: RuntimeFailure): FailureClass {
  * terminal attached: `If the browser didn't open, visit: <url>` on one line,
  * then `Paste code here if prompted > `. The URL only counts once its line
  * has ended — a URL cut mid-chunk would open a page that rejects it. */
+/** `claude auth login`'s answer to a pasted code it can tell is malformed
+ * before asking anyone (2.1.323, measured with `asdsda`): `Invalid code.
+ * Please make sure the full code was copied.`, and it keeps reading stdin
+ * for another. A well-formed code the provider refuses ends the process
+ * instead. */
+export function parseClaudeInvalidCode(output: string): string | undefined {
+  return /Invalid code[^\n]*/.exec(output)?.[0].trim();
+}
+
 export function parseClaudeLoginPrompt(output: string): LoginPrompt | undefined {
   const match = /visit:\s*(https:\/\/\S+)\s*\n/.exec(output);
   return match ? { url: match[1] } : undefined;
@@ -157,7 +166,7 @@ export const claudeRuntimeDef: AgentRuntimeDef<ClaudePermissionMode> = {
     // `claude auth --help` lists `login` under `auth`, beside the `status`
     // probed above. A plain child is enough (measured on 2.1.323): unlike
     // `mcp login`, it reads the pasted code from a pipe.
-    login: { kind: "cli-paste", args: ["auth", "login"], parsePrompt: parseClaudeLoginPrompt },
+    login: { kind: "cli-paste", args: ["auth", "login"], parsePrompt: parseClaudeLoginPrompt, parseInvalidCode: parseClaudeInvalidCode },
     parse: ({ stdout }) => {
       const status = parseClaudeAuthStatus(stdout);
       return { loggedIn: status.loggedIn, account: status.email, plan: status.subscriptionType };

@@ -12,6 +12,7 @@ import type { RouteContext } from "../routes/context.js";
 export type AgentLoginServerMessage =
   | { readonly type: "output"; readonly data: string }
   | { readonly type: "prompt"; readonly url: string; readonly userCode?: string; readonly expiresAt?: number; readonly input: "code" | "none" }
+  | { readonly type: "invalid-code"; readonly detail: string }
   | { readonly type: "rejected"; readonly detail?: string }
   | { readonly type: "done"; readonly account?: string; readonly plan?: string }
   | { readonly type: "error"; readonly reason: AgentLoginErrorReason; readonly detail?: string };
@@ -105,6 +106,9 @@ export function handleAgentLoginConnection(socket: WebSocket, url: URL, ctx: Rou
         });
         return;
       }
+      case "invalid-code":
+        send({ type: "invalid-code", detail: event.detail });
+        return;
       case "rejected":
         release();
         console.log(`[relay] ${runtimeId} login: code rejected`);

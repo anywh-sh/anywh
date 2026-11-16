@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertCoherent } from "../../registry.js";
-import { claudeRuntimeDef, parseClaudeLoginPrompt } from "./def.js";
+import { claudeRuntimeDef, parseClaudeInvalidCode, parseClaudeLoginPrompt } from "./def.js";
 import { CLAUDE_AGENT_ENV_OVERRIDES, CLAUDE_AGENT_WORKER_ENV } from "./session.js";
 import type { TurnContext } from "../../types.js";
 
@@ -144,4 +144,9 @@ test("login: `claude auth login` asks for a pasted code, and the URL is read who
   assert.deepEqual(parseClaudeLoginPrompt(CLAUDE_LOGIN_OUTPUT), { url: CLAUDE_LOGIN_URL });
   // Cut mid-URL: not yet.
   assert.equal(parseClaudeLoginPrompt(CLAUDE_LOGIN_OUTPUT.slice(0, 120)), undefined);
+});
+
+test("login: a malformed code is told apart from the rest of the output", () => {
+  assert.equal(parseClaudeInvalidCode("Invalid code. Please make sure the full code was copied.\n"), "Invalid code. Please make sure the full code was copied.");
+  assert.equal(parseClaudeInvalidCode("Login failed: That code wasn't accepted.\n"), undefined);
 });

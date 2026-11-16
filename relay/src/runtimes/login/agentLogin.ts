@@ -22,6 +22,9 @@ export type AgentLoginEvent =
    * if no prompt can be read off it. */
   | { readonly type: "output"; readonly data: string }
   | { readonly type: "prompt"; readonly prompt: LoginPrompt; readonly input: "code" | "none" }
+  /** A pasted code the CLI itself found malformed. The process goes on
+   * waiting, so another code can be sent on the same login. */
+  | { readonly type: "invalid-code"; readonly detail: string }
   /** A pasted code the CLI refused. The process is gone (one attempt per
    * process); a retry is a new login. `detail` is the CLI's own line. */
   | { readonly type: "rejected"; readonly detail?: string }
@@ -130,6 +133,8 @@ function startCliLogin(
   });
 
   let output = "";
+  // What the CLI printed since the last code went in.
+  let sinceCode = "";
   let prompted = false;
   let codeSent = false;
   let stopped = false;
@@ -138,6 +143,16 @@ function startCliLogin(
     const text = stripTerminalCodes(chunk.toString("utf8"));
     output += text;
     emit({ type: "output", data: text });
+    if (codeSent && flow.parseInvalidCode) {
+      sinceCode += text;
+      const invalid = flow.parseInvalidCode(sinceCode);
+      if (invalid !== undefined) {
+        codeSent = false;
+        sinceCode = "";
+        emit({ type: "invalid-code", detail: invalid });
+        return;
+      }
+    }
     if (prompted) return;
     const prompt = flow.parsePrompt(output);
     if (!prompt) return;
@@ -169,6 +184,7 @@ function startCliLogin(
       const value = code.trim();
       if (value.length === 0) return;
       codeSent = true;
+      sinceCode = "";
       child.stdin.write(`${value}\n`);
     },
     stop: () => {

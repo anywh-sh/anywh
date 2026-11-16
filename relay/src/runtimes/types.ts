@@ -187,9 +187,10 @@ export interface LoginPrompt {
  *
  * - `cli-paste`: `identity.bin` + `args` prints a URL; the page the person
  *   lands on shows a code they paste back, which goes to the CLI's stdin.
- *   The CLI exits 0 once it took it. One attempt per process — the code is
- *   bound (PKCE) to the process that printed the URL, so a rejected code
- *   means a new process and a new URL.
+ *   The CLI exits 0 once it took it. A code the provider refused ends the
+ *   process — the code is bound (PKCE) to the process that printed the URL,
+ *   so a retry is a new process and a new URL. A code the CLI itself sees is
+ *   malformed (`parseInvalidCode`) does not: it waits for another.
  * - `cli-device`: `identity.bin` + `args` prints a URL (and a code); the
  *   person approves on the page, nothing travels back, and the CLI exits 0
  *   once the provider reports the approval.
@@ -204,6 +205,10 @@ export type LoginFlow =
        * the prompt once it is all there out — `undefined` means "not yet",
        * and is called again as more output arrives. */
       readonly parsePrompt: (output: string) => LoginPrompt | undefined;
+      /** Pure: what the CLI printed since a code was sent, to its own words
+       * when it found the code malformed and waits for another; `undefined`
+       * otherwise. Only `cli-paste` uses it. */
+      readonly parseInvalidCode?: (output: string) => string | undefined;
     }
   | {
       readonly kind: "rpc-device";
