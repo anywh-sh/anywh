@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -219,9 +220,6 @@ const RAW_BUTTON_BASELINE: Record<string, number> = {
   "components/chat/RoomCard.tsx": 1,
   "components/chat/SlashCommandMenu.tsx": 1,
   "components/chat/ToolCallCard.tsx": 1,
-  "components/chat/toolcall/CodeBlock.tsx": 1,
-  "components/chat/toolcall/ToolCard.tsx": 1,
-  "components/chat/toolcall/ToolGroup.tsx": 1,
   "components/chat/VoiceButton.tsx": 1,
   "components/chat/WorkingDirectoryButton.tsx": 1,
   "components/files/DownloadToasts.tsx": 1,
@@ -279,8 +277,6 @@ const RAW_SPINNER_BASELINE: Record<string, number> = {
   "components/chat/Composer.tsx": 2,
   "components/chat/LaunchedInBackground.tsx": 1,
   "components/chat/MessageLog.tsx": 1,
-  "components/chat/thinker/Thinker.tsx": 1,
-  "components/chat/toolcall/ToolCard.tsx": 1,
   "components/files/DownloadToasts.tsx": 1,
   "components/sala/RoomTabIndicator.tsx": 1,
   "components/shell/SessionListItem.tsx": 1,
@@ -290,11 +286,29 @@ const RAW_SPINNER_BASELINE: Record<string, number> = {
   "components/shell/UsageRefreshButton.tsx": 1,
 };
 
-/** Occurrences of `pattern` per component file outside `components/ui/`. */
+/**
+ * Files git tracks under `src/`, relative to it. The ratchets compare against
+ * a checked-in baseline, so they must see exactly what CI sees: a prototype
+ * kept out of the repo through `.git/info/exclude` would otherwise count
+ * locally and be missing in CI (or the reverse), and the baseline could never
+ * be right in both places at once. `null` outside a git checkout, where
+ * everything on disk counts.
+ */
+const TRACKED: Set<string> | null = (() => {
+  try {
+    const out = execFileSync("git", ["ls-files", "-z", "--", "."], { cwd: SRC, encoding: "utf8" });
+    return new Set(out.split("\0").filter(Boolean));
+  } catch {
+    return null;
+  }
+})();
+
+/** Occurrences of `pattern` per tracked component file outside `components/ui/`. */
 function countsOutsidePrimitives(pattern: RegExp): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const file of COMPONENTS) {
     if (file.path.startsWith("components/ui/") || file.path.includes(".stories.")) continue;
+    if (TRACKED && !TRACKED.has(file.path)) continue;
     const count = file.text.match(pattern)?.length ?? 0;
     if (count > 0) counts[file.path] = count;
   }
