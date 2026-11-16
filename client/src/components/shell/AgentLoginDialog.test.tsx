@@ -87,10 +87,11 @@ describe("AgentLoginDialog", () => {
     await user.type(body().getByLabelText(copy.pasteLabel), "  abc#def  ");
     await user.click(body().getByRole("button", { name: copy.submit }));
     expect(ws.sent).toEqual([JSON.stringify({ type: "code", value: "abc#def" })]);
-    // Checking: the button spins and can't be pressed again.
+    // Checking: the button shows only a spinner and can't be pressed again.
     const submit = body().getByRole("button", { name: copy.submit });
     expect(submit).toBeDisabled();
     expect(submit).toHaveAttribute("aria-busy", "true");
+    expect(submit).not.toHaveTextContent(copy.submit);
 
     ws.emit({ type: "done", account: "me@example.com", plan: "max" });
     expect(body().getByRole("status")).toHaveTextContent("Connected as me@example.com");
@@ -107,6 +108,25 @@ describe("AgentLoginDialog", () => {
     (await socket()).emit({ type: "prompt", url: "https://claude.com/x", input: "code" });
     await user.click(body().getByRole("link", { name: copy.openPage }));
     await waitFor(() => expect(open).toHaveBeenCalledWith("https://claude.com/x", "_blank", "noopener,noreferrer"));
+  });
+
+  it("a malformed code says so at once and keeps the same login for another code", async () => {
+    const user = userEvent.setup();
+    render(<AgentLoginDialog open onOpenChange={() => {}} target={target("claude")} />);
+    const ws = await socket();
+    ws.emit({ type: "prompt", url: "https://claude.com/x", input: "code" });
+    await user.type(body().getByLabelText(copy.pasteLabel), "asdsda");
+    await user.click(body().getByRole("button", { name: copy.submit }));
+    ws.emit({ type: "invalid-code", detail: "Invalid code. Please make sure the full code was copied." });
+    expect(body().getByRole("alert")).toHaveTextContent(copy.invalidCode);
+    const field = body().getByLabelText(copy.pasteLabel);
+    expect(field).toBeEnabled();
+    await user.clear(field);
+    await user.type(field, "abc#def");
+    expect(body().queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(body().getByRole("button", { name: copy.submit }));
+    expect(ws.sent[ws.sent.length - 1]).toBe(JSON.stringify({ type: "code", value: "abc#def" }));
+    expect(FakeSocket.opened).toHaveLength(1);
   });
 
   it("Codex: a code to type into the page, and no field to paste into", async () => {

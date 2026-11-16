@@ -37,7 +37,8 @@ type Prompt = Extract<AgentLoginFrame, { type: "prompt" }>;
 
 export type AgentLoginState =
   | { step: "connecting"; output: string; showOutput: boolean }
-  | { step: "prompt"; prompt: Prompt; checking: boolean }
+  /** `invalid`: the last code was malformed; the login goes on. */
+  | { step: "prompt"; prompt: Prompt; checking: boolean; invalid?: boolean }
   | { step: "done"; account?: string }
   | { step: "rejected"; detail?: string }
   | { step: "error"; reason: AgentLoginErrorReason | "unreachable"; detail?: string };
@@ -49,6 +50,8 @@ export function reduceAgentLogin(state: AgentLoginState, frame: AgentLoginFrame)
       return state.step === "connecting" ? { ...state, output: state.output + frame.data } : state;
     case "prompt":
       return { step: "prompt", prompt: frame, checking: false };
+    case "invalid-code":
+      return state.step === "prompt" ? { ...state, checking: false, invalid: true } : state;
     case "done":
       return frame.account ? { step: "done", account: frame.account } : { step: "done" };
     case "rejected":
@@ -228,17 +231,34 @@ export function AgentLoginDialog({ open, onOpenChange, target, onSignedIn }: Age
                       id="agent-login-code"
                       className="flex-1 font-mono"
                       value={code}
-                      onChange={(event) => setCode(event.target.value)}
+                      onChange={(event) => {
+                        setCode(event.target.value);
+                        setState((previous) => (previous.step === "prompt" && previous.invalid ? { ...previous, invalid: false } : previous));
+                      }}
+                      aria-invalid={state.invalid ?? false}
+                      aria-describedby={state.invalid ? "agent-login-code-invalid" : undefined}
                       placeholder={copy.pastePlaceholder}
                       autoComplete="off"
                       spellCheck={false}
                       disabled={state.checking}
                     />
-                    <Button type="submit" size="sm" disabled={state.checking || code.trim().length === 0} aria-busy={state.checking}>
-                      {state.checking && <Loader2 aria-hidden="true" className="animate-spin" />}
-                      {copy.submit}
+                    <Button
+                      type="submit"
+                      size="sm"
+                      // Same width either way, so nothing shifts when the label gives way to the spinner.
+                      className="min-w-[84px]"
+                      disabled={state.checking || code.trim().length === 0}
+                      aria-busy={state.checking}
+                      aria-label={copy.submit}
+                    >
+                      {state.checking ? <Loader2 aria-hidden="true" className="animate-spin" /> : copy.submit}
                     </Button>
                   </div>
+                  {state.invalid && (
+                    <p id="agent-login-code-invalid" role="alert" className="text-xs text-destructive">
+                      {copy.invalidCode}
+                    </p>
+                  )}
                 </form>
               ) : (
                 <div className="flex flex-col gap-1.5">

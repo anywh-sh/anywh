@@ -246,6 +246,7 @@ export function openMcpLogin(host: string, port: number, runtimeId: string, serv
 export type AgentLoginFrame =
   | { type: "output"; data: string }
   | { type: "prompt"; url: string; userCode?: string; expiresAt?: number; input: "code" | "none" }
+  | { type: "invalid-code"; detail: string }
   | { type: "rejected"; detail?: string }
   | { type: "done"; account?: string; plan?: string }
   | { type: "error"; reason: AgentLoginErrorReason; detail?: string };
